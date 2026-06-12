@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { ADAPTERS, SLOTS } from '../adapters/index.js';
-import type { CheckrideConfig, CustomCheck, SlotConfig, UseConfig } from './index.js';
-import { loadConfig, resolveChecks } from './index.js';
+import { ADAPTERS, SLOTS } from '../adapters.js';
+import type { CheckrideConfig, CustomCheck, SlotConfig, UseConfig } from '../config.js';
+import { loadConfig, resolveChecks } from '../config.js';
 
 const never = (): boolean => false;
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);

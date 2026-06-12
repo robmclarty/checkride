@@ -7,11 +7,11 @@ import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { runInit } from '../../src/init/index.js';
+import { runInit } from '../../src/init.js';
 
 const execFileP = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
-const CLI = join(here, '..', '..', 'dist', 'cli', 'index.js');
+const CLI = join(here, '..', '..', 'dist', 'cli.js');
 const BIG = { maxBuffer: 32 * 1024 * 1024 };
 
 type Config = { checks: Record<string, string | false> };

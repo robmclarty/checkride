@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 const execFileP = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
-const CLI = join(here, '..', '..', 'dist', 'cli', 'index.js');
+const CLI = join(here, '..', '..', 'dist', 'cli.js');
 const BIG = { maxBuffer: 32 * 1024 * 1024 };
 
 /**

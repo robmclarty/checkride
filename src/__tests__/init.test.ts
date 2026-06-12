@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { applyStanza, buildStanza, detectMode, inventory, runInit } from './index.js';
+import { applyStanza, buildStanza, detectMode, inventory, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
   const body = buildStanza(['types', 'lint', 'spell']);

@@ -4,9 +4,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { Adapter } from '../adapters/index.js';
-import type { DoctorEnv } from './index.js';
-import { runDoctor } from './index.js';
+import type { Adapter } from '../adapters.js';
+import type { DoctorEnv } from '../doctor.js';
+import { runDoctor } from '../doctor.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];

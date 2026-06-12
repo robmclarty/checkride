@@ -38,32 +38,34 @@ Full `pnpm check` is for the final verification.
 - **No classes.** Enforced by `rules/no-class.yml`.
 - **Named exports only.** Enforced by `rules/no-default-export.yml`.
 - **File extensions:** import with `.js` from `.ts` files (NodeNext resolution). Enforced by `rules/require-js-extension.yml`.
-- **Unit tests colocated:** `foo.ts` and `foo.test.ts` in the same directory.
+- **No logic in barrels.** `index.ts` only re-exports (`export { x } from './x.js'`); functions and classes live in named files. Enforced by `rules/no-logic-in-barrel.yml`.
+- **A single file does not need a folder.** Each module is a named file (`src/orchestrator.ts`), not a one-file folder.
+- **Tests:** colocate `foo.test.ts` next to `foo.ts`; once a directory would hold more than two, move them to a sibling `__tests__/` folder.
 
 ## Repository layout
 
-A single flat package using the deep-modules layout under `src/`.
+A single flat package. Named module files under `src/`, with `src/index.ts` as the package's barrel (the public programmatic surface).
 
 ```text
-src/                  the product, one deep module per first-level directory
-  cli/                arg parsing, command dispatch (bin entry)
-  orchestrator/       slot selection, spawning, .check/ writing
-  adapters/           the registry (data-only)
-  config/             checkride.config.json loading, resolution, detection
-  init/               shape presets, existing-repo adoption, AGENTS stanza
-  doctor/
-  links/              built-in links check
-templates/            shape preset files + shared config templates + rules
-test/                 cross-cutting integration & e2e
-rules/                ast-grep structural rules (dogfooded here)
-scripts/              interim check orchestrator (removed once the CLI dogfoods)
+src/
+  index.ts          barrel: re-exports the public API (no logic)
+  cli.ts            arg parsing, command dispatch (the bin)
+  orchestrator.ts   slot selection, spawning, .check/ writing
+  adapters.ts       the registry (data-only)
+  config.ts         checkride.config.json loading, resolution, detection
+  init.ts           shape presets, existing-repo adoption, AGENTS stanza
+  doctor.ts
+  links.ts          built-in links check
+  __tests__/        colocated unit tests
+templates/          shape preset files + shared config templates + rules (shipped)
+test/               cross-cutting fixture tests + the slow e2e suite
+rules/              ast-grep structural rules (dogfooded here)
 ```
 
-Phase 0 ships only `src/index.ts`; the modules above land in later phases.
-
-## Deep modules within `src/`
-
-Every first-level directory under `src/` is a **module**. A module's `index.ts` is its only public surface. Sibling modules import each other via `'../<sibling>/index.js'`, never through internals. Enforced by `rules/no-deep-sibling-import.yml`.
+The deep-modules folder pattern (a module folder whose only public surface is its
+`index.ts`) is what checkride *ships* for consumer projects — see
+`templates/shared/rules/`. The product itself is small enough that each module is
+a single named file.
 
 ## What NOT to do
 
@@ -72,4 +74,4 @@ Every first-level directory under `src/` is a **module**. A module's `index.ts` 
 - Do not add a file that is not imported by something.
 - Do not skip tests for new behavior.
 - Do not bypass `pnpm check` by running individual tools and claiming done.
-- Do not reach into a sibling module's internals (`'../other/internal.js'`) — go through its `index.ts`.
+- Do not put logic in a barrel `index.ts` — re-export from a named file.

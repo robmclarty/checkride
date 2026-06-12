@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './index.js';
+import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters.js';
 
 describe('registry invariants', () => {
   test('schema version is 1', () => {

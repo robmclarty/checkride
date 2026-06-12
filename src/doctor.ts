@@ -18,12 +18,12 @@ import { arch as osArch, platform as osPlatform } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import type { Adapter, Slot } from '../adapters/index.js';
-import { ADAPTERS, SLOTS } from '../adapters/index.js';
-import type { CheckrideConfig } from '../config/index.js';
-import { loadConfig, resolveChecks } from '../config/index.js';
-import type { Out } from '../orchestrator/index.js';
-import { selectChecks } from '../orchestrator/index.js';
+import type { Adapter, Slot } from './adapters.js';
+import { ADAPTERS, SLOTS } from './adapters.js';
+import type { CheckrideConfig } from './config.js';
+import { loadConfig, resolveChecks } from './config.js';
+import type { Out } from './orchestrator.js';
+import { selectChecks } from './orchestrator.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown';
 

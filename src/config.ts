@@ -14,7 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { Adapter, Slot } from '../adapters/index.js';
+import type { Adapter, Slot } from './adapters.js';
 
 /** A custom check: a bare command, no adapter required. */
 export type CustomCheck = {

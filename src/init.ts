@@ -17,11 +17,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { Adapter, Slot } from '../adapters/index.js';
-import { ADAPTERS, SLOTS } from '../adapters/index.js';
-import { resolveChecks } from '../config/index.js';
-import type { Out } from '../orchestrator/index.js';
-import { runChecks } from '../orchestrator/index.js';
+import type { Adapter, Slot } from './adapters.js';
+import { ADAPTERS, SLOTS } from './adapters.js';
+import { resolveChecks } from './config.js';
+import type { Out } from './orchestrator.js';
+import { runChecks } from './orchestrator.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -63,7 +63,7 @@ async function defaultProbe(slots: string[], cwd: string): Promise<string[]> {
 export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = join(HERE, '..', '..', 'templates');
+const TEMPLATES_DIR = join(HERE, '..', 'templates');
 
 const STANZA_BEGIN = '<!-- checkride:begin -->';
 const STANZA_END = '<!-- checkride:end -->';

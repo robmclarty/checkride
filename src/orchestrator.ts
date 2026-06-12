@@ -12,12 +12,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import type { Adapter, Slot } from '../adapters/index.js';
-import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters/index.js';
-import type { CheckrideConfig, ResolvedCheck } from '../config/index.js';
-import { loadConfig, resolveChecks } from '../config/index.js';
-import type { CheckOutcome } from '../links/index.js';
-import { checkLinks } from '../links/index.js';
+import type { Adapter, Slot } from './adapters.js';
+import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
+import type { CheckrideConfig, ResolvedCheck } from './config.js';
+import { loadConfig, resolveChecks } from './config.js';
+import type { CheckOutcome } from './links.js';
+import { checkLinks } from './links.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };

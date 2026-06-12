@@ -4,10 +4,10 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { Adapter } from '../adapters/index.js';
-import type { ResolvedCheck } from '../config/index.js';
-import type { CheckRunner, Out, Summary } from './index.js';
-import { runChecks, runFix, runtimeArgs, selectChecks } from './index.js';
+import type { Adapter } from '../adapters.js';
+import type { ResolvedCheck } from '../config.js';
+import type { CheckRunner, Out, Summary } from '../orchestrator.js';
+import { runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };

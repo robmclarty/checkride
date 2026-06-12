@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, expect, test } from 'vitest';
 
-import { checkLinks } from './index.js';
+import { checkLinks } from '../links.js';
 
 let dir: string;
 

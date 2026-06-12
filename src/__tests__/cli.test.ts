@@ -5,8 +5,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { CliDeps } from './index.js';
-import { parseCliArgs, runCli } from './index.js';
+import type { CliDeps } from '../cli.js';
+import { parseCliArgs, runCli } from '../cli.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];

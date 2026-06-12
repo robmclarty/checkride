@@ -13,11 +13,11 @@
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
-import { runDoctor } from '../doctor/index.js';
-import type { InitOptions, Shape } from '../init/index.js';
-import { runInit } from '../init/index.js';
-import type { Out, RunFlags } from '../orchestrator/index.js';
-import { runChecks, runFix } from '../orchestrator/index.js';
+import { runDoctor } from './doctor.js';
+import type { InitOptions, Shape } from './init.js';
+import { runInit } from './init.js';
+import type { Out, RunFlags } from './orchestrator.js';
+import { runChecks, runFix } from './orchestrator.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
 export type CliDeps = { cwd: string; stdout: Out; stderr: Out };

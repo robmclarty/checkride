@@ -19,7 +19,7 @@
     "pnpm": ">=9.0.0"
   },
   "bin": {
-    "checkride": "dist/cli/index.js"
+    "checkride": "dist/cli.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -38,13 +38,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "check": "tsc --build && node dist/cli/index.js",
-    "check:all": "tsc --build && node dist/cli/index.js --all",
-    "check:json": "tsc --build && node dist/cli/index.js --json",
-    "check:bail": "tsc --build && node dist/cli/index.js --bail",
-    "check:changed": "tsc --build && node dist/cli/index.js --changed",
-    "check:fix": "tsc --build && node dist/cli/index.js fix",
-    "doctor": "tsc --build && node dist/cli/index.js doctor",
+    "check": "tsc --build && node dist/cli.js",
+    "check:all": "tsc --build && node dist/cli.js --all",
+    "check:json": "tsc --build && node dist/cli.js --json",
+    "check:bail": "tsc --build && node dist/cli.js --bail",
+    "check:changed": "tsc --build && node dist/cli.js --changed",
+    "check:fix": "tsc --build && node dist/cli.js fix",
+    "doctor": "tsc --build && node dist/cli.js doctor",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "tsc --build && vitest run --config vitest.e2e.config.ts",

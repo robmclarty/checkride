@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-import { ADAPTERS, SLOTS } from '../src/adapters/index.js';
-import { resolveChecks } from '../src/config/index.js';
+import { ADAPTERS, SLOTS } from '../src/adapters.js';
+import { resolveChecks } from '../src/config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtures = join(here, 'fixtures');

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { ADAPTERS, runChecks, runDoctor, runFix, runInit, SCHEMA_VERSION, SLOTS } from './index.js';
+import { ADAPTERS, runChecks, runDoctor, runFix, runInit, SCHEMA_VERSION, SLOTS } from '../index.js';
 
 describe('public API', () => {
   test('exposes the report schema version', () => {

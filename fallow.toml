@@ -3,7 +3,7 @@
 
 entry = [
   "src/index.ts",
-  "src/cli/index.ts",
+  "src/cli.ts",
   "src/**/*.test.ts",
   "test/**/*.test.ts",
 ]
