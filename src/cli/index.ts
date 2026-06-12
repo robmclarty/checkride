@@ -14,12 +14,12 @@ import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
 import type { Out, RunFlags } from '../orchestrator/index.js';
-import { runChecks } from '../orchestrator/index.js';
+import { runChecks, runFix } from '../orchestrator/index.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
 export type CliDeps = { cwd: string; stdout: Out; stderr: Out };
 
-const STUB_COMMANDS = new Set(['init', 'doctor', 'fix']);
+const STUB_COMMANDS = new Set(['init', 'doctor']);
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -77,6 +77,17 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     deps.stderr.write(`checkride ${command}: not implemented until a later phase.\n`);
     return 2;
   }
+
+  if (command === 'fix') {
+    try {
+      const result = await runFix({ ...flags, cwd: deps.cwd, stderr: deps.stderr });
+      return result.exitCode;
+    } catch (err) {
+      deps.stderr.write(`orchestrator error: ${errorStack(err)}\n`);
+      return 2;
+    }
+  }
+
   if (command !== 'run') {
     deps.stderr.write(`checkride: unknown command '${command}'.\n`);
     return 2;

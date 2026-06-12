@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter } from '../adapters/index.js';
 import type { ResolvedCheck } from '../config/index.js';
 import type { CheckRunner, Out, Summary } from './index.js';
-import { runChecks, runtimeArgs, selectChecks } from './index.js';
+import { runChecks, runFix, runtimeArgs, selectChecks } from './index.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };
@@ -156,5 +156,38 @@ describe('runChecks (real subprocess)', () => {
       stdout: sink().out, stderr: sink().out,
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+  });
+});
+
+describe('runFix', () => {
+  const fixable = fakeAdapter({ name: 'oxlint', slot: 'lint', fixArgs: ['exec', 'oxlint', '--fix'] });
+  const noFix = fakeAdapter({ name: 'tsc', slot: 'types' });
+
+  test('runs fix only for active adapters that expose fixArgs', async () => {
+    const ran: string[] = [];
+    const result = await runFix({
+      cwd: '/tmp', slots: [{ name: 'lint' }, { name: 'types' }], adapters: [fixable, noFix],
+      config: null, stderr: sink().out,
+      fixRunner: (a) => { ran.push(a.name); return Promise.resolve({ ok: true, exit_code: 0 }); },
+    });
+    expect(ran).toEqual(['oxlint']);
+    expect(result).toMatchObject({ ok: true, exitCode: 0, ran: ['oxlint'] });
+  });
+
+  test('reports failure when a fix command fails', async () => {
+    const result = await runFix({
+      cwd: '/tmp', slots: [{ name: 'lint' }], adapters: [fixable], config: null, stderr: sink().out,
+      fixRunner: () => Promise.resolve({ ok: false, exit_code: 2 }),
+    });
+    expect(result).toMatchObject({ ok: false, exitCode: 1 });
+  });
+
+  test('no-ops when nothing is fixable', async () => {
+    const std = sink();
+    const result = await runFix({
+      cwd: '/tmp', slots: [{ name: 'types' }], adapters: [noFix], config: null, stderr: std.out,
+    });
+    expect(result.ran).toEqual([]);
+    expect(std.lines.join('')).toContain('no active adapters');
   });
 });

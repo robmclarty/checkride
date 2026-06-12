@@ -61,7 +61,11 @@ export const SLOTS: readonly Slot[] = [
   { name: 'security', optIn: true },
 ];
 
-/** Blessed-default adapters (Phase 1). One per slot. */
+/**
+ * Adapter registry. The FIRST adapter for a slot is its blessed default: it
+ * wins detection when several tool configs coexist, and is the only one `init`
+ * generates config for. Alternates follow so checkride can still *run* them.
+ */
 export const ADAPTERS: readonly Adapter[] = [
   {
     name: 'tsc',
@@ -85,6 +89,36 @@ export const ADAPTERS: readonly Adapter[] = [
     devDeps: { oxlint: '1.61.0', 'oxlint-tsgolint': '0.21.1' },
   },
   {
+    name: 'biome',
+    slot: 'lint',
+    description: 'Biome lint + format check',
+    detect: ['biome.json', 'biome.jsonc'],
+    command: 'pnpm',
+    args: ['exec', 'biome', 'check', '--reporter=json'],
+    outputFile: 'lint.json',
+    fixArgs: ['exec', 'biome', 'check', '--write'],
+    devDeps: { '@biomejs/biome': '2.2.4' },
+  },
+  {
+    name: 'eslint',
+    slot: 'lint',
+    description: 'ESLint',
+    detect: [
+      'eslint.config.js',
+      'eslint.config.mjs',
+      'eslint.config.cjs',
+      'eslint.config.ts',
+      '.eslintrc.json',
+      '.eslintrc.cjs',
+      '.eslintrc.js',
+    ],
+    command: 'pnpm',
+    args: ['exec', 'eslint', '.', '--format', 'json'],
+    outputFile: 'lint.json',
+    fixArgs: ['exec', 'eslint', '.', '--fix'],
+    devDeps: { eslint: '9.36.0' },
+  },
+  {
     name: 'ast-grep',
     slot: 'struct',
     description: 'Structural rules (ast-grep)',
@@ -106,6 +140,17 @@ export const ADAPTERS: readonly Adapter[] = [
     devDeps: { fallow: '2.48.0' },
   },
   {
+    name: 'knip',
+    slot: 'dead',
+    description: 'Knip: unused files, exports, and dependencies',
+    detect: ['knip.json', 'knip.jsonc', '.knip.json', 'knip.config.ts', 'knip.config.js'],
+    command: 'pnpm',
+    args: ['exec', 'knip', '--reporter', 'json'],
+    outputFile: 'dead.json',
+    fixArgs: ['exec', 'knip', '--fix'],
+    devDeps: { knip: '5.64.0' },
+  },
+  {
     name: 'vitest',
     slot: 'test',
     description: 'Vitest tests with coverage',
@@ -121,6 +166,23 @@ export const ADAPTERS: readonly Adapter[] = [
     outputFile: null,
     changedArgs: ['--changed', 'origin/main'],
     devDeps: { vitest: '4.1.5', '@vitest/coverage-v8': '4.1.5' },
+  },
+  {
+    name: 'jest',
+    slot: 'test',
+    description: 'Jest tests',
+    detect: [
+      'jest.config.js',
+      'jest.config.ts',
+      'jest.config.mjs',
+      'jest.config.cjs',
+      'jest.config.json',
+    ],
+    command: 'pnpm',
+    args: ['exec', 'jest', '--ci', '--json', '--outputFile=.check/test.json'],
+    outputFile: null,
+    changedArgs: ['--changedSince', 'origin/main'],
+    devDeps: { jest: '30.0.5' },
   },
   {
     name: 'markdownlint-cli2',

@@ -234,3 +234,63 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   return { ok: summary.ok, summary, exitCode: summary.ok ? 0 : 1 };
 }
+
+/** Result of a single adapter's fix command. */
+export type FixOutcome = { ok: boolean; exit_code: number };
+
+/** Runs one adapter's `fixArgs`. Injectable for testing. */
+export type FixRunner = (adapter: Adapter, ctx: { cwd: string }) => Promise<FixOutcome>;
+
+export type FixOptions = RunFlags & {
+  cwd?: string;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+  config?: CheckrideConfig | null;
+  stderr?: Out;
+  fixRunner?: FixRunner;
+};
+
+export type FixResult = { ok: boolean; exitCode: number; ran: string[] };
+
+function spawnInherit(command: string, args: string[], cwd: string): Promise<FixOutcome> {
+  return new Promise((resolveOutcome) => {
+    const proc = spawn(command, args, { cwd, stdio: 'inherit', env: process.env });
+    proc.on('error', () => { resolveOutcome({ ok: false, exit_code: -1 }); });
+    proc.on('close', (code) => { resolveOutcome({ ok: code === 0, exit_code: code ?? -1 }); });
+  });
+}
+
+const defaultFixRunner: FixRunner = (adapter, ctx) =>
+  spawnInherit(adapter.command, adapter.fixArgs ?? [], ctx.cwd);
+
+/** Run every active adapter's `fixArgs` (`checkride fix`). */
+export async function runFix(options: FixOptions): Promise<FixResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const slots = options.slots ?? SLOTS;
+  const adapters = options.adapters ?? ADAPTERS;
+  const config = options.config !== undefined ? options.config : loadConfig(cwd);
+  const stderr = options.stderr ?? process.stderr;
+  const fixRunner = options.fixRunner ?? defaultFixRunner;
+
+  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  const fixable = selectChecks(resolved, options).filter((r) => r.adapter?.fixArgs);
+
+  if (fixable.length === 0) {
+    writeLine(stderr, 'checkride fix: no active adapters expose a fix command.');
+    return { ok: true, exitCode: 0, ran: [] };
+  }
+
+  const ran: string[] = [];
+  let ok = true;
+  for (const r of fixable) {
+    const adapter = r.adapter;
+    if (!adapter) continue;
+    writeLine(stderr, `  ▸ fix ${r.slot.padEnd(8)} (${adapter.name})`);
+    const outcome = await fixRunner(adapter, { cwd });
+    ran.push(adapter.name);
+    writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
+    if (!outcome.ok) ok = false;
+  }
+
+  return { ok, exitCode: ok ? 0 : 1, ran };
+}

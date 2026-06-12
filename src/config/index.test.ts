@@ -59,9 +59,9 @@ describe('config resolution', () => {
   });
 
   test('an unknown adapter name is skipped with a reason', () => {
-    const r = resolveSlot('lint', { checks: { lint: 'biome' } }, never);
+    const r = resolveSlot('lint', { checks: { lint: 'no-such-linter' } }, never);
     expect(r.adapter).toBeNull();
-    expect(r.skip).toContain("'biome' is not in the registry");
+    expect(r.skip).toContain("'no-such-linter' is not in the registry");
   });
 
   test('{ use } applies overrides on top of the adapter', () => {

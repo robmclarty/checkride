@@ -14,11 +14,22 @@ describe('registry invariants', () => {
     }
   });
 
-  test('exactly one blessed default per catalogue slot', () => {
+  test('the first adapter for each slot is the blessed default', () => {
+    const blessed: Record<string, string> = {
+      types: 'tsc', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow', test: 'vitest',
+      docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
+    };
     for (const slot of SLOTS) {
-      const forSlot = ADAPTERS.filter((a) => a.slot === slot.name);
-      expect(forSlot).toHaveLength(1);
+      const first = ADAPTERS.find((a) => a.slot === slot.name);
+      expect(first?.name).toBe(blessed[slot.name]);
     }
+  });
+
+  test('alternates are wired after the blessed default for swappable slots', () => {
+    const names = (slot: string): string[] => ADAPTERS.filter((a) => a.slot === slot).map((a) => a.name);
+    expect(names('lint')).toEqual(['oxlint', 'biome', 'eslint']);
+    expect(names('dead')).toEqual(['fallow', 'knip']);
+    expect(names('test')).toEqual(['vitest', 'jest']);
   });
 
   test('the two opt-in slots come last', () => {
