@@ -1,0 +1,28 @@
+# Fallow: dead code, circular deps, duplication, complexity, architecture boundaries.
+# Docs: https://docs.fallow.tools
+
+entry = [
+  "src/index.ts",
+  "src/**/*.test.ts",
+  "test/**/*.test.ts",
+]
+
+# CLI/tooling deps used via command line or config files, not imported from source.
+ignoreDependencies = ["@ast-grep/cli"]
+
+[rules]
+unused-exports = "error"
+unused-files = "error"
+unused-dependencies = "error"
+circular-dependencies = "error"
+boundary-violation = "error"
+
+[duplicates]
+# mild (default): AST-based, catches copy-paste. semantic: catches renamed variables too.
+mode = "mild"
+minTokens = 50
+
+[health]
+# Per-function complexity thresholds. Tune to project.
+maxCyclomatic = 15
+maxCognitive = 15

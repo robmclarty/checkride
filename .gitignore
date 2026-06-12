@@ -1,3 +1,12 @@
-plans
-node_modules
+node_modules/
+dist/
+.check/
+.fallow/
+.stryker-tmp/
+coverage/
+*.log
+*.tsbuildinfo
 .DS_Store
+.claude/settings.local.json
+.claude/worktrees/
+.pnpm-store/

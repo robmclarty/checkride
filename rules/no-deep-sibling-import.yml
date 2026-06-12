@@ -1,0 +1,15 @@
+id: no-deep-sibling-import
+message: |
+  Deep-module boundary: don't reach past a sibling module's index.
+  Use `import { ... } from '../<sibling>/index.js'` instead of
+  `'../<sibling>/<internal>.js'`. See docs/deep-modules.md.
+severity: error
+language: typescript
+files:
+  - src/**/*.ts
+rule:
+  all:
+    - kind: import_statement
+    - regex: "from\\s+['\"]\\.\\./[^/]+/[^'\"]+['\"]"
+    - not:
+        regex: "from\\s+['\"]\\.\\./[^/]+/index\\.js['\"]"
