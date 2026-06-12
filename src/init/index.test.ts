@@ -94,6 +94,8 @@ describe('new-project generation (flat)', () => {
   });
 });
 
+const noFailures = (): Promise<string[]> => Promise.resolve([]);
+
 describe('existing-project adoption (idempotent)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-existing-')); });
@@ -104,17 +106,32 @@ describe('existing-project adoption (idempotent)', () => {
     await writeFile(join(dir, 'tsconfig.json'), '{}');
     await writeFile(join(dir, '.oxlintrc.json'), '{}');
 
-    const first = await runInit({ cwd: dir });
+    const first = await runInit({ cwd: dir, probeFailures: noFailures });
     expect(first.mode).toBe('existing');
-    const cfg: { checks: Record<string, string> } = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'));
+    const cfg: { checks: Record<string, string | false> } = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'));
     expect(cfg.checks['types']).toBe('tsc');
     expect(cfg.checks['lint']).toBe('oxlint');
     const agents1 = await readFile(join(dir, 'AGENTS.md'), 'utf8');
 
-    const second = await runInit({ cwd: dir });
+    const second = await runInit({ cwd: dir, probeFailures: noFailures });
     const agents2 = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents2).toBe(agents1);
     expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
     expect(second.skipped).toContain('checkride.config.json (exists)');
+  });
+
+  test('disables a slot whose check fails and reports it (step 3)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+
+    const result = await runInit({
+      cwd: dir,
+      probeFailures: (slots) => Promise.resolve(slots.includes('lint') ? ['lint'] : []),
+    });
+    expect(result.disabled).toContain('lint');
+    const cfg: { checks: Record<string, string | false> } = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'));
+    expect(cfg.checks['lint']).toBe(false);
+    expect(cfg.checks['types']).toBe('tsc');
   });
 });

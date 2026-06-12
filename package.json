@@ -19,14 +19,16 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
-    "check": "node scripts/check.mjs",
-    "check:all": "node scripts/check.mjs --all",
-    "check:json": "node scripts/check.mjs --json",
-    "check:bail": "node scripts/check.mjs --bail",
-    "check:changed": "node scripts/check.mjs --changed",
-    "check:fix": "pnpm exec oxlint --type-aware --fix && pnpm exec fallow fix",
+    "check": "tsc --build && node dist/cli/index.js",
+    "check:all": "tsc --build && node dist/cli/index.js --all",
+    "check:json": "tsc --build && node dist/cli/index.js --json",
+    "check:bail": "tsc --build && node dist/cli/index.js --bail",
+    "check:changed": "tsc --build && node dist/cli/index.js --changed",
+    "check:fix": "tsc --build && node dist/cli/index.js fix",
+    "doctor": "tsc --build && node dist/cli/index.js doctor",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "tsc --build && vitest run --config vitest.e2e.config.ts",
     "build": "tsc --build",
     "build:clean": "tsc --build --clean",
     "types": "tsc --build"

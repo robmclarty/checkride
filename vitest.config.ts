@@ -6,6 +6,7 @@ export default defineConfig({
       'src/**/*.{test,spec}.ts',
       'test/**/*.{test,spec}.ts',
     ],
+    exclude: ['**/node_modules/**', '**/dist/**', 'test/e2e/**'],
     reporters: ['default'],
     coverage: {
       provider: 'v8',

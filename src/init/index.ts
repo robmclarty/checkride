@@ -21,6 +21,7 @@ import type { Adapter, Slot } from '../adapters/index.js';
 import { ADAPTERS, SLOTS } from '../adapters/index.js';
 import { resolveChecks } from '../config/index.js';
 import type { Out } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -37,6 +38,8 @@ export type InitOptions = {
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
+  /** Existing mode: returns the adopted slots whose check currently fails. */
+  probeFailures?: (slots: string[], cwd: string) => Promise<string[]>;
 };
 
 export type InitResult = {
@@ -44,8 +47,18 @@ export type InitResult = {
   shape: Shape | null;
   written: string[];
   skipped: string[];
+  disabled: string[];
   exitCode: number;
 };
+
+const NULL_OUT: Out = { write: () => true };
+
+/** Run the adopted checks once; a failing (non-skipped) check marks its slot. */
+async function defaultProbe(slots: string[], cwd: string): Promise<string[]> {
+  if (slots.length === 0) return [];
+  const { summary } = await runChecks({ cwd, only: slots, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
+  return summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => c.name);
+}
 
 export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
 
@@ -410,7 +423,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   if (options.stdout) {
     options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
   }
-  return { mode: 'new', shape, written: w.written, skipped: [], exitCode: 0 };
+  return { mode: 'new', shape, written: w.written, skipped: [], disabled: [], exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------
@@ -434,12 +447,21 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
 
-  // checkride.config.json reflecting adopted tools (only non-blessed picks need recording,
-  // but writing the adopted map is informative and harmless). Never overwrite an existing one.
+  // Step 3: run each adopted check once; failing slots are recorded as `false`
+  // (disabled) so the first `pnpm check` is green-ish — re-enable as you fix.
+  const probe = options.probeFailures ?? defaultProbe;
+  const failing = new Set(await probe(adopted.map((i) => i.slot), cwd));
+  const disabled = adopted.filter((i) => failing.has(i.slot)).map((i) => i.slot);
+
+  // checkride.config.json reflecting adopted tools (and disabled failures). Never
+  // overwrite an existing one.
   const configPath = join(cwd, 'checkride.config.json');
   if (!existsSync(configPath)) {
-    const checks: Record<string, string> = {};
-    for (const i of adopted) if (i.adapter) checks[i.slot] = i.adapter;
+    const checks: Record<string, string | false> = {};
+    for (const i of adopted) {
+      if (failing.has(i.slot)) checks[i.slot] = false;
+      else if (i.adapter) checks[i.slot] = i.adapter;
+    }
     await put(w, 'checkride.config.json', `${JSON.stringify({ checks }, null, 2)}\n`);
   } else {
     skipped.push('checkride.config.json (exists)');
@@ -481,8 +503,11 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     options.stdout.write(
       `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
     );
+    if (disabled.length > 0) {
+      options.stdout.write(`  disabled failing slots (enable as you fix): ${disabled.join(', ')}\n`);
+    }
   }
-  return { mode: 'existing', shape: null, written: w.written, skipped, exitCode: 0 };
+  return { mode: 'existing', shape: null, written: w.written, skipped, disabled, exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------
