@@ -92,6 +92,36 @@ describe('new-project generation (flat)', () => {
     expect(result.written.length).toBeGreaterThan(10);
     expect(existsSync(join(dir, 'package.json'))).toBe(false);
   });
+
+  test('generates a monorepo with an app and a lib package', async () => {
+    const result = await runInit({ cwd: dir, shape: 'monorepo', name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
+    expect(result.shape).toBe('monorepo');
+    for (const f of ['apps/demo/src/index.ts', 'apps/demo/src/index.test.ts', 'apps/demo/package.json', 'apps/demo/tsconfig.json', 'libs/core/src/index.ts', 'libs/core/package.json']) {
+      expect(existsSync(join(dir, f)), f).toBe(true);
+    }
+    const appPkg: { name: string } = JSON.parse(await readFile(join(dir, 'apps', 'demo', 'package.json'), 'utf8'));
+    expect(appPkg.name).toBe('@demo/demo');
+    // root tsconfig is the solution config referencing the packages
+    const tsconfig = await readFile(join(dir, 'tsconfig.json'), 'utf8');
+    expect(tsconfig).toContain('./apps/demo');
+  });
+
+  test('generates a hybrid project with a root app plus a package', async () => {
+    const result = await runInit({ cwd: dir, shape: 'hybrid', name: 'demo', checkrideSpec: '^0.1.0' });
+    expect(result.shape).toBe('hybrid');
+    for (const f of ['src/index.ts', 'src/index.test.ts', 'packages/core/src/index.ts', 'packages/core/package.json']) {
+      expect(existsSync(join(dir, f)), f).toBe(true);
+    }
+  });
+
+  test('the generated smoke test asserts on the module constant', async () => {
+    await runInit({ cwd: dir, shape: 'flat', name: 'my-app' });
+    const src = await readFile(join(dir, 'src', 'index.ts'), 'utf8');
+    const spec = await readFile(join(dir, 'src', 'index.test.ts'), 'utf8');
+    expect(src).toContain("export const MY_APP = 'my-app';");
+    expect(spec).toContain("import { MY_APP } from './index.js';");
+    expect(spec).toContain("expect(MY_APP).toBe('my-app');");
+  });
 });
 
 const noFailures = (): Promise<string[]> => Promise.resolve([]);

@@ -66,6 +66,27 @@ describe('runDoctor (injected env)', () => {
     expect(result.ok).toBe(false);
   });
 
+  test('a version exactly at the minimum is ok, not outdated', async () => {
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ version: () => Promise.resolve('24.0.0') }), stdout: sink(), json: true,
+    });
+    expect(result.report.checks.find((c) => c.name === 'node')?.status).toBe('ok');
+  });
+
+  test('a pnpm subcommand tool (not exec) resolves via PATH, not node_modules', async () => {
+    const audit: Adapter = {
+      name: 'pnpm-audit', slot: 'lint', description: 'audit', detect: [],
+      command: 'pnpm', args: ['audit', '--json'], outputFile: null, devDeps: {},
+    };
+    const result = await runDoctor({
+      cwd: '/repo', slots: [{ name: 'lint' }], adapters: [audit], config: null,
+      // node_modules/.bin is empty; a PATH-resolved tool must still pass.
+      env: fakeEnv({ exists: () => false }), stdout: sink(), json: true,
+    });
+    expect(result.report.checks.find((c) => c.category === 'tool')?.status).toBe('ok');
+  });
+
   test('a missing required binary on PATH is reported', async () => {
     const result = await runDoctor({
       cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,

@@ -74,10 +74,53 @@ describe('config resolution', () => {
     expect(r.adapter?.changedArgs).toEqual(['--changed', 'main']);
   });
 
-  test('{ command } is a custom check needing no adapter', () => {
-    const r = resolveSlot('lint', { checks: { lint: { command: 'node', args: ['x.mjs'] } } }, never);
-    expect(r.adapter?.command).toBe('node');
-    expect(r.adapter?.name).toBe('custom:lint');
+  test('{ use } overrides exactly the provided fields, keeping the rest', () => {
+    const full = resolveSlot(
+      'test',
+      {
+        checks: {
+          test: {
+            use: 'vitest',
+            command: 'bun', args: ['x'], outputFile: 'o.json',
+            changedArgs: ['c'], fixArgs: ['f'], description: 'D',
+          },
+        },
+      },
+      never,
+    );
+    expect(full.adapter).toMatchObject({
+      command: 'bun', args: ['x'], outputFile: 'o.json',
+      changedArgs: ['c'], fixArgs: ['f'], description: 'D',
+    });
+
+    const partial = resolveSlot('test', { checks: { test: { use: 'vitest' } } }, never);
+    expect(partial.adapter?.command).toBe('pnpm');
+    expect(partial.adapter?.description).toBe('Vitest tests with coverage');
+    expect(partial.adapter?.args).toContain('vitest');
+  });
+
+  test('{ command } custom check fills defaults and respects overrides', () => {
+    const withDefaults = resolveSlot('lint', { checks: { lint: { command: 'node', args: ['x.mjs'] } } }, never);
+    expect(withDefaults.adapter).toMatchObject({
+      command: 'node', name: 'custom:lint', description: 'Custom lint check', args: ['x.mjs'], outputFile: null,
+    });
+    expect(withDefaults.adapter?.changedArgs).toBeUndefined();
+
+    const over = resolveSlot(
+      'lint',
+      {
+        checks: {
+          lint: {
+            command: 'node', name: 'lic', description: 'D',
+            args: ['a'], outputFile: 'o.json', changedArgs: ['c'], fixArgs: ['f'],
+          },
+        },
+      },
+      never,
+    );
+    expect(over.adapter).toMatchObject({
+      name: 'lic', description: 'D', args: ['a'], outputFile: 'o.json', changedArgs: ['c'], fixArgs: ['f'],
+    });
   });
 
   test('exposes the config type surface', () => {

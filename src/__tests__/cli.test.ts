@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { CliDeps } from '../cli.js';
-import { parseCliArgs, runCli } from '../cli.js';
+import { parseCliArgs, parseInitArgs, runCli } from '../cli.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -26,9 +26,38 @@ describe('parseCliArgs', () => {
     expect(flags.bail).toBe(true);
   });
 
+  test('trims whitespace and drops empties in list flags', () => {
+    expect(parseCliArgs(['--skip', ' docs , , spell ']).flags.skip).toEqual(['docs', 'spell']);
+  });
+
   test('reads a leading subcommand positional', () => {
     expect(parseCliArgs(['init']).command).toBe('init');
     expect(parseCliArgs(['run', '--json']).command).toBe('run');
+  });
+});
+
+describe('parseInitArgs', () => {
+  test('parses every init flag', () => {
+    const opts = parseInitArgs([
+      'init', '--shape', 'monorepo', '--name', 'demo', '--scope', '@s',
+      '--license', 'MIT', '--author', 'Me', '--dry-run', '--add', 'lint,spell',
+    ]);
+    expect(opts).toMatchObject({
+      shape: 'monorepo', name: 'demo', scope: '@s', license: 'MIT', author: 'Me',
+      dryRun: true, add: ['lint', 'spell'],
+    });
+  });
+
+  test('omits unset flags (so defaults apply)', () => {
+    const opts = parseInitArgs(['init']);
+    expect(opts.shape).toBeUndefined();
+    expect(opts.name).toBeUndefined();
+    expect(opts.dryRun).toBeUndefined();
+    expect(opts.add).toBeUndefined();
+  });
+
+  test('rejects an invalid shape', () => {
+    expect(() => parseInitArgs(['init', '--shape', 'nope'])).toThrow('invalid --shape');
   });
 });
 

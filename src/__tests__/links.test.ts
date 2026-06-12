@@ -30,15 +30,16 @@ test('passes when relative targets resolve', async () => {
   expect(JSON.parse(out.stdout)).toEqual({ ok: true });
 });
 
-test('fails and reports a broken relative target', async () => {
-  await write('README.md', 'broken [link](./missing.md)\n');
+test('fails and reports a broken relative target with its line number', async () => {
+  await write('README.md', '# title\n\nbroken [link](./missing.md)\n');
   const out = await checkLinks(dir);
   expect(out.ok).toBe(false);
   expect(out.exit_code).toBe(1);
-  const misses = JSON.parse(out.stdout) as { link: string; file: string }[];
+  const misses = JSON.parse(out.stdout) as { link: string; file: string; line: number }[];
   expect(misses).toHaveLength(1);
   expect(misses[0]?.link).toBe('./missing.md');
-  expect(out.stderr).toContain('broken link in README.md');
+  expect(misses[0]?.line).toBe(3);
+  expect(out.stderr).toContain('broken link in README.md:3');
 });
 
 test('skips external links, bare anchors, and strips fragments', async () => {
@@ -46,12 +47,20 @@ test('skips external links, bare anchors, and strips fragments', async () => {
   await write(
     'README.md',
     [
-      '[ext](http://example.com)',
+      '[ext](http://example.com/missing.md)',
       '[mail](mailto:a@b.c)',
       '[anchor](#section)',
       '[frag](./TARGET.md#heading)',
     ].join('\n'),
   );
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(true);
+});
+
+test('an external host that looks like a path is still skipped', async () => {
+  // If isExternal were broken, this https target would resolve as a relative
+  // path, miss on disk, and fail.
+  await write('README.md', '[x](https://example.com/does/not/exist.md)\n');
   const out = await checkLinks(dir);
   expect(out.ok).toBe(true);
 });

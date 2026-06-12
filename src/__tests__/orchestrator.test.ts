@@ -163,23 +163,43 @@ describe('runFix', () => {
   const fixable = fakeAdapter({ name: 'oxlint', slot: 'lint', fixArgs: ['exec', 'oxlint', '--fix'] });
   const noFix = fakeAdapter({ name: 'tsc', slot: 'types' });
 
-  test('runs fix only for active adapters that expose fixArgs', async () => {
-    const ran: string[] = [];
+  test('runs fix only for active fixable adapters, passing the cwd', async () => {
+    const calls: { name: string; cwd: string }[] = [];
+    const std = sink();
     const result = await runFix({
-      cwd: '/tmp', slots: [{ name: 'lint' }, { name: 'types' }], adapters: [fixable, noFix],
-      config: null, stderr: sink().out,
-      fixRunner: (a) => { ran.push(a.name); return Promise.resolve({ ok: true, exit_code: 0 }); },
+      cwd: '/work', slots: [{ name: 'lint' }, { name: 'types' }], adapters: [fixable, noFix],
+      config: null, stderr: std.out,
+      fixRunner: (a, ctx) => { calls.push({ name: a.name, cwd: ctx.cwd }); return Promise.resolve({ ok: true, exit_code: 0 }); },
     });
-    expect(ran).toEqual(['oxlint']);
+    expect(calls).toEqual([{ name: 'oxlint', cwd: '/work' }]);
     expect(result).toMatchObject({ ok: true, exitCode: 0, ran: ['oxlint'] });
+    expect(std.lines.join('')).toContain('✔ lint');
   });
 
-  test('reports failure when a fix command fails', async () => {
+  test('reports a failing fix command with its exit code', async () => {
+    const std = sink();
     const result = await runFix({
-      cwd: '/tmp', slots: [{ name: 'lint' }], adapters: [fixable], config: null, stderr: sink().out,
+      cwd: '/tmp', slots: [{ name: 'lint' }], adapters: [fixable], config: null, stderr: std.out,
       fixRunner: () => Promise.resolve({ ok: false, exit_code: 2 }),
     });
     expect(result).toMatchObject({ ok: false, exitCode: 1 });
+    expect(std.lines.join('')).toContain('✘ lint');
+    expect(std.lines.join('')).toContain('exit 2');
+  });
+
+  test('the default fix runner spawns the adapter command', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-'));
+    try {
+      const ok = fakeAdapter({ name: 'noop', slot: 'lint', command: 'node', args: [], fixArgs: ['-e', 'process.exit(0)'] });
+      const pass = await runFix({ cwd: dir, slots: [{ name: 'lint' }], adapters: [ok], config: null, stderr: sink().out });
+      expect(pass).toMatchObject({ ok: true, exitCode: 0, ran: ['noop'] });
+
+      const bad = fakeAdapter({ name: 'boom', slot: 'lint', command: 'node', args: [], fixArgs: ['-e', 'process.exit(1)'] });
+      const fail = await runFix({ cwd: dir, slots: [{ name: 'lint' }], adapters: [bad], config: null, stderr: sink().out });
+      expect(fail).toMatchObject({ ok: false, exitCode: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('no-ops when nothing is fixable', async () => {

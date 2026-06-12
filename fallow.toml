@@ -6,10 +6,11 @@ entry = [
   "src/cli.ts",
   "src/**/*.test.ts",
   "test/**/*.test.ts",
+  "stryker.config.mjs",
 ]
 
 # CLI/tooling deps used via command line or config files, not imported from source.
-ignoreDependencies = ["@ast-grep/cli"]
+ignoreDependencies = ["@ast-grep/cli", "@stryker-mutator/vitest-runner"]
 
 [rules]
 unused-exports = "error"
