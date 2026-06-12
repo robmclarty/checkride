@@ -1,9 +1,28 @@
 /**
  * Checkride — an agent harness for TypeScript repositories.
  *
- * This is the package's public entry point. During the Phase 0 bootstrap it
- * exposes only the package identity; the orchestrator, adapters, config, and
- * CLI modules land in Phase 1.
+ * The primary interface is the `checkride` CLI (see `src/cli`). This module is
+ * the package's programmatic surface: the command entry points, the adapter
+ * registry, and the public types (including the `.check/summary.json` schema).
  */
 
-export const CHECKRIDE = 'checkride';
+export { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters/index.js';
+export type { Adapter, Slot } from './adapters/index.js';
+
+export { loadConfig, resolveChecks } from './config/index.js';
+export type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from './config/index.js';
+
+export { runChecks, runFix, selectChecks } from './orchestrator/index.js';
+export type {
+  RunFlags,
+  RunOptions,
+  RunResult,
+  Summary,
+  SummaryCheck,
+} from './orchestrator/index.js';
+
+export { runDoctor } from './doctor/index.js';
+export type { DoctorCheck, DoctorReport, DoctorResult } from './doctor/index.js';
+
+export { runInit } from './init/index.js';
+export type { InitOptions, InitResult, Shape } from './init/index.js';

@@ -1,0 +1,9 @@
+{
+  "checks": {
+    "typecheck-tests": {
+      "command": "pnpm",
+      "args": ["exec", "tsc", "-p", "tsconfig.test.json"],
+      "description": "Type-check test files (the published build, tsconfig.json, excludes them)"
+    }
+  }
+}

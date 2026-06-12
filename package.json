@@ -18,6 +18,25 @@
     "node": ">=24.0.0",
     "pnpm": ">=9.0.0"
   },
+  "bin": {
+    "checkride": "dist/cli/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "check": "tsc --build && node dist/cli/index.js",
     "check:all": "tsc --build && node dist/cli/index.js --all",
@@ -31,7 +50,8 @@
     "test:e2e": "tsc --build && vitest run --config vitest.e2e.config.ts",
     "build": "tsc --build",
     "build:clean": "tsc --build --clean",
-    "types": "tsc --build"
+    "types": "tsc --build",
+    "prepublishOnly": "tsc --build"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.42.1",
