@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-06-12
+
+### Fixed
+
+- The CLI now runs when invoked through its installed bin — `pnpm exec
+  checkride`, `npx checkride`, and the generated `pnpm check` alias. The 0.1.1
+  entrypoint guard compared unresolved paths, so launching via the
+  `node_modules/.bin/checkride` symlink (how every consumer runs it) silently
+  exited 0 without running any checks.
+
+### Internal
+
+- Added an end-to-end regression test that invokes the CLI through a bin
+  symlink and asserts it behaves identically to a direct invocation.
+- Bumped the CI GitHub Actions to their node24-runtime majors
+  (`actions/checkout`, `actions/setup-node`, `pnpm/action-setup`), clearing the
+  Node 20 deprecation warning.
+
 ## [0.1.1] - 2026-06-12
 
 ### Added
@@ -51,5 +69,6 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.1.2]: https://www.npmjs.com/package/checkride/v/0.1.2
 [0.1.1]: https://www.npmjs.com/package/checkride/v/0.1.1
 [0.1.0]: https://www.npmjs.com/package/checkride/v/0.1.0
