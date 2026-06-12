@@ -164,4 +164,40 @@ describe('existing-project adoption (idempotent)', () => {
     expect(cfg.checks['lint']).toBe(false);
     expect(cfg.checks['types']).toBe('tsc');
   });
+
+  test('adds the check alias to an existing package.json, preserving scripts', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { build: 'tsc' } }));
+    const result = await runInit({ cwd: dir, probeFailures: noFailures });
+    const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['check']).toBe('checkride');
+    expect(pkg.scripts['build']).toBe('tsc');
+    expect(result.written).toContain('package.json (added check script)');
+  });
+
+  test('never overwrites an existing check script', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { check: 'make verify' } }));
+    const result = await runInit({ cwd: dir, probeFailures: noFailures });
+    const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['check']).toBe('make verify');
+    expect(result.skipped).toContain('package.json (check script exists)');
+  });
+
+  test('--add scaffolds blessed configs for empty slots', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const result = await runInit({ cwd: dir, add: ['lint', 'spell'], probeFailures: noFailures });
+    expect(existsSync(join(dir, '.oxlintrc.json'))).toBe(true);
+    expect(existsSync(join(dir, 'cspell.json'))).toBe(true);
+    // the just-added lint slot is now adopted (detected) in the written config
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['lint']).toBe('oxlint');
+    expect(result.written.some((f) => f.includes('.oxlintrc.json'))).toBe(true);
+  });
+
+  test('--add never clobbers a config that already exists', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{"sentinel":true}');
+    const result = await runInit({ cwd: dir, add: ['lint'], probeFailures: noFailures });
+    expect(await readFile(join(dir, '.oxlintrc.json'), 'utf8')).toContain('sentinel');
+    expect(result.skipped).toContain('.oxlintrc.json (exists)');
+  });
 });

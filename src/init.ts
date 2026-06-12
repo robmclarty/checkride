@@ -441,11 +441,64 @@ async function readIfExists(path: string): Promise<string | null> {
   }
 }
 
+// Blessed-default config files `--add <slot>` scaffolds for an empty slot.
+// Shape-specific slots (types, dead) use the flat variant — existing repos
+// adopting checkride incrementally are overwhelmingly single-package.
+const ADD_CONFIGS: Record<string, [string, string][]> = {
+  types: [['shared/tsconfig.base.json', 'tsconfig.base.json'], ['flat/tsconfig.json', 'tsconfig.json']],
+  lint: [['shared/oxlintrc.json', '.oxlintrc.json']],
+  struct: [
+    ['shared/sgconfig.yml', 'sgconfig.yml'],
+    ['shared/rules/no-class.yml', 'rules/no-class.yml'],
+    ['shared/rules/no-default-export.yml', 'rules/no-default-export.yml'],
+    ['shared/rules/no-deep-sibling-import.yml', 'rules/no-deep-sibling-import.yml'],
+    ['shared/rules/require-js-extension.yml', 'rules/require-js-extension.yml'],
+  ],
+  dead: [['flat/fallow.toml', 'fallow.toml']],
+  test: [['shared/vitest.config.ts.template', 'vitest.config.ts']],
+  docs: [['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc']],
+  spell: [['shared/cspell.json', 'cspell.json']],
+};
+
+/** `--add <slots>`: scaffold blessed-default configs for the named empty slots. */
+async function addConfigs(w: Writer, add: readonly string[], skipped: string[]): Promise<void> {
+  for (const slot of add) {
+    const files = ADD_CONFIGS[slot];
+    if (!files) {
+      skipped.push(`--add ${slot} (no blessed config to scaffold)`);
+      continue;
+    }
+    for (const [from, to] of files) {
+      if (existsSync(join(w.cwd, to))) skipped.push(`${to} (exists)`);
+      else await put(w, to, readTemplate(from));
+    }
+  }
+}
+
+/** Add the `check: checkride` alias to an existing package.json (never overwrites). */
+async function addCheckAlias(w: Writer, skipped: string[]): Promise<void> {
+  const pkgPath = join(w.cwd, 'package.json');
+  const raw = await readIfExists(pkgPath);
+  if (raw === null) return;
+  const pkg: { scripts?: Record<string, string> } = JSON.parse(raw);
+  if (pkg.scripts?.['check']) {
+    skipped.push('package.json (check script exists)');
+    return;
+  }
+  pkg.scripts = { ...pkg.scripts, check: 'checkride' };
+  if (!w.dryRun) await writeFile(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  w.written.push('package.json (added check script)');
+}
+
 async function initExisting(options: InitOptions, cwd: string): Promise<InitResult> {
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
   const skipped: string[] = [];
+
+  // --add scaffolds blessed configs for empty slots before inventory, so the
+  // additions are detected and adopted in this same run.
+  await addConfigs(w, options.add ?? [], skipped);
 
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
@@ -481,6 +534,9 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   } else {
     skipped.push('.gitignore (.check/ already ignored)');
   }
+
+  // package.json: add the `check: checkride` alias (decision 8) if missing.
+  await addCheckAlias(w, skipped);
 
   // AGENTS.md stanza (create or refresh, idempotent).
   const agentsPath = join(cwd, 'AGENTS.md');
