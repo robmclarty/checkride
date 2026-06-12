@@ -13,11 +13,12 @@ both halves of that problem.
    types, lint, structure, dead code, tests, docs, links, spelling. **Exit 0
    means the work is complete.** Agents stop guessing; humans stop re-reviewing
    half-finished work.
-2. **Structured boundaries.** The deep-modules pattern — every first-level
-   directory under `src/` is a module whose only public surface is its
-   `index.ts` — is enforced mechanically. Boundaries keep agents inside lanes
-   and let multiple humans and agents work in parallel with minimal merge
-   conflicts.
+2. **Structured boundaries.** A module is an encapsulation boundary with a
+   narrow public surface. When one grows internals worth hiding it becomes a
+   folder whose only public surface is its `index.ts`, and siblings reach only
+   that index — never the internals. Enforced mechanically, boundaries keep
+   agents inside lanes and let humans and agents work in parallel with minimal
+   merge conflicts.
 
 The consumer of the output is an LLM, so checkride never normalizes diagnostics
 into a common format. Each tool writes its own raw JSON to `.check/`; the agent
@@ -132,11 +133,14 @@ Every generated shape is green out of the box — an end-to-end test enforces it
 
 ## Conventions
 
-The deep-modules pattern, enforced by `ast-grep` and `fallow`:
+Module boundaries, enforced by `ast-grep` and `fallow`:
 
-- Every first-level directory under `src/` is a module; its `index.ts` is the
-  only public surface. Sibling modules import each other via
-  `'../<sibling>/index.js'`, never through internals.
+- A module is a unit of encapsulation. A single file is a module; promote it to
+  a folder with a barrel `index.ts` when it grows internals worth hiding — a
+  one-file folder is just ceremony.
+- A folder module's `index.ts` is its only public surface: it re-exports, it
+  holds no logic. Siblings import it via `'../<sibling>/index.js'`, never its
+  internals.
 - Named exports only; no classes; `.js` extensions on relative imports
   (NodeNext); tests colocated with the code they cover.
 

@@ -62,10 +62,11 @@ test/               cross-cutting fixture tests + the slow e2e suite
 rules/              ast-grep structural rules (dogfooded here)
 ```
 
-The deep-modules folder pattern (a module folder whose only public surface is its
-`index.ts`) is what checkride *ships* for consumer projects — see
-`templates/shared/rules/`. The product itself is small enough that each module is
-a single named file.
+Same principle either way: a single file is a module; a module only becomes a
+folder with a barrel `index.ts` when it grows internals worth hiding, and then
+siblings reach only the index. The product's modules are one file each today, so
+none are folders. The same rules ship to consumer projects — see
+`templates/shared/rules/`.
 
 ## What NOT to do
 
