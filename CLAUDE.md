@@ -14,3 +14,7 @@ Read [AGENTS.md](./AGENTS.md) for the universal contract. This file only adds wh
 
 - For faster iteration: `pnpm check --bail --only <checks>`, `pnpm check --changed` (affected-only), or `pnpm exec tsc --build`. Run the full `pnpm check` once at the end.
 - This project is being built in strict phases. See `plans/checkride-plan.md` for the build plan and gates.
+
+## Skills
+
+- **`/version <major|minor|patch>`** — bump the package version, summarize commits since the last release into a new `CHANGELOG.md` section, commit as `vX.Y.Z`, and create plus push an annotated tag. See `.claude/skills/version/SKILL.md`.
