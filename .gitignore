@@ -10,3 +10,4 @@ coverage/
 .claude/settings.local.json
 .claude/worktrees/
 .pnpm-store/
+stryker.incremental.json
