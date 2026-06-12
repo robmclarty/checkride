@@ -10,8 +10,9 @@
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.
  */
 
+import { realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { runDoctor } from './doctor.js';
 import type { InitOptions, Shape } from './init.js';
@@ -144,10 +145,27 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   }
 }
 
-const invokedDirectly =
-  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+/**
+ * True when this module is the process entry point — invoked as a command, not
+ * imported. Package managers expose the bin as a symlink
+ * (`node_modules/.bin/checkride` → `../checkride/dist/cli.js`), so
+ * `process.argv[1]` is the symlink path while `import.meta.url` resolves to the
+ * real target. The comparison must therefore be on real, symlink-resolved
+ * paths: a naive URL equality check is false through the symlink, which would
+ * silently no-op `pnpm exec checkride`, `npx checkride`, and the generated
+ * `pnpm check` alias — the way every consumer actually runs it.
+ */
+function isEntryPoint(): boolean {
+  const invokedPath = process.argv[1];
+  if (invokedPath === undefined) return false;
+  try {
+    return realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
 
-if (invokedDirectly) {
+if (isEntryPoint()) {
   const code = await runCli(process.argv.slice(2), {
     cwd: process.cwd(),
     stdout: process.stdout,
