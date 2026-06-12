@@ -32,9 +32,9 @@ describe('parseCliArgs', () => {
 });
 
 describe('runCli dispatch', () => {
-  test('stubs init/doctor/fix with exit 2', async () => {
+  test('stubs init with exit 2 (not yet implemented)', async () => {
     const err = sink();
-    const code = await runCli(['doctor'], { cwd: process.cwd(), stdout: sink(), stderr: err });
+    const code = await runCli(['init'], { cwd: process.cwd(), stdout: sink(), stderr: err });
     expect(code).toBe(2);
     expect(err.text()).toContain('not implemented');
   });
@@ -51,6 +51,11 @@ describe('runCli dispatch', () => {
     const code = await runCli(['--definitely-not-a-flag'], { cwd: process.cwd(), stdout: sink(), stderr: err });
     expect(code).toBe(2);
     expect(err.text()).toContain('checkride:');
+  });
+
+  test('doctor exits 0 on this healthy, installed project', async () => {
+    const code = await runCli(['doctor', '--json'], { cwd: process.cwd(), stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
   });
 });
 

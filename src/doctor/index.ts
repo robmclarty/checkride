@@ -1,0 +1,279 @@
+/**
+ * `checkride doctor` — read-only environment + tooling verification.
+ *
+ * Ported from the reference `scaffold-check.mjs`. Verifies node/pnpm/git are
+ * present at the required versions, the project has been installed, each
+ * *active* slot's tool resolves in `node_modules/.bin`, and `.check/` is
+ * writable. Renders a human table (or `--json`) and exits 0 when everything
+ * required is present, 1 otherwise.
+ *
+ * Every environment touch (PATH, fs, package.json) goes through an injectable
+ * {@link DoctorEnv}, so the logic is unit-testable without a real toolchain.
+ */
+
+import { execFile } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { arch as osArch, platform as osPlatform } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+import type { Adapter, Slot } from '../adapters/index.js';
+import { ADAPTERS, SLOTS } from '../adapters/index.js';
+import type { CheckrideConfig } from '../config/index.js';
+import { loadConfig, resolveChecks } from '../config/index.js';
+import type { Out } from '../orchestrator/index.js';
+import { selectChecks } from '../orchestrator/index.js';
+
+export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown';
+
+export type DoctorCheck = {
+  name: string;
+  category: 'env' | 'install' | 'tool' | 'workspace';
+  required: boolean;
+  status: DoctorStatus;
+  found: string | null;
+  expected: string | null;
+  hint: string | null;
+};
+
+export type DoctorReport = {
+  ok: boolean;
+  platform: { os: string; arch: string };
+  checks: DoctorCheck[];
+};
+
+export type DoctorResult = { ok: boolean; report: DoctorReport; exitCode: number };
+
+/** Every environment touch, injectable for tests. */
+export type DoctorEnv = {
+  which: (cmd: string) => Promise<string | null>;
+  version: (cmd: string, args: string[]) => Promise<string | null>;
+  exists: (path: string) => boolean;
+  canWrite: (dir: string) => Promise<boolean>;
+  readEngines: (cwd: string) => { node?: string; pnpm?: string };
+  platform: () => { os: string; arch: string };
+};
+
+export type DoctorOptions = {
+  cwd?: string;
+  json?: boolean;
+  stdout?: Out;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+  config?: CheckrideConfig | null;
+  env?: DoctorEnv;
+};
+
+type Semver = { major: number; minor: number; patch: number; raw: string };
+
+const execFileP = promisify(execFile);
+
+const INSTALL_HINTS: Record<string, string> = {
+  node: 'Install Node >=24: https://nodejs.org/ or `nvm install 24 && nvm use 24`',
+  pnpm: 'Install pnpm >=9: `corepack enable && corepack prepare pnpm@latest --activate`',
+  git: 'Install git: https://git-scm.com/downloads',
+  install: 'Run `pnpm install` from the repo root.',
+};
+
+async function whichReal(cmd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileP(process.platform === 'win32' ? 'where' : 'which', [cmd]);
+    const first = stdout.split('\n').find((l) => l.trim());
+    return first ? first.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function versionReal(cmd: string, args: string[]): Promise<string | null> {
+  try {
+    const { stdout } = await execFileP(cmd, args, { timeout: 5000 });
+    return stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+async function canWriteReal(dir: string): Promise<boolean> {
+  try {
+    await mkdir(dir, { recursive: true });
+    const probe = join(dir, `.write-probe-${process.pid}`);
+    await writeFile(probe, '');
+    await rm(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readEnginesReal(cwd: string): { node?: string; pnpm?: string } {
+  try {
+    const raw = readFileSync(join(cwd, 'package.json'), 'utf8');
+    const pkg: { engines?: { node?: string; pnpm?: string } } = JSON.parse(raw);
+    return pkg.engines ?? {};
+  } catch {
+    return {};
+  }
+}
+
+const realEnv: DoctorEnv = {
+  which: whichReal,
+  version: versionReal,
+  exists: existsSync,
+  canWrite: canWriteReal,
+  readEngines: readEnginesReal,
+  platform: () => ({ os: osPlatform(), arch: osArch() }),
+};
+
+function parseSemver(text: string | null | undefined): Semver | null {
+  if (!text) return null;
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(text);
+  if (!m) return null;
+  return { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]), raw: m[0] };
+}
+
+function compareSemver(a: Semver, b: Semver): number {
+  if (a.major !== b.major) return a.major - b.major;
+  if (a.minor !== b.minor) return a.minor - b.minor;
+  return a.patch - b.patch;
+}
+
+function formatExpected(min: Semver): string {
+  return `>=${min.major}.${min.minor}.${min.patch}`;
+}
+
+async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+  const expected = formatExpected(min);
+  const path = await env.which(cmd);
+  if (!path) {
+    return { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
+  }
+  const found = parseSemver(await env.version(cmd, ['--version']));
+  if (!found) {
+    return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` };
+  }
+  if (compareSemver(found, min) < 0) {
+    return { name, category: 'env', required: true, status: 'outdated', found: found.raw, expected, hint: INSTALL_HINTS[name] ?? `Upgrade \`${cmd}\` to ${expected}.` };
+  }
+  return { name, category: 'env', required: true, status: 'ok', found: found.raw, expected, hint: null };
+}
+
+async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const path = await env.which(cmd);
+  if (!path) {
+    return { name, category: 'env', required: true, status: 'missing', found: null, expected: 'present on PATH', hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
+  }
+  const raw = await env.version(cmd, ['--version']);
+  return { name, category: 'env', required: true, status: 'ok', found: raw ?? path, expected: 'present on PATH', hint: null };
+}
+
+function checkInstall(cwd: string, env: DoctorEnv): DoctorCheck {
+  if (!env.exists(join(cwd, 'pnpm-lock.yaml'))) {
+    return { name: 'install', category: 'install', required: true, status: 'missing', found: null, expected: 'pnpm-lock.yaml present', hint: INSTALL_HINTS['install'] ?? null };
+  }
+  if (!env.exists(join(cwd, 'node_modules'))) {
+    return { name: 'install', category: 'install', required: true, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint: INSTALL_HINTS['install'] ?? null };
+  }
+  return { name: 'install', category: 'install', required: true, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
+}
+
+async function checkTool(adapter: Adapter, cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const name = `${adapter.name} (${adapter.slot})`;
+  if (adapter.builtin) {
+    return { name, category: 'tool', required: true, status: 'ok', found: 'built-in', expected: null, hint: null };
+  }
+  if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
+    const tool = adapter.args[1];
+    if (!tool) {
+      return { name, category: 'tool', required: true, status: 'unknown', found: null, expected: null, hint: null };
+    }
+    const bin = join(cwd, 'node_modules', '.bin', tool);
+    return env.exists(bin)
+      ? { name, category: 'tool', required: true, status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
+      : { name, category: 'tool', required: true, status: 'missing', found: null, expected: `node_modules/.bin/${tool}`, hint: `Run \`pnpm install\` (or add ${tool}).` };
+  }
+  const path = await env.which(adapter.command);
+  return path
+    ? { name, category: 'tool', required: true, status: 'ok', found: path, expected: `${adapter.command} on PATH`, hint: null }
+    : { name, category: 'tool', required: true, status: 'missing', found: null, expected: `${adapter.command} on PATH`, hint: `Install \`${adapter.command}\`.` };
+}
+
+async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const dir = join(cwd, '.check');
+  const ok = await env.canWrite(dir);
+  return ok
+    ? { name: '.check', category: 'workspace', required: true, status: 'ok', found: 'writable', expected: 'writable', hint: null }
+    : { name: '.check', category: 'workspace', required: true, status: 'missing', found: 'not writable', expected: 'writable', hint: `Ensure ${dir} is writable.` };
+}
+
+function statusMark(status: DoctorStatus): string {
+  if (status === 'ok') return '✔';
+  if (status === 'outdated') return '⚠';
+  return '✘';
+}
+
+const GROUPS: { key: DoctorCheck['category']; label: string }[] = [
+  { key: 'env', label: 'ENVIRONMENT' },
+  { key: 'install', label: 'INSTALL' },
+  { key: 'tool', label: 'TOOLS' },
+  { key: 'workspace', label: 'WORKSPACE' },
+];
+
+function renderTable(report: DoctorReport, out: Out): void {
+  out.write('\ncheckride doctor\n\n');
+  for (const group of GROUPS) {
+    const items = report.checks.filter((c) => c.category === group.key);
+    if (items.length === 0) continue;
+    out.write(`  ${group.label}\n`);
+    for (const c of items) {
+      const found = c.found ?? '—';
+      const expected = c.expected ? `  (${c.expected})` : '';
+      out.write(`  ${statusMark(c.status)} ${c.name.padEnd(22)} ${found}${expected}\n`);
+      if (c.status !== 'ok' && c.hint) out.write(`      -> ${c.hint}\n`);
+    }
+  }
+  out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
+}
+
+/** Run the doctor against `cwd`; render and return the report. */
+export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const slots = options.slots ?? SLOTS;
+  const adapters = options.adapters ?? ADAPTERS;
+  const config = options.config !== undefined ? options.config : loadConfig(cwd);
+  const stdout = options.stdout ?? process.stdout;
+  const env = options.env ?? realEnv;
+  const json = options.json ?? false;
+
+  const engines = env.readEngines(cwd);
+  const nodeMin = parseSemver(engines.node) ?? { major: 24, minor: 0, patch: 0, raw: '24.0.0' };
+  const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
+
+  const checks: DoctorCheck[] = [
+    await checkVersioned('node', 'node', nodeMin, env),
+    await checkVersioned('pnpm', 'pnpm', pnpmMin, env),
+    await checkPresent('git', 'git', env),
+    checkInstall(cwd, env),
+  ];
+
+  // Verify the tools the default run uses (opt-in slots are excluded unless run).
+  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  const active = selectChecks(resolved, {}).filter((r) => r.adapter && !r.skip);
+  for (const r of active) {
+    if (r.adapter) checks.push(await checkTool(r.adapter, cwd, env));
+  }
+
+  checks.push(await checkWritable(cwd, env));
+
+  const ok = checks.every((c) => !c.required || c.status === 'ok');
+  const report: DoctorReport = { ok, platform: env.platform(), checks };
+
+  if (json) {
+    stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else {
+    renderTable(report, stdout);
+  }
+
+  return { ok, report, exitCode: ok ? 0 : 1 };
+}

@@ -13,13 +13,14 @@
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 
+import { runDoctor } from '../doctor/index.js';
 import type { Out, RunFlags } from '../orchestrator/index.js';
 import { runChecks, runFix } from '../orchestrator/index.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
 export type CliDeps = { cwd: string; stdout: Out; stderr: Out };
 
-const STUB_COMMANDS = new Set(['init', 'doctor']);
+const STUB_COMMANDS = new Set(['init']);
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -76,6 +77,16 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   if (STUB_COMMANDS.has(command)) {
     deps.stderr.write(`checkride ${command}: not implemented until a later phase.\n`);
     return 2;
+  }
+
+  if (command === 'doctor') {
+    try {
+      const result = await runDoctor({ json: flags.json ?? false, cwd: deps.cwd, stdout: deps.stdout });
+      return result.exitCode;
+    } catch (err) {
+      deps.stderr.write(`orchestrator error: ${errorStack(err)}\n`);
+      return 2;
+    }
   }
 
   if (command === 'fix') {
