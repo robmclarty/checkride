@@ -1,0 +1,501 @@
+/**
+ * `checkride init` — set up a project (new or existing, auto-detected).
+ *
+ * New-project mode generates a complete, green-out-of-the-box repo for one of
+ * three shapes (flat / monorepo / hybrid); the shapes differ only in
+ * tsconfig.json, fallow.toml, and pnpm-workspace.yaml. Existing-project mode is
+ * additive: it inventories detectable tools, writes only what is missing
+ * (checkride.config.json, the AGENTS stanza, the `check` alias) and never
+ * touches an existing tool config.
+ *
+ * Generation, not transformation: every file is written once; the project owns
+ * it afterward.
+ */
+
+import { existsSync, readFileSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import type { Adapter, Slot } from '../adapters/index.js';
+import { ADAPTERS, SLOTS } from '../adapters/index.js';
+import { resolveChecks } from '../config/index.js';
+import type { Out } from '../orchestrator/index.js';
+
+export type Shape = 'flat' | 'monorepo' | 'hybrid';
+
+export type InitOptions = {
+  cwd?: string;
+  shape?: Shape;
+  name?: string;
+  scope?: string | null;
+  license?: string;
+  author?: string | null;
+  dryRun?: boolean;
+  add?: string[] | null;
+  checkrideSpec?: string;
+  stdout?: Out;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+};
+
+export type InitResult = {
+  mode: 'new' | 'existing';
+  shape: Shape | null;
+  written: string[];
+  skipped: string[];
+  exitCode: number;
+};
+
+export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TEMPLATES_DIR = join(HERE, '..', '..', 'templates');
+
+const STANZA_BEGIN = '<!-- checkride:begin -->';
+const STANZA_END = '<!-- checkride:end -->';
+
+// ----------------------------------------------------------------------------
+// AGENTS.md stanza (gate: idempotent)
+// ----------------------------------------------------------------------------
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** The agent-facing contract block, parameterized by the active checks. */
+export function buildStanza(activeSlots: readonly string[]): string {
+  return [
+    '## Checkride: the definition of done',
+    '',
+    '`pnpm check` is the single source of truth for "done". Exit 0 means the work is',
+    'complete; any other exit code means it is not. Never claim a task is finished while',
+    '`pnpm check` is red.',
+    '',
+    'When it fails:',
+    '',
+    '1. Read `.check/summary.json` to see which check failed.',
+    "2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).",
+    '3. Fix the root cause, then re-run.',
+    '',
+    'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
+    '`pnpm check --changed`.',
+    '',
+    '### Module boundaries',
+    '',
+    'Every first-level directory under `src/` is a module whose only public surface is',
+    "its `index.ts`. Import siblings through `'../<sibling>/index.js'`, never their",
+    'internals. Named exports only; no classes; `.js` extensions on relative imports.',
+    '',
+    `Active checks in this repo: ${activeSlots.join(', ')}.`,
+  ].join('\n');
+}
+
+/**
+ * Insert or refresh the checkride stanza in an AGENTS.md body. Idempotent:
+ * applying twice yields identical output.
+ */
+export function applyStanza(content: string, body: string): string {
+  const block = `${STANZA_BEGIN}\n\n${body}\n\n${STANZA_END}`;
+  const re = new RegExp(`${escapeRegex(STANZA_BEGIN)}[\\s\\S]*?${escapeRegex(STANZA_END)}`);
+  if (re.test(content)) {
+    return content.replace(re, block);
+  }
+  if (content.trim().length === 0) {
+    return `${block}\n`;
+  }
+  return `${content.replace(/\s*$/, '')}\n\n${block}\n`;
+}
+
+// ----------------------------------------------------------------------------
+// Inventory (gate: adoption inventory)
+// ----------------------------------------------------------------------------
+
+/** For each default (non-opt-in) slot, report whether a tool config is present. */
+export function inventory(input: {
+  cwd?: string;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+  fileExists?: (file: string) => boolean;
+}): InventoryEntry[] {
+  const slots = (input.slots ?? SLOTS).filter((s) => !s.optIn);
+  const resolved = resolveChecks({
+    slots,
+    adapters: input.adapters ?? ADAPTERS,
+    config: null,
+    ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
+    ...(input.fileExists !== undefined ? { fileExists: input.fileExists } : {}),
+  });
+  return resolved.map((r) => ({
+    slot: r.slot,
+    status: r.adapter ? 'adopted' : 'empty',
+    adapter: r.adapter?.name ?? null,
+  }));
+}
+
+// ----------------------------------------------------------------------------
+// Generation helpers
+// ----------------------------------------------------------------------------
+
+function readTemplate(rel: string): string {
+  return readFileSync(join(TEMPLATES_DIR, rel), 'utf8');
+}
+
+function render(text: string, vars: Record<string, string>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (_m, key: string) => vars[key] ?? '');
+}
+
+function constName(name: string): string {
+  const id = name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return id.length > 0 ? id : 'APP';
+}
+
+function productVersion(): string {
+  try {
+    const raw = readFileSync(join(TEMPLATES_DIR, '..', 'package.json'), 'utf8');
+    const pkg: { version?: string } = JSON.parse(raw);
+    return pkg.version ?? '0.1.0';
+  } catch {
+    return '0.1.0';
+  }
+}
+
+function collectDevDeps(
+  adapters: readonly Adapter[],
+  slots: readonly Slot[],
+  checkrideSpec: string,
+): Record<string, string> {
+  const deps: Record<string, string> = {};
+  for (const slot of slots) {
+    if (slot.optIn) continue;
+    const adapter = adapters.find((a) => a.slot === slot.name);
+    if (adapter) Object.assign(deps, adapter.devDeps);
+  }
+  deps['checkride'] = checkrideSpec;
+  const sorted: Record<string, string> = {};
+  for (const key of Object.keys(deps).toSorted()) sorted[key] = deps[key] ?? '';
+  return sorted;
+}
+
+function rootPackageJson(
+  fullName: string,
+  license: string,
+  author: string | null,
+  devDeps: Record<string, string>,
+  workspace: boolean,
+): string {
+  const pkg = {
+    name: fullName,
+    version: '0.1.0',
+    description: '',
+    license,
+    ...(author ? { author } : {}),
+    type: 'module',
+    ...(workspace ? { private: true } : {}),
+    engines: { node: '>=24.0.0', pnpm: '>=9.0.0' },
+    scripts: {
+      check: 'checkride',
+      'check:all': 'checkride --all',
+      'check:json': 'checkride --json',
+      'check:bail': 'checkride --bail',
+      'check:changed': 'checkride --changed',
+      'check:fix': 'checkride fix',
+      doctor: 'checkride doctor',
+      test: 'vitest run',
+      'test:watch': 'vitest',
+      build: 'tsc --build',
+      types: 'tsc --build',
+    },
+    devDependencies: devDeps,
+  };
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+function packageJsonFor(pkgName: string): string {
+  const pkg = {
+    name: pkgName,
+    version: '0.0.0',
+    private: true,
+    type: 'module',
+    exports: { '.': './src/index.ts' },
+  };
+  return `${JSON.stringify(pkg, null, 2)}\n`;
+}
+
+const PACKAGE_TSCONFIG = `${JSON.stringify(
+  {
+    extends: '../../tsconfig.base.json',
+    compilerOptions: { rootDir: './src', outDir: './dist' },
+    include: ['src/**/*'],
+    exclude: ['dist', 'node_modules'],
+  },
+  null,
+  2,
+)}\n`;
+
+function sourceModule(value: string): string {
+  const id = constName(value);
+  return `export const ${id} = '${value}';\n`;
+}
+
+function smokeTest(value: string): string {
+  const id = constName(value);
+  return [
+    "import { expect, test } from 'vitest';",
+    '',
+    "import { " + id + " } from './index.js';",
+    '',
+    `test('${value} smoke', () => {`,
+    `  expect(${id}).toBe('${value}');`,
+    '});',
+    '',
+  ].join('\n');
+}
+
+function readme(name: string): string {
+  return [
+    `# ${name}`,
+    '',
+    'A TypeScript project verified by checkride.',
+    '',
+    '```bash',
+    'pnpm check        # run the full pipeline; exit 0 = done',
+    '```',
+    '',
+    'See [AGENTS.md](./AGENTS.md) for the contract agents follow in this repository.',
+    '',
+  ].join('\n');
+}
+
+function claudeMd(): string {
+  return [
+    '# CLAUDE.md',
+    '',
+    'Claude Code-specific notes. See [AGENTS.md](./AGENTS.md) for the full contract.',
+    '',
+  ].join('\n');
+}
+
+function agentsMd(activeSlots: readonly string[]): string {
+  const intro = ['# AGENTS.md', '', 'Instructions for any coding agent working in this repository.', ''].join('\n');
+  return applyStanza(intro, buildStanza(activeSlots));
+}
+
+const MIT = (year: number, holder: string): string =>
+  [
+    'MIT License',
+    '',
+    `Copyright (c) ${year} ${holder}`,
+    '',
+    'Permission is hereby granted, free of charge, to any person obtaining a copy',
+    'of this software and associated documentation files (the "Software"), to deal',
+    'in the Software without restriction, including without limitation the rights',
+    'to use, copy, modify, merge, publish, distribute, sublicense, and/or sell',
+    'copies of the Software, and to permit persons to whom the Software is',
+    'furnished to do so, subject to the following conditions:',
+    '',
+    'The above copyright notice and this permission notice shall be included in all',
+    'copies or substantial portions of the Software.',
+    '',
+    'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR',
+    'IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,',
+    'FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE',
+    'AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER',
+    'LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,',
+    'OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE',
+    'SOFTWARE.',
+    '',
+  ].join('\n');
+
+function licenseText(license: string, holder: string): string {
+  const year = new Date().getFullYear();
+  if (license === 'MIT') return MIT(year, holder);
+  return `${license} License\n\nCopyright (c) ${year} ${holder}\n`;
+}
+
+function cspellWithName(name: string, scope: string | null): string {
+  const base: { words?: string[] } & Record<string, unknown> = JSON.parse(readTemplate('shared/cspell.json'));
+  const words = new Set(base.words ?? []);
+  for (const token of `${name} ${scope ?? ''}`.split(/[^A-Za-z0-9]+/)) {
+    if (token.length > 1) words.add(token);
+  }
+  base.words = [...words].toSorted();
+  return `${JSON.stringify(base, null, 2)}\n`;
+}
+
+// ----------------------------------------------------------------------------
+// Writers
+// ----------------------------------------------------------------------------
+
+type Writer = {
+  cwd: string;
+  dryRun: boolean;
+  written: string[];
+};
+
+async function put(w: Writer, relPath: string, content: string): Promise<void> {
+  w.written.push(relPath);
+  if (w.dryRun) return;
+  const target = join(w.cwd, relPath);
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, content);
+}
+
+async function writeSharedStatic(w: Writer): Promise<void> {
+  const map: [string, string][] = [
+    ['shared/tsconfig.base.json', 'tsconfig.base.json'],
+    ['shared/oxlintrc.json', '.oxlintrc.json'],
+    ['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc'],
+    ['shared/sgconfig.yml', 'sgconfig.yml'],
+    ['shared/vitest.config.ts.template', 'vitest.config.ts'],
+    ['shared/gitignore', '.gitignore'],
+    ['shared/npmrc', '.npmrc'],
+  ];
+  for (const [from, to] of map) await put(w, to, readTemplate(from));
+  for (const rule of ['no-class.yml', 'no-default-export.yml', 'no-deep-sibling-import.yml', 'require-js-extension.yml']) {
+    await put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)));
+  }
+}
+
+async function writePackage(w: Writer, dir: string, pkgName: string, value: string): Promise<void> {
+  await put(w, join(dir, 'package.json'), packageJsonFor(pkgName));
+  await put(w, join(dir, 'tsconfig.json'), PACKAGE_TSCONFIG);
+  await put(w, join(dir, 'src', 'index.ts'), sourceModule(value));
+  await put(w, join(dir, 'src', 'index.test.ts'), smokeTest(value));
+}
+
+// ----------------------------------------------------------------------------
+// New-project mode
+// ----------------------------------------------------------------------------
+
+const DEFAULT_ACTIVE_SLOTS = ['types', 'lint', 'struct', 'dead', 'test', 'docs', 'links', 'spell'];
+
+async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
+  const shape: Shape = options.shape ?? 'flat';
+  const name = options.name ?? (basename(cwd) || 'app');
+  const scope = options.scope ?? null;
+  const license = options.license ?? 'MIT';
+  const author = options.author ?? null;
+  const fullName = scope ? `${scope}/${name}` : name;
+  const adapters = options.adapters ?? ADAPTERS;
+  const slots = options.slots ?? SLOTS;
+  const checkrideSpec = options.checkrideSpec ?? `^${productVersion()}`;
+
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+
+  await writeSharedStatic(w);
+  await put(w, 'tsconfig.json', render(readTemplate(join(shape, 'tsconfig.json')), { name }));
+  await put(w, 'fallow.toml', render(readTemplate(join(shape, 'fallow.toml')), { name }));
+  await put(w, 'pnpm-workspace.yaml', render(readTemplate(join(shape, 'pnpm-workspace.yaml')), { name }));
+
+  await put(w, 'cspell.json', cspellWithName(name, scope));
+  await put(w, 'package.json', rootPackageJson(fullName, license, author, collectDevDeps(adapters, slots, checkrideSpec), shape !== 'flat'));
+  await put(w, 'LICENSE', licenseText(license, author ?? fullName));
+  await put(w, 'README.md', readme(name));
+  await put(w, 'AGENTS.md', agentsMd(DEFAULT_ACTIVE_SLOTS));
+  await put(w, 'CLAUDE.md', claudeMd());
+
+  if (shape === 'flat') {
+    await put(w, join('src', 'index.ts'), sourceModule(name));
+    await put(w, join('src', 'index.test.ts'), smokeTest(name));
+  } else if (shape === 'monorepo') {
+    await writePackage(w, join('libs', 'core'), scope ? `${scope}/core` : 'core', 'core');
+    await writePackage(w, join('apps', name), fullName, name);
+  } else {
+    await put(w, join('src', 'index.ts'), sourceModule(name));
+    await put(w, join('src', 'index.test.ts'), smokeTest(name));
+    await writePackage(w, join('packages', 'core'), scope ? `${scope}/core` : 'core', 'core');
+  }
+
+  if (options.stdout) {
+    options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
+  }
+  return { mode: 'new', shape, written: w.written, skipped: [], exitCode: 0 };
+}
+
+// ----------------------------------------------------------------------------
+// Existing-project mode
+// ----------------------------------------------------------------------------
+
+async function readIfExists(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function initExisting(options: InitOptions, cwd: string): Promise<InitResult> {
+  const adapters = options.adapters ?? ADAPTERS;
+  const slots = options.slots ?? SLOTS;
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+  const skipped: string[] = [];
+
+  const items = inventory({ cwd, slots, adapters });
+  const adopted = items.filter((i) => i.status === 'adopted');
+
+  // checkride.config.json reflecting adopted tools (only non-blessed picks need recording,
+  // but writing the adopted map is informative and harmless). Never overwrite an existing one.
+  const configPath = join(cwd, 'checkride.config.json');
+  if (!existsSync(configPath)) {
+    const checks: Record<string, string> = {};
+    for (const i of adopted) if (i.adapter) checks[i.slot] = i.adapter;
+    await put(w, 'checkride.config.json', `${JSON.stringify({ checks }, null, 2)}\n`);
+  } else {
+    skipped.push('checkride.config.json (exists)');
+  }
+
+  // .gitignore: ensure .check/ is ignored (append, never clobber).
+  const gitignorePath = join(cwd, '.gitignore');
+  const gi = await readIfExists(gitignorePath);
+  if (gi === null) {
+    await put(w, '.gitignore', '.check/\n');
+  } else if (!/^\.check\/?\s*$/m.test(gi)) {
+    if (!w.dryRun) await writeFile(gitignorePath, `${gi.replace(/\s*$/, '')}\n.check/\n`);
+    w.written.push('.gitignore (appended .check/)');
+  } else {
+    skipped.push('.gitignore (.check/ already ignored)');
+  }
+
+  // AGENTS.md stanza (create or refresh, idempotent).
+  const agentsPath = join(cwd, 'AGENTS.md');
+  const existing = await readIfExists(agentsPath);
+  const stanza = buildStanza(adopted.map((i) => i.slot));
+  const nextAgents = applyStanza(existing ?? '', stanza);
+  if (nextAgents !== existing) {
+    if (!w.dryRun) await writeFile(agentsPath, nextAgents);
+    w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
+  } else {
+    skipped.push('AGENTS.md (stanza unchanged)');
+  }
+
+  // CLAUDE.md pointer if absent.
+  const claudePath = join(cwd, 'CLAUDE.md');
+  if (!existsSync(claudePath)) {
+    await put(w, 'CLAUDE.md', claudeMd());
+  } else {
+    skipped.push('CLAUDE.md (exists)');
+  }
+
+  if (options.stdout) {
+    options.stdout.write(
+      `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
+    );
+  }
+  return { mode: 'existing', shape: null, written: w.written, skipped, exitCode: 0 };
+}
+
+// ----------------------------------------------------------------------------
+// Entry
+// ----------------------------------------------------------------------------
+
+/** Detect new vs existing by the presence of a package.json. */
+export function detectMode(cwd: string): 'new' | 'existing' {
+  return existsSync(join(cwd, 'package.json')) ? 'existing' : 'new';
+}
+
+/** Run `checkride init` against `cwd`. */
+export async function runInit(options: InitOptions): Promise<InitResult> {
+  const cwd = options.cwd ?? process.cwd();
+  return detectMode(cwd) === 'existing' ? initExisting(options, cwd) : initNew(options, cwd);
+}

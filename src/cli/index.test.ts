@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,13 +33,6 @@ describe('parseCliArgs', () => {
 });
 
 describe('runCli dispatch', () => {
-  test('stubs init with exit 2 (not yet implemented)', async () => {
-    const err = sink();
-    const code = await runCli(['init'], { cwd: process.cwd(), stdout: sink(), stderr: err });
-    expect(code).toBe(2);
-    expect(err.text()).toContain('not implemented');
-  });
-
   test('rejects an unknown command', async () => {
     const err = sink();
     const code = await runCli(['bogus'], { cwd: process.cwd(), stdout: sink(), stderr: err });
@@ -76,5 +70,25 @@ describe('runCli run (built-in links path)', () => {
   test('exits 1 when a check fails', async () => {
     await writeFile(join(dir, 'README.md'), 'broken [x](./missing.md)\n');
     expect(await runCli(['--only', 'links'], deps())).toBe(1);
+  });
+});
+
+describe('runCli init', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-init-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('generates a new flat project', async () => {
+    const code = await runCli(['init', '--shape', 'flat', '--name', 'demo'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
+    expect(existsSync(join(dir, 'package.json'))).toBe(true);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+  });
+
+  test('rejects an invalid shape with exit 2', async () => {
+    const err = sink();
+    const code = await runCli(['init', '--shape', 'nope', '--name', 'demo'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(2);
+    expect(err.text()).toContain('invalid --shape');
   });
 });

@@ -1,42 +1,27 @@
 {
   "version": "0.2",
   "language": "en",
-  "files": [
-    "src/**/*.ts",
-    "test/**/*.ts",
-    "**/*.md"
-  ],
+  "files": ["**/src/**/*.ts", "**/test/**/*.ts", "**/*.md"],
   "ignorePaths": [
     "**/node_modules/**",
     "**/dist/**",
     ".check/**",
     "pnpm-lock.yaml",
     "package.json",
-    "plans/**",
     "CHANGELOG.md"
   ],
   "words": [
-    "Amp",
-    "biome",
     "checkride",
-    "Codex",
+    "biome",
     "cspell",
-    "Cursor",
     "devDeps",
-    "dogfood",
-    "dogfooded",
-    "dogfoods",
     "esbuild",
     "eslint",
-    "extensionless",
     "fallow",
-    "frontmatter",
-    "idempotently",
     "knip",
     "markdownlint",
-    "noemit",
     "NodeNext",
-    "Ousterhout",
+    "noemit",
     "oxlint",
     "oxlintrc",
     "pnpm",
@@ -45,8 +30,6 @@
     "tsbuildinfo",
     "tsconfig",
     "tsgolint",
-    "vitest",
-    "Windsurf",
-    "worktrees"
+    "vitest"
   ]
 }

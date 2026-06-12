@@ -1,0 +1,42 @@
+# Fallow: dead code, circular deps, duplication, complexity, architecture boundaries.
+# Docs: https://docs.fallow.tools
+
+entry = [
+  "src/index.ts",
+  "packages/*/src/index.ts",
+  "src/**/*.test.ts",
+  "packages/*/src/**/*.test.ts",
+  "test/**/*.test.ts",
+]
+
+# CLI/tooling deps used via command line or config files, not imported from source.
+ignoreDependencies = ["@ast-grep/cli"]
+
+[rules]
+unused-exports = "error"
+unused-files = "error"
+unused-dependencies = "error"
+circular-dependencies = "error"
+boundary-violation = "error"
+
+[duplicates]
+mode = "mild"
+minTokens = 50
+
+[health]
+maxCyclomatic = 15
+maxCognitive = 15
+
+# Architecture boundary: the root app may depend on internal packages, but
+# packages may only depend on other packages.
+[[boundaries.zones]]
+name = "app"
+patterns = ["src/**"]
+
+[[boundaries.zones]]
+name = "packages"
+patterns = ["packages/*/src/**"]
+
+[[boundaries.rules]]
+from = "packages"
+allow = ["packages"]

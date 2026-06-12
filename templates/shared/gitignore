@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.check/
+.fallow/
+.stryker-tmp/
+coverage/
+*.log
+*.tsbuildinfo
+.DS_Store
+.pnpm-store/
