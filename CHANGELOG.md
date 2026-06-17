@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2026-06-17
+
+### Changed
+
+- `checkride doctor` now reports every catalogue slot with its enablement —
+  `default`, `opt-in`, `disabled`, or `unavailable` — instead of listing only
+  the slots the default run executes. Opt-in slots (mutation, security),
+  config-disabled slots, and slots with no detected tool are no longer silently
+  omitted; each shows how to enable it. Exit-code behavior is unchanged: only
+  default slots are required, so the newly surfaced slots never fail the report.
+
 ## [0.1.2] - 2026-06-12
 
 ### Fixed
@@ -69,6 +80,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.1.3]: https://www.npmjs.com/package/checkride/v/0.1.3
 [0.1.2]: https://www.npmjs.com/package/checkride/v/0.1.2
 [0.1.1]: https://www.npmjs.com/package/checkride/v/0.1.1
 [0.1.0]: https://www.npmjs.com/package/checkride/v/0.1.0
