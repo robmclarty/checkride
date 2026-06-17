@@ -115,11 +115,82 @@ describe('runDoctor (injected env)', () => {
     expect(absent.report.checks.find((c) => c.category === 'tool')?.status).toBe('missing');
   });
 
+  test('an opt-in slot is shown but never fails the report', async () => {
+    const result = await runDoctor({
+      cwd: '/repo',
+      slots: [{ name: 'mutation', optIn: true }],
+      adapters: [toolAdapter('stryker', 'mutation')],
+      config: null,
+      // tool binary absent: an opt-in slot must stay non-fatal regardless.
+      env: fakeEnv({ exists: (p: string) => !p.includes('.bin') }),
+      stdout: sink(),
+      json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'mutation');
+    expect(slot?.enablement).toBe('opt-in');
+    expect(slot?.required).toBe(false);
+    expect(slot?.hint).toContain('--include mutation');
+    expect(result.ok).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  test('a config-disabled slot is shown as disabled and does not fail', async () => {
+    const result = await runDoctor({
+      cwd: '/repo',
+      slots: oneSlot,
+      adapters: oneAdapter,
+      config: { checks: { lint: false } },
+      env: fakeEnv(),
+      stdout: sink(),
+      json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'lint');
+    expect(slot?.enablement).toBe('disabled');
+    expect(slot?.status).toBe('n/a');
+    expect(slot?.required).toBe(false);
+    expect(result.ok).toBe(true);
+  });
+
+  test('an undetected slot is shown as unavailable with a possibilities hint', async () => {
+    // detect file is absent on the (non-existent) /repo, so nothing fills the slot.
+    const needsConfig: Adapter = { ...toolAdapter('ast-grep', 'struct'), detect: ['sgconfig.yml'] };
+    const result = await runDoctor({
+      cwd: '/repo', slots: [{ name: 'struct' }], adapters: [needsConfig], config: null,
+      env: fakeEnv(), stdout: sink(), json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'struct');
+    expect(slot?.enablement).toBe('unavailable');
+    expect(slot?.adapter).toBeNull();
+    expect(slot?.hint).toContain('ast-grep (sgconfig.yml)');
+    expect(result.ok).toBe(true);
+  });
+
+  test('a default slot whose tool is missing still fails the report', async () => {
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ exists: (p: string) => !p.includes('.bin') }), stdout: sink(), json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'lint');
+    expect(slot?.enablement).toBe('default');
+    expect(slot?.required).toBe(true);
+    expect(slot?.status).toBe('missing');
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).toBe(1);
+  });
+
   test('renders a human table when not --json', async () => {
     const std = sink();
-    await runDoctor({ cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, env: fakeEnv(), stdout: std });
+    await runDoctor({
+      cwd: '/repo',
+      slots: [{ name: 'lint' }, { name: 'mutation', optIn: true }],
+      adapters: [toolAdapter('oxlint', 'lint'), toolAdapter('stryker', 'mutation')],
+      config: null, env: fakeEnv(), stdout: std,
+    });
     expect(std.text()).toContain('checkride doctor');
     expect(std.text()).toContain('ENVIRONMENT');
+    expect(std.text()).toContain('CHECKS');
+    expect(std.text()).toContain('opt-in');
+    expect(std.text()).toContain('2 slots — 1 default, 1 opt-in, 0 disabled, 0 unavailable');
   });
 });
 

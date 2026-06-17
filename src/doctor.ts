@@ -2,10 +2,13 @@
  * `checkride doctor` — read-only environment + tooling verification.
  *
  * Ported from the reference `scaffold-check.mjs`. Verifies node/pnpm/git are
- * present at the required versions, the project has been installed, each
- * *active* slot's tool resolves in `node_modules/.bin`, and `.check/` is
- * writable. Renders a human table (or `--json`) and exits 0 when everything
- * required is present, 1 otherwise.
+ * present at the required versions, the project has been installed, and `.check/`
+ * is writable. It then enumerates *every* catalogue slot — not just the ones the
+ * default run executes — and reports each slot's enablement (default / opt-in /
+ * disabled / unavailable) alongside its tool presence, so off and opt-in slots
+ * are visible instead of silently dropped. Renders a human table (or `--json`)
+ * and exits 0 when everything required is present, 1 otherwise. Only slots that
+ * run by default are required; opt-in/disabled/unavailable slots never fail it.
  *
  * Every environment touch (PATH, fs, package.json) goes through an injectable
  * {@link DoctorEnv}, so the logic is unit-testable without a real toolchain.
@@ -20,12 +23,15 @@ import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
-import type { CheckrideConfig } from './config.js';
+import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { selectChecks } from './orchestrator.js';
 
-export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown';
+export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
+
+/** Why a slot is, or is not, part of the default `checkride` run. */
+export type SlotEnablement = 'default' | 'opt-in' | 'disabled' | 'unavailable';
 
 export type DoctorCheck = {
   name: string;
@@ -35,6 +41,12 @@ export type DoctorCheck = {
   found: string | null;
   expected: string | null;
   hint: string | null;
+  /** Slot name (category `'tool'` rows only). */
+  slot?: string;
+  /** Adapter filling the slot, or `null` when nothing does. */
+  adapter?: string | null;
+  /** Slot enablement (category `'tool'` rows only). */
+  enablement?: SlotEnablement;
 };
 
 export type DoctorReport = {
@@ -178,25 +190,69 @@ function checkInstall(cwd: string, env: DoctorEnv): DoctorCheck {
   return { name: 'install', category: 'install', required: true, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
 }
 
-async function checkTool(adapter: Adapter, cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
-  const name = `${adapter.name} (${adapter.slot})`;
+type ToolProbe = { status: DoctorStatus; found: string | null; expected: string | null; hint: string | null };
+
+/** Presence-only probe: does the adapter's tool binary resolve? */
+async function probeTool(adapter: Adapter, cwd: string, env: DoctorEnv): Promise<ToolProbe> {
   if (adapter.builtin) {
-    return { name, category: 'tool', required: true, status: 'ok', found: 'built-in', expected: null, hint: null };
+    return { status: 'ok', found: 'built-in', expected: null, hint: null };
   }
   if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
     const tool = adapter.args[1];
-    if (!tool) {
-      return { name, category: 'tool', required: true, status: 'unknown', found: null, expected: null, hint: null };
-    }
+    if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
     const bin = join(cwd, 'node_modules', '.bin', tool);
     return env.exists(bin)
-      ? { name, category: 'tool', required: true, status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
-      : { name, category: 'tool', required: true, status: 'missing', found: null, expected: `node_modules/.bin/${tool}`, hint: `Run \`pnpm install\` (or add ${tool}).` };
+      ? { status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
+      : { status: 'missing', found: null, expected: `node_modules/.bin/${tool}`, hint: `Run \`pnpm install\` (or add ${tool}).` };
   }
   const path = await env.which(adapter.command);
   return path
-    ? { name, category: 'tool', required: true, status: 'ok', found: path, expected: `${adapter.command} on PATH`, hint: null }
-    : { name, category: 'tool', required: true, status: 'missing', found: null, expected: `${adapter.command} on PATH`, hint: `Install \`${adapter.command}\`.` };
+    ? { status: 'ok', found: path, expected: `${adapter.command} on PATH`, hint: null }
+    : { status: 'missing', found: null, expected: `${adapter.command} on PATH`, hint: `Install \`${adapter.command}\`.` };
+}
+
+/** What an unavailable slot could be turned on with: candidate adapters + their detect files. */
+function possibilitiesHint(slot: string, adapters: readonly Adapter[]): string | null {
+  const candidates = adapters.filter((a) => a.slot === slot);
+  if (candidates.length === 0) return null;
+  const parts = candidates.map((a) => {
+    const files = a.detect.length > 0 ? a.detect.slice(0, 2).join(' or ') : 'always available';
+    return `${a.name} (${files})`;
+  });
+  return `Enable by adding one of: ${parts.join(', ')}.`;
+}
+
+/**
+ * Build a doctor row for one resolved catalogue slot, classified by enablement.
+ * Only `default` slots are required; `opt-in`/`disabled`/`unavailable` slots are
+ * surfaced for visibility but never fail the report.
+ */
+async function classifySlot(
+  r: ResolvedCheck,
+  defaultActive: ReadonlySet<string>,
+  adapters: readonly Adapter[],
+  config: CheckrideConfig | null,
+  cwd: string,
+  env: DoctorEnv,
+): Promise<DoctorCheck> {
+  const base = { category: 'tool' as const, slot: r.slot, adapter: r.adapter?.name ?? null };
+
+  // Explicitly disabled in config: off by the user's choice.
+  if (config?.checks?.[r.slot] === false) {
+    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
+  }
+  // No adapter fills the slot: nothing to run. Point at what would enable it.
+  if (!r.adapter) {
+    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, adapters) };
+  }
+  // Adapter resolved: probe the tool, classify by default-run membership.
+  const probe = await probeTool(r.adapter, cwd, env);
+  const isDefault = defaultActive.has(r.slot);
+  const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
+  const hint = isDefault
+    ? probe.hint
+    : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
+  return { ...base, name: `${r.adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
 }
 
 async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
@@ -210,15 +266,48 @@ async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> 
 function statusMark(status: DoctorStatus): string {
   if (status === 'ok') return '✔';
   if (status === 'outdated') return '⚠';
+  if (status === 'n/a') return '·';
   return '✘';
+}
+
+/** Glyph for a slot row — driven by enablement, since "off" is not "broken". */
+function slotMark(c: DoctorCheck): string {
+  if (c.enablement === 'default') return c.status === 'ok' ? '✔' : '✘';
+  if (c.enablement === 'opt-in') return '○';
+  return '·'; // disabled / unavailable: off, not a failure
+}
+
+/** Short presence note for a slot row (full paths stay in the JSON report). */
+function slotNote(c: DoctorCheck): string {
+  if (c.enablement === 'disabled') return 'disabled in config';
+  if (c.enablement === 'unavailable') return 'no tool detected';
+  if (c.status === 'ok') return c.found === 'built-in' ? 'built-in' : 'installed';
+  if (c.status === 'missing') return 'not installed';
+  return c.status;
 }
 
 const GROUPS: { key: DoctorCheck['category']; label: string }[] = [
   { key: 'env', label: 'ENVIRONMENT' },
   { key: 'install', label: 'INSTALL' },
-  { key: 'tool', label: 'TOOLS' },
+  { key: 'tool', label: 'CHECKS' },
   { key: 'workspace', label: 'WORKSPACE' },
 ];
+
+function renderToolRow(c: DoctorCheck, out: Out): void {
+  const slot = (c.slot ?? c.name).padEnd(10);
+  const adapter = (c.adapter ?? '—').padEnd(18);
+  const enablement = (c.enablement ?? '').padEnd(12);
+  out.write(`  ${slotMark(c)} ${slot} ${adapter} ${enablement} ${slotNote(c)}\n`);
+  if (c.hint) out.write(`      -> ${c.hint}\n`);
+}
+
+function renderSlotSummary(tools: DoctorCheck[], out: Out): void {
+  const count = (e: SlotEnablement): number => tools.filter((c) => c.enablement === e).length;
+  out.write(
+    `  ${tools.length} slots — ${count('default')} default, ${count('opt-in')} opt-in, ` +
+      `${count('disabled')} disabled, ${count('unavailable')} unavailable\n`,
+  );
+}
 
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
@@ -226,6 +315,11 @@ function renderTable(report: DoctorReport, out: Out): void {
     const items = report.checks.filter((c) => c.category === group.key);
     if (items.length === 0) continue;
     out.write(`  ${group.label}\n`);
+    if (group.key === 'tool') {
+      for (const c of items) renderToolRow(c, out);
+      renderSlotSummary(items, out);
+      continue;
+    }
     for (const c of items) {
       const found = c.found ?? '—';
       const expected = c.expected ? `  (${c.expected})` : '';
@@ -257,11 +351,12 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     checkInstall(cwd, env),
   ];
 
-  // Verify the tools the default run uses (opt-in slots are excluded unless run).
+  // Enumerate every catalogue slot so off/opt-in/disabled slots stay visible
+  // instead of silently dropped. The orchestrator decides what runs by default.
   const resolved = resolveChecks({ slots, adapters, config, cwd });
-  const active = selectChecks(resolved, {}).filter((r) => r.adapter && !r.skip);
-  for (const r of active) {
-    if (r.adapter) checks.push(await checkTool(r.adapter, cwd, env));
+  const defaultActive = new Set(selectChecks(resolved, {}).map((r) => r.slot));
+  for (const r of resolved) {
+    checks.push(await classifySlot(r, defaultActive, adapters, config, cwd, env));
   }
 
   checks.push(await checkWritable(cwd, env));

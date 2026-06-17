@@ -42,7 +42,7 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
 checkride init         Set up a project (new or existing — auto-detected).
   --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
-checkride doctor       Verify environment + tooling (read-only, exit 0/1).
+checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 ```
 

@@ -243,8 +243,11 @@ write a one-line CLAUDE.md pointing at AGENTS.md if absent.
 ## 6. `doctor` design
 
 Read-only environment verification, ported from the reference `scaffold-check.mjs`:
-node/pnpm/git present and at required versions, each *active* slot's tool resolvable
-via `pnpm exec <tool> --version`, config file presence per slot, `.check/` writable.
+node/pnpm/git present and at required versions, config file presence per slot,
+`.check/` writable. The CHECKS section enumerates *every* catalogue slot with its
+enablement (default / opt-in / disabled / unavailable) and tool presence, so off
+and opt-in slots stay visible rather than silently dropped. Only default slots are
+required; opt-in/disabled/unavailable slots never fail the report.
 Output: human-readable table + `--json`. Exit 0 when everything required is present.
 
 ---
