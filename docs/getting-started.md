@@ -121,6 +121,97 @@ pnpm exec checkride fix
 
 Never claim a task is finished while `pnpm check` is red.
 
+## Working with agents
+
+checkride is an agent harness, so the goal of `init` is that a coding agent
+adopts the "exit 0 = done" rule on its own.
+
+### How agents pick it up
+
+`init` writes the contract into two files:
+
+- **`AGENTS.md`** — a stanza, between `<!-- checkride:begin -->` and
+  `<!-- checkride:end -->` markers, stating that `pnpm check` is the definition
+  of done, how to read `.check/` when it fails, the module-boundary conventions,
+  and the tight-loop commands.
+- **`CLAUDE.md`** — a short pointer to `AGENTS.md` (written only if you do not
+  already have one).
+
+Claude Code (and Codex, Cursor, Amp, …) load these instruction files into
+context at the start of a session. That is the whole integration: the agent runs
+`pnpm check` because it read the instruction, not because checkride hooks into
+the tool. It is guidance, not enforcement — the model has to follow it.
+
+`init` rewrites the stanza in place on every run, so keep any edits of your own
+*outside* the `checkride:begin`/`checkride:end` markers, or the next `init` will
+overwrite them.
+
+### Make it a hard gate (optional)
+
+To turn "exit 0 = done" from advice into a mechanical gate, add a Claude Code
+**Stop hook** in `.claude/settings.json`. It fires when the agent tries to
+finish; exiting `2` blocks the stop and feeds the message back, so the agent
+keeps working until the pipeline is green:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm check || { echo 'pnpm check is red — read .check/summary.json, fix the failing slot, then finish.' >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The `|| { …; exit 2; }` wrapper matters: a plain `pnpm check` exits `1` on
+failure, which Claude Code treats as a non-blocking error and lets the agent
+stop anyway. Exit `2` is the code that blocks. The hook input also carries a
+`stop_hook_active` flag — check it if you want to break out of a fix loop that
+is not converging. CI running `pnpm check` on every pull request is the other,
+more important, hard backstop: the hook helps the agent locally, CI protects the
+branch.
+
+### Avoiding duplicate runs
+
+A Stop hook and the AGENTS.md stanza both want `pnpm check`, so the agent can run
+the full pipeline itself and then the hook runs it again. Whether that matters
+depends on your suite.
+
+Do **not** delete the AGENTS.md block to dodge the duplicate. The block does two
+jobs — it tells the agent to run the gate, *and* it teaches the agent how to read
+`.check/summary.json`, what the module conventions are, and which narrow commands
+to iterate with. A Stop hook only replaces the first job; deleting the whole
+block makes every agent worse at *fixing* what the hook flags, and it strands
+non-Claude agents, since the hook is Claude Code only.
+
+Instead, pick by how expensive a run is:
+
+- **Fast suite (seconds):** accept the duplicate. The second run is cheap and
+  guarantees the gate saw the final tree, whatever the agent did.
+- **Slow suite (minutes), simplest fix:** re-scope the agent's job so it never
+  runs the full pipeline — the hook owns that. Add a note *outside* the stanza
+  markers:
+
+  > While iterating, use `pnpm check --bail --only <slots>` or
+  > `pnpm check --changed`. A Stop hook runs the full `pnpm check` as the final
+  > gate — you do not need to run it yourself.
+
+  The agent then only runs cheap, narrowed checks during the loop, and the hook
+  runs the one authoritative pipeline at the end.
+- **Slow suite, most robust fix:** make the hook *verify the artifact instead of
+  recomputing*. `.check/summary.json` records every slot that ran and whether it
+  passed, so the hook can accept a complete, green summary that is newer than
+  your sources and only run `pnpm check` when it is missing or stale. That
+  removes the duplicate deterministically — it does not depend on the agent
+  choosing not to run — at the cost of a slightly more involved hook.
+
 ## Where to go next
 
 - [Cheat sheet](./cheatsheet.md) — every command and flag at a glance.
