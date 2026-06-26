@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-06-26
+
+### Added
+
+- Onboarding and reference documentation under `docs/`: a getting-started guide,
+  a command and flag cheat sheet, and a tool-installation reference (system
+  prerequisites plus how to install a missing slot tool such as fallow or
+  ast-grep). Includes a "Working with agents" section covering how Claude Code
+  and other agents adopt the `pnpm check` contract via the AGENTS.md stanza, and
+  how to enforce it with a Stop hook without double-running the pipeline.
+
+### Internal
+
+- Removed the v1 build plan now that it is fully implemented.
+
 ## [0.1.3] - 2026-06-17
 
 ### Changed
@@ -80,6 +95,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.1.4]: https://www.npmjs.com/package/checkride/v/0.1.4
 [0.1.3]: https://www.npmjs.com/package/checkride/v/0.1.3
 [0.1.2]: https://www.npmjs.com/package/checkride/v/0.1.2
 [0.1.1]: https://www.npmjs.com/package/checkride/v/0.1.1
