@@ -1,3 +1,5 @@
+![A flight instructor evaluating a student pilot during a simulator checkride](./checkride_photo.png)
+
 # checkride
 
 **An agent harness for TypeScript repositories**, delivered as one npm package.
