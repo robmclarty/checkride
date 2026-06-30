@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-06-30
+
+### Added
+
+- Custom checks (config entries keyed by a name outside the built-in slot
+  catalogue) accept an `order` field: `"order": "first"` runs the check ahead
+  of every built-in, `"last"` (the default) keeps it after them. Lets a
+  formatter such as `biome format --write` normalize the tree before the
+  linters and tests run. Within each group, config key order is preserved.
+
 ## [0.1.5] - 2026-06-30
 
 ### Added
@@ -120,6 +130,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.1.6]: https://www.npmjs.com/package/checkride/v/0.1.6
 [0.1.5]: https://www.npmjs.com/package/checkride/v/0.1.5
 [0.1.4]: https://www.npmjs.com/package/checkride/v/0.1.4
 [0.1.3]: https://www.npmjs.com/package/checkride/v/0.1.3
