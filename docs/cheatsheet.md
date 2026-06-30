@@ -27,6 +27,10 @@ Invoke as `pnpm check` (the alias `init` writes), or directly with
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
 
+Output streams: human-readable progress goes to **stderr**; **stdout** carries
+machine output only (the `--json` summary, mirroring `.check/summary.json`). In
+the default mode stdout is empty — clean and pipe-friendly by design.
+
 ## init flags
 
 | Flag | Effect |

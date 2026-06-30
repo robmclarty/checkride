@@ -61,19 +61,52 @@ describe('parseInitArgs', () => {
   });
 });
 
+describe('runCli help and version', () => {
+  test('--help prints usage to stdout and exits 0', async () => {
+    const out = sink();
+    const code = await runCli(['--help'], { cwd: process.cwd(), stdout: out, stderr: sink() });
+    expect(code).toBe(0);
+    expect(out.text()).toContain('Usage: checkride');
+    expect(out.text()).toContain('doctor');
+  });
+
+  test('-h is an alias for --help', async () => {
+    const out = sink();
+    expect(await runCli(['-h'], { cwd: process.cwd(), stdout: out, stderr: sink() })).toBe(0);
+    expect(out.text()).toContain('Usage: checkride');
+  });
+
+  test('--version prints a semver and exits 0', async () => {
+    const out = sink();
+    const code = await runCli(['--version'], { cwd: process.cwd(), stdout: out, stderr: sink() });
+    expect(code).toBe(0);
+    expect(out.text().trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  test('-V is an alias for --version', async () => {
+    const out = sink();
+    expect(await runCli(['-V'], { cwd: process.cwd(), stdout: out, stderr: sink() })).toBe(0);
+    expect(out.text().trim()).toMatch(/^\d+\.\d+\.\d+/);
+  });
+});
+
 describe('runCli dispatch', () => {
-  test('rejects an unknown command', async () => {
+  test('rejects an unknown command with a usage pointer', async () => {
     const err = sink();
     const code = await runCli(['bogus'], { cwd: process.cwd(), stdout: sink(), stderr: err });
     expect(code).toBe(2);
     expect(err.text()).toContain("unknown command 'bogus'");
+    expect(err.text()).toContain('checkride --help');
   });
 
-  test('returns 2 on a parse error', async () => {
+  test('returns 2 on a parse error with a clean message and usage pointer', async () => {
     const err = sink();
     const code = await runCli(['--definitely-not-a-flag'], { cwd: process.cwd(), stdout: sink(), stderr: err });
     expect(code).toBe(2);
     expect(err.text()).toContain('checkride:');
+    expect(err.text()).toContain('checkride --help');
+    // The verbose Node "To specify a positional…" tail is trimmed.
+    expect(err.text()).not.toContain('To specify a positional');
   });
 
   test('doctor exits 0 on this healthy, installed project', async () => {

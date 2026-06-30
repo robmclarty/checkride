@@ -51,6 +51,11 @@ checkride fix          Run every active adapter's fix command (oxlint --fix, ...
 During iteration, narrow the loop: `checkride --bail`, `checkride --only
 types,lint`, `checkride --changed`.
 
+Output streams: human-readable progress goes to stderr; stdout carries machine
+output only — the summary JSON under `--json`, mirroring `.check/summary.json`.
+So `checkride --json` produces clean JSON on stdout that is safe to pipe, and the
+default run leaves stdout empty.
+
 ## The pipeline: slots and adapters
 
 A **slot** is a role in the pipeline (order matters — cheapest first). An
@@ -109,10 +114,11 @@ slot's raw output for structured diagnostics.
 
 ```jsonc
 {
+  "timeout": 600,           // global per-check timeout in seconds (off by default)
   "checks": {
     "lint": "biome",        // pick an alternate adapter
     "spell": false,         // disable a slot
-    "test": { "use": "vitest", "changedArgs": ["--changed", "origin/master"] },
+    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/master"] },
     "licenses": {           // a custom check (no adapter needed)
       "command": "node",
       "args": ["scripts/check-licenses.mjs"]
@@ -120,6 +126,13 @@ slot's raw output for structured diagnostics.
   }
 }
 ```
+
+A per-check timeout guards against a hung tool. It is **off by default** — a cap
+short enough to catch a hang on a small repo is short enough to kill a legitimate
+slow run on a large one, and CI job timeouts already bound true hangs. Set a
+global `timeout` (seconds) to opt in, override it per check (`"timeout": <n>`),
+and use `"timeout": 0` to exempt a slot. Leave `dead`, `test`, and `mutation`
+generous or uncapped — they legitimately run long.
 
 ## Project shapes
 

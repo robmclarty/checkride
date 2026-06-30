@@ -41,6 +41,8 @@ export type Adapter = {
   changedArgs?: string[];
   /** Used by `checkride fix`. */
   fixArgs?: string[];
+  /** Per-check timeout in seconds; `0` disables the cap. Falls back to the config-level `timeout`. */
+  timeout?: number;
   /** In-process check id (e.g. `'links'`); when set, the orchestrator runs it directly. */
   builtin?: string;
   /** Pinned versions `init` writes into package.json. */

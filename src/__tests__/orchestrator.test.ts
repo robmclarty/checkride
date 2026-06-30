@@ -157,6 +157,29 @@ describe('runChecks (real subprocess)', () => {
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
   });
+
+  test('kills a check that exceeds the configured timeout', async () => {
+    const adapter = fakeAdapter({
+      name: 'hang', slot: 'hang', command: 'node', args: ['-e', 'setInterval(() => {}, 1000)'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'hang' }], adapters: [adapter], config: { timeout: 0.2 }, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+    expect(await readFile(join(dir, '.check', 'hang.stderr.txt'), 'utf8')).toContain('timed out');
+  });
+
+  test('a fast check completes normally under a generous timeout', async () => {
+    const adapter = fakeAdapter({
+      name: 'quick', slot: 'quick', command: 'node', args: ['-e', 'process.exit(0)'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'quick' }], adapters: [adapter], config: { timeout: 5 }, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: true, exit_code: 0 });
+  });
 });
 
 describe('runFix', () => {

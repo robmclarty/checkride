@@ -58,7 +58,7 @@ export type Summary = {
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
   resolved: ResolvedCheck,
-  ctx: { cwd: string; changed: boolean },
+  ctx: { cwd: string; changed: boolean; timeout?: number },
 ) => Promise<CheckOutcome>;
 
 export type RunOptions = RunFlags & {
@@ -93,7 +93,13 @@ export function runtimeArgs(adapter: Adapter, changed: boolean): string[] {
   return adapter.args;
 }
 
-function spawnCheck(command: string, args: string[], cwd: string): Promise<CheckOutcome> {
+/**
+ * Spawn one check. `timeoutSec` is optional and off by default — a falsy or
+ * non-positive value means no cap. When it fires, the child is killed and a
+ * failed outcome carries a `"timed out after Ns"` note so the slot is recorded
+ * failed with its elapsed duration (the timer is always cleared on `close`).
+ */
+function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: number): Promise<CheckOutcome> {
   return new Promise((resolveOutcome) => {
     const proc = spawn(command, args, {
       cwd,
@@ -102,12 +108,23 @@ function spawnCheck(command: string, args: string[], cwd: string): Promise<Check
     });
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    const timer = timeoutSec && timeoutSec > 0
+      ? setTimeout(() => { timedOut = true; proc.kill('SIGTERM'); }, timeoutSec * 1000)
+      : null;
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
     proc.on('error', (err) => {
+      if (timer) clearTimeout(timer);
       resolveOutcome({ ok: false, exit_code: -1, stdout: '', stderr: `Failed to spawn: ${err.message}` });
     });
     proc.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        const note = `timed out after ${timeoutSec}s`;
+        resolveOutcome({ ok: false, exit_code: -1, stdout, stderr: stderr ? `${stderr}\n${note}` : `${note}\n` });
+        return;
+      }
       resolveOutcome({ ok: code === 0, exit_code: code ?? -1, stdout, stderr });
     });
   });
@@ -117,7 +134,8 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
   if (adapter.builtin === 'links') return checkLinks(ctx.cwd);
-  return spawnCheck(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.cwd);
+  const timeout = adapter.timeout ?? ctx.timeout;
+  return spawnCheck(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.cwd, timeout);
 };
 
 /** Persist raw output: JSON to `.check/<outputFile>`, else stdout/stderr text. */
@@ -183,6 +201,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const json = options.json ?? false;
   const bail = options.bail ?? false;
   const changed = options.changed ?? false;
+  const timeout = config?.timeout;
 
   await mkdir(join(cwd, '.check'), { recursive: true });
 
@@ -202,7 +221,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     const adapter = r.adapter;
     if (!json) writeLine(stderr, `  ▸ ${r.slot}  ${adapter.description}`);
     const start = performance.now();
-    const outcome = await runner(r, { cwd, changed });
+    const outcome = await runner(r, { cwd, changed, ...(timeout !== undefined ? { timeout } : {}) });
     const duration_ms = Math.round(performance.now() - start);
     await persistOutput(cwd, adapter, outcome);
     const entry: SummaryCheck = {

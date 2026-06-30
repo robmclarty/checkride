@@ -99,6 +99,16 @@ describe('config resolution', () => {
     expect(partial.adapter?.args).toContain('vitest');
   });
 
+  test('{ use } carries a timeout override onto the adapter', () => {
+    const r = resolveSlot('test', { checks: { test: { use: 'vitest', timeout: 30 } } }, never);
+    expect(r.adapter?.timeout).toBe(30);
+  });
+
+  test('a custom check carries its timeout', () => {
+    const r = resolveSlot('lint', { checks: { lint: { command: 'node', args: ['x'], timeout: 5 } } }, never);
+    expect(r.adapter?.timeout).toBe(5);
+  });
+
   test('{ command } custom check fills defaults and respects overrides', () => {
     const withDefaults = resolveSlot('lint', { checks: { lint: { command: 'node', args: ['x.mjs'] } } }, never);
     expect(withDefaults.adapter).toMatchObject({
@@ -159,5 +169,10 @@ describe('loadConfig', () => {
   test('reads and parses checkride.config.json', async () => {
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { spell: false } }));
     expect(loadConfig(dir)).toEqual({ checks: { spell: false } });
+  });
+
+  test('throws a friendly error on malformed JSON', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), '{ not valid json');
+    expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json');
   });
 });

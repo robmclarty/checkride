@@ -4,6 +4,12 @@
   "description": "An agent harness for TypeScript repositories: one command that is the definition of done, plus mechanically enforced module boundaries.",
   "license": "MIT",
   "author": "Rob McLarty",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robmclarty/checkride.git"
+  },
+  "homepage": "https://github.com/robmclarty/checkride#readme",
+  "bugs": "https://github.com/robmclarty/checkride/issues",
   "type": "module",
   "keywords": [
     "agent",
@@ -52,7 +58,7 @@
     "build": "tsc --build",
     "build:clean": "tsc --build --clean",
     "types": "tsc --build",
-    "prepublishOnly": "tsc --build"
+    "prepublishOnly": "tsc --build && vitest run"
   },
   "devDependencies": {
     "@ast-grep/cli": "0.42.1",

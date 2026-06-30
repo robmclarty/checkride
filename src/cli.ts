@@ -10,7 +10,7 @@
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.
  */
 
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
@@ -43,8 +43,58 @@ const INIT_OPTIONS = {
   add: { type: 'string' },
 } as const;
 
+const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
+
+Usage: checkride [command] [options]
+
+Commands:
+  (default)        Run the checks. Exit 0 pass / 1 fail / 2 error.
+  init             Set up a project (new or existing — auto-detected).
+  doctor           Verify the environment and every slot's status (read-only).
+  fix              Run every active adapter's fix command.
+
+Run options:
+  --only <a,b>     Run only these slots
+  --skip <a,b>     Skip these slots
+  --include <a,b>  Add opt-in slots (mutation, security) to the run
+  --all            Include every opt-in slot
+  --changed        Affected-only mode (incremental)
+  --bail           Stop at the first failure
+  --json           Emit the summary as JSON on stdout
+  -h, --help       Show this help
+  -V, --version    Show the version
+
+Every run writes a report to .check/summary.json.
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/** The `code` property of an Error-like value (e.g. Node's `ERR_PARSE_ARGS_*`). */
+function errorCode(err: unknown): string | undefined {
+  if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
+    return err.code;
+  }
+  return undefined;
+}
+
+/** parseArgs appends a long "To specify a positional…" hint; keep the first sentence. */
+function firstSentence(message: string): string {
+  const head = message.split('. ')[0] ?? message;
+  return head.endsWith('.') ? head : `${head}.`;
+}
+
+/** Read the package's own version from its shipped package.json (next to dist/). */
+function readVersion(): string {
+  try {
+    const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url));
+    const pkg: { version?: string } = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
 }
 
 function parseList(value: string | undefined): string[] | null {
@@ -125,6 +175,15 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
 
 /** Dispatch a CLI invocation; returns the process exit code. */
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    deps.stdout.write(HELP_TEXT);
+    return 0;
+  }
+  if (argv.includes('--version') || argv.includes('-V')) {
+    deps.stdout.write(`${readVersion()}\n`);
+    return 0;
+  }
+
   const { command } = detectCommand(argv);
   const dispatch: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
     run: dispatchRun,
@@ -134,13 +193,17 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   };
   const handler = dispatch[command];
   if (!handler) {
-    deps.stderr.write(`checkride: unknown command '${command}'.\n`);
+    deps.stderr.write(`checkride: unknown command '${command}'.\nRun \`checkride --help\` for usage.\n`);
     return 2;
   }
   try {
     return await handler(argv, deps);
   } catch (err) {
-    deps.stderr.write(`checkride: ${errorMessage(err)}\n`);
+    if (errorCode(err)?.startsWith('ERR_PARSE_ARGS')) {
+      deps.stderr.write(`checkride: ${firstSentence(errorMessage(err))}\nRun \`checkride --help\` for usage.\n`);
+    } else {
+      deps.stderr.write(`checkride: ${errorMessage(err)}\n`);
+    }
     return 2;
   }
 }

@@ -24,6 +24,7 @@ export type CustomCheck = {
   outputFile?: string | null;
   changedArgs?: string[];
   fixArgs?: string[];
+  timeout?: number;
   name?: string;
 };
 
@@ -36,6 +37,7 @@ export type UseConfig = {
   outputFile?: string | null;
   changedArgs?: string[];
   fixArgs?: string[];
+  timeout?: number;
 };
 
 /** Per-slot config: adapter name, `false` to disable, an override, or a custom check. */
@@ -44,6 +46,8 @@ export type SlotConfig = string | false | UseConfig | CustomCheck;
 /** Shape of `checkride.config.json`. */
 export type CheckrideConfig = {
   checks?: Record<string, SlotConfig>;
+  /** Default per-check timeout in seconds (no cap when unset). `0` on a check disables its cap. */
+  timeout?: number;
 };
 
 /** A slot resolved to a concrete adapter, or marked skipped with a reason. */
@@ -61,8 +65,13 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
   const text = readFileSync(path, 'utf8');
-  const config: CheckrideConfig = JSON.parse(text);
-  return config;
+  try {
+    const config: CheckrideConfig = JSON.parse(text);
+    return config;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, { cause: err });
+  }
 }
 
 function byName(name: string, adapters: readonly Adapter[]): Adapter | null {
@@ -90,6 +99,7 @@ function applyOverrides(base: Adapter, o: UseConfig): Adapter {
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),
     ...(o.changedArgs !== undefined ? { changedArgs: o.changedArgs } : {}),
     ...(o.fixArgs !== undefined ? { fixArgs: o.fixArgs } : {}),
+    ...(o.timeout !== undefined ? { timeout: o.timeout } : {}),
     ...(o.description !== undefined ? { description: o.description } : {}),
   };
 }
@@ -105,6 +115,7 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
     outputFile: c.outputFile ?? null,
     ...(c.changedArgs !== undefined ? { changedArgs: c.changedArgs } : {}),
     ...(c.fixArgs !== undefined ? { fixArgs: c.fixArgs } : {}),
+    ...(c.timeout !== undefined ? { timeout: c.timeout } : {}),
     devDeps: {},
   };
 }
