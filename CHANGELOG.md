@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-06-30
+
+### Added
+
+- `checkride --help` / `-h` and `checkride --version` / `-V`.
+- Optional per-check timeout, off by default: set a global `timeout` (seconds)
+  in `checkride.config.json` or override it per check; `0` exempts a slot. A hung
+  check is killed and reported as failed with its elapsed duration.
+
+### Changed
+
+- Supported Node floor lowered to 22.18 (the minimum required by the cspell and
+  oxlint toolchain). `init` and `doctor` reflect it, and CI now runs a Node
+  22 + 24 matrix.
+- Unknown commands and bad flags print a concise message plus a `checkride
+  --help` pointer; a malformed `checkride.config.json` now reports `invalid
+  checkride.config.json: <reason>` instead of a raw parser error.
+- `prepublishOnly` runs the test suite before publishing, not just the build.
+
+### Internal
+
+- `package.json` gains `repository`, `homepage`, and `bugs` for the npm page.
+- README and cheat sheet document the stderr/stdout stream split; README gains a
+  header image.
+
 ## [0.1.4] - 2026-06-26
 
 ### Added
@@ -95,6 +120,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.1.5]: https://www.npmjs.com/package/checkride/v/0.1.5
 [0.1.4]: https://www.npmjs.com/package/checkride/v/0.1.4
 [0.1.3]: https://www.npmjs.com/package/checkride/v/0.1.3
 [0.1.2]: https://www.npmjs.com/package/checkride/v/0.1.2
