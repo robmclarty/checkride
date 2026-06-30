@@ -26,6 +26,13 @@ export type CustomCheck = {
   fixArgs?: string[];
   timeout?: number;
   name?: string;
+  /**
+   * Where a config-only custom check runs relative to the built-in catalogue:
+   * `'first'` (ahead of every built-in check) or `'last'` (after them, the
+   * default). Ignored on entries that fill a catalogue slot — those keep their
+   * fixed catalogue position.
+   */
+  order?: 'first' | 'last';
 };
 
 /** Pick an adapter by name, with optional field overrides. */
@@ -159,9 +166,11 @@ function resolveOne(
 }
 
 /**
- * Resolve every catalogue slot (in order) to an adapter or a skip reason, then
- * append any config-only custom checks (an object with a `command`, keyed by a
- * name not in the catalogue — e.g. a project's `"licenses"` check).
+ * Resolve every catalogue slot (in order) to an adapter or a skip reason, and
+ * fold in any config-only custom checks (an object with a `command`, keyed by a
+ * name not in the catalogue — e.g. a project's `"licenses"` check). Each custom
+ * check runs ahead of the catalogue (`order: 'first'`) or after it (`'last'`,
+ * the default); within a group, config key order is preserved.
  */
 export function resolveChecks(input: {
   slots: readonly Slot[];
@@ -178,13 +187,15 @@ export function resolveChecks(input: {
   );
 
   const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const extras: ResolvedCheck[] = [];
+  const firsts: ResolvedCheck[] = [];
+  const lasts: ResolvedCheck[] = [];
   for (const [name, entry] of Object.entries(checks)) {
     if (catalogueNames.has(name)) continue;
     if (entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry) {
-      extras.push(active({ name }, customAdapter(name, entry)));
+      const resolved = active({ name }, customAdapter(name, entry));
+      (entry.order === 'first' ? firsts : lasts).push(resolved);
     }
   }
 
-  return [...catalogue, ...extras];
+  return [...firsts, ...catalogue, ...lasts];
 }

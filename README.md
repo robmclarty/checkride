@@ -119,13 +119,25 @@ slot's raw output for structured diagnostics.
     "lint": "biome",        // pick an alternate adapter
     "spell": false,         // disable a slot
     "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/master"] },
-    "licenses": {           // a custom check (no adapter needed)
+    "format": {             // a custom check that runs FIRST, ahead of the built-ins
+      "command": "pnpm",
+      "args": ["exec", "biome", "format", "--write"],
+      "order": "first"
+    },
+    "licenses": {           // a custom check (runs last by default)
       "command": "node",
       "args": ["scripts/check-licenses.mjs"]
     }
   }
 }
 ```
+
+A custom check (one keyed by a name that isn't a built-in slot) runs *after* the
+built-in catalogue by default. Set `"order": "first"` to run it ahead of every
+built-in check instead — handy for a formatter like `biome format --write` that
+should normalize the tree before the linters and tests look at it. `"order":
+"last"` is the explicit form of the default. Within each group, custom checks
+run in the order they appear in the config.
 
 A per-check timeout guards against a hung tool. It is **off by default** — a cap
 short enough to catch a hang on a small repo is short enough to kill a legitimate

@@ -151,6 +151,61 @@ describe('config resolution', () => {
     expect(licenses?.adapter?.command).toBe('node');
     expect(licenses?.optIn).toBe(false);
   });
+
+  test('a custom check defaults to running after the catalogue', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['x.mjs'] } } },
+      fileExists: never,
+    });
+    expect(resolved.at(-1)?.slot).toBe('licenses');
+  });
+
+  test('order:first runs a custom check ahead of every catalogue slot', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { format: { command: 'biome', args: ['format', '--write'], order: 'first' } } },
+      fileExists: never,
+    });
+    expect(resolved[0]?.slot).toBe('format');
+    expect(resolved.findIndex((r) => r.slot === 'format'))
+      .toBeLessThan(resolved.findIndex((r) => r.slot === SLOTS[0]?.name));
+  });
+
+  test('order:first leads and order:last (default) trails, around the catalogue', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: {
+        checks: {
+          format: { command: 'biome', args: ['format', '--write'], order: 'first' },
+          licenses: { command: 'node', args: ['x.mjs'] },
+        },
+      },
+      fileExists: never,
+    });
+    const names = resolved.map((r) => r.slot);
+    expect(names[0]).toBe('format');
+    expect(names.at(-1)).toBe('licenses');
+  });
+
+  test('custom checks preserve config key order within a group', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: {
+        checks: {
+          format: { command: 'a', order: 'first' },
+          notice: { command: 'b', order: 'first' },
+        },
+      },
+      fileExists: never,
+    });
+    const firsts = resolved.slice(0, 2).map((r) => r.slot);
+    expect(firsts).toEqual(['format', 'notice']);
+  });
 });
 
 describe('loadConfig', () => {
