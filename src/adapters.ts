@@ -77,7 +77,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'tsc', '--build'],
     outputFile: null,
-    devDeps: { typescript: '6.0.3', '@types/node': '24.12.2' },
+    devDeps: { typescript: '6.0.3', '@types/node': '22.20.0' },
   },
   {
     name: 'oxlint',

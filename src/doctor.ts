@@ -82,7 +82,7 @@ type Semver = { major: number; minor: number; patch: number; raw: string };
 const execFileP = promisify(execFile);
 
 const INSTALL_HINTS: Record<string, string> = {
-  node: 'Install Node >=24: https://nodejs.org/ or `nvm install 24 && nvm use 24`',
+  node: 'Install Node >=22.18: https://nodejs.org/ or `nvm install 22 && nvm use 22`',
   pnpm: 'Install pnpm >=9: `corepack enable && corepack prepare pnpm@latest --activate`',
   git: 'Install git: https://git-scm.com/downloads',
   install: 'Run `pnpm install` from the repo root.',
@@ -341,7 +341,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const json = options.json ?? false;
 
   const engines = env.readEngines(cwd);
-  const nodeMin = parseSemver(engines.node) ?? { major: 24, minor: 0, patch: 0, raw: '24.0.0' };
+  const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
 
   const checks: DoctorCheck[] = [

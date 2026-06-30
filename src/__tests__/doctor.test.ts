@@ -19,7 +19,7 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
     version: () => Promise.resolve('99.9.9'),
     exists: () => true,
     canWrite: () => Promise.resolve(true),
-    readEngines: () => ({ node: '>=24.0.0', pnpm: '>=9.0.0' }),
+    readEngines: () => ({ node: '>=22.18.0', pnpm: '>=9.0.0' }),
     platform: () => ({ os: 'linux', arch: 'x64' }),
     ...over,
   };
@@ -69,7 +69,7 @@ describe('runDoctor (injected env)', () => {
   test('a version exactly at the minimum is ok, not outdated', async () => {
     const result = await runDoctor({
       cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
-      env: fakeEnv({ version: () => Promise.resolve('24.0.0') }), stdout: sink(), json: true,
+      env: fakeEnv({ version: () => Promise.resolve('22.18.0') }), stdout: sink(), json: true,
     });
     expect(result.report.checks.find((c) => c.name === 'node')?.status).toBe('ok');
   });

@@ -208,7 +208,7 @@ function rootPackageJson(
     ...(author ? { author } : {}),
     type: 'module',
     ...(workspace ? { private: true } : {}),
-    engines: { node: '>=24.0.0', pnpm: '>=9.0.0' },
+    engines: { node: '>=22.18.0', pnpm: '>=9.0.0' },
     scripts: {
       check: 'checkride',
       'check:all': 'checkride --all',
