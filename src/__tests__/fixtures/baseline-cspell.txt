@@ -1,0 +1,4 @@
+src/cli.ts:35:37 - Unknown word (oxlint)
+src/config.ts:90:21 - Unknown word (vitest)
+src/init.ts:24:7 - Unknown word (cspell)
+src/init.ts:68:30 - Unknown word (cspell)

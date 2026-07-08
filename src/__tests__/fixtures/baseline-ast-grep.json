@@ -1,0 +1,29 @@
+[
+  {
+    "text": "export default cli",
+    "range": { "start": { "line": 0, "column": 0 }, "end": { "line": 0, "column": 18 } },
+    "file": "src/cli.ts",
+    "language": "TypeScript",
+    "ruleId": "no-default-export",
+    "severity": "error",
+    "message": "avoid default exports"
+  },
+  {
+    "text": "export default helper",
+    "range": { "start": { "line": 5, "column": 0 }, "end": { "line": 5, "column": 21 } },
+    "file": "src/cli.ts",
+    "language": "TypeScript",
+    "ruleId": "no-default-export",
+    "severity": "error",
+    "message": "avoid default exports"
+  },
+  {
+    "text": "class Config",
+    "range": { "start": { "line": 3, "column": 0 }, "end": { "line": 3, "column": 12 } },
+    "file": "src/config.ts",
+    "language": "TypeScript",
+    "ruleId": "no-class",
+    "severity": "error",
+    "message": "no classes"
+  }
+]

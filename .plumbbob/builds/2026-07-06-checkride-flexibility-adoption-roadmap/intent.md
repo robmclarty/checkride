@@ -153,7 +153,7 @@ message-key), a far smaller contract than a shared display schema.
    check is unaffected; unit test in `config.test.ts` covers both branches.
    - seam: `src/config.ts`, `src/__tests__/config.test.ts`, `README.md`
 
-3. [ ] Package-manager-agnostic runner — **done when:** a `src/pm/` module resolves
+3. [x] Package-manager-agnostic runner — **done when:** a `src/pm/` module resolves
    pnpm | npm | yarn | bun from lockfile fixtures (`pnpm-lock.yaml`, `package-lock.json`,
    `yarn.lock`, `bun.lock`) and the `packageManager` field, defaulting to pnpm; the
    orchestrator translates **only** each adapter's `pnpm exec <tool>` into the

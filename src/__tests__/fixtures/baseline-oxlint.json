@@ -1,0 +1,32 @@
+{
+  "diagnostics": [
+    {
+      "message": "Unexpected `await` inside a loop.",
+      "code": "eslint(no-await-in-loop)",
+      "severity": "warning",
+      "filename": "src/doctor.ts",
+      "labels": [{ "span": { "offset": 16753, "length": 5, "line": 389, "column": 17 } }]
+    },
+    {
+      "message": "Unexpected `await` inside a loop.",
+      "code": "eslint(no-await-in-loop)",
+      "severity": "warning",
+      "filename": "src/init.ts",
+      "labels": [{ "span": { "offset": 12524, "length": 5, "line": 370, "column": 33 } }]
+    },
+    {
+      "message": "Unexpected `await` inside a loop.",
+      "code": "eslint(no-await-in-loop)",
+      "severity": "warning",
+      "filename": "src/init.ts",
+      "labels": [{ "span": { "offset": 12690, "length": 5, "line": 372, "column": 5 } }]
+    },
+    {
+      "message": "Variable is assigned a value but never used.",
+      "code": "typescript(no-unused-vars)",
+      "severity": "error",
+      "filename": "src/config.ts",
+      "labels": [{ "span": { "offset": 100, "length": 1, "line": 12, "column": 9 } }]
+    }
+  ]
+}

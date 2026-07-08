@@ -56,3 +56,4 @@ you point at to say "I did that — the LLM helped, but those were my calls."
 folder, so it rides the branch into the PR.)*
 - 2026-07-08 — step 1 checkpointed · 7d2953a0b — Publish a JSON Schema for `checkride.config.json` and emit a `$schema`
 - 2026-07-08 — step 2 checkpointed · a1ec9bb18 — Let custom checks declare a `detect` field so shared presets are safe
+- 2026-07-08 — step 3 checkpointed · ba3a20b57 — Package-manager-agnostic runner
