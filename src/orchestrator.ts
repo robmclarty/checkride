@@ -75,7 +75,15 @@ export type RunOptions = RunFlags & {
   pm?: PackageManager;
 };
 
-export type RunResult = { ok: boolean; summary: Summary; exitCode: number };
+/**
+ * One executed check: its slot, the adapter that ran, and the raw outcome. The
+ * `baseline` command reads these to fingerprint each fingerprintable slot's
+ * output — the same bytes a normal run captures — without re-walking the loop.
+ * Skipped checks never appear here; they produced no output to fingerprint.
+ */
+export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome };
+
+export type RunResult = { ok: boolean; summary: Summary; exitCode: number; runs: CheckRun[] };
 
 /** Port of the interim `select_checks`: only/skip/opt-in selection by slot name. */
 export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags): ResolvedCheck[] {
@@ -217,6 +225,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   if (!json) writeLine(stderr, `\nRunning ${selected.length} check(s)...\n`);
 
   const checks: SummaryCheck[] = [];
+  const runs: CheckRun[] = [];
   for (const r of selected) {
     // Skip when unresolved, or when the adapter can't run under this PM — e.g.
     // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
@@ -234,6 +243,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     const start = performance.now();
     const outcome = await runner(r, { cwd, changed, pm, ...(timeout !== undefined ? { timeout } : {}) });
     const duration_ms = Math.round(performance.now() - start);
+    runs.push({ slot: r.slot, adapter, outcome });
     await persistOutput(cwd, adapter, outcome);
     const entry: SummaryCheck = {
       name: r.slot,
@@ -262,7 +272,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     writeLine(stderr, '');
   }
 
-  return { ok: summary.ok, summary, exitCode: summary.ok ? 0 : 1 };
+  return { ok: summary.ok, summary, exitCode: summary.ok ? 0 : 1, runs };
 }
 
 /** Result of a single adapter's fix command. */

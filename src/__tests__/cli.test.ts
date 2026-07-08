@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -132,6 +132,30 @@ describe('runCli run (built-in links path)', () => {
   test('exits 1 when a check fails', async () => {
     await writeFile(join(dir, 'README.md'), 'broken [x](./missing.md)\n');
     expect(await runCli(['--only', 'links'], deps())).toBe(1);
+  });
+});
+
+describe('runCli baseline', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-baseline-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('writes checkride.baseline.json at repo root and exits 0', async () => {
+    await writeFile(join(dir, 'README.md'), '# clean, no links\n');
+    const code = await runCli(['baseline'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
+    const path = join(dir, 'checkride.baseline.json');
+    expect(existsSync(path)).toBe(true);
+    // A bare dir detects no fingerprintable tool, so the baseline is empty but valid.
+    const written = JSON.parse(readFileSync(path, 'utf8')) as { schema_version: number; slots: unknown };
+    expect(written.schema_version).toBe(1);
+    expect(written.slots).toEqual({});
+  });
+
+  test('baseline appears in --help', async () => {
+    const out = sink();
+    await runCli(['--help'], { cwd: dir, stdout: out, stderr: sink() });
+    expect(out.text()).toContain('baseline');
   });
 });
 

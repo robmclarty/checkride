@@ -7,3 +7,5 @@
 
 export type { Extractor, Fingerprint } from './fingerprint.js';
 export { fingerprint } from './fingerprint.js';
+export type { Baseline, BaselineOptions, BaselineResult } from './command.js';
+export { BASELINE_FILE, BASELINE_SCHEMA_VERSION, runBaseline } from './command.js';

@@ -166,7 +166,7 @@ message-key), a far smaller contract than a shared display schema.
      `src/doctor.ts`, `src/__tests__/` (new `pm.test.ts` + orchestrator test),
      `README.md`, `docs/tools.md`
 
-4. [ ] Baseline part 1 — per-adapter diagnostic fingerprints — **done when:** a
+4. [x] Baseline part 1 — per-adapter diagnostic fingerprints — **done when:** a
    `src/baseline/fingerprint.ts` exposes a per-adapter extractor that turns a raw
    tool payload (oxlint JSON, fallow JSON, ast-grep compact JSON, cspell text) into
    a stable, order-independent set of keys (`<file>:<rule>:<message-key>`); adapters

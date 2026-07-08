@@ -14,6 +14,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { runBaseline } from './baseline/index.js';
 import { runDoctor } from './doctor.js';
 import type { InitOptions, Shape } from './init.js';
 import { runInit } from './init.js';
@@ -52,6 +53,7 @@ Commands:
   init             Set up a project (new or existing — auto-detected).
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
+  baseline         Record current diagnostics as a committed baseline.
 
 Run options:
   --only <a,b>     Run only these slots
@@ -173,6 +175,11 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
+async function dispatchBaseline(_argv: string[], deps: CliDeps): Promise<number> {
+  const result = await runBaseline({ cwd: deps.cwd, stdout: deps.stdout, stderr: deps.stderr });
+  return result.exitCode;
+}
+
 /** Dispatch a CLI invocation; returns the process exit code. */
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -190,6 +197,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     init: dispatchInit,
     doctor: dispatchDoctor,
     fix: dispatchFix,
+    baseline: dispatchBaseline,
   };
   const handler = dispatch[command];
   if (!handler) {
