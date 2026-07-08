@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
+import { BASELINE_FILE, isFingerprintable, runBaseline } from './baseline/index.js';
 import { configSchemaUrl, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { runChecks } from './orchestrator.js';
@@ -40,6 +41,15 @@ export type InitOptions = {
   adapters?: readonly Adapter[];
   /** Existing mode: returns the adopted slots whose check currently fails. */
   probeFailures?: (slots: string[], cwd: string) => Promise<string[]>;
+  /**
+   * Existing mode: grandfather current debt into `checkride.baseline.json`
+   * instead of disabling failing slots (`--baseline`, step 6 / c10). A failing
+   * fingerprintable slot stays enabled and is masked by the baseline; a failing
+   * slot with no extractor still falls back to a `false` disable.
+   */
+  baseline?: boolean;
+  /** Existing mode + `--baseline`: capture the committed baseline (injectable). */
+  captureBaseline?: (cwd: string) => Promise<void>;
 };
 
 export type InitResult = {
@@ -48,6 +58,8 @@ export type InitResult = {
   written: string[];
   skipped: string[];
   disabled: string[];
+  /** Slots whose failing debt was grandfathered into the baseline (`--baseline`). */
+  grandfathered: string[];
   exitCode: number;
 };
 
@@ -93,6 +105,14 @@ export function buildStanza(activeSlots: readonly string[]): string {
     '',
     'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
     '`pnpm check --changed`.',
+    '',
+    '### Baseline',
+    '',
+    'If `checkride.baseline.json` is present, checkride grandfathers the diagnostics it',
+    'lists: a slot is green as long as only baselined findings remain, while a genuinely',
+    'new diagnostic still fails it. Fixing a baselined finding prunes it from the file —',
+    'the ratchet, so the baseline only ever shrinks. Never add to the baseline to make a',
+    'check pass; fix the finding.',
     '',
     '### Module boundaries',
     '',
@@ -426,7 +446,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   if (options.stdout) {
     options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
   }
-  return { mode: 'new', shape, written: w.written, skipped: [], disabled: [], exitCode: 0 };
+  return { mode: 'new', shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------
@@ -503,11 +523,28 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
 
-  // Step 3: run each adopted check once; failing slots are recorded as `false`
-  // (disabled) so the first `pnpm check` is green-ish — re-enable as you fix.
+  // Run each adopted check once to see what currently fails.
   const probe = options.probeFailures ?? defaultProbe;
   const failing = new Set(await probe(adopted.map((i) => i.slot), cwd));
-  const disabled = adopted.filter((i) => failing.has(i.slot)).map((i) => i.slot);
+
+  // Adoption path for the failures. `--baseline` (step 6 / c10) grandfathers a
+  // failing *fingerprintable* slot into checkride.baseline.json and keeps it
+  // enabled — the baseline masks its current debt on the next run, so it's the
+  // ratchet, not a disabled slot, that carries the cleanup. A failing slot with
+  // no extractor can't be grandfathered, so it still falls back to a `false`
+  // disable. Without `--baseline`, every failing slot is disabled (the original
+  // step-3 behavior): the first `pnpm check` is green-ish, re-enable as you fix.
+  const useBaseline = options.baseline ?? false;
+  const grandfathered = useBaseline
+    ? adopted.filter((i) => failing.has(i.slot) && i.adapter !== null && isFingerprintable(i.adapter)).map((i) => i.slot)
+    : [];
+  const grandfatheredSet = new Set(grandfathered);
+  if (grandfathered.length > 0) {
+    const capture = options.captureBaseline ?? ((at: string) => runBaseline({ cwd: at }).then(() => undefined));
+    await capture(cwd);
+  }
+  const disabled = adopted.filter((i) => failing.has(i.slot) && !grandfatheredSet.has(i.slot)).map((i) => i.slot);
+  const disabledSet = new Set(disabled);
 
   // checkride.config.json reflecting adopted tools (and disabled failures). Never
   // overwrite an existing one.
@@ -515,7 +552,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   if (!existsSync(configPath)) {
     const checks: Record<string, string | false> = {};
     for (const i of adopted) {
-      if (failing.has(i.slot)) checks[i.slot] = false;
+      if (disabledSet.has(i.slot)) checks[i.slot] = false;
       else if (i.adapter) checks[i.slot] = i.adapter;
     }
     const config = { $schema: configSchemaUrl(productVersion()), checks };
@@ -563,11 +600,14 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     options.stdout.write(
       `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
     );
+    if (grandfathered.length > 0) {
+      options.stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
+    }
     if (disabled.length > 0) {
       options.stdout.write(`  disabled failing slots (enable as you fix): ${disabled.join(', ')}\n`);
     }
   }
-  return { mode: 'existing', shape: null, written: w.written, skipped, disabled, exitCode: 0 };
+  return { mode: 'existing', shape: null, written: w.written, skipped, disabled, grandfathered, exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------

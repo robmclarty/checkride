@@ -44,8 +44,10 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
 checkride init         Set up a project (new or existing — auto-detected).
   --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
+  --baseline   (existing mode) grandfather current debt instead of disabling slots
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
+checkride baseline     Record current diagnostics as a committed baseline.
 ```
 
 During iteration, narrow the loop: `checkride --bail`, `checkride --only
@@ -116,6 +118,10 @@ changes as breaking.
   `<slot>.stdout.txt` / `<slot>.stderr.txt`. Tools that write their own files
   (vitest `--outputFile`, stryker) keep doing so.
 
+When a [baseline](#baseline) masks a slot's findings, that check gains an additive
+`"baselined": <n>` field counting the grandfathered diagnostics; it is absent on
+runs with no baseline, so `schema_version` is unchanged.
+
 To debug a failure: read `summary.json` to find the failing slot, then read that
 slot's raw output for structured diagnostics.
 
@@ -171,6 +177,56 @@ slow run on a large one, and CI job timeouts already bound true hangs. Set a
 global `timeout` (seconds) to opt in, override it per check (`"timeout": <n>`),
 and use `"timeout": 0` to exempt a slot. Leave `dead`, `test`, and `mutation`
 generous or uncapped — they legitimately run long.
+
+## Baseline
+
+Adopting checkride on an existing repo shouldn't be a cleanup project. A
+**baseline** grandfathers the diagnostics a repo has *today* so day-one runs pass,
+while any *new* diagnostic still fails — "don't make it worse" as the definition of
+done for legacy code.
+
+```bash
+checkride baseline        # record current diagnostics into checkride.baseline.json
+```
+
+`checkride.baseline.json` lives at the repo root beside `checkride.config.json` and
+**is committed** — it must be in version control to work. It records a per-slot set
+of stable *fingerprints* (a `file:rule:message` key that survives line moves), not
+raw output:
+
+```jsonc
+{
+  "schema_version": 1,
+  "slots": {
+    "lint":  ["src/legacy.ts:no-explicit-any:Unexpected any"],
+    "spell": ["docs/old.md::teh"]
+  }
+}
+```
+
+Once it exists, every normal run is **baseline-aware**:
+
+- Each slot's current findings have the grandfathered ones subtracted. A slot is
+  **green when only baselined findings remain**, and **fails listing only the new
+  ones** — the raw `.check/<slot>.json` still holds everything, and the failing
+  check gains a `"baselined": <n>` count.
+- The baseline is a **ratchet**: fixing a grandfathered finding prunes it from the
+  file (it only ever shrinks), so debt can't silently creep back. A partial run
+  (`--only`, `--skip`, `--changed`, or a `--bail` that stops early) never prunes —
+  it can't tell an unobserved finding from a fixed one, so it leaves the baseline
+  untouched.
+- Never add to the baseline to make a check pass; fix the finding, or re-run
+  `checkride baseline` deliberately to re-grandfather.
+
+Only slots whose tool has a fingerprint extractor participate (currently `lint` via
+oxlint, `struct` via ast-grep, `spell` via cspell); other slots (`types`, `dead`,
+`test`, …) never appear in the baseline. A crash or empty output is never masked —
+a slot only goes green when there are findings and all of them are grandfathered.
+
+To adopt on an existing repo, `checkride init --baseline` grandfathers today's
+failing (fingerprintable) slots into the baseline and keeps them enabled, instead of
+writing them off as `false`; a failing slot with no extractor still falls back to a
+disable.
 
 ## Project shapes
 

@@ -14,6 +14,17 @@ import { performance } from 'node:perf_hooks';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
+import type { Baseline, Fingerprint } from './baseline/index.js';
+import {
+  applyBaseline,
+  BASELINE_FILE,
+  baselinesEqual,
+  countBaselineKeys,
+  fingerprint,
+  loadBaseline,
+  ratchet,
+  writeBaseline,
+} from './baseline/index.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { loadConfig, resolveChecks } from './config.js';
 import type { CheckOutcome } from './links.js';
@@ -46,6 +57,13 @@ export type SummaryCheck = {
   exit_code: number | null;
   duration_ms: number;
   output_file: string | null;
+  /**
+   * Present only when a baseline masked one or more of this slot's diagnostics:
+   * the count of current findings grandfathered by `checkride.baseline.json`.
+   * Additive field — absent on runs with no baseline, so `schema_version` holds
+   * (D8/C4).
+   */
+  baselined?: number;
 };
 
 /** The `.check/summary.json` contract. A public API for agents. */
@@ -73,6 +91,13 @@ export type RunOptions = RunFlags & {
   runner?: CheckRunner;
   /** Package manager to run under; detected from `cwd` when omitted. */
   pm?: PackageManager;
+  /**
+   * Baseline to mask/ratchet against. Omitted → loaded from
+   * `cwd/checkride.baseline.json`; `null` → run with no baseline (a `checkride
+   * baseline` capture passes this so it records raw diagnostics). Injectable so
+   * tests drive baseline-aware runs without a committed file.
+   */
+  baseline?: Baseline | null;
 };
 
 /**
@@ -216,6 +241,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const changed = options.changed ?? false;
   const timeout = config?.timeout;
   const pm = options.pm ?? detectPackageManager({ cwd });
+  const baseline = options.baseline !== undefined ? options.baseline : loadBaseline(cwd);
 
   await mkdir(join(cwd, '.check'), { recursive: true });
 
@@ -226,6 +252,10 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   const checks: SummaryCheck[] = [];
   const runs: CheckRun[] = [];
+  // Per-slot current fingerprints for slots actually observed this run, and
+  // whether `--bail` cut the loop short — both feed the ratchet's full-run gate.
+  const observed = new Map<string, Fingerprint>();
+  let brokeEarly = false;
   for (const r of selected) {
     // Skip when unresolved, or when the adapter can't run under this PM — e.g.
     // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
@@ -245,18 +275,60 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     const duration_ms = Math.round(performance.now() - start);
     runs.push({ slot: r.slot, adapter, outcome });
     await persistOutput(cwd, adapter, outcome);
+
+    // Baseline-aware: subtract this slot's grandfathered diagnostics. Masking is
+    // always on (even under a partial run); only the ratchet below is gated. The
+    // raw `.check/<slot>.json` is already persisted untouched — masking changes
+    // the pass/fail verdict, never the authoritative output.
+    let ok = outcome.ok;
+    let baselined = 0;
+    let newKeys: string[] = [];
+    const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
+    if (baseline && current !== null) {
+      observed.set(r.slot, current);
+      const adj = applyBaseline(current, baseline.slots[r.slot] ?? [], outcome.ok);
+      ({ ok, baselined, newKeys } = adj);
+    }
+
     const entry: SummaryCheck = {
       name: r.slot,
       adapter: adapter.name,
       description: adapter.description,
-      ok: outcome.ok,
+      ok,
       exit_code: outcome.exit_code,
       duration_ms,
       output_file: adapter.outputFile,
+      ...(baselined > 0 ? { baselined } : {}),
     };
     checks.push(entry);
-    if (!json) writeLine(stderr, formatStatusLine(entry));
-    if (!outcome.ok && bail) break;
+    if (!json) {
+      writeLine(stderr, formatStatusLine(entry));
+      if (baselined > 0) writeLine(stderr, `           ${baselined} baselined (grandfathered)`);
+      if (!ok && newKeys.length > 0) {
+        writeLine(stderr, `           ${newKeys.length} new, not in baseline:`);
+        for (const k of newKeys) writeLine(stderr, `             ${k}`);
+      }
+    }
+    if (!ok && bail) { brokeEarly = true; break; }
+  }
+
+  // Ratchet: on a fully-observed run, prune grandfathered diagnostics now fixed.
+  // A partial run (`--only`/`--skip`/`--changed`) or an early `--bail` break can't
+  // see every slot's full output, so it never prunes — an unobserved diagnostic
+  // must not be mistaken for a fixed one and dropped (a1). Masking still applied
+  // above; only the rewrite is withheld.
+  if (baseline) {
+    const restricted =
+      (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
+    if (!restricted) {
+      const pruned = ratchet(baseline, observed);
+      if (!baselinesEqual(baseline, pruned)) {
+        await writeBaseline(cwd, pruned);
+        if (!json) {
+          writeLine(stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
+        }
+      }
+    }
   }
 
   const summary = buildSummary(checks);

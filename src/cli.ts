@@ -42,6 +42,7 @@ const INIT_OPTIONS = {
   author: { type: 'string' },
   'dry-run': { type: 'boolean', default: false },
   add: { type: 'string' },
+  baseline: { type: 'boolean', default: false },
 } as const;
 
 const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
@@ -51,6 +52,7 @@ Usage: checkride [command] [options]
 Commands:
   (default)        Run the checks. Exit 0 pass / 1 fail / 2 error.
   init             Set up a project (new or existing — auto-detected).
+                   Existing mode: --baseline grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
@@ -147,6 +149,7 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   if (values.license) opts.license = values.license;
   if (values.author) opts.author = values.author;
   if (values['dry-run']) opts.dryRun = true;
+  if (values.baseline) opts.baseline = true;
   const add = parseList(values.add);
   if (add) opts.add = add;
   return opts;

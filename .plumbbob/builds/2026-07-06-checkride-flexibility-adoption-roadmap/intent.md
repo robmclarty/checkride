@@ -177,7 +177,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/baseline/fingerprint.ts`, `src/baseline/index.ts`,
      `src/__tests__/baseline-fingerprint.test.ts` (+ fixtures under `src/__tests__/`)
 
-5. [ ] Baseline part 2 — `checkride baseline` command — **done when:** `checkride
+5. [x] Baseline part 2 — `checkride baseline` command — **done when:** `checkride
    baseline` runs the pipeline, fingerprints each fingerprintable slot's output, and
    writes **`checkride.baseline.json` at repo root** (beside `checkride.config.json`,
    committed — *not* under the gitignored `.check/`; D9), shaped

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -5,6 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
+import type { Baseline } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { CheckRunner, Out, Summary } from '../orchestrator.js';
 import { runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
@@ -26,6 +28,28 @@ const failLint: CheckRunner = (r) =>
   Promise.resolve({ ok: r.slot !== 'lint', exit_code: r.slot === 'lint' ? 1 : 0, stdout: '', stderr: '' });
 
 const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+const KEY_A = 'a.ts:no-x:bad';
+const KEY_B = 'b.ts:no-y:worse';
+
+/** Build an oxlint `--format=json` payload from `[file, code, message]` triples. */
+function oxlint(findings: [string, string, string][]): string {
+  return JSON.stringify({
+    diagnostics: findings.map(([filename, code, message]) => ({ filename, code, message })),
+  });
+}
+
+/** A lint runner emitting the given findings; it fails when any are present. */
+function lintRunner(findings: [string, string, string][]): CheckRunner {
+  const stdout = oxlint(findings);
+  const ok = findings.length === 0;
+  return (r) =>
+    Promise.resolve(
+      r.slot === 'lint'
+        ? { ok, exit_code: ok ? 0 : 1, stdout, stderr: '' }
+        : { ok: true, exit_code: 0, stdout: '', stderr: '' },
+    );
+}
 
 describe('selectChecks', () => {
   const resolved = [mkResolved('types'), mkResolved('lint'), mkResolved('mutation', true)];
@@ -221,6 +245,96 @@ describe('runChecks (real subprocess)', () => {
       stdout: sink().out, stderr: sink().out,
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: true, exit_code: 0 });
+  });
+});
+
+describe('runChecks (baseline-aware)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-base-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'lint' }];
+  const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' })];
+
+  const oneA: [string, string, string][] = [['a.ts', 'no-x', 'bad']];
+  const baselineFile = (): string => join(dir, 'checkride.baseline.json');
+  const readWritten = async (): Promise<Baseline> =>
+    JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline;
+
+  test('passes green when only baselined diagnostics remain', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.exitCode).toBe(0);
+    const lint = result.summary.checks.find((c) => c.name === 'lint');
+    expect(lint).toMatchObject({ ok: true, baselined: 1 });
+  });
+
+  test('fails on a genuinely new diagnostic, listing only the new key', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner([['a.ts', 'no-x', 'bad'], ['c.ts', 'no-z', 'new']]),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A] } },
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, baselined: 1 });
+    const printed = std.lines.join('');
+    expect(printed).toContain('c.ts:no-z:new'); // the new finding is surfaced
+    expect(printed).not.toContain(KEY_A); // the grandfathered one is not re-listed
+  });
+
+  test('ratchets the baseline smaller after a fix (fully-observed run)', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner(oneA), // KEY_B is gone → fixed
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.ok).toBe(true); // only the still-present KEY_A remains, all baselined
+    expect((await readWritten()).slots['lint']).toEqual([KEY_A]);
+  });
+
+  test('a partial --only run never prunes the baseline', async () => {
+    await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner(oneA), // KEY_B looks "fixed", but the run is partial
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      only: ['lint'], json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(existsSync(baselineFile())).toBe(false); // no rewrite happened
+  });
+
+  test('a --changed run never prunes the baseline', async () => {
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      changed: true, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  test('an unchanged full run does not rewrite the baseline', async () => {
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A] } }, // nothing to prune
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  test('with no baseline present, behavior is unchanged (no masking, no field)', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.ok).toBe(false); // the failure stands
+    expect(result.summary.checks.find((c) => c.name === 'lint')?.baselined).toBeUndefined();
   });
 });
 

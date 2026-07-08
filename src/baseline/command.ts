@@ -17,9 +17,6 @@
  * the bytes a normal run would.
  */
 
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-
 import type { Adapter, Slot } from '../adapters.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner, Out, RunOptions } from '../orchestrator.js';
@@ -27,18 +24,8 @@ import { runChecks } from '../orchestrator.js';
 import type { PackageManager } from '../pm/index.js';
 
 import { fingerprint } from './fingerprint.js';
-
-/** The committed baseline artifact, at repo root beside `checkride.config.json`. */
-export const BASELINE_FILE = 'checkride.baseline.json';
-
-/** Schema version of the baseline file; independent of the summary schema (D8). */
-export const BASELINE_SCHEMA_VERSION = 1;
-
-/** Shape of `checkride.baseline.json`: per-slot sets of grandfathered keys. */
-export type Baseline = {
-  schema_version: number;
-  slots: Record<string, string[]>;
-};
+import type { Baseline } from './store.js';
+import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, writeBaseline } from './store.js';
 
 export type BaselineOptions = {
   cwd?: string;
@@ -60,11 +47,14 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   const stderr = options.stderr ?? process.stderr;
 
   // json:false so the run reports progress on stderr and nothing on stdout; the
-  // baseline artifact is the file, so stdout stays clean (C5).
+  // baseline artifact is the file, so stdout stays clean (C5). baseline:null so a
+  // re-capture records the raw current diagnostics — never masked or pruned by an
+  // existing baseline the run would otherwise pick up (step 6).
   const runOptions: RunOptions = {
     cwd,
     json: false,
     stderr,
+    baseline: null,
     ...(options.slots !== undefined ? { slots: options.slots } : {}),
     ...(options.adapters !== undefined ? { adapters: options.adapters } : {}),
     ...(options.config !== undefined ? { config: options.config } : {}),
@@ -82,7 +72,7 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   }
 
   const baseline: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots };
-  await writeFile(join(cwd, BASELINE_FILE), `${JSON.stringify(baseline, null, 2)}\n`);
+  await writeBaseline(cwd, baseline);
 
   const slotNames = Object.keys(slots);
   const total = Object.values(slots).reduce((n, keys) => n + keys.length, 0);

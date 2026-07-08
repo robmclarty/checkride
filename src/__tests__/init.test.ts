@@ -165,6 +165,44 @@ describe('existing-project adoption (idempotent)', () => {
     expect(cfg.checks['types']).toBe('tsc');
   });
 
+  test('--baseline grandfathers fingerprintable failures and only disables the rest (c10)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}'); // types → tsc (no fingerprint extractor)
+    await writeFile(join(dir, '.oxlintrc.json'), '{}'); // lint → oxlint (fingerprintable)
+
+    let captured = false;
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      probeFailures: () => Promise.resolve(['types', 'lint']),
+      captureBaseline: () => { captured = true; return Promise.resolve(); },
+    });
+
+    expect(captured).toBe(true);
+    expect(result.grandfathered).toEqual(['lint']); // masked by the baseline, stays enabled
+    expect(result.disabled).toEqual(['types']); // no extractor → still falls back to `false`
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['lint']).toBe('oxlint');
+    expect(cfg.checks['types']).toBe(false);
+  });
+
+  test('--baseline does not capture when nothing fingerprintable is failing', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}'); // only a non-fingerprintable slot
+
+    let captured = false;
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      probeFailures: () => Promise.resolve(['types']),
+      captureBaseline: () => { captured = true; return Promise.resolve(); },
+    });
+
+    expect(captured).toBe(false); // no fingerprintable debt → no baseline written
+    expect(result.grandfathered).toEqual([]);
+    expect(result.disabled).toEqual(['types']);
+  });
+
   test('adds the check alias to an existing package.json, preserving scripts', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { build: 'tsc' } }));
     const result = await runInit({ cwd: dir, probeFailures: noFailures });

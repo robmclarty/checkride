@@ -118,3 +118,13 @@ export function fingerprint(adapter: string, raw: string): Fingerprint | null {
   const extractor = EXTRACTORS[adapter];
   return extractor ? extractor(raw) : null;
 }
+
+/**
+ * Whether an adapter can be fingerprinted (has an extractor), decided by name
+ * without needing its output. `init --baseline` uses this to tell which failing
+ * slots the baseline can grandfather from those that must still fall back to a
+ * `false` disable.
+ */
+export function isFingerprintable(adapter: string): boolean {
+  return EXTRACTORS[adapter] !== undefined;
+}
