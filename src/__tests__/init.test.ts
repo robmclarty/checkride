@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { applyStanza, buildStanza, detectMode, inventory, runInit } from '../init.js';
+import { applyStopHook, CLAUDE_SETTINGS_FILE, stopHookCommand, writeStopHook } from '../agent-setup/index.js';
+import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
   const body = buildStanza(['types', 'lint', 'spell']);
@@ -247,5 +248,137 @@ describe('existing-project adoption (idempotent)', () => {
     const result = await runInit({ cwd: dir, add: ['lint'], probeFailures: noFailures });
     expect(await readFile(join(dir, '.oxlintrc.json'), 'utf8')).toContain('sentinel');
     expect(result.skipped).toContain('.oxlintrc.json (exists)');
+  });
+
+  test('init writes the Claude Code Stop hook, and --no-hook skips it', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const withHook = await runInit({ cwd: dir, probeFailures: noFailures });
+    expect(withHook.written).toContain(CLAUDE_SETTINGS_FILE);
+    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      hooks: { Stop: { hooks: { command: string }[] }[] };
+    };
+    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain('pnpm run check');
+
+    await rm(join(dir, '.claude'), { recursive: true, force: true });
+    const noHook = await runInit({ cwd: dir, hook: false, probeFailures: noFailures });
+    expect(noHook.written).not.toContain(CLAUDE_SETTINGS_FILE);
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+  });
+});
+
+describe('Stop hook (applyStopHook / stopHookCommand)', () => {
+  test('command runs the detected PM and blocks with exit 2', () => {
+    expect(stopHookCommand('pnpm')).toContain('pnpm run check');
+    expect(stopHookCommand('npm')).toContain('npm run check');
+    expect(stopHookCommand('yarn')).toContain('yarn run check');
+    expect(stopHookCommand('bun')).toContain('bun run check');
+    expect(stopHookCommand('npm')).toContain('exit 2');
+  });
+
+  test('adds a Stop group to empty settings', () => {
+    const next = applyStopHook({}, stopHookCommand('pnpm'));
+    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain('pnpm run check');
+  });
+
+  test('applying twice is a no-op (deep equal)', () => {
+    const cmd = stopHookCommand('pnpm');
+    const once = applyStopHook({ hooks: { Stop: [] } }, cmd);
+    expect(applyStopHook(once, cmd)).toEqual(once);
+  });
+
+  test('preserves unrelated settings keys and other Stop groups', () => {
+    const settings = {
+      permissions: { allow: ['Bash'] },
+      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo other' }] }] },
+    };
+    const next = applyStopHook(settings, stopHookCommand('pnpm'));
+    expect(next['permissions']).toEqual({ allow: ['Bash'] });
+    expect(next.hooks?.Stop).toHaveLength(2);
+    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toBe('echo other');
+  });
+
+  test('refreshes the command in place when the PM changes (no duplicate group)', () => {
+    const first = applyStopHook({}, stopHookCommand('pnpm'));
+    const second = applyStopHook(first, stopHookCommand('npm'));
+    expect(second.hooks?.Stop).toHaveLength(1);
+    expect(second.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain('npm run check');
+    expect(second.hooks?.Stop?.[0]?.hooks?.[0]?.command).not.toContain('pnpm run check');
+  });
+});
+
+describe('writeStopHook', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('creates the settings file, then a second run is a no-op', async () => {
+    const first = await writeStopHook(dir);
+    expect(first.changed).toBe(true);
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(true);
+    const second = await writeStopHook(dir);
+    expect(second.changed).toBe(false);
+  });
+
+  test('uses the detected package manager (npm lockfile → npm run check)', async () => {
+    await writeFile(join(dir, 'package-lock.json'), '{}');
+    await writeStopHook(dir);
+    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      hooks: { Stop: { hooks: { command: string }[] }[] };
+    };
+    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain('npm run check');
+  });
+
+  test('merges into an existing settings file, preserving other keys', async () => {
+    await mkdir(join(dir, '.claude'), { recursive: true });
+    await writeFile(
+      join(dir, CLAUDE_SETTINGS_FILE),
+      JSON.stringify({ model: 'sonnet', hooks: { PreToolUse: [{ matcher: 'Bash' }] } }),
+    );
+    await writeStopHook(dir);
+    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      model: string;
+      hooks: { PreToolUse: unknown[]; Stop: unknown[] };
+    };
+    expect(settings.model).toBe('sonnet');
+    expect(settings.hooks.PreToolUse).toHaveLength(1);
+    expect(settings.hooks.Stop).toHaveLength(1);
+  });
+
+  test('dryRun computes without writing', async () => {
+    const result = await writeStopHook(dir, { dryRun: true });
+    expect(result.changed).toBe(true);
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+  });
+});
+
+describe('runAgentSetup (existing repo, no full init)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-agent-setup-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('writes the check alias, AGENTS stanza, and Stop hook; second run is a no-op', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+
+    const first = await runAgentSetup({ cwd: dir });
+    expect(first.written).toContain('AGENTS.md');
+    expect(first.written).toContain(CLAUDE_SETTINGS_FILE);
+    expect(first.written).toContain('package.json (added check script)');
+    const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+    expect(pkg.scripts['check']).toBe('checkride');
+    const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('<!-- checkride:begin -->');
+
+    const second = await runAgentSetup({ cwd: dir });
+    expect(second.written).toEqual([]);
+    expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
+    expect(second.skipped).toContain(`${CLAUDE_SETTINGS_FILE} (Stop hook unchanged)`);
+  });
+
+  test('--no-hook writes the stanza but not the Stop hook', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const result = await runAgentSetup({ cwd: dir, hook: false });
+    expect(result.written).toContain('AGENTS.md');
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
   });
 });

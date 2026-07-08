@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
+import { CLAUDE_SETTINGS_FILE, writeStopHook } from './agent-setup/index.js';
 import { BASELINE_FILE, isFingerprintable, runBaseline } from './baseline/index.js';
 import { configSchemaUrl, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
@@ -36,6 +37,11 @@ export type InitOptions = {
   dryRun?: boolean;
   add?: string[] | null;
   checkrideSpec?: string;
+  /**
+   * Write the Claude Code Stop hook to `.claude/settings.json` (step 12).
+   * Opt-out: defaults to on; `--no-hook` sets it `false`.
+   */
+  hook?: boolean;
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -105,6 +111,11 @@ export function buildStanza(activeSlots: readonly string[]): string {
     '',
     'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
     '`pnpm check --changed`.',
+    '',
+    'If a Claude Code Stop hook is configured (`.claude/settings.json`), it runs the full',
+    '`pnpm check` as the final gate — so while iterating, prefer the narrow commands above',
+    'and let the hook run the authoritative pipeline once at the end rather than running',
+    'the full check yourself every loop.',
     '',
     '### Baseline',
     '',
@@ -400,6 +411,18 @@ async function writePackage(w: Writer, dir: string, pkgName: string, value: stri
   await put(w, join(dir, 'src', 'index.test.ts'), smokeTest(value));
 }
 
+/**
+ * Write/refresh the Claude Code Stop hook unless opted out (`hook === false`),
+ * using the repo's detected package manager (b7). Records the file when it
+ * changed, else a no-op note in `skipped` when one is provided.
+ */
+async function writeHook(w: Writer, hook: boolean | undefined, skipped?: string[]): Promise<void> {
+  if (hook === false) return;
+  const result = await writeStopHook(w.cwd, { dryRun: w.dryRun });
+  if (result.changed) w.written.push(result.path);
+  else skipped?.push(`${CLAUDE_SETTINGS_FILE} (Stop hook unchanged)`);
+}
+
 // ----------------------------------------------------------------------------
 // New-project mode
 // ----------------------------------------------------------------------------
@@ -442,6 +465,10 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
     await put(w, join('src', 'index.test.ts'), smokeTest(name));
     await writePackage(w, join('packages', 'core'), scope ? `${scope}/core` : 'core', 'core');
   }
+
+  // Claude Code Stop hook (opt-out; step 12). A fresh project has no PM lockfile
+  // yet, so it resolves to the `pnpm` default — matching the generated scripts.
+  await writeHook(w, options.hook);
 
   if (options.stdout) {
     options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
@@ -597,6 +624,9 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     skipped.push('CLAUDE.md (exists)');
   }
 
+  // Claude Code Stop hook (opt-out; step 12), using the repo's detected PM (b7).
+  await writeHook(w, options.hook, skipped);
+
   if (options.stdout) {
     options.stdout.write(
       `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
@@ -624,4 +654,55 @@ export function detectMode(cwd: string): 'new' | 'existing' {
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
   return detectMode(cwd) === 'existing' ? initExisting(options, cwd) : initNew(options, cwd);
+}
+
+export type AgentSetupOptions = {
+  cwd?: string;
+  dryRun?: boolean;
+  /** Write the Claude Code Stop hook (opt-out; `--no-hook`). Defaults to on. */
+  hook?: boolean;
+  stdout?: Out;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+};
+
+export type AgentSetupResult = { written: string[]; skipped: string[]; exitCode: number };
+
+/**
+ * `checkride agent-setup` — wire the agent contract into an *existing* repo
+ * without a full `init`: the `check` alias the hook resolves to, the AGENTS.md
+ * stanza (the human-readable contract), and the Claude Code Stop hook (the
+ * mechanical gate). Every write is additive and idempotent — a second run is a
+ * no-op — and the hook is opt-out (`hook: false`).
+ */
+export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSetupResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const slots = options.slots ?? SLOTS;
+  const adapters = options.adapters ?? ADAPTERS;
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+  const skipped: string[] = [];
+
+  // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
+  await addCheckAlias(w, skipped);
+
+  // AGENTS.md stanza for the currently-adopted slots (create or refresh).
+  const adopted = inventory({ cwd, slots, adapters }).filter((i) => i.status === 'adopted');
+  const agentsPath = join(cwd, 'AGENTS.md');
+  const existing = await readIfExists(agentsPath);
+  const nextAgents = applyStanza(existing ?? '', buildStanza(adopted.map((i) => i.slot)));
+  if (nextAgents !== existing) {
+    if (!w.dryRun) await writeFile(agentsPath, nextAgents);
+    w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
+  } else {
+    skipped.push('AGENTS.md (stanza unchanged)');
+  }
+
+  await writeHook(w, options.hook, skipped);
+
+  if (options.stdout) {
+    options.stdout.write(
+      `checkride agent-setup: wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
+    );
+  }
+  return { written: w.written, skipped, exitCode: 0 };
 }

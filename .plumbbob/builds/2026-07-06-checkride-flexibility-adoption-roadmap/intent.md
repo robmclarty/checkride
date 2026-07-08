@@ -246,7 +246,7 @@ message-key), a far smaller contract than a shared display schema.
     unit tests cover path resolution, package resolution, local-wins, and the error path.
     - seam: `src/config.ts`, `src/__tests__/config.test.ts`, `README.md`
 
-11. [ ] Token-bounded failure digest — **done when:** `checkride --digest` writes a
+11. [x] Token-bounded failure digest — **done when:** `checkride --digest` writes a
     capped Markdown excerpt (first N diagnostics per *failing* slot, byte/'item
     budget, truncation not normalization) to `.check/digest.md`, each section
     pointing at the authoritative raw `.check/<slot>.json`; the raw files are

@@ -178,3 +178,31 @@ describe('runCli init', () => {
     expect(err.text()).toContain('invalid --shape');
   });
 });
+
+describe('runCli agent-setup', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-agent-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('appears in --help', async () => {
+    const out = sink();
+    await runCli(['--help'], { cwd: dir, stdout: out, stderr: sink() });
+    expect(out.text()).toContain('agent-setup');
+  });
+
+  test('writes the AGENTS stanza and the Stop hook, exit 0', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const code = await runCli(['agent-setup'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+    expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(true);
+  });
+
+  test('--no-hook skips the Stop hook', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const code = await runCli(['agent-setup', '--no-hook'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+    expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);
+  });
+});

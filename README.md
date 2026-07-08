@@ -35,7 +35,12 @@ pnpm exec checkride init   # set up a project (new or existing, auto-detected)
 ```
 
 `init` writes a `"check": "checkride"` alias, so daily usage is `pnpm check`
-regardless of the tool's name.
+regardless of the tool's name. It also writes the agent contract: an AGENTS.md
+stanza (the "exit 0 = done" rule) and a Claude Code **Stop hook** in
+`.claude/settings.json` that blocks an agent from finishing while the pipeline is
+red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun run
+check`); skip it with `--no-hook`, or add both to a repo you already set up with
+`checkride agent-setup`.
 
 ## Commands
 
@@ -45,9 +50,12 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
 checkride init         Set up a project (new or existing — auto-detected).
   --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
   --baseline   (existing mode) grandfather current debt instead of disabling slots
+  --no-hook    skip writing the Claude Code Stop hook
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
+checkride agent-setup  Add the AGENTS.md stanza + Claude Code Stop hook to a repo.
+  --no-hook    skip the Stop hook (write only the stanza)
 ```
 
 During iteration, narrow the loop: `checkride --bail`, `checkride --only

@@ -146,12 +146,24 @@ the tool. It is guidance, not enforcement — the model has to follow it.
 *outside* the `checkride:begin`/`checkride:end` markers, or the next `init` will
 overwrite them.
 
-### Make it a hard gate (optional)
+### Make it a hard gate
 
-To turn "exit 0 = done" from advice into a mechanical gate, add a Claude Code
-**Stop hook** in `.claude/settings.json`. It fires when the agent tries to
-finish; exiting `2` blocks the stop and feeds the message back, so the agent
-keeps working until the pipeline is green:
+To turn "exit 0 = done" from advice into a mechanical gate, checkride writes a
+Claude Code **Stop hook** to `.claude/settings.json`. It fires when the agent
+tries to finish; exiting `2` blocks the stop and feeds the message back, so the
+agent keeps working until the pipeline is green.
+
+`init` writes the hook automatically (both new and existing projects). To add it
+to a repo you have already set up — without re-running the full `init` — use:
+
+```bash
+checkride agent-setup    # AGENTS.md stanza + Stop hook, nothing else
+```
+
+Both commands are idempotent (re-running is a no-op) and opt out with
+`--no-hook`. The generated hook uses your **detected package manager** —
+`pnpm run check`, `npm run check`, `yarn run check`, or `bun run check` — so it
+works in any repo, not only pnpm ones:
 
 ```json
 {
@@ -161,7 +173,7 @@ keeps working until the pipeline is green:
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm check || { echo 'pnpm check is red — read .check/summary.json, fix the failing slot, then finish.' >&2; exit 2; }"
+            "command": "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2; exit 2; }"
           }
         ]
       }
@@ -170,7 +182,7 @@ keeps working until the pipeline is green:
 }
 ```
 
-The `|| { …; exit 2; }` wrapper matters: a plain `pnpm check` exits `1` on
+The `|| { …; exit 2; }` wrapper matters: a plain `run check` exits `1` on
 failure, which Claude Code treats as a non-blocking error and lets the agent
 stop anyway. Exit `2` is the code that blocks. The hook input also carries a
 `stop_hook_active` flag — check it if you want to break out of a fix loop that
@@ -181,8 +193,11 @@ branch.
 ### Avoiding duplicate runs
 
 A Stop hook and the AGENTS.md stanza both want `pnpm check`, so the agent can run
-the full pipeline itself and then the hook runs it again. Whether that matters
-depends on your suite.
+the full pipeline itself and then the hook runs it again. To head that off, the
+generated stanza already tells the agent that *if a Stop hook is configured* it
+owns the final full run — so iterate with the narrow commands and let the hook
+run the authoritative pipeline once at the end. That is the "simplest fix" below,
+applied by default.
 
 Do **not** delete the AGENTS.md block to dodge the duplicate. The block does two
 jobs — it tells the agent to run the gate, *and* it teaches the agent how to read
@@ -191,20 +206,14 @@ to iterate with. A Stop hook only replaces the first job; deleting the whole
 block makes every agent worse at *fixing* what the hook flags, and it strands
 non-Claude agents, since the hook is Claude Code only.
 
-Instead, pick by how expensive a run is:
+Whether the duplicate matters depends on your suite — pick by how expensive a run
+is:
 
 - **Fast suite (seconds):** accept the duplicate. The second run is cheap and
   guarantees the gate saw the final tree, whatever the agent did.
-- **Slow suite (minutes), simplest fix:** re-scope the agent's job so it never
-  runs the full pipeline — the hook owns that. Add a note *outside* the stanza
-  markers:
-
-  > While iterating, use `pnpm check --bail --only <slots>` or
-  > `pnpm check --changed`. A Stop hook runs the full `pnpm check` as the final
-  > gate — you do not need to run it yourself.
-
-  The agent then only runs cheap, narrowed checks during the loop, and the hook
-  runs the one authoritative pipeline at the end.
+- **Slow suite (minutes), simplest fix:** rely on the stanza note above — the
+  agent runs only cheap, narrowed checks during the loop, and the hook runs the
+  one authoritative pipeline at the end.
 - **Slow suite, most robust fix:** make the hook *verify the artifact instead of
   recomputing*. `.check/summary.json` records every slot that ran and whether it
   passed, so the hook can accept a complete, green summary that is newer than

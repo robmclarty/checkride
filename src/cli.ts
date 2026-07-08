@@ -16,8 +16,8 @@ import { fileURLToPath } from 'node:url';
 
 import { runBaseline } from './baseline/index.js';
 import { runDoctor } from './doctor.js';
-import type { InitOptions, Shape } from './init.js';
-import { runInit } from './init.js';
+import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
+import { runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator.js';
 import { runChecks, runFix } from './orchestrator.js';
 
@@ -44,6 +44,7 @@ const INIT_OPTIONS = {
   'dry-run': { type: 'boolean', default: false },
   add: { type: 'string' },
   baseline: { type: 'boolean', default: false },
+  'no-hook': { type: 'boolean', default: false },
 } as const;
 
 const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
@@ -52,11 +53,14 @@ Usage: checkride [command] [options]
 
 Commands:
   (default)        Run the checks. Exit 0 pass / 1 fail / 2 error.
-  init             Set up a project (new or existing — auto-detected).
-                   Existing mode: --baseline grandfathers current debt.
+  init             Set up a project (new or existing — auto-detected). Writes a
+                   Claude Code Stop hook (--no-hook to skip). Existing mode:
+                   --baseline grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
+  agent-setup      Add the AGENTS.md stanza + Claude Code Stop hook to an
+                   existing repo (--no-hook to skip the hook).
 
 Run options:
   --only <a,b>     Run only these slots
@@ -153,6 +157,7 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   if (values.author) opts.author = values.author;
   if (values['dry-run']) opts.dryRun = true;
   if (values.baseline) opts.baseline = true;
+  if (values['no-hook']) opts.hook = false;
   const add = parseList(values.add);
   if (add) opts.add = add;
   return opts;
@@ -186,6 +191,15 @@ async function dispatchBaseline(_argv: string[], deps: CliDeps): Promise<number>
   return result.exitCode;
 }
 
+async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number> {
+  const parsed = parseInitArgs(argv);
+  const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
+  if (parsed.hook !== undefined) opts.hook = parsed.hook;
+  if (parsed.dryRun) opts.dryRun = true;
+  const result = await runAgentSetup(opts);
+  return result.exitCode;
+}
+
 /** Dispatch a CLI invocation; returns the process exit code. */
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   if (argv.includes('--help') || argv.includes('-h')) {
@@ -204,6 +218,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     doctor: dispatchDoctor,
     fix: dispatchFix,
     baseline: dispatchBaseline,
+    'agent-setup': dispatchAgentSetup,
   };
   const handler = dispatch[command];
   if (!handler) {
