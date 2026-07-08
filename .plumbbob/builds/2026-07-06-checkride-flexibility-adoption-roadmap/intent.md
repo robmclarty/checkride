@@ -89,6 +89,24 @@ message-key), a far smaller contract than a shared display schema.
   (`cached`, `baselined`, digest pointers) are additive and `schema_version` bumps
   only if the summary *shape* changes. — *because* `.check/` is a public API for
   agents; treat schema changes as breaking.
+- D9: The baseline lives at **repo root as `checkride.baseline.json`**, beside
+  `checkride.config.json` (committed, *not* under the gitignored `.check/`).
+  — *because* it must be committed to function, and sitting next to the config makes
+  it discoverable as a peer artifact rather than mistaken for disposable run output.
+  *(resolves Q1)*
+- D10: The blessed `format` slot and the `order: 'first'` custom-check escape hatch
+  **coexist** — the slot is the paved road, the hatch stays for bespoke formatters.
+  — *because* they serve different needs and retiring the hatch would be a gratuitous
+  breaking change. *(resolves Q3)*
+- D11: Caching hashes the **whole tracked tree conservatively** (per D6); per-slot
+  input scoping is explicitly deferred, revisited only if the cache under-skips in
+  practice. — *because* correctness beats precision and premature scoping adds
+  fragility for uncertain gain. *(resolves Q4)*
+- D12: Baseline **fingerprintability is decided per-adapter in step 4**, against real
+  fixtures — no up-front slot list; a slot with no extractor simply doesn't
+  participate. — *because* whether a tool's output is a stable diagnostic set is an
+  adapter-specific judgment best made against real output, not guessed now.
+  *(resolves Q2)*
 
 ## Constraints
 
@@ -142,17 +160,18 @@ message-key), a far smaller contract than a shared display schema.
    a stable, order-independent set of keys (`<file>:<rule>:<message-key>`); adapters
    with no extractor return `null` (baseline not supported for that slot, documented);
    fixture-based unit tests assert the same input yields the same key set and that
-   cosmetic reordering doesn't change it.
+   cosmetic reordering doesn't change it. Fingerprintability is decided **per-adapter
+   against real fixtures** here — no up-front slot list (D12).
    - seam: `src/baseline/fingerprint.ts`, `src/baseline/index.ts`,
      `src/__tests__/baseline-fingerprint.test.ts` (+ fixtures under `src/__tests__/`)
 
 5. [ ] Baseline part 2 — `checkride baseline` command — **done when:** `checkride
    baseline` runs the pipeline, fingerprints each fingerprintable slot's output, and
-   writes `.check/baseline.json` (`{ schema_version, slots: { <slot>: [keys] } }`)
-   at repo root (committed, so it's *not* under the gitignored `.check/` run output —
-   resolve the path so a committed baseline survives; note in Open questions if the
-   location needs its own file); CLI dispatch wired; unit test drives it against a
-   red fixture via the injectable runner and asserts the written key sets.
+   writes **`checkride.baseline.json` at repo root** (beside `checkride.config.json`,
+   committed — *not* under the gitignored `.check/`; D9), shaped
+   `{ schema_version, slots: { <slot>: [keys] } }`; CLI dispatch wired; unit test
+   drives it against a red fixture via the injectable runner and asserts the written
+   key sets.
    - seam: `src/cli.ts`, `src/baseline/index.ts`, `src/orchestrator.ts`,
      `src/__tests__/cli.test.ts`, `src/__tests__/baseline.test.ts`
 
@@ -172,6 +191,7 @@ message-key), a far smaller contract than a shared display schema.
    resolved args + tool version — matches the previous run is *not* spawned, is
    reported `skipped: "cached"`, and its prior `.check/<slot>.json` is preserved;
    touching any input invalidates and re-runs; the cache is a no-op unless opted in;
+   hashing is **conservative whole-tree** (per-slot input scoping deferred — D11);
    unit tests via an injectable hash/store assert skip-on-match, run-on-change, and
    that a false hit is impossible (unknown inputs → always run).
    - seam: `src/cache/index.ts`, `src/orchestrator.ts`, `src/config.ts`, `src/cli.ts`,
@@ -182,7 +202,9 @@ message-key), a far smaller contract than a shared display schema.
    registered with detect files, a `--check`-style pipeline command, and `fixArgs`
    that write; `checkride fix` runs the write form; `doctor` shows it; `init`
    scaffolds the blessed config; adapters test asserts detection + fix wiring. The
-   documented `biome format --write` custom-check workaround is superseded (note in README).
+   blessed slot and the documented `order: 'first'` custom-check workaround
+   **coexist** — the slot is the paved road, the hatch stays for bespoke formatters
+   (D10); README frames it that way rather than deprecating the hatch.
    - seam: `src/adapters.ts`, `src/init.ts` (+ `templates/`),
      `src/__tests__/adapters.test.ts`, `README.md`, `docs/tools.md`
 
@@ -222,21 +244,21 @@ message-key), a far smaller contract than a shared display schema.
 
 ## Open questions
 
-- Q1: Baseline file location — root `checkride.baseline.json` (committed) vs. a
-  path under `.check/` (gitignored today). The baseline *must* be committed to work,
-  so it likely lives at repo root, not in `.check/`. — *resolve by:* decide in step 5.
-- Q2: Which slots are fingerprintable for baseline? `lint`/`struct`/`dead`/`spell`
-  are natural; `types` (tsc text) and `test` (pass/fail, not a diagnostic set) may
-  not fit. Non-fingerprintable slots simply don't participate in baseline. — *resolve
-  by:* decide per-adapter in step 4.
-- Q3: `format` slot ordering vs. the existing `order: 'first'` custom-check escape
-  hatch — does a blessed `format` slot make the escape hatch redundant, or do both
-  coexist? — *resolve by:* decide in step 8 (lean coexist; blessed slot is the paved road).
-- Q4: Caching's notion of a slot's "input files" is coarse (all tracked sources).
-  Is per-slot input scoping (only the files a tool actually reads) worth it later, or
-  is conservative whole-tree hashing enough? — *resolve by:* ship conservative (D6),
-  revisit only if the cache under-skips too often.
+*(All four planning-time questions resolved 2026-07-07 — see Decisions D9–D12 and
+Verdicts. Q2 and Q3's implementation details are intentionally settled at their
+build step, not guessed now.)*
 
 ## Verdicts
 
-*(Filled in as spikes and forks resolve.)*
+- 2026-07-07 — Q1 (baseline location) → chose **repo root
+  `checkride.baseline.json`** beside the config, over a path under `.check/`, because
+  the baseline must be committed and `.check/` is gitignored run output (D9).
+- 2026-07-07 — Q2 (which slots are fingerprintable) → chose to **decide per-adapter
+  in step 4 against real fixtures**, not to enumerate up front; a slot with no
+  extractor simply doesn't participate (D12).
+- 2026-07-07 — Q3 (`format` slot vs. `order: 'first'` hatch) → chose **coexist** —
+  the blessed slot is the paved road, the escape hatch stays for bespoke formatters;
+  retiring it would be a gratuitous breaking change (D10).
+- 2026-07-07 — Q4 (caching input scoping) → chose **conservative whole-tree
+  hashing**, deferring per-slot input scoping until/unless the cache under-skips in
+  practice; correctness beats precision (D11).
