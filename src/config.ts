@@ -12,7 +12,8 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { join, relative } from 'node:path';
 
 import type { Adapter, Slot } from './adapters.js';
 
@@ -63,6 +64,14 @@ export type SlotConfig = string | false | UseConfig | CustomCheck;
 export type CheckrideConfig = {
   /** URL of the JSON Schema for this file, for editor validation. Ignored by the runner. */
   $schema?: string;
+  /**
+   * Preset(s) to inherit: a file path (`./base.json`) or a package specifier
+   * (`@acme/preset`), or an array of them. Bases merge left-to-right and the
+   * local config wins over all of them; objects deep-merge, arrays and scalars
+   * replace (arrays are not concatenated). Resolved and folded away by
+   * `loadConfig` — the runner never sees it.
+   */
+  extends?: string | string[];
   checks?: Record<string, SlotConfig>;
   /** Default per-check timeout in seconds (no cap when unset). `0` on a check disables its cap. */
   timeout?: number;
@@ -93,18 +102,86 @@ export type ResolvedCheck = {
 
 const CONFIG_FILE = 'checkride.config.json';
 
-/** Read and parse `checkride.config.json` from `cwd`, or `null` when absent. */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Recursive deep-merge with local-wins semantics: plain objects merge key by
+ * key; arrays, scalars, and type mismatches from `over` replace `base` (arrays
+ * are never concatenated).
+ */
+function deepMerge(
+  base: Record<string, unknown>,
+  over: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...base };
+  for (const [k, v] of Object.entries(over)) {
+    const b = out[k];
+    out[k] = isPlainObject(b) && isPlainObject(v) ? deepMerge(b, v) : v;
+  }
+  return out;
+}
+
+/** Throw the friendly `invalid checkride.config.json: <reason>` error. */
+function invalidConfig(reason: string, cause?: unknown): never {
+  throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, cause ? { cause } : undefined);
+}
+
+/**
+ * Read, parse, and fully resolve a config file's `extends` chain into a single
+ * merged object. `stack` holds the absolute paths currently being resolved, so
+ * a config that (transitively) extends itself is caught as a cycle. `label`
+ * names the file in error messages — the root config's own filename for the
+ * entry point, or a repo-relative path for an inherited base.
+ */
+function resolveConfigFile(
+  absPath: string,
+  stack: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (stack.includes(absPath)) {
+    invalidConfig(`circular extends: ${[...stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`);
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(absPath, 'utf8'));
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    invalidConfig(label === CONFIG_FILE ? reason : `${reason} (in ${label})`, err);
+  }
+  if (!isPlainObject(raw)) invalidConfig(`${label} is not a JSON object`);
+
+  const { extends: ext, ...own } = raw;
+  const specs = ext === undefined ? [] : Array.isArray(ext) ? ext : [ext];
+
+  const require = createRequire(absPath);
+  let merged: Record<string, unknown> = {};
+  for (const spec of specs) {
+    if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${label})`);
+    let baseAbs: string;
+    try {
+      baseAbs = require.resolve(spec);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err);
+    }
+    const base = resolveConfigFile(baseAbs, [...stack, absPath], relative(process.cwd(), baseAbs));
+    merged = deepMerge(merged, base);
+  }
+  return deepMerge(merged, own);
+}
+
+/**
+ * Read and resolve `checkride.config.json` from `cwd`, or `null` when absent.
+ * Any `extends` presets (file paths or package specifiers) are resolved and
+ * merged in — local keys win, arrays replace — with `extends` folded away.
+ */
 export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  const text = readFileSync(path, 'utf8');
-  try {
-    const config: CheckrideConfig = JSON.parse(text);
-    return config;
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, { cause: err });
-  }
+  return resolveConfigFile(path, [], CONFIG_FILE) as CheckrideConfig;
 }
 
 function byName(name: string, adapters: readonly Adapter[]): Adapter | null {

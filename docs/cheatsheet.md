@@ -103,4 +103,5 @@ output for structured diagnostics.
 | `doctor` says a tool is not installed | `pnpm install`, or `pnpm add -D <pkg>` |
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
+| Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |

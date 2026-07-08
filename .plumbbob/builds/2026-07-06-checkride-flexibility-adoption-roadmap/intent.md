@@ -230,7 +230,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/adapters.ts`, `src/init.ts` (+ `templates/`),
      `src/__tests__/adapters.test.ts`, `README.md`, `docs/tools.md`
 
-9. [ ] Library-publishing slots (`publint`, `attw`), opt-in — **done when:** two
+9. [x] Library-publishing slots (`publint`, `attw`), opt-in — **done when:** two
    opt-in slots added with adapters for `publint` and `@arethetypeswrong/cli`;
    excluded from the default run (need `--include`/`--all`), surfaced by `doctor` as
    opt-in (automatic via `classifySlot`); a test asserts opt-in selection and JSON

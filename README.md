@@ -149,6 +149,7 @@ slot's raw output for structured diagnostics.
 ```jsonc
 {
   "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.1.6/schema/checkride.config.schema.json",
+  "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
   "timeout": 600,           // global per-check timeout in seconds (off by default)
   "checks": {
     "format": "prettier",   // enable the opt-in format slot (blessed: prettier)
@@ -173,6 +174,16 @@ autocompletion for `checkride.config.json` in editors that understand JSON
 Schema (VS Code and friends). `checkride init` writes a version-pinned pointer
 into the config it generates; the schema itself ships in the package at
 [`schema/checkride.config.schema.json`](./schema/checkride.config.schema.json).
+
+Use `"extends"` to inherit a shared preset — a file path (`"./base.json"`) or an
+installed package (`"@acme/checkride-preset"`), or an array of them to layer
+several. Bases merge left to right and your local config wins over all of them:
+objects deep-merge (so overriding one field of a check keeps the rest), while
+arrays and scalars replace outright — arrays are **not** concatenated. Pair it
+with `detect` above to publish one org-wide preset that stays safe across repos
+that don't all use the same tools. An `extends` that can't be found, or a config
+that extends itself in a loop, fails fast with
+`invalid checkride.config.json: <reason>`.
 
 A custom check (one keyed by a name that isn't a built-in slot) runs *after* the
 built-in catalogue by default. Set `"order": "first"` to run it ahead of every

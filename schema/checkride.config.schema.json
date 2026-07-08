@@ -10,6 +10,13 @@
       "type": "string",
       "description": "URL of this JSON Schema, for editor validation and autocompletion."
     },
+    "extends": {
+      "description": "Preset(s) to inherit — a file path (./base.json) or package specifier (@acme/preset), or an array of them. Bases merge left-to-right and the local config wins over all; objects deep-merge, arrays and scalars replace (arrays are not concatenated).",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
     "timeout": {
       "type": "number",
       "minimum": 0,

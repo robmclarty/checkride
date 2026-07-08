@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -325,6 +325,16 @@ describe('published JSON Schema', () => {
       false,
     );
   });
+
+  test('accepts extends as a string and as an array of strings', () => {
+    expect(validate({ extends: './base.json' })).toBe(true);
+    expect(validate({ extends: ['@acme/preset', './base.json'] })).toBe(true);
+  });
+
+  test('rejects a non-string/array extends', () => {
+    expect(validate({ extends: 123 })).toBe(false);
+    expect(validate({ extends: [1, 2] })).toBe(false);
+  });
 });
 
 describe('loadConfig', () => {
@@ -348,5 +358,92 @@ describe('loadConfig', () => {
   test('throws a friendly error on malformed JSON', async () => {
     await writeFile(join(dir, 'checkride.config.json'), '{ not valid json');
     expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json');
+  });
+
+  test('extends a base by relative path, local keys winning', async () => {
+    await writeFile(
+      join(dir, 'base.json'),
+      JSON.stringify({ timeout: 600, checks: { lint: 'eslint', spell: 'cspell' } }),
+    );
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ extends: './base.json', checks: { lint: 'biome' } }),
+    );
+    // local `lint` overrides the base; base `spell`/`timeout` are inherited; `extends` is folded away.
+    expect(loadConfig(dir)).toEqual({
+      timeout: 600,
+      checks: { lint: 'biome', spell: 'cspell' },
+    });
+  });
+
+  test('deep-merges a slot entry, replacing arrays rather than concatenating', async () => {
+    await writeFile(
+      join(dir, 'base.json'),
+      JSON.stringify({ checks: { test: { use: 'vitest', changedArgs: ['--changed', 'main'] } } }),
+    );
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ extends: './base.json', checks: { test: { changedArgs: ['--changed', 'dev'] } } }),
+    );
+    // `use` survives from the base; the child's `changedArgs` array replaces (not concatenates).
+    expect(loadConfig(dir)).toEqual({
+      checks: { test: { use: 'vitest', changedArgs: ['--changed', 'dev'] } },
+    });
+  });
+
+  test('resolves extends from an installed package (main entry)', async () => {
+    const pkgDir = join(dir, 'node_modules', '@acme', 'preset');
+    await mkdir(pkgDir, { recursive: true });
+    await writeFile(
+      join(pkgDir, 'package.json'),
+      JSON.stringify({ name: '@acme/preset', version: '1.0.0', main: 'checkride.config.json' }),
+    );
+    await writeFile(join(pkgDir, 'checkride.config.json'), JSON.stringify({ checks: { spell: false } }));
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ extends: '@acme/preset', checks: { lint: 'biome' } }),
+    );
+    expect(loadConfig(dir)).toEqual({ checks: { spell: false, lint: 'biome' } });
+  });
+
+  test('merges an extends array left-to-right, local winning last', async () => {
+    await writeFile(join(dir, 'a.json'), JSON.stringify({ checks: { lint: 'eslint', spell: 'cspell' } }));
+    await writeFile(join(dir, 'b.json'), JSON.stringify({ checks: { lint: 'oxlint', docs: false } }));
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ extends: ['./a.json', './b.json'], checks: { lint: 'biome' } }),
+    );
+    // b beats a (oxlint over eslint), then local beats both (biome); other keys accumulate.
+    expect(loadConfig(dir)).toEqual({
+      checks: { lint: 'biome', spell: 'cspell', docs: false },
+    });
+  });
+
+  test('a base may itself extend another base', async () => {
+    await writeFile(join(dir, 'grandparent.json'), JSON.stringify({ timeout: 300, checks: { spell: 'cspell' } }));
+    await writeFile(
+      join(dir, 'parent.json'),
+      JSON.stringify({ extends: './grandparent.json', checks: { lint: 'eslint' } }),
+    );
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ extends: './parent.json', checks: { lint: 'biome' } }),
+    );
+    expect(loadConfig(dir)).toEqual({
+      timeout: 300,
+      checks: { spell: 'cspell', lint: 'biome' },
+    });
+  });
+
+  test('throws a friendly error when an extends target is missing', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './nope.json' }));
+    expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json');
+  });
+
+  test('throws a friendly error on a circular extends chain', async () => {
+    await writeFile(join(dir, 'a.json'), JSON.stringify({ extends: './b.json' }));
+    await writeFile(join(dir, 'b.json'), JSON.stringify({ extends: './a.json' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './a.json' }));
+    expect(() => loadConfig(dir)).toThrow(/invalid checkride\.config\.json: circular extends/);
   });
 });
