@@ -255,7 +255,7 @@ message-key), a far smaller contract than a shared display schema.
     - seam: `src/digest/index.ts`, `src/orchestrator.ts`, `src/cli.ts`,
       `src/__tests__/digest.test.ts`, `README.md`, `docs/cheatsheet.md`
 
-12. [ ] Agent setup at init + `checkride agent-setup` — **done when:** `init` (new
+12. [x] Agent setup at init + `checkride agent-setup` — **done when:** `init` (new
     and existing modes) writes/refreshes an idempotent Claude Code Stop hook in
     `.claude/settings.json` that runs `pnpm check` *without double-running* the
     pipeline (respecting the pattern documented in `docs/`); `checkride agent-setup`
