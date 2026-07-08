@@ -22,7 +22,7 @@ Invoke as `pnpm check` (the alias `init` writes), or directly with
 | `--bail` | Stop at the first failing check. |
 | `--only <a,b>` | Run only the named slots. |
 | `--skip <a,b>` | Run everything except the named slots. |
-| `--include <a,b>` | Add opt-in slots (`mutation`, `security`) to the default run. |
+| `--include <a,b>` | Add opt-in slots (`format`, `mutation`, `security`, `publint`, `attw`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
@@ -60,11 +60,12 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 ## The pipeline
 
 Slots run cheapest-first so `--bail` fails fast. The default run is everything
-except the two opt-in slots.
+except the opt-in slots.
 
 | Slot | Role | Default tool | Default run? |
 | ---- | ---- | ------------ | ------------ |
 | `types` | Type checking | `tsc --build` | yes |
+| `format` | Formatting | `prettier` | opt-in |
 | `lint` | Linting | `oxlint` | yes |
 | `struct` | Structural rules | `ast-grep` | yes |
 | `dead` | Dead code, deps, cycles, boundaries | `fallow` | yes |
@@ -74,6 +75,8 @@ except the two opt-in slots.
 | `spell` | Spelling | `cspell` | yes |
 | `mutation` | Mutation testing | `stryker` | opt-in |
 | `security` | Dependency audit | `pnpm audit` | opt-in |
+| `publint` | Package publishing lint | `publint` | opt-in |
+| `attw` | Type resolution across module systems | `attw --pack` | opt-in |
 
 A slot only runs if its config file is detected (or its tool is built-in). See
 [Tools and installation](./tools.md) for the detect file and install command

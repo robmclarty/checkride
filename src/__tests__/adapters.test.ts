@@ -18,6 +18,7 @@ describe('registry invariants', () => {
     const blessed: Record<string, string> = {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
+      publint: 'publint', attw: 'attw',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -39,9 +40,24 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format (leading) plus mutation and security (trailing)', () => {
-    expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual(['format', 'mutation', 'security']);
-    expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['mutation', 'security']);
+  test('opt-in slots are format (leading) plus the trailing mutation/security/publint/attw', () => {
+    expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
+      'format', 'mutation', 'security', 'publint', 'attw',
+    ]);
+    expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['publint', 'attw']);
+  });
+
+  test('the library-publishing slots are opt-in with JSON-capturing attw', () => {
+    for (const name of ['publint', 'attw']) {
+      expect(SLOTS.find((s) => s.name === name)?.optIn).toBe(true);
+    }
+    const attw = ADAPTERS.find((a) => a.name === 'attw');
+    expect(attw?.slot).toBe('attw');
+    expect(attw?.args).toEqual(['exec', 'attw', '--pack', '.', '--format', 'json']);
+    expect(attw?.outputFile).toBe('attw.json');
+    const publint = ADAPTERS.find((a) => a.name === 'publint');
+    expect(publint?.slot).toBe('publint');
+    expect(publint?.args).toEqual(['exec', 'publint']);
   });
 
   test('the blessed format adapter wires a prettier --check with a --write fix', () => {

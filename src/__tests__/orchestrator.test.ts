@@ -5,10 +5,12 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { Adapter } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
+import { resolveChecks } from '../config.js';
 import type { ResolvedCheck } from '../config.js';
-import type { CheckRunner, Out, Summary } from '../orchestrator.js';
+import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
 import { runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
@@ -28,6 +30,10 @@ const failLint: CheckRunner = (r) =>
   Promise.resolve({ ok: r.slot !== 'lint', exit_code: r.slot === 'lint' ? 1 : 0, stdout: '', stderr: '' });
 
 const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+/** A runner that emits a small JSON payload on stdout (for output-capture tests). */
+const jsonRunner: CheckRunner = () =>
+  Promise.resolve({ ok: true, exit_code: 0, stdout: JSON.stringify({ analysis: { types: true } }), stderr: '' });
 
 const KEY_A = 'a.ts:no-x:bad';
 const KEY_B = 'b.ts:no-y:worse';
@@ -79,6 +85,34 @@ describe('selectChecks', () => {
 
   test('--skip removes a slot entirely', () => {
     expect(selectChecks(resolved, { skip: ['lint'] }).map((r) => r.slot)).toEqual(['types']);
+  });
+});
+
+describe('library-publishing slots (publint, attw)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-pub-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('publint and attw stay out of the default run, opted in by --include/--all', () => {
+    const resolved = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: null, cwd: dir });
+    const slotsFor = (flags: RunFlags): string[] => selectChecks(resolved, flags).map((r) => r.slot);
+    expect(slotsFor({})).not.toContain('publint');
+    expect(slotsFor({})).not.toContain('attw');
+    expect(slotsFor({ include: ['publint', 'attw'] })).toEqual(expect.arrayContaining(['publint', 'attw']));
+    expect(slotsFor({ all: true })).toEqual(expect.arrayContaining(['publint', 'attw']));
+  });
+
+  test('captures the attw slot JSON output to .check/attw.json', async () => {
+    const attw = ADAPTERS.find((a) => a.name === 'attw');
+    if (!attw) throw new Error('attw adapter missing from registry');
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'attw', optIn: true }], adapters: [attw], config: null,
+      include: ['attw'], runner: jsonRunner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'attw')).toMatchObject({ ok: true, output_file: 'attw.json' });
+    expect(JSON.parse(await readFile(join(dir, '.check', 'attw.json'), 'utf8'))).toMatchObject({
+      analysis: { types: true },
+    });
   });
 });
 

@@ -78,18 +78,27 @@ generates config for the blessed default.
 | `spell`    | Spelling                               | `cspell`            | —                |
 | `mutation` | Mutation testing (opt-in)              | `stryker`           | —                |
 | `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |
+| `publint`  | Package publishing lint (opt-in)       | `publint`           | —                |
+| `attw`     | Type resolution across module systems (opt-in) | `attw --pack`| —                |
 
 Zero-config: for each slot, checkride runs the first adapter whose config file
 exists, and skips slots with no detected tool. The core has **no runtime
 dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
 
-**Opt-in slots** (`format`, `mutation`, `security`) stay out of the default run so
-adopting checkride — or bumping its version — never turns a repo red on a check it
-didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming it
-in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
+**Opt-in slots** (`format`, `mutation`, `security`, `publint`, `attw`) stay out of the
+default run so adopting checkride — or bumping its version — never turns a repo red on a
+check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming
+it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
 run. `checkride fix` then runs its write form (e.g. `prettier --write`) alongside the
 other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
+
+`publint` and `attw` are the **library-publishing** pair — turn them on for a package you
+ship to npm to make "the published artifact is correct" part of your definition of done.
+`publint` lints `package.json`'s publishing surface (exports, files, types); `attw` runs
+`attw --pack` to check that your types resolve under every module system (`--format json`,
+captured to `.check/attw.json`). Both stay opt-in so apps that never publish don't run
+them.
 
 ### Package managers
 

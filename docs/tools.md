@@ -61,9 +61,12 @@ present (built-in checks always run). The default tool per slot:
 | `spell` | `cspell` | `pnpm add -D cspell` | `cspell.json` |
 | `mutation` | `stryker` | `pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner` | `stryker.config.mjs` |
 | `security` | `pnpm audit` | — (built into pnpm) | — (opt-in) |
+| `publint` | `publint` | `pnpm add -D publint` | — (opt-in) |
+| `attw` | `attw` | `pnpm add -D @arethetypeswrong/cli` | — (opt-in) |
 
 Note the npm package names differ from the binary names: `ast-grep` ships in the
-`@ast-grep/cli` package, and `stryker` ships in `@stryker-mutator/core`.
+`@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, and `attw`
+ships in `@arethetypeswrong/cli`.
 
 Some slots accept alternates that checkride will also run if it detects their
 config: `format` → `biome`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`

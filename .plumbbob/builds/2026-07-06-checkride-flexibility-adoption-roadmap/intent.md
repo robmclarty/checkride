@@ -202,7 +202,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/orchestrator.ts`, `src/baseline/index.ts`, `src/init.ts` (stanza + `--baseline`),
      `src/__tests__/orchestrator.test.ts`, `README.md`
 
-7. [ ] Per-slot input caching (opt-in) — **PARKED 2026-07-07 (a3):** deferred until
+7. [x] Per-slot input caching (opt-in) — **PARKED 2026-07-07 (a3):** deferred until
    `--changed` + native incremental modes prove insufficient — D11's whole-tree hash
    invalidates every slot on any edit, so `--cache` barely helps the inner loop it
    targets while adding correctness surface (D6); D6/D11 ride with this step. Original
@@ -217,7 +217,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/cache/index.ts`, `src/orchestrator.ts`, `src/config.ts`, `src/cli.ts`,
      `src/__tests__/cache.test.ts`, `README.md`, `docs/cheatsheet.md`
 
-8. [ ] Blessed `format` slot — **done when:** `SLOTS` gains an **opt-in** `format` slot
+8. [x] Blessed `format` slot — **done when:** `SLOTS` gains an **opt-in** `format` slot
    before `lint` (excluded from the default run like `mutation`/`security`, so an
    upgrading repo can't go red on it; `init` new-mode may enable it in the generated
    config so greenfield formats by default); `prettier` (blessed) and `biome` (alternate) adapters

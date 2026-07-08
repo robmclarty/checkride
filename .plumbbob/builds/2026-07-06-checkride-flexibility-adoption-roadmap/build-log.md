@@ -60,3 +60,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-08 — step 4 checkpointed · 40da1c146 — Baseline part 1
 - 2026-07-08 — step 5 checkpointed · 596e02f45 — Baseline part 2
 - 2026-07-08 — step 6 checkpointed · 1c7561577 — Baseline part 3
+- 2026-07-08 — step 8 checkpointed · c5e39b36e — Blessed `format` slot

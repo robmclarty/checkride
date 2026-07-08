@@ -7,7 +7,8 @@
  * `../config`, and execution lives in `../orchestrator`.
  *
  * Phase 1 ships the blessed defaults plus the opt-in slots (format, mutation,
- * security). Alternates (biome, knip, eslint, jest) land in Phase 2.
+ * security, and the library-publishing pair publint + attw). Alternates (biome,
+ * knip, eslint, jest) land in Phase 2.
  */
 
 /** The aggregate-report schema version written to `.check/summary.json`. */
@@ -66,6 +67,8 @@ export const SLOTS: readonly Slot[] = [
   { name: 'spell' },
   { name: 'mutation', optIn: true },
   { name: 'security', optIn: true },
+  { name: 'publint', optIn: true },
+  { name: 'attw', optIn: true },
 ];
 
 /**
@@ -294,5 +297,25 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['audit', '--audit-level=high', '--json'],
     outputFile: 'security.json',
     devDeps: {},
+  },
+  {
+    name: 'publint',
+    slot: 'publint',
+    description: 'publint: package.json publishing correctness',
+    detect: [],
+    command: 'pnpm',
+    args: ['exec', 'publint'],
+    outputFile: null,
+    devDeps: { publint: '0.3.21' },
+  },
+  {
+    name: 'attw',
+    slot: 'attw',
+    description: 'Are the types wrong? (type resolution across module systems)',
+    detect: [],
+    command: 'pnpm',
+    args: ['exec', 'attw', '--pack', '.', '--format', 'json'],
+    outputFile: 'attw.json',
+    devDeps: { '@arethetypeswrong/cli': '0.18.4' },
   },
 ];
