@@ -16,7 +16,7 @@ describe('registry invariants', () => {
 
   test('the first adapter for each slot is the blessed default', () => {
     const blessed: Record<string, string> = {
-      types: 'tsc', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow', test: 'vitest',
+      types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
     };
     for (const slot of SLOTS) {
@@ -27,13 +27,29 @@ describe('registry invariants', () => {
 
   test('alternates are wired after the blessed default for swappable slots', () => {
     const names = (slot: string): string[] => ADAPTERS.filter((a) => a.slot === slot).map((a) => a.name);
+    expect(names('format')).toEqual(['prettier', 'biome-format']);
     expect(names('lint')).toEqual(['oxlint', 'biome', 'eslint']);
     expect(names('dead')).toEqual(['fallow', 'knip']);
     expect(names('test')).toEqual(['vitest', 'jest']);
   });
 
-  test('the two opt-in slots come last', () => {
-    expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual(['mutation', 'security']);
+  test('format is an opt-in slot positioned before lint', () => {
+    const names = SLOTS.map((s) => s.name);
+    expect(SLOTS.find((s) => s.name === 'format')?.optIn).toBe(true);
+    expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
+  });
+
+  test('opt-in slots are format (leading) plus mutation and security (trailing)', () => {
+    expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual(['format', 'mutation', 'security']);
+    expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['mutation', 'security']);
+  });
+
+  test('the blessed format adapter wires a prettier --check with a --write fix', () => {
+    const prettier = ADAPTERS.find((a) => a.name === 'prettier');
+    expect(prettier?.slot).toBe('format');
+    expect(prettier?.detect).toContain('.prettierrc.json');
+    expect(prettier?.args).toEqual(['exec', 'prettier', '--check', '.']);
+    expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
   test('the links adapter is the only built-in', () => {

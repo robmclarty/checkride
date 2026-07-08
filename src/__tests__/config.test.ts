@@ -48,6 +48,12 @@ describe('detection (no config)', () => {
     expect(r.optIn).toBe(true);
     expect(r.skip).toBe('no tool detected for slot');
   });
+
+  test('detection alone does not mark an opt-in slot explicit', () => {
+    const r = resolveSlot('format', null, present('.prettierrc.json'));
+    expect(r.adapter?.name).toBe('prettier');
+    expect(r.explicit).toBeFalsy();
+  });
 });
 
 describe('config resolution', () => {
@@ -143,6 +149,13 @@ describe('config resolution', () => {
     expect([disabled, custom.command, use.use]).toEqual([false, 'node', 'vitest']);
   });
 
+  test('naming an opt-in slot marks it explicit (opts it into the default run)', () => {
+    const r = resolveSlot('format', { checks: { format: 'prettier' } }, never);
+    expect(r.adapter?.name).toBe('prettier');
+    expect(r.optIn).toBe(true);
+    expect(r.explicit).toBe(true);
+  });
+
   test('a custom check on a non-catalogue name is appended', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
@@ -169,11 +182,11 @@ describe('config resolution', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
       adapters: ADAPTERS,
-      config: { checks: { format: { command: 'biome', args: ['format', '--write'], order: 'first' } } },
+      config: { checks: { tidy: { command: 'biome', args: ['format', '--write'], order: 'first' } } },
       fileExists: never,
     });
-    expect(resolved[0]?.slot).toBe('format');
-    expect(resolved.findIndex((r) => r.slot === 'format'))
+    expect(resolved[0]?.slot).toBe('tidy');
+    expect(resolved.findIndex((r) => r.slot === 'tidy'))
       .toBeLessThan(resolved.findIndex((r) => r.slot === SLOTS[0]?.name));
   });
 
@@ -183,14 +196,14 @@ describe('config resolution', () => {
       adapters: ADAPTERS,
       config: {
         checks: {
-          format: { command: 'biome', args: ['format', '--write'], order: 'first' },
+          tidy: { command: 'biome', args: ['format', '--write'], order: 'first' },
           licenses: { command: 'node', args: ['x.mjs'] },
         },
       },
       fileExists: never,
     });
     const names = resolved.map((r) => r.slot);
-    expect(names[0]).toBe('format');
+    expect(names[0]).toBe('tidy');
     expect(names.at(-1)).toBe('licenses');
   });
 
@@ -200,14 +213,14 @@ describe('config resolution', () => {
       adapters: ADAPTERS,
       config: {
         checks: {
-          format: { command: 'a', order: 'first' },
+          tidy: { command: 'a', order: 'first' },
           notice: { command: 'b', order: 'first' },
         },
       },
       fileExists: never,
     });
     const firsts = resolved.slice(0, 2).map((r) => r.slot);
-    expect(firsts).toEqual(['format', 'notice']);
+    expect(firsts).toEqual(['tidy', 'notice']);
   });
 
   test('a custom check with detect is skipped when no marker file is present', () => {
@@ -273,7 +286,8 @@ describe('published JSON Schema', () => {
         lint: 'biome', // string: pick an alternate adapter
         spell: false, // false: disable a slot
         test: { use: 'vitest', timeout: 0, changedArgs: ['--changed', 'origin/master'] },
-        format: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
+        format: 'prettier', // opt-in slot enabled by naming it
+        tidy: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
         licenses: { command: 'node', args: ['scripts/check-licenses.mjs'] },
       },
     };

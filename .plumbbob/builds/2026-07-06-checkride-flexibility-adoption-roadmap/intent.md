@@ -187,7 +187,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/cli.ts`, `src/baseline/index.ts`, `src/orchestrator.ts`,
      `src/__tests__/cli.test.ts`, `src/__tests__/baseline.test.ts`
 
-6. [ ] Baseline part 3 — baseline-aware run + ratchet — **done when:** a normal run,
+6. [x] Baseline part 3 — baseline-aware run + ratchet — **done when:** a normal run,
    when a baseline exists, subtracts baselined keys from each slot's current
    fingerprints; a slot passes if its remaining (non-baselined) set is empty and
    fails listing only the *new* keys; keys present in the baseline but absent from a

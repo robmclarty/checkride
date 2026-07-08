@@ -110,7 +110,11 @@ export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome }
 
 export type RunResult = { ok: boolean; summary: Summary; exitCode: number; runs: CheckRun[] };
 
-/** Port of the interim `select_checks`: only/skip/opt-in selection by slot name. */
+/**
+ * Port of the interim `select_checks`: only/skip/opt-in selection by slot name.
+ * An opt-in slot runs when `--all`/`--include` names it, or when it was
+ * explicitly configured in `checks` (`r.explicit`) — naming a slot is opting in.
+ */
 export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags): ResolvedCheck[] {
   const only = flags.only ?? null;
   const skipSet = new Set(flags.skip ?? []);
@@ -119,7 +123,7 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
   return resolved.filter((r) => {
     if (only) return only.includes(r.slot);
     if (skipSet.has(r.slot)) return false;
-    if (r.optIn && !all && !includeSet.has(r.slot)) return false;
+    if (r.optIn && !all && !includeSet.has(r.slot) && !r.explicit) return false;
     return true;
   });
 }

@@ -231,6 +231,16 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.written.some((f) => f.includes('.oxlintrc.json'))).toBe(true);
   });
 
+  test('--add format scaffolds the blessed prettier config', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const result = await runInit({ cwd: dir, add: ['format'], probeFailures: noFailures });
+    expect(existsSync(join(dir, '.prettierrc.json'))).toBe(true);
+    expect(result.written.some((f) => f.includes('.prettierrc.json'))).toBe(true);
+    // format is opt-in: scaffolding its config does not enable it in checks.
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    expect(cfg.checks['format']).toBeUndefined();
+  });
+
   test('--add never clobbers a config that already exists', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, '.oxlintrc.json'), '{"sentinel":true}');

@@ -66,6 +66,13 @@ describe('selectChecks', () => {
     expect(selectChecks(resolved, { include: ['mutation'] }).map((r) => r.slot)).toContain('mutation');
   });
 
+  test('an explicitly-configured opt-in slot runs without --include (naming opts in)', () => {
+    const withFormat = [...resolved, { slot: 'format', optIn: true, adapter: null, skip: null, explicit: true }];
+    expect(selectChecks(withFormat, {}).map((r) => r.slot)).toContain('format');
+    // ...but an opt-in slot that was only detected (not named) still stays out.
+    expect(selectChecks(resolved, {}).map((r) => r.slot)).not.toContain('mutation');
+  });
+
   test('--only restricts to the named slots', () => {
     expect(selectChecks(resolved, { only: ['lint'] }).map((r) => r.slot)).toEqual(['lint']);
   });

@@ -51,6 +51,7 @@ present (built-in checks always run). The default tool per slot:
 | Slot | Tool | Install with | Detect file |
 | ---- | ---- | ------------ | ----------- |
 | `types` | `tsc` | `pnpm add -D typescript @types/node` | `tsconfig.json` |
+| `format` | `prettier` (opt-in) | `pnpm add -D prettier` | `.prettierrc.json` |
 | `lint` | `oxlint` | `pnpm add -D oxlint oxlint-tsgolint` | `.oxlintrc.json` |
 | `struct` | `ast-grep` | `pnpm add -D @ast-grep/cli` | `sgconfig.yml` |
 | `dead` | `fallow` | `pnpm add -D fallow` | `fallow.toml` |
@@ -65,9 +66,14 @@ Note the npm package names differ from the binary names: `ast-grep` ships in the
 `@ast-grep/cli` package, and `stryker` ships in `@stryker-mutator/core`.
 
 Some slots accept alternates that checkride will also run if it detects their
-config: `lint` → `biome` or `eslint`; `dead` → `knip`; `test` → `jest`. The
-blessed default is the one `init` scaffolds; the rest just need their own config
-file present.
+config: `format` → `biome`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`
+→ `jest`. The blessed default is the one `init` scaffolds; the rest just need their
+own config file present.
+
+The `format` slot is **opt-in**: `checkride init --add format` scaffolds
+`.prettierrc.json`, then enable it by naming it in `checkride.config.json`
+(`"format": "prettier"`) or with `--include format`. Keeping it opt-in means
+adopting checkride never fails a repo on formatting it never signed up for.
 
 ## When `doctor` reports a missing tool
 

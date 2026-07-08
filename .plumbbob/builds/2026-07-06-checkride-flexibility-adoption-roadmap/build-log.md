@@ -59,3 +59,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-08 — step 3 checkpointed · ba3a20b57 — Package-manager-agnostic runner
 - 2026-07-08 — step 4 checkpointed · 40da1c146 — Baseline part 1
 - 2026-07-08 — step 5 checkpointed · 596e02f45 — Baseline part 2
+- 2026-07-08 — step 6 checkpointed · 1c7561577 — Baseline part 3

@@ -83,6 +83,12 @@ export type ResolvedCheck = {
   optIn: boolean;
   adapter: Adapter | null;
   skip: string | null;
+  /**
+   * True when `checks` names this slot explicitly (a non-`false` config entry).
+   * An explicit entry opts an otherwise opt-in slot into the default run — so
+   * `"format": "prettier"` runs without `--include` (see `selectChecks`).
+   */
+  explicit?: boolean;
 };
 
 const CONFIG_FILE = 'checkride.config.json';
@@ -147,12 +153,12 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
   };
 }
 
-function active(slot: Slot, adapter: Adapter): ResolvedCheck {
-  return { slot: slot.name, optIn: slot.optIn ?? false, adapter, skip: null };
+function active(slot: Slot, adapter: Adapter, explicit = false): ResolvedCheck {
+  return { slot: slot.name, optIn: slot.optIn ?? false, adapter, skip: null, explicit };
 }
 
-function skipped(slot: Slot, reason: string): ResolvedCheck {
-  return { slot: slot.name, optIn: slot.optIn ?? false, adapter: null, skip: reason };
+function skipped(slot: Slot, reason: string, explicit = false): ResolvedCheck {
+  return { slot: slot.name, optIn: slot.optIn ?? false, adapter: null, skip: reason, explicit };
 }
 
 function resolveOne(
@@ -161,24 +167,27 @@ function resolveOne(
   adapters: readonly Adapter[],
   fileExists: (file: string) => boolean,
 ): ResolvedCheck {
+  // Any non-`false` config entry is an explicit opt-in for this slot (`false`
+  // disables it, so it never runs regardless). Detection (no entry) is not.
+  const explicit = entry !== undefined && entry !== false;
   if (entry === false) {
     return skipped(slot, 'disabled in checkride.config.json');
   }
   if (typeof entry === 'string') {
     const adapter = byName(entry, adapters);
     return adapter
-      ? active(slot, adapter)
-      : skipped(slot, `configured adapter '${entry}' is not in the registry`);
+      ? active(slot, adapter, explicit)
+      : skipped(slot, `configured adapter '${entry}' is not in the registry`, explicit);
   }
   if (entry && typeof entry === 'object') {
     if ('use' in entry) {
       const base = byName(entry.use, adapters);
       return base
-        ? active(slot, applyOverrides(base, entry))
-        : skipped(slot, `configured adapter '${entry.use}' is not in the registry`);
+        ? active(slot, applyOverrides(base, entry), explicit)
+        : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);
     }
     if ('command' in entry) {
-      return active(slot, customAdapter(slot.name, entry));
+      return active(slot, customAdapter(slot.name, entry), explicit);
     }
   }
   const detected = detectAdapter(slot.name, adapters, fileExists);

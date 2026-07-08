@@ -466,6 +466,7 @@ async function readIfExists(path: string): Promise<string | null> {
 // adopting checkride incrementally are overwhelmingly single-package.
 const ADD_CONFIGS: Record<string, [string, string][]> = {
   types: [['shared/tsconfig.base.json', 'tsconfig.base.json'], ['flat/tsconfig.json', 'tsconfig.json']],
+  format: [['shared/prettierrc.json', '.prettierrc.json']],
   lint: [['shared/oxlintrc.json', '.oxlintrc.json']],
   struct: [
     ['shared/sgconfig.yml', 'sgconfig.yml'],

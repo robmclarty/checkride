@@ -17,7 +17,7 @@
     },
     "checks": {
       "type": "object",
-      "description": "Per-slot configuration. A key that matches a catalogue slot (types, lint, struct, dead, test, docs, links, spell, mutation, security) configures that slot; any other key is a custom check that runs alongside the catalogue.",
+      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, test, docs, links, spell, mutation, security) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, mutation, security) here also opts it into the default run.",
       "additionalProperties": {
         "$ref": "#/definitions/slotConfig"
       }

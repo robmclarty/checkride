@@ -60,7 +60,7 @@ Commands:
 Run options:
   --only <a,b>     Run only these slots
   --skip <a,b>     Skip these slots
-  --include <a,b>  Add opt-in slots (mutation, security) to the run
+  --include <a,b>  Add opt-in slots (format, mutation, security) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
   --bail           Stop at the first failure

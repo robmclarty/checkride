@@ -68,6 +68,7 @@ generates config for the blessed default.
 | Slot       | Role                                   | Blessed default     | Alternates       |
 | ---------- | -------------------------------------- | ------------------- | ---------------- |
 | `types`    | Type checking                          | `tsc --build`       | —                |
+| `format`   | Formatting (opt-in)                    | `prettier`          | `biome`          |
 | `lint`     | Linting                                | `oxlint`            | `biome`, `eslint`|
 | `struct`   | Structural rules (deep modules)        | `ast-grep`          | —                |
 | `dead`     | Dead code, deps, cycles, boundaries    | `fallow`            | `knip`           |
@@ -82,6 +83,13 @@ Zero-config: for each slot, checkride runs the first adapter whose config file
 exists, and skips slots with no detected tool. The core has **no runtime
 dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
+
+**Opt-in slots** (`format`, `mutation`, `security`) stay out of the default run so
+adopting checkride — or bumping its version — never turns a repo red on a check it
+didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming it
+in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
+run. `checkride fix` then runs its write form (e.g. `prettier --write`) alongside the
+other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
 
 ### Package managers
 
@@ -134,12 +142,13 @@ slot's raw output for structured diagnostics.
   "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.1.6/schema/checkride.config.schema.json",
   "timeout": 600,           // global per-check timeout in seconds (off by default)
   "checks": {
+    "format": "prettier",   // enable the opt-in format slot (blessed: prettier)
     "lint": "biome",        // pick an alternate adapter
     "spell": false,         // disable a slot
     "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/master"] },
-    "format": {             // a custom check that runs FIRST, ahead of the built-ins
+    "tidy": {           // a bespoke custom check that runs FIRST, ahead of the built-ins
       "command": "pnpm",
-      "args": ["exec", "biome", "format", "--write"],
+      "args": ["exec", "some-formatter", "--write"],
       "order": "first"
     },
     "licenses": {           // a custom check (runs last by default)
@@ -158,10 +167,15 @@ into the config it generates; the schema itself ships in the package at
 
 A custom check (one keyed by a name that isn't a built-in slot) runs *after* the
 built-in catalogue by default. Set `"order": "first"` to run it ahead of every
-built-in check instead — handy for a formatter like `biome format --write` that
-should normalize the tree before the linters and tests look at it. `"order":
-"last"` is the explicit form of the default. Within each group, custom checks
-run in the order they appear in the config.
+built-in check instead — handy for a **bespoke** formatter that should normalize
+the tree before the linters and tests look at it. `"order": "last"` is the explicit
+form of the default. Within each group, custom checks run in the order they appear
+in the config.
+
+For formatting, the blessed `format` slot (prettier, or biome) is the paved road —
+enable it with `"format": "prettier"` and `checkride fix` writes formatting for you.
+The `order: "first"` custom-check hatch coexists with it, for a one-off formatter the
+slot doesn't cover; the slot didn't retire it.
 
 Add `"detect": ["<file>", …]` to a custom check to gate it on marker files: it
 runs only when at least one listed file exists in the repo, and is skipped —

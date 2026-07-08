@@ -6,8 +6,8 @@
  * data only: no logic lives here. Resolution (config vs detection) lives in
  * `../config`, and execution lives in `../orchestrator`.
  *
- * Phase 1 ships the blessed defaults plus the two opt-in slots. Alternates
- * (biome, knip, eslint, jest) land in Phase 2.
+ * Phase 1 ships the blessed defaults plus the opt-in slots (format, mutation,
+ * security). Alternates (biome, knip, eslint, jest) land in Phase 2.
  */
 
 /** The aggregate-report schema version written to `.check/summary.json`. */
@@ -17,7 +17,11 @@ export const SCHEMA_VERSION = 1;
 export type Slot = {
   /** Stable slot name, e.g. `'lint'`. Used by `--only`/`--skip` and the report. */
   name: string;
-  /** Opt-in slots are excluded from the default run (need `--all`/`--include`). */
+  /**
+   * Opt-in slots are excluded from the default run. Enable one with
+   * `--all`/`--include <slot>`, or by naming it in `checks` (an explicit config
+   * entry opts you in — see `resolveChecks`/`selectChecks`).
+   */
   optIn?: boolean;
 };
 
@@ -52,6 +56,7 @@ export type Adapter = {
 /** Pipeline order. Cheapest first so `--bail` fails fast. */
 export const SLOTS: readonly Slot[] = [
   { name: 'types' },
+  { name: 'format', optIn: true },
   { name: 'lint' },
   { name: 'struct' },
   { name: 'dead' },
@@ -78,6 +83,42 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'tsc', '--build'],
     outputFile: null,
     devDeps: { typescript: '6.0.3', '@types/node': '22.20.0' },
+  },
+  {
+    name: 'prettier',
+    slot: 'format',
+    description: 'Prettier formatting check',
+    detect: [
+      '.prettierrc',
+      '.prettierrc.json',
+      '.prettierrc.yml',
+      '.prettierrc.yaml',
+      '.prettierrc.json5',
+      '.prettierrc.js',
+      '.prettierrc.cjs',
+      '.prettierrc.mjs',
+      '.prettierrc.toml',
+      'prettier.config.js',
+      'prettier.config.cjs',
+      'prettier.config.mjs',
+      'prettier.config.ts',
+    ],
+    command: 'pnpm',
+    args: ['exec', 'prettier', '--check', '.'],
+    outputFile: null,
+    fixArgs: ['exec', 'prettier', '--write', '.'],
+    devDeps: { prettier: '3.6.2' },
+  },
+  {
+    name: 'biome-format',
+    slot: 'format',
+    description: 'Biome formatting check',
+    detect: ['biome.json', 'biome.jsonc'],
+    command: 'pnpm',
+    args: ['exec', 'biome', 'format', '.'],
+    outputFile: null,
+    fixArgs: ['exec', 'biome', 'format', '--write', '.'],
+    devDeps: { '@biomejs/biome': '2.2.4' },
   },
   {
     name: 'oxlint',
