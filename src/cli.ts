@@ -32,6 +32,7 @@ const RUN_OPTIONS = {
   include: { type: 'string' },
   all: { type: 'boolean', default: false },
   changed: { type: 'boolean', default: false },
+  digest: { type: 'boolean', default: false },
 } as const;
 
 const INIT_OPTIONS = {
@@ -65,6 +66,7 @@ Run options:
   --changed        Affected-only mode (incremental)
   --bail           Stop at the first failure
   --json           Emit the summary as JSON on stdout
+  --digest         Write a capped failure excerpt to .check/digest.md
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -124,6 +126,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     json: values.json,
     all: values.all,
     changed: values.changed,
+    digest: values.digest,
     only: parseList(values.only),
     skip: parseList(values.skip),
     include: parseList(values.include),

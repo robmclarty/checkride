@@ -62,3 +62,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-08 — step 6 checkpointed · 1c7561577 — Baseline part 3
 - 2026-07-08 — step 8 checkpointed · c5e39b36e — Blessed `format` slot
 - 2026-07-08 — step 9 checkpointed · dd7411647 — Library-publishing slots (`publint`, `attw`), opt-in
+- 2026-07-08 — step 10 checkpointed · d0615e6fe — Presets / `extends`

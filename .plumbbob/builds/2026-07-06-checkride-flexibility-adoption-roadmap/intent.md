@@ -239,7 +239,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/adapters.ts`, `src/__tests__/adapters.test.ts`,
      `src/__tests__/orchestrator.test.ts`, `README.md`
 
-10. [ ] Presets / `extends` — **done when:** `checkride.config.json` accepts
+10. [x] Presets / `extends` — **done when:** `checkride.config.json` accepts
     `"extends": "<pkg-or-path>"` (string or array); configs merge with local keys
     overriding the base and arrays replacing (not concatenating); a missing/circular
     extend fails with the friendly `invalid checkride.config.json: <reason>` message;

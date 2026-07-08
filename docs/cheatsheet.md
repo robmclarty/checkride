@@ -26,6 +26,7 @@ Invoke as `pnpm check` (the alias `init` writes), or directly with
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
+| `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
 machine output only (the `--json` summary, mirroring `.check/summary.json`). In
@@ -91,9 +92,11 @@ Every run writes here. Treat it as a stable API for agents.
 | `summary.json` | Aggregate report: per-check `ok`, `exit_code`, `duration_ms`. |
 | `<slot>.json` | Raw tool JSON when stdout parses as JSON. |
 | `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams when output is not JSON. |
+| `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
 
 To debug: read `summary.json` for the failing slot, then read that slot's raw
-output for structured diagnostics.
+output for structured diagnostics. On a big repo, `--digest` writes a capped
+`digest.md` to start from.
 
 ## When something is off
 

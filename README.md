@@ -41,7 +41,7 @@ regardless of the tool's name.
 
 ```text
 checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
-  --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
+  --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>  --digest
 checkride init         Set up a project (new or existing — auto-detected).
   --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
   --baseline   (existing mode) grandfather current debt instead of disabling slots
@@ -139,8 +139,18 @@ When a [baseline](#baseline) masks a slot's findings, that check gains an additi
 `"baselined": <n>` field counting the grandfathered diagnostics; it is absent on
 runs with no baseline, so `schema_version` is unchanged.
 
+- `digest.md` — written only under `--digest`: a **token-bounded** Markdown
+  excerpt of the *failing* slots, so an agent working through a big red repo
+  reads a capped index instead of every raw file. Each section lists the first few
+  findings (reusing the baseline fingerprint extractors, or a tail of raw text
+  for slots without one) and links the authoritative `.check/<slot>.json`, which
+  is never modified. It **truncates, never normalizes**; a green run leaves no
+  digest (any stale one is removed), so its presence always means "this run
+  failed". It is a file, never stdout — the machine-output split holds.
+
 To debug a failure: read `summary.json` to find the failing slot, then read that
-slot's raw output for structured diagnostics.
+slot's raw output for structured diagnostics. On a large repo, `--digest` writes
+`digest.md` as a capped starting point.
 
 ## Configuration
 

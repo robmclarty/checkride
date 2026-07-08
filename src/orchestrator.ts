@@ -27,6 +27,7 @@ import {
 } from './baseline/index.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { loadConfig, resolveChecks } from './config.js';
+import { writeDigest } from './digest/index.js';
 import type { CheckOutcome } from './links.js';
 import { checkLinks } from './links.js';
 import type { PackageManager } from './pm/index.js';
@@ -44,6 +45,8 @@ export type RunFlags = {
   only?: string[] | null;
   skip?: string[] | null;
   include?: string[] | null;
+  /** Write a capped failure excerpt to `.check/digest.md` (step 11). */
+  digest?: boolean;
 };
 
 /** A single check in the aggregate report. */
@@ -338,6 +341,12 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const summary = buildSummary(checks);
   await writeFile(join(cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
+  // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
+  // A file beside summary.json, never a stdout stream, so the machine-output
+  // split holds (C5). Raw `.check/<slot>.json` files are already persisted and
+  // untouched — the digest only reads them.
+  const digestWritten = (options.digest ?? false) ? await writeDigest(cwd, runs, checks) : false;
+
   if (json) {
     stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
@@ -345,6 +354,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     const status = summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
     writeLine(stderr, `${status} in ${summary.total_duration_ms}ms`);
     writeLine(stderr, 'report: .check/summary.json');
+    if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
     writeLine(stderr, '');
   }
 
