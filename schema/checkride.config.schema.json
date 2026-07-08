@@ -75,6 +75,11 @@
         "fixArgs": { "type": "array", "items": { "type": "string" } },
         "timeout": { "type": "number", "minimum": 0 },
         "name": { "type": "string" },
+        "detect": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Marker files that gate a non-catalogue custom check: it runs only when at least one listed file exists, and is skipped otherwise. Ignored on an entry that fills a catalogue slot."
+        },
         "order": {
           "enum": ["first", "last"],
           "description": "Where a non-catalogue custom check runs relative to the catalogue. Default 'last'."

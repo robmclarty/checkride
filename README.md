@@ -146,6 +146,14 @@ should normalize the tree before the linters and tests look at it. `"order":
 "last"` is the explicit form of the default. Within each group, custom checks
 run in the order they appear in the config.
 
+Add `"detect": ["<file>", …]` to a custom check to gate it on marker files: it
+runs only when at least one listed file exists in the repo, and is skipped —
+skipped, not failed — otherwise. This keeps a shared config safe across repos
+that don't all use the same tools: a check for a tool a given repo lacks quietly
+stands down instead of lighting up red. `detect` applies only to custom checks
+that run alongside the catalogue; a custom check that fills a built-in slot
+always runs.
+
 A per-check timeout guards against a hung tool. It is **off by default** — a cap
 short enough to catch a hang on a small repo is short enough to kill a legitimate
 slow run on a large one, and CI job timeouts already bound true hangs. Set a

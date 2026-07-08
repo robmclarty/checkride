@@ -27,6 +27,15 @@ export type CustomCheck = {
   timeout?: number;
   name?: string;
   /**
+   * Marker files that gate a config-only custom check: it runs only when at
+   * least one listed file exists, and is skipped (`'no detect file present'`,
+   * not failed) otherwise. This keeps a shared preset safe across heterogeneous
+   * repos — a check for a tool a given repo doesn't use quietly stands down
+   * instead of lighting up red. Ignored on entries that fill a catalogue slot —
+   * those always run.
+   */
+  detect?: string[];
+  /**
    * Where a config-only custom check runs relative to the built-in catalogue:
    * `'first'` (ahead of every built-in check) or `'last'` (after them, the
    * default). Ignored on entries that fill a catalogue slot — those keep their
@@ -127,7 +136,7 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
     name: c.name ?? `custom:${slot}`,
     slot,
     description: c.description ?? `Custom ${slot} check`,
-    detect: [],
+    detect: c.detect ?? [],
     command: c.command,
     args: c.args ?? [],
     outputFile: c.outputFile ?? null,
@@ -181,7 +190,8 @@ function resolveOne(
  * fold in any config-only custom checks (an object with a `command`, keyed by a
  * name not in the catalogue — e.g. a project's `"licenses"` check). Each custom
  * check runs ahead of the catalogue (`order: 'first'`) or after it (`'last'`,
- * the default); within a group, config key order is preserved.
+ * the default); within a group, config key order is preserved. A custom check
+ * that declares `detect` files is skipped when none of them are present.
  */
 export function resolveChecks(input: {
   slots: readonly Slot[];
@@ -203,7 +213,11 @@ export function resolveChecks(input: {
   for (const [name, entry] of Object.entries(checks)) {
     if (catalogueNames.has(name)) continue;
     if (entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry) {
-      const resolved = active({ name }, customAdapter(name, entry));
+      const detect = entry.detect ?? [];
+      const resolved =
+        detect.length > 0 && !detect.some((f) => fileExists(f))
+          ? skipped({ name }, 'no detect file present')
+          : active({ name }, customAdapter(name, entry));
       (entry.order === 'first' ? firsts : lasts).push(resolved);
     }
   }

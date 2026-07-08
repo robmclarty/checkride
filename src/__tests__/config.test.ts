@@ -209,6 +209,40 @@ describe('config resolution', () => {
     const firsts = resolved.slice(0, 2).map((r) => r.slot);
     expect(firsts).toEqual(['format', 'notice']);
   });
+
+  test('a custom check with detect is skipped when no marker file is present', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['x.mjs'], detect: ['foo.config.js'] } } },
+      fileExists: never,
+    });
+    const licenses = resolved.find((r) => r.slot === 'licenses');
+    expect(licenses?.adapter).toBeNull();
+    expect(licenses?.skip).toBe('no detect file present');
+  });
+
+  test('a custom check with detect is active when a marker file is present', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['x.mjs'], detect: ['foo.config.js'] } } },
+      fileExists: present('foo.config.js'),
+    });
+    const licenses = resolved.find((r) => r.slot === 'licenses');
+    expect(licenses?.skip).toBeNull();
+    expect(licenses?.adapter?.command).toBe('node');
+  });
+
+  test('detect does not gate a custom check that fills a catalogue slot', () => {
+    const r = resolveSlot(
+      'lint',
+      { checks: { lint: { command: 'node', args: ['x'], detect: ['foo.config.js'] } } },
+      never,
+    );
+    expect(r.skip).toBeNull();
+    expect(r.adapter?.command).toBe('node');
+  });
 });
 
 describe('published JSON Schema', () => {
@@ -264,6 +298,18 @@ describe('published JSON Schema', () => {
 
   test('rejects a custom check with no command', () => {
     expect(validate({ checks: { licenses: { args: ['x'] } } })).toBe(false);
+  });
+
+  test('accepts a custom check with a detect list', () => {
+    expect(validate({ checks: { licenses: { command: 'node', detect: ['foo.config.js'] } } })).toBe(
+      true,
+    );
+  });
+
+  test('rejects a detect that is not an array of strings', () => {
+    expect(validate({ checks: { licenses: { command: 'node', detect: 'foo.config.js' } } })).toBe(
+      false,
+    );
   });
 });
 

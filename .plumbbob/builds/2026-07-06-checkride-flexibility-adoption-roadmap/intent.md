@@ -135,7 +135,7 @@ message-key), a far smaller contract than a shared display schema.
 
 ## Steps
 
-1. [ ] Publish a JSON Schema for `checkride.config.json` and emit a `$schema`
+1. [x] Publish a JSON Schema for `checkride.config.json` and emit a `$schema`
    pointer in generated configs — **done when:** `schema/checkride.config.schema.json`
    exists and describes the config surface (slots, `use`/`false`/custom/`order`,
    `timeout`); `init` (existing mode) writes a version-pinned `"$schema"` URL —
