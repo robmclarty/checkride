@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-07-08
+
+### Fixed
+
+- Every `checkride init` scaffold shipped a `spell` check that failed out of the
+  box: the generated AGENTS.md contract stanza uses the word "baselined", but the
+  scaffolded `cspell.json` dictionary didn't include it, so a freshly generated
+  project's first `checkride` run exited non-zero.
+
+### Internal
+
+- Added a fast local guard (`generated-spell.test.ts`) that runs cspell against an
+  in-process `init` scaffold for each shape, catching this class of drift in
+  `pnpm check` instead of only in the slower end-to-end suite.
+
 ## [0.2.0] - 2026-07-08
 
 ### Added
@@ -176,6 +191,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.2.1]: https://www.npmjs.com/package/checkride/v/0.2.1
 [0.2.0]: https://www.npmjs.com/package/checkride/v/0.2.0
 [0.1.6]: https://www.npmjs.com/package/checkride/v/0.1.6
 [0.1.5]: https://www.npmjs.com/package/checkride/v/0.1.5
