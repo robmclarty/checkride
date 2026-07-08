@@ -146,7 +146,7 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `schema/checkride.config.schema.json`, `src/init.ts`, `src/config.ts`,
      `src/__tests__/config.test.ts`, `package.json` (`files`), `README.md`
 
-2. [ ] Let custom checks declare a `detect` field so shared presets are safe
+2. [x] Let custom checks declare a `detect` field so shared presets are safe
    across heterogeneous repos — **done when:** a custom check with
    `detect: ['foo.config.js']` resolves to *skipped* ("no detect file present")
    when the file is absent and *active* when present; a catalogue-slot custom

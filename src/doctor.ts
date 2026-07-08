@@ -27,6 +27,8 @@ import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { selectChecks } from './orchestrator.js';
+import type { PackageManager } from './pm/index.js';
+import { detectPackageManager, isAvailableUnder } from './pm/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -52,6 +54,8 @@ export type DoctorCheck = {
 export type DoctorReport = {
   ok: boolean;
   platform: { os: string; arch: string };
+  /** The package manager checkride detected for this repo. */
+  packageManager: PackageManager;
   checks: DoctorCheck[];
 };
 
@@ -65,6 +69,7 @@ export type DoctorEnv = {
   canWrite: (dir: string) => Promise<boolean>;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
   platform: () => { os: string; arch: string };
+  packageManager: (cwd: string) => PackageManager;
 };
 
 export type DoctorOptions = {
@@ -85,7 +90,6 @@ const INSTALL_HINTS: Record<string, string> = {
   node: 'Install Node >=22.18: https://nodejs.org/ or `nvm install 22 && nvm use 22`',
   pnpm: 'Install pnpm >=9: `corepack enable && corepack prepare pnpm@latest --activate`',
   git: 'Install git: https://git-scm.com/downloads',
-  install: 'Run `pnpm install` from the repo root.',
 };
 
 async function whichReal(cmd: string): Promise<string | null> {
@@ -136,6 +140,7 @@ const realEnv: DoctorEnv = {
   canWrite: canWriteReal,
   readEngines: readEnginesReal,
   platform: () => ({ os: osPlatform(), arch: osArch() }),
+  packageManager: (cwd) => detectPackageManager({ cwd }),
 };
 
 function parseSemver(text: string | null | undefined): Semver | null {
@@ -180,12 +185,30 @@ async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<
   return { name, category: 'env', required: true, status: 'ok', found: raw ?? path, expected: 'present on PATH', hint: null };
 }
 
-function checkInstall(cwd: string, env: DoctorEnv): DoctorCheck {
-  if (!env.exists(join(cwd, 'pnpm-lock.yaml'))) {
-    return { name: 'install', category: 'install', required: true, status: 'missing', found: null, expected: 'pnpm-lock.yaml present', hint: INSTALL_HINTS['install'] ?? null };
+/** Lockfiles that count as "installed" for each package manager. */
+const PM_LOCKFILES: Record<PackageManager, readonly string[]> = {
+  pnpm: ['pnpm-lock.yaml'],
+  npm: ['package-lock.json'],
+  yarn: ['yarn.lock'],
+  bun: ['bun.lock', 'bun.lockb'],
+};
+
+/**
+ * pnpm keeps its documented `>=9` floor (byte-identical to today); npm, yarn,
+ * and bun are presence-only until we pin per-PM minimums.
+ */
+function checkPackageManager(pm: PackageManager, pnpmMin: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+  return pm === 'pnpm' ? checkVersioned('pnpm', 'pnpm', pnpmMin, env) : checkPresent(pm, pm, env);
+}
+
+function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCheck {
+  const locks = PM_LOCKFILES[pm];
+  const hint = `Run \`${pm} install\` from the repo root.`;
+  if (!locks.some((lock) => env.exists(join(cwd, lock)))) {
+    return { name: 'install', category: 'install', required: true, status: 'missing', found: null, expected: `${locks.join(' or ')} present`, hint };
   }
   if (!env.exists(join(cwd, 'node_modules'))) {
-    return { name: 'install', category: 'install', required: true, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint: INSTALL_HINTS['install'] ?? null };
+    return { name: 'install', category: 'install', required: true, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint };
   }
   return { name: 'install', category: 'install', required: true, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
 }
@@ -234,6 +257,7 @@ async function classifySlot(
   config: CheckrideConfig | null,
   cwd: string,
   env: DoctorEnv,
+  pm: PackageManager,
 ): Promise<DoctorCheck> {
   const base = { category: 'tool' as const, slot: r.slot, adapter: r.adapter?.name ?? null };
 
@@ -244,6 +268,10 @@ async function classifySlot(
   // No adapter fills the slot: nothing to run. Point at what would enable it.
   if (!r.adapter) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, adapters) };
+  }
+  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm (b5).
+  if (!isAvailableUnder(r.adapter.command, r.adapter.args, pm)) {
+    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${r.adapter.command} ${r.adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
   }
   // Adapter resolved: probe the tool, classify by default-run membership.
   const probe = await probeTool(r.adapter, cwd, env);
@@ -311,6 +339,7 @@ function renderSlotSummary(tools: DoctorCheck[], out: Out): void {
 
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
+  out.write(`  package manager: ${report.packageManager} (detected)\n\n`);
   for (const group of GROUPS) {
     const items = report.checks.filter((c) => c.category === group.key);
     if (items.length === 0) continue;
@@ -343,12 +372,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const engines = env.readEngines(cwd);
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
+  const pm = env.packageManager(cwd);
 
   const checks: DoctorCheck[] = [
     await checkVersioned('node', 'node', nodeMin, env),
-    await checkVersioned('pnpm', 'pnpm', pnpmMin, env),
+    await checkPackageManager(pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
-    checkInstall(cwd, env),
+    checkInstall(cwd, pm, env),
   ];
 
   // Enumerate every catalogue slot so off/opt-in/disabled slots stay visible
@@ -356,13 +386,13 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const resolved = resolveChecks({ slots, adapters, config, cwd });
   const defaultActive = new Set(selectChecks(resolved, {}).map((r) => r.slot));
   for (const r of resolved) {
-    checks.push(await classifySlot(r, defaultActive, adapters, config, cwd, env));
+    checks.push(await classifySlot(r, defaultActive, adapters, config, cwd, env, pm));
   }
 
   checks.push(await checkWritable(cwd, env));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
-  const report: DoctorReport = { ok, platform: env.platform(), checks };
+  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, checks };
 
   if (json) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);

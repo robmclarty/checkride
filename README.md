@@ -78,8 +78,19 @@ generates config for the blessed default.
 
 Zero-config: for each slot, checkride runs the first adapter whose config file
 exists, and skips slots with no detected tool. The core has **no runtime
-dependency** on any checked tool — it spawns `pnpm exec <tool>`; the project
+dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
+
+### Package managers
+
+checkride is package-manager-agnostic. It detects the repo's package manager
+from the `packageManager` field or the lockfile (`pnpm-lock.yaml`,
+`package-lock.json`, `yarn.lock`, `bun.lock`), defaulting to **pnpm**, and
+translates each adapter's canonical `pnpm exec <tool>` into that manager's form
+(`npx`, `yarn`, or `bunx`). The default pnpm run is unchanged; `doctor` reports
+the detected manager. One exception: the opt-in `security` slot is `pnpm audit`,
+whose flags and JSON shape are pnpm-specific, so it is **unavailable on a
+non-pnpm manager** until a per-manager audit adapter lands.
 
 ## The `.check/` contract
 

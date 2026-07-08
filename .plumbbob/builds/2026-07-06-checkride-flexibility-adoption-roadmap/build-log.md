@@ -55,3 +55,4 @@ you point at to say "I did that — the LLM helped, but those were my calls."
 `/pb-finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
 - 2026-07-08 — step 1 checkpointed · 7d2953a0b — Publish a JSON Schema for `checkride.config.json` and emit a `$schema`
+- 2026-07-08 — step 2 checkpointed · a1ec9bb18 — Let custom checks declare a `detect` field so shared presets are safe

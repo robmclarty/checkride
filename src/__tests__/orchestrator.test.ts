@@ -114,6 +114,48 @@ describe('runChecks (injected runner)', () => {
   });
 });
 
+describe('runChecks (package manager)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-pm-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const audit = fakeAdapter({ name: 'pnpm-audit', slot: 'security', command: 'pnpm', args: ['audit', '--json'], outputFile: 'security.json' });
+
+  test('skips the audit slot as unavailable under a non-pnpm PM', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'security', optIn: true }], adapters: [audit], config: null,
+      include: ['security'], pm: 'npm', runner: okRunner, json: false, stdout: sink().out, stderr: std.out,
+    });
+    const sec = result.summary.checks.find((c) => c.name === 'security');
+    expect(sec?.skipped).toBe(true);
+    expect(sec?.reason).toContain('unavailable under npm');
+    expect(result.ok).toBe(true);
+    expect(std.lines.join('')).toContain('skip');
+  });
+
+  test('runs the audit slot normally under pnpm', async () => {
+    const ran: string[] = [];
+    const recording: CheckRunner = (r) => { ran.push(r.slot); return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }); };
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'security', optIn: true }], adapters: [audit], config: null,
+      include: ['security'], pm: 'pnpm', runner: recording, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(ran).toContain('security');
+    expect(result.summary.checks.find((c) => c.name === 'security')?.skipped).toBeUndefined();
+  });
+
+  test('threads the resolved PM into the runner context', async () => {
+    const seen: string[] = [];
+    const spy: CheckRunner = (_r, ctx) => { seen.push(ctx.pm); return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }); };
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [fakeAdapter({ name: 'oxlint', slot: 'lint' })], config: null,
+      pm: 'yarn', runner: spy, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(seen).toEqual(['yarn']);
+  });
+});
+
 describe('runChecks (real subprocess)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-spawn-')); });

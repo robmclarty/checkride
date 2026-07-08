@@ -18,6 +18,8 @@ import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { loadConfig, resolveChecks } from './config.js';
 import type { CheckOutcome } from './links.js';
 import { checkLinks } from './links.js';
+import type { PackageManager } from './pm/index.js';
+import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -58,7 +60,7 @@ export type Summary = {
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
   resolved: ResolvedCheck,
-  ctx: { cwd: string; changed: boolean; timeout?: number },
+  ctx: { cwd: string; changed: boolean; pm: PackageManager; timeout?: number },
 ) => Promise<CheckOutcome>;
 
 export type RunOptions = RunFlags & {
@@ -69,6 +71,8 @@ export type RunOptions = RunFlags & {
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;
+  /** Package manager to run under; detected from `cwd` when omitted. */
+  pm?: PackageManager;
 };
 
 export type RunResult = { ok: boolean; summary: Summary; exitCode: number };
@@ -135,7 +139,8 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
   if (adapter.builtin === 'links') return checkLinks(ctx.cwd);
   const timeout = adapter.timeout ?? ctx.timeout;
-  return spawnCheck(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.cwd, timeout);
+  const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
+  return spawnCheck(command, args, ctx.cwd, timeout);
 };
 
 /** Persist raw output: JSON to `.check/<outputFile>`, else stdout/stderr text. */
@@ -202,6 +207,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const bail = options.bail ?? false;
   const changed = options.changed ?? false;
   const timeout = config?.timeout;
+  const pm = options.pm ?? detectPackageManager({ cwd });
 
   await mkdir(join(cwd, '.check'), { recursive: true });
 
@@ -212,8 +218,13 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   const checks: SummaryCheck[] = [];
   for (const r of selected) {
-    if (r.skip || !r.adapter) {
-      const entry = skippedEntry(r);
+    // Skip when unresolved, or when the adapter can't run under this PM — e.g.
+    // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
+    const unavailable = r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, pm);
+    if (r.skip || !r.adapter || unavailable) {
+      const entry = skippedEntry(
+        unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${pm}` } : r,
+      );
       checks.push(entry);
       if (!json) writeLine(stderr, `  ○ ${entry.name.padEnd(8)}      skip  ${entry.reason ?? ''}`);
       continue;
@@ -221,7 +232,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     const adapter = r.adapter;
     if (!json) writeLine(stderr, `  ▸ ${r.slot}  ${adapter.description}`);
     const start = performance.now();
-    const outcome = await runner(r, { cwd, changed, ...(timeout !== undefined ? { timeout } : {}) });
+    const outcome = await runner(r, { cwd, changed, pm, ...(timeout !== undefined ? { timeout } : {}) });
     const duration_ms = Math.round(performance.now() - start);
     await persistOutput(cwd, adapter, outcome);
     const entry: SummaryCheck = {

@@ -21,6 +21,7 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
     canWrite: () => Promise.resolve(true),
     readEngines: () => ({ node: '>=22.18.0', pnpm: '>=9.0.0' }),
     platform: () => ({ os: 'linux', arch: 'x64' }),
+    packageManager: () => 'pnpm',
     ...over,
   };
 }
@@ -85,6 +86,42 @@ describe('runDoctor (injected env)', () => {
       env: fakeEnv({ exists: () => false }), stdout: sink(), json: true,
     });
     expect(result.report.checks.find((c) => c.category === 'tool')?.status).toBe('ok');
+  });
+
+  test('reports the detected package manager in the report and the table', async () => {
+    const std = sink();
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ packageManager: () => 'npm' }), stdout: std, json: false,
+    });
+    expect(result.report.packageManager).toBe('npm');
+    expect(std.text()).toContain('package manager: npm (detected)');
+  });
+
+  test('the required PM check follows the detected PM (yarn present -> ok)', async () => {
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      // Only yarn resolves on PATH; a hard pnpm requirement would wrongly fail here.
+      env: fakeEnv({ packageManager: () => 'yarn', which: (cmd) => Promise.resolve(cmd === 'pnpm' ? null : `/usr/bin/${cmd}`) }),
+      stdout: sink(), json: true,
+    });
+    expect(result.report.checks.find((c) => c.name === 'yarn')?.status).toBe('ok');
+    expect(result.ok).toBe(true);
+  });
+
+  test('security (pnpm audit) is unavailable under a non-pnpm PM', async () => {
+    const audit: Adapter = {
+      name: 'pnpm-audit', slot: 'security', description: 'audit', detect: [],
+      command: 'pnpm', args: ['audit', '--json'], outputFile: 'security.json', devDeps: {},
+    };
+    const result = await runDoctor({
+      cwd: '/repo', slots: [{ name: 'security', optIn: true }], adapters: [audit], config: null,
+      env: fakeEnv({ packageManager: () => 'yarn' }), stdout: sink(), json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'security');
+    expect(slot?.enablement).toBe('unavailable');
+    expect(slot?.hint).toContain('pnpm');
+    expect(result.ok).toBe(true);
   });
 
   test('a missing required binary on PATH is reported', async () => {

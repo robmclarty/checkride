@@ -1,9 +1,10 @@
 # Tools and installation
 
 checkride has **no runtime dependency on any tool it runs**. For each slot it
-spawns `pnpm exec <tool>`, so the tools are ordinary project `devDependencies`,
-pinned and owned by your repository. "Installing a missing tool" therefore means
-adding an npm package — not a separate system binary.
+spawns `<pm> exec <tool>` — where `<pm>` is your repo's package manager (see
+[Package managers](#package-managers) below) — so the tools are ordinary project
+`devDependencies`, pinned and owned by your repository. "Installing a missing
+tool" therefore means adding an npm package — not a separate system binary.
 
 There are two layers:
 
@@ -19,6 +20,28 @@ There are two layers:
 | git  | any | <https://git-scm.com/downloads> |
 
 Check them with `pnpm exec checkride doctor`.
+
+## Package managers
+
+checkride detects your repo's package manager and runs each tool through it, so
+pnpm is the default but not a requirement. Detection uses the `packageManager`
+field in `package.json` first, then the lockfile:
+
+| Lockfile | Manager | Exec form |
+| -------- | ------- | --------- |
+| `pnpm-lock.yaml` | pnpm (default) | `pnpm exec <tool>` |
+| `package-lock.json` | npm | `npx <tool>` |
+| `yarn.lock` | yarn | `yarn <tool>` |
+| `bun.lock` / `bun.lockb` | bun | `bunx <tool>` |
+
+With no lockfile or field, checkride falls back to pnpm. `doctor` prints the
+detected manager at the top of its report and verifies that manager is on your
+PATH (pnpm keeps its `>=9` floor; the others are presence-only for now).
+
+The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
+and JSON shape don't port across managers, so on npm/yarn/bun the slot is
+reported **unavailable** until a per-manager audit adapter lands. Every other
+slot runs identically regardless of manager.
 
 ## Slot tools
 
