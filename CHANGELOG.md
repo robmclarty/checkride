@@ -4,6 +4,52 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-08
+
+### Added
+
+- **Baseline** — adopt checkride on an existing repo without turning it into a
+  cleanup project. `checkride baseline` records current diagnostics into a
+  committed `checkride.baseline.json`; a normal run then passes a slot as long as
+  only baselined findings remain, fails listing only genuinely new ones, and
+  *ratchets* the file smaller as findings are fixed — never larger, and never
+  pruned on a partial `--only`/`--skip`/`--changed` run. `checkride init
+  --baseline` grandfathers today's debt instead of disabling failing slots.
+  Grandfathered counts surface in `.check/summary.json` as an additive
+  `baselined` field.
+- **Package-manager-agnostic runs** — checkride detects pnpm, npm, yarn, or bun
+  (from the lockfile or the `packageManager` field) and translates each tool
+  invocation accordingly; the default pnpm behavior is byte-identical to before.
+  `doctor` reports the detected manager. The `security` audit stays pnpm-only
+  until per-manager adapters land.
+- **`checkride agent-setup`** plus an `init` Stop hook — both write an idempotent
+  Claude Code Stop hook to `.claude/settings.json` that runs the gate on the
+  *detected* package manager and blocks a stop while checks are red. `agent-setup`
+  also (re)writes the AGENTS.md contract stanza for a repo set up without a full
+  `init`. Both are opt-out with `--no-hook`.
+- **`format` slot** (opt-in) — a blessed `prettier` adapter (with `biome` as an
+  alternate) that runs before `lint` and is wired into `checkride fix`. Excluded
+  from the default run so upgrading never turns a repo red; `init` can enable it
+  for greenfield projects. The `order: "first"` custom-check hatch still works for
+  bespoke formatters.
+- **`publint` and `attw` slots** (opt-in) — library-publishing checks that make
+  "the published package is correct" part of the definition of done: `publint`
+  lints the `package.json` publishing surface, `attw` verifies types resolve
+  across module systems. Detect-gated so apps that never publish don't run them.
+- **Config presets via `extends`** — `checkride.config.json` accepts `"extends":
+  "<package-or-path>"` (string or array) to inherit a shared base; local keys win,
+  and a missing or circular extend fails with a friendly message.
+- **`--digest`** — writes a token-bounded Markdown excerpt of the failing slots to
+  `.check/digest.md`, each section pointing at the authoritative raw output, so
+  agents spend less context triaging failures on large repos. Absent on a green
+  run.
+- **Custom-check `detect` field** — a custom check can declare `detect:
+  ["<file>"]` so a shared preset skips it when the file is absent and activates it
+  when present, keeping one config safe across heterogeneous repos.
+- **Published JSON Schema** — `schema/checkride.config.schema.json` describes the
+  full config surface and ships in the package; `init` writes a version-pinned
+  `$schema` pointer into generated configs for editor validation.
+
 ## [0.1.6] - 2026-06-30
 
 ### Added
@@ -130,6 +176,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.2.0]: https://www.npmjs.com/package/checkride/v/0.2.0
 [0.1.6]: https://www.npmjs.com/package/checkride/v/0.1.6
 [0.1.5]: https://www.npmjs.com/package/checkride/v/0.1.5
 [0.1.4]: https://www.npmjs.com/package/checkride/v/0.1.4

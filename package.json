@@ -1,6 +1,6 @@
 {
   "name": "checkride",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "An agent harness for TypeScript repositories: one command that is the definition of done, plus mechanically enforced module boundaries.",
   "license": "MIT",
   "author": "Rob McLarty",
