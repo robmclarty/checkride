@@ -52,10 +52,21 @@ export type SlotConfig = string | false | UseConfig | CustomCheck;
 
 /** Shape of `checkride.config.json`. */
 export type CheckrideConfig = {
+  /** URL of the JSON Schema for this file, for editor validation. Ignored by the runner. */
+  $schema?: string;
   checks?: Record<string, SlotConfig>;
   /** Default per-check timeout in seconds (no cap when unset). `0` on a check disables its cap. */
   timeout?: number;
 };
+
+/**
+ * The version-pinned URL of the published config schema, for the `$schema`
+ * pointer `init` writes into generated configs. The `v<version>` git tag must
+ * exist at release for the URL to resolve.
+ */
+export function configSchemaUrl(version: string): string {
+  return `https://raw.githubusercontent.com/robmclarty/checkride/v${version}/schema/checkride.config.schema.json`;
+}
 
 /** A slot resolved to a concrete adapter, or marked skipped with a reason. */
 export type ResolvedCheck = {

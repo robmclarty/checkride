@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/robmclarty/checkride/main/schema/checkride.config.schema.json",
+  "title": "checkride configuration",
+  "description": "Schema for checkride.config.json — add it only to deviate from the zero-config defaults.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this JSON Schema, for editor validation and autocompletion."
+    },
+    "timeout": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Default per-check timeout in seconds. Off by default; 0 on a check exempts it from the cap."
+    },
+    "checks": {
+      "type": "object",
+      "description": "Per-slot configuration. A key that matches a catalogue slot (types, lint, struct, dead, test, docs, links, spell, mutation, security) configures that slot; any other key is a custom check that runs alongside the catalogue.",
+      "additionalProperties": {
+        "$ref": "#/definitions/slotConfig"
+      }
+    }
+  },
+  "definitions": {
+    "slotConfig": {
+      "description": "How to fill a slot: an adapter name, false to disable it, an adapter with overrides, or a custom check.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Adapter name that fills this slot, beating detection."
+        },
+        {
+          "const": false,
+          "description": "Disable this slot (skipped, not failed)."
+        },
+        { "$ref": "#/definitions/useConfig" },
+        { "$ref": "#/definitions/customCheck" }
+      ]
+    },
+    "useConfig": {
+      "type": "object",
+      "description": "Pick an adapter by name and override individual fields.",
+      "required": ["use"],
+      "additionalProperties": false,
+      "properties": {
+        "use": {
+          "type": "string",
+          "description": "Adapter name to select from the registry."
+        },
+        "command": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "outputFile": { "type": ["string", "null"] },
+        "changedArgs": { "type": "array", "items": { "type": "string" } },
+        "fixArgs": { "type": "array", "items": { "type": "string" } },
+        "timeout": { "type": "number", "minimum": 0 }
+      }
+    },
+    "customCheck": {
+      "type": "object",
+      "description": "A bare command that needs no adapter.",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Executable to spawn."
+        },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "description": { "type": "string" },
+        "outputFile": { "type": ["string", "null"] },
+        "changedArgs": { "type": "array", "items": { "type": "string" } },
+        "fixArgs": { "type": "array", "items": { "type": "string" } },
+        "timeout": { "type": "number", "minimum": 0 },
+        "name": { "type": "string" },
+        "order": {
+          "enum": ["first", "last"],
+          "description": "Where a non-catalogue custom check runs relative to the catalogue. Default 'last'."
+        }
+      }
+    }
+  }
+}

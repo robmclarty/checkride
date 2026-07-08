@@ -43,7 +43,7 @@ adapters.ts .... new slots: `format` (prettier/biome), opt-in `publint`/`attw`;
 new modules (deep-modules layout, folder + index.ts barrel):
    src/pm/            — detect package manager, translate the exec prefix
    src/baseline/      — per-adapter fingerprints + baseline read/write/ratchet
-   src/cache/         — per-slot input hashing
+   src/cache/         — per-slot input hashing (parked — step 7, see Verdicts)
    src/digest/        — token-bounded failure excerpt
 schema/checkride.config.schema.json  — published JSON Schema
 ```
@@ -64,7 +64,11 @@ message-key), a far smaller contract than a shared display schema.
   per-adapter output, both of which exist today, so nothing blocks pulling it
   forward.
 - D3: Baseline uses **per-adapter fingerprint functions**, never a normalized
-  schema. A fingerprint is a stable key set (file + rule + normalized message).
+  schema. A fingerprint is a stable, order-independent key *string* each adapter's
+  extractor defines — `file + rule + normalized message` is the common case
+  (oxlint/ast-grep/cspell), but an adapter may emit a composite key for cross-file
+  findings (fallow cycles/duplication) or emit none and sit out (D12; loosened in the
+  2026-07-07 refine, see a4).
   — *because* normalizing diagnostics for display is exactly the layer the thesis
   deletes; a fingerprint is a much smaller per-adapter contract and the raw
   `.check/<slot>.json` stays authoritative.
@@ -121,17 +125,23 @@ message-key), a far smaller contract than a shared display schema.
 - C4: **Never break `.check/summary.json`.** Additive fields only, gated by
   `schema_version` (D8). Tests that read the contract must keep passing.
 - C5: Preserve the **stdout/stderr split** — human progress to stderr, machine
-  output (JSON, digests destined for pipes) to stdout only.
+  output (the `--json` summary) to stdout only. The failure digest is a **file**
+  (`.check/digest.md`, beside `summary.json`), not a stdout stream (step 11 / b6).
 - C6: Each catalogue or config surface change is **documented in the same step**
-  (README table + `docs/cheatsheet.md`); a feature with no docs is not done.
+  (README table + `docs/cheatsheet.md`) **and reflected in
+  `schema/checkride.config.schema.json` in the same step** (e.g. steps 2 and 10 add
+  the `detect` and `extends` keys); a feature with no docs — or a config key missing
+  from the schema — is not done.
 
 ## Steps
 
 1. [ ] Publish a JSON Schema for `checkride.config.json` and emit a `$schema`
    pointer in generated configs — **done when:** `schema/checkride.config.schema.json`
    exists and describes the config surface (slots, `use`/`false`/custom/`order`,
-   `timeout`); `init` (existing mode) writes `"$schema"` into the config it
-   generates; a test parses a representative config and asserts it validates
+   `timeout`); `init` (existing mode) writes a version-pinned `"$schema"` URL —
+   `https://raw.githubusercontent.com/robmclarty/checkride/v<version>/schema/checkride.config.schema.json`,
+   the version read from `init`'s own package.json (the git tag must exist at release) —
+   into the config it generates; a test parses a representative config and asserts it validates
    against the schema. Ships in `files` so it's resolvable from the installed package.
    - seam: `schema/checkride.config.schema.json`, `src/init.ts`, `src/config.ts`,
      `src/__tests__/config.test.ts`, `package.json` (`files`), `README.md`
@@ -146,10 +156,12 @@ message-key), a far smaller contract than a shared display schema.
 3. [ ] Package-manager-agnostic runner — **done when:** a `src/pm/` module resolves
    pnpm | npm | yarn | bun from lockfile fixtures (`pnpm-lock.yaml`, `package-lock.json`,
    `yarn.lock`, `bun.lock`) and the `packageManager` field, defaulting to pnpm; the
-   orchestrator translates each adapter's `pnpm exec <tool>` (and `pnpm audit`) into
-   the resolved PM's invocation (`npx`/`yarn`/`bunx`, `npm audit`, …); default pnpm
-   behaviour is byte-identical to today; `doctor` reports the detected PM. Unit tests
-   cover each lockfile → prefix mapping and the audit translation.
+   orchestrator translates **only** each adapter's `pnpm exec <tool>` into the
+   resolved PM's invocation (`npx`/`yarn`/`bunx`); the `security`/`pnpm audit` adapter
+   is **not** prefix-translated — audit flags and JSON shape are PM-specific, so audits
+   are modelled as per-PM registry adapters and `security` is simply unavailable on a
+   non-pnpm PM until one lands (b5); default pnpm behaviour is byte-identical to today;
+   `doctor` reports the detected PM. Unit tests cover each lockfile → prefix mapping.
    - seam: `src/pm/index.ts`, `src/pm/detect.ts`, `src/orchestrator.ts`,
      `src/doctor.ts`, `src/__tests__/` (new `pm.test.ts` + orchestrator test),
      `README.md`, `docs/tools.md`
@@ -178,15 +190,23 @@ message-key), a far smaller contract than a shared display schema.
 6. [ ] Baseline part 3 — baseline-aware run + ratchet — **done when:** a normal run,
    when a baseline exists, subtracts baselined keys from each slot's current
    fingerprints; a slot passes if its remaining (non-baselined) set is empty and
-   fails listing only the *new* keys; keys present in the baseline but absent from the
-   current run are *pruned* (baseline rewritten smaller, never larger — the ratchet);
-   `summary.json` marks affected checks with a `baselined` count (additive field, D8);
-   integration test: green when only baselined diagnostics remain, red on a new one,
-   and the rewritten baseline shrinks after a fix. Documented in README + AGENTS stanza.
-   - seam: `src/orchestrator.ts`, `src/baseline/index.ts`, `src/init.ts` (stanza copy),
+   fails listing only the *new* keys; keys present in the baseline but absent from a
+   **fully-observed** run are *pruned* (baseline rewritten smaller, never larger — the
+   ratchet), while a **partial** run (`--only`/`--skip`/`--changed`) never prunes, so an
+   incomplete run can't corrupt the baseline (a1); `summary.json` marks affected checks
+   with a `baselined` count (additive field, D8); integration test: green when only
+   baselined diagnostics remain, red on a new one, and the rewritten baseline shrinks
+   after a fix. Baseline supersedes init's slot-disable as the adoption path — init's
+   existing-mode offers `--baseline` to grandfather existing debt instead of writing
+   failing slots as `false` (c10). Documented in README + AGENTS stanza.
+   - seam: `src/orchestrator.ts`, `src/baseline/index.ts`, `src/init.ts` (stanza + `--baseline`),
      `src/__tests__/orchestrator.test.ts`, `README.md`
 
-7. [ ] Per-slot input caching (opt-in) — **done when:** with `--cache` (or config
+7. [ ] Per-slot input caching (opt-in) — **PARKED 2026-07-07 (a3):** deferred until
+   `--changed` + native incremental modes prove insufficient — D11's whole-tree hash
+   invalidates every slot on any edit, so `--cache` barely helps the inner loop it
+   targets while adding correctness surface (D6); D6/D11 ride with this step. Original
+   **done when:** with `--cache` (or config
    `cache: true`) a slot whose input hash — tracked source files + its config file +
    resolved args + tool version — matches the previous run is *not* spawned, is
    reported `skipped: "cached"`, and its prior `.check/<slot>.json` is preserved;
@@ -197,8 +217,10 @@ message-key), a far smaller contract than a shared display schema.
    - seam: `src/cache/index.ts`, `src/orchestrator.ts`, `src/config.ts`, `src/cli.ts`,
      `src/__tests__/cache.test.ts`, `README.md`, `docs/cheatsheet.md`
 
-8. [ ] Blessed `format` slot — **done when:** `SLOTS` gains a `format` slot
-   positioned before `lint`; `prettier` (blessed) and `biome` (alternate) adapters
+8. [ ] Blessed `format` slot — **done when:** `SLOTS` gains an **opt-in** `format` slot
+   before `lint` (excluded from the default run like `mutation`/`security`, so an
+   upgrading repo can't go red on it; `init` new-mode may enable it in the generated
+   config so greenfield formats by default); `prettier` (blessed) and `biome` (alternate) adapters
    registered with detect files, a `--check`-style pipeline command, and `fixArgs`
    that write; `checkride fix` runs the write form; `doctor` shows it; `init`
    scaffolds the blessed config; adapters test asserts detection + fix wiring. The
@@ -248,6 +270,34 @@ message-key), a far smaller contract than a shared display schema.
 Verdicts. Q2 and Q3's implementation details are intentionally settled at their
 build step, not guessed now.)*
 
+**Refine pass 2026-07-07 (`/pb-refine`) — holes surfaced against the code, to
+converge at each step's `/pb-step`:**
+
+- **a1 (step 6) —** The ratchet must rewrite only slots *fully observed* this run — no
+  pruning under `--only`/`--skip`/`--changed`, or a partial run corrupts the baseline.
+  How is "fully observed" tracked and enforced?
+- **a2 (step 7, deferred) —** When caching unparks: a cache-skipped slot yields no
+  fingerprints, so the ratchet would prune its whole baseline. Hold the baseline intact
+  and/or disable caching while a baseline is active — which?
+- **a4 (step 4) —** With D3 relaxed to a per-adapter key string, does fallow participate
+  for cross-file findings (cycles/duplication) via a composite key, or sit out per D12?
+  Start with lint/struct/spell.
+- **b5 (step 3) —** Confirm the adapter-not-translation model for audit: add per-PM
+  `security` adapters (npm/yarn) as needed, leaving `security` unavailable on non-pnpm
+  meanwhile, rather than translating `pnpm audit` and breaking `security.json`'s shape.
+- **b6 (step 11) —** Digest reuses step 4's per-adapter extractors (render first N of the
+  same items; text-tail fallback for slots with no extractor) and writes the file
+  `.check/digest.md`, not stdout. Sequence step 11 after baseline; confirm.
+- **b7 (step 12) —** agent-setup's Stop hook must use the *detected* PM's run command
+  (depends on step 3's PM module), not a literal `pnpm check`, or npm/yarn/bun repos get
+  a broken hook.
+- **c10 (steps 5–6) —** Baseline supersedes init's slot-disable as the adoption path
+  (init offers `--baseline`). Does the auto-`false` path retire entirely, or stay as a
+  fallback for slots with no extractor?
+- **c11 (step 9) —** publint = normal adapter; attw = `attw --pack` (fails if the package
+  can't pack — correct for publish-readiness); both opt-in *and* detect-gated on being a
+  published lib (`exports`/`types` present, not `private`) so apps never see them. Confirm.
+
 ## Verdicts
 
 - 2026-07-07 — Q1 (baseline location) → chose **repo root
@@ -262,3 +312,16 @@ build step, not guessed now.)*
 - 2026-07-07 — Q4 (caching input scoping) → chose **conservative whole-tree
   hashing**, deferring per-slot input scoping until/unless the cache under-skips in
   practice; correctness beats precision (D11).
+- 2026-07-07 (refine) — a3 (caching value) → **parked step 7**: D11's whole-tree hash
+  invalidates every slot on any edit, so `--cache` barely helps the inner loop while
+  adding correctness surface (D6). Revisit if `--changed` + native incremental proves
+  insufficient.
+- 2026-07-07 (refine) — a4 (fingerprint shape) → **loosened D3**: a fingerprint is a
+  per-adapter stable key *string*, not a fixed file+rule+message triple; fallow's
+  cross-file categories emit a composite key or sit out (D12).
+- 2026-07-07 (refine) — b8 (format default vs red-on-upgrade) → **`format` is opt-in**
+  (like mutation/security); init new-mode may enable it for greenfield. A new default
+  slot would light up existing repos red on version bump — the friction the Frame deletes.
+- 2026-07-07 (refine) — c9 (`$schema` value) → **version-pinned raw URL**
+  (`.../checkride/v<version>/schema/...`); C6 now requires the schema to move in lockstep
+  with any config-surface change.

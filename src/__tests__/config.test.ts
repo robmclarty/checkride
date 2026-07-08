@@ -1,12 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
+import Ajv from 'ajv';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, CustomCheck, SlotConfig, UseConfig } from '../config.js';
-import { loadConfig, resolveChecks } from '../config.js';
+import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 
 const never = (): boolean => false;
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);
@@ -205,6 +208,62 @@ describe('config resolution', () => {
     });
     const firsts = resolved.slice(0, 2).map((r) => r.slot);
     expect(firsts).toEqual(['format', 'notice']);
+  });
+});
+
+describe('published JSON Schema', () => {
+  const schemaPath = join(
+    dirname(fileURLToPath(import.meta.url)),
+    '..',
+    '..',
+    'schema',
+    'checkride.config.schema.json',
+  );
+  // ajv is CJS whose runtime `module.exports` is the constructor, but its ESM
+  // `.d.ts` declares a default export that NodeNext + verbatimModuleSyntax types
+  // as the module namespace (not constructable). Vitest's interop hands us the
+  // real constructor at runtime; cast through a minimal structural type so tsc
+  // agrees on the surface we actually use.
+  type Validator = (data: unknown) => boolean;
+  type AjvCtor = new (opts?: { strict?: boolean; allErrors?: boolean }) => {
+    compile: (schema: unknown) => Validator;
+  };
+  const schema: unknown = JSON.parse(readFileSync(schemaPath, 'utf8'));
+  const validate = new (Ajv as unknown as AjvCtor)({ strict: false, allErrors: true }).compile(schema);
+
+  test('validates a representative config exercising every branch', () => {
+    const config: CheckrideConfig = {
+      $schema: configSchemaUrl('0.1.6'),
+      timeout: 600,
+      checks: {
+        lint: 'biome', // string: pick an alternate adapter
+        spell: false, // false: disable a slot
+        test: { use: 'vitest', timeout: 0, changedArgs: ['--changed', 'origin/master'] },
+        format: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
+        licenses: { command: 'node', args: ['scripts/check-licenses.mjs'] },
+      },
+    };
+    expect(validate(config)).toBe(true);
+  });
+
+  test('the empty config is valid', () => {
+    expect(validate({})).toBe(true);
+  });
+
+  test('rejects a non-string/object/false slot value', () => {
+    expect(validate({ checks: { lint: 123 } })).toBe(false);
+  });
+
+  test('rejects an unknown top-level key', () => {
+    expect(validate({ nonsense: true })).toBe(false);
+  });
+
+  test('rejects an unknown field inside a { use } override', () => {
+    expect(validate({ checks: { test: { use: 'vitest', bogus: 1 } } })).toBe(false);
+  });
+
+  test('rejects a custom check with no command', () => {
+    expect(validate({ checks: { licenses: { args: ['x'] } } })).toBe(false);
   });
 });
 

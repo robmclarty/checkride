@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
-import { resolveChecks } from './config.js';
+import { configSchemaUrl, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { runChecks } from './orchestrator.js';
 
@@ -518,7 +518,8 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
       if (failing.has(i.slot)) checks[i.slot] = false;
       else if (i.adapter) checks[i.slot] = i.adapter;
     }
-    await put(w, 'checkride.config.json', `${JSON.stringify({ checks }, null, 2)}\n`);
+    const config = { $schema: configSchemaUrl(productVersion()), checks };
+    await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
   } else {
     skipped.push('checkride.config.json (exists)');
   }
