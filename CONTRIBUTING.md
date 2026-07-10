@@ -56,8 +56,11 @@ truth. With Claude Code, `/version <major|minor|patch>` performs steps 1–4.
 5. The tag push triggers
    [.github/workflows/release.yml](./.github/workflows/release.yml): full
    check + e2e, then `npm publish --provenance` — every published tarball is
-   provenance-attested to its commit. One-time setup: an npm Automation token
-   stored as the `NPM_TOKEN` repository secret.
+   provenance-attested to its commit. Auth is npm **Trusted Publishing**
+   (OIDC): no token exists anywhere, so there is nothing to leak, rotate, or
+   bypass 2FA with. One-time setup on npmjs.com: package settings → Trusted
+   Publisher → GitHub Actions, repository `robmclarty/checkride`, workflow
+   filename `release.yml`.
 6. Smoke-test the published package (`npx checkride@latest --version`).
 
 ## Succession

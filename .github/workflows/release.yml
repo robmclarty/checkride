@@ -4,8 +4,11 @@ name: Release
 # of the release ritual in CONTRIBUTING.md). Provenance links the published
 # tarball to this exact commit and workflow run — verifiable on npmjs.com.
 #
-# One-time setup: create an npm Automation token and save it as the NPM_TOKEN
-# repository secret (Settings -> Secrets and variables -> Actions).
+# Auth is npm Trusted Publishing (OIDC): no token exists anywhere — npm trusts
+# this workflow's identity directly, so there is no secret to leak or rotate
+# and no 2FA bypass. One-time setup on npmjs.com: package settings ->
+# Trusted Publisher -> GitHub Actions, repository robmclarty/checkride,
+# workflow filename release.yml.
 
 on:
   push:
@@ -26,12 +29,17 @@ jobs:
         with:
           version: 11.1.2
 
+      # No registry-url here: setup-node would write an .npmrc keyed to a
+      # NODE_AUTH_TOKEN env var, which shadows the tokenless OIDC flow.
       - name: Install Node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
-          registry-url: https://registry.npmjs.org
+
+      # Trusted Publishing needs npm >= 11.5.1; pin the major to be sure.
+      - name: Update npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -43,9 +51,7 @@ jobs:
       - name: pnpm test:e2e
         run: pnpm test:e2e
 
-      # npm (not pnpm) publish: --provenance needs the npm CLI's OIDC flow.
-      # prepublishOnly (tsc --build && vitest run) still runs as a safety net.
+      # npm (not pnpm) publish: Trusted Publishing + provenance are npm CLI
+      # flows. prepublishOnly (tsc --build && vitest run) runs as a safety net.
       - name: Publish with provenance
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
