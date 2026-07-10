@@ -108,7 +108,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    yields a hint containing "timed out" (not "parse"), and `checkride doctor`
    exits 0 on this machine.
    - seam: `src/doctor.ts`, `src/__tests__/doctor.test.ts`
-3. [ ] Bug: `init --baseline --dry-run` must not write the baseline — **done
+3. [x] Bug: `init --baseline --dry-run` must not write the baseline — **done
    when:** a regression test proves a dry run leaves no
    `checkride.baseline.json` (guard around `src/init.ts:570-573`).
    - seam: `src/init.ts`, `src/__tests__/init.test.ts`

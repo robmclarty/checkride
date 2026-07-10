@@ -38,6 +38,12 @@ export type InitOptions = {
   add?: string[] | null;
   checkrideSpec?: string;
   /**
+   * New mode: overwrite existing files instead of refusing. Without it, `init`
+   * refuses (exit 2) rather than clobber any file it would scaffold (D4);
+   * existing mode is already additive-only and ignores this flag.
+   */
+  force?: boolean;
+  /**
    * Write the Claude Code Stop hook to `.claude/settings.json` (step 12).
    * Opt-out: defaults to on; `--no-hook` sets it `false`.
    */
@@ -429,6 +435,57 @@ async function writeHook(w: Writer, hook: boolean | undefined, skipped?: string[
 
 const DEFAULT_ACTIVE_SLOTS = ['types', 'lint', 'struct', 'dead', 'test', 'docs', 'links', 'spell'];
 
+/** The derived inputs a new-project scaffold is generated from. */
+type NewScaffold = {
+  shape: Shape;
+  name: string;
+  scope: string | null;
+  license: string;
+  author: string | null;
+  fullName: string;
+  adapters: readonly Adapter[];
+  slots: readonly Slot[];
+  checkrideSpec: string;
+};
+
+/** Emit every scaffold file for the shape into `w` (records paths; obeys dryRun). */
+async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
+  await writeSharedStatic(w);
+  await put(w, 'tsconfig.json', render(readTemplate(join(s.shape, 'tsconfig.json')), { name: s.name }));
+  await put(w, 'fallow.toml', render(readTemplate(join(s.shape, 'fallow.toml')), { name: s.name }));
+  await put(w, 'pnpm-workspace.yaml', render(readTemplate(join(s.shape, 'pnpm-workspace.yaml')), { name: s.name }));
+
+  await put(w, 'cspell.json', cspellWithName(s.name, s.scope));
+  await put(w, 'package.json', rootPackageJson(s.fullName, s.license, s.author, collectDevDeps(s.adapters, s.slots, s.checkrideSpec), s.shape !== 'flat'));
+  await put(w, 'LICENSE', licenseText(s.license, s.author ?? s.fullName));
+  await put(w, 'README.md', readme(s.name));
+  await put(w, 'AGENTS.md', agentsMd(DEFAULT_ACTIVE_SLOTS));
+  await put(w, 'CLAUDE.md', claudeMd());
+
+  if (s.shape === 'flat') {
+    await put(w, join('src', 'index.ts'), sourceModule(s.name));
+    await put(w, join('src', 'index.test.ts'), smokeTest(s.name));
+  } else if (s.shape === 'monorepo') {
+    await writePackage(w, join('libs', 'core'), s.scope ? `${s.scope}/core` : 'core', 'core');
+    await writePackage(w, join('apps', s.name), s.fullName, s.name);
+  } else {
+    await put(w, join('src', 'index.ts'), sourceModule(s.name));
+    await put(w, join('src', 'index.test.ts'), smokeTest(s.name));
+    await writePackage(w, join('packages', 'core'), s.scope ? `${s.scope}/core` : 'core', 'core');
+  }
+}
+
+/**
+ * Plan the scaffold on a dry writer and return the paths that already exist on
+ * disk — the files `init` would clobber. The Stop hook is excluded: it merges
+ * into `.claude/settings.json` idempotently rather than overwriting.
+ */
+async function planCollisions(s: NewScaffold, cwd: string): Promise<string[]> {
+  const plan: Writer = { cwd, dryRun: true, written: [] };
+  await writeNewScaffold(plan, s);
+  return plan.written.filter((rel) => existsSync(join(cwd, rel)));
+}
+
 async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const shape: Shape = options.shape ?? 'flat';
   const name = options.name ?? (basename(cwd) || 'app');
@@ -439,32 +496,23 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
   const checkrideSpec = options.checkrideSpec ?? `^${productVersion()}`;
+  const scaffold: NewScaffold = { shape, name, scope, license, author, fullName, adapters, slots, checkrideSpec };
+
+  // Overwrite protection (D4): unless `--force`, refuse rather than clobber any
+  // file the scaffold would write. Plan on a dry writer first so a collision
+  // bails before a single real byte is written — the refusal writes nothing.
+  if (!(options.force ?? false)) {
+    const collisions = await planCollisions(scaffold, cwd);
+    if (collisions.length > 0) {
+      throw new Error(
+        `init: refusing to overwrite ${collisions.length} existing file(s) (pass --force to overwrite):\n` +
+          collisions.map((c) => `  ${c}`).join('\n'),
+      );
+    }
+  }
 
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
-
-  await writeSharedStatic(w);
-  await put(w, 'tsconfig.json', render(readTemplate(join(shape, 'tsconfig.json')), { name }));
-  await put(w, 'fallow.toml', render(readTemplate(join(shape, 'fallow.toml')), { name }));
-  await put(w, 'pnpm-workspace.yaml', render(readTemplate(join(shape, 'pnpm-workspace.yaml')), { name }));
-
-  await put(w, 'cspell.json', cspellWithName(name, scope));
-  await put(w, 'package.json', rootPackageJson(fullName, license, author, collectDevDeps(adapters, slots, checkrideSpec), shape !== 'flat'));
-  await put(w, 'LICENSE', licenseText(license, author ?? fullName));
-  await put(w, 'README.md', readme(name));
-  await put(w, 'AGENTS.md', agentsMd(DEFAULT_ACTIVE_SLOTS));
-  await put(w, 'CLAUDE.md', claudeMd());
-
-  if (shape === 'flat') {
-    await put(w, join('src', 'index.ts'), sourceModule(name));
-    await put(w, join('src', 'index.test.ts'), smokeTest(name));
-  } else if (shape === 'monorepo') {
-    await writePackage(w, join('libs', 'core'), scope ? `${scope}/core` : 'core', 'core');
-    await writePackage(w, join('apps', name), fullName, name);
-  } else {
-    await put(w, join('src', 'index.ts'), sourceModule(name));
-    await put(w, join('src', 'index.test.ts'), smokeTest(name));
-    await writePackage(w, join('packages', 'core'), scope ? `${scope}/core` : 'core', 'core');
-  }
+  await writeNewScaffold(w, scaffold);
 
   // Claude Code Stop hook (opt-out; step 12). A fresh project has no PM lockfile
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.

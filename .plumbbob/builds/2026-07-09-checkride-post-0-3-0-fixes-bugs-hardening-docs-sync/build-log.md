@@ -56,3 +56,4 @@ you point at to say "I did that — the LLM helped, but those were my calls."
 folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 1 checkpointed · 98f93d279 — Green the local gate: explicit 30s timeouts on subprocess-spawning tests
 - 2026-07-10 — step 2 checkpointed · 3c68c86e7 — `doctor`: distinguish "timed out" from "could not parse", 30s probe
+- 2026-07-10 — step 3 checkpointed · b27983e43 — Bug: `init --baseline --dry-run` must not write the baseline

@@ -184,6 +184,22 @@ describe('runCli init', () => {
     expect(code).toBe(2);
     expect(err.text()).toContain('invalid --shape');
   });
+
+  test('refuses to overwrite an existing file with exit 2, writing nothing', async () => {
+    await writeFile(join(dir, 'README.md'), '# keep me\n');
+    const err = sink();
+    const code = await runCli(['init', '--shape', 'flat', '--name', 'demo'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(2);
+    expect(err.text()).toContain('README.md');
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+  });
+
+  test('--force overwrites and exits 0', async () => {
+    await writeFile(join(dir, 'README.md'), '# stale\n');
+    const code = await runCli(['init', '--shape', 'flat', '--name', 'demo', '--force'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(0);
+    expect(existsSync(join(dir, 'package.json'))).toBe(true);
+  });
 });
 
 describe('runCli agent-setup', () => {

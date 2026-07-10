@@ -115,6 +115,29 @@ describe('new-project generation (flat)', () => {
     }
   });
 
+  test('refuses to overwrite existing files (exit 2), listing every collision and writing nothing', async () => {
+    await writeFile(join(dir, 'README.md'), '# keep me\n');
+    await writeFile(join(dir, '.gitignore'), 'node_modules\n');
+
+    await expect(
+      runInit({ cwd: dir, shape: 'flat', name: 'demo' }),
+    ).rejects.toThrow(/refusing to overwrite[\s\S]*README\.md[\s\S]*\.gitignore|refusing to overwrite[\s\S]*\.gitignore[\s\S]*README\.md/);
+
+    // Nothing else was scaffolded, and the colliding files are untouched.
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
+    expect(await readFile(join(dir, 'README.md'), 'utf8')).toBe('# keep me\n');
+    expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n');
+  });
+
+  test('--force overwrites existing files and generates the project', async () => {
+    await writeFile(join(dir, 'README.md'), '# stale\n');
+    const result = await runInit({ cwd: dir, shape: 'flat', name: 'demo', force: true, checkrideSpec: '^0.1.0' });
+    expect(result.mode).toBe('new');
+    expect(existsSync(join(dir, 'package.json'))).toBe(true);
+    expect(await readFile(join(dir, 'README.md'), 'utf8')).toContain('# demo');
+  });
+
   test('the generated smoke test asserts on the module constant', async () => {
     await runInit({ cwd: dir, shape: 'flat', name: 'my-app' });
     const src = await readFile(join(dir, 'src', 'index.ts'), 'utf8');
