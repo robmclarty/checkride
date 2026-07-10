@@ -54,3 +54,4 @@ fills in as you go, not at the end. Add your own decision/event lines too: this 
 you point at to say "I did that — the LLM helped, but those were my calls."
 `/pb-finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
+- 2026-07-10 — step 1 checkpointed · 98f93d279 — Green the local gate: explicit 30s timeouts on subprocess-spawning tests

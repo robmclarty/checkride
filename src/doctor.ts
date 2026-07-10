@@ -61,10 +61,28 @@ export type DoctorReport = {
 
 export type DoctorResult = { ok: boolean; report: DoctorReport; exitCode: number };
 
+/**
+ * Version probes get a generous budget: Node-CLI startup alone can exceed several
+ * seconds on a slow-spawn machine (CI under load, cold caches), and a diagnostic
+ * tool must not misread a slow-but-healthy tool as broken. 5s was proven too tight.
+ */
+const VERSION_TIMEOUT_MS = 30_000;
+const VERSION_TIMEOUT_S = VERSION_TIMEOUT_MS / 1000;
+
+/**
+ * `env.version` resolves to this when the probe exceeded {@link VERSION_TIMEOUT_MS} —
+ * kept distinct from `null` (the probe ran but its output could not be parsed) so
+ * `doctor` reports "timed out" rather than misdiagnosing a hung tool as a parse failure.
+ */
+export const VERSION_TIMED_OUT = Symbol('checkride.version.timed-out');
+
+/** Result of a `<cmd> --version` probe: raw output, `null` if it failed or could not be parsed, or {@link VERSION_TIMED_OUT}. */
+export type VersionProbe = string | typeof VERSION_TIMED_OUT | null;
+
 /** Every environment touch, injectable for tests. */
 export type DoctorEnv = {
   which: (cmd: string) => Promise<string | null>;
-  version: (cmd: string, args: string[]) => Promise<string | null>;
+  version: (cmd: string, args: string[]) => Promise<VersionProbe>;
   exists: (path: string) => boolean;
   canWrite: (dir: string) => Promise<boolean>;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
@@ -102,12 +120,20 @@ async function whichReal(cmd: string): Promise<string | null> {
   }
 }
 
-async function versionReal(cmd: string, args: string[]): Promise<string | null> {
+/**
+ * A `<cmd> --version` probe that exceeded its timeout: promisified `execFile` rejects
+ * with `killed: true` when it kills the child on timeout — the only reason it kills here.
+ */
+export function isProbeTimeout(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'killed' in err && err.killed === true;
+}
+
+async function versionReal(cmd: string, args: string[]): Promise<VersionProbe> {
   try {
-    const { stdout } = await execFileP(cmd, args, { timeout: 5000 });
+    const { stdout } = await execFileP(cmd, args, { timeout: VERSION_TIMEOUT_MS });
     return stdout.trim();
-  } catch {
-    return null;
+  } catch (err) {
+    return isProbeTimeout(err) ? VERSION_TIMED_OUT : null;
   }
 }
 
@@ -166,7 +192,11 @@ async function checkVersioned(name: string, cmd: string, min: Semver, env: Docto
   if (!path) {
     return { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
   }
-  const found = parseSemver(await env.version(cmd, ['--version']));
+  const raw = await env.version(cmd, ['--version']);
+  if (raw === VERSION_TIMED_OUT) {
+    return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `\`${cmd} --version\` timed out (>${VERSION_TIMEOUT_S}s). Is ${cmd} responsive?` };
+  }
+  const found = parseSemver(raw);
   if (!found) {
     return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` };
   }
@@ -182,7 +212,7 @@ async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<
     return { name, category: 'env', required: true, status: 'missing', found: null, expected: 'present on PATH', hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
   }
   const raw = await env.version(cmd, ['--version']);
-  return { name, category: 'env', required: true, status: 'ok', found: raw ?? path, expected: 'present on PATH', hint: null };
+  return { name, category: 'env', required: true, status: 'ok', found: typeof raw === 'string' ? raw : path, expected: 'present on PATH', hint: null };
 }
 
 /** Lockfiles that count as "installed" for each package manager. */

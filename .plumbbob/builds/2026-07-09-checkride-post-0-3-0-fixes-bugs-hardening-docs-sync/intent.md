@@ -98,7 +98,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
 
 ## Steps
 
-1. [ ] Green the local gate: explicit 30s timeouts on subprocess-spawning tests
+1. [x] Green the local gate: explicit 30s timeouts on subprocess-spawning tests
    — **done when:** the five 5000ms-timeout failures are gone and the `test`
    slot passes in a full `pnpm check` on this machine.
    - seam: `src/__tests__/cli.test.ts`, `src/__tests__/doctor.test.ts`, `src/__tests__/generated-spell.test.ts`

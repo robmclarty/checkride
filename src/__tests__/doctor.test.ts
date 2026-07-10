@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
 import type { DoctorEnv } from '../doctor.js';
-import { runDoctor } from '../doctor.js';
+import { isProbeTimeout, runDoctor, VERSION_TIMED_OUT } from '../doctor.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -73,6 +73,20 @@ describe('runDoctor (injected env)', () => {
       env: fakeEnv({ version: () => Promise.resolve('22.18.0') }), stdout: sink(), json: true,
     });
     expect(result.report.checks.find((c) => c.name === 'node')?.status).toBe('ok');
+  });
+
+  test('a version probe that times out is diagnosed as "timed out", not a parse failure', async () => {
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      // node's --version probe exceeds its budget: the seam signals a timeout, not the null it returns for a parse failure.
+      env: fakeEnv({ version: (cmd: string) => Promise.resolve(cmd === 'node' ? VERSION_TIMED_OUT : '99.9.9') }),
+      stdout: sink(), json: true,
+    });
+    const node = result.report.checks.find((c) => c.name === 'node');
+    expect(node?.status).toBe('unknown');
+    expect(node?.hint).toContain('timed out');
+    expect(node?.hint).not.toContain('parse');
+    expect(result.ok).toBe(false);
   });
 
   test('a pnpm subcommand tool (not exec) resolves via PATH, not node_modules', async () => {
@@ -228,6 +242,16 @@ describe('runDoctor (injected env)', () => {
     expect(std.text()).toContain('CHECKS');
     expect(std.text()).toContain('opt-in');
     expect(std.text()).toContain('2 slots — 1 default, 1 opt-in, 0 disabled, 0 unavailable');
+  });
+});
+
+describe('isProbeTimeout', () => {
+  test('recognizes a killed-by-timeout execFile rejection, and only that', () => {
+    // Promisified execFile rejects with `killed: true` when its timeout fires.
+    expect(isProbeTimeout(Object.assign(new Error('probe timed out'), { killed: true, signal: 'SIGTERM' }))).toBe(true);
+    expect(isProbeTimeout(Object.assign(new Error('not found'), { code: 'ENOENT', killed: false }))).toBe(false);
+    expect(isProbeTimeout(new Error('bare failure'))).toBe(false);
+    expect(isProbeTimeout(null)).toBe(false);
   });
 });
 
