@@ -12,7 +12,7 @@ export type { Adapter, Slot } from './adapters.js';
 export { loadConfig, resolveChecks } from './config.js';
 export type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from './config.js';
 
-export { runChecks, runFix, selectChecks } from './orchestrator.js';
+export { DEFAULT_TIMEOUT_SECONDS, runChecks, runFix, selectChecks } from './orchestrator.js';
 export type {
   RunFlags,
   RunOptions,
