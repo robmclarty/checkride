@@ -19,6 +19,10 @@ Start here:
 - **[The contract](./contract.md)** — the surfaces consumers may rely on: the
   exit-code taxonomy, the `summary.json` schema discipline, the CLI flag set,
   the programmatic exports, and the pin policy.
+- **[Reliability](./reliability.md)** — why checkride is safe to build a gate
+  on: the frozen contract, the vacuous-green signal, the failure modes it
+  closes by default, and the tested envelope. The reasoning behind the
+  contract above.
 
 Deeper background lives in the repository root:
 
