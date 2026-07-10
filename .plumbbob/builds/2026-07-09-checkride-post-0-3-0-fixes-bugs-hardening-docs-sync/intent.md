@@ -124,7 +124,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    test locks it; docs/contract.md and CHANGELOG (Unreleased, **Contract**)
    record it.
    - seam: `src/orchestrator.ts`, `test/contract/flags.contract.test.ts`, `docs/contract.md`, `CHANGELOG.md`
-6. [ ] Pin policy: `init` writes an exact checkride version; README installs
+6. [x] Pin policy: `init` writes an exact checkride version; README installs
    with `-E` — **done when:** the generated-project test asserts
    `"checkride": "<version>"` with no caret (`src/init.ts:441`), and
    README's install command uses `pnpm add -D -E checkride`.

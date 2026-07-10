@@ -68,7 +68,7 @@ Commands:
 Run options:
   --only <a,b>     Run only these slots
   --skip <a,b>     Skip these slots
-  --include <a,b>  Add opt-in slots (format, mutation, security) to the run
+  --include <a,b>  Add opt-in slots (format, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
   --bail           Stop at the first failure
@@ -81,6 +81,37 @@ Run options:
 Every run writes a report to .check/summary.json.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
+
+const INIT_HELP_TEXT = `checkride init — set up a project (new or existing, auto-detected)
+
+Usage: checkride init [options]
+
+New project (no package.json): scaffolds a full project. Refuses to overwrite
+existing files unless --force.
+Existing project: adopts detectable slots; --baseline grandfathers current debt.
+
+Options:
+  --shape <s>      Project shape: flat | monorepo | hybrid (new mode; default flat)
+  --name <n>       Package name (new mode; default: directory name)
+  --scope <@s>     npm scope, e.g. @acme (new mode)
+  --license <id>   SPDX license id (new mode; default MIT)
+  --author <a>     Package author (new mode)
+  --add <a,b>      Scaffold blessed configs for empty slots (existing mode)
+  --baseline       Grandfather currently-failing slots into a baseline (existing mode)
+  --force          Overwrite existing files instead of refusing (new mode)
+  --no-hook        Skip writing the Claude Code Stop hook
+  --dry-run        Plan only; write nothing
+  -h, --help       Show this help
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
+/** Per-command `--help` text, falling back to the global help. */
+const COMMAND_HELP: Record<string, string> = { init: INIT_HELP_TEXT };
+
+function commandHelp(command: string): string {
+  return COMMAND_HELP[command] ?? HELP_TEXT;
+}
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -192,7 +223,11 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
-async function dispatchBaseline(_argv: string[], deps: CliDeps): Promise<number> {
+async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
+  // `baseline` takes no options; parse against an empty set so a stray flag
+  // (e.g. a typo) throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2.
+  const { rest } = detectCommand(argv);
+  parseArgs({ args: rest, allowPositionals: true, options: {} });
   const result = await runBaseline({ cwd: deps.cwd, stdout: deps.stdout, stderr: deps.stderr });
   return result.exitCode;
 }
@@ -208,8 +243,9 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
 
 /** Dispatch a CLI invocation; returns the process exit code. */
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
+  const { command } = detectCommand(argv);
   if (argv.includes('--help') || argv.includes('-h')) {
-    deps.stdout.write(HELP_TEXT);
+    deps.stdout.write(commandHelp(command));
     return 0;
   }
   if (argv.includes('--version') || argv.includes('-V')) {
@@ -217,7 +253,6 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     return 0;
   }
 
-  const { command } = detectCommand(argv);
   const dispatch: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
     run: dispatchRun,
     init: dispatchInit,

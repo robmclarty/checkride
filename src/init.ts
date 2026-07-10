@@ -24,6 +24,7 @@ import { BASELINE_FILE, isFingerprintable, runBaseline } from './baseline/index.
 import { configSchemaUrl, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { runChecks } from './orchestrator.js';
+import { detectPackageManager } from './pm/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -521,6 +522,10 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
 
   if (options.stdout) {
     options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
+    // A fresh project has no lockfile/field yet, so this resolves to `pnpm`,
+    // matching the generated scripts.
+    const pm = detectPackageManager({ cwd });
+    options.stdout.write(`  next: ${pm} install && ${pm} run check\n`);
   }
   return { mode: 'new', shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
 }

@@ -81,6 +81,14 @@ describe('runCli help and version', () => {
     expect(out.text()).toContain('Usage: checkride');
   });
 
+  test('--include help names all five opt-in slots', async () => {
+    const out = sink();
+    await runCli(['--help'], { cwd: process.cwd(), stdout: out, stderr: sink() });
+    for (const slot of ['format', 'mutation', 'security', 'publint', 'attw']) {
+      expect(out.text()).toContain(slot);
+    }
+  });
+
   test('--version prints a semver and exits 0', async () => {
     const out = sink();
     const code = await runCli(['--version'], { cwd: process.cwd(), stdout: out, stderr: sink() });
@@ -164,6 +172,13 @@ describe('runCli baseline', () => {
     await runCli(['--help'], { cwd: dir, stdout: out, stderr: sink() });
     expect(out.text()).toContain('baseline');
   });
+
+  test('rejects an unknown flag with exit 2 and a usage pointer', async () => {
+    const err = sink();
+    const code = await runCli(['baseline', '--garbage'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(2);
+    expect(err.text()).toContain('checkride --help');
+  });
 });
 
 describe('runCli init', () => {
@@ -176,6 +191,24 @@ describe('runCli init', () => {
     expect(code).toBe(0);
     expect(existsSync(join(dir, 'package.json'))).toBe(true);
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
+  });
+
+  test('init --help lists init flags, exits 0, and writes nothing', async () => {
+    const out = sink();
+    const code = await runCli(['init', '--help'], { cwd: dir, stdout: out, stderr: sink() });
+    expect(code).toBe(0);
+    expect(out.text()).toContain('checkride init');
+    expect(out.text()).toContain('--force');
+    expect(out.text()).toContain('--baseline');
+    // Help short-circuits before init runs, so no scaffold is written.
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+  });
+
+  test('new-project init prints the next-steps line', async () => {
+    const out = sink();
+    const code = await runCli(['init', '--shape', 'flat', '--name', 'demo'], { cwd: dir, stdout: out, stderr: sink() });
+    expect(code).toBe(0);
+    expect(out.text()).toContain('next: pnpm install && pnpm run check');
   });
 
   test('rejects an invalid shape with exit 2', async () => {
