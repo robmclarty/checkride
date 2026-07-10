@@ -1,0 +1,51 @@
+name: Release
+
+# Publishes to npm with provenance when a vX.Y.Z tag is pushed (the last step
+# of the release ritual in CONTRIBUTING.md). Provenance links the published
+# tarball to this exact commit and workflow run — verifiable on npmjs.com.
+#
+# One-time setup: create an npm Automation token and save it as the NPM_TOKEN
+# repository secret (Settings -> Secrets and variables -> Actions).
+
+on:
+  push:
+    tags: ['v[0-9]*']
+
+permissions:
+  contents: read
+  id-token: write # required for npm --provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.1.2
+
+      - name: Install Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The full gate, then the slow suite — a release must be green on both.
+      - name: pnpm check
+        run: pnpm check
+
+      - name: pnpm test:e2e
+        run: pnpm test:e2e
+
+      # npm (not pnpm) publish: --provenance needs the npm CLI's OIDC flow.
+      # prepublishOnly (tsc --build && vitest run) still runs as a safety net.
+      - name: Publish with provenance
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

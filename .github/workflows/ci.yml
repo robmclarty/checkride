@@ -7,12 +7,16 @@ on:
 
 jobs:
   check:
-    name: check + e2e (node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: check + e2e (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        # 22 is the supported floor (22.18+, set by cspell); 24 is the dev default.
-        node: [22, 24]
+        # The tested envelope (README "Tested envelope", docs/contract.md):
+        # macOS + Linux, at the exact supported floor (engines.node 22.18.0)
+        # and the current major. Windows waits for a consumer who needs it.
+        os: [ubuntu-latest, macos-latest]
+        node: ['22.18.0', '24']
     steps:
       - uses: actions/checkout@v6
 
@@ -27,6 +31,11 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
 
+      # The e2e package-manager quartet exercises pnpm, npm, yarn, and bun.
+      # npm and yarn ship on the hosted images; bun needs a setup step.
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -36,6 +45,7 @@ jobs:
         run: pnpm check
 
       # The green-out-of-the-box invariant: generate each shape, install it, and
-      # run the built CLI against it (the predecessor's encoded lesson).
+      # run the built CLI against it (the predecessor's encoded lesson) — plus
+      # the PM quartet and the interrupted-run (never-torn artifacts) cases.
       - name: pnpm test:e2e
         run: pnpm test:e2e
