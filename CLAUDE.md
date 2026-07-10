@@ -13,7 +13,7 @@ Read [AGENTS.md](./AGENTS.md) for the universal contract. This file only adds wh
 ## Tool use
 
 - For faster iteration: `pnpm check --bail --only <checks>`, `pnpm check --changed` (affected-only), or `pnpm exec tsc --build`. Run the full `pnpm check` once at the end.
-- This project is being built in strict phases. See `plans/checkride-plan.md` for the build plan and gates.
+- The v1 build plan is complete and removed; build history lives in `.plumbbob/` and `CHANGELOG.md`. The surfaces consumers rely on are frozen in `docs/contract.md` and locked by `test/contract/` — a change that breaks a contract test is a breaking change (update the contract doc and CHANGELOG deliberately; never quietly edit the test).
 
 ## Skills
 
