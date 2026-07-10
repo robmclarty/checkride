@@ -27,6 +27,7 @@ is done only after a checkpoint — check green + checkpoint taken, via `/pb-ver
 > Mid-step, every new problem / idea / "ooh what if" lands HERE, untouched, and you
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/pb-park` composes it). Harvest happens only at the boundary.
+- [ ] detached spawn (step 9) means Ctrl-C on checkride no longer reaches running checks — they're in their own process group and there's no SIGINT forwarding, so an interrupted run can orphan check processes (e.g. a vitest worker). Follow-up: install a SIGINT/SIGTERM handler in the orchestrator/CLI that group-kills all live children before exit.
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 
@@ -61,3 +62,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 5 checkpointed · 5ef7b6c51 — Bug: unknown slot names in `--only`/`--skip`/`--include` exit 2
 - 2026-07-10 — step 6 checkpointed · a3098a889 — Pin policy: `init` writes an exact checkride version; README installs
 - 2026-07-10 — step 7 checkpointed · a028caf83 — CLI polish: per-command `--help`, `baseline` parses its argv, `init`
+- 2026-07-10 — step 8 checkpointed · b2d7081f1 — Orchestrator: clear a slot's stale `.check/` outputs at the start of its

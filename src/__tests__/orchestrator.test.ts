@@ -26,6 +26,16 @@ function sink(): { out: Out; lines: string[] } {
   return { lines, out: { write: (text: string) => { lines.push(text); return true; } } };
 }
 
+/** True while `pid` names a live process (signal 0 probes without delivering). */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const failLint: CheckRunner = (r) =>
   Promise.resolve({ ok: r.slot !== 'lint', exit_code: r.slot === 'lint' ? 1 : 0, stdout: '', stderr: '' });
 
@@ -347,6 +357,50 @@ describe('runChecks (real subprocess)', () => {
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
     expect(await readFile(join(dir, '.check', 'stubborn.stderr.txt'), 'utf8')).toContain('timed out');
   }, 15_000);
+
+  test('the timeout kill reaps a grandchild spawned by a wrapper, not just the child', async () => {
+    // The check is a wrapper that spawns a long-lived grandchild (as a real tool
+    // spawns a worker). A per-child SIGTERM would leave the grandchild orphaned and
+    // running; the detached spawn + process-group kill must take the whole tree down.
+    const pidFile = join(dir, 'gc.pid');
+    await writeFile(
+      join(dir, 'gc.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+    );
+    await writeFile(
+      join(dir, 'wrap.js'),
+      `require('node:child_process').spawn(process.execPath, [${JSON.stringify(join(dir, 'gc.js'))}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`,
+    );
+    const adapter = fakeAdapter({ name: 'nest', slot: 'nest', command: 'node', args: [join(dir, 'wrap.js')] });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'nest' }], adapters: [adapter], config: { timeout: 1 }, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+
+    const gcPid = Number(await readFile(pidFile, 'utf8'));
+    await new Promise((r) => setTimeout(r, 200)); // let the group signal propagate to the grandchild
+    const alive = isAlive(gcPid);
+    if (alive) process.kill(gcPid, 'SIGKILL'); // safety net: never leak the orphan if this regresses
+    expect(alive).toBe(false);
+  }, 15_000);
+
+  test('captures multibyte output split across read chunks intact', async () => {
+    // Emit U+20AC (euro, bytes E2 82 AC): the lead byte, then a tick later its two
+    // continuation bytes — forcing a chunk boundary mid-character. A per-chunk
+    // `toString()` decodes each half to U+FFFD; the UTF-8 stream decoder holds the
+    // partial sequence until it completes and yields the real character.
+    const adapter = fakeAdapter({
+      name: 'euro', slot: 'euro', command: 'node',
+      args: ['-e', 'process.stdout.write(Buffer.from([0xE2])); setTimeout(() => process.stdout.write(Buffer.from([0x82, 0xAC])), 50);'],
+    });
+    await runChecks({
+      cwd: dir, slots: [{ name: 'euro' }], adapters: [adapter], config: null, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    const euro = Buffer.from([0xE2, 0x82, 0xAC]).toString('utf8'); // the intact character, ASCII-defined here
+    expect(await readFile(join(dir, '.check', 'euro.stdout.txt'), 'utf8')).toBe(euro);
+  });
 });
 
 describe('runChecks (vacuous green)', () => {

@@ -137,7 +137,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    `--include` help-text fix (all five opt-in slots, `src/cli.ts:69`).
    - seam: `src/cli.ts`, `src/init.ts`, `src/__tests__/cli.test.ts`
    - model: sonnet — mechanical, fully specified
-8. [ ] Orchestrator: clear a slot's stale `.check/` outputs at the start of its
+8. [x] Orchestrator: clear a slot's stale `.check/` outputs at the start of its
    run — **done when:** a test proves a slot's prior `<slot>.stdout.txt`/
    `<slot>.json` are gone after a later run of that slot succeeds with empty
    output (today they linger — see `persistOutput`,

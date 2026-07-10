@@ -182,16 +182,38 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
 const KILL_GRACE_SECONDS = 5;
 
 /**
+ * Signal a spawned check's whole process group. The check is spawned
+ * `detached`, so it leads its own group and a negated-pid `kill` reaches every
+ * descendant — a wrapper's grandchildren included — not just the direct child.
+ * That is the difference between a timed-out `sh -c 'slow-tool …'` leaving its
+ * real worker orphaned and alive versus taking the whole tree down. ESRCH is
+ * swallowed: the group racing to exit on its own before we signal is success,
+ * not an error (and `pid` is absent only when the spawn itself failed).
+ */
+function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // Group already gone (raced with a clean exit) — nothing left to kill.
+  }
+}
+
+/**
  * Spawn one check. A falsy or non-positive `timeoutSec` means no cap (the
- * default cap is applied by the runner, not here). When it fires, the child
- * gets SIGTERM, then SIGKILL after a short grace, and a failed outcome carries
- * a `"timed out after Ns"` note so the slot is recorded failed with its
- * elapsed duration (both timers are always cleared on `close`).
+ * default cap is applied by the runner, not here). When it fires, the check's
+ * whole process group gets SIGTERM, then SIGKILL after a short grace (see
+ * `killGroup` — `detached` + group signal so grandchildren die too), and a
+ * failed outcome carries a `"timed out after Ns"` note so the slot is recorded
+ * failed with its elapsed duration (both timers are always cleared on `close`).
+ * Output is captured with an explicit UTF-8 decoder so a multibyte character
+ * split across two read chunks survives intact rather than decoding to U+FFFD.
  */
 function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: number): Promise<CheckOutcome> {
   return new Promise((resolveOutcome) => {
     const proc = spawn(command, args, {
       cwd,
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     });
@@ -202,16 +224,21 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
     const timer = timeoutSec && timeoutSec > 0
       ? setTimeout(() => {
           timedOut = true;
-          proc.kill('SIGTERM');
-          killTimer = setTimeout(() => { proc.kill('SIGKILL'); }, KILL_GRACE_SECONDS * 1000);
+          killGroup(proc.pid, 'SIGTERM');
+          killTimer = setTimeout(() => { killGroup(proc.pid, 'SIGKILL'); }, KILL_GRACE_SECONDS * 1000);
         }, timeoutSec * 1000)
       : null;
     const clearTimers = (): void => {
       if (timer) clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
     };
-    proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    // A decoded string stream (not raw Buffers): the internal StringDecoder holds
+    // a partial multibyte sequence until the continuation bytes arrive, so `+=`
+    // never concatenates a half-decoded character.
+    proc.stdout.setEncoding('utf8');
+    proc.stderr.setEncoding('utf8');
+    proc.stdout.on('data', (chunk: string) => { stdout += chunk; });
+    proc.stderr.on('data', (chunk: string) => { stderr += chunk; });
     proc.on('error', (err) => {
       clearTimers();
       resolveOutcome({ ok: false, exit_code: -1, stdout: '', stderr: `Failed to spawn: ${err.message}` });
