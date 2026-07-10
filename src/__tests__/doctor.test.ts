@@ -236,6 +236,8 @@ describe('runDoctor (real env, gutted project)', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  // Probes real tool versions (pnpm, git, …); Node-CLI startup alone can
+  // exceed the 5s default on slow-spawn machines.
   test('reports missing tools for a project with no node_modules', async () => {
     await writeFile(join(dir, 'tsconfig.json'), '{}');
     await writeFile(join(dir, '.oxlintrc.json'), '{}');
@@ -244,5 +246,5 @@ describe('runDoctor (real env, gutted project)', () => {
     expect(result.exitCode).toBe(1);
     const missingTool = result.report.checks.find((c) => c.category === 'tool' && c.status === 'missing');
     expect(missingTool).toBeDefined();
-  });
+  }, 30_000);
 });

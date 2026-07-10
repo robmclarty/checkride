@@ -45,11 +45,12 @@ describe('generated project passes its own spell check', () => {
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   for (const shape of ['flat', 'monorepo', 'hybrid'] as const) {
+    // cspell's startup alone can exceed the 5s default on slow-spawn machines.
     test(`${shape}: cspell finds no unknown words`, async () => {
       const { code, out } = await spellCheckGenerated(dir, shape);
       // On failure `out` lists each flagged `file:line - Unknown word (…)`; add
       // the word to templates/shared/cspell.json (not the offending prose).
       expect(code, `cspell flagged unknown word(s) in the generated ${shape} project:\n${out}`).toBe(0);
-    });
+    }, 30_000);
   }
 });

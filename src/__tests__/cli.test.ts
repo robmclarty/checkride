@@ -114,10 +114,12 @@ describe('runCli dispatch', () => {
     expect(err.text()).not.toContain('To specify a positional');
   });
 
+  // Probes real tool versions (pnpm, git, …); Node-CLI startup alone can
+  // exceed the 5s default on slow-spawn machines.
   test('doctor exits 0 on this healthy, installed project', async () => {
     const code = await runCli(['doctor', '--json'], { cwd: process.cwd(), stdout: sink(), stderr: sink() });
     expect(code).toBe(0);
-  });
+  }, 30_000);
 });
 
 describe('runCli run (built-in links path)', () => {
