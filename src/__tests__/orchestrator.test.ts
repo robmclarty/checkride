@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,6 +34,10 @@ const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, st
 /** A runner that emits a small JSON payload on stdout (for output-capture tests). */
 const jsonRunner: CheckRunner = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: JSON.stringify({ analysis: { types: true } }), stderr: '' });
+
+/** A runner that emits non-JSON text on stdout (persisted as `<slot>.stdout.txt`). */
+const textRunner: CheckRunner = () =>
+  Promise.resolve({ ok: true, exit_code: 0, stdout: 'not json output', stderr: '' });
 
 const KEY_A = 'a.ts:no-x:bad';
 const KEY_B = 'b.ts:no-y:worse';
@@ -176,6 +180,49 @@ describe('runChecks (injected runner)', () => {
     expect(types?.reason).toBe('disabled in checkride.config.json');
     expect(result.ok).toBe(true);
     expect(std.lines.join('')).toContain('all checks passed');
+  });
+});
+
+describe('runChecks (stale output cleanup)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-stale-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'lint' }];
+
+  test("clears a slot's stale stdout.txt when a later run emits nothing", async () => {
+    const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint' })];
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner: textRunner, json: true, stdout: sink().out, stderr: sink().out });
+    expect(existsSync(join(dir, '.check', 'lint.stdout.txt'))).toBe(true);
+
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out });
+    expect(existsSync(join(dir, '.check', 'lint.stdout.txt'))).toBe(false);
+  });
+
+  test("clears a slot's stale JSON output file when a later run emits nothing", async () => {
+    const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' })];
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner: jsonRunner, json: true, stdout: sink().out, stderr: sink().out });
+    expect(existsSync(join(dir, '.check', 'lint.json'))).toBe(true);
+
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out });
+    expect(existsSync(join(dir, '.check', 'lint.json'))).toBe(false);
+  });
+
+  test('does not clobber a .check/<slot>.json the tool writes during the run', async () => {
+    // The real vitest/jest adapter has `outputFile: null` and writes
+    // `.check/test.json` itself via `--outputFile`. The clear must run *before*
+    // the runner, so this run's own artifact survives (it would be deleted if the
+    // clear lived in persistOutput, which fires after the check).
+    const adapters = [fakeAdapter({ name: 'vitest', slot: 'test' })];
+    const toolWrites: CheckRunner = async (_r, ctx) => {
+      await writeFile(join(ctx.cwd, '.check', 'test.json'), JSON.stringify({ fresh: true }));
+      return { ok: true, exit_code: 0, stdout: '', stderr: '' };
+    };
+    await runChecks({
+      cwd: dir, slots: [{ name: 'test' }], adapters, config: null, runner: toolWrites, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(JSON.parse(await readFile(join(dir, '.check', 'test.json'), 'utf8'))).toEqual({ fresh: true });
   });
 });
 

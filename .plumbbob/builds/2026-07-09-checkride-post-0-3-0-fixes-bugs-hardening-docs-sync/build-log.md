@@ -60,3 +60,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 4 checkpointed · e732539a0 — Bug: new-mode `init` refuses to overwrite existing files; add `--force`
 - 2026-07-10 — step 5 checkpointed · 5ef7b6c51 — Bug: unknown slot names in `--only`/`--skip`/`--include` exit 2
 - 2026-07-10 — step 6 checkpointed · a3098a889 — Pin policy: `init` writes an exact checkride version; README installs
+- 2026-07-10 — step 7 checkpointed · a028caf83 — CLI polish: per-command `--help`, `baseline` parses its argv, `init`

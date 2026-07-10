@@ -130,7 +130,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    README's install command uses `pnpm add -D -E checkride`.
    - seam: `src/init.ts`, `src/__tests__/init.test.ts`, `README.md`
    - model: sonnet — mechanical
-7. [ ] CLI polish: per-command `--help`, `baseline` parses its argv, `init`
+7. [x] CLI polish: per-command `--help`, `baseline` parses its argv, `init`
    prints next steps — **done when:** `checkride init --help` lists init's
    flags; `checkride baseline --garbage` exits 2; new-project `init` output
    ends with "next: `<pm> install && <pm> run check`"; all tested. Fold in the

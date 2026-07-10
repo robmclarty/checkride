@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -253,6 +253,26 @@ async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcom
   if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
 }
 
+/**
+ * Remove a slot's prior `.check/` artifacts before it re-runs, so a later clean
+ * run that emits nothing — or a different stream/form than last time — can't leave
+ * the previous run's output lingering as authoritative. Covers everything
+ * `persistOutput` writes (`<slot>.stdout.txt`, `<slot>.stderr.txt`, the adapter's
+ * JSON `outputFile`) plus the conventional `<slot>.json` a tool may write itself
+ * (e.g. vitest's `--outputFile=.check/test.json`, where `outputFile` is null).
+ * Runs *before* the check so this run's own tool-written artifacts survive.
+ */
+async function clearSlotOutputs(cwd: string, adapter: Adapter): Promise<void> {
+  const dir = join(cwd, '.check');
+  const names = new Set([
+    `${adapter.slot}.stdout.txt`,
+    `${adapter.slot}.stderr.txt`,
+    `${adapter.slot}.json`,
+  ]);
+  if (adapter.outputFile) names.add(adapter.outputFile);
+  await Promise.all([...names].map((f) => rm(join(dir, f), { force: true })));
+}
+
 function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
 }
@@ -369,6 +389,10 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     }
     const adapter = r.adapter;
     if (!json) writeLine(stderr, `  ▸ ${r.slot}  ${adapter.description}`);
+    // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner
+    // re-run can't leave last run's output behind as authoritative — and so any
+    // artifact the tool writes during *this* run (e.g. `test.json`) survives.
+    await clearSlotOutputs(cwd, adapter);
     const start = performance.now();
     const outcome = await runner(r, { cwd, changed, pm, ...(timeout !== undefined ? { timeout } : {}) });
     const duration_ms = Math.round(performance.now() - start);
