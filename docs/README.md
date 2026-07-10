@@ -13,6 +13,12 @@ Start here:
 - **[Tools and installation](./tools.md)** — what each pipeline slot runs, and
   how to install a missing tool (fallow, ast-grep, oxlint, …) when `doctor`
   reports one as not installed.
+- **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (and
+  npm/yarn/bun variants), why gates should pass `--strict`, and the baseline
+  note for legacy repos.
+- **[The contract](./contract.md)** — the surfaces consumers may rely on: the
+  exit-code taxonomy, the `summary.json` schema discipline, the CLI flag set,
+  the programmatic exports, and the pin policy.
 
 Deeper background lives in the repository root:
 

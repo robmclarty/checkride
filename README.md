@@ -46,7 +46,8 @@ check`); skip it with `--no-hook`, or add both to a repo you already set up with
 
 ```text
 checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
-  --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>  --digest
+  --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
+  --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
 checkride init         Set up a project (new or existing — auto-detected).
   --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
   --baseline   (existing mode) grandfather current debt instead of disabling slots
@@ -121,8 +122,12 @@ non-pnpm manager** until a per-manager audit adapter lands.
 
 ## The `.check/` contract
 
-Every run writes to `.check/`. This is a public API for agents; treat schema
-changes as breaking.
+Every run writes to `.check/`. This is a public API for agents — the promised
+surfaces (exit codes, summary shape, flags, exports) are spelled out in
+[docs/contract.md](./docs/contract.md) and locked by a `test/contract/` suite.
+The summary shape is published as a JSON Schema at
+[`schema/checkride.summary.schema.json`](./schema/checkride.summary.schema.json);
+fields are additive-only under a given `schema_version`.
 
 - `summary.json` — the aggregate report:
 
@@ -131,6 +136,7 @@ changes as breaking.
     "schema_version": 1,
     "timestamp": "…",
     "ok": true,
+    "checks_run": 8, // checks that actually executed; 0 + ok = vacuous green
     "total_duration_ms": 4200,
     "checks": [
       { "name": "lint", "adapter": "oxlint", "description": "…",
@@ -138,6 +144,12 @@ changes as breaking.
     ]
   }
   ```
+
+  `ok: true` with `checks_run: 0` means **nothing was verified** — every slot
+  sat out (no tool detected, disabled, or skipped). The run warns loudly on
+  stderr when that happens, and `--strict` turns it into exit 2, so a gate can
+  never mistake "nothing ran" for "everything passed". Anything that gates on
+  checkride (CI, commit hooks) should pass `--strict`.
 
 - `<slot>.json` — the raw tool JSON when stdout parses as JSON; otherwise
   `<slot>.stdout.txt` / `<slot>.stderr.txt`. Tools that write their own files
@@ -166,9 +178,9 @@ slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.1.6/schema/checkride.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.2.1/schema/checkride.config.schema.json",
   "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
-  "timeout": 600,           // global per-check timeout in seconds (off by default)
+  "timeout": 1200,          // global per-check timeout in seconds (default: 600)
   "checks": {
     "format": "prettier",   // enable the opt-in format slot (blessed: prettier)
     "lint": "biome",        // pick an alternate adapter
@@ -223,12 +235,15 @@ stands down instead of lighting up red. `detect` applies only to custom checks
 that run alongside the catalogue; a custom check that fills a built-in slot
 always runs.
 
-A per-check timeout guards against a hung tool. It is **off by default** — a cap
-short enough to catch a hang on a small repo is short enough to kill a legitimate
-slow run on a large one, and CI job timeouts already bound true hangs. Set a
-global `timeout` (seconds) to opt in, override it per check (`"timeout": <n>`),
-and use `"timeout": 0` to exempt a slot. Leave `dead`, `test`, and `mutation`
-generous or uncapped — they legitimately run long.
+A per-check timeout guards against a hung tool, and it is **on by default**: a
+definition-of-done gate that can hang forever fails its one job on the worst
+day. The default cap is a generous **600 seconds per check**; a check that hits
+it gets SIGTERM (then SIGKILL after a short grace) and is recorded as failed
+with a `timed out after 600s` note — red, never vacuous. Tune it with a global
+`timeout` (seconds), override it per check (`"timeout": <n>`), or set
+`"timeout": 0` (globally or per check) to disable the cap. Give `dead`, `test`,
+and `mutation` a higher cap — or `0` — on a large repo where they legitimately
+run long.
 
 ## Baseline
 
@@ -305,7 +320,23 @@ Module boundaries, enforced by `ast-grep` and `fallow`:
 - Named exports only; no classes; `.js` extensions on relative imports
   (NodeNext); tests colocated with the code they cover.
 
-See [AGENTS.md](./AGENTS.md) for the contract agents follow, and
+## Tested envelope
+
+Every push runs the full suite — unit, contract, and end-to-end (generated
+projects, installed and checked for real) — on **macOS and Linux**, at **Node
+22.18.0 (the exact supported floor) and Node 24**, and the e2e suite exercises
+the full package-manager quartet: **pnpm, npm, yarn, and bun**. Windows is not
+tested and not claimed; it waits for a real consumer who needs it.
+
+The promised surfaces (exit codes, `summary.json` shape, flags, exports) are
+locked by a dedicated [contract suite](./test/contract/) — see
+[docs/contract.md](./docs/contract.md). Beyond line coverage (enforced at 70%),
+the test suite is itself tested: Stryker mutation testing runs with a hard
+floor of 55; the current mutation score is **67%** (`pnpm mutation` to
+reproduce).
+
+See [AGENTS.md](./AGENTS.md) for the contract agents follow,
+[CONTRIBUTING.md](./CONTRIBUTING.md) for the release ritual, and
 [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
 ## License

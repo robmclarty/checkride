@@ -29,6 +29,7 @@ Invoke as `pnpm check` (the alias `init` writes), or directly with
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |
+| `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
 machine output only (the `--json` summary, mirroring `.check/summary.json`). In

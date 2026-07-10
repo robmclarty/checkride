@@ -13,7 +13,7 @@ must exist on your machine *outside* the project:
 
 | Tool | Minimum | Install |
 | ---- | ------- | ------- |
-| Node | `>=24` | <https://nodejs.org> or `nvm install 24 && nvm use 24` |
+| Node | `>=22.18` | <https://nodejs.org> or `nvm install 22 && nvm use 22` (24 works too) |
 | pnpm | `>=9` | `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
 
