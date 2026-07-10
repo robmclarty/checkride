@@ -567,7 +567,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     ? adopted.filter((i) => failing.has(i.slot) && i.adapter !== null && isFingerprintable(i.adapter)).map((i) => i.slot)
     : [];
   const grandfatheredSet = new Set(grandfathered);
-  if (grandfathered.length > 0) {
+  if (grandfathered.length > 0 && !w.dryRun) {
     const capture = options.captureBaseline ?? ((at: string) => runBaseline({ cwd: at }).then(() => undefined));
     await capture(cwd);
   }

@@ -103,7 +103,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    slot passes in a full `pnpm check` on this machine.
    - seam: `src/__tests__/cli.test.ts`, `src/__tests__/doctor.test.ts`, `src/__tests__/generated-spell.test.ts`
    - model: sonnet — mechanical, fully specified by the done-when
-2. [ ] `doctor`: distinguish "timed out" from "could not parse", 30s probe
+2. [x] `doctor`: distinguish "timed out" from "could not parse", 30s probe
    timeout — **done when:** a unit test with an injected hanging `env.version`
    yields a hint containing "timed out" (not "parse"), and `checkride doctor`
    exits 0 on this machine.

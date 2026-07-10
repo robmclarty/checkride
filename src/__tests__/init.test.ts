@@ -204,6 +204,24 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.disabled).toEqual(['types']);
   });
 
+  test('--baseline --dry-run reports grandfathering but never writes the baseline', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}'); // lint → oxlint (fingerprintable)
+
+    let captured = false;
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      dryRun: true,
+      probeFailures: () => Promise.resolve(['lint']),
+      captureBaseline: () => { captured = true; return Promise.resolve(); },
+    });
+
+    expect(captured).toBe(false); // a dry run must not capture
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
+    expect(result.grandfathered).toEqual(['lint']); // still reported, like every other dry-run write
+  });
+
   test('adds the check alias to an existing package.json, preserving scripts', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { build: 'tsc' } }));
     const result = await runInit({ cwd: dir, probeFailures: noFailures });
