@@ -13,6 +13,10 @@ name: Release
 on:
   push:
     tags: ['v[0-9]*']
+  # Manual re-run hatch: a tag is immutable, so a publish that failed for a
+  # reason outside the tree (auth, registry) can be retried from main — the
+  # tarball contents are identical; npm refuses an already-published version.
+  workflow_dispatch:
 
 permissions:
   contents: read
