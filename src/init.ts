@@ -495,7 +495,8 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const fullName = scope ? `${scope}/${name}` : name;
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
-  const checkrideSpec = options.checkrideSpec ?? `^${productVersion()}`;
+  // Exact pin, no caret: pre-1.0 minors are breaking (docs/contract.md pin policy).
+  const checkrideSpec = options.checkrideSpec ?? productVersion();
   const scaffold: NewScaffold = { shape, name, scope, license, author, fullName, adapters, slots, checkrideSpec };
 
   // Overwrite protection (D4): unless `--force`, refuse rather than clobber any

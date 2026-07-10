@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -86,6 +87,15 @@ describe('new-project generation (flat)', () => {
 
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell.');
+  });
+
+  test('default checkride spec pins the exact product version (no caret)', async () => {
+    await runInit({ cwd: dir, shape: 'flat', name: 'demo' });
+    const pkg: { devDependencies: Record<string, string> } =
+      JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const own: { version: string } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
+    expect(pkg.devDependencies['checkride']).toBe(own.version);
   });
 
   test('--dry-run writes nothing', async () => {

@@ -118,7 +118,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    `package.json` exits 2 listing every collision and writes nothing;
    `--force` proceeds; both tested.
    - seam: `src/init.ts`, `src/cli.ts`, `src/__tests__/init.test.ts`, `src/__tests__/cli.test.ts`
-5. [ ] Bug: unknown slot names in `--only`/`--skip`/`--include` exit 2 —
+5. [x] Bug: unknown slot names in `--only`/`--skip`/`--include` exit 2 —
    **done when:** `checkride --only lints` exits 2 naming the unknown slot and
    the valid set (catalogue slots + config custom-check names); a contract
    test locks it; docs/contract.md and CHANGELOG (Unreleased, **Contract**)

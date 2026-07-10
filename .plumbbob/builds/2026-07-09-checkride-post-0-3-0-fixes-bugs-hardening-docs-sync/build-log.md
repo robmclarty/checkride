@@ -58,3 +58,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 2 checkpointed · 3c68c86e7 — `doctor`: distinguish "timed out" from "could not parse", 30s probe
 - 2026-07-10 — step 3 checkpointed · b27983e43 — Bug: `init --baseline --dry-run` must not write the baseline
 - 2026-07-10 — step 4 checkpointed · e732539a0 — Bug: new-mode `init` refuses to overwrite existing files; add `--force`
+- 2026-07-10 — step 5 checkpointed · 5ef7b6c51 — Bug: unknown slot names in `--only`/`--skip`/`--include` exit 2

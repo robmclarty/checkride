@@ -30,7 +30,7 @@ meta-runner expensive to extend.
 ## Install
 
 ```bash
-pnpm add -D checkride
+pnpm add -D -E checkride
 pnpm exec checkride init   # set up a project (new or existing, auto-detected)
 ```
 
