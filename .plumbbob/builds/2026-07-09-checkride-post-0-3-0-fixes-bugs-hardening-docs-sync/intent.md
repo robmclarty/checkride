@@ -143,7 +143,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    output (today they linger — see `persistOutput`,
    `src/orchestrator.ts:222-235`).
    - seam: `src/orchestrator.ts`, `src/__tests__/orchestrator.test.ts`
-9. [ ] Orchestrator: process-group kill on timeout + UTF-8-safe capture —
+9. [x] Orchestrator: process-group kill on timeout + UTF-8-safe capture —
    **done when:** a timed-out check's *grandchild* (spawned via a wrapper) is
    dead and the check resolves promptly (detached spawn + `kill(-pid)` in
    `spawnCheck`, `src/orchestrator.ts:172-210`); `setEncoding('utf8')`

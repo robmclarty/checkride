@@ -63,3 +63,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 6 checkpointed · a3098a889 — Pin policy: `init` writes an exact checkride version; README installs
 - 2026-07-10 — step 7 checkpointed · a028caf83 — CLI polish: per-command `--help`, `baseline` parses its argv, `init`
 - 2026-07-10 — step 8 checkpointed · b2d7081f1 — Orchestrator: clear a slot's stale `.check/` outputs at the start of its
+- 2026-07-10 — step 9 checkpointed · 13458fed0 — Orchestrator: process-group kill on timeout + UTF-8-safe capture

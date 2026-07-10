@@ -11,7 +11,8 @@ import type { Baseline } from '../baseline/index.js';
 import { resolveChecks } from '../config.js';
 import type { ResolvedCheck } from '../config.js';
 import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
-import { runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
+import { fixInvocation, runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
+import { detectPackageManager } from '../pm/index.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };
@@ -590,6 +591,38 @@ describe('runFix', () => {
       const bad = fakeAdapter({ name: 'boom', slot: 'lint', command: 'node', args: [], fixArgs: ['-e', 'process.exit(1)'] });
       const fail = await runFix({ cwd: dir, slots: [{ name: 'lint' }], adapters: [bad], config: null, stderr: sink().out });
       expect(fail).toMatchObject({ ok: false, exitCode: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('threads the detected package manager into the fix runner context', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-pm-'));
+    await writeFile(join(dir, 'package-lock.json'), '{}'); // npm, resolved from the lockfile
+    try {
+      const seen: string[] = [];
+      await runFix({
+        cwd: dir, slots: [{ name: 'lint' }], adapters: [fixable], config: null, stderr: sink().out,
+        fixRunner: (_a, ctx) => { seen.push(ctx.pm); return Promise.resolve({ ok: true, exit_code: 0 }); },
+      });
+      expect(seen).toEqual(['npm']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the default fix runner spawns the PM-translated (npx) form, matching the run path', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-npx-'));
+    await writeFile(join(dir, 'package-lock.json'), '{}'); // an npm-detected fixture
+    try {
+      const pm = detectPackageManager({ cwd: dir });
+      expect(pm).toBe('npm');
+      // The canonical `pnpm exec oxlint --fix` becomes `npx oxlint --fix`, the
+      // same translation the run path applies via `translateExec` in `defaultRunner`.
+      const adapter = fakeAdapter({ name: 'oxlint', slot: 'lint', command: 'pnpm', args: ['exec', 'oxlint'], fixArgs: ['exec', 'oxlint', '--fix'] });
+      expect(fixInvocation(adapter, pm)).toEqual({ command: 'npx', args: ['oxlint', '--fix'] });
+      // The default pnpm path stays byte-identical — no translation.
+      expect(fixInvocation(adapter, 'pnpm')).toEqual({ command: 'pnpm', args: ['exec', 'oxlint', '--fix'] });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -519,8 +519,8 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 /** Result of a single adapter's fix command. */
 export type FixOutcome = { ok: boolean; exit_code: number };
 
-/** Runs one adapter's `fixArgs`. Injectable for testing. */
-export type FixRunner = (adapter: Adapter, ctx: { cwd: string }) => Promise<FixOutcome>;
+/** Runs one adapter's `fixArgs` under the resolved PM. Injectable for testing. */
+export type FixRunner = (adapter: Adapter, ctx: { cwd: string; pm: PackageManager }) => Promise<FixOutcome>;
 
 export type FixOptions = RunFlags & {
   cwd?: string;
@@ -529,6 +529,7 @@ export type FixOptions = RunFlags & {
   config?: CheckrideConfig | null;
   stderr?: Out;
   fixRunner?: FixRunner;
+  pm?: PackageManager;
 };
 
 export type FixResult = { ok: boolean; exitCode: number; ran: string[] };
@@ -541,8 +542,21 @@ function spawnInherit(command: string, args: string[], cwd: string): Promise<Fix
   });
 }
 
-const defaultFixRunner: FixRunner = (adapter, ctx) =>
-  spawnInherit(adapter.command, adapter.fixArgs ?? [], ctx.cwd);
+/**
+ * The command `checkride fix` spawns for one adapter under `pm` — the fix
+ * path's counterpart to `defaultRunner`'s `translateExec` call, so a fix runs
+ * on the same binary the run path does (a canonical `pnpm exec oxlint --fix`
+ * becomes `npx oxlint --fix` under npm). Non-`pnpm exec` fix commands, and
+ * everything under pnpm, pass through unchanged.
+ */
+export function fixInvocation(adapter: Adapter, pm: PackageManager): { command: string; args: string[] } {
+  return translateExec(adapter.command, adapter.fixArgs ?? [], pm);
+}
+
+const defaultFixRunner: FixRunner = (adapter, ctx) => {
+  const { command, args } = fixInvocation(adapter, ctx.pm);
+  return spawnInherit(command, args, ctx.cwd);
+};
 
 /** Run every active adapter's `fixArgs` (`checkride fix`). */
 export async function runFix(options: FixOptions): Promise<FixResult> {
@@ -552,6 +566,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
   const config = options.config !== undefined ? options.config : loadConfig(cwd);
   const stderr = options.stderr ?? process.stderr;
   const fixRunner = options.fixRunner ?? defaultFixRunner;
+  const pm = options.pm ?? detectPackageManager({ cwd });
 
   const resolved = resolveChecks({ slots, adapters, config, cwd });
   validateSelection(resolved, options);
@@ -568,7 +583,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     const adapter = r.adapter;
     if (!adapter) continue;
     writeLine(stderr, `  ▸ fix ${r.slot.padEnd(8)} (${adapter.name})`);
-    const outcome = await fixRunner(adapter, { cwd });
+    const outcome = await fixRunner(adapter, { cwd, pm });
     ran.push(adapter.name);
     writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
     if (!outcome.ok) ok = false;
