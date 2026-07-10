@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Contract
+
+- **An unknown slot name is now a usage error.** An unrecognized slot in
+  `--only`, `--skip`, or `--include` (e.g. `checkride --only lints`) exits **2**,
+  naming the bad slot and the valid set (catalogue slots plus config
+  custom-check names). It previously matched nothing and exited **0** — a typo
+  could silently disable the gate, the worst vacuous green in a definition-of-done
+  check. See `docs/contract.md` §CLI.
+
 ## [0.3.0] - 2026-07-10
 
 ### Added

@@ -82,6 +82,12 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 are promised. New commands and flags are additive; removing or repurposing one
 is a breaking change.
 
+**Selection is validated.** An unknown slot name in `--only`, `--skip`, or
+`--include` is a **usage error (exit 2)**, not a silently-empty selection — the
+error names the bad slot and the valid set (the catalogue slots plus any config
+custom-check names). A typo like `--only lints` must never quietly disable the
+gate.
+
 **Stream discipline:** stdout carries machine output only (the summary JSON
 under `--json`; otherwise nothing). Human-readable progress and warnings go to
 stderr. `checkride --json | jq .` is safe.

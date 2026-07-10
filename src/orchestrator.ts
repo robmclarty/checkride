@@ -144,6 +144,25 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
   });
 }
 
+/**
+ * Reject unknown slot names in `--only`/`--skip`/`--include`. A typo like
+ * `--only lints` used to slip through `selectChecks` as a filter that matched
+ * nothing, silently disabling the gate — the worst kind of vacuous green in a
+ * definition-of-done check. It is a usage error instead (thrown here, surfaced
+ * as exit 2 at the CLI). The valid set is every resolved slot: the catalogue
+ * slots plus any config custom-check names.
+ */
+function validateSelection(resolved: readonly ResolvedCheck[], flags: RunFlags): void {
+  const valid = new Set(resolved.map((r) => r.slot));
+  for (const flag of ['only', 'skip', 'include'] as const) {
+    const unknown = (flags[flag] ?? []).filter((name) => !valid.has(name));
+    if (unknown.length === 0) continue;
+    const named = unknown.map((n) => `'${n}'`).join(', ');
+    const noun = unknown.length > 1 ? 'slots' : 'slot';
+    throw new Error(`unknown ${noun} ${named} in --${flag}. Valid slots: ${[...valid].join(', ')}.`);
+  }
+}
+
 /** Append an adapter's `changedArgs` under `--changed` (otherwise base args). */
 export function runtimeArgs(adapter: Adapter, changed: boolean): string[] {
   if (changed && adapter.changedArgs) return [...adapter.args, ...adapter.changedArgs];
@@ -320,9 +339,12 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const pm = options.pm ?? detectPackageManager({ cwd });
   const baseline = options.baseline !== undefined ? options.baseline : loadBaseline(cwd);
 
+  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  // A usage error before any side effect: no `.check/` dir, no run, exit 2.
+  validateSelection(resolved, options);
+
   await mkdir(join(cwd, '.check'), { recursive: true });
 
-  const resolved = resolveChecks({ slots, adapters, config, cwd });
   const selected = selectChecks(resolved, options);
 
   if (!json) writeLine(stderr, `\nRunning ${selected.length} check(s)...\n`);
@@ -481,6 +503,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
   const fixRunner = options.fixRunner ?? defaultFixRunner;
 
   const resolved = resolveChecks({ slots, adapters, config, cwd });
+  validateSelection(resolved, options);
   const fixable = selectChecks(resolved, options).filter((r) => r.adapter?.fixArgs);
 
   if (fixable.length === 0) {

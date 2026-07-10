@@ -113,7 +113,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    `checkride.baseline.json` (guard around `src/init.ts:570-573`).
    - seam: `src/init.ts`, `src/__tests__/init.test.ts`
    - model: sonnet — one-line guard plus a test
-4. [ ] Bug: new-mode `init` refuses to overwrite existing files; add `--force`
+4. [x] Bug: new-mode `init` refuses to overwrite existing files; add `--force`
    — **done when:** `init` in a dir containing e.g. `README.md` but no
    `package.json` exits 2 listing every collision and writes nothing;
    `--force` proceeds; both tested.
