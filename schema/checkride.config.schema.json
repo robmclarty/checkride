@@ -20,7 +20,7 @@
     "timeout": {
       "type": "number",
       "minimum": 0,
-      "description": "Default per-check timeout in seconds. Off by default; 0 on a check exempts it from the cap."
+      "description": "Default per-check timeout in seconds. Unset, checks fall back to the built-in 600s cap; 0 here or on a check disables the cap."
     },
     "checks": {
       "type": "object",

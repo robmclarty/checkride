@@ -8,12 +8,13 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
+import { writeFileAtomic } from './atomic.js';
 import type { Baseline, Fingerprint } from './baseline/index.js';
 import {
   applyBaseline,
@@ -47,6 +48,12 @@ export type RunFlags = {
   include?: string[] | null;
   /** Write a capped failure excerpt to `.check/digest.md` (step 11). */
   digest?: boolean;
+  /**
+   * Treat zero checks actually executing as an error (exit 2), not a vacuous
+   * pass. For consumers that gate on the exit code (plumbbob, CI); a human
+   * exploring a fresh repo keeps the default warning-only behavior.
+   */
+  strict?: boolean;
 };
 
 /** A single check in the aggregate report. */
@@ -74,6 +81,12 @@ export type Summary = {
   schema_version: number;
   timestamp: string;
   ok: boolean;
+  /**
+   * Count of checks that actually executed (skipped entries excluded).
+   * `ok: true` with `checks_run: 0` is a vacuous green — nothing was verified.
+   * Additive field; `schema_version` holds.
+   */
+  checks_run: number;
   total_duration_ms: number;
   checks: SummaryCheck[];
 };
@@ -138,10 +151,23 @@ export function runtimeArgs(adapter: Adapter, changed: boolean): string[] {
 }
 
 /**
- * Spawn one check. `timeoutSec` is optional and off by default — a falsy or
- * non-positive value means no cap. When it fires, the child is killed and a
- * failed outcome carries a `"timed out after Ns"` note so the slot is recorded
- * failed with its elapsed duration (the timer is always cleared on `close`).
+ * Default per-check timeout (seconds) when neither the check nor the config
+ * sets one. A definition-of-done gate that can hang forever fails its one job
+ * on the worst day, so the cap is on by default — generous enough for any
+ * legitimate single slot. Override per check or globally via `timeout`; `0`
+ * disables the cap.
+ */
+export const DEFAULT_TIMEOUT_SECONDS = 600;
+
+/** Grace between SIGTERM and SIGKILL when a timed-out check won't die politely. */
+const KILL_GRACE_SECONDS = 5;
+
+/**
+ * Spawn one check. A falsy or non-positive `timeoutSec` means no cap (the
+ * default cap is applied by the runner, not here). When it fires, the child
+ * gets SIGTERM, then SIGKILL after a short grace, and a failed outcome carries
+ * a `"timed out after Ns"` note so the slot is recorded failed with its
+ * elapsed duration (both timers are always cleared on `close`).
  */
 function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: number): Promise<CheckOutcome> {
   return new Promise((resolveOutcome) => {
@@ -153,17 +179,26 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let killTimer: ReturnType<typeof setTimeout> | null = null;
     const timer = timeoutSec && timeoutSec > 0
-      ? setTimeout(() => { timedOut = true; proc.kill('SIGTERM'); }, timeoutSec * 1000)
+      ? setTimeout(() => {
+          timedOut = true;
+          proc.kill('SIGTERM');
+          killTimer = setTimeout(() => { proc.kill('SIGKILL'); }, KILL_GRACE_SECONDS * 1000);
+        }, timeoutSec * 1000)
       : null;
+    const clearTimers = (): void => {
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+    };
     proc.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
     proc.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
     proc.on('error', (err) => {
-      if (timer) clearTimeout(timer);
+      clearTimers();
       resolveOutcome({ ok: false, exit_code: -1, stdout: '', stderr: `Failed to spawn: ${err.message}` });
     });
     proc.on('close', (code) => {
-      if (timer) clearTimeout(timer);
+      clearTimers();
       if (timedOut) {
         const note = `timed out after ${timeoutSec}s`;
         resolveOutcome({ ok: false, exit_code: -1, stdout, stderr: stderr ? `${stderr}\n${note}` : `${note}\n` });
@@ -178,25 +213,25 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
   if (adapter.builtin === 'links') return checkLinks(ctx.cwd);
-  const timeout = adapter.timeout ?? ctx.timeout;
+  const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };
 
-/** Persist raw output: JSON to `.check/<outputFile>`, else stdout/stderr text. */
+/** Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout/stderr text. */
 async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcome): Promise<void> {
   const dir = join(cwd, '.check');
   if (adapter.outputFile && outcome.stdout.trim()) {
     try {
       JSON.parse(outcome.stdout);
-      await writeFile(join(dir, adapter.outputFile), outcome.stdout);
+      await writeFileAtomic(join(dir, adapter.outputFile), outcome.stdout);
       return;
     } catch {
       // Not JSON after all; fall through to raw text.
     }
   }
-  if (outcome.stdout.trim()) await writeFile(join(dir, `${adapter.slot}.stdout.txt`), outcome.stdout);
-  if (outcome.stderr.trim()) await writeFile(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
+  if (outcome.stdout.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stdout.txt`), outcome.stdout);
+  if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
 }
 
 function writeLine(out: Out, line: string): void {
@@ -229,9 +264,44 @@ function buildSummary(checks: SummaryCheck[]): Summary {
     schema_version: SCHEMA_VERSION,
     timestamp: new Date().toISOString(),
     ok: checks.every((c) => c.ok),
+    checks_run: checks.filter((c) => !c.skipped).length,
     total_duration_ms: checks.reduce((sum, c) => sum + c.duration_ms, 0),
     checks,
   };
+}
+
+/** What could fill a sat-out slot: each candidate adapter and its first detect file. */
+function enableHint(slot: string, adapters: readonly Adapter[]): string | null {
+  const candidates = adapters.filter((a) => a.slot === slot);
+  if (candidates.length === 0) return null;
+  const parts = candidates.map((a) =>
+    a.detect.length > 0 ? `${a.name} (add ${a.detect[0]})` : a.name,
+  );
+  return `enable with: ${parts.join(', ')}`;
+}
+
+/**
+ * The first-party vacuous-green signal: "green because nothing ran" must be
+ * unmissable, not something only a consumer that hand-rolled the check (as
+ * plumbbob's gate did) can distinguish from "green because everything passed".
+ * Names why each slot sat out and what would enable it.
+ */
+function warnVacuous(
+  stderr: Out,
+  checks: readonly SummaryCheck[],
+  adapters: readonly Adapter[],
+): void {
+  writeLine(stderr, '');
+  writeLine(stderr, '⚠ 0 checks ran — nothing was verified. This is not a pass.');
+  if (checks.length === 0) {
+    writeLine(stderr, '  No slots matched the selection (--only/--skip).');
+  }
+  for (const c of checks) {
+    const hint = c.adapter === null ? enableHint(c.name, adapters) : null;
+    writeLine(stderr, `  ○ ${c.name}: ${c.reason ?? 'skipped'}${hint ? ` — ${hint}` : ''}`);
+  }
+  writeLine(stderr, '  Run `checkride doctor` for per-slot detail, or add a custom check to');
+  writeLine(stderr, '  checkride.config.json. Gates should run with --strict (exit 2 on zero checks).');
 }
 
 /** Run the selected checks against `cwd`, persist output, write the summary. */
@@ -339,7 +409,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   }
 
   const summary = buildSummary(checks);
-  await writeFile(join(cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+  await writeFileAtomic(join(cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
   // A file beside summary.json, never a stdout stream, so the machine-output
@@ -350,15 +420,27 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   if (json) {
     stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
+    if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
     writeLine(stderr, '');
-    const status = summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
+    const status =
+      summary.checks_run === 0
+        ? '⚠ no checks ran'
+        : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
     writeLine(stderr, `${status} in ${summary.total_duration_ms}ms`);
     writeLine(stderr, 'report: .check/summary.json');
     if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
     writeLine(stderr, '');
   }
 
-  return { ok: summary.ok, summary, exitCode: summary.ok ? 0 : 1, runs };
+  // `--strict` turns a vacuous green into a harness error: exit 2, never 0 —
+  // a gate must not report "done" on a repo where nothing was checked.
+  let exitCode = summary.ok ? 0 : 1;
+  if ((options.strict ?? false) && summary.checks_run === 0) {
+    exitCode = 2;
+    if (!json) writeLine(stderr, '--strict: zero checks ran, exiting 2.\n');
+  }
+
+  return { ok: summary.ok, summary, exitCode, runs };
 }
 
 /** Result of a single adapter's fix command. */

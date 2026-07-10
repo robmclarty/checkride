@@ -33,6 +33,7 @@ const RUN_OPTIONS = {
   all: { type: 'boolean', default: false },
   changed: { type: 'boolean', default: false },
   digest: { type: 'boolean', default: false },
+  strict: { type: 'boolean', default: false },
 } as const;
 
 const INIT_OPTIONS = {
@@ -71,6 +72,7 @@ Run options:
   --bail           Stop at the first failure
   --json           Emit the summary as JSON on stdout
   --digest         Write a capped failure excerpt to .check/digest.md
+  --strict         Zero checks actually running is an error (exit 2), not a pass
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -131,6 +133,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     all: values.all,
     changed: values.changed,
     digest: values.digest,
+    strict: values.strict,
     only: parseList(values.only),
     skip: parseList(values.skip),
     include: parseList(values.include),

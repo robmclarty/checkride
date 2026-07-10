@@ -11,9 +11,9 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from './fingerprint.js';
 
 /** The committed baseline artifact, at repo root beside `checkride.config.json`. */
@@ -66,9 +66,9 @@ export function loadBaseline(cwd: string): Baseline | null {
   }
 }
 
-/** Serialize and write the baseline to `cwd` (pretty-printed, trailing newline). */
+/** Serialize and write the baseline to `cwd` (pretty-printed, trailing newline, atomic). */
 export async function writeBaseline(cwd: string, baseline: Baseline): Promise<void> {
-  await writeFile(join(cwd, BASELINE_FILE), `${JSON.stringify(baseline, null, 2)}\n`);
+  await writeFileAtomic(join(cwd, BASELINE_FILE), `${JSON.stringify(baseline, null, 2)}\n`);
 }
 
 /**

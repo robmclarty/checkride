@@ -287,6 +287,78 @@ describe('runChecks (real subprocess)', () => {
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: true, exit_code: 0 });
   });
+
+  test('escalates SIGTERM to SIGKILL for a timed-out check that ignores it', async () => {
+    const adapter = fakeAdapter({
+      name: 'stubborn', slot: 'stubborn',
+      command: 'node', args: ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'stubborn' }], adapters: [adapter], config: { timeout: 0.2 }, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+    expect(await readFile(join(dir, '.check', 'stubborn.stderr.txt'), 'utf8')).toContain('timed out');
+  }, 15_000);
+});
+
+describe('runChecks (vacuous green)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-vac-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  // Resolves to nothing in an empty temp dir: the detect file is absent.
+  const undetected = fakeAdapter({ name: 'tsc', slot: 'types', detect: ['tsconfig.json'] });
+
+  test('checks_run counts executed checks, excluding skipped slots', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'types' }, { name: 'lint' }],
+      adapters: [fakeAdapter({ name: 'tsc', slot: 'types' }), fakeAdapter({ name: 'oxlint', slot: 'lint' })],
+      config: { checks: { types: false } }, runner: okRunner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks_run).toBe(1);
+    const written = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as Summary;
+    expect(written.checks_run).toBe(1);
+  });
+
+  test('zero checks running stays exit 0 by default but warns with the detect hint', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'types' }], adapters: [undetected], config: null,
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.summary).toMatchObject({ ok: true, checks_run: 0 });
+    expect(result.exitCode).toBe(0);
+    const text = std.lines.join('');
+    expect(text).toContain('0 checks ran');
+    expect(text).toContain('tsc (add tsconfig.json)');
+    expect(text).toContain('checkride doctor');
+    expect(text).toContain('no checks ran');
+    expect(text).not.toContain('all checks passed');
+  });
+
+  test('--strict turns zero checks running into exit 2', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'types' }], adapters: [undetected], config: null, strict: true,
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.ok).toBe(true);
+    expect(result.exitCode).toBe(2);
+  });
+
+  test('--strict leaves a run that executed checks untouched', async () => {
+    const failing = await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [fakeAdapter({ name: 'oxlint', slot: 'lint' })],
+      config: null, strict: true, runner: failLint, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(failing.exitCode).toBe(1);
+    const passing = await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [fakeAdapter({ name: 'oxlint', slot: 'lint' })],
+      config: null, strict: true, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(passing.exitCode).toBe(0);
+  });
 });
 
 describe('runChecks (baseline-aware)', () => {

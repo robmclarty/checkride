@@ -30,6 +30,11 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['--skip', ' docs , , spell ']).flags.skip).toEqual(['docs', 'spell']);
   });
 
+  test('parses --strict (off by default)', () => {
+    expect(parseCliArgs(['--strict']).flags.strict).toBe(true);
+    expect(parseCliArgs([]).flags.strict).toBe(false);
+  });
+
   test('reads a leading subcommand positional', () => {
     expect(parseCliArgs(['init']).command).toBe('init');
     expect(parseCliArgs(['run', '--json']).command).toBe('run');

@@ -18,10 +18,11 @@
  * siblings import from there, never from this file directly.
  */
 
-import { rm, writeFile } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { writeFileAtomic } from '../atomic.js';
 import { fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator.js';
@@ -171,6 +172,6 @@ export async function writeDigest(
     await rm(path, { force: true });
     return false;
   }
-  await writeFile(path, digest);
+  await writeFileAtomic(path, digest);
   return true;
 }

@@ -73,7 +73,11 @@ export type CheckrideConfig = {
    */
   extends?: string | string[];
   checks?: Record<string, SlotConfig>;
-  /** Default per-check timeout in seconds (no cap when unset). `0` on a check disables its cap. */
+  /**
+   * Default per-check timeout in seconds. When unset, checks fall back to the
+   * built-in 600s cap (`DEFAULT_TIMEOUT_SECONDS`); `0` here or on a check
+   * disables the cap.
+   */
   timeout?: number;
 };
 
