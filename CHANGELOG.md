@@ -4,6 +4,53 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-10
+
+### Added
+
+- **Vacuous-green signal.** `summary.json` gains a top-level `checks_run` count
+  of the checks that actually executed, so "green because everything passed" and
+  "green because nothing ran" are distinguishable by every consumer: `ok: true`
+  with `checks_run: 0` means nothing was verified. A zero-check run now prints a
+  loud warning naming why each slot sat out and how to enable it, and the new
+  `--strict` flag turns that case into exit 2 (for CI and commit-hook gates; the
+  default stays a warned exit 0 so exploring a fresh repo isn't punished).
+  `checks_run` is additive — `schema_version` is unchanged.
+- **A frozen, tested contract.** `docs/contract.md` declares the surfaces
+  consumers may rely on — the exit-code taxonomy, the `summary.json`
+  additive-only discipline, the CLI flags, the programmatic exports, and the
+  pre-1.0 exact-pin policy — each locked by a new `test/contract/` suite that
+  fails the build on drift. The summary shape ships as a published JSON Schema
+  (`schema/checkride.summary.schema.json`).
+- `DEFAULT_TIMEOUT_SECONDS` is now part of the public programmatic surface.
+- New docs: a copy-paste CI guide (`docs/ci.md`), a reliability article
+  (`docs/reliability.md`), and `CONTRIBUTING.md` with the release ritual and
+  succession path.
+
+### Changed
+
+- **Per-check timeouts are on by default** (600s; override per check or globally,
+  `0` to disable). A check that exceeds it is killed (SIGTERM → grace → SIGKILL)
+  and recorded as failed with a "timed out" note — a hung tool can no longer
+  hang the definition of done. Give long-running slots (`test`, `mutation`, …) a
+  higher cap or `0` on large repos.
+- Run artifacts (`summary.json`, the raw slot files, the digest, the baseline)
+  are written atomically (temp file then rename), so a run interrupted mid-write
+  never leaves a consumer a half-written file to parse.
+
+### Fixed
+
+- The supported Node floor is now stated consistently as `>=22.18` across the
+  docs; `docs/tools.md` and `docs/getting-started.md` previously claimed `>=24`,
+  contradicting `package.json` engines.
+
+### Internal
+
+- CI runs the full suite across macOS and Linux at the Node floor (22.18.0) and
+  current (24), and the e2e suite exercises all four package managers
+  (pnpm/npm/yarn/bun) plus an interrupted-run case. Releases now publish with npm
+  provenance, and the README wears the Stryker mutation score.
+
 ## [0.2.1] - 2026-07-08
 
 ### Fixed
@@ -191,6 +238,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.3.0]: https://www.npmjs.com/package/checkride/v/0.3.0
 [0.2.1]: https://www.npmjs.com/package/checkride/v/0.2.1
 [0.2.0]: https://www.npmjs.com/package/checkride/v/0.2.0
 [0.1.6]: https://www.npmjs.com/package/checkride/v/0.1.6
