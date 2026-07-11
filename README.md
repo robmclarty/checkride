@@ -226,7 +226,7 @@ slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.3.0/schema/checkride.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.4.0/schema/checkride.config.schema.json",
   "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
   "timeout": 1200,          // global per-check timeout in seconds (default: 600)
   "checks": {
