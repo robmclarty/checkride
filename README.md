@@ -18,7 +18,9 @@ both halves of that problem.
 2. **Structured boundaries.** A module is an encapsulation boundary with a
    narrow public surface. When one grows internals worth hiding it becomes a
    folder whose only public surface is its `index.ts`, and siblings reach only
-   that index — never the internals. Enforced mechanically, boundaries keep
+   that index — never the internals. These are **deep modules** — Ousterhout's
+   term for a small interface hiding a substantial implementation (*A
+   Philosophy of Software Design*). Enforced mechanically, boundaries keep
    agents inside lanes and let humans and agents work in parallel with minimal
    merge conflicts.
 
@@ -29,12 +31,26 @@ meta-runner expensive to extend.
 
 ## Install
 
+For an **existing repository**, install checkride (exact-pinned — see the
+[pin policy](./docs/contract.md)) and let `init` adopt the tools you already
+have:
+
 ```bash
 pnpm add -D -E checkride
-pnpm exec checkride init   # set up a project (new or existing, auto-detected)
+pnpm exec checkride init
 ```
 
-`init` writes a `"check": "checkride"` alias, so daily usage is `pnpm check`
+For a **new project**, run `init` in an empty directory — no install first;
+`dlx` fetches checkride, and the generated `package.json` pins it:
+
+```bash
+pnpm dlx checkride init --shape flat --name my-app
+pnpm install
+pnpm check
+```
+
+Either way — `init` auto-detects which case it is in — it writes a
+`"check": "checkride"` alias, so daily usage is `pnpm check`
 regardless of the tool's name. It also writes the agent contract: an AGENTS.md
 stanza (the "exit 0 = done" rule) and a Claude Code **Stop hook** in
 `.claude/settings.json` that blocks an agent from finishing while the pipeline is
@@ -42,7 +58,33 @@ red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun run
 check`); skip it with `--no-hook`, or add all of this — alias, stanza, and hook —
 to a repo you already set up with `checkride agent-setup`.
 
+## Docs
+
+Task-focused guides live in [docs/](./docs/README.md):
+
+- [Getting started](./docs/getting-started.md) — prerequisites, adding
+  checkride to a project (new or existing), your first run, and the daily loop.
+- [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
+  flags, npm-script aliases, and the `.check/` output files.
+- [Tools and installation](./docs/tools.md) — what each pipeline check runs,
+  and how to install a missing tool when `doctor` reports one.
+- [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (and
+  npm/yarn/bun variants), and why gates should pass `--strict`.
+- [The contract](./docs/contract.md) — the surfaces consumers may rely on:
+  exit codes, the `summary.json` schema discipline, flags, exports, and the
+  pin policy.
+- [Reliability](./docs/reliability.md) — why checkride is safe to build a
+  gate on.
+
+The rest of this README is the reference: the command surface, the pipeline
+model, the `.check/` output contract, configuration, and the baseline.
+
 ## Commands
+
+The pipeline is a sequence of **slots** — roles like `types`, `lint`, `test` —
+each filled by an **adapter**, the concrete tool that runs it (the full
+catalogue is [below](#the-pipeline-slots-and-adapters)). The commands refer to
+both:
 
 ```text
 checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
@@ -139,7 +181,7 @@ fields are additive-only under a given `schema_version`.
     "schema_version": 1,
     "timestamp": "…",
     "ok": true,
-    "checks_run": 8, // checks that actually executed; 0 + ok = vacuous green
+    "checks_run": 8, // checks that actually executed
     "total_duration_ms": 4200,
     "checks": [
       { "name": "lint", "adapter": "oxlint", "description": "…",
@@ -149,10 +191,11 @@ fields are additive-only under a given `schema_version`.
   ```
 
   `ok: true` with `checks_run: 0` means **nothing was verified** — every slot
-  sat out (no tool detected, disabled, or skipped). The run warns loudly on
-  stderr when that happens, and `--strict` turns it into exit 2, so a gate can
-  never mistake "nothing ran" for "everything passed". Anything that gates on
-  checkride (CI, commit hooks) should pass `--strict`.
+  sat out (no tool detected, disabled, or skipped). That state is a **vacuous
+  green**: a pass that verified nothing. The run warns loudly on stderr when it
+  happens, and `--strict` turns it into exit 2, so a gate can never mistake
+  "nothing ran" for "everything passed". Anything that gates on checkride (CI,
+  commit hooks) should pass `--strict`.
 
 - `<slot>.json` — the raw tool JSON when stdout parses as JSON; otherwise
   `<slot>.stdout.txt` / `<slot>.stderr.txt`. Tools that write their own files
@@ -202,21 +245,15 @@ slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 }
 ```
 
+### The `$schema` pointer
+
 The `"$schema"` pointer is optional but recommended: it turns on validation and
 autocompletion for `checkride.config.json` in editors that understand JSON
 Schema (VS Code and friends). `checkride init` writes a version-pinned pointer
 into the config it generates; the schema itself ships in the package at
 [`schema/checkride.config.schema.json`](./schema/checkride.config.schema.json).
 
-Use `"extends"` to inherit a shared preset — a file path (`"./base.json"`) or an
-installed package (`"@acme/checkride-preset"`), or an array of them to layer
-several. Bases merge left to right and your local config wins over all of them:
-objects deep-merge (so overriding one field of a check keeps the rest), while
-arrays and scalars replace outright — arrays are **not** concatenated. Pair it
-with `detect` above to publish one org-wide preset that stays safe across repos
-that don't all use the same tools. An `extends` that can't be found, or a config
-that extends itself in a loop, fails fast with
-`invalid checkride.config.json: <reason>`.
+### Custom checks
 
 A custom check (one keyed by a name that isn't a built-in slot) runs *after* the
 built-in catalogue by default. Set `"order": "first"` to run it ahead of every
@@ -230,6 +267,8 @@ enable it with `"format": "prettier"` and `checkride fix` writes formatting for 
 The `order: "first"` custom-check hatch coexists with it, for a one-off formatter the
 slot doesn't cover; the slot didn't retire it.
 
+### Gating a custom check with `detect`
+
 Add `"detect": ["<file>", …]` to a custom check to gate it on marker files: it
 runs only when at least one listed file exists in the repo, and is skipped —
 skipped, not failed — otherwise. This keeps a shared config safe across repos
@@ -237,6 +276,20 @@ that don't all use the same tools: a check for a tool a given repo lacks quietly
 stands down instead of lighting up red. `detect` applies only to custom checks
 that run alongside the catalogue; a custom check that fills a built-in slot
 always runs.
+
+### Sharing presets with `extends`
+
+Use `"extends"` to inherit a shared preset — a file path (`"./base.json"`) or an
+installed package (`"@acme/checkride-preset"`), or an array of them to layer
+several. Bases merge left to right and your local config wins over all of them:
+objects deep-merge (so overriding one field of a check keeps the rest), while
+arrays and scalars replace outright — arrays are **not** concatenated. Pair it
+with `detect` above to publish one org-wide preset that stays safe across repos
+that don't all use the same tools. An `extends` that can't be found, or a config
+that extends itself in a loop, fails fast with
+`invalid checkride.config.json: <reason>`.
+
+### Timeouts
 
 A per-check timeout guards against a hung tool, and it is **on by default**: a
 definition-of-done gate that can hang forever fails its one job on the worst

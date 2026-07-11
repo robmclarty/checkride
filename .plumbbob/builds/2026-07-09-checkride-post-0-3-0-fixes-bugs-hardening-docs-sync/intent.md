@@ -186,7 +186,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     (per D7).
     - seam: `AGENTS.md`, `README.md`, `docs/getting-started.md`, `docs/cheatsheet.md`, `CHANGELOG.md`
     - model: sonnet — a checklist of verified corrections
-15. [ ] Reconcile contract.md's "everything locked by test/contract/" claim —
+15. [x] Reconcile contract.md's "everything locked by test/contract/" claim —
     **done when:** new contract tests assert stream discipline (default-run
     stdout empty; `--json` stdout parses) and digest presence semantics
     (present iff a failing run passed `--digest`), and contract.md names the
