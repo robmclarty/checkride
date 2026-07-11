@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { Adapter } from '../adapters.js';
@@ -636,4 +636,104 @@ describe('runFix', () => {
     expect(result.ran).toEqual([]);
     expect(std.lines.join('')).toContain('no active adapters');
   });
+});
+
+describe('killLiveChecks (fatal-signal cleanup)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-sig-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /**
+   * A fresh orchestrator module per test: `killLiveChecks` latches the module's
+   * one-way interrupt flag, and latching the statically-imported instance would
+   * stop every later test in this file from spawning checks.
+   */
+  async function freshOrchestrator(): Promise<typeof import('../orchestrator.js')> {
+    vi.resetModules();
+    return import('../orchestrator.js');
+  }
+
+  /** Poll until `path` exists (the spawned check has started) or fail loudly. */
+  async function waitFor(path: string): Promise<void> {
+    const deadline = Date.now() + 15_000;
+    while (!existsSync(path) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(existsSync(path)).toBe(true);
+  }
+
+  test("reaps an in-flight check's grandchild and lets the run resolve", async () => {
+    const orch = await freshOrchestrator();
+    const pidFile = join(dir, 'gc.pid');
+    await writeFile(
+      join(dir, 'gc.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+    );
+    await writeFile(
+      join(dir, 'wrap.js'),
+      `require('node:child_process').spawn(process.execPath, [${JSON.stringify(join(dir, 'gc.js'))}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`,
+    );
+    const adapter = fakeAdapter({ name: 'nest', slot: 'nest', command: 'node', args: [join(dir, 'wrap.js')] });
+    const running = orch.runChecks({
+      cwd: dir, slots: [{ name: 'nest' }], adapters: [adapter], config: null, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    await waitFor(pidFile);
+    await orch.killLiveChecks();
+    const result = await running;
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+
+    const gcPid = Number(await readFile(pidFile, 'utf8'));
+    await new Promise((r) => setTimeout(r, 200)); // let the group signal propagate to the grandchild
+    const alive = isAlive(gcPid);
+    if (alive) process.kill(gcPid, 'SIGKILL'); // safety net: never leak the orphan if this regresses
+    expect(alive).toBe(false);
+  }, 30_000);
+
+  test('latches: no successor check spawns after the interrupt', async () => {
+    // Without the latch, the run loop — resumed by the killed first check's
+    // outcome — would spawn the second check between cleanup and the CLI's
+    // re-raise, creating exactly the orphan the cleanup exists to prevent.
+    const orch = await freshOrchestrator();
+    const marker = join(dir, 'first.started');
+    const sentinel = join(dir, 'second.ran');
+    await writeFile(
+      join(dir, 'first.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '1'); setInterval(() => {}, 1000);`,
+    );
+    const first = fakeAdapter({ name: 'first', slot: 'first', command: 'node', args: [join(dir, 'first.js')] });
+    const second = fakeAdapter({
+      name: 'second', slot: 'second', command: 'node',
+      args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, '1')`],
+    });
+    const running = orch.runChecks({
+      cwd: dir, slots: [{ name: 'first' }, { name: 'second' }], adapters: [first, second], config: null,
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    await waitFor(marker);
+    await orch.killLiveChecks();
+    const result = await running;
+    expect(existsSync(sentinel)).toBe(false);
+    expect(result.summary.checks[1]).toMatchObject({ ok: false, exit_code: -1 });
+  }, 30_000);
+
+  test('escalates to SIGKILL for a check that ignores SIGTERM', async () => {
+    const orch = await freshOrchestrator();
+    const marker = join(dir, 'stubborn.started');
+    await writeFile(
+      join(dir, 'stubborn.js'),
+      `process.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, '1'); setInterval(() => {}, 1000);`,
+    );
+    const adapter = fakeAdapter({ name: 'stubborn', slot: 'stubborn', command: 'node', args: [join(dir, 'stubborn.js')] });
+    const running = orch.runChecks({
+      cwd: dir, slots: [{ name: 'stubborn' }], adapters: [adapter], config: null, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    await waitFor(marker);
+    // Resolves only via the grace escalation; the run resolving after proves
+    // the SIGKILL landed (the child's `close` is what settles the outcome).
+    await orch.killLiveChecks();
+    const result = await running;
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+  }, 30_000);
 });

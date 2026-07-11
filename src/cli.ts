@@ -19,7 +19,7 @@ import { runDoctor } from './doctor.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
 import { runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator.js';
-import { runChecks, runFix } from './orchestrator.js';
+import { killLiveChecks, runChecks, runFix } from './orchestrator.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
 export type CliDeps = { cwd: string; stdout: Out; stderr: Out };
@@ -298,7 +298,36 @@ function isEntryPoint(): boolean {
   }
 }
 
+/**
+ * Die clean on Ctrl-C. Checks run in their own detached process groups (so the
+ * timeout kill can reap grandchildren — see `spawnCheck`), which also means a
+ * terminal's SIGINT never reaches them: without forwarding, an interrupted run
+ * leaves every in-flight check tree running as orphans. Each handler reaps the
+ * live registry (SIGTERM per group, SIGKILL after the grace —
+ * `killLiveChecks`), then removes both handlers and re-raises, so the process
+ * still dies by the signal's default disposition and the shell sees the
+ * conventional 130/143 — the 0/1/2 exit contract never learns about signals.
+ * `once`, so a second Ctrl-C during the grace window kills immediately instead
+ * of queueing another cleanup. Installed only on the entry-point path: an
+ * importing test must not have its process signals rewired.
+ */
+function installSignalForwarding(): void {
+  const handlers = new Map<NodeJS.Signals, () => void>();
+  const forward = (signal: NodeJS.Signals): void => {
+    void killLiveChecks().finally(() => {
+      for (const [sig, handler] of handlers) process.removeListener(sig, handler);
+      process.kill(process.pid, signal);
+    });
+  };
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    const handler = (): void => { forward(signal); };
+    handlers.set(signal, handler);
+    process.once(signal, handler);
+  }
+}
+
 if (isEntryPoint()) {
+  installSignalForwarding();
   const code = await runCli(process.argv.slice(2), {
     cwd: process.cwd(),
     stdout: process.stdout,

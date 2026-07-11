@@ -200,6 +200,50 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
 }
 
 /**
+ * Process groups of checks currently in flight: pid → a promise that settles
+ * when that child's `close` fires. `spawnCheck` registers each spawn and
+ * unregisters it on close; `killLiveChecks` walks the registry to reap
+ * everything when the CLI takes a fatal signal.
+ */
+const liveChecks = new Map<number, Promise<void>>();
+
+/**
+ * One-way interrupt latch. Between `killLiveChecks` reaping the registry and
+ * the CLI re-raising the fatal signal, the still-running `runChecks` loop gets
+ * control back (the killed check's outcome resolves) and would spawn the next
+ * check — a fresh detached process group that outlives the dying CLI as
+ * exactly the orphan the cleanup exists to prevent. Once latched, `spawnCheck`
+ * starts nothing new.
+ */
+let interrupted = false;
+
+/**
+ * Reap every in-flight check before the process dies: SIGTERM each live
+ * process group (grandchildren included — see `killGroup`), escalate to
+ * SIGKILL after `KILL_GRACE_SECONDS` for a group that won't die politely, and
+ * resolve once every group has closed or been SIGKILLed. The CLI's
+ * SIGINT/SIGTERM handlers await this and then re-raise — cleanup first, the
+ * signal's default exit semantics after.
+ */
+export async function killLiveChecks(): Promise<void> {
+  interrupted = true;
+  await Promise.all(
+    [...liveChecks.entries()].map(async ([pid, closed]) => {
+      killGroup(pid, 'SIGTERM');
+      let escalate: ReturnType<typeof setTimeout> | null = null;
+      const grace = new Promise<void>((resolve) => {
+        escalate = setTimeout(() => {
+          killGroup(pid, 'SIGKILL');
+          resolve();
+        }, KILL_GRACE_SECONDS * 1000);
+      });
+      await Promise.race([closed, grace]);
+      if (escalate !== null) clearTimeout(escalate);
+    }),
+  );
+}
+
+/**
  * Spawn one check. A falsy or non-positive `timeoutSec` means no cap (the
  * default cap is applied by the runner, not here). When it fires, the check's
  * whole process group gets SIGTERM, then SIGKILL after a short grace (see
@@ -208,15 +252,32 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
  * failed with its elapsed duration (both timers are always cleared on `close`).
  * Output is captured with an explicit UTF-8 decoder so a multibyte character
  * split across two read chunks survives intact rather than decoding to U+FFFD.
+ * Every spawn is registered in `liveChecks` until it closes, so a fatal signal
+ * can reap the lot (`killLiveChecks`); after that interrupt, no new check
+ * starts.
  */
 function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: number): Promise<CheckOutcome> {
   return new Promise((resolveOutcome) => {
+    // Post-interrupt, the process is about to die by the re-raised signal —
+    // starting another detached group here would orphan it (see `interrupted`).
+    if (interrupted) {
+      resolveOutcome({ ok: false, exit_code: -1, stdout: '', stderr: 'interrupted before start\n' });
+      return;
+    }
     const proc = spawn(command, args, {
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     });
+    let resolveClosed: (() => void) | null = null;
+    if (proc.pid !== undefined) {
+      liveChecks.set(proc.pid, new Promise<void>((resolve) => { resolveClosed = resolve; }));
+    }
+    const unregister = (): void => {
+      if (proc.pid !== undefined) liveChecks.delete(proc.pid);
+      resolveClosed?.();
+    };
     let stdout = '';
     let stderr = '';
     let timedOut = false;
@@ -241,10 +302,12 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
     proc.stderr.on('data', (chunk: string) => { stderr += chunk; });
     proc.on('error', (err) => {
       clearTimers();
+      unregister();
       resolveOutcome({ ok: false, exit_code: -1, stdout: '', stderr: `Failed to spawn: ${err.message}` });
     });
     proc.on('close', (code) => {
       clearTimers();
+      unregister();
       if (timedOut) {
         const note = `timed out after ${timeoutSec}s`;
         resolveOutcome({ ok: false, exit_code: -1, stdout, stderr: stderr ? `${stderr}\n${note}` : `${note}\n` });

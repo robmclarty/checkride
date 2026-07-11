@@ -27,7 +27,7 @@ is done only after a checkpoint — check green + checkpoint taken, via `/pb-ver
 > Mid-step, every new problem / idea / "ooh what if" lands HERE, untouched, and you
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/pb-park` composes it). Harvest happens only at the boundary.
-- [ ] detached spawn (step 9) means Ctrl-C on checkride no longer reaches running checks — they're in their own process group and there's no SIGINT forwarding, so an interrupted run can orphan check processes (e.g. a vitest worker). Follow-up: install a SIGINT/SIGTERM handler in the orchestrator/CLI that group-kills all live children before exit.
+- [x] detached spawn (step 9) means Ctrl-C on checkride no longer reaches running checks — they're in their own process group and there's no SIGINT forwarding, so an interrupted run can orphan check processes (e.g. a vitest worker). Follow-up: install a SIGINT/SIGTERM handler in the orchestrator/CLI that group-kills all live children before exit.
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 
@@ -45,7 +45,10 @@ from sprawling across branches.
 
 Harvest results this boundary:
 
-- (none yet)
+- 2026-07-10 — Ctrl-C orphans (parked during step 9) → **tangent**, promoted to
+  step 19 rather than deferred: a real user-facing regression introduced by
+  step 9's detached spawn, small and well-understood (reuse the group-kill
+  machinery), worth fixing before the next release.
 
 ## Log
 
@@ -72,3 +75,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-11 — step 15 checkpointed · 46538ed42 — Reconcile contract.md's "everything locked by test/contract/" claim
 - 2026-07-11 — step 16 checkpointed · 78010e3bf — README restructure (connective fixes)
 - 2026-07-11 — step 17 checkpointed · 1cf9d83eb — getting-started + tools.md sync
+- 2026-07-11 — step 18 checkpointed · 490743e02 — Docs gaps

@@ -10,6 +10,16 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, '..', '..', 'dist', 'cli.js');
 
+/** True while `pid` names a live process (signal 0 probes without delivering). */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * The physical half of interrupt safety (the logical half — never ratchet the
  * baseline on a partial run — is covered in the orchestrator unit tests): a run
@@ -78,4 +88,72 @@ describe('interrupted run', () => {
     await runAndKill();
     expect(existsSync(join(dir, '.check', 'summary.json'))).toBe(false);
   });
+});
+
+/**
+ * The forwarding half of interrupt safety (step 19): checks run in their own
+ * detached process groups (so the timeout kill can reap grandchildren), which
+ * also means a terminal's Ctrl-C never reaches them. The CLI must forward the
+ * fatal signal — group-killing every in-flight check tree — and then die by the
+ * signal's default disposition (re-raise, not `process.exit`), so the shell
+ * sees the conventional signal death and the 0/1/2 exit contract stays
+ * signal-free. Without forwarding, the CLI dies instantly and the check's
+ * whole tree survives as orphans — the grandchild assertion below.
+ */
+describe('signal forwarding (SIGINT/SIGTERM)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-e2e-sig-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    test(`${signal} mid-run reaps the check's grandchild; the CLI re-raises promptly`, async () => {
+      // The check is a wrapper that spawns a long-lived grandchild (the step-9
+      // pattern): the grandchild records its pid, both hang until killed.
+      const pidFile = join(dir, 'gc.pid');
+      await writeFile(
+        join(dir, 'gc.js'),
+        `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      );
+      await writeFile(
+        join(dir, 'wrap.js'),
+        `require('node:child_process').spawn(process.execPath, [${JSON.stringify(join(dir, 'gc.js'))}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`,
+      );
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'victim' }));
+      await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+        checks: { links: false, slow: { command: 'node', args: [join(dir, 'wrap.js')] } },
+      }));
+
+      const proc = spawn('node', [CLI], { cwd: dir, stdio: 'ignore' });
+      const exited = new Promise<{ code: number | null; sig: string | null }>((resolve) => {
+        proc.on('close', (code, sig) => { resolve({ code, sig }); });
+      });
+
+      const deadline = Date.now() + 15_000;
+      while (!existsSync(pidFile) && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(existsSync(pidFile)).toBe(true);
+      const gcPid = Number(await readFile(pidFile, 'utf8'));
+
+      proc.kill(signal);
+      // Prompt: cooperative children die on the forwarded SIGTERM well inside
+      // the grace window; a CLI that hung on cleanup would ride the check's
+      // 60s hang into this deadline instead.
+      const outcome = await Promise.race([
+        exited,
+        new Promise<'hung'>((resolve) => setTimeout(() => { resolve('hung'); }, 20_000)),
+      ]);
+      expect(outcome).not.toBe('hung');
+      const { code, sig } = outcome as { code: number | null; sig: string | null };
+      // Death by the re-raised signal's default disposition, not process.exit:
+      // the parent sees the signal, and a shell would report 128+n (130/143).
+      expect(sig).toBe(signal);
+      expect(code).toBe(null);
+
+      await new Promise((r) => setTimeout(r, 300)); // let the group signal propagate to the grandchild
+      const alive = isAlive(gcPid);
+      if (alive) process.kill(gcPid, 'SIGKILL'); // safety net: never leak the orphan if this regresses
+      expect(alive).toBe(false);
+    });
+  }
 });

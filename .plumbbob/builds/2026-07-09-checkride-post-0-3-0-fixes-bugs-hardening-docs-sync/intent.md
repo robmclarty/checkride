@@ -212,7 +212,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     gets its existing-repo caveat; the hard-gate section explains why the hook
     omits `--strict` (D6) and links docs/ci.md.
     - seam: `docs/getting-started.md`, `docs/tools.md`
-18. [ ] Docs gaps — **done when:** each has a home and the docs slots are
+18. [x] Docs gaps — **done when:** each has a home and the docs slots are
     green: uninstall/eject paragraph; monorepo runtime behavior note (verify
     actual behavior in code first); `.check/` gitignore guidance for existing
     adopters — plus `init` (existing mode) appending `.check/` to `.gitignore`
@@ -222,6 +222,20 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     bound stated; where the coverage threshold lives; CONTRIBUTING release
     ritual gains the D8 refresh line.
     - seam: `docs/getting-started.md`, `docs/ci.md`, `docs/tools.md`, `README.md`, `CONTRIBUTING.md`, `src/init.ts`, `src/__tests__/init.test.ts`
+19. [ ] Forward SIGINT/SIGTERM to running checks — no orphans on Ctrl-C —
+    **done when:** interrupting a running `checkride` (SIGINT or SIGTERM)
+    group-kills every in-flight check before the process exits — proven by a
+    regression test that spawns the built CLI mid-check with a wrapper-spawned
+    *grandchild* (the step-9 test pattern), interrupts it, and asserts the
+    grandchild is dead and the CLI exited promptly and nonzero. After cleanup
+    the signal's default exit semantics are preserved (re-raise, not
+    `process.exit`), so exit codes stay conventional (`130`/`143`) and the
+    0/1/2 contract is untouched. Shape: the orchestrator keeps a registry of
+    live child pids that `spawnCheck` adds/removes; the CLI installs handlers
+    that `killGroup` the registry (SIGTERM, existing `KILL_GRACE_SECONDS`
+    escalation), then remove themselves and re-raise.
+    - seam: `src/orchestrator.ts`, `src/cli.ts`, `src/__tests__/orchestrator.test.ts`, `src/__tests__/cli.test.ts`
+    - model: opus — same process-lifecycle subtlety as step 9
 
 ## Open questions
 
