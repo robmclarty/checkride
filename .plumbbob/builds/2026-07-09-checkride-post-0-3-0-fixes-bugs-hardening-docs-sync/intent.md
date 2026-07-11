@@ -156,7 +156,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     matching the run path.
     - seam: `src/orchestrator.ts`, `src/__tests__/orchestrator.test.ts`
     - model: sonnet — mirrors an existing pattern
-11. [ ] Friendly file-named errors for malformed consumer JSON — **done when:**
+11. [x] Friendly file-named errors for malformed consumer JSON — **done when:**
     a malformed `.claude/settings.json` (`src/agent-setup/hook.ts:101`) or
     consumer `package.json` (`src/init.ts:531`) produces an error naming the
     file, no bare stack; tested for both.

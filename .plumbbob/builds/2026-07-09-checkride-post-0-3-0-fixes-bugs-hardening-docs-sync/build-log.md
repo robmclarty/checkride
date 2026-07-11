@@ -65,3 +65,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-10 — step 8 checkpointed · b2d7081f1 — Orchestrator: clear a slot's stale `.check/` outputs at the start of its
 - 2026-07-10 — step 9 checkpointed · 13458fed0 — Orchestrator: process-group kill on timeout + UTF-8-safe capture
 - 2026-07-10 — step 10 checkpointed · b6e644ff5 — `checkride fix` translates to the detected package manager
+- 2026-07-11 — step 11 checkpointed · 56edb1229 — Friendly file-named errors for malformed consumer JSON

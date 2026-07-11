@@ -1,0 +1,15 @@
+# Security-only: dependencies are exact-pinned (save-exact=true), so routine
+# version-bump PRs would be pure noise. `open-pull-requests-limit: 0` disables
+# version updates while leaving Dependabot's security-update PRs enabled.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0

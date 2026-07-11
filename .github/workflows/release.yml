@@ -28,6 +28,30 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      # Fail fast when the tag and package.json disagree — a mistagged push
+      # would otherwise publish a version whose tag points at the wrong code.
+      # On workflow_dispatch (the manual re-run hatch) there is no pushed tag:
+      # instead require that v<version> exists on origin and points at HEAD,
+      # so a retry can only republish exactly what the tag froze.
+      - name: Verify tag matches package.json version
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            if [ "$GITHUB_REF_NAME" != "$version" ]; then
+              echo "::error::pushed tag $GITHUB_REF_NAME does not match package.json version $version"
+              exit 1
+            fi
+          else
+            if ! git fetch --force --depth=1 origin "refs/tags/$version:refs/tags/$version"; then
+              echo "::error::tag $version not found on origin"
+              exit 1
+            fi
+            if [ "$(git rev-parse "$version^{}")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::tag $version does not point at HEAD"
+              exit 1
+            fi
+          fi
+
       - name: Install pnpm
         uses: pnpm/action-setup@v6
         with:
