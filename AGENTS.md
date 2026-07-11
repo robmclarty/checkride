@@ -56,6 +56,11 @@ src/
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
   doctor.ts
   links.ts          built-in links check
+  atomic.ts         atomic file writes (temp file + rename)
+  agent-setup/      AGENTS.md stanza + Claude Code Stop hook
+  baseline/         fingerprints, the committed baseline store, the ratchet
+  digest/           token-bounded digest.md of the failing slots
+  pm/               package-manager detection + command translation
   __tests__/        colocated unit tests
 templates/          shape preset files + shared config templates + rules (shipped)
 test/               cross-cutting fixture tests + the slow e2e suite
@@ -64,9 +69,9 @@ rules/              ast-grep structural rules (dogfooded here)
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. The product's modules are one file each today, so
-none are folders. The same rules ship to consumer projects — see
-`templates/shared/rules/`.
+siblings reach only the index. Four modules (`agent-setup/`, `baseline/`,
+`digest/`, `pm/`) have crossed that line; the rest are single files. The same
+rules ship to consumer projects — see `templates/shared/rules/`.
 
 ## What NOT to do
 

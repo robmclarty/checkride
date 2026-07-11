@@ -17,6 +17,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.3.0] - 2026-07-10
 
+### Contract
+
+- Three additions to the promised surfaces, each recorded in `docs/contract.md`
+  and locked by `test/contract/`: the `summary.json` `checks_run` field, the
+  `--strict` flag, and the `DEFAULT_TIMEOUT_SECONDS` export. (Heading added
+  retroactively — the full entries are under **Added** below.)
+
 ### Added
 
 - **Vacuous-green signal.** `summary.json` gains a top-level `checks_run` count

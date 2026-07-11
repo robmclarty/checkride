@@ -11,10 +11,10 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only).
 checkride fix          Run every active adapter's fix command (oxlint --fix, …).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride agent-setup  Add the AGENTS.md stanza + Claude Code Stop hook to a repo.
+checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Stop hook to a repo.
 ```
 
-Invoke as `pnpm check` (the alias `init` writes), or directly with
+Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly with
 `pnpm exec checkride <command>` / `pnpm dlx checkride <command>`.
 
 ## Run flags

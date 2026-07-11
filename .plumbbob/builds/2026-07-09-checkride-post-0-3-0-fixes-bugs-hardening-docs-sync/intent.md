@@ -170,7 +170,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     security-only.
     - seam: `.github/workflows/release.yml`, `.github/workflows/ci.yml`, `.github/dependabot.yml`
     - model: sonnet — well-trodden YAML
-13. [ ] Dogfood the library-publishing pair — **done when:** `publint` and
+13. [x] Dogfood the library-publishing pair — **done when:** `publint` and
     `attw` are devDependencies, enabled in `checkride.config.json`, and
     `pnpm check --include publint,attw` is green (fix whatever they flag, e.g.
     a missing `sideEffects`).

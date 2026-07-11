@@ -39,8 +39,8 @@ regardless of the tool's name. It also writes the agent contract: an AGENTS.md
 stanza (the "exit 0 = done" rule) and a Claude Code **Stop hook** in
 `.claude/settings.json` that blocks an agent from finishing while the pipeline is
 red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun run
-check`); skip it with `--no-hook`, or add both to a repo you already set up with
-`checkride agent-setup`.
+check`); skip it with `--no-hook`, or add all of this — alias, stanza, and hook —
+to a repo you already set up with `checkride agent-setup`.
 
 ## Commands
 
@@ -49,13 +49,16 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
   --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
 checkride init         Set up a project (new or existing — auto-detected).
-  --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --dry-run
+  --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --author <a>
+  --add <a,b>  (existing mode) scaffold blessed configs for the named empty slots
   --baseline   (existing mode) grandfather current debt instead of disabling slots
+  --force      (new mode) overwrite existing files instead of refusing
   --no-hook    skip writing the Claude Code Stop hook
+  --dry-run    plan only; write nothing
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride agent-setup  Add the AGENTS.md stanza + Claude Code Stop hook to a repo.
+checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Stop hook to a repo.
   --no-hook    skip the Stop hook (write only the stanza)
 ```
 
@@ -178,14 +181,14 @@ slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.2.1/schema/checkride.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.3.0/schema/checkride.config.schema.json",
   "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
   "timeout": 1200,          // global per-check timeout in seconds (default: 600)
   "checks": {
     "format": "prettier",   // enable the opt-in format slot (blessed: prettier)
     "lint": "biome",        // pick an alternate adapter
     "spell": false,         // disable a slot
-    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/master"] },
+    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/main"] },
     "tidy": {           // a bespoke custom check that runs FIRST, ahead of the built-ins
       "command": "pnpm",
       "args": ["exec", "some-formatter", "--write"],

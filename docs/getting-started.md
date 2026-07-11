@@ -157,7 +157,7 @@ agent keeps working until the pipeline is green.
 to a repo you have already set up — without re-running the full `init` — use:
 
 ```bash
-checkride agent-setup    # AGENTS.md stanza + Stop hook, nothing else
+checkride agent-setup    # "check" alias + AGENTS.md stanza + Stop hook, nothing else
 ```
 
 Both commands are idempotent (re-running is a no-op) and opt out with
