@@ -409,7 +409,7 @@ The promised surfaces (exit codes, `summary.json` shape, flags, exports) are
 locked by a dedicated [contract suite](./test/contract/) — see
 [docs/contract.md](./docs/contract.md). Beyond line coverage (enforced at 70%),
 the test suite is itself tested: Stryker mutation testing runs with a hard
-floor of 55; the current mutation score is **67%** (`pnpm mutation` to
+floor of 55; the current mutation score is **69%** (`pnpm mutation` to
 reproduce).
 
 See [AGENTS.md](./AGENTS.md) for the contract agents follow,
