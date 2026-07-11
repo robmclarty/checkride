@@ -68,3 +68,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-11 — step 11 checkpointed · 56edb1229 — Friendly file-named errors for malformed consumer JSON
 - 2026-07-11 — step 12 checkpointed · 85ef47834 — Repo automation: release tag↔version guard, CI concurrency, Dependabot
 - 2026-07-11 — step 13 checkpointed · d7b2b84fa — Dogfood the library-publishing pair
+- 2026-07-11 — step 14 checkpointed · 15e3d1500 — Docs drift batch (mechanical corrections)

@@ -175,7 +175,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     `pnpm check --include publint,attw` is green (fix whatever they flag, e.g.
     a missing `sideEffects`).
     - seam: `package.json`, `checkride.config.json`
-14. [ ] Docs drift batch (mechanical corrections) — **done when:** each is
+14. [x] Docs drift batch (mechanical corrections) — **done when:** each is
     fixed and `pnpm check` is green: AGENTS.md layout diagram + the false "no
     folder modules" claim (AGENTS.md:49-69; the four folder modules +
     `atomic.ts` exist); README `$schema` example → v0.3.0 (README.md:181);

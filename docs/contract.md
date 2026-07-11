@@ -1,10 +1,12 @@
 # The checkride contract
 
 This document names the surfaces a consumer may **rely on** — the promises, as
-opposed to today's incidental behavior. Everything listed here is backed by a
-test in [`test/contract/`](../test/contract/) that fails the build if it
-drifts. Anything *not* listed here is internal by definition and may change in
-any release.
+opposed to today's incidental behavior. Every surface listed here is backed by
+a test that fails the build if it drifts — most in
+[`test/contract/`](../test/contract/); the timeout and crash-consistency
+promises are exercised where the machinery lives, in the suites named in
+[their section](#timeouts-and-interrupts) below. Anything *not* listed here is
+internal by definition and may change in any release.
 
 Consumers of these promises include coding agents reading `.check/`, CI
 pipelines gating on the exit code, and tools that delegate their definition of
@@ -120,6 +122,16 @@ helpers — is not public API, even if technically importable.
 - An interrupted run (SIGKILL, power loss) never tears an artifact (see
   crash-consistency above) and never prunes the baseline — the ratchet only
   runs on a fully-observed run.
+
+These promises live with their machinery rather than in `test/contract/`: the
+timeout kill and grandchild reaping in
+[`src/__tests__/orchestrator.test.ts`](../src/__tests__/orchestrator.test.ts),
+crash consistency in
+[`src/__tests__/atomic.test.ts`](../src/__tests__/atomic.test.ts), and the
+ratchet's preserve-the-unobserved rule in
+[`src/__tests__/baseline.test.ts`](../src/__tests__/baseline.test.ts). The
+same discipline applies: a change that breaks one of those tests is a contract
+change, never a quiet test edit.
 
 ## Versioning and pin policy
 
