@@ -14,11 +14,17 @@ must exist on your machine *outside* the project:
 | Tool | Minimum | Install |
 | ---- | ------- | ------- |
 | Node | `>=22.18` | <https://nodejs.org> or `nvm install 22 && nvm use 22` (24 works too) |
-| pnpm | `>=9` | `corepack enable && corepack prepare pnpm@latest --activate` |
+| a package manager | pnpm `>=9` (default) / npm / yarn / bun | pnpm: `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
 
+The examples in this guide use pnpm's forms; on another manager, substitute
+yours (`npx` / `yarn` / `bunx` for `pnpm exec`, and so on) — see
+[Package managers](./tools.md#package-managers) for the exact mapping.
+
 Everything else (oxlint, ast-grep, fallow, vitest, …) is a project
-`devDependency` and is restored by `pnpm install`. See
+`devDependency` and is restored by `pnpm install`. That full list describes a
+new-project scaffold; an existing repo has only the tools it already installed —
+checkride detects what is present and skips the rest. See
 [Tools and installation](./tools.md) for the full list and how to add a missing
 one.
 
@@ -49,6 +55,21 @@ what is missing (a `checkride.config.json`, a `check` script alias, an AGENTS.md
 stanza), and never overwrites an existing tool config. Any adopted check that
 fails on the first run is recorded as disabled so the initial `pnpm check` is
 green — re-enable each slot as you fix it.
+
+Disabling is the blunt fallback. For a repo with real existing findings, prefer
+the **baseline ratchet**:
+
+```bash
+pnpm exec checkride init --baseline
+```
+
+Instead of writing failing slots off as disabled, this grandfathers today's
+findings into a committed `checkride.baseline.json` and keeps the slots
+*enabled*: the run stays green while only known findings remain, fails on
+anything new, and prunes entries as you fix them — the debt only ratchets down.
+(A failing slot whose tool has no fingerprint extractor still falls back to a
+disable.) See [README § Baseline](../README.md#baseline) for the full
+mechanics.
 
 To scaffold a tool you do not have yet, name its slot with `--add`:
 
@@ -157,7 +178,7 @@ agent keeps working until the pipeline is green.
 to a repo you have already set up — without re-running the full `init` — use:
 
 ```bash
-checkride agent-setup    # "check" alias + AGENTS.md stanza + Stop hook, nothing else
+pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + Stop hook, nothing else
 ```
 
 Both commands are idempotent (re-running is a no-op) and opt out with
@@ -186,9 +207,17 @@ The `|| { …; exit 2; }` wrapper matters: a plain `run check` exits `1` on
 failure, which Claude Code treats as a non-blocking error and lets the agent
 stop anyway. Exit `2` is the code that blocks. The hook input also carries a
 `stop_hook_active` flag — check it if you want to break out of a fix loop that
-is not converging. CI running `pnpm check` on every pull request is the other,
-more important, hard backstop: the hook helps the agent locally, CI protects the
-branch.
+is not converging.
+
+The hook deliberately runs plain `<pm> run check`, without `--strict`. Two
+reasons: forwarding extra flags through a `run` script is inconsistent across
+package managers (npm needs a `--` separator; the others do not), and — more
+importantly — `--strict` turns "zero checks ran" into a failure, which is right
+for a gate but would let a misconfigured repo block the agent from ever
+stopping. So the local hook fails open, and the fail-closed `--strict` run
+belongs in CI, which is the other, more important, hard backstop — see
+[Running checkride in CI](./ci.md). The hook helps the agent locally; CI
+protects the branch.
 
 ### Avoiding duplicate runs
 

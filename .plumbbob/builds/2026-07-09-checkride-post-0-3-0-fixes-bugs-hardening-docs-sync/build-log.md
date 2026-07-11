@@ -70,3 +70,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-11 — step 13 checkpointed · d7b2b84fa — Dogfood the library-publishing pair
 - 2026-07-11 — step 14 checkpointed · 15e3d1500 — Docs drift batch (mechanical corrections)
 - 2026-07-11 — step 15 checkpointed · 46538ed42 — Reconcile contract.md's "everything locked by test/contract/" claim
+- 2026-07-11 — step 16 checkpointed · 78010e3bf — README restructure (connective fixes)

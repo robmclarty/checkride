@@ -16,8 +16,11 @@ There are two layers:
 | Tool | Minimum | Install |
 | ---- | ------- | ------- |
 | Node | `>=22.18` | <https://nodejs.org> or `nvm install 22 && nvm use 22` (24 works too) |
-| pnpm | `>=9` | `corepack enable && corepack prepare pnpm@latest --activate` |
+| a package manager | pnpm `>=9` (default) / npm / yarn / bun | pnpm: `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
+
+The commands in this doc use pnpm's forms; on another manager, substitute yours
+per the [Package managers](#package-managers) table below.
 
 Check them with `pnpm exec checkride doctor`.
 

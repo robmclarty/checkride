@@ -193,7 +193,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     real suite for timeout/crash surfaces so every listed surface maps to an
     existing test.
     - seam: `test/contract/`, `docs/contract.md`
-16. [ ] README restructure (connective fixes) — **done when:** a "Docs" section
+16. [x] README restructure (connective fixes) — **done when:** a "Docs" section
     links all six `docs/` files; Install splits into existing-repo
     (`pnpm add -D -E checkride && pnpm exec checkride init`) and new-project
     (`pnpm dlx checkride init --shape flat …`) paths; § Configuration gains
