@@ -76,3 +76,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-11 — step 16 checkpointed · 78010e3bf — README restructure (connective fixes)
 - 2026-07-11 — step 17 checkpointed · 1cf9d83eb — getting-started + tools.md sync
 - 2026-07-11 — step 18 checkpointed · 490743e02 — Docs gaps
+- 2026-07-11 — step 19 checkpointed · 401e1131e — Forward SIGINT/SIGTERM to running checks

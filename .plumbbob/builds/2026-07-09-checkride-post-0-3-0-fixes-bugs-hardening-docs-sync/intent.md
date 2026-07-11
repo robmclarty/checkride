@@ -222,7 +222,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     bound stated; where the coverage threshold lives; CONTRIBUTING release
     ritual gains the D8 refresh line.
     - seam: `docs/getting-started.md`, `docs/ci.md`, `docs/tools.md`, `README.md`, `CONTRIBUTING.md`, `src/init.ts`, `src/__tests__/init.test.ts`
-19. [ ] Forward SIGINT/SIGTERM to running checks — no orphans on Ctrl-C —
+19. [x] Forward SIGINT/SIGTERM to running checks — no orphans on Ctrl-C —
     **done when:** interrupting a running `checkride` (SIGINT or SIGTERM)
     group-kills every in-flight check before the process exits — proven by a
     regression test that spawns the built CLI mid-check with a wrapper-spawned
