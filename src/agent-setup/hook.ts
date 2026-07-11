@@ -83,6 +83,20 @@ async function readIfExists(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Parse an existing settings file, naming the file on malformed JSON so a
+ * consumer sees `invalid .claude/settings.json: <reason>` instead of a bare
+ * `SyntaxError` stack (mirrors `invalidConfig` in `config.ts`).
+ */
+function parseSettings(raw: string): ClaudeSettings {
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`invalid ${CLAUDE_SETTINGS_FILE}: ${reason}`, { cause: err });
+  }
+}
+
 export type StopHookResult = { path: string; changed: boolean };
 
 /**
@@ -98,7 +112,7 @@ export async function writeStopHook(
   const path = join(cwd, CLAUDE_SETTINGS_FILE);
   const pm = opts.pm ?? detectPackageManager({ cwd });
   const raw = await readIfExists(path);
-  const settings: ClaudeSettings = raw ? JSON.parse(raw) : {};
+  const settings: ClaudeSettings = raw ? parseSettings(raw) : {};
   const next = applyStopHook(settings, stopHookCommand(pm));
   const nextRaw = `${JSON.stringify(next, null, 2)}\n`;
   const changed = raw !== nextRaw;

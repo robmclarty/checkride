@@ -582,7 +582,16 @@ async function addCheckAlias(w: Writer, skipped: string[]): Promise<void> {
   const pkgPath = join(w.cwd, 'package.json');
   const raw = await readIfExists(pkgPath);
   if (raw === null) return;
-  const pkg: { scripts?: Record<string, string> } = JSON.parse(raw);
+  let pkg: { scripts?: Record<string, string> };
+  try {
+    pkg = JSON.parse(raw);
+  } catch (err) {
+    // Name the file so a malformed consumer package.json reads as
+    // `invalid package.json: <reason>`, not a bare SyntaxError stack
+    // (mirrors `invalidConfig` in `config.ts`).
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`invalid package.json: ${reason}`, { cause: err });
+  }
   if (pkg.scripts?.['check']) {
     skipped.push('package.json (check script exists)');
     return;

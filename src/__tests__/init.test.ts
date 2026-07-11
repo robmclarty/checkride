@@ -272,6 +272,11 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.skipped).toContain('package.json (check script exists)');
   });
 
+  test('throws a friendly error naming the file on a malformed package.json', async () => {
+    await writeFile(join(dir, 'package.json'), '{ not valid json');
+    await expect(runInit({ cwd: dir, probeFailures: noFailures })).rejects.toThrow('invalid package.json');
+  });
+
   test('--add scaffolds blessed configs for empty slots', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     const result = await runInit({ cwd: dir, add: ['lint', 'spell'], probeFailures: noFailures });
@@ -399,6 +404,12 @@ describe('writeStopHook', () => {
     const result = await writeStopHook(dir, { dryRun: true });
     expect(result.changed).toBe(true);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+  });
+
+  test('throws a friendly error naming the file on a malformed settings.json', async () => {
+    await mkdir(join(dir, '.claude'), { recursive: true });
+    await writeFile(join(dir, CLAUDE_SETTINGS_FILE), '{ not valid json');
+    await expect(writeStopHook(dir)).rejects.toThrow('invalid .claude/settings.json');
   });
 });
 

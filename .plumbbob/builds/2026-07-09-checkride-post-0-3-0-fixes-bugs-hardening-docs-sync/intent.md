@@ -150,7 +150,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
    replaces per-chunk `toString()` with a multibyte-boundary test.
    - seam: `src/orchestrator.ts`, `src/__tests__/orchestrator.test.ts`
    - model: opus — subtle process-lifecycle semantics
-10. [ ] `checkride fix` translates to the detected package manager — **done
+10. [x] `checkride fix` translates to the detected package manager — **done
     when:** a unit test with an npm-detected fixture shows `defaultFixRunner`
     (`src/orchestrator.ts:471`) spawning the `npx` form via `translateExec`,
     matching the run path.
