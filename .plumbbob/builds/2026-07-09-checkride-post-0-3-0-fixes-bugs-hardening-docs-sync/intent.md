@@ -162,7 +162,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     file, no bare stack; tested for both.
     - seam: `src/agent-setup/hook.ts`, `src/init.ts`, tests alongside each
     - model: sonnet — mirrors `src/config.ts:131` which already does it right
-12. [ ] Repo automation: release tag↔version guard, CI concurrency, Dependabot
+12. [x] Repo automation: release tag↔version guard, CI concurrency, Dependabot
     — **done when:** release.yml fails fast when the pushed tag ≠
     `v<package.json version>` (and a `workflow_dispatch` run verifies the
     `v<version>` tag exists and points at HEAD) — guard command shell-tested

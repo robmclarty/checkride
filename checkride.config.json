@@ -1,5 +1,11 @@
 {
   "checks": {
+    "publint": "publint",
+    "attw": {
+      "use": "attw",
+      "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
+      "description": "Are the types wrong? (esm-only profile: this package ships ESM only; Node >=22 engines can require() it)"
+    },
     "typecheck-tests": {
       "command": "pnpm",
       "args": ["exec", "tsc", "-p", "tsconfig.test.json"],
