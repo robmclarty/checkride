@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-07-11
 
 ### Contract
 
@@ -14,6 +14,54 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   custom-check names). It previously matched nothing and exited **0** — a typo
   could silently disable the gate, the worst vacuous green in a definition-of-done
   check. See `docs/contract.md` §CLI.
+
+### Added
+
+- New-project `checkride init` refuses to overwrite existing files, listing
+  every collision, and writes nothing; `--force` overrides. Existing-project
+  mode (additive-only) is unchanged.
+- Per-command `--help` (`checkride init --help`, etc.); new-project `init` ends
+  by printing the next command to run; `checkride baseline` now rejects stray
+  flags instead of ignoring them.
+
+### Changed
+
+- `checkride init` scaffolds an exact checkride version (no caret), and the
+  README install uses `pnpm add -D -E checkride`, matching the pre-1.0
+  exact-pin policy consumers are told to follow.
+- Malformed consumer JSON (`.claude/settings.json`, a project `package.json`)
+  now produces an error naming the offending file instead of a bare stack trace.
+
+### Fixed
+
+- **Interrupts no longer orphan checks.** Ctrl-C (SIGINT) or SIGTERM on a
+  running `checkride` is forwarded to every in-flight check and group-kills its
+  whole process tree before exit, then re-raises so the shell still sees the
+  conventional signal exit (130/143). Since checks run in detached process
+  groups (for the timeout kill), a plain interrupt previously left them running.
+- `doctor` distinguishes a version probe that **timed out** from one that
+  **could not be parsed** (30s probe), so a slow `pnpm --version` is no longer
+  misdiagnosed.
+- `checkride init --baseline --dry-run` no longer writes a real
+  `checkride.baseline.json` — a dry run now truly writes nothing.
+- A timed-out check's whole process group is killed (wrapper-spawned
+  grandchildren included), and output is captured with a UTF-8 decoder so a
+  multibyte character split across read chunks survives intact.
+- `checkride fix` runs under the detected package manager (e.g. `npx` under
+  npm), matching the run path instead of assuming pnpm.
+- A slot's stale `.check/` artifacts are cleared before it re-runs, so a leaner
+  or empty run can't leave the previous run's output behind as authoritative.
+
+### Internal
+
+- Docs pass: README restructure linking all six `docs/` files and splitting the
+  existing-repo vs new-project install paths, getting-started/tools sync,
+  reconciliation of the "locked by `test/contract/`" claim with real tests, and
+  a batch of drift corrections.
+- Release automation: tag↔version guard on release, CI concurrency group,
+  security-only Dependabot; `publint` and `attw` added as dev checks and
+  dogfooded; explicit test timeouts for slow-spawn machines; npm publishing
+  switched to Trusted Publishing (OIDC).
 
 ## [0.3.0] - 2026-07-10
 
@@ -256,6 +304,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.4.0]: https://www.npmjs.com/package/checkride/v/0.4.0
 [0.3.0]: https://www.npmjs.com/package/checkride/v/0.3.0
 [0.2.1]: https://www.npmjs.com/package/checkride/v/0.2.1
 [0.2.0]: https://www.npmjs.com/package/checkride/v/0.2.0
