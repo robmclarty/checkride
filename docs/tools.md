@@ -71,6 +71,15 @@ Note the npm package names differ from the binary names: `ast-grep` ships in the
 `@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, and `attw`
 ships in `@arethetypeswrong/cli`.
 
+And `fallow`, the one unfamiliar name in the table: a Rust-native
+codebase-intelligence tool (unused code, duplication, circular dependencies,
+complexity hotspots, architecture drift) that fills the `dead` slot.
+
+One number people go looking for: the `test` slot's coverage thresholds live in
+`vitest.config.ts` (`test.coverage.thresholds` — the scaffold sets 70 across
+the board), not in `checkride.config.json`. checkride just runs vitest; it has
+no coverage setting of its own.
+
 Some slots accept alternates that checkride will also run if it detects their
 config: `format` → `biome`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`
 → `jest`. The blessed default is the one `init` scaffolds; the rest just need their

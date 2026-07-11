@@ -207,10 +207,12 @@ runs with no baseline, so `schema_version` is unchanged.
 
 - `digest.md` — written only under `--digest`: a **token-bounded** Markdown
   excerpt of the *failing* slots, so an agent working through a big red repo
-  reads a capped index instead of every raw file. Each section lists the first few
+  reads a capped index instead of every raw file. Each section lists the first
   findings (reusing the baseline fingerprint extractors, or a tail of raw text
   for slots without one) and links the authoritative `.check/<slot>.json`, which
-  is never modified. It **truncates, never normalizes**; a green run leaves no
+  is never modified. The bound: **ten findings per slot, 8 kB overall** —
+  roughly two thousand tokens; past the cap, remaining failing slots are named
+  but not rendered. It **truncates, never normalizes**; a green run leaves no
   digest (any stale one is removed), so its presence always means "this run
   failed". It is a file, never stdout — the machine-output split holds.
 
@@ -341,6 +343,17 @@ Once it exists, every normal run is **baseline-aware**:
 - Never add to the baseline to make a check pass; fix the finding, or re-run
   `checkride baseline` deliberately to re-grandfather.
 
+Two operational notes. **Merge conflicts:** the file is canonical (slots and
+keys are sorted), so parallel branches usually merge cleanly; when they do
+conflict, resolve by keeping both sides' entries and running a full
+`checkride` — the ratchet prunes anything already fixed, so an over-generous
+union self-heals, while a dropped entry that still fails simply resurfaces as
+a red check. **Deliberate re-baseline:** `checkride baseline` re-records
+*everything* currently failing — including brand-new debt you might rather
+fix — so treat re-running it as a reviewed change: do it deliberately (say,
+after adopting a stricter rule set) and read the `checkride.baseline.json`
+diff in the PR like code.
+
 Only slots whose tool has a fingerprint extractor participate (currently `lint` via
 oxlint, `struct` via ast-grep, `spell` via cspell); other slots (`types`, `dead`,
 `test`, …) never appear in the baseline. A crash or empty output is never masked —
@@ -362,6 +375,14 @@ disable.
 - **hybrid** — a root app in `src/` plus internal packages under `packages/*`.
 
 Every generated shape is green out of the box — an end-to-end test enforces it.
+
+At runtime, checkride itself is workspace-agnostic: whatever the shape, it runs
+each tool **once, from the repo root** — one pipeline, one `.check/`. Workspace
+awareness comes from the tools' own configs, which is what the monorepo scaffold
+sets up: `tsc --build` follows the root tsconfig's project references, and
+vitest, oxlint, ast-grep, and the rest walk the whole tree. There is no
+per-package orchestration and no way to check a single package — narrow a run
+with `--only`/`--changed`, not per-directory.
 
 ## Conventions
 

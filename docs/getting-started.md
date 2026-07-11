@@ -71,6 +71,12 @@ anything new, and prunes entries as you fix them — the debt only ratchets down
 disable.) See [README § Baseline](../README.md#baseline) for the full
 mechanics.
 
+`init` also makes sure the `.check/` output directory is gitignored — it
+appends `.check/` to your `.gitignore`, or creates one. If you adopted with an
+older checkride and `.check/` is showing up in `git status`, add the line
+yourself: the directory is regenerated on every run and never belongs in
+version control.
+
 To scaffold a tool you do not have yet, name its slot with `--add`:
 
 ```bash
@@ -249,6 +255,18 @@ is:
   your sources and only run `pnpm check` when it is missing or stale. That
   removes the duplicate deterministically — it does not depend on the agent
   choosing not to run — at the cost of a slightly more involved hook.
+
+## Uninstalling
+
+There is no lock-in to undo. checkride's whole footprint is: the `checkride`
+devDependency, `checkride.config.json`, `checkride.baseline.json` (if you
+baselined), the `check` script alias, the AGENTS.md stanza between the
+`checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if
+`init` created it), the Stop hook in `.claude/settings.json`, and the
+gitignored `.check/` output directory. Remove those and checkride is gone. The
+tools keep working untouched — they are ordinary `devDependencies` with their
+own config files, so `pnpm exec oxlint`, `pnpm exec vitest run`, and the rest
+run exactly as before; you have merely dropped the orchestrator.
 
 ## Where to go next
 

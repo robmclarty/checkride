@@ -90,3 +90,18 @@ Replace the pnpm steps; the checkride invocation is identical.
 The `security` slot (`pnpm audit`) is pnpm-specific and reports itself
 unavailable under the others — see
 [Package managers](./tools.md#package-managers).
+
+## Any other CI
+
+Nothing above is GitHub-specific. On any CI that can run Node `>=22.18` —
+GitLab, CircleCI, Buildkite, Jenkins, a bare shell — the job is the same three
+steps: check out, install from the lockfile, run checkride with `--strict` and
+gate on the exit code:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm exec checkride --strict   # or the npx / yarn / bunx form
+```
+
+If the platform supports build artifacts, archive `.check/` on failure the way
+the GitHub recipe does — that is where humans and agents read the diagnostics.

@@ -45,15 +45,19 @@ on; [`test/contract/`](./test/contract/) locks them. Two rules:
 ## Release ritual
 
 Releases are tagged `vX.Y.Z`; the root `package.json` version is the source of
-truth. With Claude Code, `/version <major|minor|patch>` performs steps 1–4.
+truth. With Claude Code, `/version <major|minor|patch>` performs steps 1–3
+and 5; step 4 is still by hand.
 
 1. Start from a clean tree on `main` with `pnpm check` green.
 2. Bump `package.json` `version` (semver — pre-1.0, breaking changes take a
    minor bump, and consumers are told to pin exactly).
 3. Prepend a `CHANGELOG.md` section summarizing every commit since the last
    tag, with a **Contract** heading when any apply.
-4. Commit as `vX.Y.Z`, tag (annotated) `vX.Y.Z`, push the commit and the tag.
-5. The tag push triggers
+4. Refresh the hand-maintained README numbers so they don't drift a release
+   behind: the `$schema` example pin (to the new version) and the mutation
+   score (from the latest `pnpm mutation` run).
+5. Commit as `vX.Y.Z`, tag (annotated) `vX.Y.Z`, push the commit and the tag.
+6. The tag push triggers
    [.github/workflows/release.yml](./.github/workflows/release.yml): full
    check + e2e, then `npm publish --provenance` — every published tarball is
    provenance-attested to its commit. Auth is npm **Trusted Publishing**
@@ -61,7 +65,7 @@ truth. With Claude Code, `/version <major|minor|patch>` performs steps 1–4.
    bypass 2FA with. One-time setup on npmjs.com: package settings → Trusted
    Publisher → GitHub Actions, repository `robmclarty/checkride`, workflow
    filename `release.yml`.
-6. Smoke-test the published package (`npx checkride@latest --version`).
+7. Smoke-test the published package (`npx checkride@latest --version`).
 
 ## Succession
 

@@ -203,7 +203,7 @@ No new architecture — this is a fix-and-sync batch across the existing seams:
     ref); "vacuous green" introduced in prose, not a JSON comment.
     - seam: `README.md`
     - model: opus — prose restructuring with judgment
-17. [ ] getting-started + tools.md sync — **done when:** the existing-repo
+17. [x] getting-started + tools.md sync — **done when:** the existing-repo
     section introduces `init --baseline` (the ratchet) instead of only
     "failing checks get disabled"; the prerequisites rows in both files say
     "a package manager: pnpm (default) / npm / yarn / bun" with a one-line

@@ -255,6 +255,27 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.grandfathered).toEqual(['lint']); // still reported, like every other dry-run write
   });
 
+  test('appends .check/ to an existing .gitignore, then skips once present', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.gitignore'), 'node_modules\n');
+
+    const first = await runInit({ cwd: dir, probeFailures: noFailures });
+    expect(first.written).toContain('.gitignore (appended .check/)');
+    expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.check/\n');
+
+    const second = await runInit({ cwd: dir, probeFailures: noFailures });
+    expect(second.skipped).toContain('.gitignore (.check/ already ignored)');
+    expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n.check/\n');
+  });
+
+  test('creates a .gitignore with .check/ when the repo has none', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+
+    const result = await runInit({ cwd: dir, probeFailures: noFailures });
+    expect(result.written).toContain('.gitignore');
+    expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('.check/\n');
+  });
+
   test('adds the check alias to an existing package.json, preserving scripts', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { build: 'tsc' } }));
     const result = await runInit({ cwd: dir, probeFailures: noFailures });
