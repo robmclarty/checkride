@@ -55,6 +55,15 @@ Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0). Optional per-check fields (`skipped`, `reason`, `baselined`) are
 present only when meaningful — absence is part of the shape.
 
+**Array order is deterministic.** The `checks` array is ordered by the run's
+group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,
+then `'last'`s; within a group by catalogue position, then config-key order —
+independent of the order the checks actually *finish*. The same selection
+produces the same array order on every run, even when concurrency interleaves
+completion. `total_duration_ms` is the **wall-clock** duration of the whole run;
+when execution is sequential (including any `--bail` run) it equals the sum of
+the per-check durations, exactly as before.
+
 **Raw output stays authoritative.** The per-tool files beside the summary —
 `.check/<slot>.json` when the tool emits JSON, `<slot>.stdout.txt` /
 `<slot>.stderr.txt` otherwise — are the tool's own bytes, never normalized,
@@ -78,7 +87,7 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
---bail  --json  --digest  --strict
+--bail  --json  --digest  --strict  --concurrency <n>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -93,6 +102,40 @@ gate.
 **Stream discipline:** stdout carries machine output only (the summary JSON
 under `--json`; otherwise nothing). Human-readable progress and warnings go to
 stderr. `checkride --json | jq .` is safe.
+
+## Check ordering and concurrency
+
+Every check has an effective `order` that fixes when it runs relative to the
+others, resolved as the config entry's `order`, then the adapter default, then
+the slot default, then `'any'`. The vocabulary and what each value promises:
+
+| `order` | The promise |
+| ------- | ----------- |
+| a number | A **wave**. Distinct wave numbers run in ascending order with a barrier between them; checks that share a number are one group with no ordering promise among themselves. Integers are the conventional waves; a decimal sequences a step within a wave (`1` before `1.1` before `1.2`). |
+| `'first'` | Before every other check. |
+| `'last'` | After every other check, singles included. |
+| `'single'` | Exclusive — runs with nothing else in flight, after the numeric line and before `'last'`, one single at a time. |
+| `'middle'` | After every `'first'` and before every `'last'` — nothing more. |
+| `'any'` | No ordering promise at all. The default when `order` is omitted. |
+
+`order` is honored on every object-form config entry — a slot's `{ use, order }`
+and a custom check alike. `'first'` and `'last'` keep exactly their historical
+meaning (before / after every other check) and are pinned by a backward-compat
+contract test.
+
+Only the relationships above are promised. `'any'` and `'middle'` in particular
+say nothing about *which* concurrent group they join; a release may schedule them
+differently as long as the stated relationships hold.
+
+**Concurrency.** Checks that share a wave run concurrently through a bounded
+pool. `--concurrency <n>` sets the pool size — `1` is fully sequential, and the
+default is a conservative cap derived from the CPU count. `--bail` overrides it:
+the run goes fully sequential and stops at the first failure, and a one-line
+stderr note reports that `--concurrency` was ignored (the combination is safe,
+just slower — not a usage error). Concurrency never weakens the
+[timeout and interrupt](#timeouts-and-interrupts) promises: every
+concurrently-running check keeps its own timeout and has its whole process group
+reaped independently.
 
 ## Programmatic surface
 

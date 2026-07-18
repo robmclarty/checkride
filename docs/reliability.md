@@ -102,7 +102,10 @@ mattered enough to close by default rather than leave as configuration.
 timeout, on by default, generous enough (ten minutes) that no honest run trips
 it. A tool that does hang is killed — SIGTERM, a short grace, then SIGKILL if
 it ignores the polite request — and recorded as failed with a "timed out"
-note. Red, never a silent stall, never a vacuous pass. The cap is tunable per
+note. Red, never a silent stall, never a vacuous pass. This holds per-check
+under concurrency: when a wave runs its checks through the bounded pool, each
+carries its own timeout and each is killed and process-group-reaped on its own,
+so one hung check in a wave can neither stall nor leak the rest. The cap is tunable per
 check and globally, and `0` disables it for the slots (mutation testing, a big
 test suite) that legitimately run long, but the safe behavior is what you get
 without configuring anything, because the person most likely to be bitten by an

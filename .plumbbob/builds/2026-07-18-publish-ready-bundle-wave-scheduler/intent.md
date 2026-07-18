@@ -290,7 +290,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    CHANGELOG'd at step 3.
    - seam: `src/adapters.ts`, `src/config.ts`, `schema/checkride.config.schema.json`, `src/__tests__/config.test.ts`, `src/__tests__/adapters.test.ts`
    - model: sonnet — data/schema widening fully specified by D1–D4
-2. [ ] Concurrent wave scheduler + `--concurrency` — **done when:**
+2. [x] Concurrent wave scheduler + `--concurrency` — **done when:**
    `executeChecks` runs D1's group sequence — firsts, the numeric line
    ascending (equal values through a bounded pool, default per D5; barrier
    between distinct values; `'any'`/`'middle'` in the 0 group), `'single'`s

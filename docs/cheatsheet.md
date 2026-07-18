@@ -21,7 +21,8 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 
 | Flag | Effect |
 | ---- | ------ |
-| `--bail` | Stop at the first failing check. |
+| `--bail` | Stop at the first failing check (runs sequentially; overrides `--concurrency`). |
+| `--concurrency <n>` | Max checks running at once within a wave (`1` = sequential; default is a conservative cap from the CPU count). |
 | `--only <a,b>` | Run only the named slots. |
 | `--skip <a,b>` | Run everything except the named slots. |
 | `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `mutation`, `security`, `publint`, `attw`) to the default run. |
@@ -65,8 +66,16 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 
 ## The pipeline
 
-Slots run cheapest-first so `--bail` fails fast. The default run is everything
-except the opt-in slots.
+Checks run in **waves**. Every slot carries an effective `order`: a number names
+a wave — waves run in ascending order, and checks sharing a wave run
+concurrently — or one of the words `first`, `last`, `middle`, `single`, `any`.
+An omitted `order` is `any`: no ordering promise, run alongside the main group.
+`--bail` runs everything sequentially and stops at the first failure (for the
+default slots, still cheapest-first). The default run is everything except the
+opt-in slots.
+
+Numbering your own waves? Use gaps — `10`, `20`, `30` — leaving room to drop a
+check between two later without shifting the others.
 
 | Slot | Role | Default tool | Default run? |
 | ---- | ---- | ------------ | ------------ |

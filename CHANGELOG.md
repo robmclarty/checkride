@@ -4,6 +4,49 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Contract
+
+- **The `order` field is now a first-class, promised scheduling surface.** A
+  config entry's `order` accepts a **number** — a wave, where distinct wave
+  numbers run in ascending order with a barrier between them, checks sharing a
+  number run concurrently, and decimals sequence steps within a wave (`1` before
+  `1.1`) — or one of `first`, `last`, `middle`, `single`, `any`. It is honored
+  on every object-form entry: a slot's `{ use, order }` and a custom check
+  alike. `first`/`last` keep their exact historical meaning, pinned by a
+  backward-compat contract test. See `docs/contract.md` §"Check ordering and
+  concurrency".
+- **Two deliberate default-placement changes**, both noted in `docs/contract.md`:
+  a config-only custom check with **no** `order` now defaults to `any` (the main
+  group) instead of the old implicit `last` — set `"order": "last"` to restore
+  the previous placement — and a catalogue-filling custom entry's `order`, which
+  earlier releases documented as ignored, is now **honored**. A sequential
+  default run is unaffected in verdicts and summary order; the difference is
+  visible only under concurrency or beside a numbered wave.
+- **New `--concurrency <n>` flag.** Sets the size of the pool that runs a wave's
+  checks concurrently (`1` = sequential; the default is a conservative cap
+  derived from the CPU count). `--bail` overrides it: the run goes fully
+  sequential and a one-line stderr note reports that `--concurrency` was ignored
+  (the combination is safe, just slower — not a usage error). Additive to the
+  flag contract and contract-tested.
+- **`total_duration_ms` is now the run's wall-clock duration.** Under
+  concurrency the summary's total is measured wall-to-wall rather than summed
+  across checks; the two are identical for any sequential run (including
+  `--bail`). The `checks` array stays in deterministic group order — the run's
+  scheduling sequence, never completion order. `schema_version` is unchanged.
+
+### Changed
+
+- **Checks now run concurrently within a wave by default.** The orchestrator
+  schedules the wave sequence — `first`s, the numeric line ascending (equal
+  values through a bounded pool, a barrier between distinct values), `single`s
+  exclusively, then `last`s — instead of strictly one-at-a-time cheapest-first.
+  `--bail` keeps the sequential fail-fast path. The catalogue ships ordered so
+  existing default runs produce the same verdicts and the same summary order as
+  before, only faster; `mutation` runs as a `single` (exclusive) because Stryker
+  saturates every core and races the real test run's cache.
+
 ## [0.4.3] - 2026-07-18
 
 ### Internal
