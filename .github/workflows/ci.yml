@@ -46,8 +46,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # The full pipeline (types, lint, struct, dead, dupes, health, test+coverage,
-      # docs, links, spell, mutation, publint, attw, typecheck-tests) — checkride
-      # running on itself.
+      # docs, links, spell, publint, attw, typecheck-tests) — checkride running on
+      # itself. Mutation is opt-in (`pnpm mutation`), not in the default gate: a
+      # cold run has no warm stryker.incremental.json cache and would time out.
       - name: pnpm check
         run: pnpm check
 
