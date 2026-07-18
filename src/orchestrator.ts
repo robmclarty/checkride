@@ -36,6 +36,7 @@ import { checkLinks } from './links.js';
 import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
+import { checkSmoke } from './smoke.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -347,6 +348,10 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   // `spawnCheck`, so its child registers in `liveChecks` and inherits the
   // timeout + reaping like every other check (D16/C6).
   if (adapter.builtin === 'pack') return checkPack({ cwd: ctx.cwd, pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
+  // The smoke built-in spawns a `node` probe of the built package through
+  // `spawnCheck`, so that child registers in `liveChecks` and inherits the
+  // timeout + reaping like every other check (D9/D16/C6).
+  if (adapter.builtin === 'smoke') return checkSmoke({ cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout });
   const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };

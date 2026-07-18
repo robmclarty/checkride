@@ -58,3 +58,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-18 — step 2 checkpointed · b9f7731e2 — Concurrent wave scheduler + `--concurrency` (20m)
 - 2026-07-18 — step 3 checkpointed · 295026764 — Scheduler docs + CHANGELOG (6m)
 - 2026-07-18 — step 4 checkpointed · 5a710199a — `build` slot + detection widening (1 drift, 27m)
+- 2026-07-18 — step 5 checkpointed · 73f5a4cef — `pack` built-in (1 drift, 17m)

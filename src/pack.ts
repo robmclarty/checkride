@@ -176,6 +176,19 @@ function fail(stdout: string, stderr: string): CheckOutcome {
   return { ok: false, exit_code: 1, stdout, stderr };
 }
 
+/** Read and parse the manifest; a missing/unreadable/non-object file is a failure. */
+async function readManifest(
+  cwd: string,
+): Promise<{ ok: true; manifest: Record<string, unknown> } | { ok: false; message: string }> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
+    if (!isRecord(parsed)) return { ok: false, message: 'package.json is not an object' };
+    return { ok: true, manifest: parsed };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 /**
  * Run the `pack` check against `cwd`. Reads the manifest to derive the required
  * set, spawns the PM's pack dry-run through the injected `spawn`, then diffs the
@@ -199,18 +212,14 @@ export async function checkPack(opts: {
     );
   }
 
-  let manifest: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
-    if (!isRecord(parsed)) throw new Error('package.json is not an object');
-    manifest = parsed;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+  const read = await readManifest(cwd);
+  if (!read.ok) {
     return fail(
-      `${JSON.stringify({ ok: false, error: `could not read package.json: ${message}` }, null, 2)}\n`,
-      `check-pack: could not read package.json: ${message}\n`,
+      `${JSON.stringify({ ok: false, error: `could not read package.json: ${read.message}` }, null, 2)}\n`,
+      `check-pack: could not read package.json: ${read.message}\n`,
     );
   }
+  const manifest = read.manifest;
 
   const outcome = await spawn(invocation.command, invocation.args, cwd, timeoutSec);
   if (outcome.exit_code !== 0) {

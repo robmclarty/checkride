@@ -123,6 +123,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'publint', optIn: true, order: 20 },
   { name: 'attw', optIn: true, order: 20 },
   { name: 'pack', optIn: true, order: 20 },
+  { name: 'smoke', optIn: true, order: 20 },
 ];
 
 /**
@@ -428,6 +429,21 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['pack', '--dry-run', '--json'],
     outputFile: 'pack.json',
     builtin: 'pack',
+    devDeps: {},
+  },
+  {
+    name: 'smoke',
+    slot: 'smoke',
+    description: 'Smoke import: the built package loads and its declared value exports are live',
+    detect: [],
+    // Built-in liveness probe (D9). Like `links`, it spawns a plain `node` — no
+    // package manager, no checked tool — so it is available under every PM. The
+    // real work (enumerate `exports`, scan the dist `.d.ts`, spawn the probe)
+    // lives in `smoke.ts`.
+    command: 'node',
+    args: [],
+    outputFile: 'smoke.json',
+    builtin: 'smoke',
     devDeps: {},
   },
 ];

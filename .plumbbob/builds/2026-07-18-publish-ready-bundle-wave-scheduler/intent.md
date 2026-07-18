@@ -326,7 +326,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    through the real-subprocess path.
    - seam: `src/adapters.ts`, `src/config.ts`, `src/pm/translate.ts`, `src/doctor.ts`, `src/__tests__/config.test.ts`, `src/__tests__/pm.test.ts`, `src/__tests__/doctor.test.ts`
    - model: sonnet — small, precedent-shaped addition
-5. [ ] `pack` built-in — **done when:** `src/pack.ts` (builtin `'pack'`,
+5. [x] `pack` built-in — **done when:** `src/pack.ts` (builtin `'pack'`,
    dispatched in `defaultRunner` beside `links`) runs the detected PM's pack
    dry-run (npm/pnpm; yarn/bun → unavailable per D10), derives the required set
    from the manifest, applies the deny list with the `dist/**/*.d.ts` carve-out,

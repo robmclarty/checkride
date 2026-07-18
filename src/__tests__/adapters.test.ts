@@ -19,7 +19,7 @@ describe('registry invariants', () => {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
       dupes: 'fallow', health: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
-      build: 'build', publint: 'publint', attw: 'attw', pack: 'pack',
+      build: 'build', publint: 'publint', attw: 'attw', pack: 'pack', smoke: 'smoke',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -57,11 +57,11 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack', () => {
+  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack/smoke', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack',
+      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke',
     ]);
-    expect(SLOTS.slice(-3).map((s) => s.name)).toEqual(['publint', 'attw', 'pack']);
+    expect(SLOTS.slice(-4).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke']);
   });
 
   test('the library-publishing slots are opt-in with JSON-capturing attw', () => {
@@ -85,9 +85,21 @@ describe('registry invariants', () => {
     expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
-  test('links and pack are the built-ins', () => {
+  test('links, pack, and smoke are the built-ins', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
-    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack']);
+    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack', 'smoke']);
+  });
+
+  test('the smoke slot is an opt-in wave-20 built-in on a node liveness probe (D9)', () => {
+    expect(SLOTS.find((s) => s.name === 'smoke')?.optIn).toBe(true);
+    expect(SLOTS.find((s) => s.name === 'smoke')?.order).toBe(20);
+    const smoke = ADAPTERS.find((a) => a.name === 'smoke');
+    expect(smoke?.slot).toBe('smoke');
+    expect(smoke?.builtin).toBe('smoke');
+    expect(smoke?.outputFile).toBe('smoke.json');
+    expect(smoke?.devDeps).toEqual({});
+    // Spawns a plain `node` (PM-agnostic, available everywhere) like `links`.
+    expect(smoke?.command).toBe('node');
   });
 
   test('the pack slot is an opt-in wave-20 built-in on the npm/pnpm pack dry-run (D10)', () => {
@@ -103,15 +115,16 @@ describe('registry invariants', () => {
     expect(pack?.args[0]).toBe('pack');
   });
 
-  test('D4 wave defaults: mutation runs single, build wave 10, publint/attw/pack share wave 20, the rest default to any', () => {
+  test('D4 wave defaults: mutation runs single, build wave 10, publint/attw/pack/smoke share wave 20, the rest default to any', () => {
     const orderOf = (name: string) => SLOTS.find((s) => s.name === name)?.order;
     expect(orderOf('mutation')).toBe('single');
     expect(orderOf('build')).toBe(10);
     expect(orderOf('publint')).toBe(20);
     expect(orderOf('attw')).toBe(20);
     expect(orderOf('pack')).toBe(20);
+    expect(orderOf('smoke')).toBe(20);
     // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
-    const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw', 'pack']);
+    const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw', 'pack', 'smoke']);
     for (const slot of SLOTS) {
       if (!carriesOrder.has(slot.name)) expect(slot.order).toBeUndefined();
     }
