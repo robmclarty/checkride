@@ -14,13 +14,6 @@
     "dead": [],
     "dupes": [],
     "health": [
-      "health:src/baseline/fallow.ts:deadKey",
-      "health:src/baseline/fallow.ts:parseFallow",
-      "health:src/config.ts:resolveChecks",
-      "health:src/config.ts:resolveConfigFile",
-      "health:src/config.ts:resolveOne",
-      "health:src/doctor.ts:classifySlot",
-      "health:src/doctor.ts:renderTable",
       "health:src/init.ts:initExisting",
       "health:src/init.ts:initNew",
       "health:src/orchestrator.ts:runChecks"

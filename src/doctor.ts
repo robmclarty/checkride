@@ -274,6 +274,48 @@ function possibilitiesHint(slot: string, adapters: readonly Adapter[]): string |
   return `Enable by adding one of: ${parts.join(', ')}.`;
 }
 
+/** The shared prefix of every `tool`-category doctor row. */
+type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null };
+
+/**
+ * A row for a slot that is off but not simply missing its tool — disabled in
+ * config, or its adapter can't run under this PM. `null` when neither applies
+ * (the caller then handles the no-adapter case and the live probe).
+ */
+function offRow(
+  base: ToolRowBase,
+  r: ResolvedCheck,
+  adapter: Adapter | null,
+  config: CheckrideConfig | null,
+  pm: PackageManager,
+): DoctorCheck | null {
+  // Explicitly disabled in config: off by the user's choice.
+  if (config?.checks?.[r.slot] === false) {
+    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
+  }
+  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm (b5).
+  if (adapter && !isAvailableUnder(adapter.command, adapter.args, pm)) {
+    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${adapter.command} ${adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
+  }
+  return null;
+}
+
+/** A row for a slot whose adapter is runnable: probe result classified by default-run membership. */
+function toolRow(
+  base: ToolRowBase,
+  r: ResolvedCheck,
+  adapter: Adapter,
+  defaultActive: ReadonlySet<string>,
+  probe: ToolProbe,
+): DoctorCheck {
+  const isDefault = defaultActive.has(r.slot);
+  const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
+  const hint = isDefault
+    ? probe.hint
+    : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
+  return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
+}
+
 /**
  * Build a doctor row for one resolved catalogue slot, classified by enablement.
  * Only `default` slots are required; `opt-in`/`disabled`/`unavailable` slots are
@@ -289,27 +331,17 @@ async function classifySlot(
   pm: PackageManager,
 ): Promise<DoctorCheck> {
   const base = { category: 'tool' as const, slot: r.slot, adapter: r.adapter?.name ?? null };
+  const { adapter } = r;
 
-  // Explicitly disabled in config: off by the user's choice.
-  if (config?.checks?.[r.slot] === false) {
-    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
-  }
+  const off = offRow(base, r, adapter, config, pm);
+  if (off) return off;
   // No adapter fills the slot: nothing to run. Point at what would enable it.
-  if (!r.adapter) {
+  if (!adapter) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, adapters) };
   }
-  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm (b5).
-  if (!isAvailableUnder(r.adapter.command, r.adapter.args, pm)) {
-    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${r.adapter.command} ${r.adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
-  }
   // Adapter resolved: probe the tool, classify by default-run membership.
-  const probe = await probeTool(r.adapter, cwd, env);
-  const isDefault = defaultActive.has(r.slot);
-  const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
-  const hint = isDefault
-    ? probe.hint
-    : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
-  return { ...base, name: `${r.adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
+  const probe = await probeTool(adapter, cwd, env);
+  return toolRow(base, r, adapter, defaultActive, probe);
 }
 
 async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
@@ -366,25 +398,35 @@ function renderSlotSummary(tools: DoctorCheck[], out: Out): void {
   );
 }
 
+/** Render one non-tool row (env / install / workspace category). */
+function renderEnvRow(c: DoctorCheck, out: Out): void {
+  const found = c.found ?? '—';
+  const expected = c.expected ? `  (${c.expected})` : '';
+  out.write(`  ${statusMark(c.status)} ${c.name.padEnd(22)} ${found}${expected}\n`);
+  if (c.status !== 'ok' && c.hint) out.write(`      -> ${c.hint}\n`);
+}
+
+/** Render one category group's rows; a no-op when the group has no checks. */
+function renderGroup(
+  group: { key: DoctorCheck['category']; label: string },
+  report: DoctorReport,
+  out: Out,
+): void {
+  const items = report.checks.filter((c) => c.category === group.key);
+  if (items.length === 0) return;
+  out.write(`  ${group.label}\n`);
+  if (group.key === 'tool') {
+    for (const c of items) renderToolRow(c, out);
+    renderSlotSummary(items, out);
+    return;
+  }
+  for (const c of items) renderEnvRow(c, out);
+}
+
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
   out.write(`  package manager: ${report.packageManager} (detected)\n\n`);
-  for (const group of GROUPS) {
-    const items = report.checks.filter((c) => c.category === group.key);
-    if (items.length === 0) continue;
-    out.write(`  ${group.label}\n`);
-    if (group.key === 'tool') {
-      for (const c of items) renderToolRow(c, out);
-      renderSlotSummary(items, out);
-      continue;
-    }
-    for (const c of items) {
-      const found = c.found ?? '—';
-      const expected = c.expected ? `  (${c.expected})` : '';
-      out.write(`  ${statusMark(c.status)} ${c.name.padEnd(22)} ${found}${expected}\n`);
-      if (c.status !== 'ok' && c.hint) out.write(`      -> ${c.hint}\n`);
-    }
-  }
+  for (const group of GROUPS) renderGroup(group, report, out);
   out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
 }
 

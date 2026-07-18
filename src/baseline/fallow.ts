@@ -55,23 +55,32 @@ function str(value: unknown): string {
  * the finding still counts toward `issueCount`, it just can't be individually
  * grandfathered (which keeps the slot conservatively red, never silently green).
  */
-function deadKey(category: string, item: unknown): string | null {
-  if (!isPlainObject(item)) return null;
-  const file = str(item['path']) || str(item['file']);
-  const symbol =
-    str(item['export_name']) ||
-    str(item['name']) ||
-    str(item['type_name']) ||
-    str(item['member']) ||
-    str(item['package_name']) ||
-    str(item['dependency']) ||
-    str(item['specifier']);
-  if (file || symbol) {
-    const identity = [file, symbol].filter(Boolean).join(':');
-    return `dead-code:${category}:${identity}`;
+/** Finding fields that carry a single stable symbol identity, in priority order. */
+const SYMBOL_FIELDS = [
+  'export_name',
+  'name',
+  'type_name',
+  'member',
+  'package_name',
+  'dependency',
+  'specifier',
+] as const;
+
+/** The first non-empty symbol field on a finding, or `''` when none is present. */
+function symbolIdentity(item: Record<string, unknown>): string {
+  for (const field of SYMBOL_FIELDS) {
+    const value = str(item[field]);
+    if (value) return value;
   }
-  // Cross-file findings (circular_dependencies, re_export_cycles): a list of
-  // files/segments rather than one location. Key on the sorted membership.
+  return '';
+}
+
+/**
+ * Key a cross-file finding (circular_dependencies, re_export_cycles) on its
+ * sorted file membership — a list of files/segments rather than one location.
+ * Returns `null` when the item carries no such list.
+ */
+function cycleKey(category: string, item: Record<string, unknown>): string | null {
   for (const field of ['cycle', 'files', 'chain']) {
     const arr = item[field];
     if (!Array.isArray(arr)) continue;
@@ -82,6 +91,17 @@ function deadKey(category: string, item: unknown): string | null {
     if (files.length > 0) return `dead-code:${category}:${files.join('->')}`;
   }
   return null;
+}
+
+function deadKey(category: string, item: unknown): string | null {
+  if (!isPlainObject(item)) return null;
+  const file = str(item['path']) || str(item['file']);
+  const symbol = symbolIdentity(item);
+  if (file || symbol) {
+    const identity = [file, symbol].filter(Boolean).join(':');
+    return `dead-code:${category}:${identity}`;
+  }
+  return cycleKey(category, item);
 }
 
 /**
@@ -157,6 +177,19 @@ function parseHealth(j: Record<string, unknown>): ParsedFallow {
  * kind, missing count field) is a *loud* failure the caller turns into a red
  * slot — checkride never treats an unreadable fallow report as "clean".
  */
+/**
+ * The reason a report's schema can't be trusted, or `null` when it is a
+ * supported version. Split out so {@link parseFallow} stays a thin dispatcher.
+ */
+function fallowSchemaError(j: Record<string, unknown>): string | null {
+  const schema = j['schema_version'];
+  if (typeof schema !== 'number') return 'fallow JSON has no schema_version';
+  if (schema < FALLOW_SCHEMA_MIN) {
+    return `unsupported fallow schema_version ${schema}; checkride needs fallow >= 3.5 (schema_version ${FALLOW_SCHEMA_MIN}). Run \`pnpm up fallow\`.`;
+  }
+  return null;
+}
+
 function parseFallow(raw: string): ParsedFallow {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
   let j: unknown;
@@ -167,14 +200,8 @@ function parseFallow(raw: string): ParsedFallow {
   }
   if (!isPlainObject(j)) return { ok: false, reason: 'fallow output was not a JSON object' };
 
-  const schema = j['schema_version'];
-  if (typeof schema !== 'number') return { ok: false, reason: 'fallow JSON has no schema_version' };
-  if (schema < FALLOW_SCHEMA_MIN) {
-    return {
-      ok: false,
-      reason: `unsupported fallow schema_version ${schema}; checkride needs fallow >= 3.5 (schema_version ${FALLOW_SCHEMA_MIN}). Run \`pnpm up fallow\`.`,
-    };
-  }
+  const schemaError = fallowSchemaError(j);
+  if (schemaError !== null) return { ok: false, reason: schemaError };
 
   const kind = str(j['kind']);
   switch (kind) {

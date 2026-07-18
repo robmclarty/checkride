@@ -139,15 +139,8 @@ function invalidConfig(reason: string, cause?: unknown): never {
  * names the file in error messages — the root config's own filename for the
  * entry point, or a repo-relative path for an inherited base.
  */
-function resolveConfigFile(
-  absPath: string,
-  stack: readonly string[],
-  label: string,
-): Record<string, unknown> {
-  if (stack.includes(absPath)) {
-    invalidConfig(`circular extends: ${[...stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`);
-  }
-
+/** Read and parse a config file into an object, or throw a friendly error. */
+function parseConfigJson(absPath: string, label: string): Record<string, unknown> {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(absPath, 'utf8'));
@@ -156,10 +149,21 @@ function resolveConfigFile(
     invalidConfig(label === CONFIG_FILE ? reason : `${reason} (in ${label})`, err);
   }
   if (!isPlainObject(raw)) invalidConfig(`${label} is not a JSON object`);
+  return raw;
+}
 
-  const { extends: ext, ...own } = raw;
-  const specs = ext === undefined ? [] : Array.isArray(ext) ? ext : [ext];
+/** Normalize an `extends` field (absent / single / array) into a list. */
+function normalizeExtends(ext: unknown): unknown[] {
+  return ext === undefined ? [] : Array.isArray(ext) ? ext : [ext];
+}
 
+/** Resolve and left-to-right merge every base config named in `specs`. */
+function resolveExtends(
+  specs: readonly unknown[],
+  absPath: string,
+  stack: readonly string[],
+  label: string,
+): Record<string, unknown> {
   const require = createRequire(absPath);
   let merged: Record<string, unknown> = {};
   for (const spec of specs) {
@@ -174,6 +178,19 @@ function resolveConfigFile(
     const base = resolveConfigFile(baseAbs, [...stack, absPath], relative(process.cwd(), baseAbs));
     merged = deepMerge(merged, base);
   }
+  return merged;
+}
+
+function resolveConfigFile(
+  absPath: string,
+  stack: readonly string[],
+  label: string,
+): Record<string, unknown> {
+  if (stack.includes(absPath)) {
+    invalidConfig(`circular extends: ${[...stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`);
+  }
+  const { extends: ext, ...own } = parseConfigJson(absPath, label);
+  const merged = resolveExtends(normalizeExtends(ext), absPath, stack, label);
   return deepMerge(merged, own);
 }
 
@@ -253,6 +270,29 @@ function skipped(slot: Slot, reason: string, explicit = false): ResolvedCheck {
   return { slot: slot.name, optIn: slot.optIn ?? false, adapter: null, skip: reason, explicit };
 }
 
+/**
+ * Resolve an object-form config entry — `{ use }` (an adapter with overrides) or
+ * `{ command }` (a custom adapter) — for `slot`. Returns `null` when the entry is
+ * neither, so the caller falls through to detection.
+ */
+function resolveObjectEntry(
+  slot: Slot,
+  entry: UseConfig | CustomCheck,
+  adapters: readonly Adapter[],
+  explicit: boolean,
+): ResolvedCheck | null {
+  if ('use' in entry) {
+    const base = byName(entry.use, adapters, slot.name);
+    return base
+      ? active(slot, applyOverrides(base, entry), explicit)
+      : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);
+  }
+  if ('command' in entry) {
+    return active(slot, customAdapter(slot.name, entry), explicit);
+  }
+  return null;
+}
+
 function resolveOne(
   slot: Slot,
   entry: SlotConfig | undefined,
@@ -272,15 +312,8 @@ function resolveOne(
       : skipped(slot, `configured adapter '${entry}' is not in the registry`, explicit);
   }
   if (entry && typeof entry === 'object') {
-    if ('use' in entry) {
-      const base = byName(entry.use, adapters, slot.name);
-      return base
-        ? active(slot, applyOverrides(base, entry), explicit)
-        : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);
-    }
-    if ('command' in entry) {
-      return active(slot, customAdapter(slot.name, entry), explicit);
-    }
+    const resolved = resolveObjectEntry(slot, entry, adapters, explicit);
+    if (resolved !== null) return resolved;
   }
   const detected = detectAdapter(slot.name, adapters, fileExists);
   return detected ? active(slot, detected) : skipped(slot, 'no tool detected for slot');
@@ -294,6 +327,46 @@ function resolveOne(
  * the default); within a group, config key order is preserved. A custom check
  * that declares `detect` files is skipped when none of them are present.
  */
+/**
+ * Resolve a config-only custom check (an object with `command`, keyed by a name
+ * not in the catalogue) plus where it sorts (`first`/`last`), or `null` when
+ * `entry` is not such a check. A custom check with `detect` files stands down
+ * (skipped, not failed) when none of them are present.
+ */
+function customCheckEntry(
+  name: string,
+  entry: SlotConfig,
+  fileExists: (file: string) => boolean,
+): { resolved: ResolvedCheck; order: 'first' | 'last' } | null {
+  if (!(entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry)) return null;
+  const detect = entry.detect ?? [];
+  const resolved =
+    detect.length > 0 && !detect.some((f) => fileExists(f))
+      ? skipped({ name }, 'no detect file present')
+      : active({ name }, customAdapter(name, entry));
+  return { resolved, order: entry.order === 'first' ? 'first' : 'last' };
+}
+
+/**
+ * Fold config-only custom checks into `first`/`last` groups (config key order
+ * preserved within each), skipping any name that fills a catalogue slot.
+ */
+function foldCustomChecks(
+  checks: Record<string, SlotConfig>,
+  catalogueNames: ReadonlySet<string>,
+  fileExists: (file: string) => boolean,
+): { firsts: ResolvedCheck[]; lasts: ResolvedCheck[] } {
+  const firsts: ResolvedCheck[] = [];
+  const lasts: ResolvedCheck[] = [];
+  for (const [name, entry] of Object.entries(checks)) {
+    if (catalogueNames.has(name)) continue;
+    const hit = customCheckEntry(name, entry, fileExists);
+    if (hit === null) continue;
+    (hit.order === 'first' ? firsts : lasts).push(hit.resolved);
+  }
+  return { firsts, lasts };
+}
+
 export function resolveChecks(input: {
   slots: readonly Slot[];
   adapters: readonly Adapter[];
@@ -309,19 +382,7 @@ export function resolveChecks(input: {
   );
 
   const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const firsts: ResolvedCheck[] = [];
-  const lasts: ResolvedCheck[] = [];
-  for (const [name, entry] of Object.entries(checks)) {
-    if (catalogueNames.has(name)) continue;
-    if (entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry) {
-      const detect = entry.detect ?? [];
-      const resolved =
-        detect.length > 0 && !detect.some((f) => fileExists(f))
-          ? skipped({ name }, 'no detect file present')
-          : active({ name }, customAdapter(name, entry));
-      (entry.order === 'first' ? firsts : lasts).push(resolved);
-    }
-  }
+  const { firsts, lasts } = foldCustomChecks(checks, catalogueNames, fileExists);
 
   return [...firsts, ...catalogue, ...lasts];
 }
