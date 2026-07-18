@@ -19,7 +19,7 @@ describe('registry invariants', () => {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
       dupes: 'fallow', health: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
-      build: 'build', publint: 'publint', attw: 'attw',
+      build: 'build', publint: 'publint', attw: 'attw', pack: 'pack',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -57,11 +57,11 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw', () => {
+  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw',
+      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack',
     ]);
-    expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['publint', 'attw']);
+    expect(SLOTS.slice(-3).map((s) => s.name)).toEqual(['publint', 'attw', 'pack']);
   });
 
   test('the library-publishing slots are opt-in with JSON-capturing attw', () => {
@@ -85,19 +85,33 @@ describe('registry invariants', () => {
     expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
-  test('the links adapter is the only built-in', () => {
+  test('links and pack are the built-ins', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
-    expect(builtins.map((a) => a.name)).toEqual(['links']);
+    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack']);
   });
 
-  test('D4 wave defaults: mutation runs single, build wave 10, publint/attw share wave 20, the rest default to any', () => {
+  test('the pack slot is an opt-in wave-20 built-in on the npm/pnpm pack dry-run (D10)', () => {
+    expect(SLOTS.find((s) => s.name === 'pack')?.optIn).toBe(true);
+    expect(SLOTS.find((s) => s.name === 'pack')?.order).toBe(20);
+    const pack = ADAPTERS.find((a) => a.name === 'pack');
+    expect(pack?.slot).toBe('pack');
+    expect(pack?.builtin).toBe('pack');
+    expect(pack?.outputFile).toBe('pack.json');
+    expect(pack?.devDeps).toEqual({});
+    // The availability signature (`isAvailableUnder` reads command + args[0]).
+    expect(pack?.command).toBe('pnpm');
+    expect(pack?.args[0]).toBe('pack');
+  });
+
+  test('D4 wave defaults: mutation runs single, build wave 10, publint/attw/pack share wave 20, the rest default to any', () => {
     const orderOf = (name: string) => SLOTS.find((s) => s.name === name)?.order;
     expect(orderOf('mutation')).toBe('single');
     expect(orderOf('build')).toBe(10);
     expect(orderOf('publint')).toBe(20);
     expect(orderOf('attw')).toBe(20);
+    expect(orderOf('pack')).toBe(20);
     // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
-    const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw']);
+    const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw', 'pack']);
     for (const slot of SLOTS) {
       if (!carriesOrder.has(slot.name)) expect(slot.order).toBeUndefined();
     }

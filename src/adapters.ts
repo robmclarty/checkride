@@ -122,6 +122,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'build', optIn: true, order: 10 },
   { name: 'publint', optIn: true, order: 20 },
   { name: 'attw', optIn: true, order: 20 },
+  { name: 'pack', optIn: true, order: 20 },
 ];
 
 /**
@@ -413,5 +414,20 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'attw', '--pack', '.', '--format', 'json'],
     outputFile: 'attw.json',
     devDeps: { '@arethetypeswrong/cli': '0.18.4' },
+  },
+  {
+    name: 'pack',
+    slot: 'pack',
+    description: 'Pack dry-run: the tarball ships the required files and none of the forbidden ones',
+    detect: [],
+    // `command`/`args` are the availability signature (`isAvailableUnder` gates
+    // pack to npm/pnpm, mirroring the pnpm-only `security` slot; D10). The real
+    // per-PM invocation — including the manager-specific ignore-scripts flag —
+    // lives in `pack.ts`'s `packInvocation`, since this is a built-in.
+    command: 'pnpm',
+    args: ['pack', '--dry-run', '--json'],
+    outputFile: 'pack.json',
+    builtin: 'pack',
+    devDeps: {},
   },
 ];

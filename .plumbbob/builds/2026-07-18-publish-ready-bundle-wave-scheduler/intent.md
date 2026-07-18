@@ -314,7 +314,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    entry; `pnpm check` green (links/spell/docs checks pass).
    - seam: `docs/contract.md`, `docs/cheatsheet.md`, `docs/reliability.md`, `CHANGELOG.md`
    - model: sonnet — prose from settled decisions
-4. [ ] `build` slot + detection widening — **done when:** slot (optIn, wave
+4. [x] `build` slot + detection widening — **done when:** slot (optIn, wave
    10) + adapter spawning `<pm> run build` per D13; `translateExec` (or
    sibling) handles `pnpm run <script>` for all four PMs with unit tests;
    `detectScript`/`detectDeps` land per D18 — `build` detects via

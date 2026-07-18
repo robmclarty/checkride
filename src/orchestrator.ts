@@ -33,6 +33,7 @@ import { loadConfig, resolveChecks } from './config.js';
 import { writeDigest } from './digest/index.js';
 import type { CheckOutcome } from './links.js';
 import { checkLinks } from './links.js';
+import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
 
@@ -342,6 +343,10 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
   if (adapter.builtin === 'links') return checkLinks(ctx.cwd);
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
+  // The pack built-in spawns its own subprocess (the PM's pack dry-run) through
+  // `spawnCheck`, so its child registers in `liveChecks` and inherits the
+  // timeout + reaping like every other check (D16/C6).
+  if (adapter.builtin === 'pack') return checkPack({ cwd: ctx.cwd, pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
   const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };

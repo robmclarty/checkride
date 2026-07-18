@@ -100,6 +100,14 @@ describe('isAvailableUnder', () => {
     expect(isAvailableUnder('pnpm', audit, 'bun')).toBe(false);
   });
 
+  test('pnpm pack (the pack slot) is available under pnpm and npm only', () => {
+    const pack = ['pack', '--dry-run', '--json'];
+    expect(isAvailableUnder('pnpm', pack, 'pnpm')).toBe(true);
+    expect(isAvailableUnder('pnpm', pack, 'npm')).toBe(true);
+    expect(isAvailableUnder('pnpm', pack, 'yarn')).toBe(false);
+    expect(isAvailableUnder('pnpm', pack, 'bun')).toBe(false);
+  });
+
   test('exec and custom commands are available under every PM', () => {
     expect(isAvailableUnder('pnpm', ['exec', 'oxlint'], 'npm')).toBe(true);
     expect(isAvailableUnder('node', ['script.mjs'], 'yarn')).toBe(true);

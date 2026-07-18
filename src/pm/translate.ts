@@ -45,10 +45,13 @@ export function translateExec(
 /**
  * Can this adapter run under `pm`? Audit is package-manager-specific — its
  * flags and JSON shape don't port — so `pnpm audit` (the `security` slot) is
- * unavailable on a non-pnpm PM until a per-PM audit adapter lands (b5).
+ * unavailable on a non-pnpm PM until a per-PM audit adapter lands (b5). The
+ * `pack` slot's built-in speaks only npm's and pnpm's `pack --dry-run --json`
+ * (yarn/bun pack differently) — unavailable-until-adapter, same precedent (D10).
  * Everything else is PM-agnostic once its exec prefix is translated.
  */
 export function isAvailableUnder(command: string, args: readonly string[], pm: PackageManager): boolean {
   if (command === 'pnpm' && args[0] === 'audit') return pm === 'pnpm';
+  if (command === 'pnpm' && args[0] === 'pack') return pm === 'pnpm' || pm === 'npm';
   return true;
 }
