@@ -335,7 +335,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    file, forbidden path (named pattern in the finding), carve-out honored,
    yarn/bun unavailable; wave 20 confirmed in adapters test.
    - seam: `src/pack.ts` (new), `src/adapters.ts`, `src/orchestrator.ts`, `src/__tests__/pack.test.ts` (new)
-6. [ ] `smoke` built-in — **done when:** `src/smoke.ts` enumerates `exports`
+6. [x] `smoke` built-in — **done when:** `src/smoke.ts` enumerates `exports`
    subpaths (fallback `main`), writes a probe script under `.check/`, spawns
    `node` on it (timeout + reaping apply), and fails on import-throw or a
    missing scanned value export per D9; the `.d.ts` scanner has direct unit

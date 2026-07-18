@@ -59,3 +59,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-18 — step 3 checkpointed · 295026764 — Scheduler docs + CHANGELOG (6m)
 - 2026-07-18 — step 4 checkpointed · 5a710199a — `build` slot + detection widening (1 drift, 27m)
 - 2026-07-18 — step 5 checkpointed · 73f5a4cef — `pack` built-in (1 drift, 17m)
+- 2026-07-18 — step 6 checkpointed · cfbec0da7 — `smoke` built-in (1 drift, 67m)
