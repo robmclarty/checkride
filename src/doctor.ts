@@ -22,11 +22,10 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
-import { ADAPTERS, SLOTS } from './adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
-import { loadConfig, resolveChecks } from './config.js';
+import { resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
-import { selectChecks } from './orchestrator.js';
+import { resolveCommonOptions, selectChecks } from './orchestrator.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder } from './pm/index.js';
 
@@ -391,11 +390,7 @@ function renderTable(report: DoctorReport, out: Out): void {
 
 /** Run the doctor against `cwd`; render and return the report. */
 export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const slots = options.slots ?? SLOTS;
-  const adapters = options.adapters ?? ADAPTERS;
-  const config = options.config !== undefined ? options.config : loadConfig(cwd);
-  const stdout = options.stdout ?? process.stdout;
+  const { cwd, slots, adapters, config, stdout } = resolveCommonOptions(options);
   const env = options.env ?? realEnv;
   const json = options.json ?? false;
 

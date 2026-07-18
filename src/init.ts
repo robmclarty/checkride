@@ -542,6 +542,29 @@ async function readIfExists(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Write (or refresh) the AGENTS.md stanza for `slots`, idempotently: it writes
+ * only when the applied stanza differs from the current file, records the outcome
+ * on `w`/`skipped`, and honours dry-run. Shared by `initExisting` and
+ * `runAgentSetup` (both create-or-refresh the same stanza).
+ */
+async function writeAgentsStanza(
+  w: Writer,
+  cwd: string,
+  slots: readonly string[],
+  skipped: string[],
+): Promise<void> {
+  const agentsPath = join(cwd, 'AGENTS.md');
+  const existing = await readIfExists(agentsPath);
+  const nextAgents = applyStanza(existing ?? '', buildStanza(slots));
+  if (nextAgents !== existing) {
+    if (!w.dryRun) await writeFile(agentsPath, nextAgents);
+    w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
+  } else {
+    skipped.push('AGENTS.md (stanza unchanged)');
+  }
+}
+
 // Blessed-default config files `--add <slot>` scaffolds for an empty slot.
 // Shape-specific slots (types, dead) use the flat variant — existing repos
 // adopting checkride incrementally are overwhelmingly single-package.
@@ -671,16 +694,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await addCheckAlias(w, skipped);
 
   // AGENTS.md stanza (create or refresh, idempotent).
-  const agentsPath = join(cwd, 'AGENTS.md');
-  const existing = await readIfExists(agentsPath);
-  const stanza = buildStanza(adopted.map((i) => i.slot));
-  const nextAgents = applyStanza(existing ?? '', stanza);
-  if (nextAgents !== existing) {
-    if (!w.dryRun) await writeFile(agentsPath, nextAgents);
-    w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
-  } else {
-    skipped.push('AGENTS.md (stanza unchanged)');
-  }
+  await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
 
   // CLAUDE.md pointer if absent.
   const claudePath = join(cwd, 'CLAUDE.md');
@@ -753,15 +767,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
 
   // AGENTS.md stanza for the currently-adopted slots (create or refresh).
   const adopted = inventory({ cwd, slots, adapters }).filter((i) => i.status === 'adopted');
-  const agentsPath = join(cwd, 'AGENTS.md');
-  const existing = await readIfExists(agentsPath);
-  const nextAgents = applyStanza(existing ?? '', buildStanza(adopted.map((i) => i.slot)));
-  if (nextAgents !== existing) {
-    if (!w.dryRun) await writeFile(agentsPath, nextAgents);
-    w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
-  } else {
-    skipped.push('AGENTS.md (stanza unchanged)');
-  }
+  await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
 
   await writeHook(w, options.hook, skipped);
 

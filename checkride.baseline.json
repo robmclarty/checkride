@@ -25,11 +25,7 @@
       "dead-code:unused_types:src/baseline/index.ts:Extractor",
       "dead-code:unused_types:src/digest/index.ts:DigestBudget"
     ],
-    "dupes": [
-      "dupes:dup:0c05d576",
-      "dupes:dup:ad2ff955",
-      "dupes:dup:e71aed09"
-    ],
+    "dupes": [],
     "health": [
       "health:src/baseline/fallow.ts:deadKey",
       "health:src/baseline/fallow.ts:parseFallow",
@@ -40,8 +36,7 @@
       "health:src/doctor.ts:renderTable",
       "health:src/init.ts:initExisting",
       "health:src/init.ts:initNew",
-      "health:src/orchestrator.ts:runChecks",
-      "health:src/orchestrator.ts:runFix"
+      "health:src/orchestrator.ts:runChecks"
     ],
     "spell": []
   }

@@ -434,14 +434,47 @@ function warnVacuous(
   writeLine(stderr, '  checkride.config.json. Gates should run with --strict (exit 2 on zero checks).');
 }
 
+/** Options shared by every command entry point (`runChecks`/`runFix`/`runDoctor`). */
+type CommonOptions = {
+  cwd?: string;
+  slots?: readonly Slot[];
+  adapters?: readonly Adapter[];
+  config?: CheckrideConfig | null;
+  stdout?: Out;
+  stderr?: Out;
+};
+
+/** The resolved form of {@link CommonOptions}: defaults applied, config loaded. */
+type CommonContext = {
+  cwd: string;
+  slots: readonly Slot[];
+  adapters: readonly Adapter[];
+  config: CheckrideConfig | null;
+  stdout: Out;
+  stderr: Out;
+};
+
+/**
+ * Apply the defaults every command shares: cwd, the slot/adapter catalogues, the
+ * config (loaded from `cwd` unless injected), and the two streams. Extracted so
+ * `runChecks`/`runFix`/`runDoctor` resolve this identical block one way (it was
+ * copy-pasted across all three).
+ */
+export function resolveCommonOptions(options: CommonOptions): CommonContext {
+  const cwd = options.cwd ?? process.cwd();
+  return {
+    cwd,
+    slots: options.slots ?? SLOTS,
+    adapters: options.adapters ?? ADAPTERS,
+    config: options.config !== undefined ? options.config : loadConfig(cwd),
+    stdout: options.stdout ?? process.stdout,
+    stderr: options.stderr ?? process.stderr,
+  };
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const slots = options.slots ?? SLOTS;
-  const adapters = options.adapters ?? ADAPTERS;
-  const config = options.config !== undefined ? options.config : loadConfig(cwd);
-  const stderr = options.stderr ?? process.stderr;
-  const stdout = options.stdout ?? process.stdout;
+  const { cwd, slots, adapters, config, stderr, stdout } = resolveCommonOptions(options);
   const runner = options.runner ?? defaultRunner;
   const json = options.json ?? false;
   const bail = options.bail ?? false;
@@ -636,11 +669,7 @@ const defaultFixRunner: FixRunner = (adapter, ctx) => {
 
 /** Run every active adapter's `fixArgs` (`checkride fix`). */
 export async function runFix(options: FixOptions): Promise<FixResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const slots = options.slots ?? SLOTS;
-  const adapters = options.adapters ?? ADAPTERS;
-  const config = options.config !== undefined ? options.config : loadConfig(cwd);
-  const stderr = options.stderr ?? process.stderr;
+  const { cwd, slots, adapters, config, stderr } = resolveCommonOptions(options);
   const fixRunner = options.fixRunner ?? defaultFixRunner;
   const pm = options.pm ?? detectPackageManager({ cwd });
 
