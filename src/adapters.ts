@@ -14,6 +14,18 @@
 /** The aggregate-report schema version written to `.check/summary.json`. */
 export const SCHEMA_VERSION = 1;
 
+/**
+ * A check's scheduling order. Numbers form a single ascending line — equal
+ * values run together as one concurrent wave, decimals sequence steps within a
+ * wave (`1` before `1.1`), a barrier sits between distinct values. The five
+ * keywords place a check relative to that line: `'first'`/`'last'` before/after
+ * everything, `'single'` exclusively on its own (after the numeric line, before
+ * `'last'`), and `'middle'`/`'any'` unordered in the main group. Effective order
+ * resolves config `order` ?? `Adapter.order` ?? `Slot.order` ?? `'any'`.
+ */
+export type OrderString = 'first' | 'last' | 'middle' | 'single' | 'any';
+export type Order = number | OrderString;
+
 /** A role in the pipeline. */
 export type Slot = {
   /** Stable slot name, e.g. `'lint'`. Used by `--only`/`--skip` and the report. */
@@ -24,6 +36,11 @@ export type Slot = {
    * entry opts you in — see `resolveChecks`/`selectChecks`).
    */
   optIn?: boolean;
+  /**
+   * Default scheduling order for this slot — the lowest-precedence source, which
+   * config and adapter overrides beat. Omitted means `'any'` (the main group).
+   */
+  order?: Order;
 };
 
 /** A concrete tool that can fill a slot. */
@@ -58,11 +75,23 @@ export type Adapter = {
    * `baseline/fallow.ts`. The exit code is still recorded in the report.
    */
   gate?: 'fallow';
+  /**
+   * Scheduling order override for this adapter, beating the slot's default (used
+   * when one slot carries adapters that schedule differently). Omitted defers to
+   * the slot.
+   */
+  order?: Order;
   /** Pinned versions `init` writes into package.json. */
   devDeps: Record<string, string>;
 };
 
-/** Pipeline order. Cheapest first so `--bail` fails fast. */
+/**
+ * Pipeline catalogue in cheapest-first order — the within-wave tie-break and the
+ * full `--bail` sequence. Most slots take the default `'any'` wave; `mutation`
+ * runs exclusively (`'single'`) because stryker saturates every core, and the
+ * artifact checks (`publint`/`attw`) share wave 20 so a later build step can
+ * precede them. See `config.ts` for how effective order resolves and sorts.
+ */
 export const SLOTS: readonly Slot[] = [
   { name: 'types' },
   { name: 'format', optIn: true },
@@ -75,10 +104,10 @@ export const SLOTS: readonly Slot[] = [
   { name: 'docs' },
   { name: 'links' },
   { name: 'spell' },
-  { name: 'mutation', optIn: true },
+  { name: 'mutation', optIn: true, order: 'single' },
   { name: 'security', optIn: true },
-  { name: 'publint', optIn: true },
-  { name: 'attw', optIn: true },
+  { name: 'publint', optIn: true, order: 20 },
+  { name: 'attw', optIn: true, order: 20 },
 ];
 
 /**

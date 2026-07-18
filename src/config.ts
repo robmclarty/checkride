@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 
-import type { Adapter, Slot } from './adapters.js';
+import type { Adapter, Order, Slot } from './adapters.js';
 
 /** A custom check: a bare command, no adapter required. */
 export type CustomCheck = {
@@ -37,12 +37,14 @@ export type CustomCheck = {
    */
   detect?: string[];
   /**
-   * Where a config-only custom check runs relative to the built-in catalogue:
-   * `'first'` (ahead of every built-in check) or `'last'` (after them, the
-   * default). Ignored on entries that fill a catalogue slot — those keep their
-   * fixed catalogue position.
+   * Where this check runs on the schedule — a wave number, or one of the five
+   * keywords (`'first'`/`'last'`/`'middle'`/`'single'`/`'any'`; see `Order`). A
+   * config-only custom check with no `order` defaults to `'any'` (the main
+   * group), not the pre-wave implicit `'last'`; set `order: 'last'` to restore
+   * trailing. Honored on catalogue-filling entries too (it overrides the slot's
+   * default order).
    */
-  order?: 'first' | 'last';
+  order?: Order;
 };
 
 /** Pick an adapter by name, with optional field overrides. */
@@ -55,6 +57,8 @@ export type UseConfig = {
   changedArgs?: string[];
   fixArgs?: string[];
   timeout?: number;
+  /** Scheduling order override, beating the adapter's and slot's defaults (see `Order`). */
+  order?: Order;
 };
 
 /** Per-slot config: adapter name, `false` to disable, an override, or a custom check. */
@@ -97,6 +101,12 @@ export type ResolvedCheck = {
   adapter: Adapter | null;
   skip: string | null;
   /**
+   * Effective scheduling order — config `order` ?? adapter `order` ?? slot
+   * `order` ?? `'any'`. `resolveChecks` sorts on this; the scheduler will wave on
+   * it. Absent only on hand-built resolved checks, where it reads as `'any'`.
+   */
+  order?: Order;
+  /**
    * True when `checks` names this slot explicitly (a non-`false` config entry).
    * An explicit entry opts an otherwise opt-in slot into the default run — so
    * `"format": "prettier"` runs without `--include` (see `selectChecks`).
@@ -130,6 +140,31 @@ function deepMerge(
 /** Throw the friendly `invalid checkride.config.json: <reason>` error. */
 function invalidConfig(reason: string, cause?: unknown): never {
   throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, cause ? { cause } : undefined);
+}
+
+const ORDER_KEYWORDS: ReadonlySet<string> = new Set(['first', 'last', 'middle', 'single', 'any']);
+
+/** A finite number or one of the five order keywords — everything else is a config error. */
+function isOrder(v: unknown): v is Order {
+  return (
+    (typeof v === 'number' && Number.isFinite(v)) ||
+    (typeof v === 'string' && ORDER_KEYWORDS.has(v))
+  );
+}
+
+/**
+ * Read (and validate) a config entry's `order`. Returns `undefined` when absent;
+ * throws the friendly error on anything that is not a finite number or a keyword
+ * (a bogus string, `NaN`, `Infinity`). `context` names the offending check.
+ */
+function readOrder(entry: { order?: unknown }, context: string): Order | undefined {
+  if (entry.order === undefined) return undefined;
+  if (!isOrder(entry.order)) {
+    invalidConfig(
+      `'${context}' order must be a finite number or one of first, last, middle, single, any (got ${JSON.stringify(entry.order)})`,
+    );
+  }
+  return entry.order;
 }
 
 /**
@@ -233,16 +268,33 @@ function detectAdapter(
   return null;
 }
 
+/** The optional adapter fields a config entry may carry onto its adapter. */
+type CarriedOverrides = Pick<Adapter, 'changedArgs' | 'fixArgs' | 'timeout' | 'order'>;
+
+/**
+ * Carry the optional fields a config entry (`UseConfig` or `CustomCheck`) shares
+ * with an adapter, each spread only when present — so `applyOverrides` and
+ * `customAdapter` don't each repeat the include-if-defined dance. `order` is
+ * validated here (`slot` names the check in any error).
+ */
+function carriedOverrides(src: CarriedOverrides, slot: string): CarriedOverrides {
+  const order = readOrder(src, slot);
+  return {
+    ...(src.changedArgs !== undefined ? { changedArgs: src.changedArgs } : {}),
+    ...(src.fixArgs !== undefined ? { fixArgs: src.fixArgs } : {}),
+    ...(src.timeout !== undefined ? { timeout: src.timeout } : {}),
+    ...(order !== undefined ? { order } : {}),
+  };
+}
+
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
   return {
     ...base,
     ...(o.command !== undefined ? { command: o.command } : {}),
     ...(o.args !== undefined ? { args: o.args } : {}),
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),
-    ...(o.changedArgs !== undefined ? { changedArgs: o.changedArgs } : {}),
-    ...(o.fixArgs !== undefined ? { fixArgs: o.fixArgs } : {}),
-    ...(o.timeout !== undefined ? { timeout: o.timeout } : {}),
     ...(o.description !== undefined ? { description: o.description } : {}),
+    ...carriedOverrides(o, base.slot),
   };
 }
 
@@ -255,19 +307,36 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
     command: c.command,
     args: c.args ?? [],
     outputFile: c.outputFile ?? null,
-    ...(c.changedArgs !== undefined ? { changedArgs: c.changedArgs } : {}),
-    ...(c.fixArgs !== undefined ? { fixArgs: c.fixArgs } : {}),
-    ...(c.timeout !== undefined ? { timeout: c.timeout } : {}),
+    ...carriedOverrides(c, slot),
     devDeps: {},
   };
 }
 
+/** Resolve a check's effective order: adapter (config-overridden) `order` ?? slot `order` ?? `'any'` (D1). */
+function effectiveOrder(slot: Slot, adapter: Adapter | null): Order {
+  return adapter?.order ?? slot.order ?? 'any';
+}
+
 function active(slot: Slot, adapter: Adapter, explicit = false): ResolvedCheck {
-  return { slot: slot.name, optIn: slot.optIn ?? false, adapter, skip: null, explicit };
+  return {
+    slot: slot.name,
+    optIn: slot.optIn ?? false,
+    adapter,
+    skip: null,
+    order: effectiveOrder(slot, adapter),
+    explicit,
+  };
 }
 
 function skipped(slot: Slot, reason: string, explicit = false): ResolvedCheck {
-  return { slot: slot.name, optIn: slot.optIn ?? false, adapter: null, skip: reason, explicit };
+  return {
+    slot: slot.name,
+    optIn: slot.optIn ?? false,
+    adapter: null,
+    skip: reason,
+    order: effectiveOrder(slot, null),
+    explicit,
+  };
 }
 
 /**
@@ -320,53 +389,68 @@ function resolveOne(
 }
 
 /**
- * Resolve every catalogue slot (in order) to an adapter or a skip reason, and
- * fold in any config-only custom checks (an object with a `command`, keyed by a
- * name not in the catalogue — e.g. a project's `"licenses"` check). Each custom
- * check runs ahead of the catalogue (`order: 'first'`) or after it (`'last'`,
- * the default); within a group, config key order is preserved. A custom check
- * that declares `detect` files is skipped when none of them are present.
- */
-/**
  * Resolve a config-only custom check (an object with `command`, keyed by a name
- * not in the catalogue) plus where it sorts (`first`/`last`), or `null` when
- * `entry` is not such a check. A custom check with `detect` files stands down
+ * not in the catalogue — e.g. a project's `"licenses"` check), or `null` when
+ * `entry` is not such a check. Its effective order rides on the resolved check
+ * (config `order` ?? `'any'`). A custom check with `detect` files stands down
  * (skipped, not failed) when none of them are present.
  */
 function customCheckEntry(
   name: string,
   entry: SlotConfig,
   fileExists: (file: string) => boolean,
-): { resolved: ResolvedCheck; order: 'first' | 'last' } | null {
+): ResolvedCheck | null {
   if (!(entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry)) return null;
   const detect = entry.detect ?? [];
-  const resolved =
-    detect.length > 0 && !detect.some((f) => fileExists(f))
-      ? skipped({ name }, 'no detect file present')
-      : active({ name }, customAdapter(name, entry));
-  return { resolved, order: entry.order === 'first' ? 'first' : 'last' };
+  if (detect.length > 0 && !detect.some((f) => fileExists(f))) {
+    // No adapter carries the order on a skip, so pin it on the synthetic slot.
+    const order = readOrder(entry, name);
+    return skipped(order !== undefined ? { name, order } : { name }, 'no detect file present');
+  }
+  return active({ name }, customAdapter(name, entry));
 }
 
 /**
- * Fold config-only custom checks into `first`/`last` groups (config key order
- * preserved within each), skipping any name that fills a catalogue slot.
+ * Resolve every config-only custom check (config key order preserved), skipping
+ * any name that fills a catalogue slot. Order is baked onto each resolved check;
+ * `resolveChecks` sorts the combined list.
  */
 function foldCustomChecks(
   checks: Record<string, SlotConfig>,
   catalogueNames: ReadonlySet<string>,
   fileExists: (file: string) => boolean,
-): { firsts: ResolvedCheck[]; lasts: ResolvedCheck[] } {
-  const firsts: ResolvedCheck[] = [];
-  const lasts: ResolvedCheck[] = [];
+): ResolvedCheck[] {
+  const customs: ResolvedCheck[] = [];
   for (const [name, entry] of Object.entries(checks)) {
     if (catalogueNames.has(name)) continue;
-    const hit = customCheckEntry(name, entry, fileExists);
-    if (hit === null) continue;
-    (hit.order === 'first' ? firsts : lasts).push(hit.resolved);
+    const resolved = customCheckEntry(name, entry, fileExists);
+    if (resolved !== null) customs.push(resolved);
   }
-  return { firsts, lasts };
+  return customs;
 }
 
+/** Group rank in D1's sequence: firsts (0), the numeric line incl. `'any'`/`'middle'` (1), singles (2), lasts (3). */
+function groupRank(order: Order): number {
+  if (order === 'first') return 0;
+  if (order === 'single') return 2;
+  if (order === 'last') return 3;
+  return 1; // a number, or 'any'/'middle' — the main line
+}
+
+/** Position on the numeric line; `'any'`/`'middle'` sit at 0 (v1's conservative placement, D1). */
+function lineValue(order: Order): number {
+  return typeof order === 'number' ? order : 0;
+}
+
+/**
+ * Resolve every catalogue slot (in SLOTS order) to an adapter or a skip reason,
+ * fold in the config-only custom checks (config key order), then sort into D1's
+ * group sequence: firsts, the numeric line ascending (`'any'`/`'middle'` at 0),
+ * singles, lasts. The natural order — catalogue before customs — is the stable
+ * within-group tie-break, so within any group catalogue members keep SLOTS order
+ * and precede customs, which keep config-key order. Execution stays sequential;
+ * the scheduler (a later step) waves on the same effective `order`.
+ */
 export function resolveChecks(input: {
   slots: readonly Slot[];
   adapters: readonly Adapter[];
@@ -382,7 +466,17 @@ export function resolveChecks(input: {
   );
 
   const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const { firsts, lasts } = foldCustomChecks(checks, catalogueNames, fileExists);
+  const customs = foldCustomChecks(checks, catalogueNames, fileExists);
 
-  return [...firsts, ...catalogue, ...lasts];
+  return [...catalogue, ...customs]
+    .map((check, i) => ({ check, i }))
+    .toSorted((a, b) => {
+      const orderA = a.check.order ?? 'any';
+      const orderB = b.check.order ?? 'any';
+      const byGroup = groupRank(orderA) - groupRank(orderB);
+      if (byGroup !== 0) return byGroup;
+      const byLine = lineValue(orderA) - lineValue(orderB);
+      return byLine !== 0 ? byLine : a.i - b.i;
+    })
+    .map(({ check }) => check);
 }

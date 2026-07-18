@@ -62,8 +62,16 @@
         "outputFile": { "type": ["string", "null"] },
         "changedArgs": { "type": "array", "items": { "type": "string" } },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
-        "timeout": { "type": "number", "minimum": 0 }
+        "timeout": { "type": "number", "minimum": 0 },
+        "order": { "$ref": "#/definitions/order" }
       }
+    },
+    "order": {
+      "description": "Scheduling order. A number places the check on the ascending wave line (equal numbers run together as one wave; decimals sequence steps within a wave); the keywords place it relative to that line — first/last before/after everything, single exclusively on its own, middle/any unordered in the main group.",
+      "oneOf": [
+        { "enum": ["first", "last", "middle", "single", "any"] },
+        { "type": "number" }
+      ]
     },
     "customCheck": {
       "type": "object",
@@ -87,10 +95,7 @@
           "items": { "type": "string" },
           "description": "Marker files that gate a non-catalogue custom check: it runs only when at least one listed file exists, and is skipped otherwise. Ignored on an entry that fills a catalogue slot."
         },
-        "order": {
-          "enum": ["first", "last"],
-          "description": "Where a non-catalogue custom check runs relative to the catalogue. Default 'last'."
-        }
+        "order": { "$ref": "#/definitions/order" }
       }
     }
   }

@@ -8,6 +8,7 @@ import Ajv from 'ajv';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
+import type { Adapter } from '../adapters.js';
 import type { CheckrideConfig, CustomCheck, SlotConfig, UseConfig } from '../config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 
@@ -168,11 +169,30 @@ describe('config resolution', () => {
     expect(licenses?.optIn).toBe(false);
   });
 
-  test('a custom check defaults to running after the catalogue', () => {
+  test('a custom check with no order defaults to the "any" wave, not last (D2)', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
       adapters: ADAPTERS,
       config: { checks: { licenses: { command: 'node', args: ['x.mjs'] } } },
+      fileExists: never,
+    });
+    const licenses = resolved.find((r) => r.slot === 'licenses');
+    expect(licenses?.order).toBe('any');
+    const names = resolved.map((r) => r.slot);
+    const at = names.indexOf('licenses');
+    // In the 'any' group: after the plain catalogue members (e.g. spell), but
+    // ahead of the wave-20 artifact slots and the 'single' mutation.
+    expect(at).toBeGreaterThan(names.indexOf('spell'));
+    expect(at).toBeLessThan(names.indexOf('publint'));
+    expect(at).toBeLessThan(names.indexOf('attw'));
+    expect(at).toBeLessThan(names.indexOf('mutation'));
+  });
+
+  test('order:last restores the pre-wave trailing placement', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['x.mjs'], order: 'last' } } },
       fileExists: never,
     });
     expect(resolved.at(-1)?.slot).toBe('licenses');
@@ -190,14 +210,14 @@ describe('config resolution', () => {
       .toBeLessThan(resolved.findIndex((r) => r.slot === SLOTS[0]?.name));
   });
 
-  test('order:first leads and order:last (default) trails, around the catalogue', () => {
+  test('order:first leads and order:last trails, around the catalogue', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
       adapters: ADAPTERS,
       config: {
         checks: {
           tidy: { command: 'biome', args: ['format', '--write'], order: 'first' },
-          licenses: { command: 'node', args: ['x.mjs'] },
+          licenses: { command: 'node', args: ['x.mjs'], order: 'last' },
         },
       },
       fileExists: never,
@@ -255,6 +275,146 @@ describe('config resolution', () => {
     );
     expect(r.skip).toBeNull();
     expect(r.adapter?.command).toBe('node');
+  });
+});
+
+describe('effective order (precedence: config > adapter > slot > any)', () => {
+  const orderedAdapter: Adapter = {
+    name: 'tool', slot: 'lint', description: 'ordered tool', detect: [],
+    command: 'x', args: [], outputFile: null, order: 7, devDeps: {},
+  };
+
+  test('omitted at every level resolves to any', () => {
+    expect(resolveSlot('lint', { checks: { lint: 'oxlint' } }, never).order).toBe('any');
+  });
+
+  test('the slot default applies when nothing overrides it', () => {
+    expect(resolveSlot('mutation', { checks: { mutation: 'stryker' } }, never).order).toBe('single');
+    expect(resolveSlot('publint', { checks: { publint: 'publint' } }, never).order).toBe(20);
+  });
+
+  test('an adapter order beats the slot default', () => {
+    // `detect: []` makes the adapter always available, so detection picks it.
+    const [r] = resolveChecks({
+      slots: [{ name: 'lint', order: 3 }],
+      adapters: [orderedAdapter],
+      config: null,
+      fileExists: () => true,
+    });
+    expect(r?.order).toBe(7);
+  });
+
+  test('a config order beats both the adapter and the slot', () => {
+    const [r] = resolveChecks({
+      slots: [{ name: 'lint', order: 3 }],
+      adapters: [orderedAdapter],
+      config: { checks: { lint: { use: 'tool', order: 'first' } } },
+      fileExists: never,
+    });
+    expect(r?.order).toBe('first');
+  });
+
+  test('a custom check carries its config order, else defaults to any', () => {
+    expect(resolveSlot('lint', { checks: { lint: { command: 'node', order: 5 } } }, never).order).toBe(5);
+    expect(resolveSlot('lint', { checks: { lint: { command: 'node' } } }, never).order).toBe('any');
+  });
+});
+
+describe('group sort (D1 sequence)', () => {
+  test('numeric waves sort ascending, decimals sequencing within a wave', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: {
+        checks: {
+          w2: { command: 'x', order: 2 },
+          w1b: { command: 'x', order: 1.2 },
+          w1a: { command: 'x', order: 1 },
+        },
+      },
+      fileExists: never,
+    });
+    const names = resolved.map((r) => r.slot);
+    expect(names.indexOf('w1a')).toBeLessThan(names.indexOf('w1b'));
+    expect(names.indexOf('w1b')).toBeLessThan(names.indexOf('w2'));
+  });
+
+  test('duplicate numeric values share one wave, preserving config-key order', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { a: { command: 'x', order: 5 }, b: { command: 'x', order: 5 } } },
+      fileExists: never,
+    });
+    const names = resolved.map((r) => r.slot);
+    // Same wave, adjacent, first-configured first: nothing sorts between them.
+    expect(names.indexOf('b') - names.indexOf('a')).toBe(1);
+  });
+
+  test('the full sequence is firsts, the numeric line, singles, lasts', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: {
+        checks: {
+          lead: { command: 'x', order: 'first' },
+          wave: { command: 'x', order: 10 },
+          solo: { command: 'x', order: 'single' },
+          trail: { command: 'x', order: 'last' },
+        },
+      },
+      fileExists: never,
+    });
+    const names = resolved.map((r) => r.slot);
+    expect(names[0]).toBe('lead');
+    expect(names.indexOf('lead')).toBeLessThan(names.indexOf('wave'));
+    expect(names.indexOf('wave')).toBeLessThan(names.indexOf('solo'));
+    expect(names.indexOf('solo')).toBeLessThan(names.indexOf('trail'));
+    expect(names.at(-1)).toBe('trail');
+  });
+
+  test("'middle' schedules in the main group, ahead of numeric waves and singles", () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { mid: { command: 'x', order: 'middle' } } },
+      fileExists: never,
+    });
+    const names = resolved.map((r) => r.slot);
+    expect(names.indexOf('mid')).toBeLessThan(names.indexOf('publint'));
+    expect(names.indexOf('mid')).toBeLessThan(names.indexOf('mutation'));
+  });
+});
+
+describe('order validation', () => {
+  test('a non-keyword string order is a friendly config error', () => {
+    expect(() =>
+      resolveSlot(
+        'test',
+        { checks: { test: { use: 'vitest', order: 'sideways' } } } as unknown as CheckrideConfig,
+        never,
+      ),
+    ).toThrow(/invalid checkride\.config\.json: .*order must be/);
+  });
+
+  test('a non-finite numeric order is rejected', () => {
+    expect(() =>
+      resolveSlot(
+        'lint',
+        { checks: { lint: { command: 'node', order: Number.POSITIVE_INFINITY } } } as unknown as CheckrideConfig,
+        never,
+      ),
+    ).toThrow(/order must be/);
+  });
+
+  test('a non-number, non-string order is rejected', () => {
+    expect(() =>
+      resolveSlot(
+        'lint',
+        { checks: { lint: { command: 'node', order: true } } } as unknown as CheckrideConfig,
+        never,
+      ),
+    ).toThrow(/order must be/);
   });
 });
 
@@ -324,6 +484,22 @@ describe('published JSON Schema', () => {
     expect(validate({ checks: { licenses: { command: 'node', detect: 'foo.config.js' } } })).toBe(
       false,
     );
+  });
+
+  test('accepts order keywords and numbers on a custom check', () => {
+    expect(validate({ checks: { a: { command: 'node', order: 'middle' } } })).toBe(true);
+    expect(validate({ checks: { a: { command: 'node', order: 'single' } } })).toBe(true);
+    expect(validate({ checks: { a: { command: 'node', order: 20 } } })).toBe(true);
+    expect(validate({ checks: { a: { command: 'node', order: 1.5 } } })).toBe(true);
+  });
+
+  test('accepts order on a { use } override', () => {
+    expect(validate({ checks: { test: { use: 'vitest', order: 'first' } } })).toBe(true);
+    expect(validate({ checks: { test: { use: 'vitest', order: 20 } } })).toBe(true);
+  });
+
+  test('rejects an unknown order keyword', () => {
+    expect(validate({ checks: { a: { command: 'node', order: 'sideways' } } })).toBe(false);
   });
 
   test('accepts extends as a string and as an array of strings', () => {

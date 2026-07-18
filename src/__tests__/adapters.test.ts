@@ -89,4 +89,20 @@ describe('registry invariants', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
     expect(builtins.map((a) => a.name)).toEqual(['links']);
   });
+
+  test('D4 wave defaults: mutation runs single, publint/attw share wave 20, the rest default to any', () => {
+    const orderOf = (name: string) => SLOTS.find((s) => s.name === name)?.order;
+    expect(orderOf('mutation')).toBe('single');
+    expect(orderOf('publint')).toBe(20);
+    expect(orderOf('attw')).toBe(20);
+    // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
+    const carriesOrder = new Set(['mutation', 'publint', 'attw']);
+    for (const slot of SLOTS) {
+      if (!carriesOrder.has(slot.name)) expect(slot.order).toBeUndefined();
+    }
+  });
+
+  test('no adapter pins its own order yet (adapter-level override arrives with snippets)', () => {
+    for (const adapter of ADAPTERS) expect(adapter.order).toBeUndefined();
+  });
 });
