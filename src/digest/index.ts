@@ -4,5 +4,4 @@
  * from `./digest.js` directly.
  */
 
-export type { DigestBudget } from './digest.js';
-export { buildDigest, DEFAULT_BUDGET, DIGEST_FILE, writeDigest } from './digest.js';
+export { buildDigest, DIGEST_FILE, writeDigest } from './digest.js';

@@ -19,15 +19,14 @@
  * the bytes a normal run would.
  */
 
-import type { Adapter, Slot } from '../adapters.js';
-import type { CheckrideConfig } from '../config.js';
-import type { CheckRunner, Out, RunOptions } from '../orchestrator.js';
-import { runChecks } from '../orchestrator.js';
-import type { PackageManager } from '../pm/index.js';
-
-import { fingerprint } from './fingerprint.js';
-import type { Baseline } from './store.js';
-import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, writeBaseline } from './store.js';
+import type { Adapter, Slot } from './adapters.js';
+import { fingerprint } from './baseline/fingerprint.js';
+import type { Baseline } from './baseline/store.js';
+import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, writeBaseline } from './baseline/store.js';
+import type { CheckrideConfig } from './config.js';
+import type { CheckRunner, Out, RunOptions } from './orchestrator.js';
+import { runChecks } from './orchestrator.js';
+import type { PackageManager } from './pm/index.js';
 
 export type BaselineOptions = {
   cwd?: string;

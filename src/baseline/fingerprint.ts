@@ -24,7 +24,7 @@ import { fallowFindings } from './fallow.js';
 export type Fingerprint = ReadonlySet<string>;
 
 /** Turns one adapter's raw output (JSON or text) into a fingerprint. */
-export type Extractor = (raw: string) => Fingerprint;
+type Extractor = (raw: string) => Fingerprint;
 
 /**
  * Build a finding's key from its identity. Line and column are intentionally

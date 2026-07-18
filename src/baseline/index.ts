@@ -5,19 +5,16 @@
  * never from `./fingerprint.js` directly.
  */
 
-export type { Extractor, Fingerprint } from './fingerprint.js';
+export type { Fingerprint } from './fingerprint.js';
 export { fingerprint, isFingerprintable } from './fingerprint.js';
 export { fallowVerdict } from './fallow.js';
-export type { Baseline, BaselineAdjustment } from './store.js';
+export type { Baseline } from './store.js';
 export {
   applyBaseline,
   BASELINE_FILE,
-  BASELINE_SCHEMA_VERSION,
   baselinesEqual,
   countBaselineKeys,
   loadBaseline,
   ratchet,
   writeBaseline,
 } from './store.js';
-export type { BaselineOptions, BaselineResult } from './command.js';
-export { runBaseline } from './command.js';

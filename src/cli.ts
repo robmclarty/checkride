@@ -14,7 +14,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-import { runBaseline } from './baseline/index.js';
+import { runBaseline } from './baseline-command.js';
 import { runDoctor } from './doctor.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
 import { runAgentSetup, runInit } from './init.js';

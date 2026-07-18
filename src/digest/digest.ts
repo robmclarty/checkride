@@ -43,7 +43,7 @@ export type DigestBudget = {
  * fully-red repo's digest to roughly two thousand tokens — small enough to read
  * in one gulp, with the raw files a click away for the rest.
  */
-export const DEFAULT_BUDGET: DigestBudget = { maxItemsPerSlot: 10, maxBytes: 8000 };
+const DEFAULT_BUDGET: DigestBudget = { maxItemsPerSlot: 10, maxBytes: 8000 };
 
 /** Whether a string parses as JSON (mirrors the orchestrator's persist rule). */
 function isJson(raw: string): boolean {

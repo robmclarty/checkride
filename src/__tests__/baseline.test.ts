@@ -15,9 +15,9 @@ import {
   isFingerprintable,
   loadBaseline,
   ratchet,
-  runBaseline,
   writeBaseline,
 } from '../baseline/index.js';
+import { runBaseline } from '../baseline-command.js';
 import type { CheckRunner, Out } from '../orchestrator.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');

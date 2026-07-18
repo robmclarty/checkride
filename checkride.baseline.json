@@ -11,20 +11,7 @@
       "test/e2e/interrupt.e2e.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop."
     ],
     "struct": [],
-    "dead": [
-      "dead-code:circular_dependencies:src/baseline/command.ts->src/baseline/index.ts->src/digest/digest.ts->src/digest/index.ts->src/orchestrator.ts",
-      "dead-code:circular_dependencies:src/baseline/command.ts->src/baseline/index.ts->src/orchestrator.ts",
-      "dead-code:unused_exports:src/baseline/index.ts:BASELINE_SCHEMA_VERSION",
-      "dead-code:unused_exports:src/digest/digest.ts:DEFAULT_BUDGET",
-      "dead-code:unused_exports:src/digest/index.ts:DEFAULT_BUDGET",
-      "dead-code:unused_types:src/agent-setup/index.ts:StopHookResult",
-      "dead-code:unused_types:src/baseline/fingerprint.ts:Extractor",
-      "dead-code:unused_types:src/baseline/index.ts:BaselineAdjustment",
-      "dead-code:unused_types:src/baseline/index.ts:BaselineOptions",
-      "dead-code:unused_types:src/baseline/index.ts:BaselineResult",
-      "dead-code:unused_types:src/baseline/index.ts:Extractor",
-      "dead-code:unused_types:src/digest/index.ts:DigestBudget"
-    ],
+    "dead": [],
     "dupes": [],
     "health": [
       "health:src/baseline/fallow.ts:deadKey",
