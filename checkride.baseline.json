@@ -1,15 +1,7 @@
 {
   "schema_version": 1,
   "slots": {
-    "lint": [
-      "src/__tests__/orchestrator.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "src/doctor.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "src/init.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "src/links.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "src/orchestrator.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "test/contract/streams.contract.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
-      "test/e2e/interrupt.e2e.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop."
-    ],
+    "lint": [],
     "struct": [],
     "dead": [],
     "dupes": [],

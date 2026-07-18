@@ -51,17 +51,17 @@ async function walkMarkdown(dir: string, acc: string[]): Promise<string[]> {
   } catch {
     return acc;
   }
+  const directories: string[] = [];
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (EXCLUDE_DIRS.has(entry.name)) continue;
-      await walkMarkdown(full, acc);
-      continue;
-    }
-    if (entry.isFile() && entry.name.endsWith('.md')) {
+      if (!EXCLUDE_DIRS.has(entry.name)) directories.push(full);
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
       acc.push(full);
     }
   }
+  // Descend into subdirectories concurrently; each accumulates into `acc`.
+  await Promise.all(directories.map((full) => walkMarkdown(full, acc)));
   return acc;
 }
 
@@ -127,10 +127,8 @@ async function checkFile(mdPath: string, repoRoot: string): Promise<LinkMiss[]> 
 /** Run the links check against `cwd`; never throws on a per-file read failure. */
 export async function checkLinks(cwd: string): Promise<CheckOutcome> {
   const files = await walkMarkdown(cwd, []);
-  const misses: LinkMiss[] = [];
-  for (const f of files) {
-    misses.push(...(await checkFile(f, cwd)));
-  }
+  // Each file is read and checked independently — run them concurrently.
+  const misses = (await Promise.all(files.map((f) => checkFile(f, cwd)))).flat();
 
   if (misses.length === 0) {
     return { ok: true, exit_code: 0, stdout: `${JSON.stringify({ ok: true }, null, 2)}\n`, stderr: '' };

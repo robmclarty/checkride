@@ -619,6 +619,7 @@ async function executeChecks(
   for (const r of selected) {
     // Checks run strictly in cheapest-first order and `--bail` must stop at the
     // first failure, so this stays sequential — one awaited step per check.
+    // oxlint-disable-next-line no-await-in-loop -- sequential by design: cheapest-first ordering, --bail stops at the first failure, and the ratchet observes slots in order.
     const brokeEarly = await processCheck(r, ctx, checks, runs, observed);
     if (brokeEarly) return { checks, runs, observed, brokeEarly: true };
   }
@@ -783,6 +784,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     const adapter = r.adapter;
     if (!adapter) continue;
     writeLine(stderr, `  ▸ fix ${r.slot.padEnd(8)} (${adapter.name})`);
+    // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (e.g. oxlint --fix and prettier --write) racing on the same files.
     const outcome = await fixRunner(adapter, { cwd, pm });
     ran.push(adapter.name);
     writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);

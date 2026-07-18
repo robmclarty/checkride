@@ -406,10 +406,10 @@ async function writeSharedStatic(w: Writer): Promise<void> {
     ['shared/gitignore', '.gitignore'],
     ['shared/npmrc', '.npmrc'],
   ];
-  for (const [from, to] of map) await put(w, to, readTemplate(from));
-  for (const rule of ['no-class.yml', 'no-default-export.yml', 'no-deep-sibling-import.yml', 'require-js-extension.yml']) {
-    await put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)));
-  }
+  // Independent writes to distinct paths — run them concurrently.
+  await Promise.all(map.map(([from, to]) => put(w, to, readTemplate(from))));
+  const rules = ['no-class.yml', 'no-default-export.yml', 'no-deep-sibling-import.yml', 'require-js-extension.yml'];
+  await Promise.all(rules.map((rule) => put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)))));
 }
 
 async function writePackage(w: Writer, dir: string, pkgName: string, value: string): Promise<void> {
@@ -623,6 +623,7 @@ async function addConfigs(w: Writer, add: readonly string[], skipped: string[]):
     }
     for (const [from, to] of files) {
       if (existsSync(join(w.cwd, to))) skipped.push(`${to} (exists)`);
+      // oxlint-disable-next-line no-await-in-loop -- one-shot `--add` scaffolding: writes are independent and perf-irrelevant, kept sequential for a deterministic progress list.
       else await put(w, to, readTemplate(from));
     }
   }

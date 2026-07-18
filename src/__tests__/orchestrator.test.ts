@@ -657,6 +657,7 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
   async function waitFor(path: string): Promise<void> {
     const deadline = Date.now() + 15_000;
     while (!existsSync(path) && Date.now() < deadline) {
+      // oxlint-disable-next-line no-await-in-loop -- poll loop: the await is the intentional delay between existence checks.
       await new Promise((r) => setTimeout(r, 25));
     }
     expect(existsSync(path)).toBe(true);

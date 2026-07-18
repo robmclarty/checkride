@@ -53,9 +53,13 @@ describe('stream discipline', () => {
   });
 
   test('--json stdout is exactly the summary JSON, green or red', async () => {
+    // Sequential by necessity: each iteration rewrites the shared config and runs
+    // the CLI against the same cwd, so the runs must not race on config/.check.
     for (const code of [0, 1]) {
+      // oxlint-disable-next-line no-await-in-loop -- see above: shared cwd/config, runs must stay ordered.
       await configWithExit(code);
       const stdout = capture();
+      // oxlint-disable-next-line no-await-in-loop -- see above: shared cwd/config, runs must stay ordered.
       await runCli(['--json'], { cwd: dir, stdout, stderr: capture() });
       // Parsing the whole captured stream proves nothing else leaked onto it.
       const summary = JSON.parse(stdout.text()) as Record<string, unknown>;

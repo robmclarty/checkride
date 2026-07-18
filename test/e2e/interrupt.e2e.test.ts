@@ -50,6 +50,7 @@ describe('interrupted run', () => {
     const exited = new Promise<void>((resolve) => { proc.on('close', () => { resolve(); }); });
     const deadline = Date.now() + 15_000;
     while (!existsSync(marker) && Date.now() < deadline) {
+      // oxlint-disable-next-line no-await-in-loop -- poll loop awaiting a filesystem marker before signalling the process.
       await new Promise((r) => setTimeout(r, 50));
     }
     expect(existsSync(marker)).toBe(true);
@@ -130,6 +131,7 @@ describe('signal forwarding (SIGINT/SIGTERM)', () => {
 
       const deadline = Date.now() + 15_000;
       while (!existsSync(pidFile) && Date.now() < deadline) {
+        // oxlint-disable-next-line no-await-in-loop -- poll loop awaiting a filesystem marker before signalling the process.
         await new Promise((r) => setTimeout(r, 50));
       }
       expect(existsSync(pidFile)).toBe(true);
