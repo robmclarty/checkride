@@ -263,14 +263,19 @@ async function probeTool(adapter: Adapter, cwd: string, env: DoctorEnv): Promise
     : { status: 'missing', found: null, expected: `${adapter.command} on PATH`, hint: `Install \`${adapter.command}\`.` };
 }
 
-/** What an unavailable slot could be turned on with: candidate adapters + their detect files. */
+/** The signal that would turn an adapter on: its detect files, `scripts.<name>`, a dep, or always-available. */
+function enableSignal(a: Adapter): string {
+  if (a.detect.length > 0) return a.detect.slice(0, 2).join(' or ');
+  if (a.detectScript !== undefined) return `scripts.${a.detectScript}`;
+  if (a.detectDeps && a.detectDeps.length > 0) return `dep ${a.detectDeps.join('/')}`;
+  return 'always available';
+}
+
+/** What an unavailable slot could be turned on with: candidate adapters + their detection signals. */
 function possibilitiesHint(slot: string, adapters: readonly Adapter[]): string | null {
   const candidates = adapters.filter((a) => a.slot === slot);
   if (candidates.length === 0) return null;
-  const parts = candidates.map((a) => {
-    const files = a.detect.length > 0 ? a.detect.slice(0, 2).join(' or ') : 'always available';
-    return `${a.name} (${files})`;
-  });
+  const parts = candidates.map((a) => `${a.name} (${enableSignal(a)})`);
   return `Enable by adding one of: ${parts.join(', ')}.`;
 }
 
@@ -300,6 +305,11 @@ function offRow(
   return null;
 }
 
+/** The detection-provenance clause for a tool row — concrete signals only (not "always available"). */
+function detectedClause(r: ResolvedCheck): string {
+  return r.detectedVia && r.detectedVia !== 'always available' ? ` Detected via ${r.detectedVia}.` : '';
+}
+
 /** A row for a slot whose adapter is runnable: probe result classified by default-run membership. */
 function toolRow(
   base: ToolRowBase,
@@ -310,9 +320,11 @@ function toolRow(
 ): DoctorCheck {
   const isDefault = defaultActive.has(r.slot);
   const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
-  const hint = isDefault
+  const detected = detectedClause(r);
+  const lead = isDefault
     ? probe.hint
     : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
+  const hint = lead ? `${lead}${detected}` : detected.trim() || null;
   return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
 }
 

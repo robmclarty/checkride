@@ -53,6 +53,19 @@ export type Adapter = {
   description: string;
   /** Config files whose presence activates this adapter. `[]` = always available. */
   detect: string[];
+  /**
+   * Detection by package script: the slot is available when `scripts.<name>`
+   * exists in package.json. `build` uses `scripts.build` — an opted-in `build`
+   * on a repo with no build script stands down as a skip, never a red check (D18).
+   */
+  detectScript?: string;
+  /**
+   * Backup detection signal: the slot activates when a `detect` file exists OR
+   * one of these packages appears in dependencies/devDependencies. Populated only
+   * on adapters whose tool runs correctly with zero config (D18), so a repo that
+   * installed the tool but never wrote its config file still opts in.
+   */
+  detectDeps?: string[];
   /** Command to spawn (usually `'pnpm'`). Ignored when `builtin` is set. */
   command: string;
   /** Arguments to the command. Ignored when `builtin` is set. */
@@ -88,9 +101,9 @@ export type Adapter = {
 /**
  * Pipeline catalogue in cheapest-first order — the within-wave tie-break and the
  * full `--bail` sequence. Most slots take the default `'any'` wave; `mutation`
- * runs exclusively (`'single'`) because stryker saturates every core, and the
- * artifact checks (`publint`/`attw`) share wave 20 so a later build step can
- * precede them. See `config.ts` for how effective order resolves and sorts.
+ * runs exclusively (`'single'`) because stryker saturates every core, `build`
+ * runs in wave 10, and the artifact checks (`publint`/`attw`) share wave 20 so
+ * the build precedes them. See `config.ts` for how effective order resolves and sorts.
  */
 export const SLOTS: readonly Slot[] = [
   { name: 'types' },
@@ -106,6 +119,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'spell' },
   { name: 'mutation', optIn: true, order: 'single' },
   { name: 'security', optIn: true },
+  { name: 'build', optIn: true, order: 10 },
   { name: 'publint', optIn: true, order: 20 },
   { name: 'attw', optIn: true, order: 20 },
 ];
@@ -145,6 +159,7 @@ export const ADAPTERS: readonly Adapter[] = [
       'prettier.config.mjs',
       'prettier.config.ts',
     ],
+    detectDeps: ['prettier'],
     command: 'pnpm',
     args: ['exec', 'prettier', '--check', '.'],
     outputFile: null,
@@ -167,6 +182,7 @@ export const ADAPTERS: readonly Adapter[] = [
     slot: 'lint',
     description: 'Oxlint with tsgolint type-aware rules',
     detect: ['.oxlintrc.json'],
+    detectDeps: ['oxlint'],
     command: 'pnpm',
     args: ['exec', 'oxlint', '--type-aware', '--format=json'],
     outputFile: 'lint.json',
@@ -233,6 +249,7 @@ export const ADAPTERS: readonly Adapter[] = [
     slot: 'dead',
     description: 'Knip: unused files, exports, and dependencies',
     detect: ['knip.json', 'knip.jsonc', '.knip.json', 'knip.config.ts', 'knip.config.js'],
+    detectDeps: ['knip'],
     command: 'pnpm',
     args: ['exec', 'knip', '--reporter', 'json'],
     outputFile: 'dead.json',
@@ -266,6 +283,7 @@ export const ADAPTERS: readonly Adapter[] = [
     slot: 'test',
     description: 'Vitest tests with coverage',
     detect: ['vitest.config.ts', 'vitest.config.js', 'vitest.config.mjs', 'vitest.config.mts'],
+    detectDeps: ['vitest'],
     command: 'pnpm',
     args: [
       'exec', 'vitest', 'run',
@@ -335,6 +353,7 @@ export const ADAPTERS: readonly Adapter[] = [
       'cspell.config.cjs',
       'cspell.config.mjs',
     ],
+    detectDeps: ['cspell'],
     command: 'pnpm',
     args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
     outputFile: null,
@@ -361,6 +380,18 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['audit', '--audit-level=high', '--json'],
     outputFile: 'security.json',
+    devDeps: {},
+  },
+  {
+    name: 'build',
+    slot: 'build',
+    description: "Build the package (runs the consumer's build script)",
+    // No config file to detect — availability rides on `scripts.build` (D13/D18).
+    detect: [],
+    detectScript: 'build',
+    command: 'pnpm',
+    args: ['run', 'build'],
+    outputFile: null,
     devDeps: {},
   },
   {

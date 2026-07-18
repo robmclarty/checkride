@@ -72,6 +72,19 @@ describe('translateExec', () => {
     }
   });
 
+  test('leaves a pnpm run invocation byte-identical under pnpm', () => {
+    const run = ['run', 'build'];
+    expect(translateExec('pnpm', run, 'pnpm')).toEqual({ command: 'pnpm', args: run });
+  });
+
+  test('rewrites the run launcher per non-pnpm PM, keeping the run keyword (D13)', () => {
+    const run = ['run', 'build'];
+    // Every PM spells it `<pm> run <script>` — only the launcher changes.
+    expect(translateExec('pnpm', run, 'npm')).toEqual({ command: 'npm', args: run });
+    expect(translateExec('pnpm', run, 'yarn')).toEqual({ command: 'yarn', args: run });
+    expect(translateExec('pnpm', run, 'bun')).toEqual({ command: 'bun', args: run });
+  });
+
   test('leaves a custom check command untranslated', () => {
     const args = ['scripts/check-licenses.mjs'];
     expect(translateExec('node', args, 'npm')).toEqual({ command: 'node', args });

@@ -19,7 +19,7 @@ describe('registry invariants', () => {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
       dupes: 'fallow', health: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
-      publint: 'publint', attw: 'attw',
+      build: 'build', publint: 'publint', attw: 'attw',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -57,9 +57,9 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format + fallow dupes/health + the trailing mutation/security/publint/attw', () => {
+  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'dupes', 'health', 'mutation', 'security', 'publint', 'attw',
+      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw',
     ]);
     expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['publint', 'attw']);
   });
@@ -90,13 +90,14 @@ describe('registry invariants', () => {
     expect(builtins.map((a) => a.name)).toEqual(['links']);
   });
 
-  test('D4 wave defaults: mutation runs single, publint/attw share wave 20, the rest default to any', () => {
+  test('D4 wave defaults: mutation runs single, build wave 10, publint/attw share wave 20, the rest default to any', () => {
     const orderOf = (name: string) => SLOTS.find((s) => s.name === name)?.order;
     expect(orderOf('mutation')).toBe('single');
+    expect(orderOf('build')).toBe(10);
     expect(orderOf('publint')).toBe(20);
     expect(orderOf('attw')).toBe(20);
     // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
-    const carriesOrder = new Set(['mutation', 'publint', 'attw']);
+    const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw']);
     for (const slot of SLOTS) {
       if (!carriesOrder.has(slot.name)) expect(slot.order).toBeUndefined();
     }
@@ -104,5 +105,25 @@ describe('registry invariants', () => {
 
   test('no adapter pins its own order yet (adapter-level override arrives with snippets)', () => {
     for (const adapter of ADAPTERS) expect(adapter.order).toBeUndefined();
+  });
+
+  test('the build slot spawns the consumer build script, detected via scripts.build (D13/D18)', () => {
+    expect(SLOTS.find((s) => s.name === 'build')?.optIn).toBe(true);
+    const build = ADAPTERS.find((a) => a.name === 'build');
+    expect(build?.slot).toBe('build');
+    expect(build?.command).toBe('pnpm');
+    expect(build?.args).toEqual(['run', 'build']);
+    expect(build?.detect).toEqual([]);
+    expect(build?.detectScript).toBe('build');
+    expect(build?.devDeps).toEqual({});
+  });
+
+  test('detectDeps is populated only on the configless-capable adapters (D18)', () => {
+    const withDeps = ADAPTERS.filter((a) => a.detectDeps !== undefined).map((a) => a.name);
+    expect(withDeps).toEqual(['prettier', 'oxlint', 'knip', 'vitest', 'cspell']);
+    for (const name of withDeps) {
+      // Each names its own package as the dependency signal.
+      expect(ADAPTERS.find((a) => a.name === name)?.detectDeps).toEqual([name]);
+    }
   });
 });

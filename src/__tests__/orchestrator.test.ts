@@ -478,6 +478,25 @@ describe('runChecks (real subprocess)', () => {
     expect(await readFile(join(dir, '.check', 'boom.stdout.txt'), 'utf8')).toBe('not json');
   });
 
+  test('the build adapter runs the package build script through the PM-translated run path', async () => {
+    // A real fixture: a package.json build script the `build` adapter drives via
+    // `<pm> run build`. Under npm the canonical `pnpm run build` translates to
+    // `npm run build`, spawns for real, and its stdout is captured (D13/D18).
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'fixture', version: '0.0.0', scripts: { build: `node -e "process.stdout.write('BUILT_OK')"` } }),
+    );
+    const build = fakeAdapter({
+      name: 'build', slot: 'build', detectScript: 'build', command: 'pnpm', args: ['run', 'build'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'build', optIn: true, order: 10 }], adapters: [build], config: { timeout: 30 },
+      pm: 'npm', include: ['build'], json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ name: 'build', ok: true, exit_code: 0 });
+    expect(await readFile(join(dir, '.check', 'build.stdout.txt'), 'utf8')).toContain('BUILT_OK');
+  }, 30_000);
+
   test('reports a spawn failure for a missing binary', async () => {
     const adapter = fakeAdapter({
       name: 'ghost', slot: 'ghost', command: 'checkride-no-such-binary-xyz', args: [],

@@ -1,11 +1,12 @@
 /**
  * Exec-prefix translation.
  *
- * The adapter registry keeps its canonical `pnpm exec <tool>` form (D5); this
- * is the single seam that rewrites that prefix for whichever package manager a
- * repo actually uses. Only the `pnpm exec` prefix is translated — `pnpm audit`,
- * custom-check commands, and built-ins pass through untouched, so the default
- * pnpm run is byte-identical to before.
+ * The adapter registry keeps its canonical `pnpm exec <tool>` / `pnpm run
+ * <script>` form (D5/D13); this is the single seam that rewrites that prefix for
+ * whichever package manager a repo actually uses. Only the `pnpm exec` and `pnpm
+ * run` prefixes are translated — `pnpm audit`, custom-check commands, and
+ * built-ins pass through untouched, so the default pnpm run is byte-identical to
+ * before.
  */
 
 import type { PackageManager } from './detect.js';
@@ -18,20 +19,27 @@ const EXEC_COMMAND: Record<Exclude<PackageManager, 'pnpm'>, string> = {
 };
 
 /**
- * Rewrite a canonical `pnpm exec <tool> …` invocation for `pm`. Anything that
- * is not a `pnpm exec` prefix (a `pnpm audit`, a custom check's own command, a
- * built-in) is returned unchanged, and so is every invocation under `pnpm`
- * itself — the default stays exactly as it was.
+ * Rewrite a canonical `pnpm exec <tool> …` or `pnpm run <script>` invocation for
+ * `pm`. Anything that is not one of those prefixes (a `pnpm audit`, a custom
+ * check's own command, a built-in) is returned unchanged, and so is every
+ * invocation under `pnpm` itself — the default stays exactly as it was.
+ *
+ * `exec` swaps the launcher and drops the keyword (`pnpm exec oxlint` → `npx
+ * oxlint`); `run` keeps its keyword and only swaps the launcher, since all four
+ * package managers spell it `<pm> run <script>` (`pnpm run build` → `npm run
+ * build`).
  */
 export function translateExec(
   command: string,
   args: readonly string[],
   pm: PackageManager,
 ): { command: string; args: string[] } {
-  const isExec = command === 'pnpm' && args[0] === 'exec';
-  if (!isExec || pm === 'pnpm') return { command, args: [...args] };
+  if (command !== 'pnpm' || pm === 'pnpm') return { command, args: [...args] };
   // Drop 'exec'; keep <tool> and its arguments, e.g. `npx oxlint --type-aware`.
-  return { command: EXEC_COMMAND[pm], args: args.slice(1) };
+  if (args[0] === 'exec') return { command: EXEC_COMMAND[pm], args: args.slice(1) };
+  // `<pm> run <script>` is universal; only the launcher changes.
+  if (args[0] === 'run') return { command: pm, args: [...args] };
+  return { command, args: [...args] };
 }
 
 /**

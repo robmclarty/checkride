@@ -56,3 +56,4 @@ you point at to say "I did that — the LLM helped, but those were my calls."
 folder, so it rides the branch into the PR.)*
 - 2026-07-18 — step 1 checkpointed · 4c5b150e2 — Order data model + `order` widening (no scheduler yet) (30m)
 - 2026-07-18 — step 2 checkpointed · b9f7731e2 — Concurrent wave scheduler + `--concurrency` (20m)
+- 2026-07-18 — step 3 checkpointed · 295026764 — Scheduler docs + CHANGELOG (6m)

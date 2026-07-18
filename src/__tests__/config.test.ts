@@ -15,13 +15,22 @@ import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 const never = (): boolean => false;
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);
 
+type Manifest = { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
+/** package.json signals for `detectScript`/`detectDeps` detection. */
+const manifest = (opts: { scripts?: string[]; deps?: string[] } = {}): Manifest => ({
+  scripts: new Set(opts.scripts ?? []),
+  deps: new Set(opts.deps ?? []),
+});
+const NO_MANIFEST = manifest();
+
 function resolveSlot(
   slotName: string,
   config: CheckrideConfig | null,
   fileExists: (f: string) => boolean,
+  pkg: Manifest = NO_MANIFEST,
 ) {
   const slots = SLOTS.filter((s) => s.name === slotName);
-  const [resolved] = resolveChecks({ slots, adapters: ADAPTERS, config, fileExists });
+  const [resolved] = resolveChecks({ slots, adapters: ADAPTERS, config, fileExists, manifest: pkg });
   if (!resolved) throw new Error(`no resolution for ${slotName}`);
   return resolved;
 }
@@ -54,6 +63,55 @@ describe('detection (no config)', () => {
     const r = resolveSlot('format', null, present('.prettierrc.json'));
     expect(r.adapter?.name).toBe('prettier');
     expect(r.explicit).toBeFalsy();
+  });
+});
+
+describe('detection widening (detectScript / detectDeps — D18)', () => {
+  test('build detects via scripts.build and names the signal', () => {
+    const r = resolveSlot('build', null, never, manifest({ scripts: ['build'] }));
+    expect(r.adapter?.name).toBe('build');
+    expect(r.skip).toBeNull();
+    expect(r.detectedVia).toBe('scripts.build');
+  });
+
+  test('an opted-in build with no build script stands down as a skip, never red', () => {
+    const r = resolveSlot('build', null, never, manifest({ scripts: ['test'] }));
+    expect(r.adapter).toBeNull();
+    expect(r.skip).toBe("no 'build' script in package.json");
+  });
+
+  test('a build named explicitly in config still stands down when scriptless (preset-safe)', () => {
+    const r = resolveSlot('build', { checks: { build: 'build' } }, never, manifest({ scripts: [] }));
+    expect(r.adapter).toBeNull();
+    expect(r.skip).toBe("no 'build' script in package.json");
+    // …but runs when the script is present.
+    const ok = resolveSlot('build', { checks: { build: 'build' } }, never, manifest({ scripts: ['build'] }));
+    expect(ok.adapter?.name).toBe('build');
+  });
+
+  test('detectDeps activates a configless-capable slot when the package is installed', () => {
+    const r = resolveSlot('lint', null, never, manifest({ deps: ['oxlint'] }));
+    expect(r.adapter?.name).toBe('oxlint');
+    expect(r.detectedVia).toBe("dependency 'oxlint'");
+  });
+
+  test('a detect file wins over (and is named ahead of) the dep signal', () => {
+    const r = resolveSlot('lint', null, present('.oxlintrc.json'), manifest({ deps: ['oxlint'] }));
+    expect(r.adapter?.name).toBe('oxlint');
+    expect(r.detectedVia).toBe('.oxlintrc.json');
+  });
+
+  test('neither a detect file nor a dep leaves the slot undetected', () => {
+    const r = resolveSlot('lint', null, never, manifest({ deps: ['unrelated'] }));
+    expect(r.adapter).toBeNull();
+    expect(r.skip).toBe('no tool detected for slot');
+  });
+
+  test('a signal-free adapter (built-in) stays always-available regardless of manifest', () => {
+    const r = resolveSlot('links', null, never, NO_MANIFEST);
+    expect(r.adapter?.name).toBe('links');
+    // "always available" is not surfaced as a detection signal.
+    expect(r.detectedVia).toBeUndefined();
   });
 });
 

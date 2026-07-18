@@ -193,7 +193,7 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
  * oversubscribing every core is worse than a conservative cap; one reserved
  * core keeps the machine responsive. Override with `--concurrency`.
  */
-export function defaultConcurrency(): number {
+function defaultConcurrency(): number {
   return Math.min(4, Math.max(1, cpus().length - 1));
 }
 

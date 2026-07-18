@@ -112,6 +112,12 @@ export type ResolvedCheck = {
    * `"format": "prettier"` runs without `--include` (see `selectChecks`).
    */
   explicit?: boolean;
+  /**
+   * When detection (not config) chose the adapter, the signal that matched — a
+   * `detect` file, `scripts.<name>` (`detectScript`), or `dependency '<pkg>'`
+   * (`detectDeps`). Surfaced by `doctor`; absent on config-selected or skipped checks.
+   */
+  detectedVia?: string;
 };
 
 const CONFIG_FILE = 'checkride.config.json';
@@ -255,17 +261,93 @@ function byName(name: string, adapters: readonly Adapter[], slot?: string): Adap
   );
 }
 
-/** First adapter for `slot` whose detect files are present (empty detect = always). */
+/** package.json signals consulted by `detectScript`/`detectDeps` detection (D18). */
+type Manifest = { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
+
+const EMPTY_MANIFEST: Manifest = { scripts: new Set(), deps: new Set() };
+
+/** Read `cwd`'s package.json script names and combined dep names; empty on any read/parse failure. */
+function readManifest(cwd: string): Manifest {
+  try {
+    const pkg: {
+      scripts?: Record<string, string>;
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    } = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+    return {
+      scripts: new Set(Object.keys(pkg.scripts ?? {})),
+      deps: new Set([...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})]),
+    };
+  } catch {
+    return EMPTY_MANIFEST;
+  }
+}
+
+/** True when this adapter declares any detection signal (so absence of a match means "off", not "always"). */
+function hasAnySignal(a: Adapter): boolean {
+  return a.detect.length > 0 || a.detectScript !== undefined || (a.detectDeps?.length ?? 0) > 0;
+}
+
+/** The `detectDeps` package that appears in the manifest, as a named signal, or `null`. */
+function depSignal(a: Adapter, manifest: Manifest): string | null {
+  const dep = a.detectDeps?.find((d) => manifest.deps.has(d));
+  return dep !== undefined ? `dependency '${dep}'` : null;
+}
+
+/**
+ * Which of an adapter's detection signals fires — named for the doctor report —
+ * or `null` when none does (D18). Precedence: a present `detect` file, then
+ * `detectScript` (`scripts.<name>`), then a `detectDeps` package in
+ * dependencies/devDependencies. An adapter with no signals at all (empty
+ * `detect`, no `detectScript`/`detectDeps` — a built-in, `publint`, `attw`,
+ * `pnpm audit`) is always available.
+ */
+function detectionSignal(a: Adapter, fileExists: (f: string) => boolean, manifest: Manifest): string | null {
+  const file = a.detect.find((f) => fileExists(f));
+  if (file !== undefined) return file;
+  if (a.detectScript !== undefined && manifest.scripts.has(a.detectScript)) return `scripts.${a.detectScript}`;
+  return depSignal(a, manifest) ?? (hasAnySignal(a) ? null : 'always available');
+}
+
+/** First adapter for `slot` whose detection fires, plus the signal that matched (for the report). */
 function detectAdapter(
   slot: string,
   adapters: readonly Adapter[],
   fileExists: (file: string) => boolean,
-): Adapter | null {
+  manifest: Manifest,
+): { adapter: Adapter; via: string } | null {
   for (const a of adapters) {
     if (a.slot !== slot) continue;
-    if (a.detect.length === 0 || a.detect.some((f) => fileExists(f))) return a;
+    const via = detectionSignal(a, fileExists, manifest);
+    if (via !== null) return { adapter: a, via };
   }
   return null;
+}
+
+/**
+ * Why nothing filled `slot` on the detection path. When the slot's adapter gates
+ * on a package script (`detectScript`, e.g. `build`), name the missing script so
+ * an opted-in-but-scriptless slot stands down with a clear reason; otherwise the
+ * generic no-tool message.
+ */
+function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
+  const scripted = adapters.find((a) => a.slot === slot && a.detectScript !== undefined);
+  return scripted ? `no '${scripted.detectScript}' script in package.json` : 'no tool detected for slot';
+}
+
+/**
+ * A slot whose adapter is gated on a package script (`detectScript`, e.g. `build`
+ * → `scripts.build`) stands down as a skip — never a red check — when that script
+ * is absent, however the adapter was selected. Detection already filters the
+ * auto-detect path; this also covers an explicit config entry, so a shared preset
+ * that names `build` is safe on a repo that has no build script (D18).
+ */
+function standDownIfScriptless(check: ResolvedCheck, manifest: Manifest): ResolvedCheck {
+  const script = check.adapter?.detectScript;
+  if (script !== undefined && !manifest.scripts.has(script)) {
+    return { ...check, adapter: null, skip: `no '${script}' script in package.json` };
+  }
+  return check;
 }
 
 /** The optional adapter fields a config entry may carry onto its adapter. */
@@ -317,7 +399,7 @@ function effectiveOrder(slot: Slot, adapter: Adapter | null): Order {
   return adapter?.order ?? slot.order ?? 'any';
 }
 
-function active(slot: Slot, adapter: Adapter, explicit = false): ResolvedCheck {
+function active(slot: Slot, adapter: Adapter, explicit = false, detectedVia?: string): ResolvedCheck {
   return {
     slot: slot.name,
     optIn: slot.optIn ?? false,
@@ -325,6 +407,7 @@ function active(slot: Slot, adapter: Adapter, explicit = false): ResolvedCheck {
     skip: null,
     order: effectiveOrder(slot, adapter),
     explicit,
+    ...(detectedVia !== undefined ? { detectedVia } : {}),
   };
 }
 
@@ -362,18 +445,14 @@ function resolveObjectEntry(
   return null;
 }
 
-function resolveOne(
+function resolveConfigOrDetect(
   slot: Slot,
   entry: SlotConfig | undefined,
   adapters: readonly Adapter[],
   fileExists: (file: string) => boolean,
+  manifest: Manifest,
+  explicit: boolean,
 ): ResolvedCheck {
-  // Any non-`false` config entry is an explicit opt-in for this slot (`false`
-  // disables it, so it never runs regardless). Detection (no entry) is not.
-  const explicit = entry !== undefined && entry !== false;
-  if (entry === false) {
-    return skipped(slot, 'disabled in checkride.config.json');
-  }
   if (typeof entry === 'string') {
     const adapter = byName(entry, adapters, slot.name);
     return adapter
@@ -384,8 +463,31 @@ function resolveOne(
     const resolved = resolveObjectEntry(slot, entry, adapters, explicit);
     if (resolved !== null) return resolved;
   }
-  const detected = detectAdapter(slot.name, adapters, fileExists);
-  return detected ? active(slot, detected) : skipped(slot, 'no tool detected for slot');
+  const detected = detectAdapter(slot.name, adapters, fileExists, manifest);
+  if (!detected) return skipped(slot, undetectedReason(slot.name, adapters), explicit);
+  // Record only a concrete signal (file/script/dep); an always-available adapter
+  // matched nothing in particular, so it carries no detection provenance.
+  const via = detected.via === 'always available' ? undefined : detected.via;
+  return active(slot, detected.adapter, false, via);
+}
+
+function resolveOne(
+  slot: Slot,
+  entry: SlotConfig | undefined,
+  adapters: readonly Adapter[],
+  fileExists: (file: string) => boolean,
+  manifest: Manifest,
+): ResolvedCheck {
+  // Any non-`false` config entry is an explicit opt-in for this slot (`false`
+  // disables it, so it never runs regardless). Detection (no entry) is not.
+  const explicit = entry !== undefined && entry !== false;
+  if (entry === false) {
+    return skipped(slot, 'disabled in checkride.config.json');
+  }
+  const resolved = resolveConfigOrDetect(slot, entry, adapters, fileExists, manifest, explicit);
+  // A script-gated adapter (build) stands down — never red — when its script is
+  // absent, even when config named it explicitly (D18).
+  return standDownIfScriptless(resolved, manifest);
 }
 
 /**
@@ -457,12 +559,21 @@ export function resolveChecks(input: {
   config: CheckrideConfig | null;
   cwd?: string;
   fileExists?: (file: string) => boolean;
+  /**
+   * package.json signals for `detectScript`/`detectDeps` detection; read from
+   * `cwd` when omitted (tests inject an empty manifest to stay hermetic).
+   */
+  manifest?: { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
 }): ResolvedCheck[] {
   const cwd = input.cwd ?? process.cwd();
   const fileExists = input.fileExists ?? ((file: string) => existsSync(join(cwd, file)));
+  // Read package.json only against an explicit `cwd`; a caller that injects just
+  // `fileExists` (a test, `inventory`) wants detection driven by that alone, not
+  // the ambient process cwd — so it gets an empty manifest unless one is passed.
+  const manifest = input.manifest ?? (input.cwd !== undefined ? readManifest(input.cwd) : EMPTY_MANIFEST);
   const checks = input.config?.checks ?? {};
   const catalogue = input.slots.map((slot) =>
-    resolveOne(slot, checks[slot.name], input.adapters, fileExists),
+    resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest),
   );
 
   const catalogueNames = new Set(input.slots.map((s) => s.name));

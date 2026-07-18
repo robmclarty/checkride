@@ -307,7 +307,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    concurrent checks in flight.
    - seam: `src/orchestrator.ts`, `src/cli.ts`, `src/__tests__/orchestrator.test.ts`, `test/contract/flags.contract.test.ts`, `test/contract/` (new order-compat test)
    - model: opus — concurrency interleaved with the kill/reap path needs care
-3. [ ] Scheduler docs + CHANGELOG — **done when:** `docs/contract.md` documents
+3. [x] Scheduler docs + CHANGELOG — **done when:** `docs/contract.md` documents
    the widened `order`, `--concurrency`, and the `total_duration_ms`
    clarification; `docs/cheatsheet.md` replaces "cheapest-first" prose with the
    wave model + gap-numbering recommendation; CHANGELOG carries a **Contract**

@@ -245,6 +245,42 @@ describe('runDoctor (injected env)', () => {
   });
 });
 
+describe('runDoctor (build detection — D18)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-build-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const buildAdapter: Adapter = {
+    name: 'build', slot: 'build', description: 'Build the package', detect: [], detectScript: 'build',
+    command: 'pnpm', args: ['run', 'build'], outputFile: null, devDeps: {},
+  };
+  const buildSlot = [{ name: 'build', optIn: true, order: 10 as const }];
+
+  test('build shows as opt-in and names the detection signal (scripts.build)', async () => {
+    // resolveChecks reads the real package.json from cwd; env probes stay faked.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc --build' } }));
+    const result = await runDoctor({
+      cwd: dir, slots: buildSlot, adapters: [buildAdapter], config: null, env: fakeEnv(), stdout: sink(), json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'build');
+    expect(slot?.enablement).toBe('opt-in');
+    expect(slot?.hint).toContain('scripts.build');
+    expect(result.ok).toBe(true);
+  });
+
+  test('an opted-in build with no build script stands down as unavailable, never failing', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest' } }));
+    const result = await runDoctor({
+      cwd: dir, slots: buildSlot, adapters: [buildAdapter], config: null, env: fakeEnv(), stdout: sink(), json: true,
+    });
+    const slot = result.report.checks.find((c) => c.slot === 'build');
+    expect(slot?.enablement).toBe('unavailable');
+    expect(slot?.found).toContain("no 'build' script");
+    expect(slot?.hint).toContain('scripts.build'); // possibilities hint names how to enable it
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe('isProbeTimeout', () => {
   test('recognizes a killed-by-timeout execFile rejection, and only that', () => {
     // Promisified execFile rejects with `killed: true` when its timeout fires.
