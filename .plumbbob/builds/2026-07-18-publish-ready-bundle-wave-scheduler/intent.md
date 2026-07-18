@@ -273,7 +273,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
 
 ## Steps
 
-1. [ ] Order data model + `order` widening (no scheduler yet) — **done when:**
+1. [x] Order data model + `order` widening (no scheduler yet) — **done when:**
    `Slot`/`Adapter` carry `order?: number | string`; SLOTS populated per D4
    (`'any'` defaults, `mutation` `'single'`, `build` 10, artifact slots 20);
    config accepts `order: number | 'first'|'last'|'middle'|'single'|'any'` on

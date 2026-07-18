@@ -34,6 +34,7 @@ const RUN_OPTIONS = {
   changed: { type: 'boolean', default: false },
   digest: { type: 'boolean', default: false },
   strict: { type: 'boolean', default: false },
+  concurrency: { type: 'string' },
 } as const;
 
 const INIT_OPTIONS = {
@@ -71,7 +72,8 @@ Run options:
   --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
-  --bail           Stop at the first failure
+  --bail           Stop at the first failure (sequential; overrides --concurrency)
+  --concurrency <n>  Max checks running at once within a wave (default auto; 1 = sequential)
   --json           Emit the summary as JSON on stdout
   --digest         Write a capped failure excerpt to .check/digest.md
   --strict         Zero checks actually running is an error (exit 2), not a pass
@@ -147,6 +149,22 @@ function parseList(value: string | undefined): string[] | null {
   return value.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/**
+ * Parse `--concurrency <n>` into a positive integer, or `undefined` when the flag
+ * is absent (the orchestrator then picks its auto default). A non-integer or
+ * `< 1` value is a usage error (surfaced as exit 2), never a silent clamp: a
+ * gate that quietly ran everything at once when you asked for `1` would be the
+ * kind of surprise this tool exists to prevent.
+ */
+function parseConcurrency(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new Error(`invalid --concurrency '${value}' (expected a positive integer)`);
+  }
+  return n;
+}
+
 /** The command is the first non-flag token; the rest are its arguments. */
 function detectCommand(argv: string[]): { command: string; rest: string[] } {
   const first = argv[0];
@@ -160,6 +178,7 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
+  const concurrency = parseConcurrency(values.concurrency);
   const flags: RunFlags = {
     bail: values.bail,
     json: values.json,
@@ -170,6 +189,9 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     only: parseList(values.only),
     skip: parseList(values.skip),
     include: parseList(values.include),
+    // Omitted when absent, so the orchestrator's auto default applies (exact
+    // optional types: an explicit `undefined` is not the same as absent).
+    ...(concurrency !== undefined ? { concurrency } : {}),
   };
   return { command, flags };
 }

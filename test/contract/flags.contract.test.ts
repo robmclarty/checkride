@@ -43,6 +43,18 @@ describe('CLI run flags', () => {
     }
   });
 
+  test('--concurrency <n> parses to a positive integer', () => {
+    expect(parseCliArgs(['--concurrency', '3']).flags.concurrency).toBe(3);
+    // Absent → left undefined so the orchestrator applies its auto default.
+    expect(parseCliArgs([]).flags.concurrency).toBeUndefined();
+  });
+
+  test('--concurrency rejects a non-positive-integer value (usage error, exit 2 at the CLI)', () => {
+    for (const bad of ['0', '-1', 'x', '2.5']) {
+      expect(() => parseCliArgs(['--concurrency', bad])).toThrow();
+    }
+  });
+
   test('an unknown run flag is rejected (usage error, exit 2 at the CLI)', () => {
     expect(() => parseCliArgs(['--no-such-flag'])).toThrow();
   });

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
-import type { Adapter } from '../adapters.js';
+import type { Adapter, Order } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
 import { resolveChecks } from '../config.js';
 import type { ResolvedCheck } from '../config.js';
@@ -70,6 +70,46 @@ function lintRunner(findings: [string, string, string][]): CheckRunner {
         ? { ok, exit_code: ok ? 0 : 1, stdout, stderr: '' }
         : { ok: true, exit_code: 0, stdout: '', stderr: '' },
     );
+}
+
+/**
+ * A runner that records `start:<slot>` / `end:<slot>` in call order and tracks
+ * the peak number of checks in flight at once — the seam the scheduler tests
+ * observe. Each check yields on a real timer between start and end so genuine
+ * siblings overlap; slots named in `fail` resolve non-ok (for `--bail`).
+ */
+function schedulingRunner(opts: { delayMs?: number; fail?: string[] } = {}): {
+  runner: CheckRunner;
+  events: string[];
+  maxInFlight: () => number;
+} {
+  const delayMs = opts.delayMs ?? 10;
+  const fail = new Set(opts.fail ?? []);
+  const events: string[] = [];
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const runner: CheckRunner = async (r) => {
+    events.push(`start:${r.slot}`);
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((res) => setTimeout(res, delayMs));
+    inFlight -= 1;
+    events.push(`end:${r.slot}`);
+    const ok = !fail.has(r.slot);
+    return { ok, exit_code: ok ? 0 : 1, stdout: '', stderr: '' };
+  };
+  return { runner, events, maxInFlight: () => maxInFlight };
+}
+
+/** A runner that resolves each slot after its mapped delay, recording completion order. */
+function delayedRunner(delays: Record<string, number>): { runner: CheckRunner; endOrder: string[] } {
+  const endOrder: string[] = [];
+  const runner: CheckRunner = async (r) => {
+    await new Promise((res) => setTimeout(res, delays[r.slot] ?? 0));
+    endOrder.push(r.slot);
+    return { ok: true, exit_code: 0, stdout: '', stderr: '' };
+  };
+  return { runner, endOrder };
 }
 
 describe('selectChecks', () => {
@@ -191,6 +231,132 @@ describe('runChecks (injected runner)', () => {
     expect(types?.reason).toBe('disabled in checkride.config.json');
     expect(result.ok).toBe(true);
     expect(std.lines.join('')).toContain('all checks passed');
+  });
+});
+
+describe('runChecks (wave scheduler)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-wave-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Slots + matching fake adapters from `[name, order]` pairs (order optional). */
+  function fixture(specs: [string, Order?][]): { slots: { name: string; order?: Order }[]; adapters: Adapter[] } {
+    const slots = specs.map(([name, order]) => (order === undefined ? { name } : { name, order }));
+    const adapters = specs.map(([name]) => fakeAdapter({ name, slot: name }));
+    return { slots, adapters };
+  }
+
+  test('equal-order checks in one wave overlap (intra-group concurrency)', async () => {
+    const { slots, adapters } = fixture([['a'], ['b']]); // both default 'any' → one wave
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 2, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.maxInFlight()).toBe(2); // both were in flight at once
+  });
+
+  test('concurrency: 1 serializes an otherwise-concurrent wave', async () => {
+    const { slots, adapters } = fixture([['a'], ['b']]);
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 1, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.maxInFlight()).toBe(1);
+    expect(rec.events).toEqual(['start:a', 'end:a', 'start:b', 'end:b']);
+  });
+
+  test('a barrier sits between distinct numeric values', async () => {
+    const { slots, adapters } = fixture([['a', 1], ['b', 2]]);
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    // Even with room to overlap, wave 2 waits for wave 1 to fully drain.
+    expect(rec.maxInFlight()).toBe(1);
+    expect(rec.events).toEqual(['start:a', 'end:a', 'start:b', 'end:b']);
+  });
+
+  test('decimal steps within a wave run sequentially (1 → 1.1 → 1.2)', async () => {
+    const { slots, adapters } = fixture([['c', 1.2], ['a', 1], ['b', 1.1]]); // deliberately unsorted
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.maxInFlight()).toBe(1);
+    expect(rec.events).toEqual(['start:a', 'end:a', 'start:b', 'end:b', 'start:c', 'end:c']);
+  });
+
+  test("a 'single' runs with nothing else in flight, after the numeric line", async () => {
+    const { slots, adapters } = fixture([['a'], ['b'], ['m', 'single']]);
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    // The single is the final wave; its start/end bracket the tail with nothing between.
+    expect(rec.events.slice(-2)).toEqual(['start:m', 'end:m']);
+    expect(rec.events.indexOf('start:m')).toBeGreaterThan(rec.events.indexOf('end:a'));
+    expect(rec.events.indexOf('start:m')).toBeGreaterThan(rec.events.indexOf('end:b'));
+  });
+
+  test('two singles run one at a time, in catalogue order', async () => {
+    const { slots, adapters } = fixture([['m1', 'single'], ['m2', 'single']]);
+    const rec = schedulingRunner();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.maxInFlight()).toBe(1);
+    expect(rec.events).toEqual(['start:m1', 'end:m1', 'start:m2', 'end:m2']);
+  });
+
+  test('summary array order is deterministic under randomized completion', async () => {
+    const { slots, adapters } = fixture([['a'], ['b'], ['c'], ['d']]); // one 'any' wave
+    // Completion order is the reverse of selection order (d finishes first).
+    const rec = delayedRunner({ a: 40, b: 30, c: 20, d: 10 });
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.endOrder).toEqual(['d', 'c', 'b', 'a']); // they really did finish reversed
+    expect(result.summary.checks.map((c) => c.name)).toEqual(['a', 'b', 'c', 'd']); // report stays in order
+  });
+
+  test('--bail runs fail-fast and sequential, stopping at the first failure', async () => {
+    const { slots, adapters } = fixture([['a'], ['b'], ['c']]); // all 'any'
+    const rec = schedulingRunner({ fail: ['b'] });
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, bail: true, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.maxInFlight()).toBe(1); // never overlapped despite --concurrency 4
+    expect(rec.events).toEqual(['start:a', 'end:a', 'start:b', 'end:b']); // c never started
+    expect(result.summary.checks.map((c) => c.name)).toEqual(['a', 'b']);
+  });
+
+  test('--bail with --concurrency > 1 notes that concurrency was ignored', async () => {
+    const { slots, adapters } = fixture([['a']]);
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, bail: true, concurrency: 4, runner: okRunner, json: false,
+      stdout: sink().out, stderr: std.out,
+    });
+    expect(std.lines.join('')).toContain('--concurrency ignored under --bail');
+  });
+
+  test('firsts precede, and lasts follow, the numeric line', async () => {
+    const { slots, adapters } = fixture([['n', 10], ['z', 'last'], ['a', 'first']]);
+    const rec = schedulingRunner();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(rec.events).toEqual(['start:a', 'end:a', 'start:n', 'end:n', 'start:z', 'end:z']);
+    expect(result.summary.checks.map((c) => c.name)).toEqual(['a', 'n', 'z']);
   });
 });
 
@@ -402,6 +568,41 @@ describe('runChecks (real subprocess)', () => {
     const euro = Buffer.from([0xE2, 0x82, 0xAC]).toString('utf8'); // the intact character, ASCII-defined here
     expect(await readFile(join(dir, '.check', 'euro.stdout.txt'), 'utf8')).toBe(euro);
   });
+
+  test('reaps two concurrent checks on timeout — both grandchildren die (C6)', async () => {
+    // Two checks in one 'any' wave with concurrency 2 are in flight together;
+    // each spawns a long-lived grandchild then hangs. The per-check timeout +
+    // process-group kill must reap BOTH trees — the kill layer already supports
+    // N simultaneous groups (C6), and the scheduler must not weaken it.
+    const setup = async (tag: string): Promise<{ adapter: Adapter; pidFile: string }> => {
+      const pidFile = join(dir, `${tag}.gc.pid`);
+      await writeFile(
+        join(dir, `${tag}.gc.js`),
+        `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      );
+      await writeFile(
+        join(dir, `${tag}.wrap.js`),
+        `require('node:child_process').spawn(process.execPath, [${JSON.stringify(join(dir, `${tag}.gc.js`))}], { stdio: 'ignore' }); setInterval(() => {}, 1000);`,
+      );
+      return { adapter: fakeAdapter({ name: tag, slot: tag, command: 'node', args: [join(dir, `${tag}.wrap.js`)] }), pidFile };
+    };
+    const one = await setup('one');
+    const two = await setup('two');
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'one' }, { name: 'two' }], adapters: [one.adapter, two.adapter],
+      config: { timeout: 1 }, concurrency: 2, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.every((c) => c.exit_code === -1)).toBe(true);
+
+    await new Promise((r) => setTimeout(r, 200)); // let the group signals propagate to the grandchildren
+    for (const pidFile of [one.pidFile, two.pidFile]) {
+      // oxlint-disable-next-line no-await-in-loop -- two sequential reads; the assertion order does not matter.
+      const gcPid = Number(await readFile(pidFile, 'utf8'));
+      const alive = isAlive(gcPid);
+      if (alive) process.kill(gcPid, 'SIGKILL'); // safety net: never leak an orphan if this regresses
+      expect(alive).toBe(false);
+    }
+  }, 20_000);
 });
 
 describe('runChecks (vacuous green)', () => {
@@ -695,6 +896,9 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
     // Without the latch, the run loop — resumed by the killed first check's
     // outcome — would spawn the second check between cleanup and the CLI's
     // re-raise, creating exactly the orphan the cleanup exists to prevent.
+    // `concurrency: 1` makes the two checks genuinely sequential, so `second` is
+    // a queued successor (not a concurrent sibling that would have already
+    // spawned) — the latch is precisely what must stop it starting.
     const orch = await freshOrchestrator();
     const marker = join(dir, 'first.started');
     const sentinel = join(dir, 'second.ran');
@@ -709,7 +913,7 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
     });
     const running = orch.runChecks({
       cwd: dir, slots: [{ name: 'first' }, { name: 'second' }], adapters: [first, second], config: null,
-      json: true, stdout: sink().out, stderr: sink().out,
+      concurrency: 1, json: true, stdout: sink().out, stderr: sink().out,
     });
     await waitFor(marker);
     await orch.killLiveChecks();

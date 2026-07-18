@@ -9,10 +9,11 @@
 
 import { spawn } from 'node:child_process';
 import { mkdir, rm } from 'node:fs/promises';
+import { cpus } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import type { Adapter, Slot } from './adapters.js';
+import type { Adapter, Order, Slot } from './adapters.js';
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
 import { writeFileAtomic } from './atomic.js';
 import type { Baseline, Fingerprint } from './baseline/index.js';
@@ -55,6 +56,13 @@ export type RunFlags = {
    * exploring a fresh repo keeps the default warning-only behavior.
    */
   strict?: boolean;
+  /**
+   * Max checks running at once within a wave (equal-`order` group). Omitted →
+   * {@link defaultConcurrency}; `1` runs the whole pipeline sequentially. Ignored
+   * under `--bail`, which is fail-fast sequential by definition (D6) — a
+   * `> 1` value passed alongside `--bail` earns a one-line stderr note.
+   */
+  concurrency?: number;
 };
 
 /** A single check in the aggregate report. */
@@ -178,6 +186,16 @@ export function runtimeArgs(adapter: Adapter, changed: boolean): string[] {
  * disables the cap.
  */
 export const DEFAULT_TIMEOUT_SECONDS = 600;
+
+/**
+ * Default pool width for a wave (equal-`order` group): `min(4, max(1, cores −
+ * 1))` (D5). Heavy checks (test, mutation, build) parallelize internally, so
+ * oversubscribing every core is worse than a conservative cap; one reserved
+ * core keeps the machine responsive. Override with `--concurrency`.
+ */
+export function defaultConcurrency(): number {
+  return Math.min(4, Math.max(1, cpus().length - 1));
+}
 
 /** Grace between SIGTERM and SIGKILL when a timed-out check won't die politely. */
 const KILL_GRACE_SECONDS = 5;
@@ -389,13 +407,19 @@ function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
   };
 }
 
-function buildSummary(checks: SummaryCheck[]): Summary {
+/**
+ * `total_duration_ms` is the wall-clock span of the whole execution phase (D7),
+ * not the sum of per-check durations — under concurrency those diverge, and
+ * wall-clock is what the field honestly means. It equals the old sum whenever
+ * execution is sequential (one check in flight at a time).
+ */
+function buildSummary(checks: SummaryCheck[], totalDurationMs: number): Summary {
   return {
     schema_version: SCHEMA_VERSION,
     timestamp: new Date().toISOString(),
     ok: checks.every((c) => c.ok),
     checks_run: checks.filter((c) => !c.skipped).length,
-    total_duration_ms: checks.reduce((sum, c) => sum + c.duration_ms, 0),
+    total_duration_ms: totalDurationMs,
     checks,
   };
 }
@@ -481,6 +505,8 @@ type RunContext = CommonContext & {
   timeout: number | undefined;
   pm: PackageManager;
   baseline: Baseline | null;
+  /** Effective wave pool width (see {@link defaultConcurrency}); unused under `bail`. */
+  concurrency: number;
 };
 
 /** Apply every run default: the common options plus runner, flags, PM, and baseline. */
@@ -495,6 +521,7 @@ function resolveRunContext(options: RunOptions): RunContext {
     timeout: common.config?.timeout,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
     baseline: options.baseline !== undefined ? options.baseline : loadBaseline(common.cwd),
+    concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),
   };
 }
 
@@ -580,50 +607,165 @@ async function runOneCheck(
 }
 
 /**
- * Process one selected check into the accumulators. Returns `true` when `--bail`
- * should stop the loop (the check failed and `bail` is on). A skipped/unavailable
- * slot records a skip row; an active one runs, records its row + raw run, and
- * observes its fingerprint for the ratchet.
+ * One selected check's result, decoupled from where it lands in the report. The
+ * scheduler runs checks concurrently, so a check can't push itself onto shared
+ * accumulators as it finishes — that would order the report by completion, not by
+ * the deterministic D1 sequence. Instead each yields this and the caller
+ * assembles the report in `selected` order.
  */
-async function processCheck(
-  r: ResolvedCheck,
-  ctx: RunContext,
-  checks: SummaryCheck[],
-  runs: CheckRun[],
-  observed: Map<string, Fingerprint>,
-): Promise<boolean> {
+type CheckResult = {
+  entry: SummaryCheck;
+  /** The raw run (for the ratchet + digest); null for a skipped slot. */
+  run: CheckRun | null;
+  /** Fingerprint to feed the ratchet, keyed by slot; null when nothing was observed. */
+  observed: { slot: string; fp: Fingerprint } | null;
+};
+
+/**
+ * Run one selected check to a {@link CheckResult} — the concurrency-safe core
+ * shared by the sequential (`--bail`) and wave paths. A skipped/unavailable slot
+ * records a skip row and runs nothing; an active one runs, prints its status
+ * line, and reports its fingerprint for the ratchet. It mutates no shared state,
+ * so N of these can be in flight at once (C6).
+ */
+async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<CheckResult> {
   // Skip when unresolved, or when the adapter can't run under this PM — e.g.
   // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
   const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
   if (r.skip || !r.adapter || unavailable) {
-    checks.push(handleSkip(r, unavailable, ctx.pm, ctx.json, ctx.stderr));
-    return false;
+    return { entry: handleSkip(r, unavailable, ctx.pm, ctx.json, ctx.stderr), run: null, observed: null };
   }
   const { entry, run, mask } = await runOneCheck(r, r.adapter, ctx);
-  runs.push(run);
-  if (mask.observed !== null) observed.set(r.slot, mask.observed);
-  checks.push(entry);
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask);
-  return !entry.ok && ctx.bail;
+  return { entry, run, observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null };
 }
 
-/** Run the selected checks in order, collecting rows, raw runs, observed fingerprints, and `--bail` state. */
-async function executeChecks(
-  selected: readonly ResolvedCheck[],
-  ctx: RunContext,
-): Promise<{ checks: SummaryCheck[]; runs: CheckRun[]; observed: Map<string, Fingerprint>; brokeEarly: boolean }> {
-  const checks: SummaryCheck[] = [];
-  const runs: CheckRun[] = [];
-  // Per-slot current fingerprints for slots actually observed this run.
-  const observed = new Map<string, Fingerprint>();
-  for (const r of selected) {
-    // Checks run strictly in cheapest-first order and `--bail` must stop at the
-    // first failure, so this stays sequential — one awaited step per check.
-    // oxlint-disable-next-line no-await-in-loop -- sequential by design: cheapest-first ordering, --bail stops at the first failure, and the ratchet observes slots in order.
-    const brokeEarly = await processCheck(r, ctx, checks, runs, observed);
-    if (brokeEarly) return { checks, runs, observed, brokeEarly: true };
+/** The run accumulators every execution path fills. */
+type Execution = {
+  checks: SummaryCheck[];
+  runs: CheckRun[];
+  observed: Map<string, Fingerprint>;
+  brokeEarly: boolean;
+};
+
+/** Fold one result into the report accumulators, in call order. */
+function collect(res: CheckResult, acc: Execution): void {
+  acc.checks.push(res.entry);
+  if (res.run) acc.runs.push(res.run);
+  if (res.observed) acc.observed.set(res.observed.slot, res.observed.fp);
+}
+
+/** A fresh, empty {@link Execution}. */
+function emptyExecution(brokeEarly = false): Execution {
+  return { checks: [], runs: [], observed: new Map(), brokeEarly };
+}
+
+/**
+ * Scheduling coordinates for a check on D1's line: the group `rank` (firsts 0, the
+ * numeric line 1, singles 2, lasts 3) and its position on the numeric line
+ * (`'any'`/`'middle'` sit at 0 — v1's conservative placement). This must agree
+ * with `config.ts`'s group sort, which already put `selected` in exactly this
+ * sequence; here it only re-derives the wave *boundaries* the sort collapsed.
+ */
+const SINGLE_RANK = 2;
+function scheduleGroup(order: Order): { rank: number; line: number } {
+  if (order === 'first') return { rank: 0, line: 0 };
+  if (order === 'single') return { rank: SINGLE_RANK, line: 0 };
+  if (order === 'last') return { rank: 3, line: 0 };
+  return { rank: 1, line: typeof order === 'number' ? order : 0 };
+}
+
+/**
+ * Split the already-sorted `selected` into execution waves: the `'first'` group,
+ * each distinct numeric value, and the `'last'` group each become one concurrent
+ * wave, with a barrier between waves; every `'single'` is its own wave so it runs
+ * with nothing else in flight. Adjacent items share a wave only when their (rank,
+ * line) match and neither is a single.
+ */
+function partitionWaves<T extends { r: ResolvedCheck }>(items: readonly T[]): T[][] {
+  const waves: T[][] = [];
+  let current: T[] = [];
+  let prev: { rank: number; line: number } | null = null;
+  for (const item of items) {
+    const g = scheduleGroup(item.r.order ?? 'any');
+    const sameWave = prev !== null && prev.rank === g.rank && prev.line === g.line && g.rank !== SINGLE_RANK;
+    if (!sameWave && current.length > 0) {
+      waves.push(current);
+      current = [];
+    }
+    current.push(item);
+    prev = g;
   }
-  return { checks, runs, observed, brokeEarly: false };
+  if (current.length > 0) waves.push(current);
+  return waves;
+}
+
+/**
+ * Run `items` through a pool `width` workers wide: each worker pulls the next
+ * item until the queue drains, so at most `width` run at once. Concurrency is the
+ * worker count; each worker still processes its own items one at a time. `width`
+ * is clamped to at least 1 and never exceeds the item count.
+ */
+async function runPool<T>(items: readonly T[], width: number, worker: (item: T) => Promise<void>): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const runWorker = async (): Promise<void> => {
+    while (next < items.length) {
+      const item = items[next];
+      next += 1;
+      if (item === undefined) continue;
+      // oxlint-disable-next-line no-await-in-loop -- a worker processes its items in sequence; concurrency is the `width` workers running this loop at once.
+      await worker(item);
+    }
+  };
+  const workers = Array.from({ length: Math.max(1, Math.min(width, items.length)) }, () => runWorker());
+  await Promise.all(workers);
+}
+
+/**
+ * `--bail`: the flat sequential path (D6). Checks run one at a time in D1's group
+ * order and the run stops at the first *executed* failure — fail-fast is
+ * incompatible with already-launched concurrent work, so `--concurrency` is moot
+ * here (the caller notes it if one was passed). For the default set (all `'any'`)
+ * this is exactly today's cheapest-first order.
+ */
+async function executeBail(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
+  const acc = emptyExecution();
+  for (const r of selected) {
+    // oxlint-disable-next-line no-await-in-loop -- --bail is fail-fast: checks run one at a time so the run can stop at the first failure (D6).
+    const res = await runSelectedCheck(r, ctx);
+    collect(res, acc);
+    if (res.run && !res.entry.ok) return { ...acc, brokeEarly: true };
+  }
+  return acc;
+}
+
+/**
+ * The wave scheduler (D1): run each wave's members concurrently through the pool,
+ * with a barrier between waves. Results are placed by their `selected` index and
+ * assembled in that order afterwards, so the report is deterministic regardless
+ * of which check finishes first (D7). Every selected check runs — there is no
+ * early stop off the `--bail` path.
+ */
+async function executeWaves(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
+  const indexed = selected.map((r, i) => ({ r, i }));
+  const results = Array.from<CheckResult | undefined>({ length: selected.length });
+  for (const wave of partitionWaves(indexed)) {
+    // oxlint-disable-next-line no-await-in-loop -- the between-values barrier (D1): a wave runs to completion before the next distinct order value begins.
+    await runPool(wave, ctx.concurrency, async ({ r, i }) => { results[i] = await runSelectedCheck(r, ctx); });
+  }
+  const acc = emptyExecution();
+  for (const res of results) if (res) collect(res, acc);
+  return acc;
+}
+
+/**
+ * Run the selected checks, collecting rows, raw runs, observed fingerprints, and
+ * `--bail` state. `--bail` takes the flat sequential path; every other run waves
+ * on the effective `order` through a bounded pool.
+ */
+function executeChecks(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
+  return ctx.bail ? executeBail(selected, ctx) : executeWaves(selected, ctx);
 }
 
 /**
@@ -698,11 +840,23 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const selected = selectChecks(resolved, options);
   if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
 
+  // `--bail` is fail-fast sequential (D6); a `--concurrency > 1` passed alongside
+  // is safe but moot, so say so once — not a usage error, the run just goes slow.
+  if (ctx.bail && (options.concurrency ?? 0) > 1 && !ctx.json) {
+    writeLine(ctx.stderr, '--concurrency ignored under --bail (fail-fast runs sequentially).');
+  }
+
+  // `total_duration_ms` is wall-clock of the execution phase (D7), so measure
+  // around it rather than summing per-check durations (which diverge under
+  // concurrency). The report array is assembled in `selected` order, not
+  // completion order, so it stays byte-reproducible regardless of interleaving.
+  const startedAt = performance.now();
   const { checks, runs, observed, brokeEarly } = await executeChecks(selected, ctx);
+  const totalDurationMs = Math.round(performance.now() - startedAt);
 
   await maybeRatchet(ctx.cwd, ctx.baseline, observed, isPartialRun(options, ctx.changed, brokeEarly), ctx.json, ctx.stderr);
 
-  const summary = buildSummary(checks);
+  const summary = buildSummary(checks, totalDurationMs);
   await writeFileAtomic(join(ctx.cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
