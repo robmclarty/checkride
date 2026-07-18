@@ -12,6 +12,9 @@ const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8'
 const OXLINT = read('baseline-oxlint.json');
 const AST_GREP = read('baseline-ast-grep.json');
 const CSPELL = read('baseline-cspell.txt');
+const FALLOW_DEAD = read('baseline-fallow-dead-code.json');
+const FALLOW_DUPES = read('baseline-fallow-dupes.json');
+const FALLOW_HEALTH = read('baseline-fallow-health.json');
 
 /** Reverse a JSON array, or a named array field of a JSON object, in place. */
 function reversedJson(raw: string, field?: string): string {
@@ -52,6 +55,23 @@ describe('fingerprint — extraction', () => {
         'src/init.ts::Unknown word (cspell)',
       ]),
     );
+  });
+
+  test('fallow dead-code keys on category + file + symbol (v7)', () => {
+    expect(fingerprint('fallow', FALLOW_DEAD)).toEqual(
+      new Set([
+        'dead-code:unused_files:src/unused.ts',
+        'dead-code:unused_exports:src/extras.ts:extraExport',
+      ]),
+    );
+  });
+
+  test('fallow dupes keys on the clone-group content fingerprint (v7)', () => {
+    expect(fingerprint('fallow', FALLOW_DUPES)).toEqual(new Set(['dupes:dup:0d3e33a3']));
+  });
+
+  test('fallow health keys on file + function name (v7)', () => {
+    expect(fingerprint('fallow', FALLOW_HEALTH)).toEqual(new Set(['health:src/complex.ts:tangled']));
   });
 });
 
@@ -95,8 +115,8 @@ describe('fingerprint — support boundary', () => {
   });
 
   test('an adapter with no extractor returns null (baseline unsupported)', () => {
-    // fallow sits out for now (a4); alternates and non-diagnostic slots too.
-    for (const adapter of ['fallow', 'knip', 'biome', 'eslint', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
+    // Alternates and non-diagnostic slots sit out (fallow is supported — below).
+    for (const adapter of ['knip', 'biome', 'eslint', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
       expect(fingerprint(adapter, '[]')).toBeNull();
     }
   });

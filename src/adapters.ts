@@ -50,6 +50,14 @@ export type Adapter = {
   timeout?: number;
   /** In-process check id (e.g. `'links'`); when set, the orchestrator runs it directly. */
   builtin?: string;
+  /**
+   * When set, checkride derives this adapter's pass/fail from its parsed JSON
+   * output instead of its process exit code. Only `'fallow'` today: fallow's
+   * exit code doesn't reliably gate (combined mode and `dupes` exit 0 even with
+   * findings), so the verdict is read from the report's issue count — see
+   * `baseline/fallow.ts`. The exit code is still recorded in the report.
+   */
+  gate?: 'fallow';
   /** Pinned versions `init` writes into package.json. */
   devDeps: Record<string, string>;
 };
@@ -61,6 +69,8 @@ export const SLOTS: readonly Slot[] = [
   { name: 'lint' },
   { name: 'struct' },
   { name: 'dead' },
+  { name: 'dupes', optIn: true },
+  { name: 'health', optIn: true },
   { name: 'test' },
   { name: 'docs' },
   { name: 'links' },
@@ -177,13 +187,17 @@ export const ADAPTERS: readonly Adapter[] = [
   {
     name: 'fallow',
     slot: 'dead',
-    description: 'Fallow: dead code, cycles, duplication, boundaries, complexity',
+    description: 'Fallow: unused code, cycles, and boundary violations (dead-code)',
     detect: ['fallow.toml'],
     command: 'pnpm',
-    args: ['exec', 'fallow', '--format', 'json'],
+    // Per-analysis subcommand, not combined `fallow`: only the subcommands emit a
+    // single-kind report, and checkride reads the issue count out of it to gate
+    // (fallow's own exit code is unreliable — see `gate` and `baseline/fallow.ts`).
+    args: ['exec', 'fallow', 'dead-code', '--format', 'json', '--quiet'],
     outputFile: 'dead.json',
+    gate: 'fallow',
     fixArgs: ['exec', 'fallow', 'fix'],
-    devDeps: { fallow: '2.48.0' },
+    devDeps: { fallow: '3.5.0' },
   },
   {
     name: 'knip',
@@ -195,6 +209,28 @@ export const ADAPTERS: readonly Adapter[] = [
     outputFile: 'dead.json',
     fixArgs: ['exec', 'knip', '--fix'],
     devDeps: { knip: '5.64.0' },
+  },
+  {
+    name: 'fallow',
+    slot: 'dupes',
+    description: 'Fallow: code duplication (clones)',
+    detect: ['fallow.toml'],
+    command: 'pnpm',
+    args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
+    outputFile: 'dupes.json',
+    gate: 'fallow',
+    devDeps: { fallow: '3.5.0' },
+  },
+  {
+    name: 'fallow',
+    slot: 'health',
+    description: 'Fallow: complexity & maintainability (health)',
+    detect: ['fallow.toml'],
+    command: 'pnpm',
+    args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
+    outputFile: 'health.json',
+    gate: 'fallow',
+    devDeps: { fallow: '3.5.0' },
   },
   {
     name: 'vitest',

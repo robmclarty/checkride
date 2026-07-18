@@ -7,6 +7,7 @@
 
 export type { Extractor, Fingerprint } from './fingerprint.js';
 export { fingerprint, isFingerprintable } from './fingerprint.js';
+export { fallowVerdict } from './fallow.js';
 export type { Baseline, BaselineAdjustment } from './store.js';
 export {
   applyBaseline,

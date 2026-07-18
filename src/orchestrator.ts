@@ -21,6 +21,7 @@ import {
   BASELINE_FILE,
   baselinesEqual,
   countBaselineKeys,
+  fallowVerdict,
   fingerprint,
   loadBaseline,
   ratchet,
@@ -496,11 +497,22 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     let ok = outcome.ok;
     let baselined = 0;
     let newKeys: string[] = [];
-    const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
-    if (baseline && current !== null) {
-      observed.set(r.slot, current);
-      const adj = applyBaseline(current, baseline.slots[r.slot] ?? [], outcome.ok);
-      ({ ok, baselined, newKeys } = adj);
+    let reason: string | null = null;
+    if (adapter.gate === 'fallow') {
+      // checkride owns fallow's verdict: its exit code doesn't reliably gate, so
+      // pass/fail comes from the parsed issue count (an unreadable report fails
+      // loudly). `observed` only when the report parsed — never ratchet away a
+      // baseline from a run whose findings we couldn't read.
+      const v = fallowVerdict(outcome.stdout, baseline ? (baseline.slots[r.slot] ?? []) : null);
+      ({ ok, baselined, newKeys, reason } = v);
+      if (v.observed) observed.set(r.slot, v.findings);
+    } else {
+      const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
+      if (baseline && current !== null) {
+        observed.set(r.slot, current);
+        const adj = applyBaseline(current, baseline.slots[r.slot] ?? [], outcome.ok);
+        ({ ok, baselined, newKeys } = adj);
+      }
     }
 
     const entry: SummaryCheck = {
@@ -517,6 +529,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     if (!json) {
       writeLine(stderr, formatStatusLine(entry));
       if (baselined > 0) writeLine(stderr, `           ${baselined} baselined (grandfathered)`);
+      if (!ok && reason) writeLine(stderr, `           ${reason}`);
       if (!ok && newKeys.length > 0) {
         writeLine(stderr, `           ${newKeys.length} new, not in baseline:`);
         for (const k of newKeys) writeLine(stderr, `             ${k}`);

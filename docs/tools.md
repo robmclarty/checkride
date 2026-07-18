@@ -57,7 +57,9 @@ present (built-in checks always run). The default tool per slot:
 | `format` | `prettier` (opt-in) | `pnpm add -D prettier` | `.prettierrc.json` |
 | `lint` | `oxlint` | `pnpm add -D oxlint oxlint-tsgolint` | `.oxlintrc.json` |
 | `struct` | `ast-grep` | `pnpm add -D @ast-grep/cli` | `sgconfig.yml` |
-| `dead` | `fallow` | `pnpm add -D fallow` | `fallow.toml` |
+| `dead` | `fallow` (dead-code) | `pnpm add -D fallow` | `fallow.toml` |
+| `dupes` | `fallow` (duplication, opt-in) | `pnpm add -D fallow` | `fallow.toml` |
+| `health` | `fallow` (complexity, opt-in) | `pnpm add -D fallow` | `fallow.toml` |
 | `test` | `vitest` | `pnpm add -D vitest @vitest/coverage-v8` | `vitest.config.ts` |
 | `docs` | `markdownlint-cli2` | `pnpm add -D markdownlint-cli2` | `.markdownlint-cli2.jsonc` |
 | `links` | built-in | — (always available) | — |
@@ -73,7 +75,43 @@ ships in `@arethetypeswrong/cli`.
 
 And `fallow`, the one unfamiliar name in the table: a Rust-native
 codebase-intelligence tool (unused code, duplication, circular dependencies,
-complexity hotspots, architecture drift) that fills the `dead` slot.
+complexity hotspots, architecture drift). checkride splits it across three slots
+so each analysis gates and baselines on its own:
+
+| Slot | fallow analysis | Default? |
+| ---- | --------------- | -------- |
+| `dead` | `fallow dead-code` — unused code, cycles, boundary violations | on (when `fallow.toml` present) |
+| `dupes` | `fallow dupes` — code duplication (clones) | opt-in |
+| `health` | `fallow health` — function complexity / maintainability | opt-in |
+
+`dupes` and `health` are **opt-in** (like `format`) so adopting checkride never
+fails a repo on duplication or complexity it never signed up for. Enable them by
+naming them in `checkride.config.json` (`"dupes": "fallow"`) or with `--include
+dupes,health` / `--all`. All three share the one `fallow.toml`.
+
+**checkride owns the pass/fail decision for fallow.** Unlike every other slot —
+where the tool's exit code is the verdict — checkride reads fallow's JSON and
+gates on the issue count. That is deliberate: fallow's JSON/combined modes exit
+`0` even with findings (and `fallow dupes` never fails on its own), so keying off
+the exit code would let a green ✔ hide real issues. Reading the count gates all
+three analyses uniformly, and an **unrecognized report fails loudly** rather than
+passing silently.
+
+This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.5.0`.
+An older fallow (2.x emitted `schema_version` 4) fails the slot with an explicit
+"unsupported schema_version" message — upgrade with `pnpm up fallow`.
+
+Baselines work two ways, and you can use either:
+
+- **checkride's own baseline** (`checkride baseline`) fingerprints each fallow
+  finding (kind + file + symbol) into `checkride.baseline.json`, grandfathering
+  today's findings so only *new* ones fail. This is the same baseline that covers
+  `lint`/`struct`/`spell`, and it ratchets: a fixed finding is dropped on the
+  next full run.
+- **fallow's native suppression baseline** (`fallow dead-code --save-baseline
+  <file>`, then gate with `--baseline <file>`) is an alternative if you prefer
+  fallow to own the grandfathering. Prefer `--save-baseline` (exact-finding
+  suppression) over the count-based `--save-regression-baseline`.
 
 One number people go looking for: the `test` slot's coverage thresholds live in
 `vitest.config.ts` (`test.coverage.thresholds` — the scaffold sets 70 across

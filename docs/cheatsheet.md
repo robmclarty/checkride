@@ -24,7 +24,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--bail` | Stop at the first failing check. |
 | `--only <a,b>` | Run only the named slots. |
 | `--skip <a,b>` | Run everything except the named slots. |
-| `--include <a,b>` | Add opt-in slots (`format`, `mutation`, `security`, `publint`, `attw`) to the default run. |
+| `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `mutation`, `security`, `publint`, `attw`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |

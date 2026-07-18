@@ -125,7 +125,9 @@ generates config for the blessed default.
 | `format`   | Formatting (opt-in)                    | `prettier`          | `biome`          |
 | `lint`     | Linting                                | `oxlint`            | `biome`, `eslint`|
 | `struct`   | Structural rules (deep modules)        | `ast-grep`          | —                |
-| `dead`     | Dead code, deps, cycles, boundaries    | `fallow`            | `knip`           |
+| `dead`     | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
+| `dupes`    | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
+| `health`   | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
 | `test`     | Tests + coverage                       | `vitest`            | `jest`           |
 | `docs`     | Markdown lint                          | `markdownlint-cli2` | —                |
 | `links`    | Relative markdown links resolve        | built-in            | —                |
@@ -355,9 +357,10 @@ after adopting a stricter rule set) and read the `checkride.baseline.json`
 diff in the PR like code.
 
 Only slots whose tool has a fingerprint extractor participate (currently `lint` via
-oxlint, `struct` via ast-grep, `spell` via cspell); other slots (`types`, `dead`,
-`test`, …) never appear in the baseline. A crash or empty output is never masked —
-a slot only goes green when there are findings and all of them are grandfathered.
+oxlint, `struct` via ast-grep, `spell` via cspell, and the fallow slots `dead`/`dupes`/
+`health`); other slots (`types`, `test`, …) never appear in the baseline. A crash or
+empty output is never masked — a slot only goes green when there are findings and all
+of them are grandfathered.
 
 To adopt on an existing repo, `checkride init --baseline` grandfathers today's
 failing (fingerprintable) slots into the baseline and keeps them enabled, instead of

@@ -12,11 +12,13 @@
  * owns its own key string, the raw `.check/<slot>.json` stays authoritative, and
  * an adapter whose output isn't a stable diagnostic set simply has no extractor
  * and returns `null` — baseline is unsupported for that slot, decided
- * per-adapter against real fixtures (D12), not from an up-front list. Step 4
- * ships extractors for the blessed lint/struct/spell adapters (oxlint, ast-grep,
- * cspell); fallow's cross-file findings (cycles, duplication) sit out for now
- * (a4) and can gain a composite-key extractor later without touching this seam.
+ * per-adapter against real fixtures (D12), not from an up-front list. Extractors
+ * ship for the blessed lint/struct/spell adapters (oxlint, ast-grep, cspell) and
+ * for fallow's three analyses (dead-code, dupes, health — see `./fallow.ts`,
+ * which also owns fallow's gating verdict).
  */
+
+import { fallowFindings } from './fallow.js';
 
 /** A stable, order-independent set of diagnostic keys for one adapter's output. */
 export type Fingerprint = ReadonlySet<string>;
@@ -103,6 +105,10 @@ const EXTRACTORS: Readonly<Record<string, Extractor>> = {
   oxlint: extractOxlint,
   'ast-grep': extractAstGrep,
   cspell: extractCspell,
+  // One `fallow` adapter fills all three fallow slots (dead/dupes/health); its
+  // extractor dispatches on the report's `kind`, so a single registration serves
+  // every slot. See `./fallow.ts`.
+  fallow: fallowFindings,
 };
 
 /**

@@ -1,0 +1,215 @@
+{
+  "kind": "health",
+  "schema_version": 7,
+  "version": "3.5.0",
+  "elapsed_ms": 17,
+  "findings": [
+    {
+      "path": "src/complex.ts",
+      "name": "tangled",
+      "line": 1,
+      "col": 7,
+      "cyclomatic": 8,
+      "cognitive": 18,
+      "line_count": 9,
+      "param_count": 1,
+      "exceeded": "cognitive_crap",
+      "severity": "high",
+      "crap": 72.0,
+      "coverage_tier": "none",
+      "coverage_source": "estimated",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `tangled` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `tangled` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Consider splitting into smaller functions with single responsibilities"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "files_analyzed": 6,
+    "functions_analyzed": 5,
+    "functions_above_threshold": 1,
+    "max_cyclomatic_threshold": 20,
+    "max_cognitive_threshold": 15,
+    "max_crap_threshold": 30.0,
+    "max_unit_size_threshold": 60,
+    "files_scored": 5,
+    "average_maintainability": 94.6,
+    "coverage_model": "static_estimated",
+    "coverage_source_consistency": "uniform",
+    "severity_critical_count": 0,
+    "severity_high_count": 1,
+    "severity_moderate_count": 0
+  },
+  "vital_signs": {
+    "dead_file_pct": 16.7,
+    "dead_export_pct": 0.0,
+    "avg_cyclomatic": 2.4,
+    "critical_complexity_pct": 0.0,
+    "p90_cyclomatic": 8,
+    "duplication_pct": 59.3,
+    "hotspot_count": 0,
+    "hotspot_top_pct_count": 0,
+    "maintainability_avg": 94.6,
+    "maintainability_low_pct": 0.0,
+    "unused_dep_count": 0,
+    "unused_deps_per_k_files": 0.0,
+    "circular_dep_count": 0,
+    "circular_deps_per_k_files": 0.0,
+    "counts": {
+      "total_files": 6,
+      "total_exports": 7,
+      "dead_files": 1,
+      "dead_exports": 0,
+      "duplicated_lines": 16,
+      "total_lines": 43,
+      "files_scored": 5,
+      "total_deps": 0
+    },
+    "unit_size_profile": {
+      "low_risk": 100.0,
+      "medium_risk": 0.0,
+      "high_risk": 0.0,
+      "very_high_risk": 0.0
+    },
+    "functions_over_60_loc_per_k": 0.0,
+    "unit_interfacing_profile": {
+      "low_risk": 100.0,
+      "medium_risk": 0.0,
+      "high_risk": 0.0,
+      "very_high_risk": 0.0
+    },
+    "p95_fan_in": 1,
+    "coupling_high_pct": 0.0,
+    "total_loc": 43
+  },
+  "health_score": {
+    "formula_version": 2,
+    "score": 86.7,
+    "grade": "A",
+    "penalties": {
+      "dead_files": 3.3,
+      "dead_exports": 0.0,
+      "complexity": 0.0,
+      "p90_complexity": 0.0,
+      "maintainability": 0.0,
+      "hotspots": 0.0,
+      "unused_deps": 0.0,
+      "circular_deps": 0.0,
+      "unit_size": 0.0,
+      "coupling": 0.0,
+      "duplication": 10.0
+    }
+  },
+  "file_scores": [
+    {
+      "path": "src/complex.ts",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0.0,
+      "complexity_density": 0.8,
+      "maintainability_index": 95.2,
+      "total_cyclomatic": 8,
+      "total_cognitive": 18,
+      "function_count": 1,
+      "lines": 10,
+      "crap_max": 72.0,
+      "crap_above_threshold": 1
+    },
+    {
+      "path": "src/unused.ts",
+      "fan_in": 0,
+      "fan_out": 0,
+      "dead_code_ratio": 1.0,
+      "complexity_density": 0.2,
+      "maintainability_index": 79.4,
+      "total_cyclomatic": 1,
+      "total_cognitive": 0,
+      "function_count": 1,
+      "lines": 5,
+      "crap_max": 2.0,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/dupeA.ts",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0.0,
+      "complexity_density": 0.1,
+      "maintainability_index": 99.4,
+      "total_cyclomatic": 1,
+      "total_cognitive": 0,
+      "function_count": 1,
+      "lines": 10,
+      "crap_max": 2.0,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/dupeB.ts",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0.0,
+      "complexity_density": 0.1,
+      "maintainability_index": 99.4,
+      "total_cyclomatic": 1,
+      "total_cognitive": 0,
+      "function_count": 1,
+      "lines": 10,
+      "crap_max": 2.0,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/used.ts",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0.0,
+      "complexity_density": 0.5,
+      "maintainability_index": 99.4,
+      "total_cyclomatic": 1,
+      "total_cognitive": 0,
+      "function_count": 1,
+      "lines": 2,
+      "crap_max": 2.0,
+      "crap_above_threshold": 0
+    }
+  ],
+  "target_thresholds": {
+    "fan_in_p95": 5.0,
+    "fan_in_p75": 3.0,
+    "fan_out_p95": 8.0,
+    "fan_out_p90": 5
+  },
+  "next_steps": [
+    {
+      "id": "setup",
+      "command": "fallow schema",
+      "reason": "fallow has no config here; the manifest lists guided-setup commands (agent guide, commit gate) to offer the user"
+    },
+    {
+      "id": "complexity-breakdown",
+      "command": "fallow health --complexity-breakdown",
+      "reason": "see per-decision-point contributions for a hotspot"
+    }
+  ],
+  "_meta": {
+    "telemetry": {
+      "analysis_run_id": "run_4bf89d733cfc883e"
+    }
+  }
+}

@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The `dead` (fallow) slot now actually gates.** checkride ran fallow in JSON
+  mode, which exits `0` even with findings, so the slot reported ✔ while fallow
+  had real issues. checkride now reads fallow's JSON report and derives the
+  verdict from the issue count instead of the (unreliable) exit code — so the
+  slot fails `pnpm check` on new findings and passes only when clean or fully
+  baselined. An **unrecognized fallow report fails loudly** (explicit
+  "unsupported schema_version" / "unrecognized kind") rather than passing
+  silently.
+- **fallow ≥ 3.5 support.** The dead-code parser reads fallow's current
+  `schema_version` 7 JSON (2.x emitted schema 4 with an incompatible layout).
+  The pinned devDependency moves from `fallow@2.48.0` to `fallow@3.5.0`.
+
+### Added
+
+- **`checkride baseline` now grandfathers fallow findings.** A fingerprint
+  extractor keys each fallow finding by kind + file + symbol, so fallow slots
+  participate in `checkride.baseline.json` like `lint`/`struct`/`spell` (and
+  ratchet the same way). Repos that prefer fallow's native `--save-baseline`
+  suppression can still use it — see `docs/tools.md`.
+- **New opt-in `dupes` and `health` slots.** fallow's duplication and
+  complexity analyses are now first-class checks (`--include dupes,health` or
+  `"dupes": "fallow"` in config), each with gating and baselines. They stay
+  opt-in so adopting checkride never fails a repo on duplication/complexity it
+  never signed up for.
+
 ## [0.4.1] - 2026-07-11
 
 ### Internal

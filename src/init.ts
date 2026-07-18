@@ -557,6 +557,9 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
     ['shared/rules/require-js-extension.yml', 'rules/require-js-extension.yml'],
   ],
   dead: [['flat/fallow.toml', 'fallow.toml']],
+  // dupes/health are the same fallow tool + config as `dead`, just other slots.
+  dupes: [['flat/fallow.toml', 'fallow.toml']],
+  health: [['flat/fallow.toml', 'fallow.toml']],
   test: [['shared/vitest.config.ts.template', 'vitest.config.ts']],
   docs: [['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc']],
   spell: [['shared/cspell.json', 'cspell.json']],

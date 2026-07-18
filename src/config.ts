@@ -188,8 +188,19 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
   return resolveConfigFile(path, [], CONFIG_FILE) as CheckrideConfig;
 }
 
-function byName(name: string, adapters: readonly Adapter[]): Adapter | null {
-  return adapters.find((a) => a.name === name) ?? null;
+/**
+ * Find an adapter by name, preferring one that also fills `slot`. A single tool
+ * can fill several slots under one name — `fallow` fills `dead`, `dupes`, and
+ * `health` — so `"dupes": "fallow"` must resolve to the dupes adapter, not the
+ * first `fallow` in the registry. Falls back to a name-only match so naming a
+ * cross-slot adapter (e.g. reusing `oxlint` in a custom slot) still works.
+ */
+function byName(name: string, adapters: readonly Adapter[], slot?: string): Adapter | null {
+  return (
+    adapters.find((a) => a.name === name && a.slot === slot) ??
+    adapters.find((a) => a.name === name) ??
+    null
+  );
 }
 
 /** First adapter for `slot` whose detect files are present (empty detect = always). */
@@ -255,14 +266,14 @@ function resolveOne(
     return skipped(slot, 'disabled in checkride.config.json');
   }
   if (typeof entry === 'string') {
-    const adapter = byName(entry, adapters);
+    const adapter = byName(entry, adapters, slot.name);
     return adapter
       ? active(slot, adapter, explicit)
       : skipped(slot, `configured adapter '${entry}' is not in the registry`, explicit);
   }
   if (entry && typeof entry === 'object') {
     if ('use' in entry) {
-      const base = byName(entry.use, adapters);
+      const base = byName(entry.use, adapters, slot.name);
       return base
         ? active(slot, applyOverrides(base, entry), explicit)
         : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);

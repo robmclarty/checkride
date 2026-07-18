@@ -206,7 +206,8 @@ describe('isFingerprintable', () => {
     expect(isFingerprintable('oxlint')).toBe(true);
     expect(isFingerprintable('ast-grep')).toBe(true);
     expect(isFingerprintable('cspell')).toBe(true);
+    expect(isFingerprintable('fallow')).toBe(true);
     expect(isFingerprintable('tsc')).toBe(false);
-    expect(isFingerprintable('fallow')).toBe(false);
+    expect(isFingerprintable('knip')).toBe(false);
   });
 });

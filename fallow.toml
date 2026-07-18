@@ -10,7 +10,12 @@ entry = [
 ]
 
 # CLI/tooling deps used via command line or config files, not imported from source.
-ignoreDependencies = ["@ast-grep/cli", "@stryker-mutator/vitest-runner"]
+ignoreDependencies = [
+  "@ast-grep/cli",
+  "@stryker-mutator/vitest-runner",
+  "@arethetypeswrong/cli",
+  "publint",
+]
 
 [rules]
 unused-exports = "error"

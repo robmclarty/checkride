@@ -96,8 +96,8 @@ function renderSection(run: CheckRun, maxItems: number): string {
     return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n\n${lines.join('\n')}\n`;
   }
 
-  // No extractor (fallow, tsc, vitest, …) or a supported adapter that failed
-  // with no parsed findings: excerpt the tail of the raw text — truncation, not
+  // No extractor (tsc, vitest, …) or a supported adapter that failed with no
+  // parsed findings: excerpt the tail of the raw text — truncation, not
   // normalization — and point at the file for the rest.
   const text = outcome.stdout.trim() ? outcome.stdout : outcome.stderr;
   const all = contentLines(text);

@@ -16,7 +16,8 @@ describe('registry invariants', () => {
 
   test('the first adapter for each slot is the blessed default', () => {
     const blessed: Record<string, string> = {
-      types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow', test: 'vitest',
+      types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
+      dupes: 'fallow', health: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
       publint: 'publint', attw: 'attw',
     };
@@ -34,15 +35,31 @@ describe('registry invariants', () => {
     expect(names('test')).toEqual(['vitest', 'jest']);
   });
 
+  test('the three fallow analyses fill dead/dupes/health, each checkride-gated', () => {
+    const fallow = ADAPTERS.filter((a) => a.name === 'fallow');
+    expect(fallow.map((a) => a.slot)).toEqual(['dead', 'dupes', 'health']);
+    for (const a of fallow) {
+      expect(a.gate).toBe('fallow');
+      expect(a.detect).toEqual(['fallow.toml']);
+      expect(a.args).toContain('--format');
+      expect(a.devDeps).toEqual({ fallow: '3.5.0' });
+    }
+    // dupes/health are opt-in so adopting checkride never fails a repo on
+    // duplication/complexity it never signed up for.
+    for (const name of ['dupes', 'health']) {
+      expect(SLOTS.find((s) => s.name === name)?.optIn).toBe(true);
+    }
+  });
+
   test('format is an opt-in slot positioned before lint', () => {
     const names = SLOTS.map((s) => s.name);
     expect(SLOTS.find((s) => s.name === 'format')?.optIn).toBe(true);
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format (leading) plus the trailing mutation/security/publint/attw', () => {
+  test('opt-in slots are format + fallow dupes/health + the trailing mutation/security/publint/attw', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'mutation', 'security', 'publint', 'attw',
+      'format', 'dupes', 'health', 'mutation', 'security', 'publint', 'attw',
     ]);
     expect(SLOTS.slice(-2).map((s) => s.name)).toEqual(['publint', 'attw']);
   });

@@ -10,9 +10,11 @@
  *
  * Only slots whose adapter has an extractor participate: a supported-but-clean
  * slot records an empty array (it opted in and had nothing to grandfather),
- * while a slot with no extractor (fallow, tsc, links, …) simply never appears —
- * exactly the "supported vs. unsupported" distinction the fingerprint contract
- * draws. Running each check under the resolved package manager and capturing raw
+ * while a slot with no extractor (tsc, links, …) simply never appears — exactly
+ * the "supported vs. unsupported" distinction the fingerprint contract draws.
+ * The fallow slots (dead/dupes/health) are fingerprintable, so `checkride
+ * baseline` grandfathers their findings like any other. Running each check under
+ * the resolved package manager and capturing raw
  * output is delegated to {@link runChecks}, so baseline fingerprints precisely
  * the bytes a normal run would.
  */
