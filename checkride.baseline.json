@@ -14,8 +14,6 @@
     "dead": [],
     "dupes": [],
     "health": [
-      "health:src/init.ts:initExisting",
-      "health:src/init.ts:initNew",
       "health:src/orchestrator.ts:runChecks"
     ],
     "spell": []

@@ -488,31 +488,61 @@ async function planCollisions(s: NewScaffold, cwd: string): Promise<string[]> {
   return plan.written.filter((rel) => existsSync(join(cwd, rel)));
 }
 
-async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
-  const shape: Shape = options.shape ?? 'flat';
+/** Resolve the project name, scope, and derived scoped `fullName` for a new project. */
+function resolveProjectName(
+  options: InitOptions,
+  cwd: string,
+): { name: string; scope: string | null; fullName: string } {
   const name = options.name ?? (basename(cwd) || 'app');
   const scope = options.scope ?? null;
-  const license = options.license ?? 'MIT';
-  const author = options.author ?? null;
-  const fullName = scope ? `${scope}/${name}` : name;
-  const adapters = options.adapters ?? ADAPTERS;
-  const slots = options.slots ?? SLOTS;
-  // Exact pin, no caret: pre-1.0 minors are breaking (docs/contract.md pin policy).
-  const checkrideSpec = options.checkrideSpec ?? productVersion();
-  const scaffold: NewScaffold = { shape, name, scope, license, author, fullName, adapters, slots, checkrideSpec };
+  return { name, scope, fullName: scope ? `${scope}/${name}` : name };
+}
 
-  // Overwrite protection (D4): unless `--force`, refuse rather than clobber any
-  // file the scaffold would write. Plan on a dry writer first so a collision
-  // bails before a single real byte is written — the refusal writes nothing.
-  if (!(options.force ?? false)) {
-    const collisions = await planCollisions(scaffold, cwd);
-    if (collisions.length > 0) {
-      throw new Error(
-        `init: refusing to overwrite ${collisions.length} existing file(s) (pass --force to overwrite):\n` +
-          collisions.map((c) => `  ${c}`).join('\n'),
-      );
-    }
+/** Resolve the options for a new-project scaffold, applying every default. */
+function resolveNewScaffold(options: InitOptions, cwd: string): NewScaffold {
+  const { name, scope, fullName } = resolveProjectName(options, cwd);
+  return {
+    shape: options.shape ?? 'flat',
+    name,
+    scope,
+    license: options.license ?? 'MIT',
+    author: options.author ?? null,
+    fullName,
+    adapters: options.adapters ?? ADAPTERS,
+    slots: options.slots ?? SLOTS,
+    // Exact pin, no caret: pre-1.0 minors are breaking (docs/contract.md pin policy).
+    checkrideSpec: options.checkrideSpec ?? productVersion(),
+  };
+}
+
+/**
+ * Overwrite protection (D4): unless `force`, refuse rather than clobber any file
+ * the scaffold would write. Planning on a dry writer first means a collision
+ * bails before a single real byte is written — the refusal writes nothing.
+ */
+async function assertNoCollisions(scaffold: NewScaffold, cwd: string, force: boolean): Promise<void> {
+  if (force) return;
+  const collisions = await planCollisions(scaffold, cwd);
+  if (collisions.length > 0) {
+    throw new Error(
+      `init: refusing to overwrite ${collisions.length} existing file(s) (pass --force to overwrite):\n` +
+        collisions.map((c) => `  ${c}`).join('\n'),
+    );
   }
+}
+
+/** Print the new-project summary and next steps. */
+function reportNew(stdout: Out, shape: Shape, w: Writer, cwd: string): void {
+  stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
+  // A fresh project has no lockfile/field yet, so this resolves to `pnpm`,
+  // matching the generated scripts.
+  const pm = detectPackageManager({ cwd });
+  stdout.write(`  next: ${pm} install && ${pm} run check\n`);
+}
+
+async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
+  const scaffold = resolveNewScaffold(options, cwd);
+  await assertNoCollisions(scaffold, cwd, options.force ?? false);
 
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
   await writeNewScaffold(w, scaffold);
@@ -521,14 +551,8 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.
   await writeHook(w, options.hook);
 
-  if (options.stdout) {
-    options.stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
-    // A fresh project has no lockfile/field yet, so this resolves to `pnpm`,
-    // matching the generated scripts.
-    const pm = detectPackageManager({ cwd });
-    options.stdout.write(`  next: ${pm} install && ${pm} run check\n`);
-  }
-  return { mode: 'new', shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
+  if (options.stdout) reportNew(options.stdout, scaffold.shape, w, cwd);
+  return { mode: 'new', shape: scaffold.shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------
@@ -628,6 +652,105 @@ async function addCheckAlias(w: Writer, skipped: string[]): Promise<void> {
   w.written.push('package.json (added check script)');
 }
 
+/**
+ * Classify each failing adopted slot. `--baseline` (step 6 / c10) grandfathers a
+ * failing *fingerprintable* slot (kept enabled; the baseline masks its debt and
+ * the ratchet carries the cleanup); a failing slot with no extractor can't be
+ * grandfathered, so it still falls back to a `false` disable. Without
+ * `--baseline`, every failing slot is disabled (re-enable as you fix).
+ */
+function resolveAdoptionPlan(
+  adopted: readonly InventoryEntry[],
+  failing: ReadonlySet<string>,
+  useBaseline: boolean,
+): { grandfathered: string[]; disabled: string[] } {
+  const grandfathered = useBaseline
+    ? adopted
+        .filter((i) => failing.has(i.slot) && i.adapter !== null && isFingerprintable(i.adapter))
+        .map((i) => i.slot)
+    : [];
+  const grandfatheredSet = new Set(grandfathered);
+  const disabled = adopted
+    .filter((i) => failing.has(i.slot) && !grandfatheredSet.has(i.slot))
+    .map((i) => i.slot);
+  return { grandfathered, disabled };
+}
+
+/** Capture a fresh baseline when any slot was grandfathered (a no-op on dry-run). */
+async function captureBaselineIfNeeded(
+  options: InitOptions,
+  cwd: string,
+  grandfathered: readonly string[],
+  dryRun: boolean,
+): Promise<void> {
+  if (grandfathered.length === 0 || dryRun) return;
+  const capture = options.captureBaseline ?? ((at: string) => runBaseline({ cwd: at }).then(() => undefined));
+  await capture(cwd);
+}
+
+/** Write checkride.config.json for the adopted tools (disabled failures as `false`); never clobber an existing one. */
+async function writeExistingConfig(
+  w: Writer,
+  cwd: string,
+  adopted: readonly InventoryEntry[],
+  disabledSet: ReadonlySet<string>,
+  skipped: string[],
+): Promise<void> {
+  if (existsSync(join(cwd, 'checkride.config.json'))) {
+    skipped.push('checkride.config.json (exists)');
+    return;
+  }
+  const checks: Record<string, string | false> = {};
+  for (const i of adopted) {
+    if (disabledSet.has(i.slot)) checks[i.slot] = false;
+    else if (i.adapter) checks[i.slot] = i.adapter;
+  }
+  const config = { $schema: configSchemaUrl(productVersion()), checks };
+  await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
+}
+
+/** Ensure `.check/` is gitignored: create the file, append to it, or note it's already there. */
+async function ensureGitignore(w: Writer, cwd: string, skipped: string[]): Promise<void> {
+  const gitignorePath = join(cwd, '.gitignore');
+  const gi = await readIfExists(gitignorePath);
+  if (gi === null) {
+    await put(w, '.gitignore', '.check/\n');
+  } else if (!/^\.check\/?\s*$/m.test(gi)) {
+    if (!w.dryRun) await writeFile(gitignorePath, `${gi.replace(/\s*$/, '')}\n.check/\n`);
+    w.written.push('.gitignore (appended .check/)');
+  } else {
+    skipped.push('.gitignore (.check/ already ignored)');
+  }
+}
+
+/** Write the CLAUDE.md pointer if absent. */
+async function writeClaudePointer(w: Writer, cwd: string, skipped: string[]): Promise<void> {
+  if (existsSync(join(cwd, 'CLAUDE.md'))) {
+    skipped.push('CLAUDE.md (exists)');
+    return;
+  }
+  await put(w, 'CLAUDE.md', claudeMd());
+}
+
+/** Print the existing-repo adoption summary (adopted count + grandfathered/disabled slots). */
+function reportExisting(
+  stdout: Out,
+  adopted: readonly InventoryEntry[],
+  w: Writer,
+  grandfathered: readonly string[],
+  disabled: readonly string[],
+): void {
+  stdout.write(
+    `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
+  );
+  if (grandfathered.length > 0) {
+    stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
+  }
+  if (disabled.length > 0) {
+    stdout.write(`  disabled failing slots (enable as you fix): ${disabled.join(', ')}\n`);
+  }
+}
+
 async function initExisting(options: InitOptions, cwd: string): Promise<InitResult> {
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
@@ -645,80 +768,20 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const probe = options.probeFailures ?? defaultProbe;
   const failing = new Set(await probe(adopted.map((i) => i.slot), cwd));
 
-  // Adoption path for the failures. `--baseline` (step 6 / c10) grandfathers a
-  // failing *fingerprintable* slot into checkride.baseline.json and keeps it
-  // enabled — the baseline masks its current debt on the next run, so it's the
-  // ratchet, not a disabled slot, that carries the cleanup. A failing slot with
-  // no extractor can't be grandfathered, so it still falls back to a `false`
-  // disable. Without `--baseline`, every failing slot is disabled (the original
-  // step-3 behavior): the first `pnpm check` is green-ish, re-enable as you fix.
-  const useBaseline = options.baseline ?? false;
-  const grandfathered = useBaseline
-    ? adopted.filter((i) => failing.has(i.slot) && i.adapter !== null && isFingerprintable(i.adapter)).map((i) => i.slot)
-    : [];
-  const grandfatheredSet = new Set(grandfathered);
-  if (grandfathered.length > 0 && !w.dryRun) {
-    const capture = options.captureBaseline ?? ((at: string) => runBaseline({ cwd: at }).then(() => undefined));
-    await capture(cwd);
-  }
-  const disabled = adopted.filter((i) => failing.has(i.slot) && !grandfatheredSet.has(i.slot)).map((i) => i.slot);
-  const disabledSet = new Set(disabled);
+  const { grandfathered, disabled } = resolveAdoptionPlan(adopted, failing, options.baseline ?? false);
+  await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
 
-  // checkride.config.json reflecting adopted tools (and disabled failures). Never
-  // overwrite an existing one.
-  const configPath = join(cwd, 'checkride.config.json');
-  if (!existsSync(configPath)) {
-    const checks: Record<string, string | false> = {};
-    for (const i of adopted) {
-      if (disabledSet.has(i.slot)) checks[i.slot] = false;
-      else if (i.adapter) checks[i.slot] = i.adapter;
-    }
-    const config = { $schema: configSchemaUrl(productVersion()), checks };
-    await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
-  } else {
-    skipped.push('checkride.config.json (exists)');
-  }
-
-  // .gitignore: ensure .check/ is ignored (append, never clobber).
-  const gitignorePath = join(cwd, '.gitignore');
-  const gi = await readIfExists(gitignorePath);
-  if (gi === null) {
-    await put(w, '.gitignore', '.check/\n');
-  } else if (!/^\.check\/?\s*$/m.test(gi)) {
-    if (!w.dryRun) await writeFile(gitignorePath, `${gi.replace(/\s*$/, '')}\n.check/\n`);
-    w.written.push('.gitignore (appended .check/)');
-  } else {
-    skipped.push('.gitignore (.check/ already ignored)');
-  }
-
+  await writeExistingConfig(w, cwd, adopted, new Set(disabled), skipped);
+  await ensureGitignore(w, cwd, skipped);
   // package.json: add the `check: checkride` alias (decision 8) if missing.
   await addCheckAlias(w, skipped);
-
   // AGENTS.md stanza (create or refresh, idempotent).
   await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
-
-  // CLAUDE.md pointer if absent.
-  const claudePath = join(cwd, 'CLAUDE.md');
-  if (!existsSync(claudePath)) {
-    await put(w, 'CLAUDE.md', claudeMd());
-  } else {
-    skipped.push('CLAUDE.md (exists)');
-  }
-
+  await writeClaudePointer(w, cwd, skipped);
   // Claude Code Stop hook (opt-out; step 12), using the repo's detected PM (b7).
   await writeHook(w, options.hook, skipped);
 
-  if (options.stdout) {
-    options.stdout.write(
-      `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
-    );
-    if (grandfathered.length > 0) {
-      options.stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
-    }
-    if (disabled.length > 0) {
-      options.stdout.write(`  disabled failing slots (enable as you fix): ${disabled.join(', ')}\n`);
-    }
-  }
+  if (options.stdout) reportExisting(options.stdout, adopted, w, grandfathered, disabled);
   return { mode: 'existing', shape: null, written: w.written, skipped, disabled, grandfathered, exitCode: 0 };
 }
 
