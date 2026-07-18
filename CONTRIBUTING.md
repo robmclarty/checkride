@@ -12,16 +12,19 @@ pnpm check        # the definition of done — exit 0 or it isn't finished
 ```
 
 `pnpm check` is checkride running on itself: types, lint, structure, dead code,
-tests + coverage, docs, links, spelling. For faster iteration: `pnpm check
---bail`, `pnpm check --only types,lint`, `pnpm check --changed`. Always finish
-with a full `pnpm check`.
+duplication, complexity health, tests + coverage, docs, links, spelling, and
+incremental mutation testing. For faster iteration: `pnpm check --bail`, `pnpm
+check --only types,lint`, `pnpm check --changed`. Always finish with a full
+`pnpm check`.
 
-Slower suites, run before a release (CI runs both on every push):
+Slower suite, run before a release (CI runs it on every push):
 
 ```bash
 pnpm test:e2e     # generates projects, installs them, runs the built CLI
-pnpm mutation     # Stryker mutation testing (incremental)
 ```
+
+`pnpm mutation` still exists to run Stryker on its own (e.g. to refresh the
+mutation score), but mutation is part of `pnpm check` — not a separate gate.
 
 Conventions (enforced mechanically — see [AGENTS.md](./AGENTS.md)): deep
 modules with barrel `index.ts` surfaces, named exports only, no classes, `.js`

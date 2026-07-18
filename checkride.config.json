@@ -1,5 +1,10 @@
 {
   "checks": {
+    "struct": "ast-grep",
+    "dead": "fallow",
+    "dupes": "fallow",
+    "health": "fallow",
+    "mutation": "stryker",
     "publint": "publint",
     "attw": {
       "use": "attw",

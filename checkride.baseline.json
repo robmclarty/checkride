@@ -1,6 +1,16 @@
 {
   "schema_version": 1,
   "slots": {
+    "lint": [
+      "src/__tests__/orchestrator.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "src/doctor.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "src/init.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "src/links.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "src/orchestrator.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "test/contract/streams.contract.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "test/e2e/interrupt.e2e.test.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop."
+    ],
+    "struct": [],
     "dead": [
       "dead-code:circular_dependencies:src/baseline/command.ts->src/baseline/index.ts->src/digest/digest.ts->src/digest/index.ts->src/orchestrator.ts",
       "dead-code:circular_dependencies:src/baseline/command.ts->src/baseline/index.ts->src/orchestrator.ts",
@@ -14,6 +24,25 @@
       "dead-code:unused_types:src/baseline/index.ts:BaselineResult",
       "dead-code:unused_types:src/baseline/index.ts:Extractor",
       "dead-code:unused_types:src/digest/index.ts:DigestBudget"
-    ]
+    ],
+    "dupes": [
+      "dupes:dup:0c05d576",
+      "dupes:dup:ad2ff955",
+      "dupes:dup:e71aed09"
+    ],
+    "health": [
+      "health:src/baseline/fallow.ts:deadKey",
+      "health:src/baseline/fallow.ts:parseFallow",
+      "health:src/config.ts:resolveChecks",
+      "health:src/config.ts:resolveConfigFile",
+      "health:src/config.ts:resolveOne",
+      "health:src/doctor.ts:classifySlot",
+      "health:src/doctor.ts:renderTable",
+      "health:src/init.ts:initExisting",
+      "health:src/init.ts:initNew",
+      "health:src/orchestrator.ts:runChecks",
+      "health:src/orchestrator.ts:runFix"
+    ],
+    "spell": []
   }
 }
