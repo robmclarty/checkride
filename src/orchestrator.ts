@@ -472,156 +472,251 @@ export function resolveCommonOptions(options: CommonOptions): CommonContext {
   };
 }
 
+/** The resolved run environment: {@link CommonContext} plus the run-only options. */
+type RunContext = CommonContext & {
+  runner: CheckRunner;
+  json: boolean;
+  bail: boolean;
+  changed: boolean;
+  timeout: number | undefined;
+  pm: PackageManager;
+  baseline: Baseline | null;
+};
+
+/** Apply every run default: the common options plus runner, flags, PM, and baseline. */
+function resolveRunContext(options: RunOptions): RunContext {
+  const common = resolveCommonOptions(options);
+  return {
+    ...common,
+    runner: options.runner ?? defaultRunner,
+    json: options.json ?? false,
+    bail: options.bail ?? false,
+    changed: options.changed ?? false,
+    timeout: common.config?.timeout,
+    pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
+    baseline: options.baseline !== undefined ? options.baseline : loadBaseline(common.cwd),
+  };
+}
+
+/** One slot's baseline-masked verdict, plus the fingerprint to feed the ratchet (null = don't observe). */
+type MaskResult = {
+  ok: boolean;
+  baselined: number;
+  newKeys: string[];
+  reason: string | null;
+  observed: Fingerprint | null;
+};
+
+/**
+ * Baseline-aware verdict for one slot's outcome. fallow slots derive pass/fail
+ * from the parsed report (its exit code doesn't reliably gate); everything else
+ * masks the adapter's fingerprint. `observed` is non-null only when the run's
+ * findings could be read — the ratchet must never prune from an unreadable run.
+ */
+function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string): MaskResult {
+  if (adapter.gate === 'fallow') {
+    const v = fallowVerdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
+    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
+  }
+  const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
+  if (baseline && current !== null) {
+    const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
+    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: null, observed: current };
+  }
+  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: null, observed: null };
+}
+
+/** Build (and print) the skipped-entry row for a slot that won't run this pass. */
+function handleSkip(r: ResolvedCheck, unavailable: boolean, pm: PackageManager, json: boolean, stderr: Out): SummaryCheck {
+  const entry = skippedEntry(
+    unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${pm}` } : r,
+  );
+  if (!json) writeLine(stderr, `  ○ ${entry.name.padEnd(8)}      skip  ${entry.reason ?? ''}`);
+  return entry;
+}
+
+/** Print one check's status line, its baselined count, and any new (non-grandfathered) findings. */
+function reportCheckResult(stderr: Out, entry: SummaryCheck, mask: MaskResult): void {
+  writeLine(stderr, formatStatusLine(entry));
+  if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
+  if (!entry.ok && mask.reason) writeLine(stderr, `           ${mask.reason}`);
+  if (!entry.ok && mask.newKeys.length > 0) {
+    writeLine(stderr, `           ${mask.newKeys.length} new, not in baseline:`);
+    for (const k of mask.newKeys) writeLine(stderr, `             ${k}`);
+  }
+}
+
+/** Run one active check: clear stale output, run it, persist, and mask against the baseline. */
+async function runOneCheck(
+  r: ResolvedCheck,
+  adapter: Adapter,
+  ctx: RunContext,
+): Promise<{ entry: SummaryCheck; run: CheckRun; mask: MaskResult }> {
+  if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
+  // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner re-run
+  // can't leave last run's output behind as authoritative — and so any artifact
+  // the tool writes during *this* run (e.g. `test.json`) survives.
+  await clearSlotOutputs(ctx.cwd, adapter);
+  const start = performance.now();
+  const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
+  const duration_ms = Math.round(performance.now() - start);
+  await persistOutput(ctx.cwd, adapter, outcome);
+
+  // Masking is always on (even under a partial run); only the ratchet is gated.
+  // The raw `.check/<slot>.json` is persisted untouched — masking changes the
+  // pass/fail verdict, never the authoritative output.
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot);
+  const entry: SummaryCheck = {
+    name: r.slot,
+    adapter: adapter.name,
+    description: adapter.description,
+    ok: mask.ok,
+    exit_code: outcome.exit_code,
+    duration_ms,
+    output_file: adapter.outputFile,
+    ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
+  };
+  return { entry, run: { slot: r.slot, adapter, outcome }, mask };
+}
+
+/**
+ * Process one selected check into the accumulators. Returns `true` when `--bail`
+ * should stop the loop (the check failed and `bail` is on). A skipped/unavailable
+ * slot records a skip row; an active one runs, records its row + raw run, and
+ * observes its fingerprint for the ratchet.
+ */
+async function processCheck(
+  r: ResolvedCheck,
+  ctx: RunContext,
+  checks: SummaryCheck[],
+  runs: CheckRun[],
+  observed: Map<string, Fingerprint>,
+): Promise<boolean> {
+  // Skip when unresolved, or when the adapter can't run under this PM — e.g.
+  // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
+  const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
+  if (r.skip || !r.adapter || unavailable) {
+    checks.push(handleSkip(r, unavailable, ctx.pm, ctx.json, ctx.stderr));
+    return false;
+  }
+  const { entry, run, mask } = await runOneCheck(r, r.adapter, ctx);
+  runs.push(run);
+  if (mask.observed !== null) observed.set(r.slot, mask.observed);
+  checks.push(entry);
+  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask);
+  return !entry.ok && ctx.bail;
+}
+
+/** Run the selected checks in order, collecting rows, raw runs, observed fingerprints, and `--bail` state. */
+async function executeChecks(
+  selected: readonly ResolvedCheck[],
+  ctx: RunContext,
+): Promise<{ checks: SummaryCheck[]; runs: CheckRun[]; observed: Map<string, Fingerprint>; brokeEarly: boolean }> {
+  const checks: SummaryCheck[] = [];
+  const runs: CheckRun[] = [];
+  // Per-slot current fingerprints for slots actually observed this run.
+  const observed = new Map<string, Fingerprint>();
+  for (const r of selected) {
+    // Checks run strictly in cheapest-first order and `--bail` must stop at the
+    // first failure, so this stays sequential — one awaited step per check.
+    const brokeEarly = await processCheck(r, ctx, checks, runs, observed);
+    if (brokeEarly) return { checks, runs, observed, brokeEarly: true };
+  }
+  return { checks, runs, observed, brokeEarly: false };
+}
+
+/**
+ * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
+ * `--changed` filter or an early `--bail` break. The ratchet is gated off for
+ * these: an unobserved diagnostic must not be mistaken for a fixed one (a1).
+ */
+function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean): boolean {
+  return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
+}
+
+/** On a fully-observed run, prune grandfathered diagnostics now fixed (shrink-only, atomic). */
+async function maybeRatchet(
+  cwd: string,
+  baseline: Baseline | null,
+  observed: ReadonlyMap<string, Fingerprint>,
+  restricted: boolean,
+  json: boolean,
+  stderr: Out,
+): Promise<void> {
+  if (!baseline || restricted) return;
+  const pruned = ratchet(baseline, observed);
+  if (baselinesEqual(baseline, pruned)) return;
+  await writeBaseline(cwd, pruned);
+  if (!json) {
+    writeLine(stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
+  }
+}
+
+/** Print the human run summary: the vacuous-green warning, the status line, and artifact paths. */
+function reportSummary(
+  stderr: Out,
+  summary: Summary,
+  checks: readonly SummaryCheck[],
+  adapters: readonly Adapter[],
+  digestWritten: boolean,
+): void {
+  if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
+  writeLine(stderr, '');
+  const status =
+    summary.checks_run === 0
+      ? '⚠ no checks ran'
+      : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
+  writeLine(stderr, `${status} in ${summary.total_duration_ms}ms`);
+  writeLine(stderr, 'report: .check/summary.json');
+  if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
+  writeLine(stderr, '');
+}
+
+/**
+ * The 0/1/2 exit taxonomy. `--strict` turns a vacuous green (zero checks) into a
+ * harness error (exit 2) — a gate must not report "done" on a repo where nothing
+ * was checked.
+ */
+function computeExitCode(summary: Summary, strict: boolean, json: boolean, stderr: Out): number {
+  if (strict && summary.checks_run === 0) {
+    if (!json) writeLine(stderr, '--strict: zero checks ran, exiting 2.\n');
+    return 2;
+  }
+  return summary.ok ? 0 : 1;
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
-  const { cwd, slots, adapters, config, stderr, stdout } = resolveCommonOptions(options);
-  const runner = options.runner ?? defaultRunner;
-  const json = options.json ?? false;
-  const bail = options.bail ?? false;
-  const changed = options.changed ?? false;
-  const timeout = config?.timeout;
-  const pm = options.pm ?? detectPackageManager({ cwd });
-  const baseline = options.baseline !== undefined ? options.baseline : loadBaseline(cwd);
-
-  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  const ctx = resolveRunContext(options);
+  const resolved = resolveChecks({ slots: ctx.slots, adapters: ctx.adapters, config: ctx.config, cwd: ctx.cwd });
   // A usage error before any side effect: no `.check/` dir, no run, exit 2.
   validateSelection(resolved, options);
 
-  await mkdir(join(cwd, '.check'), { recursive: true });
+  await mkdir(join(ctx.cwd, '.check'), { recursive: true });
 
   const selected = selectChecks(resolved, options);
+  if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
 
-  if (!json) writeLine(stderr, `\nRunning ${selected.length} check(s)...\n`);
+  const { checks, runs, observed, brokeEarly } = await executeChecks(selected, ctx);
 
-  const checks: SummaryCheck[] = [];
-  const runs: CheckRun[] = [];
-  // Per-slot current fingerprints for slots actually observed this run, and
-  // whether `--bail` cut the loop short — both feed the ratchet's full-run gate.
-  const observed = new Map<string, Fingerprint>();
-  let brokeEarly = false;
-  for (const r of selected) {
-    // Skip when unresolved, or when the adapter can't run under this PM — e.g.
-    // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
-    const unavailable = r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, pm);
-    if (r.skip || !r.adapter || unavailable) {
-      const entry = skippedEntry(
-        unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${pm}` } : r,
-      );
-      checks.push(entry);
-      if (!json) writeLine(stderr, `  ○ ${entry.name.padEnd(8)}      skip  ${entry.reason ?? ''}`);
-      continue;
-    }
-    const adapter = r.adapter;
-    if (!json) writeLine(stderr, `  ▸ ${r.slot}  ${adapter.description}`);
-    // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner
-    // re-run can't leave last run's output behind as authoritative — and so any
-    // artifact the tool writes during *this* run (e.g. `test.json`) survives.
-    await clearSlotOutputs(cwd, adapter);
-    const start = performance.now();
-    const outcome = await runner(r, { cwd, changed, pm, ...(timeout !== undefined ? { timeout } : {}) });
-    const duration_ms = Math.round(performance.now() - start);
-    runs.push({ slot: r.slot, adapter, outcome });
-    await persistOutput(cwd, adapter, outcome);
-
-    // Baseline-aware: subtract this slot's grandfathered diagnostics. Masking is
-    // always on (even under a partial run); only the ratchet below is gated. The
-    // raw `.check/<slot>.json` is already persisted untouched — masking changes
-    // the pass/fail verdict, never the authoritative output.
-    let ok = outcome.ok;
-    let baselined = 0;
-    let newKeys: string[] = [];
-    let reason: string | null = null;
-    if (adapter.gate === 'fallow') {
-      // checkride owns fallow's verdict: its exit code doesn't reliably gate, so
-      // pass/fail comes from the parsed issue count (an unreadable report fails
-      // loudly). `observed` only when the report parsed — never ratchet away a
-      // baseline from a run whose findings we couldn't read.
-      const v = fallowVerdict(outcome.stdout, baseline ? (baseline.slots[r.slot] ?? []) : null);
-      ({ ok, baselined, newKeys, reason } = v);
-      if (v.observed) observed.set(r.slot, v.findings);
-    } else {
-      const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
-      if (baseline && current !== null) {
-        observed.set(r.slot, current);
-        const adj = applyBaseline(current, baseline.slots[r.slot] ?? [], outcome.ok);
-        ({ ok, baselined, newKeys } = adj);
-      }
-    }
-
-    const entry: SummaryCheck = {
-      name: r.slot,
-      adapter: adapter.name,
-      description: adapter.description,
-      ok,
-      exit_code: outcome.exit_code,
-      duration_ms,
-      output_file: adapter.outputFile,
-      ...(baselined > 0 ? { baselined } : {}),
-    };
-    checks.push(entry);
-    if (!json) {
-      writeLine(stderr, formatStatusLine(entry));
-      if (baselined > 0) writeLine(stderr, `           ${baselined} baselined (grandfathered)`);
-      if (!ok && reason) writeLine(stderr, `           ${reason}`);
-      if (!ok && newKeys.length > 0) {
-        writeLine(stderr, `           ${newKeys.length} new, not in baseline:`);
-        for (const k of newKeys) writeLine(stderr, `             ${k}`);
-      }
-    }
-    if (!ok && bail) { brokeEarly = true; break; }
-  }
-
-  // Ratchet: on a fully-observed run, prune grandfathered diagnostics now fixed.
-  // A partial run (`--only`/`--skip`/`--changed`) or an early `--bail` break can't
-  // see every slot's full output, so it never prunes — an unobserved diagnostic
-  // must not be mistaken for a fixed one and dropped (a1). Masking still applied
-  // above; only the rewrite is withheld.
-  if (baseline) {
-    const restricted =
-      (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
-    if (!restricted) {
-      const pruned = ratchet(baseline, observed);
-      if (!baselinesEqual(baseline, pruned)) {
-        await writeBaseline(cwd, pruned);
-        if (!json) {
-          writeLine(stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
-        }
-      }
-    }
-  }
+  await maybeRatchet(ctx.cwd, ctx.baseline, observed, isPartialRun(options, ctx.changed, brokeEarly), ctx.json, ctx.stderr);
 
   const summary = buildSummary(checks);
-  await writeFileAtomic(join(cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+  await writeFileAtomic(join(ctx.cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
   // A file beside summary.json, never a stdout stream, so the machine-output
   // split holds (C5). Raw `.check/<slot>.json` files are already persisted and
   // untouched — the digest only reads them.
-  const digestWritten = (options.digest ?? false) ? await writeDigest(cwd, runs, checks) : false;
+  const digestWritten = (options.digest ?? false) ? await writeDigest(ctx.cwd, runs, checks) : false;
 
-  if (json) {
-    stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  if (ctx.json) {
+    ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
-    writeLine(stderr, '');
-    const status =
-      summary.checks_run === 0
-        ? '⚠ no checks ran'
-        : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
-    writeLine(stderr, `${status} in ${summary.total_duration_ms}ms`);
-    writeLine(stderr, 'report: .check/summary.json');
-    if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
-    writeLine(stderr, '');
+    reportSummary(ctx.stderr, summary, checks, ctx.adapters, digestWritten);
   }
 
-  // `--strict` turns a vacuous green into a harness error: exit 2, never 0 —
-  // a gate must not report "done" on a repo where nothing was checked.
-  let exitCode = summary.ok ? 0 : 1;
-  if ((options.strict ?? false) && summary.checks_run === 0) {
-    exitCode = 2;
-    if (!json) writeLine(stderr, '--strict: zero checks ran, exiting 2.\n');
-  }
-
+  const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);
   return { ok: summary.ok, summary, exitCode, runs };
 }
 

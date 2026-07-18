@@ -13,9 +13,7 @@
     "struct": [],
     "dead": [],
     "dupes": [],
-    "health": [
-      "health:src/orchestrator.ts:runChecks"
-    ],
+    "health": [],
     "spell": []
   }
 }
