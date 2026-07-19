@@ -1,23 +1,37 @@
 {
+  "$schema": "./schema/checkride.config.schema.json",
   "checks": {
-    "struct": "ast-grep",
-    "dead": "fallow",
-    "dupes": "fallow",
-    "health": "fallow",
-    "build": "build",
-    "publint": "publint",
-    "attw": {
-      "use": "attw",
-      "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
-      "description": "Are the types wrong? (esm-only profile: this package ships ESM only; Node >=22 engines can require() it)"
-    },
-    "pack": "pack",
-    "smoke": "smoke",
-    "snippets": "snippets-dist",
+    "lint": { "use": "oxlint", "order": 1 },
+    "struct": { "use": "ast-grep", "order": 1 },
+    "types": { "use": "tsc", "order": 1 },
+    "links": { "use": "links", "order": 1 },
+
+    "dead": { "use": "fallow", "order": 2 },
+    "dupes": { "use": "fallow", "order": 2 },
+    "health": { "use": "fallow", "order": 2 },
+
+    "docs": { "use": "markdownlint-cli2", "order": 3 },
+    "spell": { "use": "cspell", "order": 3 },
     "typecheck-tests": {
       "command": "pnpm",
       "args": ["exec", "tsc", "-p", "tsconfig.test.json"],
-      "description": "Type-check test files (the published build, tsconfig.json, excludes them)"
-    }
+      "description": "Type-check test files (the published build, tsconfig.json, excludes them)",
+      "order": 3
+    },
+
+    "build": { "use": "build", "order": 4 },
+
+    "publint": { "use": "publint", "order": 5 },
+    "attw": {
+      "use": "attw",
+      "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
+      "description": "Are the types wrong? (esm-only profile: this package ships ESM only; Node >=22 engines can require() it)",
+      "order": 5
+    },
+    "pack": { "use": "pack", "order": 5 },
+    "smoke": { "use": "smoke", "order": 5 },
+    "snippets": { "use": "snippets-dist", "order": 5 },
+
+    "test": { "use": "vitest", "order": "single" }
   }
 }

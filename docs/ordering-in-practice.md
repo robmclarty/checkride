@@ -155,6 +155,45 @@ everything `single` throws away. All-`single` is still 6.5s ahead of implicit `a
 no lane finishes in 14ms and then idles for a second waiting on a wavemate — the
 sub-500ms checks retire together, and the ~1s checks retire together.
 
+## A second shape: waves that encode a dependency
+
+The run above tiers purely by *duration* — every check is independent, and the
+waves exist only to group similar-cost work and isolate the core-hog. checkride's
+own gate adds a second reason to wave: some checks *cannot* start until another
+has finished, because they read its output.
+
+checkride ships a publish bundle — `build`, then `publint`, `attw`, `pack`,
+`smoke`, and `snippets-dist`. `build` compiles `src/` to `dist/`; the other five
+all inspect `dist/` — the packed tarball, the built `.d.ts`, the importable
+artifact. Putting them in `build`'s wave would race the compiler against its own
+consumers, so the dependency *is* the wave boundary:
+
+```json
+{
+  "build": { "use": "build", "order": 4 },
+
+  "publint": { "use": "publint", "order": 5 },
+  "attw": { "use": "attw", "order": 5 },
+  "pack": { "use": "pack", "order": 5 },
+  "smoke": { "use": "smoke", "order": 5 },
+  "snippets": { "use": "snippets-dist", "order": 5 }
+}
+```
+
+Here the numbers are not a cost tier — an incremental `build` is one of the
+*cheapest* checks in the gate. It leads because wave 5 is meaningless without it.
+Read this way, `order` documents the data-flow, not just the schedule:
+`snippets-dist` sits in the publish wave even though it reads like a docs check,
+because it type-checks tagged fences against the *built* `.d.ts` — its input is
+`dist/`, so its wave is `dist/`'s.
+
+The two reasons compose. Wave 5 is both a dependency barrier (after `build`) and
+a duration tier — short post-build checks sized to the pool. The built-in
+catalogue already defaults `build` ahead of the tarball and type-resolution
+checks, so the barrier survives even a config that never writes `order`; spelling
+it out just makes the data-flow legible, and lets you pin a straggler like
+`snippets-dist` into the wave its input actually belongs to.
+
 ## The method (apply it to your repo)
 
 1. **Measure first.** Run the gate once and read `duration_ms` for each slot from
