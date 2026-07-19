@@ -63,3 +63,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-18 — step 7 checkpointed · 97a8f0883 — `snippets` extraction core (pure) (11m)
 - 2026-07-19 — step 8 checkpointed · 5e982c172 — `snippets` adapters + execution (1 drift, 27m)
 - 2026-07-19 — step 9 checkpointed · 4e0680086 — init library bundle + doctor polish (38m)
+- 2026-07-19 — step 10 checkpointed · c8e26f075 — Slot docs + CHANGELOG (1 drift, 44m)

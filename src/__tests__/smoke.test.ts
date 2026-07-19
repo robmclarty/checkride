@@ -89,6 +89,18 @@ describe('enumerateExports', () => {
     ]);
   });
 
+  test('skips and counts a `.json` data subpath (e.g. ./package.json)', () => {
+    const { targets, skipped } = enumerateExports({
+      name: 'lib',
+      exports: {
+        '.': './dist/index.js',
+        './package.json': './package.json',
+      },
+    });
+    expect(targets.map((t) => t.subpath)).toEqual(['.']);
+    expect(skipped).toEqual([{ subpath: './package.json', reason: 'json data subpath' }]);
+  });
+
   test('flags a dual package (explicit require condition) for a require probe', () => {
     const { targets } = enumerateExports({
       name: 'lib',

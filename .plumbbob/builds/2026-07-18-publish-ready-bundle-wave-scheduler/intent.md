@@ -373,7 +373,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    snippets); init + doctor unit tests updated.
    - seam: `src/init.ts`, `src/doctor.ts`, `src/__tests__/init.test.ts`, `src/__tests__/doctor.test.ts`
    - model: sonnet — wiring along existing rails
-10. [ ] Slot docs + CHANGELOG — **done when:** `docs/tools.md` slot table gains
+10. [x] Slot docs + CHANGELOG — **done when:** `docs/tools.md` slot table gains
     the four rows (detect/install columns; install = none, built-in);
     `docs/cheatsheet.md` opt-in table updated; `docs/reliability.md` names the
     failure modes smoke/pack/snippets close ("passes publint+attw but throws on

@@ -18,9 +18,10 @@
  *     scanner ({@link scanValueExports}) that errs toward *under*-collection: a
  *     missed name is only a weaker assertion, never a false failure.
  *
- * Wildcard (`./*`) and `null` (blocked) subpaths carry no single required file,
- * so they are skipped and counted in the JSON output. A missing built artifact
- * is caught before spawning and reported with a "did `build` run?" hint.
+ * Wildcard (`./*`), `null` (blocked), and `.json` data subpaths (notably the
+ * near-universal `"./package.json"` export) carry no runtime module to probe, so
+ * they are skipped and counted in the JSON output. A missing built artifact is
+ * caught before spawning and reported with a "did `build` run?" hint.
  *
  * Returns a result the orchestrator persists to `.check/smoke.json`:
  *   stdout `{ ok: true,  results: [...], skipped: [...] }`   on success (exit 0)
@@ -145,6 +146,14 @@ function entryToTarget(
   const importFile = normalizeMaybe(resolveConditional(value, ['import', 'module', 'default']));
   if (importFile?.includes('*')) return { skip: { subpath, reason: 'wildcard target' } };
   const requireFile = resolveRequireFile(value);
+  // A `.json` subpath — the near-universal `"./package.json": "./package.json"`,
+  // plus any other data export — is not a runtime module: `import()`ing it needs
+  // an `with { type: 'json' }` attribute the probe can't supply, and it carries
+  // no value exports to assert. Skip it like a wildcard/null subpath.
+  const probeTarget = importFile ?? requireFile;
+  if (probeTarget?.endsWith('.json')) {
+    return { skip: { subpath, reason: 'json data subpath' } };
+  }
   const specifier = name === null ? null : subpath === '.' ? name : name + subpath.slice(1);
   return {
     target: {

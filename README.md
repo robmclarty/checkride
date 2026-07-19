@@ -419,6 +419,26 @@ See [AGENTS.md](./AGENTS.md) for the contract agents follow,
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the release ritual, and
 [CHANGELOG.md](./CHANGELOG.md) for release notes.
 
+## Programmatic API
+
+The CLI is the primary interface, but every command is also a function. Import
+from the package root to run the pipeline inside your own tooling; the result
+carries the same summary written to `.check/summary.json`, plus the exit code the
+CLI would return:
+
+<!-- snippet: check -->
+```ts
+import { runChecks, type RunResult } from 'checkride';
+
+const result: RunResult = await runChecks({ cwd: process.cwd(), strict: true });
+process.exitCode = result.exitCode;
+```
+
+`runChecks` sits alongside `runInit`, `runDoctor`, `runFix`, and the
+`loadConfig`/`resolveChecks` pair; the adapter registry (`SLOTS`, `ADAPTERS`) and
+every public type are re-exported too. The full surface is the package's
+`exports`, and it is part of the [contract](./docs/contract.md).
+
 ## License
 
 [MIT](./LICENSE)
