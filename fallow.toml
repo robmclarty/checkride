@@ -9,6 +9,10 @@ entry = [
   "stryker.config.mjs",
 ]
 
+# The static site (GitHub Pages): support.js is a generated runtime bundle and
+# the pages are standalone HTML — front-end assets, not package source.
+ignorePatterns = ["site/**"]
+
 # CLI/tooling deps used via command line or config files, not imported from source.
 ignoreDependencies = [
   "@ast-grep/cli",

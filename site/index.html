@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>checkride — a definition of done for TypeScript repos</title>
+<meta name="description" content="An agent harness for TypeScript repositories. One command runs the whole verification pipeline — exit 0 means the work is complete.">
+<script src="./support.js"></script>
+<script src="./stars.js" defer></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  html,body{margin:0;padding:0;background:#E9F0EA;}
+  ::selection{background:#1E7A4A;color:#E9F0EA;}
+  a{color:inherit;text-decoration:none;}
+  .cr-btn{transform:translate(-6px,-6px); box-shadow:1px 1px 0 #14231B,2px 2px 0 #14231B,3px 3px 0 #14231B,4px 4px 0 #14231B,5px 5px 0 #14231B,6px 6px 0 #14231B; transition:transform .09s ease, box-shadow .09s ease;}
+  .cr-btn:hover{transform:translate(0,0); box-shadow:none;}
+  .cr-btn:active{transform:translate(0,0); box-shadow:inset 1px 1px 0 #14231B,inset 2px 2px 0 #14231B,inset 3px 3px 0 #14231B,inset 4px 4px 0 #14231B,inset 5px 5px 0 #14231B,inset 6px 6px 0 #14231B;}
+  .cr-btn-label{display:inline-block; transition:transform .09s ease;}
+  .cr-btn:active .cr-btn-label{transform:translate(8px,8px);}
+</style>
+</helmet>
+
+<div style="position:relative; min-height:100vh; background:#E9F0EA; color:#14231B; font-family:'Space Grotesk',sans-serif; overflow-x:hidden;">
+
+  <!-- grain overlay -->
+  <div style="position:fixed; inset:0; z-index:9999; pointer-events:none; opacity:0.06; mix-blend-mode:multiply; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ===================== NAV ===================== -->
+  <div style="position:sticky; top:0; z-index:100; display:flex; align-items:center; justify-content:space-between; padding:18px 40px; background:#E9F0EA; border-bottom:3px solid #14231B;">
+    <a href="index.html" style="display:flex; align-items:center; gap:12px;">
+      <div style="width:22px; height:22px; background:#1E7A4A; border:2px solid #14231B;"></div>
+      <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:19px; letter-spacing:2px;">CHECKRIDE</div>
+    </a>
+    <div style="display:flex; gap:30px; align-items:center; font-size:14px; font-weight:500;">
+      <a href="#why">Why</a>
+      <a href="#gate">The gate</a>
+      <a href="#agents">Agents</a>
+      <a href="#pipeline">Pipeline</a>
+      <a href="docs.html">Docs</a>
+      <a href="api.html">API</a>
+      <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
+    </div>
+  </div>
+
+  <!-- ===================== HERO ===================== -->
+  <div style="position:relative; padding:84px 40px 96px; max-width:1320px; margin:0 auto;">
+    <div style="display:flex; gap:56px; align-items:flex-start;">
+      <div style="flex:1; min-width:0; padding-top:6px;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; text-transform:uppercase; color:#1E7A4A; margin-bottom:26px;">An agent harness for TypeScript repos</div>
+        <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:80px; line-height:0.98; margin:0; letter-spacing:-0.5px;">Give your agent a <span style="font-style:italic; color:#1E7A4A;">definition of done.</span></h1>
+        <p style="font-size:20px; line-height:1.55; color:#2A3A31; margin:30px 0 0; max-width:500px;">One command runs the whole verification pipeline — types, lint, structure, dead code, tests, docs, links, spelling. <span style="font-family:'JetBrains Mono',monospace; font-size:16px; background:#14231B; color:#E9F0EA; padding:2px 8px;">exit 0</span> means the work is complete. Agents stop guessing; humans stop re-reviewing half-finished work.</p>
+
+        <div style="display:flex; gap:16px; margin-top:38px;">
+          <a href="docs.html" style="background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:15px 28px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Get started →</span></a>
+          <a href="#why" style="background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:15px 28px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Why checkride</span></a>
+        </div>
+
+        <div onClick="{{ copy }}" data-copy="pnpm add -D -E checkride" style="display:inline-flex; align-items:center; gap:14px; margin-top:34px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:16px; background:#DBE6DD; border:2px dashed #52675B; padding:7px 20px;"><span style="color:#1E7A4A;">$</span> pnpm add -D -E checkride <span data-icon="" style="margin-left:18px; color:#52675B; font-size:40px; line-height:1; position:relative; top:-4px;">⎘</span></div>
+      </div>
+
+      <!-- interactive terminal card -->
+      <div style="flex:none; width:512px; max-width:46vw;">
+        <div style="background:#14231B; border:3px solid #14231B; box-shadow:1px 1px 0 #2456A6, 2px 2px 0 #2456A6, 3px 3px 0 #2456A6, 4px 4px 0 #2456A6, 5px 5px 0 #2456A6, 6px 6px 0 #2456A6, 7px 7px 0 #2456A6, 8px 8px 0 #2456A6, 9px 9px 0 #2456A6, 10px 10px 0 #2456A6;">
+          <div style="display:flex; align-items:center; gap:8px; padding:13px 16px; border-bottom:1px solid #3A4C41;">
+            <div style="width:12px; height:12px; border-radius:50%; background:#C0392B;"></div>
+            <div style="width:12px; height:12px; border-radius:50%; background:#D9A13B;"></div>
+            <div style="width:12px; height:12px; border-radius:50%; background:#1E7A4A;"></div>
+            <div style="margin-left:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">{{ fileName }}</div>
+          </div>
+          <div style="padding:22px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85; color:#DCE9DF; overflow-x:auto; min-height:300px;">
+            <sc-for list="{{ termLines }}" as="ln" hint-placeholder-count="12">
+              <div style="white-space:pre; min-height:1.85em;"><sc-for list="{{ ln.tokens }}" as="tk" hint-placeholder-count="4"><span style="color:{{ tk.color }};">{{ tk.t }}</span></sc-for></div>
+            </sc-for>
+          </div>
+        </div>
+        <div id="slots" style="margin-top:40px;">
+          <div style="margin-bottom:12px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#52675B;">16 SLOTS · ONE COMMAND · ONE EXIT CODE</div>
+          </div>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
+            <sc-for list="{{ slotChips }}" as="s" hint-placeholder-count="16">
+              <div onClick="{{ s.select }}" style="cursor:pointer; padding:7px 12px; border:2px solid #14231B; background:{{ s.bg }}; color:{{ s.fg }}; transition:transform .06s;">{{ s.name }}</div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="margin-top:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#5F7367;">{{ selectionNote }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:3px; background:#14231B;"></div>
+
+  <!-- ===================== WHY ===================== -->
+  <div id="why" style="position:relative; padding:96px 40px; max-width:1320px; margin:0 auto;">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">01 · WHY CHECKRIDE</div>
+    <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">Agents write code. They can't tell <span style="font-style:italic;">when to stop.</span></h2>
+    <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:680px; margin:18px 0 56px;">"Done" in most repos is folklore — fifteen npm scripts, a CI file that runs a different subset, and whatever the person who set it up remembers. checkride replaces that folklore with a contract: <strong>one command, one exit code</strong>, the same in every repo that adopts it.</p>
+
+    <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:24px;">
+      <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
+        <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#1E7A4A; line-height:1.02;">A definition of done</div>
+        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pnpm check</span> exits 0 when the work is complete and non-zero when it isn't — with an exit-code taxonomy, timeouts on by default, and a machine-readable summary. A gate can't be talked past.</p>
+      </div>
+      <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
+        <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#2456A6; line-height:1.02;">Lanes to stay inside</div>
+        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;">Deep modules, enforced mechanically: a folder module's <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">index.ts</span> is its only public surface, and siblings never reach the internals. Humans and agents work in parallel with minimal merge conflicts.</p>
+      </div>
+      <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
+        <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#C0392B; line-height:1.02;">Raw output, no normalizing</div>
+        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;">The consumer is an LLM, so checkride never reshapes diagnostics into a common format. Each tool's own JSON lands in <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/</span> untouched — deleting the layer that makes every meta-runner expensive to extend.</p>
+      </div>
+      <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
+        <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#52675B; line-height:1.02;">Exit price ≈ zero</div>
+        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;">checkride runs <em>your</em> pinned tools against <em>your</em> configs and adds no runtime dependency on any of them. Delete the dependency and the config, and the repo is exactly where it was. The worst case of adopting it is ending up where you already are.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== THE GATE ===================== -->
+  <div id="gate" style="position:relative; background:#DBE6DD; border-top:3px solid #14231B; border-bottom:3px solid #14231B; padding:96px 40px;">
+    <div style="max-width:1320px; margin:0 auto;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">02 · THE GATE</div>
+      <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">A contract, not a <span style="font-style:italic; color:#1E7A4A;">script pile.</span></h2>
+      <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:680px; margin:18px 0 52px;">Scripts are a list of commands. A gate needs semantics: what does each exit code promise, what may a consumer parse, what happens when a tool hangs — and can "green" ever mean "nothing ran"? checkride answers all four, and locks the answers with a contract test suite.</p>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">
+
+        <!-- the script pile -->
+        <div style="background:#E9F0EA; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:30px; opacity:0.92;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#C0392B; margin-bottom:14px;">✕ THE SCRIPT PILE</div>
+          <div style="font-family:'DM Serif Display',serif; font-size:28px; color:#14231B; line-height:1.05; margin-bottom:22px;">Fifteen scripts, zero promises</div>
+          <div style="border:2px dashed #C0392B; padding:16px; margin-bottom:22px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#C0392B; line-height:2;">lint · lint:fix · test · test:watch · typecheck · check:deps · spell · docs:lint · …</div>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:14.5px; line-height:1.5; color:#2A3A31;">
+            <div style="display:flex; gap:10px;"><span style="color:#C0392B; font-weight:700;">—</span><span>No exit-code taxonomy — every failure looks the same.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#C0392B; font-weight:700;">—</span><span>A hung tool stalls CI forever; nobody set a timeout.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#C0392B; font-weight:700;">—</span><span>A check nobody wired into CI is a check that doesn't exist.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#C0392B; font-weight:700;">—</span><span>Different names in every repo — the knowledge never transfers.</span></div>
+          </div>
+        </div>
+
+        <!-- the checkride way -->
+        <div style="background:#14231B; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #1E7A4A; padding:30px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#D9A13B; margin-bottom:14px;">✓ ONE CONTRACT</div>
+          <div style="font-family:'DM Serif Display',serif; font-size:28px; color:#E9F0EA; line-height:1.05; margin-bottom:22px;">One command, one exit code</div>
+          <div style="border:2px solid #3A4C41; padding:16px; margin-bottom:22px; font-family:'JetBrains Mono',monospace; font-size:13px; line-height:2; color:#B7C8BC;"><span style="color:#3FA26F;">$</span> pnpm check --strict<br><span style="color:#7E9187;">exit</span> <span style="color:#3FA26F;">0</span> done · <span style="color:#D45B4A;">1</span> a check failed · <span style="color:#D9A13B;">2</span> harness broke</div>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:14.5px; line-height:1.5; color:#B7C8BC;">
+            <div style="display:flex; gap:10px;"><span style="color:#D9A13B; font-weight:700;">+</span><span>Exit codes are a taxonomy a gate can branch on — "red build" vs "fix the pipeline".</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#D9A13B; font-weight:700;">+</span><span>Every check runs under a timeout by default; a hung tool is killed and recorded <em>red</em>.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#D9A13B; font-weight:700;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#E9F0EA;">checks_run: 0</span> is never a silent pass — <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#E9F0EA;">--strict</span> makes it exit 2.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#D9A13B; font-weight:700;">+</span><span>Artifacts are crash-consistent — a killed run never tears <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#E9F0EA;">summary.json</span>.</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <div style="margin-top:40px; border-left:6px solid #1E7A4A; padding:6px 0 6px 24px;">
+        <div style="font-family:'DM Serif Display',serif; font-size:30px; line-height:1.2; color:#14231B; max-width:900px;">A flake in a linter is an annoyance. A flake in the thing that decides <span style="font-style:italic; color:#1E7A4A;">whether the linter passed</span> is a crack in the floor.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== AGENTS ===================== -->
+  <div id="agents" style="position:relative; background:#14231B; color:#E9F0EA; border-bottom:3px solid #14231B; padding:88px 40px;">
+    <div style="max-width:1320px; margin:0 auto; display:flex; gap:64px; align-items:flex-start;">
+      <div style="flex:none; width:420px;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#D9A13B; margin-bottom:18px;">03 · THE AGENT CONTRACT</div>
+        <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0; color:#E9F0EA;">The agent can't declare victory on a <span style="font-style:italic; color:#D45B4A;">red pipeline.</span></h2>
+        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#D9A13B;">checkride init</span> writes the contract into the repo: an AGENTS.md stanza stating the "exit 0 = done" rule, and a Claude Code <strong style="color:#E9F0EA;">Stop hook</strong> that fires when the agent tries to finish — exit 2 blocks the stop and sends the agent back to work until the pipeline is green.</p>
+        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:18px 0 0;">When a check fails, the agent reads <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/summary.json</span>, then the failing slot's raw JSON. On a big red repo, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes a token-bounded excerpt so the agent starts from a capped index, not a wall of text.</p>
+        <a href="docs.html" style="display:inline-block; margin-top:28px; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:14px; padding:13px 24px; border:3px solid #E9F0EA; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">Set up the harness →</a>
+      </div>
+
+      <div style="flex:1; min-width:0;">
+        <div style="border:3px solid #E9F0EA;">
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #3A4C41; background:#1A2B22;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">.claude/settings.json — written by checkride init</div>
+            <button onClick="{{ copy }}" data-orig="COPY" data-copy='{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm run check || { echo &apos;checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).&apos; >&2; exit 2; }"
+          }
+        ]
+      }
+    ]
+  }
+}' style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:5px 11px; cursor:pointer;">COPY</button>
+          </div>
+          <div style="padding:24px 26px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.9; color:#DCE9DF; white-space:pre; overflow-x:auto;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish.' &gt;&amp;2; exit 2; }"</span><br>    }] }]<br>  }<br>}</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:24px;">
+          <div style="border-left:3px solid #1E7A4A; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">AGENTS.md stanza</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The rule, the conventions, and the narrow commands — loaded into context by Claude Code, Codex, Cursor, Amp.</div></div>
+          <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">Stop hook</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">Exit 2 blocks the agent from finishing while the pipeline is red. Guidance becomes enforcement.</div></div>
+          <div style="border-left:3px solid #D9A13B; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">CI backstop</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The hook helps the agent locally; a <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--strict</span> run in CI protects the branch.</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== BASELINE ===================== -->
+  <div style="position:relative; background:#DBE6DD; border-bottom:3px solid #14231B; padding:88px 40px;">
+    <div style="max-width:1320px; margin:0 auto; display:flex; gap:64px; align-items:center;">
+      <div style="flex:none; width:430px;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">04 · THE BASELINE RATCHET</div>
+        <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0;">Adopt in an afternoon — <span style="font-style:italic; color:#1E7A4A;">not after a cleanup project.</span></h2>
+        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride init --baseline</span> grandfathers the diagnostics a repo has <em>today</em>, so day-one runs pass — while any <em>new</em> diagnostic still fails. "Don't make it worse" becomes the definition of done for legacy code.</p>
+        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:18px 0 0;">The baseline is a <strong>ratchet</strong>: fixing a grandfathered finding prunes it from the committed file permanently — it only ever shrinks. Debt is paid down monotonically instead of being ignored, or blocking adoption.</p>
+        <div style="margin-top:24px; font-family:'JetBrains Mono',monospace; font-size:15px; background:#14231B; color:#DCE9DF; padding:14px 18px; border:3px solid #14231B; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">old debt masked · new debt fails · fixed debt pruned</div>
+      </div>
+
+      <div style="flex:1; min-width:0;">
+        <div style="max-width:560px; margin:0 auto;">
+          <div style="border:3px solid #14231B; background:#E9F0EA; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B, 7px 7px 0 #14231B, 8px 8px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:3px solid #14231B; background:#DBE6DD;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; color:#1E7A4A;">checkride.baseline.json</span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#52675B;">committed · only ever shrinks</span>
+            </div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"schema_version"</span>: <span style="color:#D9A13B;">1</span>,<br>  <span style="color:#D9A13B;">"slots"</span>: {<br>    <span style="color:#D9A13B;">"lint"</span>:  [<span style="color:#3FA26F;">"src/legacy.ts:no-explicit-any:Unexpected any"</span>],<br>    <span style="color:#D9A13B;">"spell"</span>: [<span style="color:#3FA26F;">"docs/old.md::teh"</span>]<br>  }<br>}</div>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#48594F; margin-top:18px; text-align:center;">Stable fingerprints (file:rule:message) that survive line moves — not raw output.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== PIPELINE ===================== -->
+  <div id="pipeline" style="position:relative; padding:96px 40px; max-width:1320px; margin:0 auto;">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">05 · THE PIPELINE</div>
+    <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">Sixteen <span style="font-style:italic; color:#2456A6;">slots</span>, filled by the tools you already have.</h2>
+    <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:680px; margin:18px 0 24px;">A <strong>slot</strong> is a role in the pipeline; an <strong>adapter</strong> is the concrete tool that fills it. Zero-config: checkride runs the first adapter whose config file exists and skips slots with no detected tool. The core has <strong>no runtime dependency</strong> on any checked tool — your repo owns the pinned versions.</p>
+    <p style="font-size:16px; line-height:1.6; color:#48594F; max-width:680px; margin:0 0 40px;">Opt-in slots stay out of the default run, so adopting checkride — or bumping its version — never turns a repo red on a check it didn't ask for. The last four are the <strong>publish-ready bundle</strong>: they gate the artifact a consumer actually installs.</p>
+
+    <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B, 7px 7px 0 #14231B, 8px 8px 0 #14231B; overflow:hidden;">
+      <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:13.5px;">
+        <thead>
+          <tr style="background:#14231B; color:#E9F0EA;">
+            <th style="text-align:left; padding:14px 18px; font-weight:700; letter-spacing:1px;">SLOT</th>
+            <th style="text-align:left; padding:14px 12px; font-weight:500;">role</th>
+            <th style="text-align:left; padding:14px 12px; font-weight:500;">default tool</th>
+            <th style="text-align:center; padding:14px 12px; font-weight:500;">default run?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <sc-for list="{{ pipelineRows }}" as="row" hint-placeholder-count="16">
+            <tr style="border-top:2px solid #14231B; background:{{ row.bg }};">
+              <td style="text-align:left; padding:12px 18px; font-weight:700; color:{{ row.accent }};">{{ row.name }}</td>
+              <td style="text-align:left; padding:12px 12px; font-family:'Space Grotesk',sans-serif; font-size:14px; color:#2A3A31;">{{ row.role }}</td>
+              <td style="text-align:left; padding:12px 12px;">{{ row.tool }}</td>
+              <td style="text-align:center; padding:12px 12px;">{{ row.def }}</td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#52675B; margin-top:14px;">✅ default run · ○ opt-in — enable with --include &lt;slot&gt;, --all, or by naming it in checkride.config.json · full catalogue in the <a href="api.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">API reference</a></div>
+  </div>
+
+  <!-- ===================== CTA ===================== -->
+  <div style="position:relative; background:#1E7A4A; border-top:3px solid #14231B; padding:96px 40px; text-align:center; overflow:hidden;">
+    <div style="position:absolute; top:-40px; right:-30px; width:280px; height:280px; background-image:radial-gradient(#14231B 3px, transparent 3.5px); background-size:18px 18px; opacity:0.25; transform:rotate(-8deg);"></div>
+    <div style="position:relative; max-width:760px; margin:0 auto;">
+      <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:64px; line-height:1; margin:0; color:#E9F0EA;">Make exit 0 mean done.</h2>
+      <p style="font-size:19px; line-height:1.55; color:#DCEEDF; margin:22px 0 38px;">Install, run <span style="font-family:'JetBrains Mono',monospace; font-size:16px;">init</span>, and the gate is up — alias, agent stanza, Stop hook, all of it. Existing repos adopt with a baseline; new ones scaffold green out of the box.</p>
+      <div onClick="{{ copy }}" data-copy="pnpm dlx checkride init" style="display:inline-flex; align-items:center; gap:14px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:18px; background:#E9F0EA; border:2px dashed #14231B; padding:8px 24px;"><span style="color:#1E7A4A;">$</span> pnpm dlx checkride init <span data-icon="" style="margin-left:18px; color:#52675B; font-size:44px; line-height:1; position:relative; top:-5px;">⎘</span></div>
+      <div style="margin-top:32px;">
+        <a href="docs.html" style="display:inline-block; background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:15px 30px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Open the docs →</span></a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== FOOTER ===================== -->
+  <div style="position:relative; background:#14231B; color:#B7C8BC; padding:56px 40px 44px;">
+    <div style="max-width:1320px; margin:0 auto; display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:40px;">
+      <div style="max-width:340px;">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px;">
+          <div style="width:20px; height:20px; background:#1E7A4A; border:2px solid #E9F0EA;"></div>
+          <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; letter-spacing:2px; color:#E9F0EA;">CHECKRIDE</div>
+        </div>
+        <p style="font-size:14px; line-height:1.6; margin:0;">An agent harness for TypeScript repositories. One command, one exit code — a portable definition of done.</p>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#52675B; margin-top:20px;">MIT · © 2026</div>
+      </div>
+      <div style="display:flex; gap:64px; flex-wrap:wrap;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#D9A13B; margin-bottom:14px;">DOCS</div>
+          <div style="display:flex; flex-direction:column; gap:10px; font-size:14px;">
+            <a href="docs.html">Getting started</a>
+            <a href="docs.html">Working with agents</a>
+            <a href="docs.html">The baseline</a>
+            <a href="docs.html">Running in CI</a>
+            <a href="api.html">API reference</a>
+          </div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#D9A13B; margin-bottom:14px;">COMMANDS</div>
+          <div style="display:flex; flex-direction:column; gap:10px; font-family:'JetBrains Mono',monospace; font-size:13px;">
+            <span>checkride</span>
+            <span>init</span>
+            <span>doctor</span>
+            <span>fix</span>
+            <span>baseline</span>
+            <span>agent-setup</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#D9A13B; margin-bottom:14px;">PROJECT</div>
+          <div style="display:flex; flex-direction:column; gap:10px; font-size:14px;">
+            <a href="https://github.com/robmclarty/checkride">GitHub</a>
+            <a href="https://github.com/robmclarty/checkride/blob/main/LICENSE">License</a>
+            <a href="https://github.com/robmclarty/checkride/blob/main/CHANGELOG.md">Changelog</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<template id="__bundler_thumbnail" data-bg-color="#E9F0EA">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#E9F0EA"/>
+    <rect x="518" y="286" width="164" height="164" fill="#1E7A4A" stroke="#14231B" stroke-width="12"/>
+    <text x="600" y="556" font-family="monospace" font-size="54" font-weight="700" fill="#14231B" text-anchor="middle" letter-spacing="8">CHECKRIDE</text>
+  </svg>
+</template></x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { slot: null };
+
+  selectSlot(n) { this.setState(s => ({ slot: s.slot === n ? null : n })); }
+
+  copy(e) {
+    const t = e.currentTarget;
+    const text = t.getAttribute('data-copy') || '';
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (_) {}
+    const icon = t.querySelector('[data-icon]');
+    if (icon) {
+      const o = icon.getAttribute('data-glyph') || icon.textContent;
+      icon.setAttribute('data-glyph', o);
+      icon.textContent = '✓';
+      clearTimeout(t._t);
+      t._t = setTimeout(() => { icon.textContent = o; }, 1300);
+      return;
+    }
+    const orig = t.getAttribute('data-orig') || t.textContent;
+    t.setAttribute('data-orig', orig);
+    t.textContent = 'COPIED ✓';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.textContent = orig; }, 1300);
+  }
+
+  renderVals() {
+    const INK = '#DCE9DF', DIM = '#7E9187', GRN = '#3FA26F', AMB = '#D9A13B', RED = '#D45B4A', STR = '#3FA26F';
+
+    // slot catalogue: [name, role, tool, optIn, note]
+    const SLOTS = [
+      ['types',    'Type checking',                          'tsc --build',       false, 'The cheapest check runs first. Uses your tsconfig project references.'],
+      ['format',   'Formatting',                             'prettier',          true,  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome.'],
+      ['lint',     'Linting',                                'oxlint',            false, 'Alternates: biome, eslint. checkride fix runs oxlint --fix.'],
+      ['struct',   'Structural rules (deep modules)',        'ast-grep',          false, 'Enforces the module boundaries: index.ts-only surfaces, no reaching internals.'],
+      ['dead',     'Dead code, deps, cycles, boundaries',    'fallow',            false, 'fallow dead-code. Alternate: knip. checkride gates on the issue count.'],
+      ['dupes',    'Code duplication',                       'fallow',            true,  'Opt-in. fallow dupes — clone detection, baselines like lint.'],
+      ['health',   'Complexity / maintainability',           'fallow',            true,  'Opt-in. fallow health — function complexity hotspots.'],
+      ['test',     'Tests + coverage',                       'vitest',            false, 'Coverage thresholds live in vitest.config.ts. Alternate: jest.'],
+      ['docs',     'Markdown lint',                          'markdownlint-cli2', false, 'checkride fix runs markdownlint-cli2 --fix.'],
+      ['links',    'Relative markdown links resolve',        'built-in',          false, 'No tool to install — checkride ships this one.'],
+      ['spell',    'Spelling',                               'cspell',            false, 'Fingerprinted for the baseline like lint and struct.'],
+      ['mutation', 'Mutation testing',                       'stryker',           true,  'Opt-in. Ships uncapped (timeout: 0) and runs exclusive — stryker takes a while.'],
+      ['build',    "Runs the consumer's build script",       '<pm> run build',    true,  'Publish-ready bundle, wave 10 — fresh output for the wave-20 checks.'],
+      ['pack',     'Tarball ships the right files',          'built-in',          true,  'Fails if a required file is missing or src/, tests, or .ts sources leak in.'],
+      ['smoke',    'Built package imports cleanly',          'built-in',          true,  'Loads every exports entry through real resolution; asserts exports are live.'],
+      ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    true,  'Type-checks fenced examples tagged <!-- snippet: check --> in README + docs.'],
+    ];
+
+    const sel = this.state.slot;
+    const line = (parts) => ({ tokens: parts.map(([t, color]) => ({ t, color })) });
+    const blank = () => line([[' ', INK]]);
+
+    let termLines, fileName;
+    if (!sel) {
+      fileName = 'pnpm check';
+      const row = (name, tool, dur) => line([
+        ['✓ ', GRN], [name.padEnd(9), INK], [tool.padEnd(20), DIM], [dur.padStart(5), DIM],
+      ]);
+      termLines = [
+        line([['$ ', GRN], ['pnpm check', INK]]),
+        blank(),
+        row('types', 'tsc --build', '2.1s'),
+        row('lint', 'oxlint', '0.4s'),
+        row('struct', 'ast-grep', '0.8s'),
+        row('dead', 'fallow dead-code', '1.9s'),
+        row('test', 'vitest', '6.3s'),
+        row('docs', 'markdownlint-cli2', '0.5s'),
+        row('links', 'built-in', '0.1s'),
+        row('spell', 'cspell', '1.2s'),
+        blank(),
+        line([['8 checks passed', GRN], [' · ', DIM], ['exit 0', INK], [' — done', GRN]]),
+      ];
+    } else {
+      const s = SLOTS.find(x => x[0] === sel);
+      fileName = '.check/summary.json → checks[]';
+      termLines = [
+        line([['// ', DIM], [s[1], DIM]]),
+        line([['{', INK]]),
+        line([['  "name"', AMB], [': ', INK], ['"' + s[0] + '"', STR], [',', INK]]),
+        line([['  "adapter"', AMB], [': ', INK], ['"' + s[2] + '"', STR], [',', INK]]),
+        line([['  "ok"', AMB], [': ', INK], ['true', GRN], [',', INK]]),
+        line([['  "exit_code"', AMB], [': ', INK], ['0', AMB], [',', INK]]),
+        line([['  "duration_ms"', AMB], [': ', INK], ['470', AMB], [',', INK]]),
+        line([['  "output_file"', AMB], [': ', INK], ['"' + s[0] + '.json"', STR]]),
+        line([['}', INK]]),
+        blank(),
+        line([[s[3] ? '○ opt-in — enable with --include ' + s[0] : '✅ runs in the default gate', s[3] ? AMB : GRN]]),
+        line([[s[4], DIM]]),
+      ];
+    }
+
+    const slotChips = SLOTS.map(([name]) => {
+      const on = name === sel;
+      return { name, select: () => this.selectSlot(name), bg: on ? '#1E7A4A' : '#E9F0EA', fg: on ? '#E9F0EA' : '#14231B' };
+    });
+
+    const selectionNote = sel
+      ? 'Showing the summary entry for ' + sel + '. Tap the chip again to see the full run.'
+      : 'A green run. Click a slot to see its entry in .check/summary.json — the aggregate report every run writes.';
+
+    // pipeline table
+    const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const pipelineRows = SLOTS.map(([name, role, tool, optIn], i) => ({
+      name, role, tool,
+      def: optIn ? '○' : '✅',
+      accent: accents[i % 4],
+      bg: i % 2 ? '#DBE6DD' : '#E9F0EA',
+    }));
+
+    return { termLines, fileName, slotChips, selectionNote, pipelineRows, copy: (e) => this.copy(e) };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>checkride docs — getting started, agents, baseline, CI</title>
+<meta name="description" content="Task-focused guides for checkride: install it, run the daily loop, wire the agent contract, adopt with a baseline, and gate CI.">
+<script src="./support.js"></script>
+<script src="./stars.js" defer></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#E9F0EA;}
+  ::selection{background:#1E7A4A;color:#E9F0EA;}
+  a{color:inherit;text-decoration:none;}
+  .cr-btn{transform:translate(-6px,-6px); box-shadow:1px 1px 0 #14231B,2px 2px 0 #14231B,3px 3px 0 #14231B,4px 4px 0 #14231B,5px 5px 0 #14231B,6px 6px 0 #14231B; transition:transform .09s ease, box-shadow .09s ease;}
+  .cr-btn:hover{transform:translate(0,0); box-shadow:none;}
+  .cr-btn:active{transform:translate(0,0); box-shadow:inset 1px 1px 0 #14231B,inset 2px 2px 0 #14231B,inset 3px 3px 0 #14231B,inset 4px 4px 0 #14231B,inset 5px 5px 0 #14231B,inset 6px 6px 0 #14231B;}
+  .cr-btn-label{display:inline-block; transition:transform .09s ease;}
+  .cr-btn:active .cr-btn-label{transform:translate(8px,8px);}
+</style>
+</helmet>
+
+<div style="position:relative; min-height:100vh; background:#E9F0EA; color:#14231B; font-family:'Space Grotesk',sans-serif;">
+
+  <!-- grain overlay -->
+  <div style="position:fixed; inset:0; z-index:9999; pointer-events:none; opacity:0.06; mix-blend-mode:multiply; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ===================== NAV ===================== -->
+  <div style="position:sticky; top:0; z-index:100; display:flex; align-items:center; justify-content:space-between; padding:16px 32px; background:#E9F0EA; border-bottom:3px solid #14231B;">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <a href="index.html" style="display:flex; align-items:center; gap:12px;">
+        <div style="width:20px; height:20px; background:#1E7A4A; border:2px solid #14231B;"></div>
+        <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; letter-spacing:2px;">CHECKRIDE</div>
+      </a>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; color:#52675B; border:2px solid #52675B; padding:2px 8px;">DOCS</div>
+    </div>
+    <div style="display:flex; gap:26px; align-items:center; font-size:14px; font-weight:500;">
+      <a href="index.html">Home</a>
+      <a href="api.html">API</a>
+      <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
+    </div>
+  </div>
+
+  <!-- ===================== BODY ===================== -->
+  <div style="display:flex; align-items:flex-start; max-width:1280px; margin:0 auto;">
+
+    <!-- SIDEBAR -->
+    <div style="flex:none; width:268px; position:sticky; top:64px; align-self:flex-start; height:calc(100vh - 64px); overflow-y:auto; border-right:3px solid #14231B; padding:34px 26px 60px;">
+      <sc-for list="{{ nav }}" as="grp" hint-placeholder-count="3">
+        <div style="margin-bottom:30px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:#52675B; margin-bottom:14px;">{{ grp.title }}</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="3">
+              <div onClick="{{ it.onClick }}" style="cursor:pointer; font-size:15px; font-weight:{{ it.weight }}; color:{{ it.color }}; background:{{ it.bg }}; border-left:3px solid {{ it.bar }}; padding:7px 14px;">{{ it.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="border-top:2px dashed #52675B; padding-top:18px; font-size:13.5px; line-height:1.5; color:#48594F;">Looking for every flag, the summary schema, or the exports? <a href="api.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">API reference →</a></div>
+    </div>
+
+    <!-- CONTENT -->
+    <div style="flex:1; min-width:0; padding:48px 56px 120px; max-width:880px;">
+
+      <!-- ============ GETTING STARTED ============ -->
+      <sc-if value="{{ isGettingStarted }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">GET STARTED</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Getting started</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:640px;">The whole tool reduces to one rule: <strong><span style="font-family:'JetBrains Mono',monospace; font-size:15px;">pnpm check</span> is the definition of done. Exit 0 means complete. Anything else means it is not.</strong></p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Prerequisites</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Three things outside the project: <strong>Node ≥ 22.18</strong>, a package manager (pnpm ≥ 9 is the default; npm, yarn, and bun work too), and <strong>git</strong>. Everything else — oxlint, ast-grep, fallow, vitest — is an ordinary project devDependency. Verify any time:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm exec checkride doctor" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride doctor</div>
+          </div>
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin-top:14px;"><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">doctor</span> is read-only: it checks Node/pnpm/git, that the project is installed, and reports every slot's status. Exit 0 means you are ready to run.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">An existing repository</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm add -D -E checkride
+pnpm exec checkride init" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm add -D -E checkride<br><span style="color:#1E7A4A;">$</span> pnpm exec checkride init</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">init</span> is additive: it inventories the tools you already have, writes only what is missing (a config, a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">check</span> script alias, the AGENTS.md stanza, the Stop hook), gitignores <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span>, and never overwrites an existing tool config. For a repo with real existing findings, prefer <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init --baseline</span> — see <span onClick="{{ goBaseline }}" style="cursor:pointer; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">the baseline</span>. To scaffold a tool you don't have yet, name its slot: <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init --add struct,dead</span>, then <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm add -D @ast-grep/cli fallow</span>.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">A new project</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm dlx checkride init --shape flat --name my-app
+pnpm install
+pnpm check" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm dlx checkride init --shape flat --name my-app<br><span style="color:#1E7A4A;">$</span> pnpm install<br><span style="color:#1E7A4A;">$</span> pnpm check</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">From an empty directory, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> generates a complete repo, green out of the box. Pick a shape: <strong>flat</strong> (single package, deep-modules layout under <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">src/</span>), <strong>monorepo</strong> (a pnpm workspace of <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">apps/*</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">libs/*</span>), or <strong>hybrid</strong> (root app plus internal <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">packages/*</span>). Preview with <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--dry-run</span>.</p>
+
+          <div style="display:flex; gap:16px; margin-top:48px; flex-wrap:wrap;">
+            <div onClick="{{ goDaily }}" style="cursor:pointer; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Next: The daily loop →</span></div>
+            <div onClick="{{ goAgents }}" style="cursor:pointer; background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Working with agents →</span></div>
+          </div>
+
+          <div style="margin-top:44px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B; padding:24px 28px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#2456A6; margin-bottom:10px;">NO LOCK-IN</div>
+            <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">checkride's whole footprint is the devDependency, two config files, the script alias, the stanza, and the hook. Remove them and every tool keeps working untouched — you've merely dropped the orchestrator. The worst case of adopting checkride is ending up where you already are.</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ DAILY LOOP ============ -->
+      <sc-if value="{{ isDaily }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">DAILY USE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The daily loop</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:640px;">Once set up, daily usage is one command regardless of the tool's name, because <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">init</span> writes a <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">check</span> script alias.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm check" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm check</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">That runs the full pipeline — types, lint, structure, dead code, tests, docs, links, spelling — cheapest checks first. Exit 0 and you are done.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Narrow the loop while iterating</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm check --bail            # stop at the first failing check
+pnpm check --only types,lint # run just the named slots
+pnpm check --changed         # affected-only (incremental types, changed tests)" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px; line-height:1.85;"><span style="color:#1E7A4A;">$</span> pnpm check --bail            <span style="color:#5F7367;"># stop at the first failing check</span><br><span style="color:#1E7A4A;">$</span> pnpm check --only types,lint <span style="color:#5F7367;"># run just the named slots</span><br><span style="color:#1E7A4A;">$</span> pnpm check --changed         <span style="color:#5F7367;"># affected-only mode</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Run the full <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm check</span> once at the end to confirm green. Some failures have a one-shot fix — <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride fix</span> runs every active adapter's fix command (<span style="font-family:'JetBrains Mono',monospace; font-size:14px;">oxlint --fix</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">markdownlint-cli2 --fix</span>, …).</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The aliases init writes</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:13.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA;"><th style="text-align:left; padding:12px 16px; letter-spacing:1px;">SCRIPT</th><th style="text-align:left; padding:12px 16px; font-weight:500;">runs</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ aliases }}" as="a" hint-placeholder-count="7">
+                  <tr style="border-top:2px solid #14231B; background:{{ a.bg }};">
+                    <td style="padding:11px 16px; font-weight:700; color:#1E7A4A;">{{ a.script }}</td>
+                    <td style="padding:11px 16px; color:#2A3A31;">{{ a.runs }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ WHEN A CHECK FAILS ============ -->
+      <sc-if value="{{ isFailures }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">DAILY USE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">When a check fails</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">Every run writes machine-readable output to <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">.check/</span>. The debugging path is always the same four steps.</p>
+
+          <div style="display:flex; flex-direction:column; gap:14px; margin-top:32px;">
+            <div style="display:flex; gap:18px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 24px;">
+              <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#1E7A4A; line-height:1;">1</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">Read <span style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;">.check/summary.json</span> — the aggregate report. Find the check whose <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">ok</span> is <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">false</span>.</div>
+            </div>
+            <div style="display:flex; gap:18px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 24px;">
+              <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#2456A6; line-height:1;">2</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">Read that slot's raw output — <span style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;">.check/&lt;slot&gt;.json</span> (for example <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/lint.json</span>), or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/&lt;slot&gt;.stdout.txt</span> when the tool's output is not JSON. The raw file is the truth; the summary is an index.</div>
+            </div>
+            <div style="display:flex; gap:18px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 24px;">
+              <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#C0392B; line-height:1;">3</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">Fix the root cause, not the symptom. Fixable lint/format/markdown errors have a one-shot answer: <span style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;">pnpm exec checkride fix</span>.</div>
+            </div>
+            <div style="display:flex; gap:18px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 24px;">
+              <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#52675B; line-height:1;">4</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">Re-run <span style="font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:700;">pnpm check</span>. Never claim a task is finished while it is red.</div>
+            </div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Big red repo? Use the digest</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/digest.md</span> — a <strong>token-bounded</strong> Markdown excerpt of the failing slots (ten findings per slot, 8 kB overall, roughly two thousand tokens), each section linking the authoritative raw file. It truncates, never normalizes; a green run leaves no digest, so its presence always means "this run failed".</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm check --digest" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm check --digest</div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Quick triage</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:13px 18px; letter-spacing:1px; font-size:13px;">SYMPTOM</th><th style="text-align:left; padding:13px 18px; font-weight:500; font-size:13px;">DO THIS</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ triage }}" as="t" hint-placeholder-count="6">
+                  <tr style="border-top:2px solid #14231B; background:{{ t.bg }};">
+                    <td style="padding:11px 18px; color:#2A3A31;">{{ t.symptom }}</td>
+                    <td style="padding:11px 18px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#1E7A4A; font-weight:500;">{{ t.fix }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ AGENTS ============ -->
+      <sc-if value="{{ isAgents }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">ADOPTION</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Working with agents</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride is an agent harness: the goal of <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">init</span> is that a coding agent adopts the "exit 0 = done" rule on its own — and can't finish without it.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">How agents pick it up</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> writes the contract into two files. <strong>AGENTS.md</strong> gets a stanza (between <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;!-- checkride:begin --&gt;</span> / <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;!-- checkride:end --&gt;</span> markers) stating the rule, how to read <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span> on failure, the module-boundary conventions, and the tight-loop commands. <strong>CLAUDE.md</strong> gets a short pointer (only if you don't already have one). Claude Code, Codex, Cursor, and Amp load these at session start — the agent runs <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm check</span> because it read the instruction. That's guidance; the hook below is enforcement. Keep your own edits <em>outside</em> the markers — <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> rewrites the stanza in place.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Make it a hard gate</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">checkride writes a Claude Code <strong>Stop hook</strong> to <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.claude/settings.json</span>. It fires when the agent tries to finish; exiting <strong>2</strong> blocks the stop and feeds the message back, so the agent keeps working until the pipeline is green. To add it to a repo you already set up:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm exec checkride agent-setup" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride agent-setup   <span style="color:#5F7367;"># alias + stanza + Stop hook, nothing else</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Both commands are idempotent and honor <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--no-hook</span>. The generated hook uses your <strong>detected package manager</strong> (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pnpm</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">npm</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">yarn</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">bun run check</span>):</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">.claude/settings.json</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' &gt;&amp;2; exit 2; }"</span><br>    }] }]<br>  }<br>}</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">The <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">|| { …; exit 2; }</span> wrapper matters: a plain run exits 1 on failure, which Claude Code treats as non-blocking and lets the agent stop anyway. Exit 2 is the code that blocks. The hook deliberately runs <em>without</em> <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--strict</span> — it fails open locally so a misconfigured repo can't trap the agent; the fail-closed <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--strict</span> run belongs in <span onClick="{{ goCi }}" style="cursor:pointer; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">CI</span>, which protects the branch.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Avoiding duplicate runs</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">The stanza and the hook both want <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm check</span>, so a naive setup runs the pipeline twice. The generated stanza already applies the simplest fix: when a Stop hook is configured, the hook owns the final full run — the agent iterates with the narrow commands and lets the hook run the authoritative pipeline once at the end. For an expensive suite, the most robust fix is a hook that <em>verifies the artifact instead of recomputing</em>: accept a complete, green <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">summary.json</span> newer than your sources, and only re-run when it's missing or stale. And don't delete the AGENTS.md block to dodge the duplicate — it also teaches the agent how to <em>fix</em> what the hook flags, and it's what non-Claude agents have.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ BASELINE ============ -->
+      <sc-if value="{{ isBaseline }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">ADOPTION</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The baseline ratchet</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">Adopting checkride on an existing repo shouldn't be a cleanup project. A <strong>baseline</strong> grandfathers the diagnostics a repo has <em>today</em> so day-one runs pass, while any <em>new</em> diagnostic still fails — "don't make it worse" as the definition of done for legacy code.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm exec checkride baseline" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride baseline   <span style="color:#5F7367;"># record current diagnostics into checkride.baseline.json</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride.baseline.json</span> lives at the repo root and <strong>is committed</strong>. It records per-slot <em>fingerprints</em> — a stable <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">file:rule:message</span> key that survives line moves — not raw output. Adopting from scratch? <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride init --baseline</span> does this as part of setup instead of disabling failing slots.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">How the ratchet works</h2>
+          <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:14px;">
+            <div style="border-left:3px solid #1E7A4A; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">Old debt is masked</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">A slot is green when only baselined findings remain. The raw <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">.check/&lt;slot&gt;.json</span> still holds everything, and the check gains a <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">"baselined": n</span> count.</div></div>
+            <div style="border-left:3px solid #C0392B; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">New debt fails</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">Current findings have the grandfathered ones subtracted; the slot fails listing only the new ones.</div></div>
+            <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">Fixed debt is pruned</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">A full green run drops fixed fingerprints from the file — it only ever shrinks, so debt can't silently creep back. Partial runs (<span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--only</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--changed</span>, an early <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--bail</span>) never prune.</div></div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The rules of the road</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Never add to the baseline to make a check pass — fix the finding, or re-run <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride baseline</span> deliberately and read the diff in the PR like code (it re-records <em>everything</em> currently failing, including brand-new debt). The file is canonical (sorted slots and keys), so parallel branches usually merge cleanly; when they conflict, keep both sides' entries and run a full <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride</span> — the ratchet prunes anything already fixed, and a dropped entry that still fails simply resurfaces red.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:14px;">Only slots with a fingerprint extractor participate — currently <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">lint</span> (oxlint), <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">struct</span> (ast-grep), <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">spell</span> (cspell), and the fallow slots <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">dead</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">dupes</span>/<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">health</span>. A crash or empty output is never masked: a slot only goes green when there are findings and all of them are grandfathered.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ CI ============ -->
+      <sc-if value="{{ isCi }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">ADOPTION</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Running in CI</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:640px;">One job, one command, exit 0 = done. Copy-paste for a pnpm repo on GitHub Actions — and <strong>always pass <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--strict</span> in CI</strong>: a gate should never mistake "nothing ran" for "everything passed".</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">.github/workflows/check.yaml</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6 # reads the version from packageManager
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24 # or 22 — checkride supports >=22.18
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # --strict: zero checks actually running is exit 2, never a silent pass.
+      - run: pnpm exec checkride --strict
+      # On failure, keep the raw diagnostics for humans and agents.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-report
+          path: .check/" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.8;"><span style="color:#D9A13B;">name</span>: check<br><br><span style="color:#D9A13B;">on</span>:<br>  <span style="color:#D9A13B;">push</span>: { <span style="color:#D9A13B;">branches</span>: [main] }<br>  <span style="color:#D9A13B;">pull_request</span>:<br><br><span style="color:#D9A13B;">jobs</span>:<br>  <span style="color:#D9A13B;">check</span>:<br>    <span style="color:#D9A13B;">runs-on</span>: ubuntu-latest<br>    <span style="color:#D9A13B;">steps</span>:<br>      - <span style="color:#D9A13B;">uses</span>: actions/checkout@v6<br>      - <span style="color:#D9A13B;">uses</span>: pnpm/action-setup@v6<br>      - <span style="color:#D9A13B;">uses</span>: actions/setup-node@v6<br>        <span style="color:#D9A13B;">with</span>: { <span style="color:#D9A13B;">node-version</span>: <span style="color:#3FA26F;">24</span>, <span style="color:#D9A13B;">cache</span>: pnpm }<br>      - <span style="color:#D9A13B;">run</span>: pnpm install --frozen-lockfile<br>      <span style="color:#5F7367;"># --strict: zero checks running is exit 2, never a silent pass</span><br>      - <span style="color:#D9A13B;">run</span>: <span style="color:#3FA26F;">pnpm exec checkride --strict</span><br>      <span style="color:#5F7367;"># on failure, keep the raw diagnostics for humans and agents</span><br>      - <span style="color:#D9A13B;">if</span>: failure()<br>        <span style="color:#D9A13B;">uses</span>: actions/upload-artifact@v4<br>        <span style="color:#D9A13B;">with</span>: { <span style="color:#D9A13B;">name</span>: check-report, <span style="color:#D9A13B;">path</span>: .check/ }</div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Notes</h2>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:15.5px; line-height:1.6; color:#2A3A31;">
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><strong>Exit codes:</strong> <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">0</span> pass, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">1</span> a check failed ("red build"), <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">2</span> the harness broke or was misused ("fix the pipeline"). A gate can branch on the difference.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>If the repo uses <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--changed</span> locally, still run the <strong>full</strong> set in CI — CI is where the whole pipeline gets observed, which is also what lets a committed baseline ratchet.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>With a committed <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride.baseline.json</span>, CI needs nothing extra: grandfathered diagnostics are masked, new ones fail, and a full green run prunes fixed entries (in the CI workspace only — the developer commits the same prune locally).</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>Nothing here is GitHub-specific. On GitLab, CircleCI, Buildkite, Jenkins, or a bare shell: check out, install from the lockfile, run <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride --strict</span>, gate on the exit code, and archive <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/</span> on failure.</span></div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Other package managers</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Replace the pnpm steps; the checkride invocation is identical.</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">variants</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;"><span style="color:#5F7367;"># npm</span><br>- <span style="color:#D9A13B;">run</span>: npm ci<br>- <span style="color:#D9A13B;">run</span>: <span style="color:#3FA26F;">npx checkride --strict</span><br><br><span style="color:#5F7367;"># yarn</span><br>- <span style="color:#D9A13B;">run</span>: yarn install --immutable<br>- <span style="color:#D9A13B;">run</span>: <span style="color:#3FA26F;">yarn checkride --strict</span><br><br><span style="color:#5F7367;"># bun</span><br>- <span style="color:#D9A13B;">run</span>: bun install --frozen-lockfile<br>- <span style="color:#D9A13B;">run</span>: <span style="color:#3FA26F;">bunx checkride --strict</span></div>
+          </div>
+          <p style="font-size:14px; line-height:1.6; color:#48594F; margin-top:16px;">The <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">security</span> slot (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pnpm audit</span>) is pnpm-specific and reports itself unavailable under the others.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ TOOLS ============ -->
+      <sc-if value="{{ isTools }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">ADOPTION</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Tools &amp; installation</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride has <strong>no runtime dependency on any tool it runs</strong>. For each slot it spawns <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">&lt;pm&gt; exec &lt;tool&gt;</span>, so the tools are ordinary project devDependencies, pinned and owned by your repository. "Installing a missing tool" means adding an npm package — not a system binary.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:44px 0 16px;">Slot tools</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">A slot runs only when its detect file is present (built-in checks always run). Note the npm package names that differ from the binaries: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">ast-grep</span> ships in <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">@ast-grep/cli</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">stryker</span> in <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">@stryker-mutator/core</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">attw</span> in <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">@arethetypeswrong/cli</span>.</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:12.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA;">
+                  <th style="text-align:left; padding:12px 14px; letter-spacing:1px;">SLOT</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">tool</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">install with</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">detect file</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ toolRows }}" as="r" hint-placeholder-count="12">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:10px 14px; font-weight:700; color:{{ r.accent }};">{{ r.slot }}</td>
+                    <td style="padding:10px 10px; color:#2A3A31;">{{ r.tool }}</td>
+                    <td style="padding:10px 10px; color:#2A3A31;">{{ r.install }}</td>
+                    <td style="padding:10px 10px; color:#48594F;">{{ r.detect }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">fallow, the unfamiliar name</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">A Rust-native codebase-intelligence tool (unused code, duplication, cycles, complexity, architecture drift). checkride splits it across three slots sharing one <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">fallow.toml</span>: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">dead</span> (default), and opt-in <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">dupes</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">health</span>. Uniquely, <strong>checkride owns the pass/fail decision</strong> here: fallow's JSON modes exit 0 even with findings, so checkride reads the report and gates on the issue count — and an unrecognized report fails loudly rather than passing silently. Needs fallow ≥ 3.5.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The publish-ready bundle</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Four opt-in library slots gate the artifact a consumer actually installs, with <strong>zero new devDependencies</strong>: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">build</span> (wave 10) runs your build so the rest inspect fresh output; then <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pack</span> (the tarball ships the right files), <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">smoke</span> (the built package imports cleanly, every export live), and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">snippets</span> (tagged doc fences type-check) share wave 20 with <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">publint</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">attw</span>. Enable with <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--include build,pack,smoke,snippets</span> or by naming them in config — the bundle orders itself.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">When doctor reports a missing tool</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm exec checkride init --add dead,struct
+pnpm add -D fallow @ast-grep/cli
+pnpm check" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.85;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride init --add dead,struct  <span style="color:#5F7367;"># writes fallow.toml, sgconfig.yml, rules/</span><br><span style="color:#1E7A4A;">$</span> pnpm add -D fallow @ast-grep/cli             <span style="color:#5F7367;"># installs the tools</span><br><span style="color:#1E7A4A;">$</span> pnpm check                                   <span style="color:#5F7367;"># the slots now run</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">If the config exists but the package is gone (fresh clone, pruned <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">node_modules</span>), it's just <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm install</span>. A slot that's irrelevant to the repo is disabled in config — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">"spell": false</span> — and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">doctor</span> reports it as such instead of a failure.</p>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+<template id="__bundler_thumbnail" data-bg-color="#E9F0EA">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#E9F0EA"/>
+    <rect x="518" y="286" width="164" height="164" fill="#1E7A4A" stroke="#14231B" stroke-width="12"/>
+    <text x="600" y="556" font-family="monospace" font-size="54" font-weight="700" fill="#14231B" text-anchor="middle" letter-spacing="8">CHECKRIDE</text>
+  </svg>
+</template></x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { section: 'getting-started' };
+
+  go(s) { this.setState({ section: s }); try { window.scrollTo(0, 0); } catch (_) {} }
+
+  copy(e) {
+    const t = e.currentTarget;
+    const text = t.getAttribute('data-copy') || '';
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (_) {}
+    const orig = t.getAttribute('data-orig') || t.textContent;
+    t.setAttribute('data-orig', orig);
+    t.textContent = 'COPIED ✓';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.textContent = orig; }, 1300);
+  }
+
+  renderVals() {
+    const sec = this.state.section;
+    const navDef = [
+      { title: 'GET STARTED', items: [['getting-started', 'Getting started']] },
+      { title: 'DAILY USE', items: [['daily-loop', 'The daily loop'], ['failures', 'When a check fails']] },
+      { title: 'ADOPTION', items: [['agents', 'Working with agents'], ['baseline', 'The baseline ratchet'], ['ci', 'Running in CI'], ['tools', 'Tools & installation']] },
+    ];
+    const nav = navDef.map(g => ({
+      title: g.title,
+      items: g.items.map(([key, label]) => {
+        const on = key === sec;
+        return {
+          label, weight: on ? '700' : '500',
+          color: on ? '#14231B' : '#48594F',
+          bg: on ? '#DBE6DD' : 'transparent',
+          bar: on ? '#1E7A4A' : 'transparent',
+          onClick: () => this.go(key),
+        };
+      }),
+    }));
+
+    const aliases = [
+      ['pnpm check', 'checkride'],
+      ['pnpm check:all', 'checkride --all'],
+      ['pnpm check:json', 'checkride --json'],
+      ['pnpm check:bail', 'checkride --bail'],
+      ['pnpm check:changed', 'checkride --changed'],
+      ['pnpm check:fix', 'checkride fix'],
+      ['pnpm doctor', 'checkride doctor'],
+    ].map(([script, runs], i) => ({ script, runs, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    const triage = [
+      ['Not sure the environment is ready', 'pnpm exec checkride doctor'],
+      ['doctor says a tool is not installed', 'pnpm install, or pnpm add -D <pkg>'],
+      ['Fixable lint/format/markdown errors', 'pnpm exec checkride fix'],
+      ['A check is irrelevant to this repo', '"<slot>": false in checkride.config.json'],
+      ['Slow inner loop', 'pnpm check --bail --only types,lint'],
+      ['Want a hard gate for a coding agent', 'checkride agent-setup'],
+    ].map(([symptom, fix], i) => ({ symptom, fix, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const toolRows = [
+      ['types', 'tsc', 'typescript @types/node', 'tsconfig.json'],
+      ['format', 'prettier (opt-in)', 'prettier', '.prettierrc.json'],
+      ['lint', 'oxlint', 'oxlint oxlint-tsgolint', '.oxlintrc.json'],
+      ['struct', 'ast-grep', '@ast-grep/cli', 'sgconfig.yml'],
+      ['dead', 'fallow dead-code', 'fallow', 'fallow.toml'],
+      ['dupes', 'fallow dupes (opt-in)', 'fallow', 'fallow.toml'],
+      ['health', 'fallow health (opt-in)', 'fallow', 'fallow.toml'],
+      ['test', 'vitest', 'vitest @vitest/coverage-v8', 'vitest.config.ts'],
+      ['docs', 'markdownlint-cli2', 'markdownlint-cli2', '.markdownlint-cli2.jsonc'],
+      ['links', 'built-in', '—', '— (always available)'],
+      ['spell', 'cspell', 'cspell', 'cspell.json'],
+      ['mutation', 'stryker (opt-in)', '@stryker-mutator/core + vitest-runner', 'stryker.config.mjs'],
+      ['security', 'pnpm audit (opt-in)', '— (built into pnpm)', '—'],
+      ['publint', 'publint (opt-in)', 'publint', '—'],
+      ['attw', 'attw --pack (opt-in)', '@arethetypeswrong/cli', '—'],
+      ['build', "<pm> run build (opt-in)", '—', 'scripts.build'],
+      ['pack', 'built-in (opt-in)', '—', 'exports/main/types/bin'],
+      ['smoke', 'built-in (opt-in)', '—', 'exports (fallback main)'],
+      ['snippets', 'built-in tsc (opt-in)', '—', 'tagged doc fences'],
+    ].map(([slot, tool, install, detect], i) => ({ slot, tool, install, detect, accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    return {
+      nav, aliases, triage, toolRows,
+      isGettingStarted: sec === 'getting-started',
+      isDaily: sec === 'daily-loop',
+      isFailures: sec === 'failures',
+      isAgents: sec === 'agents',
+      isBaseline: sec === 'baseline',
+      isCi: sec === 'ci',
+      isTools: sec === 'tools',
+      goDaily: () => this.go('daily-loop'),
+      goAgents: () => this.go('agents'),
+      goBaseline: () => this.go('baseline'),
+      goCi: () => this.go('ci'),
+      copy: (e) => this.copy(e),
+    };
+  }
+}
+</script>
+</body>
+</html>

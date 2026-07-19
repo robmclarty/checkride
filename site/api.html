@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>checkride API reference — commands, flags, output, config, exports</title>
+<meta name="description" content="The full checkride reference: every command and flag, the exit-code taxonomy, the .check/ output contract, configuration, and the programmatic API.">
+<script src="./support.js"></script>
+<script src="./stars.js" defer></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#E9F0EA;}
+  ::selection{background:#1E7A4A;color:#E9F0EA;}
+  a{color:inherit;text-decoration:none;}
+</style>
+</helmet>
+
+<div style="position:relative; min-height:100vh; background:#E9F0EA; color:#14231B; font-family:'Space Grotesk',sans-serif;">
+
+  <!-- grain overlay -->
+  <div style="position:fixed; inset:0; z-index:9999; pointer-events:none; opacity:0.06; mix-blend-mode:multiply; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ===================== NAV ===================== -->
+  <div style="position:sticky; top:0; z-index:100; display:flex; align-items:center; justify-content:space-between; padding:16px 32px; background:#E9F0EA; border-bottom:3px solid #14231B;">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <a href="index.html" style="display:flex; align-items:center; gap:12px;">
+        <div style="width:20px; height:20px; background:#1E7A4A; border:2px solid #14231B;"></div>
+        <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; letter-spacing:2px;">CHECKRIDE</div>
+      </a>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; color:#52675B; border:2px solid #52675B; padding:2px 8px;">API</div>
+    </div>
+    <div style="display:flex; gap:26px; align-items:center; font-size:14px; font-weight:500;">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Docs</a>
+      <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
+    </div>
+  </div>
+
+  <!-- ===================== BODY ===================== -->
+  <div style="display:flex; align-items:flex-start; max-width:1280px; margin:0 auto;">
+
+    <!-- SIDEBAR -->
+    <div style="flex:none; width:268px; position:sticky; top:64px; align-self:flex-start; height:calc(100vh - 64px); overflow-y:auto; border-right:3px solid #14231B; padding:34px 26px 60px;">
+      <sc-for list="{{ nav }}" as="grp" hint-placeholder-count="4">
+        <div style="margin-bottom:30px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:#52675B; margin-bottom:14px;">{{ grp.title }}</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="2">
+              <div onClick="{{ it.onClick }}" style="cursor:pointer; font-size:15px; font-weight:{{ it.weight }}; color:{{ it.color }}; background:{{ it.bg }}; border-left:3px solid {{ it.bar }}; padding:7px 14px;">{{ it.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="border-top:2px dashed #52675B; padding-top:18px; font-size:13.5px; line-height:1.5; color:#48594F;">Everything here is backed by a contract test — a change that breaks it is a breaking change.</div>
+    </div>
+
+    <!-- CONTENT -->
+    <div style="flex:1; min-width:0; padding:48px 56px 120px; max-width:880px;">
+
+      <!-- ============ COMMANDS ============ -->
+      <sc-if value="{{ isCommands }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">CLI · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Commands</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">Six commands. Invoke as <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">pnpm check</span> (the alias <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">init</span> writes), or directly with <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">pnpm exec checkride &lt;command&gt;</span>. Click a command to expand its flags and an example.</p>
+
+          <div style="margin-top:32px; display:flex; flex-direction:column; gap:12px;">
+            <sc-for list="{{ commands }}" as="c" hint-placeholder-count="6">
+              <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; background:#E9F0EA;">
+                <div onClick="{{ c.toggle }}" style="cursor:pointer; display:flex; align-items:center; gap:16px; padding:16px 20px;">
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:17px; font-weight:700; color:{{ c.color }}; min-width:170px;">{{ c.name }}</div>
+                  <div style="flex:1; font-size:15px; color:#2A3A31;">{{ c.desc }}</div>
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:18px; color:#52675B;">{{ c.icon }}</div>
+                </div>
+                <sc-if value="{{ c.isOpen }}">
+                  <div style="border-top:3px solid #14231B;">
+                    <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{{ c.example }}</div>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin-top:28px;"><strong>Stream discipline:</strong> stdout carries machine output only (the summary JSON under <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--json</span>; otherwise nothing). Human-readable progress goes to stderr. <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride --json | jq .</span> is safe.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ FLAGS ============ -->
+      <sc-if value="{{ isFlags }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">CLI · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Flags</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The promised flag set. An unknown slot name in <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--only</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--skip</span>, or <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--include</span> is a usage error (exit 2), never a silently-empty selection — a typo like <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--only lints</span> can't quietly disable the gate.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:44px 0 16px;">Run flags</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:13px 18px; letter-spacing:1px; font-size:13px;">FLAG</th><th style="text-align:left; padding:13px 18px; font-weight:500; font-size:13px;">EFFECT</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ runFlags }}" as="f" hint-placeholder-count="10">
+                  <tr style="border-top:2px solid #14231B; background:{{ f.bg }};">
+                    <td style="padding:11px 18px; font-family:'JetBrains Mono',monospace; font-size:13.5px; color:#1E7A4A; font-weight:700; white-space:nowrap;">{{ f.flag }}</td>
+                    <td style="padding:11px 18px; color:#2A3A31;">{{ f.effect }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">init flags</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:13px 18px; letter-spacing:1px; font-size:13px;">FLAG</th><th style="text-align:left; padding:13px 18px; font-weight:500; font-size:13px;">EFFECT</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ initFlags }}" as="f" hint-placeholder-count="9">
+                  <tr style="border-top:2px solid #14231B; background:{{ f.bg }};">
+                    <td style="padding:11px 18px; font-family:'JetBrains Mono',monospace; font-size:13.5px; color:#2456A6; font-weight:700; white-space:nowrap;">{{ f.flag }}</td>
+                    <td style="padding:11px 18px; color:#2A3A31;">{{ f.effect }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ EXIT CODES ============ -->
+      <sc-if value="{{ isExitCodes }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">CLI · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Exit codes</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The exit codes are a taxonomy, not a number. The 1-vs-2 distinction is a promise: a gate may safely branch on "red build" versus "fix the pipeline". <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">checkride doctor</span> uses the same 0/1 split for "environment ok"/"environment has problems".</p>
+
+          <div style="display:flex; flex-direction:column; gap:14px; margin-top:32px;">
+            <div style="display:flex; gap:22px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:22px 26px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:44px; font-weight:700; color:#1E7A4A; line-height:1; min-width:44px;">0</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;"><strong>Every executed check passed.</strong> Proceed — but see the vacuous-green rule below: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">ok: true</span> with <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checks_run: 0</span> means nothing was verified.</div>
+            </div>
+            <div style="display:flex; gap:22px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:22px 26px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:44px; font-weight:700; color:#C0392B; line-height:1; min-width:44px;">1</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;"><strong>At least one check failed.</strong> A verification failure: the work is not done. Read <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/summary.json</span>, then the failing slot's raw output.</div>
+            </div>
+            <div style="display:flex; gap:22px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:22px 26px;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:44px; font-weight:700; color:#D9A13B; line-height:1; min-width:44px;">2</div>
+              <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;"><strong>The harness itself broke or was misused.</strong> A malformed config, an unknown command or flag, an internal error — or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--strict</span> with zero checks run. Fix the invocation or environment; do not treat as "checks failed".</div>
+            </div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Vacuous green</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">"Green because everything passed" and "green because nothing ran" are distinguishable by every consumer, three ways: <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">summary.json</span> carries <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checks_run</span>; a zero-run gets a loud stderr warning naming why each slot sat out; and <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">--strict</span> turns a zero-run into exit 2. Anything that gates on checkride — CI, commit hooks, other tools — should run with <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--strict</span>; a human exploring a fresh repo isn't punished by default.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Timeouts and interrupts</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Every check runs under a timeout by default — the check's own <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">timeout</span>, else the config-level one, else <strong>600 seconds</strong>; <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">0</span> at any level disables the cap. A timed-out check is killed (SIGTERM, then SIGKILL after a short grace) and recorded as <strong>failed</strong> with a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">timed out after &lt;n&gt;s</span> note — red, never vacuous, never hung. An interrupted run never tears an artifact and never prunes the baseline. The one uncapped catalogue default: the <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mutation</span> slot ships <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">timeout: 0</span> — a real stryker run legitimately outlasts the cap, and it's opt-in, never in the gate the cap protects.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ OUTPUT ============ -->
+      <sc-if value="{{ isOutput }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">OUTPUT · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The .check/ contract</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">Every run writes to <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">.check/</span> (gitignored). Treat it as a stable API for agents: the summary is an index, the raw file is the truth.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:44px 0 16px;">The files</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:13px 18px; letter-spacing:1px; font-size:13px;">FILE</th><th style="text-align:left; padding:13px 18px; font-weight:500; font-size:13px;">CONTENTS</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ outputFiles }}" as="f" hint-placeholder-count="4">
+                  <tr style="border-top:2px solid #14231B; background:{{ f.bg }};">
+                    <td style="padding:11px 18px; font-family:'JetBrains Mono',monospace; font-size:13.5px; color:#1E7A4A; font-weight:700; white-space:nowrap;">{{ f.file }}</td>
+                    <td style="padding:11px 18px; color:#2A3A31;">{{ f.contents }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">summary.json</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Versioned by <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">schema_version</span> (currently 1) and published as a JSON Schema that ships in the package. <strong>Additive-only discipline:</strong> under a given version, fields are added, never renamed, removed, or retyped — a consumer written against version 1 keeps parsing every 1.x summary. The <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checks</span> array order is deterministic (run group sequence, not completion order).</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">.check/summary.json</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"schema_version"</span>: <span style="color:#D9A13B;">1</span>,<br>  <span style="color:#D9A13B;">"timestamp"</span>: <span style="color:#3FA26F;">"…"</span>,<br>  <span style="color:#D9A13B;">"ok"</span>: <span style="color:#3FA26F;">true</span>,<br>  <span style="color:#D9A13B;">"checks_run"</span>: <span style="color:#D9A13B;">8</span>,          <span style="color:#5F7367;">// checks that actually executed</span><br>  <span style="color:#D9A13B;">"total_duration_ms"</span>: <span style="color:#D9A13B;">4200</span>,  <span style="color:#5F7367;">// wall-clock for the whole run</span><br>  <span style="color:#D9A13B;">"checks"</span>: [<br>    { <span style="color:#D9A13B;">"name"</span>: <span style="color:#3FA26F;">"lint"</span>, <span style="color:#D9A13B;">"adapter"</span>: <span style="color:#3FA26F;">"oxlint"</span>, <span style="color:#D9A13B;">"description"</span>: <span style="color:#3FA26F;">"…"</span>,<br>      <span style="color:#D9A13B;">"ok"</span>: <span style="color:#3FA26F;">true</span>, <span style="color:#D9A13B;">"exit_code"</span>: <span style="color:#D9A13B;">0</span>, <span style="color:#D9A13B;">"duration_ms"</span>: <span style="color:#D9A13B;">470</span>, <span style="color:#D9A13B;">"output_file"</span>: <span style="color:#3FA26F;">"lint.json"</span> }<br>  ]<br>}</div>
+          </div>
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin-top:14px;">Optional per-check fields (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">skipped</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">reason</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">baselined</span>) are present only when meaningful — absence is part of the shape. When a baseline masks findings, the check gains <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">"baselined": &lt;n&gt;</span> counting the grandfathered diagnostics.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The promises</h2>
+          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:14px;">
+            <div style="border-left:3px solid #1E7A4A; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">Raw output stays authoritative</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">The per-tool files are the tool's own bytes — never normalized, reshaped, or filtered. This is the product's thesis and will not change.</div></div>
+            <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">Artifacts are crash-consistent</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">Everything is written temp-file-then-rename. A run killed at any point leaves each file previous-run-consistent or absent — never torn. Parse without guarding.</div></div>
+            <div style="border-left:3px solid #D9A13B; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">digest.md presence semantics</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">Written only under <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--digest</span> and only when a check failed; a green run removes any stale digest. Its existence always means "this run had failures".</div></div>
+            <div style="border-left:3px solid #C0392B; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px;">Deterministic ordering</div><div style="font-size:13.5px; line-height:1.5; color:#48594F; margin-top:4px;">The same selection produces the same <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">checks</span> array order on every run, even when concurrency interleaves completion.</div></div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ CONFIG ============ -->
+      <sc-if value="{{ isConfig }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">CONFIG · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Configuration</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;"><span style="font-family:'JetBrains Mono',monospace; font-size:15px;">checkride.config.json</span> is optional — add it only to deviate from the defaults. The <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">"$schema"</span> pointer turns on validation and autocompletion in editors; the schema ships in the package.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">checkride.config.json</span><button onClick="{{ copy }}" data-orig="COPY" data-copy='{
+  "extends": "@acme/checkride-preset",
+  "timeout": 1200,
+  "checks": {
+    "format": "prettier",
+    "lint": "biome",
+    "spell": false,
+    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/main"] },
+    "tidy": { "command": "pnpm", "args": ["exec", "some-formatter", "--write"], "order": "first" },
+    "licenses": { "command": "node", "args": ["scripts/check-licenses.mjs"] }
+  }
+}' style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"extends"</span>: <span style="color:#3FA26F;">"@acme/checkride-preset"</span>,  <span style="color:#5F7367;">// inherit a shared preset, then override</span><br>  <span style="color:#D9A13B;">"timeout"</span>: <span style="color:#D9A13B;">1200</span>,          <span style="color:#5F7367;">// global per-check timeout, seconds (default 600)</span><br>  <span style="color:#D9A13B;">"checks"</span>: {<br>    <span style="color:#D9A13B;">"format"</span>: <span style="color:#3FA26F;">"prettier"</span>,  <span style="color:#5F7367;">// enable an opt-in slot</span><br>    <span style="color:#D9A13B;">"lint"</span>: <span style="color:#3FA26F;">"biome"</span>,       <span style="color:#5F7367;">// pick an alternate adapter</span><br>    <span style="color:#D9A13B;">"spell"</span>: <span style="color:#D45B4A;">false</span>,        <span style="color:#5F7367;">// disable a slot</span><br>    <span style="color:#D9A13B;">"test"</span>: { <span style="color:#D9A13B;">"use"</span>: <span style="color:#3FA26F;">"vitest"</span>, <span style="color:#D9A13B;">"timeout"</span>: <span style="color:#D9A13B;">0</span>, <span style="color:#D9A13B;">"changedArgs"</span>: [<span style="color:#3FA26F;">"--changed"</span>, <span style="color:#3FA26F;">"origin/main"</span>] },<br>    <span style="color:#D9A13B;">"tidy"</span>: {              <span style="color:#5F7367;">// custom check that runs FIRST</span><br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"pnpm"</span>, <span style="color:#D9A13B;">"args"</span>: [<span style="color:#3FA26F;">"exec"</span>, <span style="color:#3FA26F;">"some-formatter"</span>, <span style="color:#3FA26F;">"--write"</span>], <span style="color:#D9A13B;">"order"</span>: <span style="color:#3FA26F;">"first"</span><br>    },<br>    <span style="color:#D9A13B;">"licenses"</span>: {          <span style="color:#5F7367;">// custom check (runs last by default)</span><br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"node"</span>, <span style="color:#D9A13B;">"args"</span>: [<span style="color:#3FA26F;">"scripts/check-licenses.mjs"</span>]<br>    }<br>  }<br>}</div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Custom checks, detect &amp; extends</h2>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:15.5px; line-height:1.6; color:#2A3A31;">
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><strong>Custom checks</strong> (keyed by any non-slot name) run any command; the exit code participates in the gate like every built-in. They run after the catalogue by default; <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">"order": "first"</span> runs one ahead of everything — handy for a bespoke formatter. This is also the non-TypeScript hatch: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">go vet</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">cargo check</span> becomes an entry, and one exit code gates the whole repo.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><strong><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">"detect": ["&lt;file&gt;", …]</span></strong> gates a custom check on marker files: it runs only when one exists, and is <em>skipped, not failed</em>, otherwise — so a shared config stays safe across repos that don't all use the same tools.</span></div>
+            <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><strong><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">"extends"</span></strong> inherits a file path or installed package (or an array, layered left to right; local config wins). Objects deep-merge; arrays and scalars replace outright. A missing base or a self-extending loop fails fast. One org-wide preset + <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">detect</span> = fleet policy without a campaign of PRs.</span></div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Ordering: waves</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Every check has an effective <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">order</span> — config entry, else adapter default, else slot default, else <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">'any'</span>. Checks sharing a wave run concurrently through a bounded pool (<span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--concurrency</span> sizes it; <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--bail</span> goes fully sequential). Numbering your own waves? Use gaps — 10, 20, 30.</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:13px 18px; letter-spacing:1px; font-size:13px;">ORDER</th><th style="text-align:left; padding:13px 18px; font-weight:500; font-size:13px;">THE PROMISE</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ orders }}" as="o" hint-placeholder-count="6">
+                  <tr style="border-top:2px solid #14231B; background:{{ o.bg }};">
+                    <td style="padding:11px 18px; font-family:'JetBrains Mono',monospace; font-size:13.5px; color:#2456A6; font-weight:700; white-space:nowrap;">{{ o.name }}</td>
+                    <td style="padding:11px 18px; color:#2A3A31;">{{ o.promise }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ SLOTS ============ -->
+      <sc-if value="{{ isSlots }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">CONFIG · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The slot catalogue</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">A <strong>slot</strong> is a role in the pipeline (cheapest first); an <strong>adapter</strong> is the concrete tool that fills it. One blessed default per slot; alternates run if their config is detected, but <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">init</span> only scaffolds the blessed one. Opt-in slots join a run via <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--include</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">--all</span>, or by being named in <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">checks</span>.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:12.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA;">
+                  <th style="text-align:left; padding:12px 14px; letter-spacing:1px;">SLOT</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">role</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">blessed default</th>
+                  <th style="text-align:left; padding:12px 10px; font-weight:500;">alternates</th>
+                  <th style="text-align:center; padding:12px 10px; font-weight:500;">default run?</th>
+                </tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ slotRows }}" as="r" hint-placeholder-count="16">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:10px 14px; font-weight:700; color:{{ r.accent }};">{{ r.slot }}</td>
+                    <td style="padding:10px 10px; font-family:'Space Grotesk',sans-serif; font-size:13.5px; color:#2A3A31;">{{ r.role }}</td>
+                    <td style="padding:10px 10px; color:#2A3A31;">{{ r.tool }}</td>
+                    <td style="padding:10px 10px; color:#48594F;">{{ r.alts }}</td>
+                    <td style="padding:10px 10px; text-align:center;">{{ r.def }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin-top:16px;">Zero-config: for each slot, checkride runs the first adapter whose config file exists and skips slots with no detected tool. Package-manager-agnostic: it detects pnpm/npm/yarn/bun from <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">packageManager</span> or the lockfile and translates <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pnpm exec</span> into that manager's form. Exceptions: <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">security</span> is pnpm-only; <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">pack</span> is npm/pnpm-only — both report themselves unavailable elsewhere rather than failing.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ PROGRAMMATIC ============ -->
+      <sc-if value="{{ isProgrammatic }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">PROGRAMMATIC · REFERENCE</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Programmatic API</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The CLI is the primary interface, but every command is also a function. Everything exported from the package root is public and semver-bound; everything else is internal by definition, even if technically importable.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">run-checks.ts</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="import { runChecks, type RunResult } from 'checkride';
+
+const result: RunResult = await runChecks({ cwd: process.cwd(), strict: true });
+process.exitCode = result.exitCode;" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.85;"><span style="color:#D45B4A;">import</span> { runChecks, <span style="color:#D45B4A;">type</span> RunResult } <span style="color:#D45B4A;">from</span> <span style="color:#3FA26F;">'checkride'</span>;<br><br><span style="color:#3FA26F;">const</span> result: <span style="color:#4E9BD4;">RunResult</span> = <span style="color:#D45B4A;">await</span> <span style="color:#4E9BD4;">runChecks</span>({ cwd: process.<span style="color:#4E9BD4;">cwd</span>(), strict: <span style="color:#3FA26F;">true</span> });<br>process.exitCode = result.exitCode;</div>
+          </div>
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin-top:14px;">The result carries the same summary written to <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/summary.json</span>, plus the exit code the CLI would return.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Functions &amp; values</h2>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
+            <sc-for list="{{ fnExports }}" as="x" hint-placeholder-count="11">
+              <div style="padding:7px 12px; border:2px solid #14231B; background:#DBE6DD; color:#14231B;">{{ x.name }}</div>
+            </sc-for>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:44px 0 16px;">Exported types</h2>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
+            <sc-for list="{{ typeExports }}" as="x" hint-placeholder-count="19">
+              <div style="padding:7px 12px; border:2px solid #2456A6; background:#E9F0EA; color:#2456A6;">{{ x.name }}</div>
+            </sc-for>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Versioning &amp; pin policy</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">checkride follows semver. Pre-1.0, minor versions may break (the semver 0.x rule) — <strong>consumers should pin exactly</strong> (<span style="font-family:'JetBrains Mono',monospace; font-size:14px;">"checkride": "0.5.0"</span>, no caret; that's the <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">-E</span> in the install command) and upgrade deliberately. Post-1.0, a caret range is the intended usage. Any change touching a promised surface names itself in the CHANGELOG under a <strong>Contract</strong> heading — a reader scanning release notes finds every contract-relevant change without reading diffs.</p>
+
+          <div style="margin-top:36px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B; padding:24px 28px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#2456A6; margin-bottom:10px;">THE TESTED ENVELOPE</div>
+            <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">Every push runs unit, contract, and end-to-end suites (generated projects, installed and checked for real) on <strong>macOS and Linux</strong>, at <strong>Node 22.18.0</strong> (the exact supported floor) <strong>and Node 24</strong>, across <strong>pnpm, npm, yarn, and bun</strong>. Beyond 70% line coverage, the suite is itself tested: Stryker mutation testing runs with a hard floor. Windows is not tested and not claimed — an honest "not yet" over an asserted "works everywhere".</div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+<template id="__bundler_thumbnail" data-bg-color="#E9F0EA">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#E9F0EA"/>
+    <rect x="518" y="286" width="164" height="164" fill="#1E7A4A" stroke="#14231B" stroke-width="12"/>
+    <text x="600" y="556" font-family="monospace" font-size="54" font-weight="700" fill="#14231B" text-anchor="middle" letter-spacing="8">CHECKRIDE</text>
+  </svg>
+</template></x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { section: 'commands', open: 'checkride' };
+
+  go(s) { this.setState({ section: s }); try { window.scrollTo(0, 0); } catch (_) {} }
+  toggle(name) { this.setState(s => ({ open: s.open === name ? null : name })); }
+
+  copy(e) {
+    const t = e.currentTarget;
+    const text = t.getAttribute('data-copy') || '';
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (_) {}
+    const orig = t.getAttribute('data-orig') || t.textContent;
+    t.setAttribute('data-orig', orig);
+    t.textContent = 'COPIED ✓';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.textContent = orig; }, 1300);
+  }
+
+  renderVals() {
+    const sec = this.state.section;
+    const navDef = [
+      { title: 'CLI', items: [['commands', 'Commands'], ['flags', 'Flags'], ['exit-codes', 'Exit codes']] },
+      { title: 'OUTPUT', items: [['output', 'The .check/ contract']] },
+      { title: 'CONFIG', items: [['config', 'Configuration'], ['slots', 'The slot catalogue']] },
+      { title: 'PROGRAMMATIC', items: [['programmatic', 'Programmatic API']] },
+    ];
+    const nav = navDef.map(g => ({
+      title: g.title,
+      items: g.items.map(([key, label]) => {
+        const on = key === sec;
+        return {
+          label, weight: on ? '700' : '500',
+          color: on ? '#14231B' : '#48594F',
+          bg: on ? '#DBE6DD' : 'transparent',
+          bar: on ? '#1E7A4A' : 'transparent',
+          onClick: () => this.go(key),
+        };
+      }),
+    }));
+
+    // ---- commands ----
+    const palette = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const cmdDef = [
+      ['checkride', 'Run the default checks. Exit 0 pass / 1 fail / 2 error.',
+        "$ checkride [flags]\n\n  --only <a,b>   --skip <a,b>   --include <a,b>   --all\n  --changed      --bail         --concurrency <n>\n  --json         --digest       --strict\n\n# the daily gate\n$ pnpm check\n\n# tight iteration\n$ pnpm check --bail --only types,lint\n\n# anywhere checkride gates (CI, hooks)\n$ pnpm exec checkride --strict"],
+      ['init', 'Set up a project — new or existing, auto-detected.',
+        "$ checkride init [flags]\n\n  --shape flat|monorepo|hybrid   --name <n>   --scope <@s>\n  --license <id>   --author <a>\n  --add <a,b>      scaffold blessed configs for named empty slots\n  --baseline       (existing) grandfather current debt\n  --force          (new) overwrite existing files\n  --no-hook        skip the Claude Code Stop hook\n  --dry-run        plan only; write nothing\n\n# existing repo, keep it green from day one\n$ pnpm add -D -E checkride && pnpm exec checkride init --baseline\n\n# brand-new project\n$ pnpm dlx checkride init --shape flat --name my-app"],
+      ['doctor', "Verify environment + every slot's status. Read-only, exit 0/1.",
+        "$ checkride doctor\n\n# reports:\n#  - node / package manager / git versions\n#  - the detected package manager\n#  - per-slot status: installed, opt-in, disabled, or no tool detected\n# exit 0 = ready to run, 1 = environment has problems"],
+      ['fix', "Run every active adapter's fix command.",
+        "$ checkride fix\n\n# runs, for the adapters that have one:\n#   oxlint --fix\n#   prettier --write        (when the format slot is enabled)\n#   markdownlint-cli2 --fix\n# then re-run pnpm check to confirm green"],
+      ['baseline', 'Record current diagnostics as a committed baseline.',
+        "$ checkride baseline\n\n# writes checkride.baseline.json (commit it):\n#   per-slot fingerprints — file:rule:message keys that survive line moves\n# then every run is baseline-aware:\n#   old findings masked, new findings fail, fixed findings pruned\n# re-running re-records EVERYTHING failing — treat it as a reviewed change"],
+      ['agent-setup', 'Add the check alias, AGENTS.md stanza + Stop hook to a repo.',
+        "$ checkride agent-setup [--no-hook]\n\n# writes, idempotently:\n#   \"check\" script alias in package.json\n#   AGENTS.md stanza (exit 0 = done, how to read .check/, conventions)\n#   Claude Code Stop hook in .claude/settings.json (skip with --no-hook)\n# the hook uses your detected package manager: pnpm/npm/yarn/bun run check"],
+    ];
+    const commands = cmdDef.map(([name, desc, example], i) => {
+      const open = this.state.open === name;
+      return { name, desc, example, color: palette[i % 4], isOpen: open, icon: open ? '−' : '+', toggle: () => this.toggle(name) };
+    });
+
+    // ---- flags ----
+    const runFlags = [
+      ['--bail', 'Stop at the first failing check (runs sequentially; overrides --concurrency with a stderr note).'],
+      ['--concurrency <n>', 'Max checks running at once within a wave (1 = sequential; default is a conservative cap from the CPU count).'],
+      ['--only <a,b>', 'Run only the named slots.'],
+      ['--skip <a,b>', 'Run everything except the named slots.'],
+      ['--include <a,b>', 'Add opt-in slots (format, dupes, health, mutation, security, publint, attw, build, pack, smoke, snippets) to the default run.'],
+      ['--all', 'Run every slot, including opt-in ones.'],
+      ['--changed', 'Affected-only mode (incremental types, changed-file tests).'],
+      ['--json', 'Machine-readable summary on stdout, mirroring .check/summary.json.'],
+      ['--digest', 'Write a token-bounded excerpt of the failing slots to .check/digest.md (green run → removed).'],
+      ['--strict', 'Zero checks actually running is an error (exit 2), not a vacuous pass. Use wherever checkride gates.'],
+    ].map(([flag, effect], i) => ({ flag, effect, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    const initFlags = [
+      ['--shape flat|monorepo|hybrid', 'Project layout for a new repo.'],
+      ['--name <n>', 'Package name.'],
+      ['--scope <@s>', 'npm scope.'],
+      ['--license <id>', 'License identifier (default MIT).'],
+      ['--author <a>', 'Package author.'],
+      ['--add <a,b>', 'Scaffold config for the named empty slots.'],
+      ['--baseline', '(existing repo) Grandfather current debt instead of disabling failing slots.'],
+      ['--no-hook', 'Skip writing the Claude Code Stop hook (also honored by agent-setup).'],
+      ['--dry-run', 'Print what would be written; change nothing.'],
+    ].map(([flag, effect], i) => ({ flag, effect, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // ---- output files ----
+    const outputFiles = [
+      ['summary.json', 'Aggregate report: per-check ok, exit_code, duration_ms — plus checks_run and total_duration_ms.'],
+      ['<slot>.json', "Raw tool JSON when stdout parses as JSON — the tool's own bytes, never normalized."],
+      ['<slot>.stdout.txt / .stderr.txt', 'Raw streams when the output is not JSON. Tools that write their own files (vitest --outputFile, stryker) keep doing so.'],
+      ['digest.md', '--digest only: capped Markdown excerpt of failing slots (10 findings per slot, 8 kB overall), each linking its raw file. Absent on a green run.'],
+    ].map(([file, contents], i) => ({ file, contents, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // ---- ordering ----
+    const orders = [
+      ['a number', 'A wave. Distinct numbers run ascending with a barrier between them; checks sharing a number run concurrently with no ordering promise among themselves. A decimal sequences a step within a wave (1 before 1.1 before 1.2).'],
+      ["'first'", 'Before every other check.'],
+      ["'last'", 'After every other check, singles included.'],
+      ["'single'", 'Exclusive — runs with nothing else in flight, after the numeric line and before last, one at a time. (mutation runs this way.)'],
+      ["'middle'", 'After every first and before every last — nothing more.'],
+      ["'any'", 'No ordering promise at all. The default when order is omitted.'],
+    ].map(([name, promise], i) => ({ name, promise, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // ---- slot catalogue ----
+    const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const slotRows = [
+      ['types', 'Type checking', 'tsc --build', '—', false],
+      ['format', 'Formatting', 'prettier', 'biome', true],
+      ['lint', 'Linting', 'oxlint', 'biome, eslint', false],
+      ['struct', 'Structural rules (deep modules)', 'ast-grep', '—', false],
+      ['dead', 'Dead code, deps, cycles, boundaries', 'fallow (dead-code)', 'knip', false],
+      ['dupes', 'Code duplication', 'fallow (dupes)', '—', true],
+      ['health', 'Complexity / maintainability', 'fallow (health)', '—', true],
+      ['test', 'Tests + coverage', 'vitest', 'jest', false],
+      ['docs', 'Markdown lint', 'markdownlint-cli2', '—', false],
+      ['links', 'Relative markdown links resolve', 'built-in', '—', false],
+      ['spell', 'Spelling', 'cspell', '—', false],
+      ['mutation', 'Mutation testing', 'stryker', '—', true],
+      ['security', 'Dependency audit', 'pnpm audit', '—', true],
+      ['publint', 'Package publishing lint', 'publint', '—', true],
+      ['attw', 'Type resolution across module systems', 'attw --pack', '—', true],
+      ['build', "Runs the consumer's build script", '<pm> run build', '—', true],
+      ['pack', 'Tarball ships the right files', 'built-in', '—', true],
+      ['smoke', 'Built package imports cleanly', 'built-in', '—', true],
+      ['snippets', 'Tagged doc fences type-check', 'built-in (tsc)', 'snippets-dist', true],
+    ].map(([slot, role, tool, alts, optIn], i) => ({ slot, role, tool, alts, def: optIn ? '○' : '✅', accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // ---- programmatic exports ----
+    const fnExports = ['runChecks', 'runFix', 'selectChecks', 'runDoctor', 'runInit', 'loadConfig', 'resolveChecks', 'ADAPTERS', 'SLOTS', 'SCHEMA_VERSION', 'DEFAULT_TIMEOUT_SECONDS'].map(name => ({ name }));
+    const typeExports = ['Summary', 'SummaryCheck', 'RunFlags', 'RunOptions', 'RunResult', 'CheckrideConfig', 'CustomCheck', 'SlotConfig', 'UseConfig', 'ResolvedCheck', 'Adapter', 'Slot', 'DoctorCheck', 'DoctorReport', 'DoctorResult', 'InitOptions', 'InitResult', 'Shape'].map(name => ({ name }));
+
+    return {
+      nav, commands, runFlags, initFlags, outputFiles, orders, slotRows, fnExports, typeExports,
+      isCommands: sec === 'commands',
+      isFlags: sec === 'flags',
+      isExitCodes: sec === 'exit-codes',
+      isOutput: sec === 'output',
+      isConfig: sec === 'config',
+      isSlots: sec === 'slots',
+      isProgrammatic: sec === 'programmatic',
+      copy: (e) => this.copy(e),
+    };
+  }
+}
+</script>
+</body>
+</html>
