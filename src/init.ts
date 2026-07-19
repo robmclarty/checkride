@@ -881,6 +881,35 @@ function reportExisting(
   }
 }
 
+/**
+ * Plan the publish-ready bundle (step 9) for existing-repo init. Only meaningful
+ * when a config will actually be written: `writeExistingConfig` never clobbers an
+ * existing `checkride.config.json`, so an existing config means the bundle has
+ * nowhere to land. The bundle is scaffolded *enabled* — not probed/disabled like
+ * adopted tools — because it is an ordered pipeline (build → artifacts) the user
+ * opts into by naming it.
+ */
+async function planInitBundle(
+  publishRequested: ReadonlySet<string>,
+  manifest: InitManifest,
+  cwd: string,
+): Promise<PublishBundle> {
+  if (existsSync(join(cwd, 'checkride.config.json'))) return { checks: {}, snippetsPointer: null };
+  const wantsSnippets = publishRequested.has('snippets');
+  return planPublishBundle(
+    publishRequested,
+    manifest.scripts.has('build'),
+    wantsSnippets ? await hasTaggedSnippets(cwd) : false,
+  );
+}
+
+/** Append the enabled publish-bundle slots (and any snippets pointer) to the summary. */
+function reportInitBundle(stdout: Out, bundle: PublishBundle): void {
+  const enabled = Object.keys(bundle.checks);
+  if (enabled.length > 0) stdout.write(`  enabled publish bundle: ${enabled.join(', ')}\n`);
+  if (bundle.snippetsPointer) stdout.write(`  ${bundle.snippetsPointer}\n`);
+}
+
 async function initExisting(options: InitOptions, cwd: string): Promise<InitResult> {
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
@@ -903,15 +932,8 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const { grandfathered, disabled } = resolveAdoptionPlan(adopted, failing, options.baseline ?? false);
   await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
 
-  // Publish-ready bundle (step 9): only meaningful when a config is actually
-  // written (writeExistingConfig never clobbers an existing one). The bundle is
-  // scaffolded enabled — not probed/disabled like adopted tools — because it is
-  // an ordered pipeline (build → artifacts) the user opts into by naming it.
-  const willWriteConfig = !existsSync(join(cwd, 'checkride.config.json'));
-  const wantsSnippets = willWriteConfig && publishRequested.has('snippets');
-  const bundle: PublishBundle = willWriteConfig
-    ? planPublishBundle(publishRequested, manifest.scripts.has('build'), wantsSnippets ? await hasTaggedSnippets(cwd) : false)
-    : { checks: {}, snippetsPointer: null };
+  // Publish-ready bundle (step 9): planned only when a config will be written.
+  const bundle = await planInitBundle(publishRequested, manifest, cwd);
   if (bundle.snippetsPointer) skipped.push(bundle.snippetsPointer);
 
   await writeExistingConfig(w, cwd, adopted, new Set(disabled), bundle.checks, skipped);
@@ -926,9 +948,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
 
   if (options.stdout) {
     reportExisting(options.stdout, adopted, w, grandfathered, disabled);
-    const enabled = Object.keys(bundle.checks);
-    if (enabled.length > 0) options.stdout.write(`  enabled publish bundle: ${enabled.join(', ')}\n`);
-    if (bundle.snippetsPointer) options.stdout.write(`  ${bundle.snippetsPointer}\n`);
+    reportInitBundle(options.stdout, bundle);
   }
   return { mode: 'existing', shape: null, written: w.written, skipped, disabled, grandfathered, exitCode: 0 };
 }

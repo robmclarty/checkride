@@ -362,7 +362,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    snippet, a failing snippet (legend maps back to `<doc>:<line>`), and both
    modes.
    - seam: `src/snippets.ts`, `src/adapters.ts`, `src/orchestrator.ts`, `src/__tests__/snippets.test.ts`
-9. [ ] init library bundle + doctor polish — **done when:** init's library path
+9. [x] init library bundle + doctor polish — **done when:** init's library path
    (and `--add`) can scaffold the publish-ready bundle (build, pack, smoke,
    snippets-dist + existing publint/attw) into `checkride.config.json`;
    `snippets-dist` is scaffolded only when at least one tagged fence is

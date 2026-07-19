@@ -129,6 +129,30 @@ never prunes on a partial run, so an unobserved finding can't be mistaken for a
 fixed one) was already covered; this covers the physical half — no torn bytes
 on disk.
 
+## What the static publish checks can't see
+
+`publint` and `attw` read a package without running it: they lint the
+`package.json` publishing surface and check that types resolve across module
+systems. That's necessary and it's cheap, but it's static — and three ways a
+library breaks its consumers survive a clean static pass:
+
+- **It passes `publint` + `attw` but throws on `import`.** A bad build, a runtime
+  dependency left in `devDependencies`, a top-level side effect that crashes — the
+  declarations are correct, the artifact still doesn't load.
+- **It ships `src/` in the tarball.** Tests, source `.ts`, a `docs/` tree, a
+  stray `.env` — none of it belongs in what a consumer downloads, and none of it
+  is a type error.
+- **Its doc examples have rotted.** The README's headline snippet stopped
+  compiling three releases ago; nobody runs the README.
+
+The `smoke`, `pack`, and `snippets` slots close exactly those three, and they do
+it against the *real* artifact: `build` (wave 10) runs first so `pack` inspects a
+fresh tarball, `smoke` imports the built entry points, and `snippets`
+type-checks the tagged fences. They're **opt-in**, so a repo that never publishes
+never runs them and a default gate stays byte-for-byte unchanged — but a library
+that turns them on has moved "the published package works" inside its definition
+of done, where a gate can enforce it instead of a human remembering to.
+
 ## The signals a team actually checks
 
 None of the following changes what checkride *does*. All of it changes whether
@@ -180,9 +204,11 @@ deliberate:
 - **No normalization.** `checks_run` and its siblings are envelope metadata
   about the run, not a reshaping of any tool's diagnostics. The raw-JSON thesis
   is the product.
-- **No new breadth.** None of this adds a slot or a checker. The risk being
-  addressed is reliance, not coverage — checkride earns trust by being solid on
-  what it already does, not by doing more.
+- **No new breadth from the hardening itself.** The timeout, atomic-write, and
+  vacuous-green work adds no slot or checker — the risk it addresses is reliance,
+  not coverage. (The publish-ready bundle above *is* new coverage, but it stays
+  opt-in for this same reason: the default gate a repo already depends on never
+  changes shape under an upgrade.)
 
 The thread through all of it is simple: checkride is only as valuable as a gate that can't
 be talked past, and a gate that can't be talked past is only safe if the thing

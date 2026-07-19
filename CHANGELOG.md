@@ -36,8 +36,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--bail`). The `checks` array stays in deterministic group order — the run's
   scheduling sequence, never completion order. `schema_version` is unchanged.
 
+### Added
+
+- **A publish-ready bundle of four opt-in slots** that take the definition of
+  done past static publishing lint (`publint`, `attw`) and out to the shipped
+  artifact. Each is a built-in or runs the consumer's own `build`/`tsc`, so
+  enabling them adds **zero devDependencies**:
+  - **`build`** (wave 10) runs the consumer's `build` script, so the artifact
+    checks below inspect fresh output rather than a stale `dist/`. An opted-in
+    `build` on a repo with no build script stands down as a skip, never a red
+    check.
+  - **`pack`** (wave 20) packs the tarball with a dry-run and fails if a required
+    file (a resolved `exports`/`main`/`types`/`bin` target, or `README`) is
+    missing or a forbidden one (`src/`, tests, `.ts` sources — the
+    `dist/**/*.d.ts` declarations excepted) is shipped. npm/pnpm only; yarn/bun
+    report **unavailable** until a per-manager adapter lands, like `security`.
+  - **`smoke`** (wave 20) imports every `exports` entry of the built package
+    through its own resolution map and asserts each declared value export is live
+    at runtime — a liveness check, not a type check.
+  - **`snippets`** (wave 20 / `any`) type-checks the fenced code blocks tagged
+    `<!-- snippet: check -->` in `README.md` and `docs/*.md`. The default
+    `snippets` adapter checks against source; a second `snippets-dist` adapter
+    checks against the built `.d.ts`. A slot opted in with zero tagged fences is
+    a hard error.
+
+  All four are opt-in (`--all`, `--include`, or config), so a default run is
+  byte-for-byte unchanged. They **order themselves**: `build` at wave 10 precedes
+  `pack`/`smoke`/`snippets`/`publint`/`attw` at wave 20, so `checkride --all`
+  builds before it inspects the artifact with no ordering config. `checkride
+  init` on a library can scaffold the bundle.
+
 ### Changed
 
+- **A dependency can now activate a slot, not just its config file.** Adapters
+  whose tool runs correctly with zero config — `oxlint` (lint), `knip` (dead),
+  `vitest` (test), `cspell` (spell), and `prettier` (the opt-in format slot) —
+  now also activate when the package appears in `dependencies`/`devDependencies`,
+  as a backup to the detect-file signal. A repo that installed one of these but
+  never wrote its config file gains that check on upgrade; `doctor` names which
+  signal matched. This widens the default run for those slots and is a
+  deliberate, noted behavior change.
 - **Checks now run concurrently within a wave by default.** The orchestrator
   schedules the wave sequence — `first`s, the numeric line ascending (equal
   values through a bounded pool, a barrier between distinct values), `single`s

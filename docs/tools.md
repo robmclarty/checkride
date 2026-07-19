@@ -68,6 +68,10 @@ present (built-in checks always run). The default tool per slot:
 | `security` | `pnpm audit` | — (built into pnpm) | — (opt-in) |
 | `publint` | `publint` | `pnpm add -D publint` | — (opt-in) |
 | `attw` | `attw` | `pnpm add -D @arethetypeswrong/cli` | — (opt-in) |
+| `build` | consumer's `build` script (opt-in) | — (built-in) | `scripts.build` |
+| `pack` | built-in (opt-in) | — (built-in) | `exports`/`main`/`types`/`bin` + `README` |
+| `smoke` | built-in (opt-in) | — (built-in) | `exports` (fallback `main`) |
+| `snippets` | built-in (opt-in) | — (built-in) | tagged doc fences (README + `docs/*.md`) |
 
 Note the npm package names differ from the binary names: `ast-grep` ships in the
 `@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, and `attw`
@@ -127,6 +131,66 @@ The `format` slot is **opt-in**: `checkride init --add format` scaffolds
 `.prettierrc.json`, then enable it by naming it in `checkride.config.json`
 (`"format": "prettier"`) or with `--include format`. Keeping it opt-in means
 adopting checkride never fails a repo on formatting it never signed up for.
+
+## The publish-ready bundle
+
+Four opt-in slots take the definition of done past static publishing lint
+(`publint`, `attw`) and out to the artifact a consumer actually installs. Each is
+a **built-in** (or runs the consumer's own `build`/`tsc`), so enabling them adds
+**zero devDependencies** — nothing to install, nothing to pin.
+
+| Slot | Wave | What it catches |
+| ---- | ---- | --------------- |
+| `build` | 10 | The package won't build — runs the consumer's `build` script so the checks below inspect fresh output, not stale `dist/`. |
+| `pack` | 20 | The tarball ships the wrong files — packs a dry-run and fails if a required file (a resolved `exports`/`main`/`types`/`bin` target, or `README`) is missing, or a forbidden one (`src/`, tests, `.ts` sources) is present. |
+| `smoke` | 20 | The built package throws on `import` — loads every `exports` entry through the package's own resolution and asserts each declared value export is live at runtime. |
+| `snippets` | 20 / any | Doc examples have rotted — type-checks the fenced code blocks tagged `<!-- snippet: check -->` in `README.md` and `docs/*.md`. |
+
+Because they carry waves, the bundle **orders itself with no config**: `build`
+runs first (wave 10), then `pack`, `smoke`, `snippets`, `publint`, and `attw`
+share wave 20 and run concurrently against the built artifact. Enable the bundle
+with `--all`, with `--include build,pack,smoke,snippets`, or by naming the slots
+in `checkride.config.json`; `checkride init` on a library can scaffold it for you.
+
+Two details worth knowing:
+
+- **`snippets` has two modes.** The default `snippets` adapter checks the fenced
+  examples against your **source**; naming `snippets-dist` instead
+  (`"snippets": "snippets-dist"`) checks them against the built `.d.ts`, which is
+  what a consumer sees. A slot opted in with **no** tagged fence anywhere is a
+  hard error (opting in with nothing to check is a misconfiguration, not a
+  vacuous pass) — tag a fence, or don't enable the slot.
+- **`pack` is npm/pnpm only.** It shells the manager's `pack --dry-run`, whose
+  JSON shape is shared by npm and pnpm; on yarn/bun the slot reports
+  **unavailable** until a per-manager adapter lands, exactly like `security`.
+
+## When to write a custom check
+
+The slot catalogue covers what most repos share. A genuinely repo-specific
+invariant is a **custom check** — a config entry keyed by a name that isn't a
+built-in slot, running a plain command (see the [README](../README.md#custom-checks)
+for the config shape).
+
+A worked example: the origin repo (`fascicle`) enforces that every provider SDK
+is declared as an *optional* peer dependency and that the root manifest never
+carries `"private": true`. That's a manifest-shape rule no catalogue slot knows
+about, so it lives in a `scripts/check-deps.mjs` and is wired as a custom check:
+
+```jsonc
+{
+  "checks": {
+    "deps": {
+      "command": "node",
+      "args": ["scripts/check-deps.mjs"]
+    }
+  }
+}
+```
+
+That's the boundary: reach for a custom check when the rule is specific to *your*
+repo's manifest, layout, or conventions. When the rule is one many packages
+share — "the tarball is clean", "the built package imports" — prefer a slot, so
+the whole ecosystem gets it once rather than re-implementing it per repo.
 
 ## When `doctor` reports a missing tool
 

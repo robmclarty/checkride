@@ -25,7 +25,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--concurrency <n>` | Max checks running at once within a wave (`1` = sequential; default is a conservative cap from the CPU count). |
 | `--only <a,b>` | Run only the named slots. |
 | `--skip <a,b>` | Run everything except the named slots. |
-| `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `mutation`, `security`, `publint`, `attw`) to the default run. |
+| `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
@@ -92,6 +92,14 @@ check between two later without shifting the others.
 | `security` | Dependency audit | `pnpm audit` | opt-in |
 | `publint` | Package publishing lint | `publint` | opt-in |
 | `attw` | Type resolution across module systems | `attw --pack` | opt-in |
+| `build` | Runs the consumer's build script | `<pm> run build` | opt-in |
+| `pack` | Tarball ships the right files | built-in | opt-in |
+| `smoke` | Built package imports cleanly | built-in | opt-in |
+| `snippets` | Tagged doc fences type-check | built-in (`tsc`) | opt-in |
+
+The last four are the **publish-ready bundle** — opt-in library slots that check
+the shipped artifact (see [Tools](./tools.md#the-publish-ready-bundle)). `build`
+is wave 10 so it runs before `pack`/`smoke`/`snippets`/`publint`/`attw` in wave 20.
 
 A slot only runs if its config file is detected (or its tool is built-in). See
 [Tools and installation](./tools.md) for the detect file and install command
