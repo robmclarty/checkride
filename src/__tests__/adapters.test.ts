@@ -1,6 +1,23 @@
-import { describe, expect, test } from 'vitest';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters.js';
+import type { Adapter } from '../adapters.js';
+import type { Out } from '../orchestrator.js';
+import { runChecks } from '../orchestrator.js';
+
+/** Discards output — the run's own stdout/stderr aren't under test here. */
+const sink = (): Out => ({ write: () => true });
+
+// A command that outlives a short config-level cap. Under the cap it is killed
+// (exit -1); an adapter `timeout: 0` overrides the cap so it runs to completion.
+const sleeper = (over: Partial<Adapter>): Adapter => ({
+  name: 'sleep', slot: 'sleep', description: 'sleep', detect: [], outputFile: null, devDeps: {},
+  command: 'node', args: ['-e', 'setTimeout(() => process.exit(0), 600)'], ...over,
+});
 
 describe('registry invariants', () => {
   test('schema version is 1', () => {
@@ -163,4 +180,38 @@ describe('registry invariants', () => {
       expect(ADAPTERS.find((a) => a.name === name)?.detectDeps).toEqual([name]);
     }
   });
+
+  test('the stryker adapter ships uncapped (timeout: 0) — the one catalogue default (D4)', () => {
+    expect(ADAPTERS.find((a) => a.name === 'stryker')?.timeout).toBe(0);
+    // No other adapter pins a timeout; the rest defer to the config/600s default.
+    for (const adapter of ADAPTERS) {
+      if (adapter.name !== 'stryker') expect(adapter.timeout).toBeUndefined();
+    }
+  });
+});
+
+describe('adapter timeout: 0 runs uncapped', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-timeout-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test('an adapter timeout of 0 beats and disables a shorter config cap', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'sleep' }], adapters: [sleeper({ timeout: 0 })],
+      config: { timeout: 0.2 }, json: true, stdout: sink(), stderr: sink(),
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: true, exit_code: 0 });
+  }, 15_000);
+
+  test('the same command IS killed when it inherits the short config cap (control)', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'sleep' }], adapters: [sleeper({})],
+      config: { timeout: 0.2 }, json: true, stdout: sink(), stderr: sink(),
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+  }, 15_000);
 });

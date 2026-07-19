@@ -77,6 +77,13 @@ Note the npm package names differ from the binary names: `ast-grep` ships in the
 `@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, and `attw`
 ships in `@arethetypeswrong/cli`.
 
+The `mutation` slot ships **uncapped** (`timeout: 0`) by default — the one
+catalogue slot that does. A real stryker run legitimately takes fifteen to twenty
+minutes, past the ten-minute cap every other slot runs under, and because
+`mutation` is opt-in and never part of the definition-of-done gate that cap
+protects, letting it run to completion costs the gate nothing. It also runs
+`single` (exclusive, nothing else in flight) because stryker saturates every core.
+
 And `fallow`, the one unfamiliar name in the table: a Rust-native
 codebase-intelligence tool (unused code, duplication, circular dependencies,
 complexity hotspots, architecture drift). checkride splits it across three slots

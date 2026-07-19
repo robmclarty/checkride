@@ -16,19 +16,20 @@ publish bundle is now part of checkride's own definition of done.
   in wave order) — **green**, exit 0.
 - `checkride --all --skip mutation` (full concurrent path incl. `security`) —
   **green**, exit 0.
-- `checkride --all` including `mutation` (stryker) — **`mutation` times out at
-  checkride's default 600s per-check cap** (killed by SIGTERM at 600032ms), so the
-  literal `--all` is red *only* on that slot. This is pre-existing and orthogonal:
-  `mutation` is not part of the publish bundle, is not in the merge gate
-  (`pnpm check` default doesn't run it), and is normally run uncapped via
-  `pnpm mutation` (README documents its 69% vs 55 floor, and recommends a higher /
-  `0` timeout for it on repos where it runs long). Naming `mutation` in
-  `checks` to give it a bigger timeout would opt it into *every* `pnpm check`
-  (15+ min of stryker on the daily gate) — undesirable — so it is left as-is and
-  recorded here. Verdict for the bundle: every publish-bundle slot plus every
-  default and `security` check is green under `--all` (see
-  `--all --skip mutation` below); mutation-vs-`--all`-timeout is a separate,
-  pre-existing config question, flagged for a human decision.
+- `checkride --all` including `mutation` (stryker) — **RESOLVED in step 12.**
+  Dogfooding first surfaced this: with the stryker adapter carrying no timeout,
+  `mutation` under `--all` was killed at checkride's default 600s per-check cap
+  (SIGTERM at 600032ms), so the literal `--all` was red *only* on that slot.
+  `mutation` is not part of the publish bundle and not in the merge gate
+  (`pnpm check` default doesn't run it), so the bundle verdict below was never in
+  question — but the `--all` timeout was a real config question, flagged here for
+  a human decision. Step 12 is that decision: the `stryker` adapter now ships
+  `timeout: 0` (`src/adapters.ts`), so `mutation`'s effective per-check timeout
+  resolves uncapped when neither config nor CLI overrides it. The safe-default cap
+  still protects the definition-of-done gate — `mutation` is opt-in and never in
+  it — so shipping it uncapped costs the gate nothing while letting a real 15–20
+  min stryker run finish. `checkride --all` now completes `mutation` instead of
+  timing out; confirmed green at step-12 verify time via a full uncapped run.
 
 ### Bug found & fixed by dogfooding: `smoke` choked on `./package.json`
 
@@ -114,4 +115,7 @@ there is nothing to diverge from a reference. Confirmed green on checkride's own
 All three ported built-ins (pack, smoke, snippets) agree with their fascicle
 reference on both the healthy and the deliberately-broken case. The one real
 discrepancy dogfooding surfaced (smoke vs `./package.json`) was **fixed**; the
-remaining differences are intentional design choices, **recorded** above.
+remaining slot differences are intentional design choices, **recorded** above.
+The one open config question dogfooding raised — `mutation` timing out under
+`--all` — was **resolved** in step 12 by shipping the stryker adapter uncapped
+(`timeout: 0`); see the `--all` bullet above.

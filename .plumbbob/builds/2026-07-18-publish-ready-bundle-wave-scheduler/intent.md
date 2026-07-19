@@ -383,13 +383,29 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
     repos gain checks on upgrade); `pnpm check` green.
     - seam: `docs/tools.md`, `docs/cheatsheet.md`, `docs/reliability.md`, `CHANGELOG.md`
     - model: sonnet — prose from settled decisions
-11. [ ] Dogfood + oracle — **done when:** checkride's own `checkride.config.json`
+11. [x] Dogfood + oracle — **done when:** checkride's own `checkride.config.json`
     enables build/pack/smoke/snippets-dist; `checkride --all` (self-hosted via
     `pnpm check -- --all` equivalent) is green on this repo; each slot run
     against the fascicle repo agrees with its reference script's verdict
     (including at least one deliberately-broken case per slot to confirm both
     sides go red together); discrepancies either fixed or recorded as verdicts.
     - seam: `checkride.config.json`, `README.md`, `.plumbbob/builds/2026-07-18-publish-ready-bundle-wave-scheduler/` (oracle notes)
+12. [ ] `mutation` uncapped by default — unblock `checkride --all` — **done when:**
+    the `stryker` adapter in `src/adapters.ts` carries `timeout: 0` so
+    `mutation`'s effective per-check timeout resolves to uncapped when neither
+    config nor CLI overrides it (resolution is already `adapter.timeout ??
+    config ?? 600` with `0` honored, `src/orchestrator.ts`); a unit test pins that
+    the stryker adapter ships `timeout: 0` and that a `0` adapter timeout runs
+    uncapped; the docs are made coherent — the safe-default cap protects the
+    definition-of-done gate, and `mutation` is opt-in and never in it, so it ships
+    uncapped (the "no honest run trips the 10-min cap" claim in `reliability.md`
+    is corrected to exempt mutation; README already recommends `0` for it);
+    `checkride --all` completes `mutation` instead of timing out at 600s and is
+    green on this repo (the real confirmation is a full uncapped stryker run,
+    ~15-20 min, once at verify time); `pnpm check` and the `test/contract/` suite
+    stay green; `oracle-notes.md` updated from "recorded" to "resolved."
+    - seam: `src/adapters.ts`, `src/__tests__/adapters.test.ts`, `docs/reliability.md`, `docs/contract.md`, `docs/tools.md`, `CHANGELOG.md`, `.plumbbob/builds/2026-07-18-publish-ready-bundle-wave-scheduler/oracle-notes.md`
+    - model: sonnet — small slot-default + test + doc prose from a settled decision
 
 ## Open questions
 

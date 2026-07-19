@@ -84,6 +84,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   existing default runs produce the same verdicts and the same summary order as
   before, only faster; `mutation` runs as a `single` (exclusive) because Stryker
   saturates every core and races the real test run's cache.
+- **`mutation` now ships uncapped (`timeout: 0`) by default.** A real Stryker run
+  legitimately outlives the 600s per-check cap; because `mutation` is opt-in and
+  never part of the definition-of-done gate the cap protects, its adapter runs to
+  completion instead of tripping a timeout under `checkride --all`. Every other
+  slot keeps the safe-by-default cap; override per check or globally with
+  `timeout`.
 
 ## [0.4.3] - 2026-07-18
 

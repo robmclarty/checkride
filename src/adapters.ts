@@ -369,6 +369,10 @@ export const ADAPTERS: readonly Adapter[] = [
     detect: ['stryker.config.mjs', 'stryker.config.json', 'stryker.conf.json', 'stryker.conf.js'],
     command: 'pnpm',
     args: ['exec', 'stryker', 'run'],
+    // Ships uncapped (`0`). A real mutation run legitimately takes 15–20 min, past
+    // the 600s default cap; `mutation` is opt-in and never in the definition-of-done
+    // gate the cap protects, so it runs to completion rather than tripping a timeout.
+    timeout: 0,
     outputFile: null,
     devDeps: {
       '@stryker-mutator/core': '9.6.1',

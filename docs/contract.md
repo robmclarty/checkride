@@ -157,8 +157,10 @@ helpers — is not public API, even if technically importable.
 
 - Every check runs under a timeout by **default**: the check's own `timeout`,
   else the config-level `timeout`, else `DEFAULT_TIMEOUT_SECONDS` (600). `0`
-  at either level disables the cap. A definition-of-done gate must not be able
-  to hang forever.
+  at any level disables the cap. A definition-of-done gate must not be able
+  to hang forever. One catalogue default exercises the check-level clause: the
+  `mutation` slot's stryker adapter ships `timeout: 0`, so mutation runs uncapped
+  out of the box — it is opt-in and never in the gate the cap protects.
 - A timed-out check is killed (SIGTERM, then SIGKILL after a short grace) and
   recorded as **failed** with a `timed out after <n>s` note — red, never
   vacuous, never hung.
