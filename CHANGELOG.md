@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-07-19
+
+### Internal
+
+- **Docs: `docs/ordering-in-practice.md`** — a worked guide to `order`
+  scheduling waves, now with a second example where waves encode a *dependency*
+  (`build` produces `dist/`; the publish bundle — `publint`, `attw`, `pack`,
+  `smoke`, `snippets-dist` — consumes it) rather than just a duration tier.
+- Adopt explicit ordering waves in checkride's own `checkride.config.json`, so
+  the gate config states its execution plan instead of leaning on adapter
+  defaults and pool arithmetic.
+- CI: bump `upload-pages-artifact` to v5 and drop the Node 20 pages runtime.
+- Expand the `cspell` dictionary with words the docs introduced.
+
 ## [0.5.2] - 2026-07-19
 
 ### Internal
@@ -465,6 +479,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.5.3]: https://www.npmjs.com/package/checkride/v/0.5.3
 [0.5.2]: https://www.npmjs.com/package/checkride/v/0.5.2
 [0.5.1]: https://www.npmjs.com/package/checkride/v/0.5.1
 [0.5.0]: https://www.npmjs.com/package/checkride/v/0.5.0
