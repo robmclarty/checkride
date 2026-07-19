@@ -59,7 +59,9 @@
     "tsbuildinfo",
     "tsconfig",
     "tsgolint",
+    "uncontended",
     "vitest",
+    "wavemate",
     "Windsurf",
     "worktrees"
   ]
