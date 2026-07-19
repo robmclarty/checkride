@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-07-19
 
 ### Contract
 
@@ -441,6 +441,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.5.0]: https://www.npmjs.com/package/checkride/v/0.5.0
 [0.4.3]: https://www.npmjs.com/package/checkride/v/0.4.3
 [0.4.2]: https://www.npmjs.com/package/checkride/v/0.4.2
 [0.4.1]: https://www.npmjs.com/package/checkride/v/0.4.1
