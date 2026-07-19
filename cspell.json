@@ -13,6 +13,7 @@
     "pnpm-lock.yaml",
     "package.json",
     "plans/**",
+    "research/**",
     "CHANGELOG.md"
   ],
   "words": [

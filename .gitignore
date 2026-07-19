@@ -11,3 +11,6 @@ coverage/
 .claude/worktrees/
 .pnpm-store/
 stryker.incremental.json
+
+# Local scratch/exploration notes — never part of the package
+research/

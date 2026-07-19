@@ -390,7 +390,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
     (including at least one deliberately-broken case per slot to confirm both
     sides go red together); discrepancies either fixed or recorded as verdicts.
     - seam: `checkride.config.json`, `README.md`, `.plumbbob/builds/2026-07-18-publish-ready-bundle-wave-scheduler/` (oracle notes)
-12. [ ] `mutation` uncapped by default — unblock `checkride --all` — **done when:**
+12. [x] `mutation` uncapped by default — unblock `checkride --all` — **done when:**
     the `stryker` adapter in `src/adapters.ts` carries `timeout: 0` so
     `mutation`'s effective per-check timeout resolves to uncapped when neither
     config nor CLI overrides it (resolution is already `adapter.timeout ??

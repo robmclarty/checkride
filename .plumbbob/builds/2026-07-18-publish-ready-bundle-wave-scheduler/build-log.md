@@ -65,3 +65,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-19 — step 9 checkpointed · 4e0680086 — init library bundle + doctor polish (38m)
 - 2026-07-19 — step 10 checkpointed · c8e26f075 — Slot docs + CHANGELOG (1 drift, 44m)
 - 2026-07-19 — step 11 checkpointed · 02ae9835b — Dogfood + oracle (1 drift, 45m)
+- 2026-07-19 — step 12 checkpointed · 803711ee0 — `mutation` uncapped by default (21m)
