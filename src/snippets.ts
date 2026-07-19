@@ -1,6 +1,5 @@
 /**
- * Built-in `snippets` check — **pure extraction core** (step 7 of the
- * publish-ready bundle; execution + adapters land in step 8).
+ * Built-in `snippets` check.
  *
  * A doc snippet typecheck ported to match fascicle's `check-doc-snippets.mjs`
  * byte-for-byte so the origin repo can adopt the slot verbatim (D11). It pulls
@@ -17,7 +16,7 @@
  * a misconfiguration, not a vacuous pass, so zero tagged snippets is a hard
  * error ({@link vacuousOptInError}; fascicle exits 2).
  *
- * This module is the pure machinery only — no filesystem, no spawning:
+ * The pure machinery — no filesystem, no spawning:
  *
  *   - {@link extractSnippets} parses one doc's markdown into its ts/typescript
  *     fenced blocks, recording each block's start line and whether it is tagged;
@@ -27,13 +26,30 @@
  *     checked blocks to write, each mapped back to `<doc>:<line>`) plus the
  *     checked/skipped counts;
  *   - {@link generateSnippetTsconfig} builds the generated tsconfig (extends the
- *     repo's own, relaxes the three emit/style flags, embeds the caller's
- *     mode-specific `paths`).
+ *     repo's own, relaxes the three emit/style flags plus the composite-build
+ *     fields a `tsc --build` project carries, embeds the caller's mode-specific
+ *     `paths`).
  *
- * Doc discovery, snippet/tsconfig emission, `<pm> exec tsc` execution, and the
- * src-vs-dist path mapping (Q1) all live in step 8's adapter, which consumes the
- * primitives here.
+ * Execution (D12/Q1), consuming the primitives above:
+ *
+ *   - {@link deriveSrcPaths} resolves **src mode**'s `paths` mapping: the repo's
+ *     own tsconfig `paths` when present, else the `src/index.ts` convention,
+ *     else null (the caller fails, recommending `snippets-dist`);
+ *   - {@link checkSnippets} discovers the doc set, plans it, derives the mode's
+ *     `paths`, emits the scratch files + generated tsconfig under
+ *     `.check/doc-snippets/`, and typechecks them via a spawned
+ *     `<pm> exec tsc --noEmit -p`, returning a {@link CheckOutcome} whose
+ *     failure `stderr` carries tsc's raw output plus the `snippet -> source
+ *     map:` legend.
  */
+
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import type { CheckOutcome } from './links.js';
+import type { PackageManager } from './pm/index.js';
+import { translateExec } from './pm/index.js';
 
 /**
  * The opt-in marker: an HTML comment `<!-- snippet: check -->` that must sit on
@@ -88,7 +104,7 @@ export type SnippetsPlan = {
 /** The two modes `snippets` runs in (D12): fast against `src`, or against built `dist/*.d.ts`. */
 export type SnippetMode = 'src' | 'dist';
 
-/** The generated tsconfig object (serialized to `.check/doc-snippets/tsconfig.json` in step 8). */
+/** The generated tsconfig object (serialized to `.check/doc-snippets/tsconfig.json`). */
 export type SnippetTsconfig = {
   extends: string;
   compilerOptions: {
@@ -97,6 +113,11 @@ export type SnippetTsconfig = {
     verbatimModuleSyntax: false;
     isolatedModules: false;
     noPropertyAccessFromIndexSignature: false;
+    rootDir: '../..';
+    composite: false;
+    declaration: false;
+    declarationMap: false;
+    incremental: false;
   };
   include: string[];
   exclude: string[];
@@ -213,7 +234,18 @@ export function vacuousOptInError(plan: SnippetsPlan): string | null {
  * `isolatedModules`, `noPropertyAccessFromIndexSignature`) while keeping the
  * type-correctness flags that catch real API drift. `include` clears the parent's
  * `.check` exclusion so the emitted `./*.ts` are seen; `paths` is the caller's
- * mode-specific module resolution (src vs dist — Q1, resolved in step 8).
+ * mode-specific module resolution (src vs dist — Q1).
+ *
+ * A `tsc --build` project (composite, `rootDir`/`outDir` pinned to `src`/`dist`
+ * for project-reference emit) fails TS6059 on any *source* file outside its
+ * `rootDir` — and the generated snippets live under `.check/doc-snippets/`,
+ * while src mode's `paths` mapping pulls in a real source file elsewhere in the
+ * repo (dist mode's self-referenced `.d.ts` is exempt: a declaration file isn't
+ * subject to the same check). `rootDir: '../..'` re-scopes to `cwd` — the
+ * common ancestor of both — so either file satisfies it; `composite`/
+ * `declaration`/`declarationMap`/`incremental` are turned off since this is a
+ * one-shot typecheck, never a build. All four are no-ops on a plain
+ * (non-composite) project's tsconfig, so the override is harmless there too.
  */
 export function generateSnippetTsconfig(opts: {
   extendsPath: string;
@@ -227,8 +259,218 @@ export function generateSnippetTsconfig(opts: {
       verbatimModuleSyntax: false,
       isolatedModules: false,
       noPropertyAccessFromIndexSignature: false,
+      rootDir: '../..',
+      composite: false,
+      declaration: false,
+      declarationMap: false,
+      incremental: false,
     },
     include: ['./*.ts'],
     exclude: [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Execution (D12/Q1): doc discovery, tsconfig `paths` derivation, snippet +
+// tsconfig emission, and compilation via a spawned `<pm> exec tsc`.
+// ---------------------------------------------------------------------------
+
+/** The compilation subprocess spawner — same signature as the orchestrator's `spawnCheck`. */
+export type SnippetSpawn = (
+  command: string,
+  args: string[],
+  cwd: string,
+  timeoutSec?: number,
+) => Promise<CheckOutcome>;
+
+/** Where the generated snippet files + tsconfig land, relative to `cwd`. */
+const OUT_DIR_REL = join('.check', 'doc-snippets');
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Read the doc set (D11): `README.md` plus non-recursive `docs/*.md`, skipping
+ * any that don't exist — a repo with no `docs/` directory (or no `README.md`)
+ * still runs on what it has; an empty result is caught by
+ * {@link vacuousOptInError}.
+ */
+async function discoverDocs(cwd: string): Promise<DocInput[]> {
+  let docsEntries: string[] = [];
+  try {
+    docsEntries = await readdir(join(cwd, 'docs'));
+  } catch {
+    // No docs/ directory — README.md alone still gets checked.
+  }
+  const found = await Promise.all(
+    selectDocFiles(docsEntries).map(async (relPath): Promise<DocInput | null> => {
+      try {
+        return { relPath, text: await readFile(join(cwd, relPath), 'utf8') };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return found.filter((d): d is DocInput => d !== null);
+}
+
+/** The package name from `package.json`, or null on any read/parse failure or a missing `name`. */
+async function readManifestName(cwd: string): Promise<string | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(join(cwd, 'package.json'), 'utf8'));
+    const name = isRecord(parsed) ? parsed['name'] : undefined;
+    return typeof name === 'string' && name ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The repo's own `tsconfig.json`'s **own** `compilerOptions.paths` (not resolved
+ * through its `extends` chain — a repo that hand-declares self-referencing
+ * paths, as fascicle does, puts them directly on the root file), or null when
+ * absent, unreadable, or empty.
+ */
+async function readOwnTsconfigPaths(cwd: string): Promise<Record<string, string[]> | null> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(join(cwd, 'tsconfig.json'), 'utf8'));
+    const compilerOptions = isRecord(parsed) ? parsed['compilerOptions'] : undefined;
+    const paths = isRecord(compilerOptions) ? compilerOptions['paths'] : undefined;
+    if (!isRecord(paths)) return null;
+    const out: Record<string, string[]> = {};
+    for (const [key, value] of Object.entries(paths)) {
+      if (Array.isArray(value) && value.every((v) => typeof v === 'string')) out[key] = value;
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Rewrite a tsconfig-root-relative target (`./src/x.ts` or `src/x.ts`) to resolve from `.check/doc-snippets/`. */
+function remapRootRelative(target: string): string {
+  const stripped = target.startsWith('./') ? target.slice(2) : target;
+  return `../../${stripped}`;
+}
+
+/**
+ * Derive the `paths` mapping **src mode** needs so `import { x } from
+ * '<pkg-name>'` resolves against source (Q1): the repo's own tsconfig `paths`
+ * when present (remapped two directories deeper, to where the generated
+ * tsconfig lives), else the `src/index.ts` convention (`<pkg-name>` maps to its
+ * root `src/index.ts`) when the manifest names the package and that file
+ * exists, else null — the caller turns a null into a failing outcome that
+ * recommends `snippets-dist` (whose dist-mode compilation needs no mapping at
+ * all: package self-reference through `exports` resolves the built types).
+ */
+export function deriveSrcPaths(opts: {
+  manifestName: string | null;
+  tsconfigPaths: Record<string, readonly string[]> | null;
+  hasSrcIndex: boolean;
+}): Record<string, string[]> | null {
+  if (opts.tsconfigPaths && Object.keys(opts.tsconfigPaths).length > 0) {
+    const remapped: Record<string, string[]> = {};
+    for (const [key, targets] of Object.entries(opts.tsconfigPaths)) {
+      remapped[key] = targets.map(remapRootRelative);
+    }
+    return remapped;
+  }
+  if (opts.manifestName !== null && opts.hasSrcIndex) {
+    return { [opts.manifestName]: ['../../src/index.ts'] };
+  }
+  return null;
+}
+
+function failOutcome(message: string): CheckOutcome {
+  return {
+    ok: false,
+    exit_code: 1,
+    stdout: `${JSON.stringify({ ok: false, error: message }, null, 2)}\n`,
+    stderr: `check-snippets: ${message}\n`,
+  };
+}
+
+/** Compile the generated tsconfig via `<pm> exec tsc --noEmit -p <path>`, translated per PM. */
+function runTsc(
+  cwd: string,
+  tsconfigRelPath: string,
+  pm: PackageManager,
+  spawn: SnippetSpawn,
+  timeoutSec: number | undefined,
+): Promise<CheckOutcome> {
+  const { command, args } = translateExec('pnpm', ['exec', 'tsc', '--noEmit', '-p', tsconfigRelPath], pm);
+  return spawn(command, args, cwd, timeoutSec);
+}
+
+/**
+ * Run the `snippets` check against `cwd` in `mode` (D12: the `snippets` src
+ * adapter passes `'src'`, `snippets-dist` passes `'dist'`). Discovers the doc
+ * set, plans the checked snippets ({@link vacuousOptInError} applies first —
+ * zero tagged snippets is a hard error before anything is written), derives
+ * the mode's `paths` mapping, emits the scratch files plus a generated
+ * tsconfig under `.check/doc-snippets/`, and typechecks them through the
+ * injected `spawn`. A compile failure's `stderr` carries tsc's raw output plus
+ * the `snippet -> source map:` legend mapping each generated file back to
+ * `<doc>:<line>` (D11).
+ */
+export async function checkSnippets(opts: {
+  cwd: string;
+  mode: SnippetMode;
+  pm: PackageManager;
+  spawn: SnippetSpawn;
+  timeoutSec?: number;
+}): Promise<CheckOutcome> {
+  const { cwd, mode, pm, spawn, timeoutSec } = opts;
+
+  const plan = planSnippets(await discoverDocs(cwd));
+  const vacuous = vacuousOptInError(plan);
+  if (vacuous) return failOutcome(vacuous);
+
+  let paths: Record<string, string[]> = {};
+  if (mode === 'src') {
+    const [manifestName, tsconfigPaths] = await Promise.all([readManifestName(cwd), readOwnTsconfigPaths(cwd)]);
+    const derived = deriveSrcPaths({
+      manifestName,
+      tsconfigPaths,
+      hasSrcIndex: existsSync(join(cwd, 'src', 'index.ts')),
+    });
+    if (derived === null) {
+      return failOutcome(
+        "cannot map snippet imports to source: tsconfig.json has no self-referencing 'paths' and there is no " +
+          "src/index.ts — add a 'paths' entry for the package name, or opt into the 'snippets-dist' adapter " +
+          'instead (dist mode needs no mapping)',
+      );
+    }
+    paths = derived;
+  }
+
+  const outDir = join(cwd, OUT_DIR_REL);
+  await rm(outDir, { recursive: true, force: true });
+  await mkdir(outDir, { recursive: true });
+  await Promise.all(plan.entries.map((e) => writeFile(join(outDir, e.name), `${e.code}\n`, 'utf8')));
+
+  const tsconfig = generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths });
+  await writeFile(join(outDir, 'tsconfig.json'), `${JSON.stringify(tsconfig, null, 2)}\n`, 'utf8');
+
+  const outcome = await runTsc(cwd, join(OUT_DIR_REL, 'tsconfig.json'), pm, spawn, timeoutSec);
+  const status = { checked: plan.checked, skipped: plan.skipped, mode };
+
+  if (outcome.ok) {
+    return {
+      ok: true,
+      exit_code: 0,
+      stdout: `${JSON.stringify({ ok: true, ...status }, null, 2)}\n`,
+      stderr: `check-snippets: ${plan.checked} snippet(s) compile against ${mode} (${plan.skipped} skipped)\n`,
+    };
+  }
+
+  const legend = plan.entries.map((e) => `  ${e.name}  <-  ${e.file}:${e.line}`).join('\n');
+  const tscOutput = `${outcome.stdout}${outcome.stderr}`.trim();
+  return {
+    ok: false,
+    exit_code: 1,
+    stdout: `${JSON.stringify({ ok: false, ...status }, null, 2)}\n`,
+    stderr: `check-snippets: snippet(s) failed to compile:\n\n${tscOutput}\n\nsnippet -> source map:\n${legend}\n`,
   };
 }

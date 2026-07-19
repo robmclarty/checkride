@@ -345,7 +345,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    missing dist artifact fails with a "did build run?" hint.
    - seam: `src/smoke.ts` (new), `src/adapters.ts`, `src/orchestrator.ts`, `src/__tests__/smoke.test.ts` (new)
    - model: opus — the conservative d.ts scanner is the subtle surface
-7. [ ] `snippets` extraction core (pure) — **done when:** `src/snippets.ts`
+7. [x] `snippets` extraction core (pure) — **done when:** `src/snippets.ts`
    exports pure functions for doc discovery (README + non-recursive `docs/*.md`),
    tag/fence parsing (exact regexes per D11), snippet emission naming
    (`<slug>__<n>.ts`), and tsconfig generation (extends + relaxations + mode

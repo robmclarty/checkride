@@ -37,6 +37,7 @@ import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
 import { checkSmoke } from './smoke.js';
+import { checkSnippets } from './snippets.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -352,6 +353,14 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   // `spawnCheck`, so that child registers in `liveChecks` and inherits the
   // timeout + reaping like every other check (D9/D16/C6).
   if (adapter.builtin === 'smoke') return checkSmoke({ cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout });
+  // The snippets built-ins spawn `<pm> exec tsc` through `spawnCheck` (D16/C6);
+  // the two adapters share one execution path, differing only in mode (D12).
+  if (adapter.builtin === 'snippets') {
+    return checkSnippets({ cwd: ctx.cwd, mode: 'src', pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
+  }
+  if (adapter.builtin === 'snippets-dist') {
+    return checkSnippets({ cwd: ctx.cwd, mode: 'dist', pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
+  }
   const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };

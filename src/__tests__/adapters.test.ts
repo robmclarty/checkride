@@ -19,7 +19,7 @@ describe('registry invariants', () => {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
       dupes: 'fallow', health: 'fallow', test: 'vitest',
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
-      build: 'build', publint: 'publint', attw: 'attw', pack: 'pack', smoke: 'smoke',
+      build: 'build', publint: 'publint', attw: 'attw', pack: 'pack', smoke: 'smoke', snippets: 'snippets',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -57,11 +57,11 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack/smoke', () => {
+  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack/smoke/snippets', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke',
+      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets',
     ]);
-    expect(SLOTS.slice(-4).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke']);
+    expect(SLOTS.slice(-5).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke', 'snippets']);
   });
 
   test('the library-publishing slots are opt-in with JSON-capturing attw', () => {
@@ -85,9 +85,9 @@ describe('registry invariants', () => {
     expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
-  test('links, pack, and smoke are the built-ins', () => {
+  test('links, pack, smoke, and the two snippets adapters are the built-ins', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
-    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack', 'smoke']);
+    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack', 'smoke', 'snippets', 'snippets-dist']);
   });
 
   test('the smoke slot is an opt-in wave-20 built-in on a node liveness probe (D9)', () => {
@@ -123,6 +123,9 @@ describe('registry invariants', () => {
     expect(orderOf('attw')).toBe(20);
     expect(orderOf('pack')).toBe(20);
     expect(orderOf('smoke')).toBe(20);
+    // The snippets slot itself stays 'any' (D4) — snippets-dist's wave 20 is an
+    // adapter-level override, not a slot default (D12).
+    expect(orderOf('snippets')).toBeUndefined();
     // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
     const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw', 'pack', 'smoke']);
     for (const slot of SLOTS) {
@@ -130,8 +133,15 @@ describe('registry invariants', () => {
     }
   });
 
-  test('no adapter pins its own order yet (adapter-level override arrives with snippets)', () => {
-    for (const adapter of ADAPTERS) expect(adapter.order).toBeUndefined();
+  test('snippets ships two adapters on one slot; only snippets-dist pins an adapter-level order (D12)', () => {
+    const snippetAdapters = ADAPTERS.filter((a) => a.slot === 'snippets');
+    expect(snippetAdapters.map((a) => a.name)).toEqual(['snippets', 'snippets-dist']);
+    expect(snippetAdapters.find((a) => a.name === 'snippets')?.order).toBeUndefined();
+    expect(snippetAdapters.find((a) => a.name === 'snippets-dist')?.order).toBe(20);
+    // Every other adapter still carries no order override.
+    for (const adapter of ADAPTERS) {
+      if (adapter.name !== 'snippets-dist') expect(adapter.order).toBeUndefined();
+    }
   });
 
   test('the build slot spawns the consumer build script, detected via scripts.build (D13/D18)', () => {

@@ -124,6 +124,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'attw', optIn: true, order: 20 },
   { name: 'pack', optIn: true, order: 20 },
   { name: 'smoke', optIn: true, order: 20 },
+  { name: 'snippets', optIn: true },
 ];
 
 /**
@@ -444,6 +445,33 @@ export const ADAPTERS: readonly Adapter[] = [
     args: [],
     outputFile: 'smoke.json',
     builtin: 'smoke',
+    devDeps: {},
+  },
+  {
+    name: 'snippets',
+    slot: 'snippets',
+    description: 'Doc snippet typecheck: tagged fences typecheck against package source',
+    detect: [],
+    // Built-in (D16); `command`/`args` are the availability signature only — the
+    // real invocation (translated per PM) and the src-mode `paths` derivation
+    // (Q1) live in `snippets.ts`. First adapter for the slot, so it is the
+    // blessed default (config names `snippets-dist` to opt into the other mode).
+    command: 'pnpm',
+    args: ['exec', 'tsc', '--noEmit', '-p', '.check/doc-snippets/tsconfig.json'],
+    outputFile: 'snippets.json',
+    builtin: 'snippets',
+    devDeps: {},
+  },
+  {
+    name: 'snippets-dist',
+    slot: 'snippets',
+    description: 'Doc snippet typecheck: tagged fences typecheck against built .d.ts',
+    detect: [],
+    command: 'pnpm',
+    args: ['exec', 'tsc', '--noEmit', '-p', '.check/doc-snippets/tsconfig.json'],
+    outputFile: 'snippets.json',
+    builtin: 'snippets-dist',
+    order: 20,
     devDeps: {},
   },
 ];
