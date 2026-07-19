@@ -5,6 +5,9 @@ whether this is your first time or you just need a refresher.
 
 Start here:
 
+- **[Why checkride](./why.md)** — the case for adopting it: what it's selling,
+  the ROI versus ad-hoc scripts or a task runner, and straight answers to the
+  common objections. Read this if you're deciding, or persuading.
 - **[Getting started](./getting-started.md)** — prerequisites, adding checkride
   to a project (new or existing), your first run, and the daily loop. Read this
   if you are new or coming back after a break.

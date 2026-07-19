@@ -54,6 +54,8 @@
     "scriptless",
     "sgconfig",
     "stryker",
+    "superlinear",
+    "syscalls",
     "tsbuildinfo",
     "tsconfig",
     "tsgolint",

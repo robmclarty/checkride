@@ -62,6 +62,9 @@ to a repo you already set up with `checkride agent-setup`.
 
 Task-focused guides live in [docs/](./docs/README.md):
 
+- [Why checkride](./docs/why.md) — the case for adopting it: what it's
+  selling, the ROI versus ad-hoc scripts or a task runner, and answers to the
+  common objections.
 - [Getting started](./docs/getting-started.md) — prerequisites, adding
   checkride to a project (new or existing), your first run, and the daily loop.
 - [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
