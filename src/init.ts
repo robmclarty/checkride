@@ -13,12 +13,14 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
+import type { DocInput } from './snippets.js';
+import { planSnippets, selectDocFiles } from './snippets.js';
 import { CLAUDE_SETTINGS_FILE, writeStopHook } from './agent-setup/index.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
@@ -567,6 +569,126 @@ async function readIfExists(path: string): Promise<string | null> {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Publish-ready bundle (step 9): the library path scaffolds the opt-in artifact
+// checks into `checkride.config.json` so a buildable library orders itself out
+// of the box (build → pack/smoke/attw/publint/snippets, D4).
+// ----------------------------------------------------------------------------
+
+/**
+ * The publish-ready bundle, in wave order. Each slot's value is the adapter
+ * `init` writes into `checks`; `build` and `snippets` are gated (see
+ * {@link planPublishBundle}). publint/attw/pack/smoke each resolve to the
+ * same-named adapter, so their config value is just the slot name.
+ */
+const PUBLISH_BUNDLE_SLOTS = ['build', 'publint', 'attw', 'pack', 'smoke', 'snippets'] as const;
+
+/** `--add` values that expand to the whole bundle. */
+const PUBLISH_BUNDLE_ALIASES: ReadonlySet<string> = new Set(['publish', 'bundle']);
+
+/** Printed (and recorded in `skipped`) when snippets is requested but no tagged fence exists (Q12). */
+const SNIPPETS_POINTER =
+  'snippets-dist: no tagged fences found — add a `<!-- snippet: check -->` marker above a ' +
+  'ts/typescript fence in README.md or docs/*.md to enable the doc-snippet typecheck';
+
+type InitManifest = { scripts: ReadonlySet<string>; isLibrary: boolean };
+
+/**
+ * Read package.json for the library path: its script names, and whether it is a
+ * publishable library (declares an `exports`/`main` entry and is not private).
+ */
+function readInitManifest(cwd: string): InitManifest {
+  try {
+    const pkg: { scripts?: Record<string, string>; exports?: unknown; main?: unknown; private?: boolean } =
+      JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf8'));
+    const hasEntry = pkg.exports !== undefined || (typeof pkg.main === 'string' && pkg.main.length > 0);
+    return { scripts: new Set(Object.keys(pkg.scripts ?? {})), isLibrary: hasEntry && pkg.private !== true };
+  } catch {
+    return { scripts: new Set(), isLibrary: false };
+  }
+}
+
+/**
+ * True when README.md or a non-recursive docs/*.md carries at least one tagged
+ * snippet fence — the signal that gates scaffolding `snippets-dist` (Q12).
+ * Reuses step 7's pure discovery/plan primitives so the detection matches what
+ * the slot itself checks.
+ */
+async function hasTaggedSnippets(cwd: string): Promise<boolean> {
+  let docsEntries: string[] = [];
+  try {
+    docsEntries = await readdir(join(cwd, 'docs'));
+  } catch {
+    // No docs/ directory — README.md alone can still carry a tagged fence.
+  }
+  const docs: DocInput[] = [];
+  for (const relPath of selectDocFiles(docsEntries)) {
+    // oxlint-disable-next-line no-await-in-loop -- a handful of docs; sequential keeps it simple.
+    const text = await readIfExists(join(cwd, relPath));
+    if (text !== null) docs.push({ relPath, text });
+  }
+  return planSnippets(docs).checked > 0;
+}
+
+type PublishBundle = {
+  /** slot -> adapter entries to merge into `checks`. */
+  checks: Record<string, string>;
+  /** The pointer to surface when snippets was requested but no tagged fence exists. */
+  snippetsPointer: string | null;
+};
+
+/**
+ * Fold the requested publish slots into config entries, gating `build` on a
+ * build script and `snippets` (→ `snippets-dist`) on a tagged fence (Q12) — the
+ * two slots that would otherwise stand down as a skip (`build`) or hard-error on
+ * zero snippets (`snippets`).
+ */
+function planPublishBundle(
+  requested: ReadonlySet<string>,
+  hasBuildScript: boolean,
+  taggedSnippets: boolean,
+): PublishBundle {
+  const checks: Record<string, string> = {};
+  let snippetsPointer: string | null = null;
+  for (const slot of PUBLISH_BUNDLE_SLOTS) {
+    if (!requested.has(slot)) continue;
+    if (slot === 'build') {
+      if (hasBuildScript) checks['build'] = 'build';
+    } else if (slot === 'snippets') {
+      if (taggedSnippets) checks['snippets'] = 'snippets-dist';
+      else snippetsPointer = SNIPPETS_POINTER;
+    } else {
+      checks[slot] = slot; // publint / attw / pack / smoke — adapter name == slot name.
+    }
+  }
+  return { checks, snippetsPointer };
+}
+
+/**
+ * Partition the `--add` list and the library signal into (a) the publish slots
+ * to scaffold into `checks` and (b) the file-scaffold `--add` names left for
+ * {@link addConfigs}. The library path — a buildable, publishable package —
+ * requests the whole bundle; `--add` requests a named publish slot, or the
+ * whole bundle via the `publish`/`bundle` alias.
+ */
+function splitAdd(add: readonly string[], manifest: InitManifest): {
+  publishRequested: Set<string>;
+  fileAdds: string[];
+} {
+  const publishRequested = new Set<string>();
+  const fileAdds: string[] = [];
+  if (manifest.isLibrary && manifest.scripts.has('build')) {
+    for (const slot of PUBLISH_BUNDLE_SLOTS) publishRequested.add(slot);
+  }
+  const bundleNames: ReadonlySet<string> = new Set(PUBLISH_BUNDLE_SLOTS);
+  for (const name of add) {
+    if (PUBLISH_BUNDLE_ALIASES.has(name)) for (const slot of PUBLISH_BUNDLE_SLOTS) publishRequested.add(slot);
+    else if (bundleNames.has(name)) publishRequested.add(name);
+    else fileAdds.push(name);
+  }
+  return { publishRequested, fileAdds };
+}
+
 /**
  * Write (or refresh) the AGENTS.md stanza for `slots`, idempotently: it writes
  * only when the applied stanza differs from the current file, records the outcome
@@ -689,12 +811,16 @@ async function captureBaselineIfNeeded(
   await capture(cwd);
 }
 
-/** Write checkride.config.json for the adopted tools (disabled failures as `false`); never clobber an existing one. */
+/**
+ * Write checkride.config.json for the adopted tools (disabled failures as
+ * `false`) plus the publish-ready bundle (step 9); never clobber an existing one.
+ */
 async function writeExistingConfig(
   w: Writer,
   cwd: string,
   adopted: readonly InventoryEntry[],
   disabledSet: ReadonlySet<string>,
+  bundleChecks: Record<string, string>,
   skipped: string[],
 ): Promise<void> {
   if (existsSync(join(cwd, 'checkride.config.json'))) {
@@ -706,6 +832,9 @@ async function writeExistingConfig(
     if (disabledSet.has(i.slot)) checks[i.slot] = false;
     else if (i.adapter) checks[i.slot] = i.adapter;
   }
+  // The opt-in publish bundle follows the adopted default slots; explicit
+  // entries opt these slots into the run (D4 — the library orders itself).
+  for (const [slot, adapter] of Object.entries(bundleChecks)) checks[slot] = adapter;
   const config = { $schema: configSchemaUrl(productVersion()), checks };
   await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
 }
@@ -755,12 +884,14 @@ function reportExisting(
 async function initExisting(options: InitOptions, cwd: string): Promise<InitResult> {
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
+  const manifest = readInitManifest(cwd);
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
   const skipped: string[] = [];
 
-  // --add scaffolds blessed configs for empty slots before inventory, so the
-  // additions are detected and adopted in this same run.
-  await addConfigs(w, options.add ?? [], skipped);
+  // Route --add: publish slots (and the library path) opt into the bundle; the
+  // rest scaffold blessed configs before inventory, so they're detected this run.
+  const { publishRequested, fileAdds } = splitAdd(options.add ?? [], manifest);
+  await addConfigs(w, fileAdds, skipped);
 
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
@@ -772,7 +903,18 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const { grandfathered, disabled } = resolveAdoptionPlan(adopted, failing, options.baseline ?? false);
   await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
 
-  await writeExistingConfig(w, cwd, adopted, new Set(disabled), skipped);
+  // Publish-ready bundle (step 9): only meaningful when a config is actually
+  // written (writeExistingConfig never clobbers an existing one). The bundle is
+  // scaffolded enabled — not probed/disabled like adopted tools — because it is
+  // an ordered pipeline (build → artifacts) the user opts into by naming it.
+  const willWriteConfig = !existsSync(join(cwd, 'checkride.config.json'));
+  const wantsSnippets = willWriteConfig && publishRequested.has('snippets');
+  const bundle: PublishBundle = willWriteConfig
+    ? planPublishBundle(publishRequested, manifest.scripts.has('build'), wantsSnippets ? await hasTaggedSnippets(cwd) : false)
+    : { checks: {}, snippetsPointer: null };
+  if (bundle.snippetsPointer) skipped.push(bundle.snippetsPointer);
+
+  await writeExistingConfig(w, cwd, adopted, new Set(disabled), bundle.checks, skipped);
   await ensureGitignore(w, cwd, skipped);
   // package.json: add the `check: checkride` alias (decision 8) if missing.
   await addCheckAlias(w, skipped);
@@ -782,7 +924,12 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // Claude Code Stop hook (opt-out; step 12), using the repo's detected PM (b7).
   await writeHook(w, options.hook, skipped);
 
-  if (options.stdout) reportExisting(options.stdout, adopted, w, grandfathered, disabled);
+  if (options.stdout) {
+    reportExisting(options.stdout, adopted, w, grandfathered, disabled);
+    const enabled = Object.keys(bundle.checks);
+    if (enabled.length > 0) options.stdout.write(`  enabled publish bundle: ${enabled.join(', ')}\n`);
+    if (bundle.snippetsPointer) options.stdout.write(`  ${bundle.snippetsPointer}\n`);
+  }
   return { mode: 'existing', shape: null, written: w.written, skipped, disabled, grandfathered, exitCode: 0 };
 }
 

@@ -343,6 +343,93 @@ describe('existing-project adoption (idempotent)', () => {
   });
 });
 
+const TAGGED_README = [
+  '# lib', '', 'Docs with a checked snippet:', '',
+  '<!-- snippet: check -->',
+  '```ts',
+  'export const x: number = 1;',
+  '```', '',
+].join('\n');
+
+const library = (): string =>
+  JSON.stringify({ name: 'lib', exports: { '.': './dist/index.js' }, scripts: { build: 'tsc -b' } });
+
+const hasSnippetsPointer = (result: { skipped: string[] }): boolean =>
+  result.skipped.some((s) => s.includes('<!-- snippet: check -->'));
+
+describe('publish-ready bundle (existing mode, step 9)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-bundle-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const bundleChecks = async (): Promise<Record<string, string | false>> =>
+    (JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> }).checks;
+
+  test('the library path scaffolds the whole bundle when a build script and tagged fences are present', async () => {
+    await writeFile(join(dir, 'package.json'), library());
+    await writeFile(join(dir, 'README.md'), TAGGED_README);
+
+    const result = await runInit({ cwd: dir, probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['build']).toBe('build');
+    expect(checks['publint']).toBe('publint');
+    expect(checks['attw']).toBe('attw');
+    expect(checks['pack']).toBe('pack');
+    expect(checks['smoke']).toBe('smoke');
+    expect(checks['snippets']).toBe('snippets-dist');
+    expect(hasSnippetsPointer(result)).toBe(false);
+  });
+
+  test('snippets-dist is withheld and a pointer reported when no tagged fence exists (Q12)', async () => {
+    await writeFile(join(dir, 'package.json'), library());
+    await writeFile(join(dir, 'README.md'), '# lib\n\nNo tagged snippets here.\n');
+
+    const result = await runInit({ cwd: dir, probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['snippets']).toBeUndefined();
+    expect(checks['pack']).toBe('pack'); // the rest of the bundle still lands
+    expect(hasSnippetsPointer(result)).toBe(true);
+  });
+
+  test('a library with no build script is not auto-scaffolded (the pipeline needs a build)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'lib', exports: { '.': './dist/index.js' } }));
+    await runInit({ cwd: dir, probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['build']).toBeUndefined();
+    expect(checks['pack']).toBeUndefined();
+    expect(checks['publint']).toBeUndefined();
+  });
+
+  test('a non-library (no exports/main) gets no bundle', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'app', scripts: { build: 'tsc' } }));
+    await runInit({ cwd: dir, probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['build']).toBeUndefined();
+    expect(checks['pack']).toBeUndefined();
+  });
+
+  test('--add publish scaffolds the (gated) bundle on any repo', async () => {
+    // No exports → not auto-detected, but --add opts in explicitly.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'app', scripts: { build: 'tsc' } }));
+    const result = await runInit({ cwd: dir, add: ['publish'], probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['build']).toBe('build');
+    expect(checks['pack']).toBe('pack');
+    expect(checks['smoke']).toBe('smoke');
+    expect(checks['snippets']).toBeUndefined(); // no tagged fence
+    expect(hasSnippetsPointer(result)).toBe(true);
+  });
+
+  test('--add naming a single publish slot enables only that slot', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'app' }));
+    await runInit({ cwd: dir, add: ['pack'], probeFailures: noFailures });
+    const checks = await bundleChecks();
+    expect(checks['pack']).toBe('pack');
+    expect(checks['publint']).toBeUndefined();
+    expect(checks['build']).toBeUndefined();
+  });
+});
+
 describe('Stop hook (applyStopHook / stopHookCommand)', () => {
   test('command runs the detected PM and blocks with exit 2', () => {
     expect(stopHookCommand('pnpm')).toContain('pnpm run check');

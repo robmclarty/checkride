@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
+import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, VERSION_TIMED_OUT } from '../doctor.js';
 
@@ -277,6 +278,33 @@ describe('runDoctor (build detection — D18)', () => {
     expect(slot?.enablement).toBe('unavailable');
     expect(slot?.found).toContain("no 'build' script");
     expect(slot?.hint).toContain('scripts.build'); // possibilities hint names how to enable it
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe('runDoctor (publish bundle slots — step 9)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-pub-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const PUB = ['build', 'pack', 'smoke', 'snippets'];
+  const pubSlots = SLOTS.filter((s) => PUB.includes(s.name));
+  const pubAdapters = ADAPTERS.filter((a) => PUB.includes(a.slot));
+
+  test('renders all four as opt-in, each with its detection/inspection note', async () => {
+    // A buildable library: scripts.build lights up build's detection signal.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'lib', exports: { '.': './dist/index.js' }, scripts: { build: 'tsc -b' } }));
+    const result = await runDoctor({
+      cwd: dir, slots: pubSlots, adapters: pubAdapters, config: null, env: fakeEnv(), stdout: sink(), json: true,
+    });
+    const bySlot = new Map(result.report.checks.filter((c) => c.category === 'tool').map((c) => [c.slot, c]));
+
+    for (const slot of PUB) expect(bySlot.get(slot)?.enablement, slot).toBe('opt-in');
+    expect(bySlot.get('build')?.hint).toContain('scripts.build');
+    expect(bySlot.get('pack')?.hint).toContain('exports');
+    expect(bySlot.get('smoke')?.hint).toContain('exports');
+    expect(bySlot.get('snippets')?.hint).toContain('<!-- snippet: check -->');
+    // Opt-in built-ins never fail the report.
     expect(result.ok).toBe(true);
   });
 });

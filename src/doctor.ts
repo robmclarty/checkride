@@ -310,6 +310,24 @@ function detectedClause(r: ResolvedCheck): string {
   return r.detectedVia && r.detectedVia !== 'always available' ? ` Detected via ${r.detectedVia}.` : '';
 }
 
+/**
+ * What each publish built-in slot inspects — surfaced as a doctor note so an
+ * always-available opt-in slot explains what it would check (D9/D10/D11).
+ * `build`'s signal (`scripts.build`) already rides its `detectScript` detection,
+ * so it isn't repeated here.
+ */
+const PUBLISH_INSPECTS: Record<string, string> = {
+  pack: "the package's exports/main/types/bin + README against the packed tarball's file list",
+  smoke: "the package's exports (fallback main) — the built entry points import cleanly",
+  snippets: 'doc fences tagged `<!-- snippet: check -->` in README.md and docs/*.md',
+};
+
+/** The inspection clause for a publish built-in row, or '' for every other slot. */
+function inspectsClause(slot: string): string {
+  const inspects = PUBLISH_INSPECTS[slot];
+  return inspects ? ` Inspects ${inspects}.` : '';
+}
+
 /** A row for a slot whose adapter is runnable: probe result classified by default-run membership. */
 function toolRow(
   base: ToolRowBase,
@@ -320,11 +338,11 @@ function toolRow(
 ): DoctorCheck {
   const isDefault = defaultActive.has(r.slot);
   const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
-  const detected = detectedClause(r);
   const lead = isDefault
     ? probe.hint
     : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
-  const hint = lead ? `${lead}${detected}` : detected.trim() || null;
+  const body = `${lead ?? ''}${detectedClause(r)}${inspectsClause(r.slot)}`.trim();
+  const hint = body.length > 0 ? body : null;
   return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
 }
 

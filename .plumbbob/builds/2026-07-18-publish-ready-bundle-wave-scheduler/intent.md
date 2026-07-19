@@ -354,7 +354,7 @@ New slots (all `optIn: true`, no `fixArgs` → `checkride fix` skips them for fr
    hard error, slug collisions impossible for distinct docs.
    - seam: `src/snippets.ts` (new), `src/__tests__/snippets.test.ts` (new)
    - model: opus — strong-assertion tests pin the tag semantics for fascicle parity
-8. [ ] `snippets` adapters + execution — **done when:** builtin `'snippets'`
+8. [x] `snippets` adapters + execution — **done when:** builtin `'snippets'`
    wired with two adapters per D12 (`snippets` src wave 0, `snippets-dist` wave
    20); compile via spawned `<pm> exec tsc --noEmit -p` on the generated
    config; failure output includes tsc's raw text plus the source-map legend;
