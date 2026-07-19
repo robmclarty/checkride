@@ -127,6 +127,9 @@ Only the relationships above are promised. `'any'` and `'middle'` in particular
 say nothing about *which* concurrent group they join; a release may schedule them
 differently as long as the stated relationships hold.
 
+For a worked before/after showing what this surface buys on a real repo, see
+[Ordering waves in practice](./ordering-in-practice.md).
+
 **Concurrency.** Checks that share a wave run concurrently through a bounded
 pool. `--concurrency <n>` sets the pool size — `1` is fully sequential, and the
 default is a conservative cap derived from the CPU count. `--bail` overrides it:

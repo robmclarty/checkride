@@ -19,6 +19,9 @@ Start here:
 - **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (and
   npm/yarn/bun variants), why gates should pass `--strict`, and the baseline
   note for legacy repos.
+- **[Ordering waves in practice](./ordering-in-practice.md)** — a worked
+  before/after on a real repo showing what the `order` surface buys: a legible
+  schedule, an uncontended heavy check, and a method for tiering your own gate.
 - **[The contract](./contract.md)** — the surfaces consumers may rely on: the
   exit-code taxonomy, the `summary.json` schema discipline, the CLI flag set,
   the programmatic exports, and the pin policy.
