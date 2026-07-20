@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The `dead` fingerprint extractor now gives class/enum members and component
+  inputs/outputs a distinct identity.** fallow reports these findings with
+  `parent_name`/`member_name` (and `component_name`/`input_name`/`output_name`)
+  rather than a single symbol field, so the extractor previously fell back to
+  the file path and collapsed every unused member of a file to one key. That
+  made a member-heavy report fingerprint to far fewer keys than its issue count,
+  which the `fullyTracked` guard treats as untracked — so the baseline could
+  never mask the slot green. Members are now keyed as `<parent>.<member>` (e.g.
+  `dead-code:unused_class_members:src/a.ts:Svc.foo`). On a real 7,970-finding
+  repo this lifts the fingerprint count from 3,148 to 7,949. Distinct findings
+  that share a line-free identity (overloaded members, a symbol re-exported or
+  imported twice in one file) still legitimately collapse, so a large legacy
+  `dead` slot can remain untracked; fallow's native regression baseline stays
+  the tool for grandfathering those.
+- The extractor no longer fingerprints the `workspace_diagnostics` and
+  `next_steps` arrays. Neither is counted in `total_issues`, so fingerprinting
+  `workspace_diagnostics` (its items carry a `path`) pushed the finding count
+  past the issue count and could wrongly mark an otherwise fully-tracked slot as
+  untracked.
+
 ## [0.5.3] - 2026-07-19
 
 ### Internal

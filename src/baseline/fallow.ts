@@ -66,8 +66,35 @@ const SYMBOL_FIELDS = [
   'specifier',
 ] as const;
 
-/** The first non-empty symbol field on a finding, or `''` when none is present. */
+/**
+ * Container/leaf field pairs for findings scoped to a member of a declaration:
+ * an unused class or enum member (`parent_name` + `member_name`) or an unused
+ * component input/output (`component_name` + `input_name`/`output_name`). Keyed
+ * as `<container>.<leaf>` so every member is distinct. Without this composition
+ * these items expose no single-field symbol and collapse onto their file path,
+ * so all of a file's unused members share one key — the baseline then can't
+ * grandfather (or ratchet away) them individually, and a member-heavy report
+ * fingerprints to far fewer keys than its issue count.
+ */
+const MEMBER_FIELDS = [
+  ['parent_name', 'member_name'],
+  ['component_name', 'input_name'],
+  ['component_name', 'output_name'],
+] as const;
+
+/**
+ * A finding's stable symbol identity: a composed `<container>.<member>` for
+ * member findings, otherwise the first non-empty single-symbol field, otherwise
+ * `''`.
+ */
 function symbolIdentity(item: Record<string, unknown>): string {
+  for (const [container, leaf] of MEMBER_FIELDS) {
+    const leafValue = str(item[leaf]);
+    if (leafValue) {
+      const containerValue = str(item[container]);
+      return containerValue ? `${containerValue}.${leafValue}` : leafValue;
+    }
+  }
   for (const field of SYMBOL_FIELDS) {
     const value = str(item[field]);
     if (value) return value;
@@ -105,17 +132,28 @@ function deadKey(category: string, item: unknown): string | null {
 }
 
 /**
+ * Report arrays that are NOT counted findings: `next_steps` (advisory commands)
+ * and `workspace_diagnostics` (project-level diagnostics). Neither is included
+ * in `total_issues`, so fingerprinting them would push the finding count past
+ * the issue count and wrongly mark an otherwise fully-tracked slot as untracked.
+ * `next_steps` items carry no identity and {@link deadKey} already drops them;
+ * `workspace_diagnostics` items carry a `path`, so they must be skipped by name.
+ */
+const NON_FINDING_ARRAYS = new Set<string>(['next_steps', 'workspace_diagnostics']);
+
+/**
  * Extract dead-code findings and the authoritative issue count (`total_issues`).
  * Findings come from the top-level detail arrays (`unused_exports`,
  * `unused_dev_dependencies`, `circular_dependencies`, …) rather than the summary
  * keys: the summary aggregates a few categories under one name (e.g. dev and
  * optional deps both count as `unused_dependencies`) whose items live in
  * separately-named arrays, so keying off the summary would miss them. Iterating
- * every array and letting {@link deadKey} return `null` for non-finding arrays
- * (`next_steps`) covers whatever categories fallow reports — including ones added
- * in a future minor — without a hand-maintained list. A category whose items
- * carry no stable identity simply isn't fingerprinted; it still counts toward
- * `total_issues`, so the slot stays red (never masked) until it's fixed.
+ * every array — minus the {@link NON_FINDING_ARRAYS} that aren't counted — and
+ * letting {@link deadKey} return `null` for items with no identity covers
+ * whatever finding categories fallow reports, including ones added in a future
+ * minor, without enumerating them. A finding whose item carries no stable
+ * identity simply isn't fingerprinted; it still counts toward `total_issues`, so
+ * the slot stays red (never masked) until it's fixed.
  */
 function parseDeadCode(j: Record<string, unknown>): ParsedFallow {
   const summary = isPlainObject(j['summary']) ? j['summary'] : {};
@@ -125,7 +163,7 @@ function parseDeadCode(j: Record<string, unknown>): ParsedFallow {
   }
   const findings: string[] = [];
   for (const [category, value] of Object.entries(j)) {
-    if (!Array.isArray(value)) continue;
+    if (!Array.isArray(value) || NON_FINDING_ARRAYS.has(category)) continue;
     for (const item of value) {
       const key = deadKey(category, item);
       if (key !== null) findings.push(key);

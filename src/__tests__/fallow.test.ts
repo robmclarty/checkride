@@ -114,6 +114,59 @@ describe('fallowVerdict (with baseline)', () => {
     expect(v.newKeys).toEqual(['dead-code:unused_files:src/new.ts']);
   });
 
+  test('members in one file get distinct <parent>.<member> keys, so all are tracked', () => {
+    // Two unused members of one class in one file: without composition they both
+    // collapse to `dead-code:unused_class_members:src/a.ts`, so findings.size (1)
+    // trails the issue count (2) and the slot can never be masked green.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2, unused_class_members: 2 },
+      unused_class_members: [
+        { path: 'src/a.ts', parent_name: 'Svc', member_name: 'foo' },
+        { path: 'src/a.ts', parent_name: 'Svc', member_name: 'bar' },
+      ],
+    });
+    const keys = ['dead-code:unused_class_members:src/a.ts:Svc.foo', 'dead-code:unused_class_members:src/a.ts:Svc.bar'];
+    const v = fallowVerdict(raw, keys);
+    expect(v.findings).toEqual(new Set(keys));
+    expect(v.ok).toBe(true);
+    expect(v.baselined).toBe(2);
+  });
+
+  test('component inputs/outputs compose <component>.<field>', () => {
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2, unused_component_inputs: 1, unused_component_outputs: 1 },
+      unused_component_inputs: [{ path: 'src/c.ts', component_name: 'Card', input_name: 'title' }],
+      unused_component_outputs: [{ path: 'src/c.ts', component_name: 'Card', output_name: 'closed' }],
+    });
+    const v = fallowVerdict(raw, null);
+    expect(v.findings).toEqual(
+      new Set([
+        'dead-code:unused_component_inputs:src/c.ts:Card.title',
+        'dead-code:unused_component_outputs:src/c.ts:Card.closed',
+      ]),
+    );
+  });
+
+  test('non-counted arrays (workspace_diagnostics) are not fingerprinted', () => {
+    // workspace_diagnostics carries a path but is absent from total_issues;
+    // fingerprinting it would make findings.size (2) exceed issueCount (1) and
+    // wrongly block masking. It must be skipped so the slot stays fully tracked.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 1, unused_files: 1 },
+      unused_files: [{ path: 'src/a.ts' }],
+      workspace_diagnostics: [{ kind: 'tsconfig', message: 'no rootDir', path: 'tsconfig.json' }],
+    });
+    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    expect(v.findings).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
+    expect(v.ok).toBe(true);
+  });
+
   test('untracked findings (count exceeds fingerprints) block masking to green', () => {
     // summary claims 2 issues, but only one carries a fingerprintable identity.
     const raw = JSON.stringify({
