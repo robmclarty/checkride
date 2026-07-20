@@ -5,11 +5,17 @@
 **One command that tells a coding agent — and you — when the work is actually
 done.**
 
-checkride is an npm package for TypeScript repositories. It runs your whole
-verification pipeline as a single command (`pnpm check`) whose exit code is the
-verdict, and it mechanically enforces module boundaries so parallel changes
-stay out of each other's way. Together those give an LLM agent the two things
-it otherwise lacks: a definition of done, and lanes to stay inside.
+checkride is an npm package that runs your whole verification pipeline as a
+single command (`pnpm check`) whose exit code is the verdict, and mechanically
+enforces module boundaries so parallel changes stay out of each other's way.
+Together those give an LLM agent the two things it otherwise lacks: a
+definition of done, and lanes to stay inside.
+
+It is built first for TypeScript, but it is not TypeScript-only: built-in
+checks stand down when their tool isn't in the repo, and custom checks run any
+command — so the same gate works for a plain-JavaScript package, a
+mixed-language monorepo, or a different ecosystem entirely (delivered through
+npm either way, for now).
 
 ## The thesis
 
