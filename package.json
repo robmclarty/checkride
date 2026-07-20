@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/robmclarty/checkride.git"
   },
-  "homepage": "https://github.com/robmclarty/checkride#readme",
+  "homepage": "https://robmclarty.github.io/checkride/",
   "bugs": "https://github.com/robmclarty/checkride/issues",
   "type": "module",
   "keywords": [
