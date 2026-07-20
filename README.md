@@ -2,9 +2,14 @@
 
 # checkride
 
-**An agent harness for TypeScript repositories**, delivered as one npm package.
-It gives an LLM agent two things it otherwise lacks: a definition of done, and
-lanes to stay inside.
+**One command that tells a coding agent — and you — when the work is actually
+done.**
+
+checkride is an npm package for TypeScript repositories. It runs your whole
+verification pipeline as a single command (`pnpm check`) whose exit code is the
+verdict, and it mechanically enforces module boundaries so parallel changes
+stay out of each other's way. Together those give an LLM agent the two things
+it otherwise lacks: a definition of done, and lanes to stay inside.
 
 ## The thesis
 
@@ -15,19 +20,21 @@ both halves of that problem.
    types, lint, structure, dead code, tests, docs, links, spelling. **Exit 0
    means the work is complete.** Agents stop guessing; humans stop re-reviewing
    half-finished work.
-2. **Structured boundaries.** A module is an encapsulation boundary with a
-   narrow public surface. When one grows internals worth hiding it becomes a
-   folder whose only public surface is its `index.ts`, and siblings reach only
-   that index — never the internals. These are **deep modules** — Ousterhout's
-   term for a small interface hiding a substantial implementation (*A
-   Philosophy of Software Design*). Enforced mechanically, boundaries keep
-   agents inside lanes and let humans and agents work in parallel with minimal
-   merge conflicts.
+2. **Structured boundaries.** Code is organized into modules with narrow
+   public surfaces. A module starts as a single file; when it grows internals
+   worth hiding, it becomes a folder whose only public surface is its
+   `index.ts`, and sibling modules import that index — never the internals.
+   (These are **deep modules** — Ousterhout's term, from *A Philosophy of
+   Software Design*, for a small interface hiding a substantial
+   implementation.) checkride enforces these rules mechanically, which keeps
+   agents inside their lanes and lets humans and agents work in parallel with
+   minimal merge conflicts.
 
-The consumer of the output is an LLM, so checkride never normalizes diagnostics
-into a common format. Each tool writes its own raw JSON to `.check/`; the agent
-reads whatever the tool emits. That deletes the layer that makes every prior
-meta-runner expensive to extend.
+One design choice to know up front: because the consumer of the output is an
+LLM, checkride never normalizes diagnostics into a common format. Each tool
+writes its own raw JSON to `.check/`, and the agent reads whatever the tool
+emits. Skipping normalization deletes the adapter-maintenance layer that makes
+traditional run-all-my-tools wrappers expensive to extend.
 
 ## Install
 
@@ -49,14 +56,14 @@ pnpm install
 pnpm check
 ```
 
-Either way — `init` auto-detects which case it is in — it writes a
-`"check": "checkride"` alias, so daily usage is `pnpm check`
+Both paths end in the same place — `init` auto-detects which case it is in.
+It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
 regardless of the tool's name. It also writes the agent contract: an AGENTS.md
-stanza (the "exit 0 = done" rule) and a Claude Code **Stop hook** in
-`.claude/settings.json` that blocks an agent from finishing while the pipeline is
-red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun run
-check`); skip it with `--no-hook`, or add all of this — alias, stanza, and hook —
-to a repo you already set up with `checkride agent-setup`.
+stanza stating the "exit 0 = done" rule, and a Claude Code **Stop hook** in
+`.claude/settings.json` that blocks an agent from finishing while the pipeline
+is red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun
+run check`); skip it with `--no-hook`. To add all of this — alias, stanza, and
+hook — to a repo you already set up, run `checkride agent-setup`.
 
 ## Docs
 
@@ -139,6 +146,11 @@ generates config for the blessed default.
 | `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |
 | `publint`  | Package publishing lint (opt-in)       | `publint`           | —                |
 | `attw`     | Type resolution across module systems (opt-in) | `attw --pack`| —                |
+
+Most of these tools you already know. The one unfamiliar name, `fallow`, is a
+Rust-native codebase-analysis tool covering dead code, duplication, and
+complexity; the [tools guide](./docs/tools.md) covers it and every other
+adapter.
 
 Zero-config: for each slot, checkride runs the first adapter whose config file
 exists, and skips slots with no detected tool. The core has **no runtime
