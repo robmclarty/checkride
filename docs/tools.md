@@ -242,6 +242,27 @@ pnpm add -D @ast-grep/cli
 That keeps the version pinned in your lockfile and resolvable at
 `node_modules/.bin/ast-grep`, which is exactly what `doctor` probes for.
 
+### The `struct` slot runs *your* rules
+
+`struct` is not tied to any one convention. It runs `ast-grep scan` over the
+rule files in your repo — the `rules/` directory, per `sgconfig.yml`'s
+`ruleDirs` — so the convention is whatever those files encode. `init` scaffolds
+checkride's default deep-module pack (a barrel `index.ts` per folder, siblings
+importing only the index; see `rules/no-deep-sibling-import.yml`), but you own
+those files:
+
+- **A different convention, same language.** Edit or replace the rules to match
+  how your repo is organized — public/private folders, a naming prefix, an
+  allowed-import list. `struct` enforces the new rules with no change to
+  checkride itself.
+- **Another language.** ast-grep is polyglot; set each rule's `language`
+  (`typescript`, `python`, `go`, `rust`, …) and the same slot enforces
+  boundaries in that language.
+- **Beyond ast-grep.** When a boundary lives in another ecosystem's linter —
+  `import-linter` (Python), `depguard` (Go), `dependency-cruiser` (JS) —
+  express it as a [custom check](#when-to-write-a-custom-check) that runs that
+  tool, rather than forcing it into an ast-grep rule.
+
 ## Turning a slot off
 
 If a slot is irrelevant to a repo, disable it in `checkride.config.json` rather

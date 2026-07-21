@@ -16,6 +16,10 @@ Start here:
 - **[Tools and installation](./tools.md)** — what each pipeline slot runs, and
   how to install a missing tool (fallow, ast-grep, oxlint, …) when `doctor`
   reports one as not installed.
+- **[Deep modules](./deep-modules.md)** — the module-boundary convention the
+  `struct` slot enforces: the Ousterhout idea behind it, how it's held in place,
+  and how to swap it for a different convention or language. Read this to
+  understand the "structured boundaries" half of checkride's thesis.
 - **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (and
   npm/yarn/bun variants), why gates should pass `--strict`, and the baseline
   note for legacy repos.

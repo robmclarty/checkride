@@ -27,14 +27,18 @@ both halves of that problem.
    means the work is complete.** Agents stop guessing; humans stop re-reviewing
    half-finished work.
 2. **Structured boundaries.** Code is organized into modules with narrow
-   public surfaces. A module starts as a single file; when it grows internals
-   worth hiding, it becomes a folder whose only public surface is its
-   `index.ts`, and sibling modules import that index — never the internals.
-   (These are **deep modules** — Ousterhout's term, from *A Philosophy of
-   Software Design*, for a small interface hiding a substantial
-   implementation.) checkride enforces these rules mechanically, which keeps
-   agents inside their lanes and lets humans and agents work in parallel with
-   minimal merge conflicts.
+   public surfaces. In the default layout, a module starts as a single file;
+   when it grows internals worth hiding, it becomes a folder whose only public
+   surface is its `index.ts`, and sibling modules import that index — never the
+   internals. (These are [**deep modules**](./docs/deep-modules.md) —
+   Ousterhout's term, from *A Philosophy of Software Design*, for a small
+   interface hiding a substantial implementation.) checkride enforces this
+   mechanically, which keeps each
+   change inside one module's boundary and lets humans and agents work in
+   parallel with minimal merge conflicts. Deep modules are checkride's default
+   convention, not a hardcoded one — the rules are swappable ast-grep files in
+   your repo, and the same slot enforces boundaries in other conventions and
+   languages (see [Conventions](#conventions)).
 
 One design choice to know up front: because the consumer of the output is an
 LLM, checkride never normalizes diagnostics into a common format. Each tool
@@ -140,7 +144,7 @@ generates config for the blessed default.
 | `types`    | Type checking                          | `tsc --build`       | —                |
 | `format`   | Formatting (opt-in)                    | `prettier`          | `biome`          |
 | `lint`     | Linting                                | `oxlint`            | `biome`, `eslint`|
-| `struct`   | Structural rules (deep modules)        | `ast-grep`          | —                |
+| `struct`   | Structural rules (deep modules by default) | `ast-grep`      | —                |
 | `dead`     | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
 | `dupes`    | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
 | `health`   | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
@@ -414,7 +418,9 @@ with `--only`/`--changed`, not per-directory.
 
 ## Conventions
 
-Module boundaries, enforced by `ast-grep` and `fallow`:
+`init` scaffolds one **default** convention — [deep
+modules](./docs/deep-modules.md), whose boundaries are enforced by `ast-grep`
+(the `struct` slot) and `fallow`:
 
 - A module is a unit of encapsulation. A single file is a module; promote it to
   a folder with a barrel `index.ts` when it grows internals worth hiding — a
@@ -424,6 +430,23 @@ Module boundaries, enforced by `ast-grep` and `fallow`:
   internals.
 - Named exports only; no classes; `.js` extensions on relative imports
   (NodeNext); tests colocated with the code they cover.
+
+None of this is hardcoded into checkride. The `struct` slot just runs whatever
+ast-grep rules live in your repo's `rules/` directory (the barrel rule is
+`rules/no-deep-sibling-import.yml`), so the convention is whatever those files
+encode:
+
+- **A different convention, same language.** Edit or replace the rules to match
+  how your repo is organized — public/private folders, a naming prefix, an
+  allowed-import list — and `struct` enforces the new shape unchanged.
+- **Another language.** ast-grep is polyglot; set each rule's `language`
+  (`typescript`, `python`, `go`, `rust`, …) and the same slot covers boundaries
+  there.
+- **Beyond ast-grep.** When a rule can't be expressed in ast-grep, or lives in
+  another ecosystem's tooling (`import-linter`, `depguard`, `dependency-cruiser`),
+  wire it as a [custom check](./docs/tools.md#when-to-write-a-custom-check).
+
+checkride ships an opinionated default; it does not lock you to it.
 
 ## Tested envelope
 
