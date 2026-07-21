@@ -159,6 +159,29 @@ share wave 20 and run concurrently against the built artifact. Enable the bundle
 with `--all`, with `--include build,pack,smoke,snippets`, or by naming the slots
 in `checkride.config.json`; `checkride init` on a library can scaffold it for you.
 
+### Configure a slot without opting it in
+
+Naming an opt-in slot in `checks` normally opts it into every run — which is a
+problem when you only want to *configure* it. Giving `attw` an `esm-only`
+profile, for instance, shouldn't drag `attw` (and, if you also name them,
+`build`/`pack`/`smoke`) into the default `checkride` run. Add `"optIn": true` to
+the entry to break that coupling:
+
+```jsonc
+"attw": {
+  "use": "attw",
+  "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
+  "optIn": true          // configured here, but runs only under --all / --include attw
+}
+```
+
+The slot keeps its configuration but stays out of the default run, reachable with
+`--all` or `--include attw`. The field is general: `"optIn": true` on a
+normally-default slot (or on a heavy custom check like an integration suite)
+demotes it to full-sweep-only, and `"optIn": false` forces an opt-in slot into
+the default run. `checkride doctor` reflects the result — a slot held back this
+way lists as **opt-in**, not **default**.
+
 Two details worth knowing:
 
 - **`snippets` has two modes.** The default `snippets` adapter checks the fenced

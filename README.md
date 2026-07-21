@@ -174,6 +174,12 @@ it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot in
 run. `checkride fix` then runs its write form (e.g. `prettier --write`) alongside the
 other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
 
+To **configure a slot without opting it in** — say, give `attw` a `--profile` but keep it
+in the full sweep only — add `"optIn": true` to its entry: it stays out of the default run
+and runs solely under `--all`/`--include <slot>`. The same field demotes a normally-default
+slot (or a heavy custom check like `test:integration`) to full-sweep-only; `"optIn": false`
+does the opposite, forcing a slot into the default run.
+
 `publint` and `attw` are the **library-publishing** pair — turn them on for a package you
 ship to npm to make "the published artifact is correct" part of your definition of done.
 `publint` lints `package.json`'s publishing surface (exports, files, types); `attw` runs

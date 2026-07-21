@@ -45,6 +45,12 @@ export type CustomCheck = {
    * default order).
    */
   order?: Order;
+  /**
+   * `true` holds this check out of the default run — a slow or full-sweep-only
+   * custom check runs only under `--all`/`--include <name>`. Absent → runs by
+   * default like any custom check. See {@link UseConfig.optIn}.
+   */
+  optIn?: boolean;
 };
 
 /** Pick an adapter by name, with optional field overrides. */
@@ -59,6 +65,15 @@ export type UseConfig = {
   timeout?: number;
   /** Scheduling order override, beating the adapter's and slot's defaults (see `Order`). */
   order?: Order;
+  /**
+   * Override the slot's opt-in status. `true` configures the slot *without*
+   * opting it into the default run — the escape hatch from "naming a slot opts
+   * it in": run it only with `--all`/`--include <slot>`. Handy for a slot you
+   * want configured (e.g. `attw` with a profile) but reserved for the full
+   * sweep. `false` forces the slot into the default run. Absent → the slot's
+   * catalogue default (see {@link ResolvedCheck.explicit}).
+   */
+  optIn?: boolean;
 };
 
 /** Per-slot config: adapter name, `false` to disable, an override, or a custom check. */
@@ -109,7 +124,9 @@ export type ResolvedCheck = {
   /**
    * True when `checks` names this slot explicitly (a non-`false` config entry).
    * An explicit entry opts an otherwise opt-in slot into the default run — so
-   * `"format": "prettier"` runs without `--include` (see `selectChecks`).
+   * `"format": "prettier"` runs without `--include` (see `selectChecks`). A
+   * config `optIn: true` clears this (configure-without-opting-in): the slot is
+   * marked opt-in and left out of the default run despite being named.
    */
   explicit?: boolean;
   /**
@@ -171,6 +188,38 @@ function readOrder(entry: { order?: unknown }, context: string): Order | undefin
     );
   }
   return entry.order;
+}
+
+/**
+ * Read (and validate) a config entry's `optIn` override. Returns `undefined`
+ * when absent (defer to the slot's catalogue default); throws the friendly error
+ * on a non-boolean. `context` names the offending check.
+ */
+function readOptIn(entry: { optIn?: unknown }, context: string): boolean | undefined {
+  if (entry.optIn === undefined) return undefined;
+  if (typeof entry.optIn !== 'boolean') {
+    invalidConfig(`'${context}' optIn must be a boolean (got ${JSON.stringify(entry.optIn)})`);
+  }
+  return entry.optIn;
+}
+
+/**
+ * Apply a config entry's `optIn` override to a resolved check. Config states the
+ * effective opt-in status directly, beating the slot's catalogue default:
+ * `true` marks the check opt-in *and* clears `explicit`, so naming a slot
+ * configures it without opting it into the default run (reach it with
+ * `--all`/`--include`); `false` forces it into the default run. Absent, or a
+ * non-object entry (a bare adapter name / `false`) that cannot carry the field,
+ * leaves resolution's slot-derived `optIn`/`explicit` untouched. `context` names
+ * the check in any error.
+ */
+function applyOptIn(check: ResolvedCheck, entry: SlotConfig | undefined, context: string): ResolvedCheck {
+  if (!(entry && typeof entry === 'object')) return check;
+  const optIn = readOptIn(entry, context);
+  if (optIn === undefined) return check;
+  // optIn:true clears explicit (configured, but not auto-opted-in); optIn:false
+  // forces the slot in and leaves the resolved `explicit` as it stands.
+  return optIn ? { ...check, optIn, explicit: false } : { ...check, optIn };
 }
 
 /**
@@ -485,9 +534,11 @@ function resolveOne(
     return skipped(slot, 'disabled in checkride.config.json');
   }
   const resolved = resolveConfigOrDetect(slot, entry, adapters, fileExists, manifest, explicit);
+  // Config may override the slot's opt-in default (configure-without-opting-in).
+  const overridden = applyOptIn(resolved, entry, slot.name);
   // A script-gated adapter (build) stands down — never red — when its script is
   // absent, even when config named it explicitly.
-  return standDownIfScriptless(resolved, manifest);
+  return standDownIfScriptless(overridden, manifest);
 }
 
 /**
@@ -509,7 +560,8 @@ function customCheckEntry(
     const order = readOrder(entry, name);
     return skipped(order !== undefined ? { name, order } : { name }, 'no detect file present');
   }
-  return active({ name }, customAdapter(name, entry));
+  // A custom check with `optIn: true` is held out of the default run (full-sweep only).
+  return applyOptIn(active({ name }, customAdapter(name, entry)), entry, name);
 }
 
 /**

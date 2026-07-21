@@ -134,6 +134,14 @@ describe('selectChecks', () => {
     expect(selectChecks(resolved, {}).map((r) => r.slot)).not.toContain('mutation');
   });
 
+  test('optIn:true keeps a named slot out of the default run but reachable by --all/--include', () => {
+    // `explicit: false` is what config `optIn: true` resolves to: named, but not auto-included.
+    const withAttw = [...resolved, { slot: 'attw', optIn: true, adapter: null, skip: null, explicit: false }];
+    expect(selectChecks(withAttw, {}).map((r) => r.slot)).not.toContain('attw');
+    expect(selectChecks(withAttw, { all: true }).map((r) => r.slot)).toContain('attw');
+    expect(selectChecks(withAttw, { include: ['attw'] }).map((r) => r.slot)).toContain('attw');
+  });
+
   test('--only restricts to the named slots', () => {
     expect(selectChecks(resolved, { only: ['lint'] }).map((r) => r.slot)).toEqual(['lint']);
   });

@@ -215,6 +215,53 @@ describe('config resolution', () => {
     expect(r.explicit).toBe(true);
   });
 
+  test('optIn:true configures an opt-in slot without opting it in (clears explicit)', () => {
+    const r = resolveSlot(
+      'attw',
+      { checks: { attw: { use: 'attw', optIn: true } } },
+      never,
+    );
+    expect(r.adapter?.name).toBe('attw');
+    expect(r.optIn).toBe(true);
+    expect(r.explicit).toBe(false);
+  });
+
+  test('optIn:false forces a named opt-in slot into the default run', () => {
+    const r = resolveSlot(
+      'format',
+      { checks: { format: { use: 'prettier', optIn: false } } },
+      never,
+    );
+    expect(r.optIn).toBe(false);
+    expect(r.explicit).toBe(true);
+  });
+
+  test('optIn:true demotes a normally-default slot to full-sweep-only', () => {
+    const r = resolveSlot('lint', { checks: { lint: { use: 'oxlint', optIn: true } } }, present('.oxlintrc.json'));
+    expect(r.adapter?.name).toBe('oxlint');
+    expect(r.optIn).toBe(true);
+    expect(r.explicit).toBe(false);
+  });
+
+  test('a custom check with optIn:true is held out of the default run', () => {
+    const resolved = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { integration: { command: 'node', args: ['it.mjs'], optIn: true } } },
+      fileExists: never,
+    });
+    const integration = resolved.find((r) => r.slot === 'integration');
+    expect(integration?.adapter?.command).toBe('node');
+    expect(integration?.optIn).toBe(true);
+    expect(integration?.explicit).toBeFalsy();
+  });
+
+  test('a non-boolean optIn is a friendly config error', () => {
+    expect(() =>
+      resolveSlot('attw', { checks: { attw: { use: 'attw', optIn: 'yes' } as unknown as UseConfig } }, never),
+    ).toThrow(/'attw' optIn must be a boolean/);
+  });
+
   test('a custom check on a non-catalogue name is appended', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
