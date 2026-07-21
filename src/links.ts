@@ -6,6 +6,13 @@
  * disk. External URLs and pure `#anchor` targets are skipped; a `#fragment`
  * on a relative target is stripped before the existence check.
  *
+ * Two config knobs (`checks.links.{exclude,allowlist}`) tune the walk: `exclude`
+ * adds directory names to skip on top of the built-in set (repos with generated
+ * or vendored markdown — `docs/`, `research/`, a `.ridgeline/` build store), and
+ * `allowlist` is a set of regex sources; any link target one matches is treated
+ * as valid (for deliberately illustrative `[x](target)` links that never resolve
+ * on disk). Together they retire a project's bespoke link-checker script.
+ *
  * Returns a result the orchestrator persists to `.check/links.json`:
  *   stdout `{ "ok": true }`                  on success (exit 0)
  *   stdout `[{ file, line, link, resolved }]` on miss   (exit 1)
@@ -30,7 +37,22 @@ type LinkMiss = {
   resolved: string;
 };
 
-const EXCLUDE_DIRS = new Set([
+/**
+ * Config-provided tuning for the links check, carried on the resolved adapter
+ * (whose fields are optional, hence the explicit `| undefined`).
+ */
+export type LinksOptions = {
+  /** Directory names to skip *in addition to* {@link DEFAULT_EXCLUDE_DIRS}. */
+  exclude?: readonly string[] | undefined;
+  /**
+   * Regex sources; a link target matching any is treated as valid (never a
+   * miss). For deliberately illustrative links that don't resolve on disk.
+   */
+  allowlist?: readonly string[] | undefined;
+};
+
+/** Directories never walked for markdown — build output, VCS, tool caches. */
+const DEFAULT_EXCLUDE_DIRS: readonly string[] = [
   'node_modules',
   'dist',
   '.check',
@@ -39,11 +61,11 @@ const EXCLUDE_DIRS = new Set([
   '.fallow',
   'coverage',
   '.pnpm-store',
-]);
+];
 
 const LINK_RE = /\[([^\]\n]*)\]\(([^)\n]+)\)/g;
 
-async function walkMarkdown(dir: string, acc: string[]): Promise<string[]> {
+async function walkMarkdown(dir: string, acc: string[], exclude: ReadonlySet<string>): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -54,13 +76,13 @@ async function walkMarkdown(dir: string, acc: string[]): Promise<string[]> {
   for (const entry of entries) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (!EXCLUDE_DIRS.has(entry.name)) directories.push(full);
+      if (!exclude.has(entry.name)) directories.push(full);
     } else if (entry.isFile() && entry.name.endsWith('.md')) {
       acc.push(full);
     }
   }
   // Descend into subdirectories concurrently; each accumulates into `acc`.
-  await Promise.all(directories.map((full) => walkMarkdown(full, acc)));
+  await Promise.all(directories.map((full) => walkMarkdown(full, acc, exclude)));
   return acc;
 }
 
@@ -91,7 +113,7 @@ function parseLinks(text: string): { line: number; target: string }[] {
   return hits;
 }
 
-async function checkFile(mdPath: string, repoRoot: string): Promise<LinkMiss[]> {
+async function checkFile(mdPath: string, repoRoot: string, allowlist: readonly RegExp[]): Promise<LinkMiss[]> {
   let text: string;
   try {
     text = await readFile(mdPath, 'utf8');
@@ -103,6 +125,7 @@ async function checkFile(mdPath: string, repoRoot: string): Promise<LinkMiss[]> 
     if (!target) continue;
     if (isExternal(target)) continue;
     if (target.startsWith('#')) continue;
+    if (allowlist.some((re) => re.test(target))) continue;
 
     const fileHalf = stripFragment(target).trim();
     if (!fileHalf) continue;
@@ -123,11 +146,18 @@ async function checkFile(mdPath: string, repoRoot: string): Promise<LinkMiss[]> 
   return misses;
 }
 
-/** Run the links check against `cwd`; never throws on a per-file read failure. */
-export async function checkLinks(cwd: string): Promise<CheckOutcome> {
-  const files = await walkMarkdown(cwd, []);
+/**
+ * Run the links check against `cwd`; never throws on a per-file read failure.
+ * `options.allowlist` sources are compiled once here — they are validated at
+ * config-resolution time (`invalidConfig`), so compilation is expected to
+ * succeed.
+ */
+export async function checkLinks(cwd: string, options: LinksOptions = {}): Promise<CheckOutcome> {
+  const exclude = new Set([...DEFAULT_EXCLUDE_DIRS, ...(options.exclude ?? [])]);
+  const allowlist = (options.allowlist ?? []).map((src) => new RegExp(src));
+  const files = await walkMarkdown(cwd, [], exclude);
   // Each file is read and checked independently — run them concurrently.
-  const misses = (await Promise.all(files.map((f) => checkFile(f, cwd)))).flat();
+  const misses = (await Promise.all(files.map((f) => checkFile(f, cwd, allowlist)))).flat();
 
   if (misses.length === 0) {
     return { ok: true, exit_code: 0, stdout: `${JSON.stringify({ ok: true }, null, 2)}\n`, stderr: '' };

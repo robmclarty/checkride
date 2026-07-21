@@ -262,6 +262,28 @@ describe('config resolution', () => {
     ).toThrow(/'attw' optIn must be a boolean/);
   });
 
+  test('links exclude and allowlist are carried onto the adapter', () => {
+    const r = resolveSlot(
+      'links',
+      { checks: { links: { use: 'links', exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] } } },
+      never,
+    );
+    expect(r.adapter?.exclude).toEqual(['docs', '.ridgeline']);
+    expect(r.adapter?.allowlist).toEqual(['^foo/']);
+  });
+
+  test('a non-array links exclude is a friendly config error', () => {
+    expect(() =>
+      resolveSlot('links', { checks: { links: { use: 'links', exclude: 'docs' } as unknown as UseConfig } }, never),
+    ).toThrow(/'links' exclude must be an array of strings/);
+  });
+
+  test('an invalid allowlist regex is a friendly config error', () => {
+    expect(() =>
+      resolveSlot('links', { checks: { links: { use: 'links', allowlist: ['('] } } }, never),
+    ).toThrow(/allowlist entry "\(" is not a valid regular expression/);
+  });
+
   test('a custom check on a non-catalogue name is appended', () => {
     const resolved = resolveChecks({
       slots: SLOTS,
@@ -552,11 +574,21 @@ describe('published JSON Schema', () => {
         spell: false, // false: disable a slot
         test: { use: 'vitest', timeout: 0, changedArgs: ['--changed', 'origin/master'] },
         format: 'prettier', // opt-in slot enabled by naming it
+        attw: { use: 'attw', args: ['exec', 'attw'], optIn: true }, // configure without opting in
+        links: { use: 'links', exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] },
         tidy: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
-        licenses: { command: 'node', args: ['scripts/check-licenses.mjs'] },
+        licenses: { command: 'node', args: ['scripts/check-licenses.mjs'], optIn: true },
       },
     };
     expect(validate(config)).toBe(true);
+  });
+
+  test('rejects a non-boolean optIn', () => {
+    expect(validate({ checks: { attw: { use: 'attw', optIn: 'yes' } } })).toBe(false);
+  });
+
+  test('rejects a links exclude that is not an array of strings', () => {
+    expect(validate({ checks: { links: { use: 'links', exclude: 'docs' } } })).toBe(false);
   });
 
   test('the empty config is valid', () => {

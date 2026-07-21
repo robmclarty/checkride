@@ -342,7 +342,9 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
 const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
-  if (adapter.builtin === 'links') return checkLinks(ctx.cwd);
+  if (adapter.builtin === 'links') {
+    return checkLinks(ctx.cwd, { exclude: adapter.exclude, allowlist: adapter.allowlist });
+  }
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   // The pack built-in spawns its own subprocess (the PM's pack dry-run) through
   // `spawnCheck`, so its child registers in `liveChecks` and inherits the

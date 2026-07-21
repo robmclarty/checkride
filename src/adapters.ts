@@ -81,6 +81,18 @@ export type Adapter = {
   /** In-process check id (e.g. `'links'`); when set, the orchestrator runs it directly. */
   builtin?: string;
   /**
+   * Consumed by the `links` built-in only: extra directory names to skip while
+   * walking for markdown, on top of its built-in exclude set. Carried from a
+   * config entry's `exclude`; ignored by every other adapter.
+   */
+  exclude?: string[];
+  /**
+   * Consumed by the `links` built-in only: regex sources for link targets to
+   * treat as always-valid (deliberately illustrative links). Carried from a
+   * config entry's `allowlist` and validated at config load; ignored elsewhere.
+   */
+  allowlist?: string[];
+  /**
    * When set, checkride derives this adapter's pass/fail from its parsed JSON
    * output instead of its process exit code. Only `'fallow'` today: fallow's
    * exit code doesn't reliably gate (combined mode and `dupes` exit 0 even with

@@ -71,3 +71,29 @@ test('ignores markdown under excluded directories', async () => {
   const out = await checkLinks(dir);
   expect(out.ok).toBe(true);
 });
+
+test('config exclude skips a directory the walk would otherwise fail on', async () => {
+  await write('.ridgeline/builds/x/spec.md', '[illustrative](target)\n');
+  await write('README.md', '# clean\n');
+  // Without the extra exclude, the .ridgeline markdown fails.
+  expect((await checkLinks(dir)).ok).toBe(false);
+  // With it, the directory is never walked.
+  expect((await checkLinks(dir, { exclude: ['.ridgeline'] })).ok).toBe(true);
+});
+
+test('config allowlist tolerates a matching broken link but still catches others', async () => {
+  await write(
+    'README.md',
+    ['[illustrative](foo/bar)', '[real miss](./missing.md)'].join('\n') + '\n',
+  );
+  const out = await checkLinks(dir, { allowlist: ['^foo/'] });
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+});
+
+test('an allowlist that matches every broken link passes', async () => {
+  await write('docs/spec.md', '[a](x) and [b](y/z)\n');
+  const out = await checkLinks(dir, { allowlist: ['.'] });
+  expect(out.ok).toBe(true);
+});

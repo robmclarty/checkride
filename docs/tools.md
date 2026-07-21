@@ -139,6 +139,32 @@ The `format` slot is **opt-in**: `checkride init --add format` scaffolds
 (`"format": "prettier"`) or with `--include format`. Keeping it opt-in means
 adopting checkride never fails a repo on formatting it never signed up for.
 
+### Tuning the links check
+
+The built-in `links` check walks every `*.md` under the repo (minus a built-in
+exclude set — `node_modules`, `dist`, `.git`, the tool caches) and fails on any
+relative Markdown link whose target doesn't exist on disk. Two config knobs
+adapt it to repos that would otherwise false-positive, so you can retire a
+bespoke link-checker script:
+
+```jsonc
+"links": {
+  "use": "links",
+  "exclude": ["docs", "research", ".ridgeline"],  // skip these dirs on top of the built-ins
+  "allowlist": ["^\\$\\{", "example\\.com"]        // regex sources; a matching target is never a miss
+}
+```
+
+- **`exclude`** adds directory *names* to skip — for generated or vendored
+  markdown (a `.ridgeline/` build store, illustrative specs under `research/`).
+- **`allowlist`** is a list of regular-expression sources tested against each
+  link *target*; a match is treated as valid. For deliberately illustrative
+  links — template placeholders or example targets that never resolve on disk. A
+  pattern that doesn't compile is a friendly `invalid checkride.config.json`
+  error (exit 2), not a crash mid-run.
+
+Both are ignored on any slot other than `links`.
+
 ## The publish-ready bundle
 
 Four opt-in slots take the definition of done past static publishing lint

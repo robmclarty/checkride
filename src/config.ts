@@ -66,6 +66,19 @@ export type UseConfig = {
   /** Scheduling order override, beating the adapter's and slot's defaults (see `Order`). */
   order?: Order;
   /**
+   * Links built-in only: extra directory names to skip while walking for
+   * markdown, on top of the built-in exclude set (e.g. `docs`, `research`,
+   * `.ridgeline`). Ignored by every other slot.
+   */
+  exclude?: string[];
+  /**
+   * Links built-in only: regex sources for link targets to treat as always
+   * valid — deliberately illustrative links that never resolve on disk. Each is
+   * compiled at config load; a bad pattern is a friendly config error. Ignored
+   * by every other slot.
+   */
+  allowlist?: string[];
+  /**
    * Override the slot's opt-in status. `true` configures the slot *without*
    * opting it into the default run — the escape hatch from "naming a slot opts
    * it in": run it only with `--all`/`--include <slot>`. Handy for a slot you
@@ -201,6 +214,49 @@ function readOptIn(entry: { optIn?: unknown }, context: string): boolean | undef
     invalidConfig(`'${context}' optIn must be a boolean (got ${JSON.stringify(entry.optIn)})`);
   }
   return entry.optIn;
+}
+
+/** True for an array whose every element is a string. */
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((e) => typeof e === 'string');
+}
+
+/** True when `src` compiles as a regular expression. */
+function isRegexSource(src: string): boolean {
+  try {
+    return new RegExp(src) instanceof RegExp;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate and carry the links built-in's `exclude`/`allowlist` options off a
+ * config entry, each spread only when present. `exclude` must be a string array;
+ * `allowlist` must be a string array of compilable regexes (a bad pattern is a
+ * friendly config error, so the check never crashes on it). Meaningful only to
+ * the `links` slot — other slots ignore the fields, and the JSON schema scopes
+ * autocomplete — but validated wherever they appear so a typo surfaces as a
+ * config error, not silence. `context` names the check in any error.
+ */
+function carriedLinksOptions(
+  src: { exclude?: unknown; allowlist?: unknown },
+  context: string,
+): { exclude?: string[]; allowlist?: string[] } {
+  const out: { exclude?: string[]; allowlist?: string[] } = {};
+  if (src.exclude !== undefined) {
+    if (!isStringArray(src.exclude)) invalidConfig(`'${context}' exclude must be an array of strings`);
+    out.exclude = src.exclude;
+  }
+  if (src.allowlist !== undefined) {
+    if (!isStringArray(src.allowlist)) invalidConfig(`'${context}' allowlist must be an array of strings`);
+    const bad = src.allowlist.find((p) => !isRegexSource(p));
+    if (bad !== undefined) {
+      invalidConfig(`'${context}' allowlist entry ${JSON.stringify(bad)} is not a valid regular expression`);
+    }
+    out.allowlist = src.allowlist;
+  }
+  return out;
 }
 
 /**
@@ -426,6 +482,7 @@ function applyOverrides(base: Adapter, o: UseConfig): Adapter {
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),
     ...(o.description !== undefined ? { description: o.description } : {}),
     ...carriedOverrides(o, base.slot),
+    ...carriedLinksOptions(o, base.slot),
   };
 }
 

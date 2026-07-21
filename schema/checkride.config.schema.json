@@ -63,7 +63,21 @@
         "changedArgs": { "type": "array", "items": { "type": "string" } },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
         "timeout": { "type": "number", "minimum": 0 },
-        "order": { "$ref": "#/definitions/order" }
+        "order": { "$ref": "#/definitions/order" },
+        "optIn": {
+          "type": "boolean",
+          "description": "Override the slot's opt-in status. true configures the slot without opting it into the default run (reach it with --all/--include); false forces it into the default run."
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Links slot only: extra directory names to skip while walking for markdown, on top of the built-in exclude set (e.g. docs, research, .ridgeline)."
+        },
+        "allowlist": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Links slot only: regex sources for link targets to treat as always valid (deliberately illustrative links that never resolve on disk)."
+        }
       }
     },
     "order": {
@@ -95,7 +109,11 @@
           "items": { "type": "string" },
           "description": "Marker files that gate a non-catalogue custom check: it runs only when at least one listed file exists, and is skipped otherwise. Ignored on an entry that fills a catalogue slot."
         },
-        "order": { "$ref": "#/definitions/order" }
+        "order": { "$ref": "#/definitions/order" },
+        "optIn": {
+          "type": "boolean",
+          "description": "true holds this custom check out of the default run — it runs only under --all/--include <name>. Absent runs it by default."
+        }
       }
     }
   }
