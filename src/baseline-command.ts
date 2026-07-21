@@ -1,12 +1,12 @@
 /**
- * The `checkride baseline` command (baseline part 2).
+ * The `checkride baseline` command.
  *
  * Runs the normal pipeline, fingerprints every fingerprintable slot's raw output
- * (step 4's per-adapter extractors), and writes the result to
+ * via the per-adapter extractors, and writes the result to
  * `checkride.baseline.json` at repo root — beside `checkride.config.json`,
- * committed, NOT under the gitignored `.check/` (D9). The file grandfathers a
- * legacy repo's existing diagnostics so a later baseline-aware run (step 6) can
- * subtract them and fail only on genuinely new findings.
+ * committed, NOT under the gitignored `.check/`. The file grandfathers a
+ * repo's existing diagnostics so a baseline-aware run can subtract them and
+ * fail only on genuinely new findings.
  *
  * Only slots whose adapter has an extractor participate: a supported-but-clean
  * slot records an empty array (it opted in and had nothing to grandfather),
@@ -48,9 +48,9 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   const stderr = options.stderr ?? process.stderr;
 
   // json:false so the run reports progress on stderr and nothing on stdout; the
-  // baseline artifact is the file, so stdout stays clean (C5). baseline:null so a
+  // baseline artifact is the file, so stdout stays clean. baseline:null so a
   // re-capture records the raw current diagnostics — never masked or pruned by an
-  // existing baseline the run would otherwise pick up (step 6).
+  // existing baseline the run would otherwise pick up.
   const runOptions: RunOptions = {
     cwd,
     json: false,

@@ -1,9 +1,8 @@
 /**
  * `checkride doctor` — read-only environment + tooling verification.
  *
- * Ported from the reference `scaffold-check.mjs`. Verifies node/pnpm/git are
- * present at the required versions, the project has been installed, and `.check/`
- * is writable. It then enumerates *every* catalogue slot — not just the ones the
+ * Verifies node/pnpm/git are present at the required versions, the project has
+ * been installed, and `.check/` is writable. It then enumerates *every* catalogue slot — not just the ones the
  * default run executes — and reports each slot's enablement (default / opt-in /
  * disabled / unavailable) alongside its tool presence, so off and opt-in slots
  * are visible instead of silently dropped. Renders a human table (or `--json`)
@@ -223,8 +222,8 @@ const PM_LOCKFILES: Record<PackageManager, readonly string[]> = {
 };
 
 /**
- * pnpm keeps its documented `>=9` floor (byte-identical to today); npm, yarn,
- * and bun are presence-only until we pin per-PM minimums.
+ * pnpm has a documented `>=9` floor; npm, yarn, and bun are presence-only
+ * (no per-PM minimums pinned).
  */
 function checkPackageManager(pm: PackageManager, pnpmMin: Semver, env: DoctorEnv): Promise<DoctorCheck> {
   return pm === 'pnpm' ? checkVersioned('pnpm', 'pnpm', pnpmMin, env) : checkPresent(pm, pm, env);
@@ -298,7 +297,7 @@ function offRow(
   if (config?.checks?.[r.slot] === false) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
   }
-  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm (b5).
+  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm.
   if (adapter && !isAvailableUnder(adapter.command, adapter.args, pm)) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${adapter.command} ${adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
   }
@@ -312,7 +311,7 @@ function detectedClause(r: ResolvedCheck): string {
 
 /**
  * What each publish built-in slot inspects — surfaced as a doctor note so an
- * always-available opt-in slot explains what it would check (D9/D10/D11).
+ * always-available opt-in slot explains what it would check.
  * `build`'s signal (`scripts.build`) already rides its `detectScript` detection,
  * so it isn't repeated here.
  */

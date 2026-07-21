@@ -43,12 +43,12 @@ export type InitOptions = {
   checkrideSpec?: string;
   /**
    * New mode: overwrite existing files instead of refusing. Without it, `init`
-   * refuses (exit 2) rather than clobber any file it would scaffold (D4);
+   * refuses (exit 2) rather than clobber any file it would scaffold;
    * existing mode is already additive-only and ignores this flag.
    */
   force?: boolean;
   /**
-   * Write the Claude Code Stop hook to `.claude/settings.json` (step 12).
+   * Write the Claude Code Stop hook to `.claude/settings.json`.
    * Opt-out: defaults to on; `--no-hook` sets it `false`.
    */
   hook?: boolean;
@@ -59,7 +59,7 @@ export type InitOptions = {
   probeFailures?: (slots: string[], cwd: string) => Promise<string[]>;
   /**
    * Existing mode: grandfather current debt into `checkride.baseline.json`
-   * instead of disabling failing slots (`--baseline`, step 6 / c10). A failing
+   * instead of disabling failing slots (`--baseline`). A failing
    * fingerprintable slot stays enabled and is masked by the baseline; a failing
    * slot with no extractor still falls back to a `false` disable.
    */
@@ -423,7 +423,7 @@ async function writePackage(w: Writer, dir: string, pkgName: string, value: stri
 
 /**
  * Write/refresh the Claude Code Stop hook unless opted out (`hook === false`),
- * using the repo's detected package manager (b7). Records the file when it
+ * using the repo's detected package manager. Records the file when it
  * changed, else a no-op note in `skipped` when one is provided.
  */
 async function writeHook(w: Writer, hook: boolean | undefined, skipped?: string[]): Promise<void> {
@@ -518,7 +518,7 @@ function resolveNewScaffold(options: InitOptions, cwd: string): NewScaffold {
 }
 
 /**
- * Overwrite protection (D4): unless `force`, refuse rather than clobber any file
+ * Overwrite protection: unless `force`, refuse rather than clobber any file
  * the scaffold would write. Planning on a dry writer first means a collision
  * bails before a single real byte is written — the refusal writes nothing.
  */
@@ -549,7 +549,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
   await writeNewScaffold(w, scaffold);
 
-  // Claude Code Stop hook (opt-out; step 12). A fresh project has no PM lockfile
+  // Claude Code Stop hook (opt-out). A fresh project has no PM lockfile
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.
   await writeHook(w, options.hook);
 
@@ -570,9 +570,9 @@ async function readIfExists(path: string): Promise<string | null> {
 }
 
 // ----------------------------------------------------------------------------
-// Publish-ready bundle (step 9): the library path scaffolds the opt-in artifact
+// Publish-ready bundle: the library path scaffolds the opt-in artifact
 // checks into `checkride.config.json` so a buildable library orders itself out
-// of the box (build → pack/smoke/attw/publint/snippets, D4).
+// of the box (build → pack/smoke/attw/publint/snippets).
 // ----------------------------------------------------------------------------
 
 /**
@@ -586,7 +586,7 @@ const PUBLISH_BUNDLE_SLOTS = ['build', 'publint', 'attw', 'pack', 'smoke', 'snip
 /** `--add` values that expand to the whole bundle. */
 const PUBLISH_BUNDLE_ALIASES: ReadonlySet<string> = new Set(['publish', 'bundle']);
 
-/** Printed (and recorded in `skipped`) when snippets is requested but no tagged fence exists (Q12). */
+/** Printed (and recorded in `skipped`) when snippets is requested but no tagged fence exists. */
 const SNIPPETS_POINTER =
   'snippets-dist: no tagged fences found — add a `<!-- snippet: check -->` marker above a ' +
   'ts/typescript fence in README.md or docs/*.md to enable the doc-snippet typecheck';
@@ -610,9 +610,9 @@ function readInitManifest(cwd: string): InitManifest {
 
 /**
  * True when README.md or a non-recursive docs/*.md carries at least one tagged
- * snippet fence — the signal that gates scaffolding `snippets-dist` (Q12).
- * Reuses step 7's pure discovery/plan primitives so the detection matches what
- * the slot itself checks.
+ * snippet fence — the signal that gates scaffolding `snippets-dist`.
+ * Reuses the snippets module's pure discovery/plan primitives so the detection
+ * matches what the slot itself checks.
  */
 async function hasTaggedSnippets(cwd: string): Promise<boolean> {
   let docsEntries: string[] = [];
@@ -639,7 +639,7 @@ type PublishBundle = {
 
 /**
  * Fold the requested publish slots into config entries, gating `build` on a
- * build script and `snippets` (→ `snippets-dist`) on a tagged fence (Q12) — the
+ * build script and `snippets` (→ `snippets-dist`) on a tagged fence — the
  * two slots that would otherwise stand down as a skip (`build`) or hard-error on
  * zero snippets (`snippets`).
  */
@@ -776,7 +776,7 @@ async function addCheckAlias(w: Writer, skipped: string[]): Promise<void> {
 }
 
 /**
- * Classify each failing adopted slot. `--baseline` (step 6 / c10) grandfathers a
+ * Classify each failing adopted slot. `--baseline` grandfathers a
  * failing *fingerprintable* slot (kept enabled; the baseline masks its debt and
  * the ratchet carries the cleanup); a failing slot with no extractor can't be
  * grandfathered, so it still falls back to a `false` disable. Without
@@ -813,7 +813,7 @@ async function captureBaselineIfNeeded(
 
 /**
  * Write checkride.config.json for the adopted tools (disabled failures as
- * `false`) plus the publish-ready bundle (step 9); never clobber an existing one.
+ * `false`) plus the publish-ready bundle; never clobber an existing one.
  */
 async function writeExistingConfig(
   w: Writer,
@@ -833,7 +833,7 @@ async function writeExistingConfig(
     else if (i.adapter) checks[i.slot] = i.adapter;
   }
   // The opt-in publish bundle follows the adopted default slots; explicit
-  // entries opt these slots into the run (D4 — the library orders itself).
+  // entries opt these slots into the run (the library orders itself).
   for (const [slot, adapter] of Object.entries(bundleChecks)) checks[slot] = adapter;
   const config = { $schema: configSchemaUrl(productVersion()), checks };
   await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
@@ -882,7 +882,7 @@ function reportExisting(
 }
 
 /**
- * Plan the publish-ready bundle (step 9) for existing-repo init. Only meaningful
+ * Plan the publish-ready bundle for existing-repo init. Only meaningful
  * when a config will actually be written: `writeExistingConfig` never clobbers an
  * existing `checkride.config.json`, so an existing config means the bundle has
  * nowhere to land. The bundle is scaffolded *enabled* — not probed/disabled like
@@ -932,18 +932,18 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const { grandfathered, disabled } = resolveAdoptionPlan(adopted, failing, options.baseline ?? false);
   await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
 
-  // Publish-ready bundle (step 9): planned only when a config will be written.
+  // Publish-ready bundle: planned only when a config will be written.
   const bundle = await planInitBundle(publishRequested, manifest, cwd);
   if (bundle.snippetsPointer) skipped.push(bundle.snippetsPointer);
 
   await writeExistingConfig(w, cwd, adopted, new Set(disabled), bundle.checks, skipped);
   await ensureGitignore(w, cwd, skipped);
-  // package.json: add the `check: checkride` alias (decision 8) if missing.
+  // package.json: add the `check: checkride` alias if missing.
   await addCheckAlias(w, skipped);
   // AGENTS.md stanza (create or refresh, idempotent).
   await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
   await writeClaudePointer(w, cwd, skipped);
-  // Claude Code Stop hook (opt-out; step 12), using the repo's detected PM (b7).
+  // Claude Code Stop hook (opt-out), using the repo's detected PM.
   await writeHook(w, options.hook, skipped);
 
   if (options.stdout) {

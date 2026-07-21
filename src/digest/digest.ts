@@ -1,5 +1,5 @@
 /**
- * Token-bounded failure digest (step 11).
+ * Token-bounded failure digest.
  *
  * After a run, `--digest` writes a capped Markdown excerpt of the *failing*
  * slots to `.check/digest.md` so an agent working through a big red repo spends
@@ -8,13 +8,13 @@
  * per slot, a total byte budget) and never normalizes — each section points
  * back at the authoritative raw file, which this module never touches.
  *
- * It reuses step 4's per-adapter fingerprint extractors to list a slot's
- * findings (render the first N of the same items); a slot whose adapter has no
- * extractor falls back to a tail of its raw text (b6). A green run has nothing
+ * It reuses the baseline module's per-adapter fingerprint extractors to list a
+ * slot's findings (render the first N of the same items); a slot whose adapter
+ * has no extractor falls back to a tail of its raw text. A green run has nothing
  * to digest, so {@link writeDigest} removes any stale `.check/digest.md` — the
  * file's presence always means "this run had failures".
  *
- * The `../digest` barrel (`index.ts`) is this module's only public surface (C2);
+ * The `../digest` barrel (`index.ts`) is this module's only public surface;
  * siblings import from there, never from this file directly.
  */
 

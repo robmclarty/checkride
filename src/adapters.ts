@@ -6,9 +6,9 @@
  * data only: no logic lives here. Resolution (config vs detection) lives in
  * `../config`, and execution lives in `../orchestrator`.
  *
- * Phase 1 ships the blessed defaults plus the opt-in slots (format, mutation,
- * security, and the library-publishing pair publint + attw). Alternates (biome,
- * knip, eslint, jest) land in Phase 2.
+ * The catalogue covers the blessed defaults, the opt-in slots (format,
+ * mutation, security, and the library-publishing checks), and alternate
+ * adapters (biome, knip, eslint, jest) that fill a slot when detected.
  */
 
 /** The aggregate-report schema version written to `.check/summary.json`. */
@@ -49,20 +49,20 @@ export type Adapter = {
   name: string;
   /** The slot this adapter fills, e.g. `'lint'`. */
   slot: string;
-  /** Human description for the report (mirrors the interim check catalogue). */
+  /** Human description for the report. */
   description: string;
   /** Config files whose presence activates this adapter. `[]` = always available. */
   detect: string[];
   /**
    * Detection by package script: the slot is available when `scripts.<name>`
    * exists in package.json. `build` uses `scripts.build` — an opted-in `build`
-   * on a repo with no build script stands down as a skip, never a red check (D18).
+   * on a repo with no build script stands down as a skip, never a red check.
    */
   detectScript?: string;
   /**
    * Backup detection signal: the slot activates when a `detect` file exists OR
    * one of these packages appears in dependencies/devDependencies. Populated only
-   * on adapters whose tool runs correctly with zero config (D18), so a repo that
+   * on adapters whose tool runs correctly with zero config, so a repo that
    * installed the tool but never wrote its config file still opts in.
    */
   detectDeps?: string[];
@@ -393,7 +393,7 @@ export const ADAPTERS: readonly Adapter[] = [
     name: 'build',
     slot: 'build',
     description: "Build the package (runs the consumer's build script)",
-    // No config file to detect — availability rides on `scripts.build` (D13/D18).
+    // No config file to detect — availability rides on `scripts.build`.
     detect: [],
     detectScript: 'build',
     command: 'pnpm',
@@ -427,7 +427,7 @@ export const ADAPTERS: readonly Adapter[] = [
     description: 'Pack dry-run: the tarball ships the required files and none of the forbidden ones',
     detect: [],
     // `command`/`args` are the availability signature (`isAvailableUnder` gates
-    // pack to npm/pnpm, mirroring the pnpm-only `security` slot; D10). The real
+    // pack to npm/pnpm, mirroring the pnpm-only `security` slot). The real
     // per-PM invocation — including the manager-specific ignore-scripts flag —
     // lives in `pack.ts`'s `packInvocation`, since this is a built-in.
     command: 'pnpm',
@@ -441,7 +441,7 @@ export const ADAPTERS: readonly Adapter[] = [
     slot: 'smoke',
     description: 'Smoke import: the built package loads and its declared value exports are live',
     detect: [],
-    // Built-in liveness probe (D9). Like `links`, it spawns a plain `node` — no
+    // Built-in liveness probe. Like `links`, it spawns a plain `node` — no
     // package manager, no checked tool — so it is available under every PM. The
     // real work (enumerate `exports`, scan the dist `.d.ts`, spawn the probe)
     // lives in `smoke.ts`.
@@ -456,9 +456,9 @@ export const ADAPTERS: readonly Adapter[] = [
     slot: 'snippets',
     description: 'Doc snippet typecheck: tagged fences typecheck against package source',
     detect: [],
-    // Built-in (D16); `command`/`args` are the availability signature only — the
+    // Built-in; `command`/`args` are the availability signature only — the
     // real invocation (translated per PM) and the src-mode `paths` derivation
-    // (Q1) live in `snippets.ts`. First adapter for the slot, so it is the
+    // live in `snippets.ts`. First adapter for the slot, so it is the
     // blessed default (config names `snippets-dist` to opt into the other mode).
     command: 'pnpm',
     args: ['exec', 'tsc', '--noEmit', '-p', '.check/doc-snippets/tsconfig.json'],

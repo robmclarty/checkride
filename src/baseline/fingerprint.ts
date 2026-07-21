@@ -1,18 +1,18 @@
 /**
- * Per-adapter diagnostic fingerprints (baseline part 1).
+ * Per-adapter diagnostic fingerprints.
  *
  * A *fingerprint* is a stable, order-independent set of key strings extracted
  * from one adapter's raw output. Each key names a single finding by what it is
  * (`<file>:<rule>:<message>`) rather than where it sits, so a finding keeps its
- * key when unrelated edits shift its line and column — that is what later lets
- * the baseline (steps 5–6) subtract already-known findings without re-flagging
+ * key when unrelated edits shift its line and column — that is what lets
+ * the baseline subtract already-known findings without re-flagging
  * them every time surrounding code moves.
  *
- * This is deliberately NOT a normalized diagnostic schema (D3): each adapter
+ * This is deliberately NOT a normalized diagnostic schema: each adapter
  * owns its own key string, the raw `.check/<slot>.json` stays authoritative, and
  * an adapter whose output isn't a stable diagnostic set simply has no extractor
  * and returns `null` — baseline is unsupported for that slot, decided
- * per-adapter against real fixtures (D12), not from an up-front list. Extractors
+ * per-adapter against real fixtures, not from an up-front list. Extractors
  * ship for the blessed lint/struct/spell adapters (oxlint, ast-grep, cspell) and
  * for fallow's three analyses (dead-code, dupes, health — see `./fallow.ts`,
  * which also owns fallow's gating verdict).
@@ -117,8 +117,8 @@ const EXTRACTORS: Readonly<Record<string, Extractor>> = {
  * alternate tool that shares a slot with a supported default (biome/eslint for
  * `lint`, knip for `dead`) opts out until it grows its own extractor. A
  * supported adapter with zero findings returns an empty set, never `null` —
- * "supported but clean" and "unsupported" are distinct, and steps 5–6 depend on
- * the difference.
+ * "supported but clean" and "unsupported" are distinct, and masking and the
+ * ratchet depend on the difference.
  */
 export function fingerprint(adapter: string, raw: string): Fingerprint | null {
   const extractor = EXTRACTORS[adapter];

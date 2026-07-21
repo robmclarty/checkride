@@ -1,5 +1,5 @@
 /**
- * Orchestrator — behavior-ported from the interim `scripts/check.mjs`.
+ * The check orchestrator.
  *
  * Resolves slots to adapters, selects which to run (flags), spawns each command
  * (or runs a built-in), captures raw output to `.check/`, and writes the
@@ -42,7 +42,7 @@ import { checkSnippets } from './snippets.js';
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
 
-/** Run flags, mirroring the interim script's `parseArgs` surface. */
+/** Selection and output flags for a run. */
 export type RunFlags = {
   bail?: boolean;
   json?: boolean;
@@ -51,7 +51,7 @@ export type RunFlags = {
   only?: string[] | null;
   skip?: string[] | null;
   include?: string[] | null;
-  /** Write a capped failure excerpt to `.check/digest.md` (step 11). */
+  /** Write a capped failure excerpt to `.check/digest.md`. */
   digest?: boolean;
   /**
    * Treat zero checks actually executing as an error (exit 2), not a vacuous
@@ -62,7 +62,7 @@ export type RunFlags = {
   /**
    * Max checks running at once within a wave (equal-`order` group). Omitted →
    * {@link defaultConcurrency}; `1` runs the whole pipeline sequentially. Ignored
-   * under `--bail`, which is fail-fast sequential by definition (D6) — a
+   * under `--bail`, which is fail-fast sequential by definition — a
    * `> 1` value passed alongside `--bail` earns a one-line stderr note.
    */
   concurrency?: number;
@@ -82,8 +82,7 @@ export type SummaryCheck = {
   /**
    * Present only when a baseline masked one or more of this slot's diagnostics:
    * the count of current findings grandfathered by `checkride.baseline.json`.
-   * Additive field — absent on runs with no baseline, so `schema_version` holds
-   * (D8/C4).
+   * Additive field — absent on runs with no baseline, so `schema_version` holds.
    */
   baselined?: number;
 };
@@ -139,7 +138,7 @@ export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome }
 export type RunResult = { ok: boolean; summary: Summary; exitCode: number; runs: CheckRun[] };
 
 /**
- * Port of the interim `select_checks`: only/skip/opt-in selection by slot name.
+ * Only/skip/opt-in selection by slot name.
  * An opt-in slot runs when `--all`/`--include` names it, or when it was
  * explicitly configured in `checks` (`r.explicit`) — naming a slot is opting in.
  */
@@ -158,7 +157,7 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
 
 /**
  * Reject unknown slot names in `--only`/`--skip`/`--include`. A typo like
- * `--only lints` used to slip through `selectChecks` as a filter that matched
+ * `--only lints` would otherwise slip through `selectChecks` as a filter that matched
  * nothing, silently disabling the gate — the worst kind of vacuous green in a
  * definition-of-done check. It is a usage error instead (thrown here, surfaced
  * as exit 2 at the CLI). The valid set is every resolved slot: the catalogue
@@ -192,7 +191,7 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
 
 /**
  * Default pool width for a wave (equal-`order` group): `min(4, max(1, cores −
- * 1))` (D5). Heavy checks (test, mutation, build) parallelize internally, so
+ * 1))`. Heavy checks (test, mutation, build) parallelize internally, so
  * oversubscribing every core is worse than a conservative cap; one reserved
  * core keeps the machine responsive. Override with `--concurrency`.
  */
@@ -347,14 +346,14 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   // The pack built-in spawns its own subprocess (the PM's pack dry-run) through
   // `spawnCheck`, so its child registers in `liveChecks` and inherits the
-  // timeout + reaping like every other check (D16/C6).
+  // timeout + reaping like every other check.
   if (adapter.builtin === 'pack') return checkPack({ cwd: ctx.cwd, pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
   // The smoke built-in spawns a `node` probe of the built package through
   // `spawnCheck`, so that child registers in `liveChecks` and inherits the
-  // timeout + reaping like every other check (D9/D16/C6).
+  // timeout + reaping like every other check.
   if (adapter.builtin === 'smoke') return checkSmoke({ cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout });
-  // The snippets built-ins spawn `<pm> exec tsc` through `spawnCheck` (D16/C6);
-  // the two adapters share one execution path, differing only in mode (D12).
+  // The snippets built-ins spawn `<pm> exec tsc` through `spawnCheck`;
+  // the two adapters share one execution path, differing only in mode.
   if (adapter.builtin === 'snippets') {
     return checkSnippets({ cwd: ctx.cwd, mode: 'src', pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
   }
@@ -427,10 +426,10 @@ function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
 }
 
 /**
- * `total_duration_ms` is the wall-clock span of the whole execution phase (D7),
+ * `total_duration_ms` is the wall-clock span of the whole execution phase,
  * not the sum of per-check durations — under concurrency those diverge, and
- * wall-clock is what the field honestly means. It equals the old sum whenever
- * execution is sequential (one check in flight at a time).
+ * wall-clock is what the field honestly means. It equals the per-check sum
+ * whenever execution is sequential (one check in flight at a time).
  */
 function buildSummary(checks: SummaryCheck[], totalDurationMs: number): Summary {
   return {
@@ -455,8 +454,8 @@ function enableHint(slot: string, adapters: readonly Adapter[]): string | null {
 
 /**
  * The first-party vacuous-green signal: "green because nothing ran" must be
- * unmissable, not something only a consumer that hand-rolled the check (as
- * plumbbob's gate did) can distinguish from "green because everything passed".
+ * unmissable, not something only a consumer that hand-rolls its own check can
+ * distinguish from "green because everything passed".
  * Names why each slot sat out and what would enable it.
  */
 function warnVacuous(
@@ -499,9 +498,8 @@ type CommonContext = {
 
 /**
  * Apply the defaults every command shares: cwd, the slot/adapter catalogues, the
- * config (loaded from `cwd` unless injected), and the two streams. Extracted so
- * `runChecks`/`runFix`/`runDoctor` resolve this identical block one way (it was
- * copy-pasted across all three).
+ * config (loaded from `cwd` unless injected), and the two streams, so
+ * `runChecks`/`runFix`/`runDoctor` resolve this identical block one way.
  */
 export function resolveCommonOptions(options: CommonOptions): CommonContext {
   const cwd = options.cwd ?? process.cwd();
@@ -629,7 +627,7 @@ async function runOneCheck(
  * One selected check's result, decoupled from where it lands in the report. The
  * scheduler runs checks concurrently, so a check can't push itself onto shared
  * accumulators as it finishes — that would order the report by completion, not by
- * the deterministic D1 sequence. Instead each yields this and the caller
+ * the deterministic selection order. Instead each yields this and the caller
  * assembles the report in `selected` order.
  */
 type CheckResult = {
@@ -645,11 +643,11 @@ type CheckResult = {
  * shared by the sequential (`--bail`) and wave paths. A skipped/unavailable slot
  * records a skip row and runs nothing; an active one runs, prints its status
  * line, and reports its fingerprint for the ratchet. It mutates no shared state,
- * so N of these can be in flight at once (C6).
+ * so N of these can be in flight at once.
  */
 async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<CheckResult> {
   // Skip when unresolved, or when the adapter can't run under this PM — e.g.
-  // `pnpm audit` (the `security` slot) is unavailable off pnpm (b5).
+  // `pnpm audit` (the `security` slot) is unavailable off pnpm.
   const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
   if (r.skip || !r.adapter || unavailable) {
     return { entry: handleSkip(r, unavailable, ctx.pm, ctx.json, ctx.stderr), run: null, observed: null };
@@ -680,9 +678,9 @@ function emptyExecution(brokeEarly = false): Execution {
 }
 
 /**
- * Scheduling coordinates for a check on D1's line: the group `rank` (firsts 0, the
- * numeric line 1, singles 2, lasts 3) and its position on the numeric line
- * (`'any'`/`'middle'` sit at 0 — v1's conservative placement). This must agree
+ * Scheduling coordinates for a check on the order line: the group `rank` (firsts 0,
+ * the numeric line 1, singles 2, lasts 3) and its position on the numeric line
+ * (`'any'`/`'middle'` sit at 0 — the conservative placement). This must agree
  * with `config.ts`'s group sort, which already put `selected` in exactly this
  * sequence; here it only re-derives the wave *boundaries* the sort collapsed.
  */
@@ -742,16 +740,16 @@ async function runPool<T>(items: readonly T[], width: number, worker: (item: T) 
 }
 
 /**
- * `--bail`: the flat sequential path (D6). Checks run one at a time in D1's group
- * order and the run stops at the first *executed* failure — fail-fast is
+ * `--bail`: the flat sequential path. Checks run one at a time in group order
+ * and the run stops at the first *executed* failure — fail-fast is
  * incompatible with already-launched concurrent work, so `--concurrency` is moot
  * here (the caller notes it if one was passed). For the default set (all `'any'`)
- * this is exactly today's cheapest-first order.
+ * this is exactly the cheapest-first order.
  */
 async function executeBail(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
   const acc = emptyExecution();
   for (const r of selected) {
-    // oxlint-disable-next-line no-await-in-loop -- --bail is fail-fast: checks run one at a time so the run can stop at the first failure (D6).
+    // oxlint-disable-next-line no-await-in-loop -- --bail is fail-fast: checks run one at a time so the run can stop at the first failure.
     const res = await runSelectedCheck(r, ctx);
     collect(res, acc);
     if (res.run && !res.entry.ok) return { ...acc, brokeEarly: true };
@@ -760,17 +758,17 @@ async function executeBail(selected: readonly ResolvedCheck[], ctx: RunContext):
 }
 
 /**
- * The wave scheduler (D1): run each wave's members concurrently through the pool,
+ * The wave scheduler: run each wave's members concurrently through the pool,
  * with a barrier between waves. Results are placed by their `selected` index and
  * assembled in that order afterwards, so the report is deterministic regardless
- * of which check finishes first (D7). Every selected check runs — there is no
+ * of which check finishes first. Every selected check runs — there is no
  * early stop off the `--bail` path.
  */
 async function executeWaves(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
   const indexed = selected.map((r, i) => ({ r, i }));
   const results = Array.from<CheckResult | undefined>({ length: selected.length });
   for (const wave of partitionWaves(indexed)) {
-    // oxlint-disable-next-line no-await-in-loop -- the between-values barrier (D1): a wave runs to completion before the next distinct order value begins.
+    // oxlint-disable-next-line no-await-in-loop -- the between-values barrier: a wave runs to completion before the next distinct order value begins.
     await runPool(wave, ctx.concurrency, async ({ r, i }) => { results[i] = await runSelectedCheck(r, ctx); });
   }
   const acc = emptyExecution();
@@ -790,7 +788,7 @@ function executeChecks(selected: readonly ResolvedCheck[], ctx: RunContext): Pro
 /**
  * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
  * `--changed` filter or an early `--bail` break. The ratchet is gated off for
- * these: an unobserved diagnostic must not be mistaken for a fixed one (a1).
+ * these: an unobserved diagnostic must not be mistaken for a fixed one.
  */
 function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean): boolean {
   return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
@@ -859,13 +857,13 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const selected = selectChecks(resolved, options);
   if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
 
-  // `--bail` is fail-fast sequential (D6); a `--concurrency > 1` passed alongside
+  // `--bail` is fail-fast sequential; a `--concurrency > 1` passed alongside
   // is safe but moot, so say so once — not a usage error, the run just goes slow.
   if (ctx.bail && (options.concurrency ?? 0) > 1 && !ctx.json) {
     writeLine(ctx.stderr, '--concurrency ignored under --bail (fail-fast runs sequentially).');
   }
 
-  // `total_duration_ms` is wall-clock of the execution phase (D7), so measure
+  // `total_duration_ms` is wall-clock of the execution phase, so measure
   // around it rather than summing per-check durations (which diverge under
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
@@ -880,7 +878,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
   // A file beside summary.json, never a stdout stream, so the machine-output
-  // split holds (C5). Raw `.check/<slot>.json` files are already persisted and
+  // split holds. Raw `.check/<slot>.json` files are already persisted and
   // untouched — the digest only reads them.
   const digestWritten = (options.digest ?? false) ? await writeDigest(ctx.cwd, runs, checks) : false;
 

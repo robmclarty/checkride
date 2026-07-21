@@ -2,9 +2,9 @@
 /**
  * CLI entry — arg parsing and command dispatch (the package `bin`).
  *
- * Commands: default `run`, plus `init`, `doctor`, and `fix`. The command is the
- * first non-flag token; everything after it is parsed against that command's
- * options. The module is import-safe: it only executes when invoked directly,
+ * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`, and
+ * `agent-setup`. The command is the first non-flag token; everything after it
+ * is parsed against that command's options. The module is import-safe: it only executes when invoked directly,
  * so tests can import {@link runCli} without triggering a process exit.
  *
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.

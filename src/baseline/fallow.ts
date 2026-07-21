@@ -47,14 +47,6 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/**
- * Fingerprint key for one dead-code finding: `dead-code:<category>:<identity>`,
- * where identity is a file and/or symbol (never a line or column, so the key
- * survives edits that only move the code). Cross-file findings (cycles) key on
- * the sorted set of files. Returns `null` when no stable identity can be read —
- * the finding still counts toward `issueCount`, it just can't be individually
- * grandfathered (which keeps the slot conservatively red, never silently green).
- */
 /** Finding fields that carry a single stable symbol identity, in priority order. */
 const SYMBOL_FIELDS = [
   'export_name',
@@ -93,6 +85,14 @@ function cycleKey(category: string, item: Record<string, unknown>): string | nul
   return null;
 }
 
+/**
+ * Fingerprint key for one dead-code finding: `dead-code:<category>:<identity>`,
+ * where identity is a file and/or symbol (never a line or column, so the key
+ * survives edits that only move the code). Cross-file findings (cycles) key on
+ * the sorted set of files. Returns `null` when no stable identity can be read —
+ * the finding still counts toward `issueCount`, it just can't be individually
+ * grandfathered (which keeps the slot conservatively red, never silently green).
+ */
 function deadKey(category: string, item: unknown): string | null {
   if (!isPlainObject(item)) return null;
   const file = str(item['path']) || str(item['file']);
@@ -172,12 +172,6 @@ function parseHealth(j: Record<string, unknown>): ParsedFallow {
 }
 
 /**
- * Parse a fallow report into findings + an issue count, or the reason it could
- * not be trusted. Every failure path (bad JSON, missing/old schema, unknown
- * kind, missing count field) is a *loud* failure the caller turns into a red
- * slot — checkride never treats an unreadable fallow report as "clean".
- */
-/**
  * The reason a report's schema can't be trusted, or `null` when it is a
  * supported version. Split out so {@link parseFallow} stays a thin dispatcher.
  */
@@ -190,6 +184,12 @@ function fallowSchemaError(j: Record<string, unknown>): string | null {
   return null;
 }
 
+/**
+ * Parse a fallow report into findings + an issue count, or the reason it could
+ * not be trusted. Every failure path (bad JSON, missing/old schema, unknown
+ * kind, missing count field) is a *loud* failure the caller turns into a red
+ * slot — checkride never treats an unreadable fallow report as "clean".
+ */
 function parseFallow(raw: string): ParsedFallow {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
   let j: unknown;
@@ -217,7 +217,7 @@ function parseFallow(raw: string): ParsedFallow {
 }
 
 /**
- * Fallow's fingerprint extractor (baseline part 1), for the extractor registry.
+ * Fallow's fingerprint extractor, for the extractor registry.
  * Returns the finding keys for a recognized, readable report and an empty set
  * for anything else — the "never throw, empty on malformed" contract every
  * extractor honours. The *gating* verdict (`fallowVerdict`) is where an

@@ -1,6 +1,5 @@
 /**
- * Built-in `pack` check (ported from the interim `scripts/check-publish.mjs`
- * pack arm).
+ * Built-in `pack` check.
  *
  * Runs the detected package manager's tarball dry-run (`<pm> pack --dry-run
  * --json`, lifecycle scripts suppressed) and inspects the file list the way a
@@ -8,15 +7,15 @@
  *
  *   - every path the manifest promises (`exports`/`main`/`types`/`bin` targets,
  *     plus `README.md`) must be present — a miss means the package resolves to a
- *     file the tarball never included (D10);
+ *     file the tarball never included;
  *   - no path may match the fixed deny list (TypeScript source, tests, `src/`,
  *     `docs/`, `scripts/`, `.check/` and kin), with a carve-out for `dist`
  *     declaration files (`*.d.{ts,mts,cts}` and their maps) which are legitimate
- *     shipped artifacts (Q8).
+ *     shipped artifacts.
  *
  * The pack subprocess is spawned through the orchestrator's registering spawner
  * (injected as `spawn`), so its child joins `liveChecks` and inherits the
- * per-check timeout + SIGTERM→SIGKILL reaping like every other check (D16/C6).
+ * per-check timeout + SIGTERM→SIGKILL reaping like every other check.
  *
  * Returns a result the orchestrator persists to `.check/pack.json`:
  *   stdout `{ ok: true, files: [...] }`                        on success (exit 0)
@@ -44,10 +43,10 @@ export type PackSpawn = (
 /**
  * The pack invocation for `pm`, or `null` when the PM has no supported
  * `pack --dry-run --json` form (yarn/bun — unavailable-until-adapter, mirroring
- * the pnpm-only `security` slot; D10). Both supported managers emit npm's
- * `files[].path` shape (confirmed by the step-5 spike), and both must have
+ * the pnpm-only `security` slot). Both supported managers emit npm's
+ * `files[].path` shape, and both must have
  * lifecycle scripts suppressed so a `"prepack": "<build>"` can't rewrite `dist/`
- * mid-wave-20 under smoke/snippets-dist (Q7) — npm spells that `--ignore-scripts`,
+ * mid-wave-20 under smoke/snippets-dist — npm spells that `--ignore-scripts`,
  * pnpm rejects that flag and spells it `--config.ignore-scripts=true`.
  */
 export function packInvocation(pm: PackageManager): { command: string; args: string[] } | null {
@@ -85,7 +84,7 @@ function addField(value: unknown, acc: Set<string>): void {
 }
 
 /**
- * The set of paths the tarball must contain, derived from the manifest (D10):
+ * The set of paths the tarball must contain, derived from the manifest:
  * resolved `exports` targets, `main`, `types`/`typings`, `bin` targets — plus
  * `README.md`, which every publish is expected to ship.
  */
@@ -105,8 +104,8 @@ export function deriveRequired(manifest: Record<string, unknown>): Set<string> {
 }
 
 /**
- * Fixed deny list (D10): paths that must never ship. A `dist` declaration file
- * is exempt (`isDistDeclaration` — the Q8 carve-out is applied before these), so
+ * Fixed deny list: paths that must never ship. A `dist` declaration file
+ * is exempt (`isDistDeclaration` — the carve-out is applied before these), so
  * `\.ts$` here only ever bites real `.ts` source outside `dist`.
  */
 const DENY: readonly { re: RegExp; label: string }[] = [
@@ -123,7 +122,7 @@ const DENY: readonly { re: RegExp; label: string }[] = [
 /**
  * A `dist` declaration artifact — `dist/**​/*.d.{ts,mts,cts}` and their source
  * maps. These legitimately ship, so they are exempt from the deny list even
- * though `dist/index.d.ts` matches `\.ts$` (Q8).
+ * though `dist/index.d.ts` matches `\.ts$`.
  */
 function isDistDeclaration(path: string): boolean {
   return /^dist\/.*\.d\.(ts|mts|cts)(\.map)?$/.test(path);

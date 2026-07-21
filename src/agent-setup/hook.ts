@@ -6,8 +6,8 @@
  * exit 2 blocks the agent from finishing while the pipeline is red, so "exit 0 =
  * done" becomes enforcement, not just advice. The command uses the *detected*
  * package manager's run form (`pnpm run check`, `npm run check`, `yarn run
- * check`, `bun run check`) so the hook works in any repo, not only pnpm ones
- * (b7). Merging is surgical: unrelated hooks, other Stop groups, and every other
+ * check`, `bun run check`) so the hook works in any repo, not only pnpm ones.
+ * Merging is surgical: unrelated hooks, other Stop groups, and every other
  * settings key are preserved, and re-applying with the same PM is a no-op.
  *
  * This module owns only the hook; the AGENTS.md stanza and the higher-level

@@ -1,6 +1,5 @@
 /**
- * Built-in relative-markdown-link check (ported from the interim
- * `scripts/check-links.mjs`).
+ * Built-in relative-markdown-link check.
  *
  * Walks every `*.md` under `cwd` (minus the exclude set), parses inline
  * `[text](target)` links, and verifies that each relative target exists on

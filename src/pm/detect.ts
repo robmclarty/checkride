@@ -3,7 +3,7 @@
  *
  * Resolves which package manager a repo uses so the orchestrator can translate
  * each adapter's canonical `pnpm exec <tool>` invocation into that PM's form.
- * Resolution order (D5): the declared `packageManager` field wins (it is the
+ * Resolution order: the declared `packageManager` field wins (it is the
  * author's explicit intent), then a lockfile, then a `pnpm` default. Every fs
  * touch is injectable so the logic is unit-testable without a real repo.
  */

@@ -1,9 +1,9 @@
 /**
  * The baseline artifact: its on-disk shape and the pure read / write / apply /
- * ratchet operations a baseline-aware run (step 6) is built from.
+ * ratchet operations a baseline-aware run is built from.
  *
  * This file imports nothing from the orchestrator on purpose: the `baseline`
- * command (command.ts) bridges to the run pipeline, but a *run* only needs to
+ * command (`../baseline-command.ts`) bridges to the run pipeline, but a *run* only needs to
  * mask and ratchet an already-captured baseline, so the orchestrator can depend
  * on these helpers without a load-order cycle. Keeping the file I/O and the
  * set algebra here (not in the orchestrator) also preserves the orchestrator's
@@ -19,7 +19,7 @@ import type { Fingerprint } from './fingerprint.js';
 /** The committed baseline artifact, at repo root beside `checkride.config.json`. */
 export const BASELINE_FILE = 'checkride.baseline.json';
 
-/** Schema version of the baseline file; independent of the summary schema (D8). */
+/** Schema version of the baseline file; independent of the summary schema. */
 export const BASELINE_SCHEMA_VERSION = 1;
 
 /** Shape of `checkride.baseline.json`: per-slot sets of grandfathered keys. */
@@ -106,7 +106,7 @@ export function applyBaseline(
  * are the run's failures, not new debt, so only a `checkride baseline` capture
  * ever adds keys. Callers gate this on a full run (no `--only`/`--skip`/
  * `--changed`, no early `--bail` break) so a partial run can't prune keys it
- * simply didn't observe (a1).
+ * simply didn't observe.
  */
 export function ratchet(baseline: Baseline, observed: ReadonlyMap<string, Fingerprint>): Baseline {
   const slots: Record<string, string[]> = {};

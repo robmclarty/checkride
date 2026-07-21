@@ -1,6 +1,6 @@
 /**
- * Agent-setup module — the Claude Code Stop hook (step 12). This barrel is the
- * module's only public surface (C2): siblings import from `../agent-setup`,
+ * Agent-setup module — the Claude Code Stop hook. This barrel is the
+ * module's only public surface: siblings import from `../agent-setup`,
  * never from `./hook.js` directly.
  */
 

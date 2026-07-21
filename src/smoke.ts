@@ -1,18 +1,18 @@
 /**
- * Built-in `smoke` check (D9) — a **liveness** probe of the built package, not a
+ * Built-in `smoke` check — a **liveness** probe of the built package, not a
  * type check (runtime *shapes* stay attw's job; the slots don't overlap).
  *
  * It enumerates the manifest's `exports` subpaths (falling back to `main`),
  * writes a self-contained probe script under `.check/`, and spawns a fresh
  * `node` on it (never in-process — isolation, the per-check timeout, and the
- * orchestrator's SIGTERM→SIGKILL reaping all apply, D16/C6). The probe asserts,
+ * orchestrator's SIGTERM→SIGKILL reaping all apply). The probe asserts,
  * for every literal subpath:
  *
  *   - the built entry `await import()`s without throwing, and (for a dual
  *     package, i.e. a subpath carrying an explicit `require` condition) also
  *     `require()`s cleanly — both through package **self-reference**
  *     (`import '<pkg>/<subpath>'`), exercising the real `exports`-map resolution
- *     a consumer would hit (Q9);
+ *     a consumer would hit;
  *   - every **value** export named in the matching dist `.d.ts` is present at
  *     runtime. Export names come from a conservative, dependency-free `.d.ts`
  *     scanner ({@link scanValueExports}) that errs toward *under*-collection: a
@@ -176,7 +176,7 @@ function mainTarget(manifest: Record<string, unknown>): SmokeTarget | null {
 }
 
 /**
- * Enumerate the smoke targets from a manifest (D9): every literal `exports`
+ * Enumerate the smoke targets from a manifest: every literal `exports`
  * subpath, or the `main` entry when there is no `exports` field. Wildcard and
  * `null` subpaths are skipped with a reason (they name no single file). The
  * self-reference `specifier` is derived from the package `name`.
@@ -236,7 +236,7 @@ function namedExportBinding(spec: string): string | null {
 }
 
 /**
- * Scan a dist `.d.ts` for the **value** exports a live module must expose (D9):
+ * Scan a dist `.d.ts` for the **value** exports a live module must expose:
  * `export declare function|const|class|enum` and the non-`type` specifiers of
  * `export { … }` (aliases resolve to the exported name). Type-only forms —
  * `export type`, `export interface`, `export type { … }`, and `{ type X }`

@@ -2,7 +2,7 @@
  * Configuration: load `checkride.config.json`, detect installed tools, and
  * resolve each slot to an adapter (or a skip reason).
  *
- * Resolution rule per slot (see plan §4):
+ * Resolution rule per slot:
  *   1. config entry wins  — string picks an adapter; `false` disables the slot;
  *      `{ use, ...overrides }` picks an adapter with overrides; `{ command, args }`
  *      is a custom check needing no adapter.
@@ -261,7 +261,7 @@ function byName(name: string, adapters: readonly Adapter[], slot?: string): Adap
   );
 }
 
-/** package.json signals consulted by `detectScript`/`detectDeps` detection (D18). */
+/** package.json signals consulted by `detectScript`/`detectDeps` detection. */
 type Manifest = { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
 
 const EMPTY_MANIFEST: Manifest = { scripts: new Set(), deps: new Set() };
@@ -296,7 +296,7 @@ function depSignal(a: Adapter, manifest: Manifest): string | null {
 
 /**
  * Which of an adapter's detection signals fires — named for the doctor report —
- * or `null` when none does (D18). Precedence: a present `detect` file, then
+ * or `null` when none does. Precedence: a present `detect` file, then
  * `detectScript` (`scripts.<name>`), then a `detectDeps` package in
  * dependencies/devDependencies. An adapter with no signals at all (empty
  * `detect`, no `detectScript`/`detectDeps` — a built-in, `publint`, `attw`,
@@ -340,7 +340,7 @@ function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
  * → `scripts.build`) stands down as a skip — never a red check — when that script
  * is absent, however the adapter was selected. Detection already filters the
  * auto-detect path; this also covers an explicit config entry, so a shared preset
- * that names `build` is safe on a repo that has no build script (D18).
+ * that names `build` is safe on a repo that has no build script.
  */
 function standDownIfScriptless(check: ResolvedCheck, manifest: Manifest): ResolvedCheck {
   const script = check.adapter?.detectScript;
@@ -394,7 +394,7 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
   };
 }
 
-/** Resolve a check's effective order: adapter (config-overridden) `order` ?? slot `order` ?? `'any'` (D1). */
+/** Resolve a check's effective order: adapter (config-overridden) `order` ?? slot `order` ?? `'any'`. */
 function effectiveOrder(slot: Slot, adapter: Adapter | null): Order {
   return adapter?.order ?? slot.order ?? 'any';
 }
@@ -486,7 +486,7 @@ function resolveOne(
   }
   const resolved = resolveConfigOrDetect(slot, entry, adapters, fileExists, manifest, explicit);
   // A script-gated adapter (build) stands down — never red — when its script is
-  // absent, even when config named it explicitly (D18).
+  // absent, even when config named it explicitly.
   return standDownIfScriptless(resolved, manifest);
 }
 
@@ -531,7 +531,7 @@ function foldCustomChecks(
   return customs;
 }
 
-/** Group rank in D1's sequence: firsts (0), the numeric line incl. `'any'`/`'middle'` (1), singles (2), lasts (3). */
+/** Group rank in the scheduling sequence: firsts (0), the numeric line incl. `'any'`/`'middle'` (1), singles (2), lasts (3). */
 function groupRank(order: Order): number {
   if (order === 'first') return 0;
   if (order === 'single') return 2;
@@ -539,19 +539,19 @@ function groupRank(order: Order): number {
   return 1; // a number, or 'any'/'middle' — the main line
 }
 
-/** Position on the numeric line; `'any'`/`'middle'` sit at 0 (v1's conservative placement, D1). */
+/** Position on the numeric line; `'any'`/`'middle'` sit at 0 (the conservative placement). */
 function lineValue(order: Order): number {
   return typeof order === 'number' ? order : 0;
 }
 
 /**
  * Resolve every catalogue slot (in SLOTS order) to an adapter or a skip reason,
- * fold in the config-only custom checks (config key order), then sort into D1's
+ * fold in the config-only custom checks (config key order), then sort into the
  * group sequence: firsts, the numeric line ascending (`'any'`/`'middle'` at 0),
  * singles, lasts. The natural order — catalogue before customs — is the stable
  * within-group tie-break, so within any group catalogue members keep SLOTS order
- * and precede customs, which keep config-key order. Execution stays sequential;
- * the scheduler (a later step) waves on the same effective `order`.
+ * and precede customs, which keep config-key order. The orchestrator's wave
+ * scheduler waves on the same effective `order`.
  */
 export function resolveChecks(input: {
   slots: readonly Slot[];

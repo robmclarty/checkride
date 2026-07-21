@@ -1,8 +1,7 @@
 /**
  * Built-in `snippets` check.
  *
- * A doc snippet typecheck ported to match fascicle's `check-doc-snippets.mjs`
- * byte-for-byte so the origin repo can adopt the slot verbatim (D11). It pulls
+ * A doc snippet typecheck. It pulls
  * fenced ```ts / ```typescript blocks out of `README.md` and the non-recursive
  * `docs/*.md`, and typechecks only the ones explicitly opted in with an HTML
  * comment on the line immediately above the fence:
@@ -14,7 +13,7 @@
  * A tagged snippet that fails to compile is documentation that lies — this
  * turns that into a build failure. Opting the slot in but tagging *nothing* is
  * a misconfiguration, not a vacuous pass, so zero tagged snippets is a hard
- * error ({@link vacuousOptInError}; fascicle exits 2).
+ * error ({@link vacuousOptInError}).
  *
  * The pure machinery — no filesystem, no spawning:
  *
@@ -30,7 +29,7 @@
  *     fields a `tsc --build` project carries, embeds the caller's mode-specific
  *     `paths`).
  *
- * Execution (D12/Q1), consuming the primitives above:
+ * Execution, consuming the primitives above:
  *
  *   - {@link deriveSrcPaths} resolves **src mode**'s `paths` mapping: the repo's
  *     own tsconfig `paths` when present, else the `src/index.ts` convention,
@@ -53,12 +52,11 @@ import { translateExec } from './pm/index.js';
 
 /**
  * The opt-in marker: an HTML comment `<!-- snippet: check -->` that must sit on
- * the line immediately above a fence for its snippet to be typechecked. Exact
- * fascicle regex (D11).
+ * the line immediately above a fence for its snippet to be typechecked.
  */
 export const CHECK_MARKER_RE = /<!--\s*snippet:\s*check\s*-->/;
 
-/** An opening fence — `ts` or `typescript` only, nothing else on the line (D11). */
+/** An opening fence — `ts` or `typescript` only, nothing else on the line. */
 export const FENCE_OPEN_RE = /^```(ts|typescript)\s*$/;
 
 /** A closing fence: three backticks alone on the line. */
@@ -66,7 +64,7 @@ export const FENCE_CLOSE_RE = /^```\s*$/;
 
 /**
  * One `ts`/`typescript` fenced block extracted from a doc. `code` is the fence
- * body verbatim (no trailing newline — step 8 appends one on write); `startLine`
+ * body verbatim (no trailing newline — {@link checkSnippets} appends one on write); `startLine`
  * is the 1-based line of the opening fence; `checked` is true when a
  * {@link CHECK_MARKER_RE} marker sits on the immediately-preceding line.
  */
@@ -85,7 +83,7 @@ export type DocInput = {
 /**
  * One checked snippet in the emission plan: the scratch file to write
  * (`<slug>__<n>.ts`), and the source doc + line it maps back to (the
- * `snippet -> source map:` legend step 8 renders on failure).
+ * `snippet -> source map:` legend rendered on failure).
  */
 export type SnippetPlanEntry = {
   name: string;
@@ -101,7 +99,7 @@ export type SnippetsPlan = {
   skipped: number;
 };
 
-/** The two modes `snippets` runs in (D12): fast against `src`, or against built `dist/*.d.ts`. */
+/** The two modes `snippets` runs in: fast against `src`, or against built `dist/*.d.ts`. */
 export type SnippetMode = 'src' | 'dist';
 
 /** The generated tsconfig object (serialized to `.check/doc-snippets/tsconfig.json`). */
@@ -124,12 +122,12 @@ export type SnippetTsconfig = {
 };
 
 /**
- * Select the doc files to check from a `docs/` directory listing (D11): always
+ * Select the doc files to check from a `docs/` directory listing: always
  * `README.md`, then every non-recursive `docs/*.md` entry, README first and the
  * `docs/` entries in the order given. Pure — the caller does the (non-recursive)
  * `readdir` and passes its entries; a plain entry list means a nested
- * `docs/sub/x.md` never appears (its listing entry `sub` fails `.md`), matching
- * fascicle's non-recursive `doc_files`.
+ * `docs/sub/x.md` never appears (its listing entry `sub` fails `.md`) —
+ * discovery is deliberately non-recursive.
  */
 export function selectDocFiles(docsEntries: readonly string[]): string[] {
   const files = ['README.md'];
@@ -140,11 +138,10 @@ export function selectDocFiles(docsEntries: readonly string[]): string[] {
 }
 
 /**
- * Parse a doc's markdown into its `ts`/`typescript` fenced blocks (D11). A block
+ * Parse a doc's markdown into its `ts`/`typescript` fenced blocks. A block
  * is `checked` when a {@link CHECK_MARKER_RE} marker sits on the line immediately
  * above its opening fence — a marker anywhere else does not count. Untagged
- * blocks are still returned (the caller counts them as skipped). Semantics match
- * fascicle's `extract_blocks` exactly.
+ * blocks are still returned (the caller counts them as skipped).
  */
 export function extractSnippets(text: string): Snippet[] {
   const lines = text.split('\n');
@@ -170,8 +167,8 @@ export function extractSnippets(text: string): Snippet[] {
 /**
  * The scratch-file slug for a doc's repo-relative path: every non-alphanumeric
  * run collapses to a single `_`, with leading/trailing `_` trimmed
- * (`README.md` → `README_md`, `docs/guide.md` → `docs_guide_md`). Exact fascicle
- * algorithm. Distinct docs in the discovered namespace (`README.md` plus the
+ * (`README.md` → `README_md`, `docs/guide.md` → `docs_guide_md`).
+ * Distinct docs in the discovered namespace (`README.md` plus the
  * flat `docs/*.md`) map to distinct slugs, so their emitted files never collide.
  */
 export function slugForDoc(relPath: string): string {
@@ -181,7 +178,7 @@ export function slugForDoc(relPath: string): string {
 /**
  * The scratch-file name for a block: `<slug>__<n>.ts`, where `n` is the block's
  * 1-based position among *all* ts/typescript fences in its doc (checked or not) —
- * so a skipped fence still advances the number, matching fascicle.
+ * so a skipped fence still advances the number.
  */
 export function snippetFileName(relPath: string, blockIndex: number): string {
   return `${slugForDoc(relPath)}__${blockIndex}.ts`;
@@ -191,8 +188,8 @@ export function snippetFileName(relPath: string, blockIndex: number): string {
  * Fold a set of docs into the emission plan: every checked block becomes a
  * {@link SnippetPlanEntry} (named, mapped back to `<doc>:<line>`), untagged
  * blocks bump `skipped`. The block index for naming counts all fences in a doc,
- * so a checked block keeps its position even after skipped ones (fascicle
- * parity). Pure — the caller reads the docs and writes the files.
+ * so a checked block keeps its position even after skipped ones. Pure — the
+ * caller reads the docs and writes the files.
  */
 export function planSnippets(docs: readonly DocInput[]): SnippetsPlan {
   const entries: SnippetPlanEntry[] = [];
@@ -217,9 +214,9 @@ export function planSnippets(docs: readonly DocInput[]): SnippetsPlan {
 }
 
 /**
- * The vacuous-opt-in guard (D11): a plan with no checked snippets is a hard
+ * The vacuous-opt-in guard: a plan with no checked snippets is a hard
  * error, not a vacuous green — opting the slot in obligates at least one tagged
- * fence. Returns the error message for step 8 to surface (fascicle exits 2), or
+ * fence. Returns the error message for {@link checkSnippets} to surface, or
  * null when the plan has something to check.
  */
 export function vacuousOptInError(plan: SnippetsPlan): string | null {
@@ -228,13 +225,13 @@ export function vacuousOptInError(plan: SnippetsPlan): string | null {
 }
 
 /**
- * Build the generated tsconfig (D11): extend the repo's own config so the
+ * Build the generated tsconfig: extend the repo's own config so the
  * snippets inherit its strictness, then relax exactly the three flags that
  * false-positive on illustrative snippets (`verbatimModuleSyntax`,
  * `isolatedModules`, `noPropertyAccessFromIndexSignature`) while keeping the
  * type-correctness flags that catch real API drift. `include` clears the parent's
  * `.check` exclusion so the emitted `./*.ts` are seen; `paths` is the caller's
- * mode-specific module resolution (src vs dist — Q1).
+ * mode-specific module resolution (src vs dist).
  *
  * A `tsc --build` project (composite, `rootDir`/`outDir` pinned to `src`/`dist`
  * for project-reference emit) fails TS6059 on any *source* file outside its
@@ -271,7 +268,7 @@ export function generateSnippetTsconfig(opts: {
 }
 
 // ---------------------------------------------------------------------------
-// Execution (D12/Q1): doc discovery, tsconfig `paths` derivation, snippet +
+// Execution: doc discovery, tsconfig `paths` derivation, snippet +
 // tsconfig emission, and compilation via a spawned `<pm> exec tsc`.
 // ---------------------------------------------------------------------------
 
@@ -291,7 +288,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Read the doc set (D11): `README.md` plus non-recursive `docs/*.md`, skipping
+ * Read the doc set: `README.md` plus non-recursive `docs/*.md`, skipping
  * any that don't exist — a repo with no `docs/` directory (or no `README.md`)
  * still runs on what it has; an empty result is caught by
  * {@link vacuousOptInError}.
@@ -328,9 +325,8 @@ async function readManifestName(cwd: string): Promise<string | null> {
 
 /**
  * The repo's own `tsconfig.json`'s **own** `compilerOptions.paths` (not resolved
- * through its `extends` chain — a repo that hand-declares self-referencing
- * paths, as fascicle does, puts them directly on the root file), or null when
- * absent, unreadable, or empty.
+ * through its `extends` chain — self-referencing paths are expected directly on
+ * the root file), or null when absent, unreadable, or empty.
  */
 async function readOwnTsconfigPaths(cwd: string): Promise<Record<string, string[]> | null> {
   try {
@@ -356,7 +352,7 @@ function remapRootRelative(target: string): string {
 
 /**
  * Derive the `paths` mapping **src mode** needs so `import { x } from
- * '<pkg-name>'` resolves against source (Q1): the repo's own tsconfig `paths`
+ * '<pkg-name>'` resolves against source: the repo's own tsconfig `paths`
  * when present (remapped two directories deeper, to where the generated
  * tsconfig lives), else the `src/index.ts` convention (`<pkg-name>` maps to its
  * root `src/index.ts`) when the manifest names the package and that file
@@ -404,15 +400,15 @@ function runTsc(
 }
 
 /**
- * Run the `snippets` check against `cwd` in `mode` (D12: the `snippets` src
- * adapter passes `'src'`, `snippets-dist` passes `'dist'`). Discovers the doc
+ * Run the `snippets` check against `cwd` in `mode` (the `snippets` adapter
+ * passes `'src'`, `snippets-dist` passes `'dist'`). Discovers the doc
  * set, plans the checked snippets ({@link vacuousOptInError} applies first —
  * zero tagged snippets is a hard error before anything is written), derives
  * the mode's `paths` mapping, emits the scratch files plus a generated
  * tsconfig under `.check/doc-snippets/`, and typechecks them through the
  * injected `spawn`. A compile failure's `stderr` carries tsc's raw output plus
  * the `snippet -> source map:` legend mapping each generated file back to
- * `<doc>:<line>` (D11).
+ * `<doc>:<line>`.
  */
 export async function checkSnippets(opts: {
   cwd: string;

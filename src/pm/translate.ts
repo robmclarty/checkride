@@ -2,11 +2,11 @@
  * Exec-prefix translation.
  *
  * The adapter registry keeps its canonical `pnpm exec <tool>` / `pnpm run
- * <script>` form (D5/D13); this is the single seam that rewrites that prefix for
+ * <script>` form; this is the single seam that rewrites that prefix for
  * whichever package manager a repo actually uses. Only the `pnpm exec` and `pnpm
  * run` prefixes are translated — `pnpm audit`, custom-check commands, and
- * built-ins pass through untouched, so the default pnpm run is byte-identical to
- * before.
+ * built-ins pass through untouched, so a pnpm repo's invocations are never
+ * rewritten at all.
  */
 
 import type { PackageManager } from './detect.js';
@@ -45,9 +45,9 @@ export function translateExec(
 /**
  * Can this adapter run under `pm`? Audit is package-manager-specific — its
  * flags and JSON shape don't port — so `pnpm audit` (the `security` slot) is
- * unavailable on a non-pnpm PM until a per-PM audit adapter lands (b5). The
+ * unavailable on a non-pnpm PM until a per-PM audit adapter lands. The
  * `pack` slot's built-in speaks only npm's and pnpm's `pack --dry-run --json`
- * (yarn/bun pack differently) — unavailable-until-adapter, same precedent (D10).
+ * (yarn/bun pack differently) — unavailable-until-adapter, same precedent.
  * Everything else is PM-agnostic once its exec prefix is translated.
  */
 export function isAvailableUnder(command: string, args: readonly string[], pm: PackageManager): boolean {
