@@ -79,6 +79,12 @@ export type UseConfig = {
    */
   allowlist?: string[];
   /**
+   * `attw` slot only: append `--profile <name>` (e.g. `esm-only`) to the attw
+   * invocation — a shortcut for retyping the full `args`. Ignored by every other
+   * slot. If `args` is also overridden, the flag is appended to those args.
+   */
+  profile?: string;
+  /**
    * Override the slot's opt-in status. `true` configures the slot *without*
    * opting it into the default run — the escape hatch from "naming a slot opts
    * it in": run it only with `--all`/`--include <slot>`. Handy for a slot you
@@ -474,8 +480,20 @@ function carriedOverrides(src: CarriedOverrides, slot: string): CarriedOverrides
   };
 }
 
+/**
+ * Append attw's `--profile <name>` from the `profile` config shortcut. A no-op
+ * on any other slot (the field is documented as attw-only). `profile` must be a
+ * string; `context` names the check in the error.
+ */
+function applyProfile(adapter: Adapter, profile: unknown, context: string): Adapter {
+  if (profile === undefined) return adapter;
+  if (typeof profile !== 'string') invalidConfig(`'${context}' profile must be a string`);
+  if (adapter.slot !== 'attw') return adapter;
+  return { ...adapter, args: [...adapter.args, '--profile', profile] };
+}
+
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
-  return {
+  const merged: Adapter = {
     ...base,
     ...(o.command !== undefined ? { command: o.command } : {}),
     ...(o.args !== undefined ? { args: o.args } : {}),
@@ -484,6 +502,7 @@ function applyOverrides(base: Adapter, o: UseConfig): Adapter {
     ...carriedOverrides(o, base.slot),
     ...carriedLinksOptions(o, base.slot),
   };
+  return applyProfile(merged, o.profile, base.slot);
 }
 
 function customAdapter(slot: string, c: CustomCheck): Adapter {

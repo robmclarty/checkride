@@ -284,6 +284,31 @@ describe('config resolution', () => {
     ).toThrow(/'attw' optIn must be a boolean/);
   });
 
+  test('attw profile appends --profile <name> to the invocation', () => {
+    const r = resolveSlot('attw', { checks: { attw: { use: 'attw', profile: 'esm-only' } } }, never);
+    expect(r.adapter?.args).toEqual(['exec', 'attw', '--pack', '.', '--format', 'json', '--profile', 'esm-only']);
+  });
+
+  test('attw profile appends to overridden args too', () => {
+    const r = resolveSlot(
+      'attw',
+      { checks: { attw: { use: 'attw', args: ['exec', 'attw', '--pack', '.'], profile: 'node16' } } },
+      never,
+    );
+    expect(r.adapter?.args).toEqual(['exec', 'attw', '--pack', '.', '--profile', 'node16']);
+  });
+
+  test('profile is a no-op on a non-attw slot', () => {
+    const r = resolveSlot('lint', { checks: { lint: { use: 'oxlint', profile: 'esm-only' } } }, present('.oxlintrc.json'));
+    expect(r.adapter?.args).toEqual(['exec', 'oxlint', '--type-aware', '--format=json']);
+  });
+
+  test('a non-string profile is a friendly config error', () => {
+    expect(() =>
+      resolveSlot('attw', { checks: { attw: { use: 'attw', profile: 7 } as unknown as UseConfig } }, never),
+    ).toThrow(/'attw' profile must be a string/);
+  });
+
   test('links exclude and allowlist are carried onto the adapter', () => {
     const r = resolveSlot(
       'links',
@@ -596,7 +621,7 @@ describe('published JSON Schema', () => {
         spell: false, // false: disable a slot
         test: { use: 'vitest', timeout: 0, changedArgs: ['--changed', 'origin/master'] },
         format: 'prettier', // opt-in slot enabled by naming it
-        attw: { use: 'attw', args: ['exec', 'attw'], optIn: true }, // configure without opting in
+        attw: { use: 'attw', profile: 'esm-only', optIn: true }, // configure without opting in
         links: { use: 'links', exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] },
         tidy: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
         licenses: { command: 'node', args: ['scripts/check-licenses.mjs'], optIn: true },

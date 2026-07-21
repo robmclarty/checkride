@@ -196,8 +196,8 @@ the entry to break that coupling:
 ```jsonc
 "attw": {
   "use": "attw",
-  "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
-  "optIn": true          // configured here, but runs only under --all / --include attw
+  "profile": "esm-only",   // shortcut for appending --profile esm-only to attw's args
+  "optIn": true            // configured here, but runs only under --all / --include attw
 }
 ```
 
@@ -207,6 +207,11 @@ normally-default slot (or on a heavy custom check like an integration suite)
 demotes it to full-sweep-only, and `"optIn": false` forces an opt-in slot into
 the default run. `checkride doctor` reflects the result — a slot held back this
 way lists as **opt-in**, not **default**.
+
+The `profile` shortcut above is `attw`-specific: it appends `--profile <name>`
+(e.g. `esm-only` for an ESM-only package, `node16`) to the attw invocation so you
+don't retype the whole `args` array just to set one flag. It is ignored on any
+other slot.
 
 Two details worth knowing:
 

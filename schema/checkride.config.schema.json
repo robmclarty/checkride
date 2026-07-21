@@ -77,6 +77,10 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Links slot only: regex sources for link targets to treat as always valid (deliberately illustrative links that never resolve on disk)."
+        },
+        "profile": {
+          "type": "string",
+          "description": "attw slot only: append --profile <name> (e.g. esm-only) to the attw invocation — a shortcut for retyping the full args."
         }
       }
     },

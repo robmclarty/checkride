@@ -24,7 +24,7 @@
     "publint": { "use": "publint", "order": 5 },
     "attw": {
       "use": "attw",
-      "args": ["exec", "attw", "--pack", ".", "--format", "json", "--profile", "esm-only"],
+      "profile": "esm-only",
       "description": "Are the types wrong? (esm-only profile: this package ships ESM only; Node >=22 engines can require() it)",
       "order": 5
     },
