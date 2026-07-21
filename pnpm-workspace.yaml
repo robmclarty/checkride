@@ -4,3 +4,14 @@
 allowBuilds:
   '@ast-grep/cli': true
   fallow: true
+
+# Force patched versions of transitive dev dependencies flagged by `pnpm audit`
+# (all ReDoS/DoS advisories, all dev-only so none reach the shipped package).
+# Scoped to each advisory's vulnerable range so only the affected instances are
+# rewritten, and capped to the major the parents expect (js-yaml stays on 4.x,
+# markdown-it on 14.x) rather than jumping to a new major.
+overrides:
+  'brace-expansion@>=3.0.0 <5.0.7': '^5.0.7' # GHSA-3jxr-9vmj-r5cp, via minimatch
+  'js-yaml@>=4.0.0 <4.3.0': '^4.3.0' # GHSA-52cp-r559-cp3m, via markdownlint-cli2
+  'qs@>=6.11.1 <6.15.2': '^6.15.2' # GHSA-q8mj-m7cp-5q26, via typed-rest-client
+  'markdown-it@<=14.1.1': '^14.2.0' # GHSA-6v5v-wf23-fmfq, via markdownlint-cli2 (no 14.1.2 exists)

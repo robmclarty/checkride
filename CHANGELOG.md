@@ -29,6 +29,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **invalidates existing `checkride.baseline.json` entries for those slots**.
   Re-run `checkride baseline` to recapture them.
 
+### Internal
+
+- **Cleared all `pnpm audit` advisories** via `pnpm-workspace.yaml` overrides:
+  `brace-expansion` (GHSA-3jxr-9vmj-r5cp) and `js-yaml` (GHSA-52cp-r559-cp3m)
+  were high, `qs` (GHSA-q8mj-m7cp-5q26) and `markdown-it` (GHSA-6v5v-wf23-fmfq)
+  moderate. Each is a transitive **dev** dependency (of stryker and
+  markdownlint-cli2), so none reached the published package; each override is
+  scoped to its advisory's vulnerable range and capped to the compatible major.
+
 ## [0.5.3] - 2026-07-19
 
 ### Internal
