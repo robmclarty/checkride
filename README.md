@@ -314,6 +314,10 @@ that don't all use the same tools. An `extends` that can't be found, or a config
 that extends itself in a loop, fails fast with
 `invalid checkride.config.json: <reason>`.
 
+For operating a preset across many repos — versioning it, rolling a rule out as
+a release, and automating the per-repo bump — see
+[Running a fleet with shared presets](./docs/presets.md).
+
 ### Timeouts
 
 A per-check timeout guards against a hung tool, and it is **on by default**: a
