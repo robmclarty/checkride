@@ -99,6 +99,18 @@ function stripFragment(target: string): string {
   return hash === -1 ? target : target.slice(0, hash);
 }
 
+/** A target with nothing to verify on disk: external URL, bare `#anchor`, or allowlisted. */
+function isIgnorableTarget(target: string, allowlist: readonly RegExp[]): boolean {
+  return isExternal(target) || target.startsWith('#') || allowlist.some((re) => re.test(target));
+}
+
+/** Resolve a relative link target to an on-disk path, or `null` when it has no file half. */
+function resolveTarget(target: string, mdPath: string, repoRoot: string): string | null {
+  const fileHalf = stripFragment(target).trim();
+  if (!fileHalf) return null;
+  return isAbsolute(fileHalf) ? join(repoRoot, fileHalf) : resolve(dirname(mdPath), fileHalf);
+}
+
 function parseLinks(text: string): { line: number; target: string }[] {
   const hits: { line: number; target: string }[] = [];
   const lines = text.split('\n');
@@ -122,26 +134,15 @@ async function checkFile(mdPath: string, repoRoot: string, allowlist: readonly R
   }
   const misses: LinkMiss[] = [];
   for (const { line, target } of parseLinks(text)) {
-    if (!target) continue;
-    if (isExternal(target)) continue;
-    if (target.startsWith('#')) continue;
-    if (allowlist.some((re) => re.test(target))) continue;
-
-    const fileHalf = stripFragment(target).trim();
-    if (!fileHalf) continue;
-
-    const base = isAbsolute(fileHalf)
-      ? join(repoRoot, fileHalf)
-      : resolve(dirname(mdPath), fileHalf);
-
-    if (!existsSync(base)) {
-      misses.push({
-        file: relative(repoRoot, mdPath),
-        line,
-        link: target,
-        resolved: relative(repoRoot, base),
-      });
-    }
+    if (!target || isIgnorableTarget(target, allowlist)) continue;
+    const base = resolveTarget(target, mdPath, repoRoot);
+    if (base === null || existsSync(base)) continue;
+    misses.push({
+      file: relative(repoRoot, mdPath),
+      line,
+      link: target,
+      resolved: relative(repoRoot, base),
+    });
   }
   return misses;
 }

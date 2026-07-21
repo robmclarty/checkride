@@ -64,6 +64,28 @@ describe('detection (no config)', () => {
     expect(r.adapter?.name).toBe('prettier');
     expect(r.explicit).toBeFalsy();
   });
+
+  test('publint/attw stand down (skip, not fail) when their tool is not installed', () => {
+    for (const slot of ['publint', 'attw']) {
+      const r = resolveSlot(slot, null, never);
+      expect(r.adapter).toBeNull();
+      expect(r.skip).toBe('no tool detected for slot');
+    }
+  });
+
+  test('publint/attw detect via their installed dependency', () => {
+    const p = resolveSlot('publint', null, never, manifest({ deps: ['publint'] }));
+    expect(p.adapter?.name).toBe('publint');
+    expect(p.detectedVia).toBe("dependency 'publint'");
+    const a = resolveSlot('attw', null, never, manifest({ deps: ['@arethetypeswrong/cli'] }));
+    expect(a.adapter?.name).toBe('attw');
+  });
+
+  test('naming publint in config forces it to run even without the dep (explicit ask)', () => {
+    const r = resolveSlot('publint', { checks: { publint: 'publint' } }, never);
+    expect(r.adapter?.name).toBe('publint');
+    expect(r.skip).toBeNull();
+  });
 });
 
 describe('detection widening (detectScript / detectDeps — D18)', () => {

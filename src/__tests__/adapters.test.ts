@@ -174,10 +174,20 @@ describe('registry invariants', () => {
 
   test('detectDeps is populated only on the configless-capable adapters (D18)', () => {
     const withDeps = ADAPTERS.filter((a) => a.detectDeps !== undefined).map((a) => a.name);
-    expect(withDeps).toEqual(['prettier', 'oxlint', 'knip', 'vitest', 'cspell']);
+    expect(withDeps).toEqual(['prettier', 'oxlint', 'knip', 'vitest', 'cspell', 'publint', 'attw']);
+    // Most name their own package as the dependency signal; attw's package name
+    // (@arethetypeswrong/cli) differs from its binary.
+    const expected: Record<string, string[]> = {
+      prettier: ['prettier'],
+      oxlint: ['oxlint'],
+      knip: ['knip'],
+      vitest: ['vitest'],
+      cspell: ['cspell'],
+      publint: ['publint'],
+      attw: ['@arethetypeswrong/cli'],
+    };
     for (const name of withDeps) {
-      // Each names its own package as the dependency signal.
-      expect(ADAPTERS.find((a) => a.name === name)?.detectDeps).toEqual([name]);
+      expect(ADAPTERS.find((a) => a.name === name)?.detectDeps).toEqual(expected[name]);
     }
   });
 

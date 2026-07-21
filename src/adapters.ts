@@ -417,7 +417,12 @@ export const ADAPTERS: readonly Adapter[] = [
     name: 'publint',
     slot: 'publint',
     description: 'publint: package.json publishing correctness',
+    // Gated on the installed tool (not "always available"): pulled in by --all on
+    // a repo that never installed publint, the slot stands down as a skip rather
+    // than hard-failing with `Command "publint" not found`. Naming it in config
+    // still forces it (that's an explicit ask to run it).
     detect: [],
+    detectDeps: ['publint'],
     command: 'pnpm',
     args: ['exec', 'publint'],
     outputFile: null,
@@ -427,7 +432,9 @@ export const ADAPTERS: readonly Adapter[] = [
     name: 'attw',
     slot: 'attw',
     description: 'Are the types wrong? (type resolution across module systems)',
+    // Gated on the installed tool for the same reason as publint above.
     detect: [],
+    detectDeps: ['@arethetypeswrong/cli'],
     command: 'pnpm',
     args: ['exec', 'attw', '--pack', '.', '--format', 'json'],
     outputFile: 'attw.json',

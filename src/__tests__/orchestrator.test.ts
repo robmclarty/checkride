@@ -169,7 +169,9 @@ describe('library-publishing slots (publint, attw)', () => {
     const attw = ADAPTERS.find((a) => a.name === 'attw');
     if (!attw) throw new Error('attw adapter missing from registry');
     const result = await runChecks({
-      cwd: dir, slots: [{ name: 'attw', optIn: true }], adapters: [attw], config: null,
+      // Name attw in config so it resolves without the tool's dep on disk
+      // (naming bypasses the detectDeps gate — an explicit ask to run it).
+      cwd: dir, slots: [{ name: 'attw', optIn: true }], adapters: [attw], config: { checks: { attw: { use: 'attw' } } },
       include: ['attw'], runner: jsonRunner, json: true, stdout: sink().out, stderr: sink().out,
     });
     expect(result.summary.checks.find((c) => c.name === 'attw')).toMatchObject({ ok: true, output_file: 'attw.json' });
