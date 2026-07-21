@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A single duplicate fingerprint no longer disables baselining for a whole
+  fallow slot.** The baseline gate guarded against un-fingerprintable findings by
+  comparing the deduplicated key count to the raw issue count, but that
+  comparison could not tell a finding that produced *no* key apart from two
+  findings that produced the *same* key. One key collision (two `<arrow>`
+  functions in a file, or two symbol-less `unused_class_members`) made the slot
+  look untracked, so `checkride baseline` followed by `checkride` stayed red
+  forever. The gate now tracks an explicit un-keyed count instead, so a collision
+  merely coarsens the baseline (grandfathering one finding grandfathers its twin)
+  rather than disabling it, while a genuinely un-keyable finding still holds the
+  slot red.
+- **Colliding fallow fingerprints are now disambiguated.** Anonymous health
+  functions (`<arrow>`, `<anonymous>`) and symbol-less dead-code findings
+  (`unused_class_members`) append their line and column, so a real sibling
+  finding can no longer be masked by a baseline captured for a different one.
+  Named functions and symbol-bearing findings keep their line-free keys.
+
+  This changes the fingerprint strings for the `dead` and `health` slots, which
+  **invalidates existing `checkride.baseline.json` entries for those slots**.
+  Re-run `checkride baseline` to recapture them.
+
 ## [0.5.3] - 2026-07-19
 
 ### Internal

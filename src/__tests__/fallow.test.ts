@@ -32,6 +32,26 @@ function dupes(fingerprints: string[]): string {
   });
 }
 
+/** A health report with one finding per given function descriptor. */
+function health(findings: { path: string; name: string; line?: number; col?: number }[]): string {
+  return JSON.stringify({ schema_version: 7, kind: 'health', findings });
+}
+
+/** A dead-code report whose sole category is `unused_class_members` (symbol-less members). */
+function classMembers(members: { path: string; line?: number; col?: number }[]): string {
+  return JSON.stringify({
+    schema_version: 7,
+    kind: 'dead-code',
+    summary: { total_issues: members.length, unused_class_members: members.length },
+    unused_class_members: members,
+  });
+}
+
+/** Capture a baseline the way `checkride baseline` does: the slot's fingerprint keys. */
+function capture(raw: string): string[] {
+  return [...fallowVerdict(raw, null).findings];
+}
+
 const sink = (): Out => ({ write: () => true });
 
 function fakeAdapter(over: Partial<Adapter> & { name: string; slot: string }): Adapter {
@@ -126,6 +146,67 @@ describe('fallowVerdict (with baseline)', () => {
     });
     const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
     expect(v.ok).toBe(false); // cannot be masked green: one finding is untracked
+    expect(v.reason).toBe('2 finding(s)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A key collision must only COARSEN the baseline, never disable it. Regression
+// for the bug where a single duplicate fingerprint tripped a size-comparison
+// guard and left the whole slot permanently red after `checkride baseline`.
+// ---------------------------------------------------------------------------
+
+describe('fallowVerdict (key collisions coarsen the baseline; un-keyable findings still block it)', () => {
+  test('health: two anonymous findings that key identically still baseline to green', () => {
+    // Two <arrow> functions at the same spot collide on one key. Capturing then
+    // re-running must pass; before the fix the Set collapse made this stay red.
+    const raw = health([
+      { path: 'src/x.ts', name: '<arrow>', line: 5, col: 3 },
+      { path: 'src/x.ts', name: '<arrow>', line: 5, col: 3 },
+    ]);
+    expect(fallowVerdict(raw, capture(raw)).ok).toBe(true);
+  });
+
+  test('dead-code: two symbol-less members that key identically still baseline to green', () => {
+    const raw = classMembers([
+      { path: 'src/errors.ts', line: 10, col: 3 },
+      { path: 'src/errors.ts', line: 10, col: 3 },
+    ]);
+    expect(fallowVerdict(raw, capture(raw)).ok).toBe(true);
+  });
+
+  test('dead-code: distinct symbol-less siblings get distinct keys, so one baseline can not mask the other', () => {
+    // Disambiguation (part 2): coarsening must never grandfather a real sibling.
+    const raw = classMembers([
+      { path: 'src/errors.ts', line: 10, col: 3 },
+      { path: 'src/errors.ts', line: 22, col: 5 },
+    ]);
+    const v = fallowVerdict(raw, ['dead-code:unused_class_members:src/errors.ts:10:3']);
+    expect(v.ok).toBe(false);
+    expect(v.newKeys).toEqual(['dead-code:unused_class_members:src/errors.ts:22:5']);
+  });
+
+  test('health: distinct anonymous siblings get distinct keys too', () => {
+    const raw = health([
+      { path: 'src/x.ts', name: '<arrow>', line: 5, col: 3 },
+      { path: 'src/x.ts', name: '<arrow>', line: 9, col: 3 },
+    ]);
+    expect(capture(raw).toSorted()).toEqual(['health:src/x.ts:<arrow>:5:3', 'health:src/x.ts:<arrow>:9:3']);
+  });
+
+  test('a genuinely un-keyable finding keeps the slot red even with every keyable one grandfathered', () => {
+    // The guard's real purpose: a finding with no stable identity (no path, no
+    // symbol, no position) can never be individually grandfathered, so a baseline
+    // must not mask it green — unlike a mere collision, which is fully tracked.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2, unused_files: 1, unused_store_members: 1 },
+      unused_files: [{ path: 'src/a.ts' }],
+      unused_store_members: [{ note: 'opaque' }],
+    });
+    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    expect(v.ok).toBe(false);
     expect(v.reason).toBe('2 finding(s)');
   });
 });

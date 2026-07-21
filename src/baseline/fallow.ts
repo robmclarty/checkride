@@ -32,9 +32,15 @@ import { applyBaseline } from './store.js';
  */
 const FALLOW_SCHEMA_MIN = 7;
 
-/** A parsed fallow report, or the reason it could not be read. */
+/**
+ * A parsed fallow report, or the reason it could not be read. `unkeyed` counts
+ * the findings that produced no fingerprint key (no stable identity) — the guard
+ * `fallowVerdict` uses to refuse masking a slot it can't fully grandfather. It
+ * counts un-keyable findings, NOT key collisions: two findings sharing a key are
+ * both keyed, so the baseline coarsens rather than disabling.
+ */
 type ParsedFallow =
-  | { ok: true; kind: string; findings: string[]; issueCount: number }
+  | { ok: true; kind: string; findings: string[]; issueCount: number; unkeyed: number }
   | { ok: false; reason: string };
 
 /** Narrow to a plain object (arrays and null excluded). */
@@ -68,6 +74,29 @@ function symbolIdentity(item: Record<string, unknown>): string {
 }
 
 /**
+ * A finding's `line[:col]` position, or `''` when it carries neither. Only used
+ * to disambiguate findings that share every stable identity field (see
+ * {@link withPosition}); a keyable finding never falls back to this.
+ */
+function position(item: Record<string, unknown>): string {
+  return [item['line'], item['col']].filter((n): n is number => typeof n === 'number').join(':');
+}
+
+/** Append `:<line>[:<col>]` to a key when the finding has a position, else leave it. */
+function withPosition(key: string, item: Record<string, unknown>): string {
+  const pos = position(item);
+  return pos ? `${key}:${pos}` : key;
+}
+
+/**
+ * A function name that is a real, stable identifier (kept line-free so its key
+ * survives edits above it). Fallow wraps names it can't resolve to an identity
+ * in angle brackets (`<arrow>`, `<anonymous>`); those fail this test and get a
+ * position appended, since every such placeholder in a file is otherwise equal.
+ */
+const STABLE_IDENTIFIER = /^[A-Za-z_$][\w$.]*$/;
+
+/**
  * Key a cross-file finding (circular_dependencies, re_export_cycles) on its
  * sorted file membership — a list of files/segments rather than one location.
  * Returns `null` when the item carries no such list.
@@ -87,20 +116,21 @@ function cycleKey(category: string, item: Record<string, unknown>): string | nul
 
 /**
  * Fingerprint key for one dead-code finding: `dead-code:<category>:<identity>`,
- * where identity is a file and/or symbol (never a line or column, so the key
- * survives edits that only move the code). Cross-file findings (cycles) key on
- * the sorted set of files. Returns `null` when no stable identity can be read —
- * the finding still counts toward `issueCount`, it just can't be individually
+ * where identity is a file and symbol (never a line or column, so the key
+ * survives edits that only move the code). When a finding has a file but no
+ * symbol (e.g. `unused_class_members`, whose members carry no symbol field), the
+ * path alone would collide with its siblings in the same file, so the position
+ * is appended to keep them distinct. Cross-file findings (cycles) key on the
+ * sorted set of files. Returns `null` when no stable identity can be read — the
+ * finding still counts toward `issueCount`, it just can't be individually
  * grandfathered (which keeps the slot conservatively red, never silently green).
  */
 function deadKey(category: string, item: unknown): string | null {
   if (!isPlainObject(item)) return null;
   const file = str(item['path']) || str(item['file']);
   const symbol = symbolIdentity(item);
-  if (file || symbol) {
-    const identity = [file, symbol].filter(Boolean).join(':');
-    return `dead-code:${category}:${identity}`;
-  }
+  if (symbol) return `dead-code:${category}:${[file, symbol].filter(Boolean).join(':')}`;
+  if (file) return withPosition(`dead-code:${category}:${file}`, item);
   return cycleKey(category, item);
 }
 
@@ -131,7 +161,13 @@ function parseDeadCode(j: Record<string, unknown>): ParsedFallow {
       if (key !== null) findings.push(key);
     }
   }
-  return { ok: true, kind: 'dead-code', findings, issueCount: total };
+  // `total` is authoritative; `findings.length` is how many issues we could key
+  // (counted BEFORE the set collapses collisions, so a collision leaves this at
+  // zero rather than looking untracked). The gap is un-keyable findings — never
+  // the non-finding arrays like `next_steps`, which produce no key AND do not
+  // count toward `total`, so the subtraction cancels them out.
+  const unkeyed = Math.max(0, total - findings.length);
+  return { ok: true, kind: 'dead-code', findings, issueCount: total, unkeyed };
 }
 
 /**
@@ -150,13 +186,16 @@ function parseDupes(j: Record<string, unknown>): ParsedFallow {
     const fp = str(g['fingerprint']);
     if (fp) findings.push(`dupes:${fp}`);
   }
-  return { ok: true, kind: 'dupes', findings, issueCount: groups.length };
+  const unkeyed = Math.max(0, groups.length - findings.length);
+  return { ok: true, kind: 'dupes', findings, issueCount: groups.length, unkeyed };
 }
 
 /**
  * Extract health (complexity) findings — one per function over threshold, keyed
- * on file + function name (no line, so the key survives edits above it). The
- * issue count is the number of findings.
+ * on file + function name. A named function stays line-free so its key survives
+ * edits above it; an anonymous placeholder (`<arrow>`, `<anonymous>`) shares its
+ * name with every sibling in the file, so it gets a position appended to stay
+ * distinct. The issue count is the number of findings.
  */
 function parseHealth(j: Record<string, unknown>): ParsedFallow {
   const findings = j['findings'];
@@ -164,11 +203,17 @@ function parseHealth(j: Record<string, unknown>): ParsedFallow {
     return { ok: false, reason: 'fallow health JSON missing findings' };
   }
   const keys: string[] = [];
+  let unkeyed = 0;
   for (const f of findings) {
-    if (!isPlainObject(f)) continue;
-    keys.push(`health:${str(f['path'])}:${str(f['name'])}`);
+    if (!isPlainObject(f)) {
+      unkeyed += 1;
+      continue;
+    }
+    const name = str(f['name']);
+    const base = `health:${str(f['path'])}:${name}`;
+    keys.push(STABLE_IDENTIFIER.test(name) ? base : withPosition(base, f));
   }
-  return { ok: true, kind: 'health', findings: keys, issueCount: findings.length };
+  return { ok: true, kind: 'health', findings: keys, issueCount: findings.length, unkeyed };
 }
 
 /**
@@ -255,10 +300,13 @@ export type FallowVerdict = {
  * fallow found anything. With a baseline, findings are masked — the slot passes
  * when every current finding is grandfathered and fails on any new one.
  *
- * A report that parses to *fewer* fingerprints than its issue count has findings
- * that can't be individually grandfathered; a baseline must never mask such a
- * slot to green, so it stays at the raw findings-based verdict. Correctness over
- * precision: better to keep re-surfacing a finding than to silently pass one.
+ * A report with any *un-keyable* finding (one that produced no fingerprint) has
+ * findings that can't be individually grandfathered; a baseline must never mask
+ * such a slot to green, so it stays at the raw findings-based verdict. A key
+ * *collision* (two findings sharing a key) is not un-keyable — both are keyed, so
+ * the baseline coarsens (grandfathering one grandfathers both) but stays active.
+ * Correctness over precision: better to keep re-surfacing a finding than to
+ * silently pass one.
  */
 export function fallowVerdict(raw: string, baselineKeys: readonly string[] | null): FallowVerdict {
   const parsed = parseFallow(raw);
@@ -274,9 +322,11 @@ export function fallowVerdict(raw: string, baselineKeys: readonly string[] | nul
   }
 
   const adj = applyBaseline(findings, baselineKeys, rawOk);
-  const fullyTracked = findings.size === parsed.issueCount;
-  // Untracked findings block masking: hold the slot at its raw verdict.
-  if (!fullyTracked) {
+  // Un-keyable findings block masking: hold the slot at its raw verdict. A key
+  // collision does NOT (both findings are keyed, `unkeyed` stays 0), so it
+  // coarsens the baseline instead of disabling it. A size comparison could not
+  // tell the two apart, which is what disabled the whole slot on any collision.
+  if (parsed.unkeyed !== 0) {
     return { ok: rawOk, baselined: adj.baselined, newKeys: adj.newKeys, findings, observed: true, reason: issueReason };
   }
   // Fully tracked: a masked slot (all findings grandfathered) is green; a slot
