@@ -4,7 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-07-21
+
+### Added
+
+- **`optIn` override to configure a slot without opting it into the default
+  run.** A slot entry (both the `{ use }` and custom `{ command }` forms) now
+  takes `optIn?: boolean`: `true` configures the slot but keeps it reachable
+  only via `--all`/`--include` (so giving `attw` a profile no longer drags
+  `attw`/`build`/`pack`/`smoke` into a plain `checkride` run), and `false`
+  forces a slot into the default run. Resolution-side only, so selection, the
+  vacuous-green warning, and `doctor` all adjust automatically.
+- **Config-driven `exclude` and `allowlist` for the built-in `links` check.**
+  `exclude` adds directory names to skip on top of the built-in set, and
+  `allowlist` takes regex sources whose matching link targets count as valid
+  (for generated or illustrative markdown that never resolves on disk).
+  Patterns are compiled and validated at config load, so a bad one is a
+  friendly exit-2 error rather than a mid-run crash. Both are declared in the
+  JSON schema.
+- **`profile` shortcut for the `attw` slot.** A `profile` string on the config
+  entry appends `--profile <name>` to attw's invocation instead of re-typing
+  the full args array (a no-op on other slots; a non-string is a friendly
+  config error).
+
+### Changed
+
+- **`publint` and `attw` stand down when their tool isn't installed.** Both
+  were always-available and hard-failed an `--all` run with "Command not found"
+  on a repo that never installed them; they now gate on their package
+  (`publint`, `@arethetypeswrong/cli`) and skip cleanly when absent, matching
+  checkride's skip-not-fail principle for opt-in slots. Naming one explicitly
+  in config still forces it to run.
 
 ### Fixed
 
@@ -37,6 +67,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   moderate. Each is a transitive **dev** dependency (of stryker and
   markdownlint-cli2), so none reached the published package; each override is
   scoped to its advisory's vulnerable range and capped to the compatible major.
+- Docs: added a deep-modules guide and a fleet-presets guide for org-wide
+  rollout, reframed swappable module boundaries as the default, dropped the
+  "TypeScript-only" framing from the README, homepage, and npm package
+  description, clarified the README for first-time readers, and pointed
+  `package.json` `homepage` at the GitHub Pages site.
 
 ## [0.5.3] - 2026-07-19
 
@@ -513,6 +548,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.6.0]: https://www.npmjs.com/package/checkride/v/0.6.0
 [0.5.3]: https://www.npmjs.com/package/checkride/v/0.5.3
 [0.5.2]: https://www.npmjs.com/package/checkride/v/0.5.2
 [0.5.1]: https://www.npmjs.com/package/checkride/v/0.5.1
