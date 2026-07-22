@@ -495,4 +495,4 @@ every public type are re-exported too. The full surface is the package's
 
 ## License
 
-[MIT](./LICENSE)
+[Apache-2.0](./LICENSE)

@@ -4,6 +4,26 @@ checkride currently has one maintainer. This file exists so that number is a
 known quantity with a written succession path, not a mystery: everything needed
 to develop, verify, and release lives here and in the repo.
 
+## Licensing and sign-off
+
+checkride is [Apache-2.0](./LICENSE). Under section 5 of that license, anything
+you intentionally submit for inclusion is contributed under those same terms,
+with no separate CLA to sign.
+
+What that section cannot do is grant rights you do not hold. If you write
+checkride code on an employer's time or equipment, or within your scope of
+employment, **your employer owns that copyright and you cannot license it on
+their behalf** — get their written go-ahead first.
+
+So every commit needs a Developer Certificate of Origin sign-off:
+
+```bash
+git commit -s      # appends: Signed-off-by: Your Name <you@example.com>
+```
+
+That line asserts you have the right to submit the work under this license.
+Read what you are certifying at [developercertificate.org](https://developercertificate.org/).
+
 ## Development
 
 ```bash
