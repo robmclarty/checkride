@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-22
+
+### Changed
+
+- **checkride is now licensed [Apache-2.0](./LICENSE), previously MIT.** No code
+  or API changed; the terms you receive it under did. Apache-2.0 adds an express
+  patent grant and, via section 5, makes contributions inbound under the same
+  license without a CLA — the reason for the switch, ahead of accepting outside
+  contributions. Consumers redistributing checkride should note the section 4
+  conditions (include the license, mark modified files); there is deliberately
+  no `NOTICE` file, so nothing to propagate. `checkride init --license` still
+  defaults to `MIT` for scaffolded projects — that remains the user's choice and
+  is unaffected.
+
+### Internal
+
+- `CONTRIBUTING.md` gains a licensing section: how section 5 works, why an
+  employer may own contributions written on their time, and DCO sign-off via
+  `git commit -s`.
+
 ## [0.6.0] - 2026-07-21
 
 ### Added
@@ -548,6 +568,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.7.0]: https://www.npmjs.com/package/checkride/v/0.7.0
 [0.6.0]: https://www.npmjs.com/package/checkride/v/0.6.0
 [0.5.3]: https://www.npmjs.com/package/checkride/v/0.5.3
 [0.5.2]: https://www.npmjs.com/package/checkride/v/0.5.2
