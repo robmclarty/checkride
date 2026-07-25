@@ -40,6 +40,8 @@
     "dist",
     "templates",
     "schema",
+    ".claude-plugin",
+    "skills",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

@@ -1,6 +1,6 @@
 ---
 name: version
-description: Bump checkride's version (major, minor, or patch), summarize every commit since the last release into a new CHANGELOG.md section, commit as vX.Y.Z, and create plus push an annotated tag. checkride is a single package, so the root package.json version is the source of truth.
+description: Bump checkride's version (major, minor, or patch), summarize every commit since the last release into a new CHANGELOG.md section, commit as vX.Y.Z, and create plus push an annotated tag. checkride is a single package, so the root package.json version is the source of truth and the bundled plugin manifest mirrors it.
 argument-hint: "[major|minor|patch]"
 disable-model-invocation: true
 allowed-tools: Read, Edit, Glob, Bash(git status*), Bash(git log*), Bash(git describe*), Bash(git rev-list*), Bash(git add *), Bash(git commit *), Bash(git tag *), Bash(git push origin v*), Bash(git restore *), Bash(node -e *), Bash(node -p *), Bash(pnpm check*), Bash(cat *)
@@ -12,6 +12,12 @@ Bump checkride's version, prepend a `CHANGELOG.md` section summarizing every
 commit since the last release, commit, and tag. checkride is one package: the
 root `package.json` `version` is the source of truth, the changelog lives at
 `CHANGELOG.md`, and releases are tagged `vX.Y.Z`.
+
+The package root is also the root of the bundled Claude Code plugin, so
+`.claude-plugin/plugin.json` carries a second copy of the version. It is not
+independent: `test/plugin-manifest.test.ts` asserts the two are equal, so a bump
+that moves only `package.json` turns `pnpm test` red mid-release. This skill
+moves both, in the same commit.
 
 The deterministic work — clean-tree check, semver math, the version rewrite — is
 done with `node` one-liners and `git`, never by hand. The model's job is to
@@ -93,26 +99,31 @@ forms and stop.
    verbatim, before editing any file — their one chance to read the prose in
    isolation. Continue automatically after printing; do not wait.
 
-8. **Apply the changes** (two files only):
+8. **Apply the changes** (three files only):
 
    - `package.json`: edit `"version": "OLD"` to `"version": "NEW"`.
+   - `.claude-plugin/plugin.json`: edit its `"version": "OLD"` to
+     `"version": "NEW"` as well. Same string, same commit — the parity test
+     fails the release otherwise.
    - `CHANGELOG.md`: insert the new section immediately below the intro
      paragraph and above the current top `## [...]` section, keeping the single
      `# Changelog` heading at the very top. Then add a link reference for the new
      version directly above the existing top one at the bottom of the file:
      `[X.Y.Z]: https://www.npmjs.com/package/checkride/v/X.Y.Z`.
 
-9. **Verify before staging:** `pnpm check --only docs,links,spell --bail`. A
-   version-plus-changelog diff can only fail those three. If it exits 0,
-   continue. If it fails (commonly a word missing from `cspell.json`), roll back
-   so the user can fix and re-invoke — `git restore package.json CHANGELOG.md` —
-   show the relevant `.check/*.txt` diagnostic, and stop.
+9. **Verify before staging:** `pnpm check --only docs,links,spell,test --bail`.
+   A version-plus-changelog diff can only fail those four: the first three read
+   the new prose, and `test` is there for one assertion — the plugin-manifest
+   parity check on step 8's two version strings. If it exits 0, continue. If it
+   fails (commonly a word missing from `cspell.json`), roll back so the user can
+   fix and re-invoke — `git restore package.json .claude-plugin/plugin.json
+   CHANGELOG.md` — show the relevant `.check/*.txt` diagnostic, and stop.
 
-10. **Stage exactly those two files and commit.** The commit message is literally
-    the tag, no body:
+10. **Stage exactly those three files and commit.** The commit message is
+    literally the tag, no body:
 
     ```bash
-    git add package.json CHANGELOG.md
+    git add package.json .claude-plugin/plugin.json CHANGELOG.md
     git status --short
     git commit -m "vX.Y.Z"
     ```
@@ -154,6 +165,8 @@ forms and stop.
   hand (`git tag -a v0.1.0`), this skill always bumps.
 - **`pnpm check` fails in step 9.** Almost always a new changelog word missing
   from `cspell.json`'s `words`. The roll-back in step 9 leaves the tree clean; the
-  user adds the word and re-invokes.
+  user adds the word and re-invokes. If instead the failure is
+  `test/plugin-manifest.test.ts`, step 8 moved only one of the two version
+  strings — fix that rather than editing the test.
 - **A commit reads `BREAKING` but the user asked for `patch`/`minor`.** Surface it
   and ask whether they meant `major` before applying step 8.

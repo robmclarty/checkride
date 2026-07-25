@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — checkride bundled plugin: check and qa readers
 
-**Current step:** none (at the boundary)
+**Current step:** 1 — feat(plugin): ship a Claude Code plugin manifest from the package root
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -23,13 +23,20 @@ step boundaries. The antidote to "my plan got lost in the noise."
 line above. Only ONE step is in flight; a step is done only after a checkpoint —
 check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 
-- ☐ 1. <step>
+- ☐ 1. feat(plugin): ship a Claude Code plugin manifest from the package root
+- ☐ 2. feat(check): add a bounded, contract-aware triage preflight reader
+- ☐ 3. feat(check): add the check skill that triages a red gate
+- ☐ 4. feat(qa): add a bounded extractor for the quality artifacts
+- ☐ 5. feat(qa): add the qa skill that reads quality signal
+- ☐ 6. feat(init): point the AGENTS.md stanza at the installed skill
+- ☐ 7. docs(plugin): document the bundled plugin and its two skills
 
 ## Park list
 
 > Mid-step, every new problem / idea / "ooh what if" lands HERE, untouched, and you
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/pb-park` composes it). Harvest happens only at the boundary.
+- [ ] pnpm 11.1.2 verifyDepsBeforeRun prints 'Already up to date / Done in Xms' to stdout before every 'pnpm exec', breaking the JSON parse in dead/dupes/health/attw (tools exit 0, adapter reports 'did not emit valid JSON'). Hits every consumer on pnpm 11; workaround is --config.verify-deps-before-run=false. Real fix is adapters tolerating leading non-JSON, or not routing tools through pnpm exec.
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 

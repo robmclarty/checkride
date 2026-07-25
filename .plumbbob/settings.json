@@ -1,3 +1,4 @@
 {
-  "auto": false
+  "auto": false,
+  "check": "pnpm check"
 }

@@ -1,0 +1,11 @@
+{
+  "name": "checkride",
+  "displayName": "checkride",
+  "version": "0.7.0",
+  "description": "Bounded, contract-aware readers for what checkride already writes: triage a red gate and read quality signal without loading megabytes of raw artifacts.",
+  "author": { "name": "Rob McLarty", "email": "hello@robmclarty.com", "url": "https://robmclarty.com" },
+  "homepage": "https://robmclarty.github.io/checkride/",
+  "repository": "https://github.com/robmclarty/checkride",
+  "license": "Apache-2.0",
+  "keywords": ["claude-code", "claude", "agent", "checkride", "ci", "triage"]
+}
