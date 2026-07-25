@@ -1,0 +1,136 @@
+# The data-access policy, enforced at build time.
+#
+# Two Postgres roles back this design: a read-only role and a read/write role.
+# Postgres enforces them at runtime, absolutely. What it cannot do is tell you
+# on a Tuesday afternoon that the pull request you are reviewing broke the rule.
+# These zones do that.
+
+entry = ["src/app.ts"]
+
+# Run by the `table-ownership` custom check from the command line, never
+# imported — so it is not part of the module graph fallow analyses.
+ignorePatterns = ["scripts/**"]
+
+[rules]
+unused-exports = "error"
+unused-files = "error"
+unused-dependencies = "error"
+circular-dependencies = "error"
+boundary-violation = "error"
+
+# ---------------------------------------------------------------------------
+# Zones: by ROLE, not by domain.
+#
+# This is the load-bearing decision. Zones are a fixed list, but domains are
+# added all the time — so zoning by role (`writers`, `readers`, `schemas`)
+# means a new domain is covered by the existing rules the moment it matches the
+# naming convention. Nobody has to remember to edit this file.
+# ---------------------------------------------------------------------------
+
+[[boundaries.zones]]
+name = "db-write"
+patterns = ["src/db/write-pool.ts"]
+
+[[boundaries.zones]]
+name = "db-read"
+patterns = ["src/db/read-pool.ts"]
+
+[[boundaries.zones]]
+name = "writers"
+patterns = ["src/domains/*/writer.ts"]
+
+[[boundaries.zones]]
+name = "readers"
+patterns = ["src/domains/*/reader.ts"]
+
+[[boundaries.zones]]
+name = "schemas"
+patterns = ["src/domains/*/schema.ts"]
+
+[[boundaries.zones]]
+name = "surfaces"
+patterns = ["src/domains/*/index.ts"]
+
+[[boundaries.zones]]
+name = "reports"
+patterns = ["src/reports/**"]
+
+[[boundaries.zones]]
+name = "app"
+patterns = ["src/app.ts"]
+
+# ---------------------------------------------------------------------------
+# Import rules: who may hold which pool.
+# ---------------------------------------------------------------------------
+
+# Writers are the only zone that may import the read/write pool.
+[[boundaries.rules]]
+from = "writers"
+allow = ["db-write", "schemas"]
+
+# Readers get the read-only pool and their own schemas. Note what is missing.
+[[boundaries.rules]]
+from = "readers"
+allow = ["db-read", "schemas"]
+
+# Cross-domain reporting: may read anything, may write nothing.
+[[boundaries.rules]]
+from = "reports"
+allow = ["db-read", "schemas"]
+
+# A domain's public surface composes its own reader and writer.
+[[boundaries.rules]]
+from = "surfaces"
+allow = ["readers", "writers"]
+
+# The app sees public surfaces and reports — never a pool, never a schema.
+[[boundaries.rules]]
+from = "app"
+allow = ["surfaces", "reports"]
+
+# Leaves. Schemas describe tables and import nothing internal; the pools are
+# the bottom of the graph.
+[[boundaries.rules]]
+from = "schemas"
+allow = []
+
+[[boundaries.rules]]
+from = "db-read"
+allow = []
+
+[[boundaries.rules]]
+from = "db-write"
+allow = []
+
+# ---------------------------------------------------------------------------
+# Forbidden calls: defense in depth against a smuggled handle.
+#
+# The import rules stop a reader from *importing* the write pool. This stops it
+# from writing even when a writable handle arrives some other way — passed in
+# as a parameter, pulled off a context object, returned by a factory. The
+# import graph cannot see those; a call-site rule can.
+# ---------------------------------------------------------------------------
+
+[[boundaries.calls.forbidden]]
+from = "readers"
+callee = ["*.insert", "*.update", "*.delete"]
+
+[[boundaries.calls.forbidden]]
+from = "reports"
+callee = ["*.insert", "*.update", "*.delete"]
+
+# ---------------------------------------------------------------------------
+# Coverage: a new file that matches no zone is itself a violation, so nobody
+# can add `src/services/` and quietly sit outside the policy.
+# ---------------------------------------------------------------------------
+
+[boundaries.coverage]
+requireAllFiles = true
+
+[duplicates]
+mode = "mild"
+minTokens = 50
+
+[health]
+maxCyclomatic = 15
+maxCognitive = 15

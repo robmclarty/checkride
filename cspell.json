@@ -71,6 +71,7 @@
     "tsgolint",
     "uncontended",
     "unkeyed",
+    "unzoned",
     "vitest",
     "wavemate",
     "Windsurf",

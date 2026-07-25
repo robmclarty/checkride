@@ -1,0 +1,9 @@
+{
+  "checks": {
+    "table-ownership": {
+      "command": "node",
+      "args": ["scripts/check-table-ownership.mjs"],
+      "description": "Each domain has one writer, and it writes only its own tables"
+    }
+  }
+}

@@ -1,0 +1,91 @@
+# The architecture, written down and enforced.
+#
+# Three domains in one deployable, each a folder module with a public `index.ts`.
+# The rules below are what a microservice split is usually reached for: nobody
+# may import anyone's internals, dependencies run one direction only, and a file
+# that belongs to no zone is itself a violation.
+
+entry = ["src/app.ts"]
+
+# Driven from the command line by the `struct` slot, never imported from source.
+ignoreDependencies = ["@ast-grep/cli"]
+
+[rules]
+unused-exports = "error"
+unused-files = "error"
+unused-dependencies = "error"
+circular-dependencies = "error"
+boundary-violation = "error"
+
+# ---------------------------------------------------------------------------
+# Zones: which files belong to which part of the architecture.
+# ---------------------------------------------------------------------------
+
+[[boundaries.zones]]
+name = "app"
+patterns = ["src/app.ts"]
+
+[[boundaries.zones]]
+name = "billing"
+patterns = ["src/domains/billing/**"]
+
+[[boundaries.zones]]
+name = "catalog"
+patterns = ["src/domains/catalog/**"]
+
+[[boundaries.zones]]
+name = "identity"
+patterns = ["src/domains/identity/**"]
+
+[[boundaries.zones]]
+name = "shared"
+patterns = ["src/shared/**"]
+
+# ---------------------------------------------------------------------------
+# Rules: who may import whom. A zone may import only what it lists.
+#
+# This is the part people assume needs separate deployables. `billing` may read
+# `catalog`; `catalog` may not read `billing`. That direction is enforced at
+# build time — no network boundary required, and no way to "just this once" it.
+# ---------------------------------------------------------------------------
+
+[[boundaries.rules]]
+from = "app"
+allow = ["billing", "catalog", "identity", "shared"]
+
+[[boundaries.rules]]
+from = "billing"
+allow = ["catalog", "shared"]
+
+[[boundaries.rules]]
+from = "catalog"
+allow = ["shared"]
+
+[[boundaries.rules]]
+from = "identity"
+allow = ["shared"]
+
+# `shared` is a leaf: it may not import a domain. This is what keeps a utility
+# folder from quietly becoming the place every domain meets.
+[[boundaries.rules]]
+from = "shared"
+allow = []
+
+# ---------------------------------------------------------------------------
+# Coverage: close the obvious hole.
+#
+# Without this, the rules above only constrain files that happen to match a
+# zone — so a new `src/services/` folder would be silently unconstrained.
+# `requireAllFiles` makes "belongs to no zone" a finding of its own.
+# ---------------------------------------------------------------------------
+
+[boundaries.coverage]
+requireAllFiles = true
+
+[duplicates]
+mode = "mild"
+minTokens = 50
+
+[health]
+maxCyclomatic = 15
+maxCognitive = 15

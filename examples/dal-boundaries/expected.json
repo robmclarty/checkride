@@ -1,0 +1,74 @@
+{
+  "description": "A Drizzle DAL where only a domain's single writer may write its tables — enforced as a build error, five ways.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true },
+    "dead": { "ok": true },
+    "table-ownership": { "ok": true }
+  },
+  "violations": [
+    {
+      "name": "a reader imports the read/write pool",
+      "edits": [
+        {
+          "file": "src/domains/orders/reader.ts",
+          "find": "import { readDb } from '../../db/read-pool.js';",
+          "replace": "import { writeDb as readDb } from '../../db/write-pool.js';"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_violations": 1 }
+    },
+    {
+      "name": "a reader writes through a handle passed in as a parameter",
+      "edits": [
+        {
+          "file": "src/domains/customers/reader.ts",
+          "find": "/** One customer by id. */",
+          "replace": "/** A write the import graph cannot see: the handle arrives as an argument. */\nexport async function sneakyWrite(db: {\n  insert: (table: unknown) => { values: (row: unknown) => Promise<void> };\n}): Promise<void> {\n  await db.insert(customers).values({ id: 'x', email: 'x', displayName: 'x' });\n}\n\n/** One customer by id. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_call_violations": 1 }
+    },
+    {
+      "name": "the cross-domain reporting module tries to write",
+      "edits": [
+        {
+          "file": "src/reports/monthly.ts",
+          "find": "/** Revenue by customer display name — reads two domains, writes neither. */",
+          "replace": "/** Caching the report back into a table — a write from a read-only zone. */\nexport async function cacheReport(db: {\n  insert: (table: unknown) => { values: (row: unknown) => Promise<void> };\n}): Promise<void> {\n  await db.insert(orders).values({});\n}\n\n/** Revenue by customer display name — reads two domains, writes neither. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_call_violations": 1 }
+    },
+    {
+      "name": "one domain's writer reaches for another domain's tables",
+      "edits": [
+        {
+          "file": "src/domains/orders/writer.ts",
+          "find": "import { orders } from './schema.js';",
+          "replace": "import { orders } from './schema.js';\nimport { customers } from '../customers/schema.js';\n\nvoid customers;"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["table-ownership"]
+    },
+    {
+      "name": "a second writer appears in one domain",
+      "edits": [
+        {
+          "file": "src/domains/orders/writer-bulk.ts",
+          "contents": "import { writeDb } from '../../db/write-pool.js';\nimport { orders } from './schema.js';\n\n/** A second writer for orders — convenient, and exactly what the rule forbids. */\nexport async function bulkInsert(rows: { id: string; customerId: string; totalCents: number }[]): Promise<void> {\n  await writeDb.insert(orders).values(rows);\n}\n"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["table-ownership"]
+    }
+  ]
+}

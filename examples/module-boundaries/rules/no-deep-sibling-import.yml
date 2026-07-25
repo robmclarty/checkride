@@ -1,0 +1,21 @@
+id: no-deep-sibling-import
+message: |
+  Module boundary: don't reach past another module's public surface.
+  Use `import { ... } from '<path>/index.js'`, never
+  `'<path>/<internal>.js'`.
+
+  This is the rule a network boundary gives you for free — and the one you
+  keep when you'd rather not pay for a network.
+severity: error
+language: typescript
+files:
+  - src/**/*.ts
+rule:
+  all:
+    - kind: import_statement
+    # Any relative import that leaves the current directory...
+    - regex: "from\\s+['\"](\\.\\./)+[^'\"]+['\"]"
+    # ...must land on a module's index, at any depth. `../catalog/index.js` and
+    # `../../shared/index.js` both pass; `../../shared/money.js` does not.
+    - not:
+        regex: "from\\s+['\"](\\.\\./)+[^'\"]*/index\\.js['\"]"

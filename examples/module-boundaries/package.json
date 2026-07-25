@@ -1,0 +1,17 @@
+{
+  "name": "checkride-example-module-boundaries",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Enforcing domain boundaries inside one deployable: directed dependencies, public surfaces, and no unzoned escape hatch.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.42.1",
+    "checkride": "link:../..",
+    "fallow": "3.5.0",
+    "oxlint": "1.61.0",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "description": "Domain boundaries inside one deployable: directed dependencies, public surfaces, and no unzoned escape hatch.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true },
+    "lint": { "ok": true },
+    "struct": { "ok": true },
+    "dead": { "ok": true }
+  },
+  "violations": [
+    {
+      "name": "a dependency running the wrong direction (catalog -> billing)",
+      "edits": [
+        {
+          "file": "src/domains/catalog/product.ts",
+          "find": "export type Product = {",
+          "replace": "import { renderLine } from '../billing/index.js';\n\nvoid renderLine;\n\nexport type Product = {"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_violations": 1 }
+    },
+    {
+      "name": "reaching past a sibling's public surface",
+      "edits": [
+        {
+          "file": "src/domains/billing/invoice.ts",
+          "find": "from '../catalog/index.js'",
+          "replace": "from '../catalog/product.js'"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["no-deep-sibling-import"]
+    },
+    {
+      "name": "a shared leaf reaching back into a domain",
+      "edits": [
+        {
+          "file": "src/shared/money.ts",
+          "find": "/** Format an amount in cents as a display string. */",
+          "replace": "import { findProduct } from '../domains/catalog/index.js';\n\nvoid findProduct;\n\n/** Format an amount in cents as a display string. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_violations": 1 }
+    },
+    {
+      "name": "a new folder that no zone covers",
+      "edits": [
+        {
+          "file": "src/services/rogue.ts",
+          "contents": "export function sneak(): string {\n  return 'no zone owns me';\n}\n"
+        },
+        {
+          "file": "src/app.ts",
+          "find": "/** Render a complete invoice for one customer. */",
+          "replace": "import { sneak } from './services/rogue.js';\n\nvoid sneak;\n\n/** Render a complete invoice for one customer. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_coverage_violations": 1 }
+    }
+  ]
+}

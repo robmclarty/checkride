@@ -15,6 +15,8 @@ which is the only reason to trust anything written here.
 | [`custom-checks/`](./custom-checks/) | The escape hatch: a bespoke formatter running ahead of the built-ins, `detect`-gated checks that stand down, and a rule no off-the-shelf linter could express | `0` |
 | [`shared-preset/`](./shared-preset/) | One versioned preset package carrying org-wide policy across a fleet — two tiers, deep-merged local overrides, and `detect` keeping it safe in repos with different toolchains | `0` |
 | [`polyglot/`](./polyglot/) | A Python repo: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks run the ecosystem's own tools | `0` |
+| [`module-boundaries/`](./module-boundaries/) | Domain boundaries enforced inside one deployment — directed dependencies, hidden internals, no unzoned escape hatch — and how that compares to splitting into services | `0` |
+| [`dal-boundaries/`](./dal-boundaries/) | A Drizzle/Postgres data-access layer where only a domain's single writer may write its tables, and cross-domain readers get a read-only pool | `0` |
 
 ## Running one
 
@@ -68,6 +70,13 @@ declares what a correct run looks like, and the end-to-end suite asserts it:
 | `digestContains` | Substrings that must appear in `.check/digest.md` |
 | `requires` | Binaries that must be on PATH; the example is skipped (loudly) when they are not |
 | `ratchet` | Optional multi-step scenario: introduce a finding, then fix one, asserting the exit code and baseline size at each step |
+| `violations` | Deliberate rule-breaking edits that must fail the build, each asserting the exit code, which checks failed, and which fallow counter or ast-grep rule fired |
+
+`violations` is what keeps an *enforcement* example honest. A boundary rule that
+silently stops matching still looks like a rule in review, so each example that
+claims to enforce something applies the violation, runs it, and asserts the
+specific finding — not merely that something went red. Edits are reverted after
+each violation, so they stay independent.
 
 `checks` is deliberately partial. Pinning every slot of every example would make
 the suite fail on unrelated additions to the pipeline; pinning the slots each

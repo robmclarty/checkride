@@ -16,7 +16,7 @@
 
 import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
-import { cp, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +57,24 @@ type Ratchet = {
   newFinding: { file: string; contents: string; exitCode: number };
   fix: { file: string; find: string; replace: string; exitCode: number; baselineKeysAfter: number };
 };
+
+/**
+ * One deliberate rule-breaking edit, and the failure it must produce.
+ *
+ * A boundary rule that never fires is worse than no rule: it reads like
+ * enforcement in review and enforces nothing. `failing` is a floor, not an
+ * exact set — one violation often trips several checks, and pinning all of them
+ * would make the suite brittle. `deadSummary` pins *which* fallow finding
+ * fired, so "the file was unused" can't masquerade as "the boundary held".
+ */
+type Violation = {
+  name: string;
+  edits: { file: string; find?: string; replace?: string; contents?: string }[];
+  exitCode: number;
+  failing?: string[];
+  deadSummary?: Record<string, number>;
+  structRules?: string[];
+};
 type Expected = {
   args?: string[];
   requires?: string[];
@@ -66,6 +84,7 @@ type Expected = {
   lastCheck?: string;
   digestContains?: string[];
   ratchet?: Ratchet;
+  violations?: Violation[];
 };
 
 /** Every example directory, discovered rather than listed. */
@@ -151,6 +170,74 @@ async function assertCanonicalRun(dir: string, name: string, expected: Expected)
   }
 }
 
+/** Apply one violation's edits, returning a restore function for each touched file. */
+async function applyEdits(dir: string, violation: Violation): Promise<() => Promise<void>> {
+  const undo: (() => Promise<void>)[] = [];
+
+  for (const edit of violation.edits) {
+    const path = join(dir, edit.file);
+
+    if (edit.find !== undefined) {
+      const before = await readFile(path, 'utf8');
+      expect(before, `${violation.name}: ${edit.file} no longer contains the text to edit`).toContain(edit.find);
+      await writeFile(path, before.replace(edit.find, edit.replace ?? ''));
+      undo.push(async () => writeFile(path, before));
+    } else {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, edit.contents ?? '');
+      undo.push(async () => rm(path, { force: true }));
+    }
+  }
+
+  return async () => {
+    for (const restore of undo) await restore();
+  };
+}
+
+/** Assert the fallow finding counters a violation must produce. */
+async function assertDeadSummary(dir: string, violation: Violation): Promise<void> {
+  const dead = await readJson<{ summary: Record<string, number> }>(join(dir, '.check', 'dead.json'));
+  for (const [counter, count] of Object.entries(violation.deadSummary ?? {})) {
+    expect(dead.summary[counter], `${violation.name}: fallow ${counter}`).toBe(count);
+  }
+}
+
+/** Assert the ast-grep rules a violation must trip. */
+async function assertStructRules(dir: string, violation: Violation): Promise<void> {
+  const matches = await readJson<{ ruleId: string }[]>(join(dir, '.check', 'struct.json'));
+  const tripped = new Set(matches.map((match) => match.ruleId));
+  for (const rule of violation.structRules ?? []) {
+    expect([...tripped], `${violation.name}: ast-grep rules that fired`).toContain(rule);
+  }
+}
+
+/**
+ * Every declared violation must actually break the build — and break it for the
+ * stated reason. Each is applied to the working copy, run, then reverted, so
+ * the violations are independent of one another.
+ */
+async function assertViolations(dir: string, args: readonly string[], violations: readonly Violation[]): Promise<void> {
+  for (const violation of violations) {
+    const revert = await applyEdits(dir, violation);
+    try {
+      expect(await runCli(dir, args), `violation "${violation.name}" must exit ${violation.exitCode}`).toBe(
+        violation.exitCode,
+      );
+
+      const summary = await readJson<Summary>(join(dir, '.check', 'summary.json'));
+      const failed = summary.checks.filter((check) => !check.ok && check.skipped !== true).map((check) => check.name);
+      for (const slot of violation.failing ?? []) {
+        expect(failed, `violation "${violation.name}" must fail the ${slot} check`).toContain(slot);
+      }
+
+      if (violation.deadSummary) await assertDeadSummary(dir, violation);
+      if (violation.structRules) await assertStructRules(dir, violation);
+    } finally {
+      await revert();
+    }
+  }
+}
+
 /** The baseline ratchet: a new finding fails, a failing run doesn't prune, a fix does. */
 async function assertRatchet(dir: string, args: readonly string[], ratchet: Ratchet): Promise<void> {
   const { newFinding, fix } = ratchet;
@@ -225,6 +312,7 @@ describe('examples', () => {
       try {
         await prepare(name, dir);
         await assertCanonicalRun(dir, name, expected);
+        if (expected.violations) await assertViolations(dir, args, expected.violations);
         if (expected.ratchet) await assertRatchet(dir, args, expected.ratchet);
       } finally {
         await rm(dir, { recursive: true, force: true });
