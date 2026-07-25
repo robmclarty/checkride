@@ -172,7 +172,7 @@ checkride/ (package root == plugin root)
 
 ## Steps
 
-1. [ ] feat(plugin): ship a Claude Code plugin manifest from the package root —
+1. [x] feat(plugin): ship a Claude Code plugin manifest from the package root —
    **done when:** `pnpm test` green with a new test asserting `plugin.json` parses, its
    `name` is `checkride`, its `version` equals package.json's (D8 (version-parity-test)),
    and `files` contains `.claude-plugin` and `skills` (C3 (files-array)) — plus `/version`

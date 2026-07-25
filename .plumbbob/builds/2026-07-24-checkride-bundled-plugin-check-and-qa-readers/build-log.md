@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — checkride bundled plugin: check and qa readers
 
-**Current step:** 1 — feat(plugin): ship a Claude Code plugin manifest from the package root
+**Current step:** 2 — feat(check): add a bounded, contract-aware triage preflight reader
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -23,7 +23,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 line above. Only ONE step is in flight; a step is done only after a checkpoint —
 check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 
-- ☐ 1. feat(plugin): ship a Claude Code plugin manifest from the package root
+- ☑ 1. feat(plugin): ship a Claude Code plugin manifest from the package root
 - ☐ 2. feat(check): add a bounded, contract-aware triage preflight reader
 - ☐ 3. feat(check): add the check skill that triages a red gate
 - ☐ 4. feat(qa): add a bounded extractor for the quality artifacts
@@ -64,3 +64,4 @@ fills in as you go, not at the end. Add your own decision/event lines too: this 
 you point at to say "I did that — the LLM helped, but those were my calls."
 `/pb-finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
+- 2026-07-25 — step 1 checkpointed · cf4856b17 — feat(plugin): ship a Claude Code plugin manifest from the package root (2 red, 20m)
