@@ -1,0 +1,98 @@
+{
+  "description": "The same DAL policy as dal-boundaries with no custom script — fallow on the domain axis, ast-grep on the role axis.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true },
+    "struct": { "ok": true },
+    "dead": { "ok": true }
+  },
+  "violations": [
+    {
+      "name": "a reader imports the read/write pool",
+      "edits": [
+        {
+          "file": "src/domains/orders/reader.ts",
+          "find": "import { readDb } from '../../db/read-pool.js';",
+          "replace": "import { writeDb as readDb } from '../../db/write-pool.js';"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["only-writers-hold-the-write-pool"]
+    },
+    {
+      "name": "reporting writes through a handle passed in as a parameter",
+      "edits": [
+        {
+          "file": "src/reports/monthly.ts",
+          "find": "/** Revenue by customer display name — reads two domains, writes neither. */",
+          "replace": "/** A write the import graph cannot see: the handle arrives as an argument. */\nexport async function cacheReport(db: {\n  insert: (table: unknown) => { values: (row: unknown) => Promise<void> };\n}): Promise<void> {\n  await db.insert(orders).values({});\n}\n\n/** Revenue by customer display name — reads two domains, writes neither. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["no-writes-outside-writers"]
+    },
+    {
+      "name": "one domain's writer reaches for another domain's schema",
+      "edits": [
+        {
+          "file": "src/domains/orders/writer.ts",
+          "find": "import { orders } from './schema.js';",
+          "replace": "import { orders } from './schema.js';\nimport { customers } from '../customers/schema.js';\n\nvoid customers;"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["struct", "dead"],
+      "structRules": ["writer-owns-only-its-tables"]
+    },
+    {
+      "name": "laundering: a schema re-exports another domain's table so the writer's own import looks legal",
+      "edits": [
+        {
+          "file": "src/domains/orders/schema.ts",
+          "find": "export const orders = pgTable(",
+          "replace": "export { customers } from '../customers/schema.js';\n\nexport const orders = pgTable("
+        },
+        {
+          "file": "src/domains/orders/writer.ts",
+          "find": "import { orders } from './schema.js';",
+          "replace": "import { customers, orders } from './schema.js';\n\nvoid customers;"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_violations": 1 }
+    },
+    {
+      "name": "a second writer appears in one domain",
+      "edits": [
+        {
+          "file": "src/domains/orders/writer-bulk.ts",
+          "contents": "import { writeDb } from '../../db/write-pool.js';\nimport { orders } from './schema.js';\n\n/** A second writer for orders — convenient, and exactly what the rules forbid. */\nexport async function bulkInsert(rows: { id: string; customerId: string; totalCents: number }[]): Promise<void> {\n  await writeDb.insert(orders).values(rows);\n}\n"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["only-writers-hold-the-write-pool", "no-writes-outside-writers"]
+    },
+    {
+      "name": "a new folder that no zone covers",
+      "edits": [
+        {
+          "file": "src/services/rogue.ts",
+          "contents": "export function sneak(): string {\n  return 'no zone owns me';\n}\n"
+        },
+        {
+          "file": "src/app.ts",
+          "find": "/** Onboard a customer and record their first order. */",
+          "replace": "import { sneak } from './services/rogue.js';\n\nvoid sneak;\n\n/** Onboard a customer and record their first order. */"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["dead"],
+      "deadSummary": { "boundary_coverage_violations": 1 }
+    }
+  ]
+}

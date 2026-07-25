@@ -1,0 +1,18 @@
+id: only-writers-hold-the-write-pool
+message: |
+  Only a domain's `writer.ts` may import the read/write pool. Readers,
+  reporting, public surfaces, and the app all get `read-pool.js`.
+
+  Note the shape of this rule: it applies to every source file and *exempts*
+  writers, rather than listing the files that are forbidden. A new file added
+  next Tuesday is covered without anyone editing this rule.
+severity: error
+language: typescript
+files:
+  - src/**/*.ts
+ignores:
+  - src/domains/*/writer.ts
+rule:
+  all:
+    - kind: import_statement
+    - regex: "write-pool\\.js"

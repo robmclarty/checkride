@@ -120,7 +120,7 @@ import-based tool, and it still fails the build.
 
 ### A custom check — table ownership
 
-Here is the rule the zone system *cannot* express, and it is worth
+Here is the rule *this* zone layout cannot express, and it is worth
 understanding why rather than working around it.
 
 Zone rules answer "may zone A import zone B?" — a question about two fixed
@@ -129,6 +129,17 @@ names. Table ownership is a question about a *relationship*: may
 in zones (`writers`, `schemas`) whose rule already says yes, because a writer
 must be able to import *some* schema. Which one is exactly what a zone cannot
 see.
+
+The deeper reason is that **a file belongs to exactly one zone** — zones are a
+partition, not overlapping labels — so a config has to choose an axis. This one
+chooses the *role* axis (`writers`, `readers`, `schemas`), which is what buys
+the pool rules above, and what costs the ownership rule here.
+
+Choosing the *domain* axis instead trades those the other way, and gets the
+ownership rule from zones alone. See
+[`dal-boundaries-declarative`](https://github.com/robmclarty/checkride/tree/main/examples/dal-boundaries-declarative),
+which enforces this same policy with no script by putting the domain axis in
+fallow and the role axis in ast-grep.
 
 So it goes in [twenty lines of path arithmetic](./scripts/check-table-ownership.mjs),
 wired as a custom check:
@@ -209,6 +220,26 @@ is red.
 The one thing worth doing before any of it: confirm the read-only role really is
 read-only in every environment. The static rules are the fast feedback loop;
 the database grant is the guarantee. Keep both.
+
+## A known gap in this layout
+
+Because zones are a partition, every domain's schema shares one `schemas` zone —
+and an import between two files in the same zone is intra-zone, so it passes.
+That leaves one route around the ownership check:
+
+```ts
+// orders/schema.ts — intra-zone, allowed
+export { customers } from '../customers/schema.js';
+
+// orders/writer.ts — imports only './schema.js', so the ownership check passes
+import { customers, orders } from './schema.js';
+```
+
+The write lands on another domain's table, and neither mechanism here objects.
+[`dal-boundaries-declarative`](https://github.com/robmclarty/checkride/tree/main/examples/dal-boundaries-declarative)
+closes it by zoning on the domain axis, where that re-export is a cross-zone
+import. If you adopt the layout in *this* example, add a rule for that case —
+or use the other layout.
 
 ## Limits
 

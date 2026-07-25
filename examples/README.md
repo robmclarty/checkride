@@ -17,6 +17,7 @@ which is the only reason to trust anything written here.
 | [`polyglot/`](./polyglot/) | A Python repo: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks run the ecosystem's own tools | `0` |
 | [`module-boundaries/`](./module-boundaries/) | Domain boundaries enforced inside one deployment — directed dependencies, hidden internals, no unzoned escape hatch — and how that compares to splitting into services | `0` |
 | [`dal-boundaries/`](./dal-boundaries/) | A Drizzle/Postgres data-access layer where only a domain's single writer may write its tables, and cross-domain readers get a read-only pool | `0` |
+| [`dal-boundaries-declarative/`](./dal-boundaries-declarative/) | The same DAL policy with no custom script — fallow zones on the domain axis, ast-grep rules on the role axis, and the laundering hole the other layout leaves open | `0` |
 
 ## Running one
 

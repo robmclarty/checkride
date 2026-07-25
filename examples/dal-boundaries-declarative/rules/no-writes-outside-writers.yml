@@ -1,0 +1,17 @@
+id: no-writes-outside-writers
+message: |
+  Only a domain's `writer.ts` may issue a write. This catches the case an
+  import rule cannot: a writable handle that arrives as a function parameter,
+  off a request context, or from a factory — no import anywhere in the file,
+  and still a write.
+severity: error
+language: typescript
+files:
+  - src/**/*.ts
+ignores:
+  - src/domains/*/writer.ts
+rule:
+  any:
+    - pattern: $OBJ.insert($$$ARGS)
+    - pattern: $OBJ.update($$$ARGS)
+    - pattern: $OBJ.delete($$$ARGS)

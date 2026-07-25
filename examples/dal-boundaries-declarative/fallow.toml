@@ -1,0 +1,101 @@
+# The same DAL policy as the `dal-boundaries` example, with no custom script.
+#
+# The division of labour here is the whole point, and it follows from one fact
+# about fallow: **a file belongs to exactly one zone.** Zones are a partition,
+# not a set of overlapping labels. So zoning has to pick an axis, and the two
+# available axes each enforce a different half of this policy:
+#
+#   - the DOMAIN axis (orders, customers, reports) stops one domain from
+#     reaching into another at all — including through a re-export;
+#   - the ROLE axis (writer, reader, schema) governs which pool a file may hold
+#     and whether it may write.
+#
+# This file takes the domain axis. `rules/*.yml` takes the role axis, because
+# ast-grep scopes by file glob and does not care about zones at all. Between
+# them the policy is closed, and neither needed a line of JavaScript.
+
+entry = ["src/app.ts"]
+
+# Driven from the command line by the `struct` slot, never imported.
+ignoreDependencies = ["@ast-grep/cli"]
+
+[rules]
+unused-exports = "error"
+unused-files = "error"
+unused-dependencies = "error"
+circular-dependencies = "error"
+boundary-violation = "error"
+
+# ---------------------------------------------------------------------------
+# Zones on the domain axis.
+# ---------------------------------------------------------------------------
+
+[[boundaries.zones]]
+name = "db-write"
+patterns = ["src/db/write-pool.ts"]
+
+[[boundaries.zones]]
+name = "db-read"
+patterns = ["src/db/read-pool.ts"]
+
+[[boundaries.zones]]
+name = "orders"
+patterns = ["src/domains/orders/**"]
+
+[[boundaries.zones]]
+name = "customers"
+patterns = ["src/domains/customers/**"]
+
+[[boundaries.zones]]
+name = "reports"
+patterns = ["src/reports/**"]
+
+[[boundaries.zones]]
+name = "app"
+patterns = ["src/app.ts"]
+
+# ---------------------------------------------------------------------------
+# Rules. A domain reaches the pools and nothing else — no domain may import
+# another domain by any route, which is what closes the laundering hole:
+# `orders/schema.ts` cannot re-export `customers/schema.ts` to smuggle a table
+# in behind a legal-looking `'./schema.js'` import.
+# ---------------------------------------------------------------------------
+
+[[boundaries.rules]]
+from = "orders"
+allow = ["db-write", "db-read"]
+
+[[boundaries.rules]]
+from = "customers"
+allow = ["db-write", "db-read"]
+
+# Reporting reads across domains by design, so it may import their schemas.
+# It still cannot write: that is the role axis's job, in rules/.
+[[boundaries.rules]]
+from = "reports"
+allow = ["db-read", "orders", "customers"]
+
+[[boundaries.rules]]
+from = "app"
+allow = ["orders", "customers", "reports"]
+
+[[boundaries.rules]]
+from = "db-read"
+allow = []
+
+[[boundaries.rules]]
+from = "db-write"
+allow = []
+
+# A file matching no zone is itself a violation, so `src/services/` is not a
+# way around any of the above.
+[boundaries.coverage]
+requireAllFiles = true
+
+[duplicates]
+mode = "mild"
+minTokens = 50
+
+[health]
+maxCyclomatic = 15
+maxCognitive = 15
