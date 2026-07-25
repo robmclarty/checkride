@@ -1,0 +1,15 @@
+{
+  "name": "checkride-example-agent-loop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "What an agent sees when the pipeline is red: summary.json, digest.md, and a Stop hook that refuses to let it finish.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride --digest"
+  },
+  "devDependencies": {
+    "checkride": "link:../..",
+    "oxlint": "1.61.0",
+    "typescript": "6.0.3"
+  }
+}

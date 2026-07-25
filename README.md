@@ -96,6 +96,12 @@ Task-focused guides live in [docs/](./docs/README.md):
 - [Reliability](./docs/reliability.md) — why checkride is safe to build a
   gate on.
 
+Runnable counterparts live in [examples/](./examples/): standalone projects you
+can install and run on their own, each demonstrating one thing — what an agent
+reads when the gate is red, or how a repo with existing debt adopts checkride
+without a cleanup project first. Each one declares the run it expects, and the
+end-to-end suite asserts it on every push.
+
 The rest of this README is the reference: the command surface, the pipeline
 model, the `.check/` output contract, configuration, and the baseline.
 

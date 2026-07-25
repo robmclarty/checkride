@@ -1,0 +1,12 @@
+{
+  "description": "Red on purpose: two defects in one function, caught by two different slots.",
+  "args": ["--digest"],
+  "exitCode": 1,
+  "checks": {
+    "types": { "ok": false },
+    "lint": { "ok": false },
+    "links": { "ok": true },
+    "spell": { "ok": true, "skipped": true }
+  },
+  "digestContains": ["src/checkout.ts", "shippingCents", "no-unused-vars"]
+}

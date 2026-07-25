@@ -11,7 +11,12 @@ entry = [
 
 # The static site (GitHub Pages): support.js is a generated runtime bundle and
 # the pages are standalone HTML — front-end assets, not package source.
-ignorePatterns = ["site/**"]
+#
+# examples/: standalone demo packages, each installed and run on its own by
+# test/e2e/examples.e2e.test.ts. Their files are unreachable from this package's
+# entry points by design (and some are deliberately broken), so dead-code
+# analysis of them from here would be noise.
+ignorePatterns = ["site/**", "examples/**"]
 
 # CLI/tooling deps used via command line or config files, not imported from source.
 ignoreDependencies = [

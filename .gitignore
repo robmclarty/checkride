@@ -14,3 +14,7 @@ stryker.incremental.json
 
 # Local scratch/exploration notes — never part of the package
 research/
+
+# Examples install independently; their lockfiles would be churn, not a
+# reproducibility guarantee (each package.json already pins exact versions).
+examples/*/pnpm-lock.yaml

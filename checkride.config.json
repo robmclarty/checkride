@@ -1,7 +1,12 @@
 {
   "$schema": "./schema/checkride.config.schema.json",
   "checks": {
-    "lint": { "use": "oxlint", "order": 1 },
+    "lint": {
+      "use": "oxlint",
+      "args": ["exec", "oxlint", "--type-aware", "--format=json", "--disable-nested-config"],
+      "description": "Oxlint, with nested-config discovery off (see test/dogfood-config.test.ts)",
+      "order": 1
+    },
     "struct": { "use": "ast-grep", "order": 1 },
     "types": { "use": "tsc", "order": 1 },
     "links": { "use": "links", "order": 1 },

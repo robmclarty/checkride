@@ -1,0 +1,24 @@
+{
+  "description": "Green while carrying three grandfathered lint findings; red the moment a fourth appears.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true },
+    "lint": { "ok": true, "baselined": 3 },
+    "links": { "ok": true }
+  },
+  "ratchet": {
+    "newFinding": {
+      "file": "src/new-feature.ts",
+      "contents": "export function summarize(rows: readonly string[]): number {\n  const pendingRewrite = true;\n\n  return rows.length;\n}\n",
+      "exitCode": 1
+    },
+    "fix": {
+      "file": "src/legacy-report.ts",
+      "find": "  const legacyPadding = '   ';\n\n",
+      "replace": "",
+      "exitCode": 0,
+      "baselineKeysAfter": 2
+    }
+  }
+}

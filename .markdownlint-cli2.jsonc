@@ -7,5 +7,8 @@
     "MD060": false
   },
   "globs": ["**/*.md"],
-  "ignores": ["**/node_modules/**", "dist/**", ".check/**", "plans/**", ".plumbbob/**", "CHANGELOG.md"]
+  // `**/.check/**`, not `.check/**`: examples/ are standalone projects that
+  // each generate their own `.check/` when run, and a generated digest.md is
+  // not prose to lint.
+  "ignores": ["**/node_modules/**", "dist/**", "**/.check/**", "plans/**", ".plumbbob/**", "CHANGELOG.md"]
 }
