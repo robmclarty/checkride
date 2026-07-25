@@ -1,0 +1,12 @@
+{
+  "regions": [
+    {
+      "code": "ca-central",
+      "label": "Canada Central"
+    },
+    {
+      "code": "us-east",
+      "label": "US East"
+    }
+  ]
+}

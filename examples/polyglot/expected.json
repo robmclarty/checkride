@@ -1,0 +1,15 @@
+{
+  "description": "A Python repo: the TypeScript built-ins stand down, ast-grep enforces Python boundaries, custom checks carry the rest.",
+  "args": [],
+  "requires": ["python3"],
+  "exitCode": 0,
+  "firstCheck": "py-syntax",
+  "checks": {
+    "py-syntax": { "ok": true },
+    "py-test": { "ok": true },
+    "struct": { "ok": true, "skipped": false },
+    "types": { "ok": true, "skipped": true, "reason": "no tool detected for slot" },
+    "lint": { "ok": true, "skipped": true, "reason": "no tool detected for slot" },
+    "test": { "ok": true, "skipped": true, "reason": "no tool detected for slot" }
+  }
+}

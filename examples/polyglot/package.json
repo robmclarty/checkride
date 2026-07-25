@@ -1,0 +1,14 @@
+{
+  "name": "checkride-example-polyglot",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Python repo gated by checkride: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks carry the rest.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.42.1",
+    "checkride": "link:../.."
+  }
+}

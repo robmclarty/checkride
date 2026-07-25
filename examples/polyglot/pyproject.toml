@@ -1,0 +1,9 @@
+[project]
+name = "orders"
+version = "1.0.0"
+description = "A small Python service, gated by checkride."
+requires-python = ">=3.11"
+
+[tool.checkride]
+# Nothing to configure here — this file's only job in this example is to exist,
+# so the `detect`-gated Python checks in checkride.config.json know to run.

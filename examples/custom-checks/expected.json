@@ -1,0 +1,15 @@
+{
+  "description": "Bespoke checks ordered around the built-in catalogue, one of them gated on marker files it doesn't find.",
+  "args": [],
+  "exitCode": 0,
+  "firstCheck": "tidy",
+  "lastCheck": "licenses",
+  "checks": {
+    "tidy": { "ok": true },
+    "types": { "ok": true },
+    "lint": { "ok": true },
+    "openapi": { "ok": true },
+    "terraform-fmt": { "ok": true, "skipped": true, "reason": "no detect file present" },
+    "licenses": { "ok": true }
+  }
+}

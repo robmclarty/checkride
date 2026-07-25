@@ -1,0 +1,14 @@
+{
+  "name": "@acme/checkride-preset",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Acme's org-wide checkride policy. In a real fleet this is published to a registry; here it is linked from the repo next door.",
+  "type": "module",
+  "main": "./preset.json",
+  "exports": {
+    ".": "./preset.json",
+    "./strict.json": "./strict.json",
+    "./package.json": "./package.json"
+  },
+  "license": "Apache-2.0"
+}

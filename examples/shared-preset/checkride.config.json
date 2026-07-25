@@ -1,0 +1,8 @@
+{
+  "extends": ["@acme/checkride-preset", "@acme/checkride-preset/strict.json"],
+  "checks": {
+    "no-todos": {
+      "description": "org policy: no TODO comments (waived for src/legacy until Q3)"
+    }
+  }
+}

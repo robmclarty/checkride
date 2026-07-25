@@ -1,0 +1,9 @@
+{
+  "checks": {
+    "license-headers": {
+      "command": "node",
+      "args": ["node_modules/@acme/checkride-preset/scripts/require-license-header.mjs"],
+      "description": "org policy (strict tier): every source file carries a license header"
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "checks": {
+    "py-syntax": {
+      "command": "python3",
+      "args": ["-m", "compileall", "-q", "src", "tests"],
+      "description": "Every Python source compiles",
+      "detect": ["pyproject.toml"],
+      "order": "first"
+    },
+
+    "py-test": {
+      "command": "python3",
+      "args": ["-m", "unittest", "discover", "-s", "tests", "-q"],
+      "description": "The unittest suite passes",
+      "detect": ["pyproject.toml"]
+    }
+  }
+}

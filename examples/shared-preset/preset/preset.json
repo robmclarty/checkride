@@ -1,0 +1,23 @@
+{
+  "checks": {
+    "no-todos": {
+      "command": "node",
+      "args": ["node_modules/@acme/checkride-preset/scripts/no-todo-comments.mjs"],
+      "description": "org policy: no TODO comments in shipped source"
+    },
+
+    "python-format": {
+      "command": "ruff",
+      "args": ["format", "--check", "."],
+      "description": "org policy: Python formatting",
+      "detect": ["pyproject.toml"]
+    },
+
+    "terraform-fmt": {
+      "command": "terraform",
+      "args": ["fmt", "-check", "-recursive"],
+      "description": "org policy: Terraform formatting",
+      "detect": [".terraform.lock.hcl", "main.tf"]
+    }
+  }
+}

@@ -14,7 +14,7 @@
  * built CLI is driven directly instead, exactly as the shapes suite does.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { cp, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,20 +35,37 @@ const BIG = { maxBuffer: 32 * 1024 * 1024 };
 const NOT_COPIED = /(?:^|[\\/])(?:node_modules|\.check)(?:[\\/]|$)/;
 
 /** The subset of `.check/summary.json` these assertions read. */
-type SummaryCheck = { name: string; ok: boolean; skipped?: boolean; baselined?: number };
+type SummaryCheck = {
+  name: string;
+  ok: boolean;
+  description?: string;
+  skipped?: boolean;
+  reason?: string;
+  baselined?: number;
+};
 type Summary = { checks: SummaryCheck[] };
 
 /** One example's declared contract — see examples/README.md. */
-type SlotExpectation = { ok?: boolean; skipped?: boolean; baselined?: number };
+type SlotExpectation = {
+  ok?: boolean;
+  description?: string;
+  skipped?: boolean;
+  reason?: string;
+  baselined?: number;
+};
+type Ratchet = {
+  newFinding: { file: string; contents: string; exitCode: number };
+  fix: { file: string; find: string; replace: string; exitCode: number; baselineKeysAfter: number };
+};
 type Expected = {
   args?: string[];
+  requires?: string[];
   exitCode: number;
   checks?: Record<string, SlotExpectation>;
+  firstCheck?: string;
+  lastCheck?: string;
   digestContains?: string[];
-  ratchet?: {
-    newFinding: { file: string; contents: string; exitCode: number };
-    fix: { file: string; find: string; replace: string; exitCode: number; baselineKeysAfter: number };
-  };
+  ratchet?: Ratchet;
 };
 
 /** Every example directory, discovered rather than listed. */
@@ -99,9 +116,57 @@ function assertChecks(summary: Summary, expected: Record<string, SlotExpectation
     expect(got, `slot '${slot}' is missing from summary.json`).toBeDefined();
     if (!got) continue;
     if (want.ok !== undefined) expect(got.ok, `${slot}.ok`).toBe(want.ok);
+    if (want.description !== undefined) expect(got.description, `${slot}.description`).toBe(want.description);
     if (want.skipped !== undefined) expect(got.skipped ?? false, `${slot}.skipped`).toBe(want.skipped);
+    if (want.reason !== undefined) expect(got.reason, `${slot}.reason`).toBe(want.reason);
     if (want.baselined !== undefined) expect(got.baselined, `${slot}.baselined`).toBe(want.baselined);
   }
+}
+
+/** Whether a binary an example depends on is callable on this machine. */
+function onPath(binary: string): boolean {
+  const probe = spawnSync(binary, ['--version'], { stdio: 'ignore' });
+  return probe.error === undefined && probe.status === 0;
+}
+
+/** The example's canonical run: exit code, per-slot verdicts, pipeline order, digest. */
+async function assertCanonicalRun(dir: string, name: string, expected: Expected): Promise<void> {
+  expect(await runCli(dir, expected.args ?? []), `${name}: exit code`).toBe(expected.exitCode);
+
+  const summary = await readJson<Summary>(join(dir, '.check', 'summary.json'));
+  if (expected.checks) assertChecks(summary, expected.checks);
+
+  // Ordering is a promise `order: "first"` / `"last"` makes, so assert it rather
+  // than trusting the run output to have looked right.
+  if (expected.firstCheck !== undefined) {
+    expect(summary.checks[0]?.name, `${name}: first check in pipeline order`).toBe(expected.firstCheck);
+  }
+  if (expected.lastCheck !== undefined) {
+    expect(summary.checks.at(-1)?.name, `${name}: last check in pipeline order`).toBe(expected.lastCheck);
+  }
+
+  if (expected.digestContains) {
+    const digest = await readFile(join(dir, '.check', 'digest.md'), 'utf8');
+    for (const needle of expected.digestContains) expect(digest).toContain(needle);
+  }
+}
+
+/** The baseline ratchet: a new finding fails, a failing run doesn't prune, a fix does. */
+async function assertRatchet(dir: string, args: readonly string[], ratchet: Ratchet): Promise<void> {
+  const { newFinding, fix } = ratchet;
+  const granted = await baselineKeys(dir);
+
+  await writeFile(join(dir, newFinding.file), newFinding.contents);
+  expect(await runCli(dir, args), 'a new finding must fail the run').toBe(newFinding.exitCode);
+  expect(await baselineKeys(dir), 'a failing run must not prune the baseline').toBe(granted);
+  await unlink(join(dir, newFinding.file));
+
+  const target = join(dir, fix.file);
+  const before = await readFile(target, 'utf8');
+  expect(before, `${fix.file} no longer contains the debt to fix`).toContain(fix.find);
+  await writeFile(target, before.replace(fix.find, fix.replace));
+  expect(await runCli(dir, args), 'fixing debt must leave the run green').toBe(fix.exitCode);
+  expect(await baselineKeys(dir), 'the ratchet must prune the fixed entry').toBe(fix.baselineKeysAfter);
 }
 
 describe('examples', () => {
@@ -124,12 +189,19 @@ describe('examples', () => {
 
     for (const { name, pkg } of manifests) {
       const dir = join(EXAMPLES, name);
-      // `.oxlintrc.json` is required for isolation, not style: without one, an
-      // example inherits the repo root's oxlint config through ancestor
-      // discovery and stops being standalone. See test/dogfood-config.test.ts
-      // for the matching half of this constraint.
-      for (const file of ['README.md', 'expected.json', 'pnpm-workspace.yaml', '.oxlintrc.json']) {
+      for (const file of ['README.md', 'expected.json', 'pnpm-workspace.yaml']) {
         expect(existsSync(join(dir, file)), `${name}/${file} is missing`).toBe(true);
+      }
+
+      // An example that runs oxlint needs its own config for isolation, not
+      // style: without one it inherits the repo root's through ancestor
+      // discovery and stops being standalone. See test/dogfood-config.test.ts
+      // for the matching half of this constraint. An example that doesn't
+      // install oxlint never runs it, so it needs nothing.
+      if (pkg.devDependencies?.['oxlint'] !== undefined) {
+        expect(existsSync(join(dir, '.oxlintrc.json')), `${name} installs oxlint but has no .oxlintrc.json`).toBe(
+          true,
+        );
       }
 
       expect(pkg.private, `${name} must be private so it can never be published`).toBe(true);
@@ -138,43 +210,22 @@ describe('examples', () => {
   });
 
   for (const name of names) {
-    test(`${name} behaves as its expected.json declares`, async () => {
+    test(`${name} behaves as its expected.json declares`, async ({ skip }) => {
       const expected = await readJson<Expected>(join(EXAMPLES, name, 'expected.json'));
       const args = expected.args ?? [];
+
+      // An example may depend on a toolchain outside npm's reach. CI has these,
+      // so the coverage is real; a contributor's laptop might not, and skipping
+      // loudly beats a failure that says nothing about their change.
+      const missing = (expected.requires ?? []).filter((binary) => !onPath(binary));
+      if (missing.length > 0) skip(`${name} requires ${missing.join(', ')}, not on PATH`);
+
       const dir = await mkdtemp(join(tmpdir(), `checkride-example-${name}-`));
 
       try {
         await prepare(name, dir);
-
-        expect(await runCli(dir, args), `${name}: exit code`).toBe(expected.exitCode);
-
-        const summary = await readJson<Summary>(join(dir, '.check', 'summary.json'));
-        if (expected.checks) assertChecks(summary, expected.checks);
-
-        if (expected.digestContains) {
-          const digest = await readFile(join(dir, '.check', 'digest.md'), 'utf8');
-          for (const needle of expected.digestContains) expect(digest).toContain(needle);
-        }
-
-        if (expected.ratchet) {
-          const { newFinding, fix } = expected.ratchet;
-          const granted = await baselineKeys(dir);
-
-          // A finding that isn't grandfathered fails the run — and a failing
-          // run still leaves the baseline alone.
-          await writeFile(join(dir, newFinding.file), newFinding.contents);
-          expect(await runCli(dir, args), 'a new finding must fail the run').toBe(newFinding.exitCode);
-          expect(await baselineKeys(dir), 'a failing run must not prune the baseline').toBe(granted);
-          await unlink(join(dir, newFinding.file));
-
-          // Fixing grandfathered debt prunes its entry: the ratchet.
-          const target = join(dir, fix.file);
-          const before = await readFile(target, 'utf8');
-          expect(before, `${fix.file} no longer contains the debt to fix`).toContain(fix.find);
-          await writeFile(target, before.replace(fix.find, fix.replace));
-          expect(await runCli(dir, args), 'fixing debt must leave the run green').toBe(fix.exitCode);
-          expect(await baselineKeys(dir), 'the ratchet must prune the fixed entry').toBe(fix.baselineKeysAfter);
-        }
+        await assertCanonicalRun(dir, name, expected);
+        if (expected.ratchet) await assertRatchet(dir, args, expected.ratchet);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

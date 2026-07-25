@@ -12,6 +12,9 @@ which is the only reason to trust anything written here.
 | ------- | ----- | ----- |
 | [`agent-loop/`](./agent-loop/) | What an agent reads when the gate is red — `summary.json`, the token-bounded `digest.md`, the Claude Code Stop hook that blocks it from finishing anyway | `1` (on purpose) |
 | [`existing-repo-baseline/`](./existing-repo-baseline/) | Adopting checkride on a repo that already has findings: grandfather today's debt, fail on anything new, ratchet down as it is fixed | `0` |
+| [`custom-checks/`](./custom-checks/) | The escape hatch: a bespoke formatter running ahead of the built-ins, `detect`-gated checks that stand down, and a rule no off-the-shelf linter could express | `0` |
+| [`shared-preset/`](./shared-preset/) | One versioned preset package carrying org-wide policy across a fleet — two tiers, deep-merged local overrides, and `detect` keeping it safe in repos with different toolchains | `0` |
+| [`polyglot/`](./polyglot/) | A Python repo: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks run the ecosystem's own tools | `0` |
 
 ## Running one
 
@@ -60,8 +63,10 @@ declares what a correct run looks like, and the end-to-end suite asserts it:
 | ----- | ------- |
 | `args` | Flags passed to the CLI for this example's canonical run |
 | `exitCode` | The exit code the run must produce |
-| `checks` | Partial assertions against `.check/summary.json` — only the named slots are checked, on any of `ok`, `skipped`, `baselined` |
+| `checks` | Partial assertions against `.check/summary.json` — only the named slots are checked, on any of `ok`, `description`, `skipped`, `reason`, `baselined` |
+| `firstCheck` / `lastCheck` | The check that must come first or last in pipeline order, for examples that set `"order"` |
 | `digestContains` | Substrings that must appear in `.check/digest.md` |
+| `requires` | Binaries that must be on PATH; the example is skipped (loudly) when they are not |
 | `ratchet` | Optional multi-step scenario: introduce a finding, then fix one, asserting the exit code and baseline size at each step |
 
 `checks` is deliberately partial. Pinning every slot of every example would make
@@ -81,11 +86,17 @@ Keep the dependency footprint small. Every devDependency is installed once per
 example per CI matrix cell, so reach for the smallest tool that demonstrates the
 point.
 
-## Two tripwires worth knowing about
+## Three tripwires worth knowing about
 
-Both are enforced by tests, so you will find out immediately rather than
+All are caught by the suite, so you will find out immediately rather than
 subtly — but the reasoning is easier to read here than to reverse-engineer from
 a failure.
+
+**A relative Markdown link may not point outside its own example.** Each example
+is copied somewhere else before it runs, so `../other-example/` resolves in the
+repo and breaks in the copy — and the built-in `links` check turns that into a
+red run. Link to a sibling example (or to the main docs) by full URL. Links
+*within* an example are fine, and are checked.
 
 **Every example needs its own `.oxlintrc.json`.** Without one, oxlint walks up
 the directory tree and the example silently inherits the root repo's config —

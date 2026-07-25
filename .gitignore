@@ -18,3 +18,6 @@ research/
 # Examples install independently; their lockfiles would be churn, not a
 # reproducibility guarantee (each package.json already pins exact versions).
 examples/*/pnpm-lock.yaml
+
+# Bytecode written by the polyglot example's Python checks.
+__pycache__/

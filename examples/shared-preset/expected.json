@@ -1,0 +1,19 @@
+{
+  "description": "Two preset layers plus local overrides; the checks for tools this repo doesn't have stand down instead of failing.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true },
+    "lint": { "ok": true },
+    "no-todos": {
+      "ok": true,
+      "description": "org policy: no TODO comments (waived for src/legacy until Q3)"
+    },
+    "license-headers": {
+      "ok": true,
+      "description": "org policy (strict tier): every source file carries a license header"
+    },
+    "python-format": { "ok": true, "skipped": true, "reason": "no detect file present" },
+    "terraform-fmt": { "ok": true, "skipped": true, "reason": "no detect file present" }
+  }
+}

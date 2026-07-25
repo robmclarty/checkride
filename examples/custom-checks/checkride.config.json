@@ -1,0 +1,30 @@
+{
+  "checks": {
+    "tidy": {
+      "command": "node",
+      "args": ["scripts/normalize.mjs"],
+      "description": "Normalize the JSON fixtures before anything else reads them",
+      "order": "first"
+    },
+
+    "openapi": {
+      "command": "node",
+      "args": ["scripts/validate-openapi.mjs"],
+      "description": "The OpenAPI document parses and declares every route the app serves",
+      "detect": ["openapi.json", "openapi.yaml"]
+    },
+
+    "terraform-fmt": {
+      "command": "terraform",
+      "args": ["fmt", "-check", "-recursive"],
+      "description": "Terraform formatting — only in repos that actually have Terraform",
+      "detect": [".terraform.lock.hcl", "main.tf"]
+    },
+
+    "licenses": {
+      "command": "node",
+      "args": ["scripts/check-licenses.mjs"],
+      "description": "Every installed dependency carries an allowed license"
+    }
+  }
+}

@@ -1,0 +1,10 @@
+id: no-print-in-src
+message: |
+  Library code should not print. Return a value or use the `logging` module —
+  `print` is for entry points, and this package is imported, not run.
+severity: error
+language: python
+files:
+  - src/**/*.py
+rule:
+  pattern: print($$$ARGS)
