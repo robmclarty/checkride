@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A bundled Claude Code plugin, shipped from the package root.** The published
+  package now carries `.claude-plugin/plugin.json` and a `skills/` directory, so
+  `checkride` installs as a plugin from the same npm tarball you already depend
+  on (`/plugin marketplace add robmclarty/agent-tools`, then
+  `/plugin install checkride@robmclarty`). It is bundled rather than published
+  separately so the readers version in lockstep with the `.check/` contract they
+  parse; a test asserts the manifest's version equals `package.json`'s. Nothing
+  about the CLI, the exit codes or the `.check/` contract changes, installed or
+  not. See [docs/plugin.md](./docs/plugin.md).
+- **`/checkride:check` — triage a red gate.** Runs the repo's own `check` script
+  (the definition of done, which may carry deliberate `--only`/`--skip`), branches
+  on the promised 0/1/2 exit split, and names one root cause plus what it is
+  deliberately not reading. It covers the contract corners a hand-read of
+  `summary.json` gets wrong — exit 2 versus exit 1, vacuous green, a narrow run's
+  green, `baselined` counts, `skipped` slots, `exit_code: -1`, an unexpected
+  `schema_version`, stale artifacts, and a red gate whose compound `check` script
+  died before checkride ran — then opens exactly one raw file. Artifacts are
+  measured, never opened: a green 17-slot run renders in about 2 kB.
+- **`/checkride:qa` — read the quality signal.** Folds `mutation.json`,
+  `dead.json`, `dupes.json` and `health.json` into a report under 8 kB (2.2 MB of
+  mutation data becomes a ranked page), runs nothing at all, and opens with a
+  present / stale / not-opted-in ledger naming the command or config entry that
+  would produce each missing artifact — three of the four come from opt-in slots,
+  so partial data is the normal case.
+- **Two dependency-free readers behind those skills**, shipped prebuilt in
+  `dist/` so a plugin install needs no build step, and runnable without Claude
+  Code: `node node_modules/checkride/dist/triage/cli.js` and
+  `node node_modules/checkride/dist/qa/cli.js`, each taking an optional repo
+  path. Both use `node:` builtins only. Every artifact read is bounded, dated
+  against the run that claims it (an artifact older than the run's start is
+  labelled stale with its age, never silently dropped), and resolved by the
+  documented `output_file` → `<slot>.json` → `<slot>.stdout.txt`/`.stderr.txt`
+  convention, which matters because `output_file` is null for 8 of this repo's
+  17 slots — `test` among them.
+
+### Changed
+
+- **The AGENTS.md stanza written by `checkride init` and `checkride agent-setup`
+  names `/checkride:check`.** Exactly one added line; the prose procedure is
+  unchanged and still works standalone in a repo that never installs the plugin.
+
 ## [0.7.0] - 2026-07-22
 
 ### Changed

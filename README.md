@@ -93,6 +93,9 @@ Task-focused guides live in [docs/](./docs/README.md):
 - [The contract](./docs/contract.md) — the surfaces consumers may rely on:
   exit codes, the `summary.json` schema discipline, flags, exports, and the
   pin policy.
+- [The Claude Code plugin](./docs/plugin.md) — the bundled `/checkride:check`
+  and `/checkride:qa` skills: install, what each one reads, and what they
+  deliberately do not do.
 - [Reliability](./docs/reliability.md) — why checkride is safe to build a
   gate on.
 
@@ -258,6 +261,36 @@ runs with no baseline, so `schema_version` is unchanged.
 To debug a failure: read `summary.json` to find the failing slot, then read that
 slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 `digest.md` as a capped starting point.
+
+## The Claude Code plugin
+
+The package root is also a [Claude Code](https://claude.com/claude-code) plugin
+— two skills that consume the contract above, bundled in the same npm package
+and versioned with it:
+
+```text
+/plugin marketplace add robmclarty/agent-tools
+/plugin install checkride@robmclarty
+```
+
+- **`/checkride:check`** — triage a red gate. It runs the repo's own `check`
+  script, branches on the promised 0/1/2 exit split, and names **one root cause**
+  plus what it is deliberately not reading. It covers the corners a summary read
+  by hand gets wrong — exit 2 versus exit 1, vacuous green, a narrow run's green,
+  `baselined` counts, `skipped` slots, `exit_code: -1`, stale artifacts — then
+  opens exactly one raw file.
+- **`/checkride:qa`** — read the quality signal. It folds `mutation.json`,
+  `dead.json`, `dupes.json` and `health.json` into a report under 8 kB, runs
+  nothing, and reports which dimensions were never measured rather than guessing
+  at them.
+
+Both are **readers**: no new command, no new flag, no config, no hook. They
+exist because reading `.check/` by hand is unbounded (`mutation.json` is 2.2 MB
+in this repo) and credulous (every run overwrites `summary.json`, so an
+`ok: true` on disk may describe three of seventeen slots from a while ago). The
+readers ship prebuilt in `dist/`, so installing the plugin needs no build step,
+and they run without it too — `node node_modules/checkride/dist/triage/cli.js`
+prints the same report. Full details in [docs/plugin.md](./docs/plugin.md).
 
 ## Configuration
 

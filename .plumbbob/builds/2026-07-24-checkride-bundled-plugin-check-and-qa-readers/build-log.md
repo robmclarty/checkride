@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — checkride bundled plugin: check and qa readers
 
-**Current step:** 7 — feat(init): point the AGENTS.md stanza at the installed skill
+**Current step:** 8 — docs(plugin): document the bundled plugin and its two skills
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -29,7 +29,7 @@ check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 - ☑ 4. fix(check): route triage to the bytes that explain the failure
 - ☑ 5. feat(qa): add a bounded extractor for the quality artifacts
 - ☑ 6. feat(qa): add the qa skill that reads quality signal
-- ☐ 7. feat(init): point the AGENTS.md stanza at the installed skill
+- ☑ 7. feat(init): point the AGENTS.md stanza at the installed skill
 - ☐ 8. docs(plugin): document the bundled plugin and its two skills
 
 ## Park list
@@ -43,6 +43,7 @@ check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 - [x] pnpm-11 JSON pollution trigger identified (refines park 1): it fires ONLY when checkride runs with no outer pnpm process — 'node dist/cli.js' direct makes each inner 'pnpm exec' re-verify deps and print to stdout, so dead/dupes/health fail with exit 0 + 'did not emit valid JSON'; via 'pnpm run check' the outer pnpm already verified and the inner exec stays quiet. Validates D3 (repo-script-preflight): the triage reader runs '<pm> run check', which is the invocation that avoids it.
 - [x] co-locate unit tests in per-directory src/**/__tests__/ folders instead of one src/__tests__/ (20 files + import-path rewrites), and decide the enforcement mechanism — ast-grep can only do it via a files-glob rule that matches any statement, so a fallow policy or a custom check may fit better
 - [ ] Stop-hook guidance in src/agent-setup/hook.ts still carries the thin procedure ('read .check/summary.json, fix the failing slot') and never names /checkride:check — deferred: changing the command string rewrites .claude/settings.json in every repo on upgrade
+- [ ] CHANGELOG now carries an '## [Unreleased]' section, but .claude/skills/version/SKILL.md step 8 says to insert the new release section 'above the current top ## [...] section' — which would land the release ABOVE Unreleased and strand it. Teach /version to fold an existing Unreleased section into the new release heading (and drop the empty shell) instead.
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 
@@ -132,3 +133,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-28 — step 4 checkpointed · 281d5ff3a — fix(check): route triage to the bytes that explain the failure (1 drift, 13m)
 - 2026-07-28 — step 5 checkpointed · 92bf88bc1 — feat(qa): add a bounded extractor for the quality artifacts (1 drift, 29m)
 - 2026-07-28 — step 6 checkpointed · 6e303f588 — feat(qa): add the qa skill that reads quality signal (1 drift, 8m)
+- 2026-07-28 — step 7 checkpointed · f1498bcb2 — feat(init): point the AGENTS.md stanza at the installed skill (1 drift, 5m)

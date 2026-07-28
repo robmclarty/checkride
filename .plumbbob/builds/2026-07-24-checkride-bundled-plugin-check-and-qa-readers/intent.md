@@ -258,7 +258,7 @@ checkride/ (package root == plugin root)
    - seam: `skills/qa/SKILL.md`
    - model: opus — the whole point is avoiding the always-8-issues failure mode
 
-7. [ ] feat(init): point the AGENTS.md stanza at the installed skill —
+7. [x] feat(init): point the AGENTS.md stanza at the installed skill —
    **done when:** `checkride init` and `checkride agent-setup` still write a stanza whose
    prose procedure works standalone with no plugin installed, plus exactly one added line
    naming `/checkride:check` as the fuller path (D15 (stanza-stays-standalone)); existing

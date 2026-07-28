@@ -131,3 +131,5 @@ output for structured diagnostics. On a big repo, `--digest` writes a capped
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
 | Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes a Claude Code Stop hook |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
+| Red gate, want one root cause instead of the whole `.check/` | `/checkride:check` — the [bundled plugin](./plugin.md) |
+| "Do the tests actually test anything?" | `/checkride:qa` — same plugin, reads the quality artifacts |
