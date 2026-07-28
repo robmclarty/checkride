@@ -26,10 +26,11 @@ import type { Fingerprint } from './fingerprint.js';
 import { applyBaseline } from './store.js';
 
 /**
- * Minimum fallow JSON schema version checkride understands. fallow 3.5.0 and
- * 3.6.0 both emit schema_version 7; 2.x emitted 4 with an incompatible layout.
- * A report below this floor — or one whose kind/shape we can't read — is a
- * hard failure, never a silent pass.
+ * Minimum fallow JSON schema version checkride understands. Every fallow from
+ * 3.5.0 through 3.9.1 emits schema_version 7 (verified: dead-code, dupes, and
+ * health all report 7, with identical top-level layouts); 2.x emitted 4 with an
+ * incompatible layout. A report below this floor — or one whose kind/shape we
+ * can't read — is a hard failure, never a silent pass.
  */
 const FALLOW_SCHEMA_MIN = 7;
 
