@@ -11,7 +11,7 @@ import type { Baseline } from '../baseline/index.js';
 import { resolveChecks } from '../config.js';
 import type { ResolvedCheck } from '../config.js';
 import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
-import { fixInvocation, runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
+import { defaultConcurrency, fixInvocation, runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
 import { detectPackageManager } from '../pm/index.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
@@ -1014,4 +1014,23 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
     const result = await running;
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
   }, 30_000);
+});
+
+describe('defaultConcurrency', () => {
+  test('reserves a core locally, but not on CI (where nobody needs the machine responsive)', () => {
+    // The load-bearing case: a standard GitHub-hosted runner reports 2 CPUs.
+    // Reserving a core there collapsed the pool to 1 — wave scheduling
+    // silently did nothing on exactly the machine class the docs gate on.
+    expect(defaultConcurrency({}, 2)).toBe(1);
+    expect(defaultConcurrency({ CI: 'true' }, 2)).toBe(2);
+  });
+
+  test('keeps the cap of 4 and the floor of 1 in both modes', () => {
+    expect(defaultConcurrency({}, 12)).toBe(4);
+    expect(defaultConcurrency({ CI: 'true' }, 12)).toBe(4);
+    expect(defaultConcurrency({}, 1)).toBe(1);
+    expect(defaultConcurrency({ CI: 'true' }, 1)).toBe(1);
+    // An unset (or empty) CI variable means local.
+    expect(defaultConcurrency({ CI: '' }, 2)).toBe(1);
+  });
 });

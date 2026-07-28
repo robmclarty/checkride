@@ -192,12 +192,18 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
 
 /**
  * Default pool width for a wave (equal-`order` group): `min(4, max(1, cores −
- * 1))`. Heavy checks (test, mutation, build) parallelize internally, so
+ * reserve))`. Heavy checks (test, mutation, build) parallelize internally, so
  * oversubscribing every core is worse than a conservative cap; one reserved
- * core keeps the machine responsive. Override with `--concurrency`.
+ * core keeps the machine responsive — for the human at it. A hosted CI runner
+ * has no such human, and a standard GitHub-hosted runner reports 2 CPUs, so
+ * reserving one there collapsed the pool to 1 and wave scheduling silently
+ * degenerated to fully sequential — on exactly the machine class the docs say
+ * to gate on. Every CI provider sets `CI`, so no core is reserved there.
+ * Override with `--concurrency`; `--bail` stays fail-fast sequential.
  */
-function defaultConcurrency(): number {
-  return Math.min(4, Math.max(1, cpus().length - 1));
+export function defaultConcurrency(env: NodeJS.ProcessEnv = process.env, cores: number = cpus().length): number {
+  const reserve = env['CI'] ? 0 : 1;
+  return Math.min(4, Math.max(1, cores - reserve));
 }
 
 /** Grace between SIGTERM and SIGKILL when a timed-out check won't die politely. */

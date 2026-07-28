@@ -51,7 +51,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **The AGENTS.md stanza reports the configured gate, not the detected one.**
+- **The default concurrency no longer collapses to 1 on a 2-core CI runner.**
+  `defaultConcurrency` reserved a core to keep the machine responsive — sound
+  on a laptop, inapplicable on a hosted runner with no human at it. A
+  standard GitHub-hosted runner reports 2 CPUs, so the pool was 1 and a
+  wave-scheduled config executed fully sequentially (measured on a real
+  consumer: 27.4s wall against 27.4s of summed check time — 1.00x), on
+  exactly the machine class the docs say to gate on. With `CI` set (every
+  provider sets it) no core is reserved, so that runner now gets a pool of 2.
+  The cap of 4, the `--concurrency` override, and `--bail`'s sequential
+  behavior are unchanged. How much a 2-wide pool on 2 cores buys depends on
+  the mix: checks dominated by process startup and file discovery overlap
+  well; two CPU-bound tools may be closer to a wash. It is never slower than
+  the serialized pool it replaces, and `order` waves now schedule as
+  documented. docs/ci.md explains the runner-size effect and how to read
+  `total_duration_ms` against the per-check sum.
   `init` and `agent-setup` derived the stanza's "Active checks in this repo"
   line from the adoption inventory, which has detection semantics and never
   reads `checkride.config.json` — so opt-in slots a config entry opts in

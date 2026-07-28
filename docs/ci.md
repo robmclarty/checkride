@@ -49,6 +49,17 @@ Notes:
 - If the repo uses `--changed` locally, still run the **full** (default) set in
   CI: CI is the place the whole pipeline gets observed, which is also what
   lets a committed baseline [ratchet](../README.md#baseline).
+- **Wave concurrency depends on the runner's core count.** The default pool
+  width is `min(4, cores)` when `CI` is set (every provider sets it) and
+  `min(4, cores − 1)` locally, where a core is reserved to keep the machine
+  responsive. A standard GitHub-hosted `ubuntu-latest` runner reports 2 CPUs,
+  so its pool is 2; larger runners widen it up to the cap of 4, and
+  `--concurrency <n>` overrides either way. To see whether your waves
+  actually overlap, compare `total_duration_ms` in `.check/summary.json`
+  against the sum of the per-check `duration_ms` values — equal numbers mean
+  a fully serialized run. (Before 0.9.0 the local reservation also applied on
+  CI, which collapsed a 2-core runner's pool to 1 and silently serialized
+  every wave.)
 
 ## Legacy repos with a baseline
 
