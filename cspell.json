@@ -71,6 +71,7 @@
     "tsbuildinfo",
     "tsconfig",
     "tsgolint",
+    "unasserted",
     "uncontended",
     "unkeyed",
     "unparseable",

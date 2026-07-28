@@ -54,10 +54,10 @@ checkride/ (package root == plugin root)
   src/artifacts/    -> dist/   shared read: parse summary, pin schema, freshness window,
                                  resolve raw output               <- C7, D11, D13
   src/triage/       -> dist/   deterministic: run gate, branch exit code, assert schema
-  src/qa-extract/   -> dist/   deterministic: bounded excerpts of the big artifacts
+  src/qa/           -> dist/   deterministic: bounded excerpts of the big artifacts
   package.json  files: + .claude-plugin, skills   (never `scripts` — pack DENY)   <- C3
 
-  dist/triage                                 dist/qa-extract
+  dist/triage                                 dist/qa
     detect pm -> run repo `check` script        mutation.json  2.3 MB -> ranked survivors
     capture exit code (never die on red)        health.json     45 KB -> score + hotspots
       2 -> fold in `doctor`, STOP               dead.json      2.6 KB -> non-empty buckets
@@ -235,7 +235,7 @@ checkride/ (package root == plugin root)
      where step 3 put it.
    - model: sonnet — both changes are fully specified by the done-when
 
-5. [ ] feat(qa): add a bounded extractor for the quality artifacts —
+5. [x] feat(qa): add a bounded extractor for the quality artifacts —
    **done when:** run against this repo's own `.check/`, output stays under 8 KB (matching
    `--digest`'s ceiling) while ranking the top surviving-mutant files out of 777 of 4453,
    reporting `health_score` 80.6/B with its penalty breakdown, and labelling `mutation.json`
@@ -243,7 +243,8 @@ checkride/ (package root == plugin root)
    is *normal* in a fresh consumer repo, where `mutation`, `health` and `dupes` were never
    opted in, so the extractor reports not-opted-in with the command that would produce each
    (D14 (qa-reports-gaps)).
-   - seam: `src/qa-extract/`, `src/__tests__/qa-extract.test.ts`, `fallow.toml`
+   - seam: `src/qa/`, `src/__tests__/qa.test.ts`, `fallow.toml` (renamed from
+     `qa-extract` during the build, for symmetry with `src/triage/`)
    - model: opus — ranking 777 survivors into a useful short list is a design call, and
      the 2.3 MB parse has to stay bounded
 
