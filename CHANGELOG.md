@@ -51,6 +51,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The `security` slot now gates at `--audit-level`, not at any advisory.**
+  pnpm's JSON mode exits 1 on *any* advisory regardless of `--audit-level`
+  (only table mode lets the level gate the exit code — reproduced with a
+  single-moderate lockfile: `--json` exits 1, table exits 0), so the slot
+  judged by exit code effectively gated at zero advisories of any severity
+  rather than the declared `high`. `security` is now a built-in evaluator: it
+  runs the audit with `--json`, parses `metadata.vulnerabilities`, and fails
+  only on advisories at or above the threshold parsed from the adapter's own
+  `--audit-level` arg — so a consumer override keeps meaning what it says,
+  and "audit could not run" (registry unreachable, malformed output) stays a
+  failure rather than a silent pass. Consumers who dropped `--json` to work
+  around this can return to the default args and get the
+  `.check/security.json` artifact back (`--json` is appended if an override
+  omits it).
 - **`pack` no longer fails hard under pnpm older than 10.26.** pnpm only
   learned `pack --dry-run` in 10.26.0; every earlier pnpm — including 10.18.x
   lines consumers actually pin — rejects the flag with

@@ -102,9 +102,9 @@ describe('registry invariants', () => {
     expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
-  test('links, pack, smoke, and the two snippets adapters are the built-ins', () => {
+  test('links, pnpm-audit, pack, smoke, and the two snippets adapters are the built-ins', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
-    expect(builtins.map((a) => a.name)).toEqual(['links', 'pack', 'smoke', 'snippets', 'snippets-dist']);
+    expect(builtins.map((a) => a.name)).toEqual(['links', 'pnpm-audit', 'pack', 'smoke', 'snippets', 'snippets-dist']);
   });
 
   test('the smoke slot is an opt-in wave-20 built-in on a node liveness probe (D9)', () => {

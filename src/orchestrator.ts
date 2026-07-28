@@ -36,6 +36,7 @@ import { checkLinks } from './links.js';
 import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
+import { checkSecurity } from './security.js';
 import { checkSmoke } from './smoke.js';
 import { checkSnippets } from './snippets.js';
 import { parseToolJson } from './tool-json.js';
@@ -346,6 +347,37 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
   });
 }
 
+/**
+ * Dispatch a built-in check, or `null` when the adapter spawns a real tool.
+ * Every built-in that runs a subprocess goes through `spawnCheck`, so its
+ * child registers in `liveChecks` and inherits the timeout + reaping like any
+ * other check. `security` alone runs the adapter's own args — its
+ * `--audit-level` doubles as the threshold the evaluator enforces, since
+ * pnpm's JSON-mode exit code ignores the level. The snippets pair shares one
+ * execution path, differing only in mode.
+ */
+function runBuiltin(
+  adapter: Adapter,
+  ctx: { cwd: string; changed: boolean; pm: PackageManager },
+  timeout: number,
+): Promise<CheckOutcome> | null {
+  const base = { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout };
+  switch (adapter.builtin) {
+    case 'pack':
+      return checkPack({ ...base, pm: ctx.pm });
+    case 'smoke':
+      return checkSmoke(base);
+    case 'security':
+      return checkSecurity({ ...base, command: adapter.command, args: runtimeArgs(adapter, ctx.changed) });
+    case 'snippets':
+      return checkSnippets({ ...base, mode: 'src', pm: ctx.pm });
+    case 'snippets-dist':
+      return checkSnippets({ ...base, mode: 'dist', pm: ctx.pm });
+    default:
+      return null;
+  }
+}
+
 const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
@@ -353,22 +385,8 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
     return checkLinks(ctx.cwd, { exclude: adapter.exclude, allowlist: adapter.allowlist });
   }
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
-  // The pack built-in spawns its own subprocess (the PM's pack dry-run) through
-  // `spawnCheck`, so its child registers in `liveChecks` and inherits the
-  // timeout + reaping like every other check.
-  if (adapter.builtin === 'pack') return checkPack({ cwd: ctx.cwd, pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
-  // The smoke built-in spawns a `node` probe of the built package through
-  // `spawnCheck`, so that child registers in `liveChecks` and inherits the
-  // timeout + reaping like every other check.
-  if (adapter.builtin === 'smoke') return checkSmoke({ cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout });
-  // The snippets built-ins spawn `<pm> exec tsc` through `spawnCheck`;
-  // the two adapters share one execution path, differing only in mode.
-  if (adapter.builtin === 'snippets') {
-    return checkSnippets({ cwd: ctx.cwd, mode: 'src', pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
-  }
-  if (adapter.builtin === 'snippets-dist') {
-    return checkSnippets({ cwd: ctx.cwd, mode: 'dist', pm: ctx.pm, spawn: spawnCheck, timeoutSec: timeout });
-  }
+  const builtin = runBuiltin(adapter, ctx, timeout);
+  if (builtin) return builtin;
   const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };

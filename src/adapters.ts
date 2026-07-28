@@ -397,8 +397,13 @@ export const ADAPTERS: readonly Adapter[] = [
     description: 'Dependency audit (pnpm audit)',
     detect: [],
     command: 'pnpm',
+    // Unlike the other built-ins, the security evaluator DOES run these args:
+    // they are the audit invocation, and `--audit-level=<l>` doubles as the
+    // gate threshold it enforces itself — pnpm's JSON-mode exit code ignores
+    // the level, so trusting it gated at zero advisories of any severity.
     args: ['audit', '--audit-level=high', '--json'],
     outputFile: 'security.json',
+    builtin: 'security',
     devDeps: {},
   },
   {
