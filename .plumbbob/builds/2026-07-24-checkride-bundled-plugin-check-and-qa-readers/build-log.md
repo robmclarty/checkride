@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — checkride bundled plugin: check and qa readers
 
-**Current step:** 2 — feat(check): add a bounded, contract-aware triage preflight reader
+**Current step:** 3 — feat(check): add the check skill that triages a red gate
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -24,7 +24,7 @@ line above. Only ONE step is in flight; a step is done only after a checkpoint �
 check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 
 - ☑ 1. feat(plugin): ship a Claude Code plugin manifest from the package root
-- ☐ 2. feat(check): add a bounded, contract-aware triage preflight reader
+- ☑ 2. feat(check): add a bounded, contract-aware triage preflight reader
 - ☐ 3. feat(check): add the check skill that triages a red gate
 - ☐ 4. feat(qa): add a bounded extractor for the quality artifacts
 - ☐ 5. feat(qa): add the qa skill that reads quality signal
@@ -37,6 +37,9 @@ check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/pb-park` composes it). Harvest happens only at the boundary.
 - [ ] pnpm 11.1.2 verifyDepsBeforeRun prints 'Already up to date / Done in Xms' to stdout before every 'pnpm exec', breaking the JSON parse in dead/dupes/health/attw (tools exit 0, adapter reports 'did not emit valid JSON'). Hits every consumer on pnpm 11; workaround is --config.verify-deps-before-run=false. Real fix is adapters tolerating leading non-JSON, or not routing tools through pnpm exec.
+- [ ] On a red gate with zero failing slots (compound check script like 'tsc --build && node dist/cli.js' died before checkride ran), src/triage/render.ts shows no gate stderr — renderHarness returns '' unless doctor is folded in. The one branch where the gate's own output IS the only evidence is the branch that hides it. Fix: render the stderr tail whenever failing.length === 0 and the verdict is red.
+- [ ] src/artifacts/raw.ts:79 assumes stdout carries diagnostics and stderr is leftovers, but markdownlint-cli2 inverts it: docs.stdout.txt is progress narration ('Summary: 1 error(s)') while docs.stderr.txt (smaller!) holds the file:line:rule. Verified on a reddened run. The reader sends you to the count, not the location. Fix needs a per-adapter stream hint, or prefer the smaller .txt even when first is already .txt.
+- [ ] pnpm-11 JSON pollution trigger identified (refines park 1): it fires ONLY when checkride runs with no outer pnpm process — 'node dist/cli.js' direct makes each inner 'pnpm exec' re-verify deps and print to stdout, so dead/dupes/health fail with exit 0 + 'did not emit valid JSON'; via 'pnpm run check' the outer pnpm already verified and the inner exec stays quiet. Validates D3 (repo-script-preflight): the triage reader runs '<pm> run check', which is the invocation that avoids it.
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 
@@ -65,3 +68,4 @@ you point at to say "I did that — the LLM helped, but those were my calls."
 `/pb-finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
 - 2026-07-25 — step 1 checkpointed · cf4856b17 — feat(plugin): ship a Claude Code plugin manifest from the package root (2 red, 20m)
+- 2026-07-25 — step 2 checkpointed · 5850a1685 — feat(check): add a bounded, contract-aware triage preflight reader (1 drift, 26m)

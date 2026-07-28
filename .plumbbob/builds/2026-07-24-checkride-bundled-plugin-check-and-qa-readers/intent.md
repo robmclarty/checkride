@@ -184,7 +184,7 @@ checkride/ (package root == plugin root)
      `dogfood-config.test.ts`
    - model: sonnet — mechanical, fully specified by the done-when
 
-2. [ ] feat(check): add a bounded, contract-aware triage preflight reader —
+2. [x] feat(check): add a bounded, contract-aware triage preflight reader —
    **done when:** `pnpm test` green with fixture-driven tests covering every contract
    corner the prose stanza omits — exit 2 vs exit 1, vacuous green (`ok` with
    `checks_run: 0`), **narrow green** (`ok: true` over a subset of the configured slots,
