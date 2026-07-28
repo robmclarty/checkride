@@ -11,5 +11,7 @@ export {
   gateScript,
   HOOK_NAMES,
   type HookName,
+  PROTECT_SCRIPT_FILE,
+  protectScript,
   writeHooks,
 } from './hook.js';

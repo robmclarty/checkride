@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,8 @@ import {
   GATE_SCRIPT_FILE,
   gateScript,
   HOOK_NAMES,
+  PROTECT_SCRIPT_FILE,
+  protectScript,
   writeHooks,
 } from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
@@ -485,6 +487,18 @@ describe('hooks (applyHooks / gateScript)', () => {
     expect(applyHooks(once, HOOK_NAMES)).toEqual(once);
   });
 
+  test('the protect hook is a PreToolUse deny on the edit tools, and only those', () => {
+    const next = applyHooks({}, ['protect']);
+    const group = next.hooks?.PreToolUse?.[0];
+    // Edit tools only: Read is deliberately absent — the stanza's procedure
+    // and the plugin skills read .check artifacts, so a read-deny would break
+    // checkride's own triage flow.
+    expect(group?.matcher).toBe('Edit|Write|NotebookEdit');
+    expect(group?.hooks?.[0]?.command).toContain(PROTECT_SCRIPT_FILE);
+    expect(protectScript()).toContain('checkride.baseline.json');
+    expect(protectScript()).toContain('.check');
+  });
+
   test('the dirty hook is a PostToolUse edit-marker with the edit-tool matcher', () => {
     const next = applyHooks({}, ['dirty']);
     const group = next.hooks?.PostToolUse?.[0];
@@ -528,6 +542,11 @@ describe('hooks (applyHooks / gateScript)', () => {
   });
 });
 
+/** A PreToolUse hook payload for the protect script, as Claude Code sends it. */
+function call(toolInput: Record<string, string>): string {
+  return JSON.stringify({ tool_name: 'Edit', tool_input: toolInput });
+}
+
 describe('writeHooks', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-')); });
@@ -535,7 +554,7 @@ describe('writeHooks', () => {
 
   test('creates the settings file and gate script, then a second run is a no-op', async () => {
     const first = await writeHooks(dir);
-    expect(first.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE]);
+    expect(first.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE]);
     expect(first.files.every((f) => f.changed)).toBe(true);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(true);
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
@@ -587,6 +606,7 @@ describe('writeHooks', () => {
     expect(result.files.every((f) => f.changed)).toBe(true);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(false);
   });
 
   test('throws a friendly error naming the file on a malformed settings.json', async () => {
@@ -618,6 +638,30 @@ describe('writeHooks', () => {
     await writeFile(marker, '');
     await expect(sh('sh', [script], { env })).rejects.toMatchObject({ code: 2 });
     expect(existsSync(marker)).toBe(true);
+  }, 30000);
+
+  test('protect script behavior: denies baseline and .check edits, allows the rest, fails open', async () => {
+    await writeHooks(dir);
+    const script = join(dir, PROTECT_SCRIPT_FILE);
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: dir };
+    const status = (stdin: string): number => {
+      try {
+        execFileSync('node', [script], { input: stdin, env, stdio: ['pipe', 'pipe', 'pipe'] });
+        return 0;
+      } catch (err) {
+        return (err as { status?: number }).status ?? -1;
+      }
+    };
+
+    expect(status(call({ file_path: join(dir, 'checkride.baseline.json') }))).toBe(2);
+    expect(status(call({ file_path: join(dir, '.check', 'summary.json') }))).toBe(2);
+    expect(status(call({ notebook_path: join(dir, '.check', 'notes.ipynb') }))).toBe(2);
+    expect(status(call({ file_path: join(dir, 'src', 'index.ts') }))).toBe(0);
+    // A file merely *named* like the baseline elsewhere in the tree is allowed.
+    expect(status(call({ file_path: join(dir, 'fixtures', 'checkride.baseline.json') }))).toBe(0);
+    // Malformed input fails open: a broken hook must not brick every edit.
+    expect(status('not json')).toBe(0);
+    expect(status(JSON.stringify({ tool_name: 'Edit' }))).toBe(0);
   }, 30000);
 });
 

@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A PreToolUse deny hook guards checkride's accounting files.** "Never add
+  to the baseline to make a check pass" was README advice that an agent
+  editing the file has every local incentive to ignore; it is now
+  enforcement. Edits (Edit/Write/NotebookEdit) to `checkride.baseline.json`
+  and `.check/**` are blocked with a message explaining the ratchet; reads
+  are never denied — the stanza's own triage procedure and both plugin
+  skills read `.check/` artifacts. Both paths are unambiguous, so the deny
+  is exact; module-boundary rules deliberately stay in ast-grep, where they
+  are enforced over parsed code rather than approximated by paths.
 - **The gate now skips turns that edited nothing.** A new PostToolUse hook
   (`dirty`) touches `.check/.dirty` on every Edit/Write/NotebookEdit; the gate
   script exits 0 immediately when the marker is absent and clears it after a

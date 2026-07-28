@@ -35,8 +35,11 @@ export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
 /** The checkride-owned Stop-hook gate script, relative to the repo root. */
 export const GATE_SCRIPT_FILE = '.claude/hooks/checkride-gate.sh';
 
+/** The checkride-owned PreToolUse deny script, relative to the repo root. */
+export const PROTECT_SCRIPT_FILE = '.claude/hooks/checkride-protect.cjs';
+
 /** Every hook `agent-setup` can write; `--hook <a,b>` selects a subset. */
-export const HOOK_NAMES = ['gate', 'dirty'] as const;
+export const HOOK_NAMES = ['gate', 'dirty', 'protect'] as const;
 export type HookName = (typeof HOOK_NAMES)[number];
 
 /**
@@ -109,7 +112,61 @@ function hookSpecs(): HookSpec[] {
       sentinels: [DIRTY_MARKER],
       command: DIRTY_COMMAND,
     },
+    {
+      name: 'protect',
+      event: 'PreToolUse',
+      matcher: 'Edit|Write|NotebookEdit',
+      sentinels: [PROTECT_SCRIPT_FILE],
+      command: `node "\${CLAUDE_PROJECT_DIR:-.}/${PROTECT_SCRIPT_FILE}"`,
+    },
   ];
+}
+
+/**
+ * The `protect` deny script: "never add to the baseline to make a check pass"
+ * as enforcement, not README advice. A Node script (not sh) because the hook
+ * protocol is JSON on stdin, and every checkride repo has node by
+ * construction; `.cjs` so it runs regardless of the repo's module type. Only
+ * edit tools are matched — reads are never denied, because triage depends on
+ * reading `.check/` artifacts.
+ */
+export function protectScript(): string {
+  return [
+    '#!/usr/bin/env node',
+    "// checkride-protect.cjs — deny agent edits to checkride's accounting files.",
+    '// checkride owns this file: `checkride agent-setup` (and `checkride init`)',
+    '// overwrite it on every run.',
+    '//',
+    '// PreToolUse hook for Edit|Write|NotebookEdit. Exit 2 blocks the tool call',
+    '// (stderr is shown to the agent); exit 0 lets it proceed. Reads are never',
+    '// matched — triage depends on reading .check artifacts.',
+    "'use strict';",
+    "const { relative, sep } = require('node:path');",
+    '',
+    "let raw = '';",
+    "process.stdin.on('data', (chunk) => { raw += chunk; });",
+    "process.stdin.on('end', () => {",
+    '  let input;',
+    '  try {',
+    '    input = JSON.parse(raw);',
+    '  } catch {',
+    '    process.exit(0); // fail open: a broken hook must not brick every edit',
+    '  }',
+    '  const tool = input && input.tool_input;',
+    '  const target = tool && (tool.file_path || tool.notebook_path);',
+    "  if (typeof target !== 'string' || target.length === 0) process.exit(0);",
+    '  const root = process.env.CLAUDE_PROJECT_DIR || process.cwd();',
+    "  const rel = relative(root, target).split(sep).join('/');",
+    "  const denied = rel === 'checkride.baseline.json' || rel === '.check' || rel.startsWith('.check/');",
+    '  if (!denied) process.exit(0);',
+    '  process.stderr.write(',
+    "    'checkride: ' + rel + ' is checkride-owned accounting. Never edit the baseline or .check ' +",
+    "    'artifacts to make a check pass — fix the finding instead (the ratchet prunes the baseline on its own).\\n',",
+    '  );',
+    '  process.exit(2);',
+    '});',
+    '',
+  ].join('\n');
 }
 
 /**
@@ -291,6 +348,9 @@ export async function writeHooks(
   if (names.includes('gate')) {
     const script = gateScript(pm, { dirtyGuard: names.includes('dirty') });
     files.push(await putFile(cwd, GATE_SCRIPT_FILE, script, { dryRun, executable: true }));
+  }
+  if (names.includes('protect')) {
+    files.push(await putFile(cwd, PROTECT_SCRIPT_FILE, protectScript(), { dryRun, executable: true }));
   }
   return { files };
 }
