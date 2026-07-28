@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { applyStopHook, CLAUDE_SETTINGS_FILE, stopHookCommand, writeStopHook } from '../agent-setup/index.js';
+import { applyHooks, CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, gateScript, writeHooks } from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
@@ -338,14 +338,16 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.skipped).toContain('.oxlintrc.json (exists)');
   });
 
-  test('init writes the Claude Code Stop hook, and --no-hook skips it', async () => {
+  test('init writes the Claude Code hooks, and --no-hook skips them', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     const withHook = await runInit({ cwd: dir, probeFailures: noFailures });
     expect(withHook.written).toContain(CLAUDE_SETTINGS_FILE);
+    expect(withHook.written).toContain(GATE_SCRIPT_FILE);
     const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
       hooks: { Stop: { hooks: { command: string }[] }[] };
     };
-    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain('pnpm run check');
+    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('pnpm run check');
 
     await rm(join(dir, '.claude'), { recursive: true, force: true });
     const noHook = await runInit({ cwd: dir, hook: false, probeFailures: noFailures });
@@ -441,24 +443,26 @@ describe('publish-ready bundle (existing mode, step 9)', () => {
   });
 });
 
-describe('Stop hook (applyStopHook / stopHookCommand)', () => {
-  test('command runs the detected PM and blocks with exit 2', () => {
-    expect(stopHookCommand('pnpm')).toContain('pnpm run check');
-    expect(stopHookCommand('npm')).toContain('npm run check');
-    expect(stopHookCommand('yarn')).toContain('yarn run check');
-    expect(stopHookCommand('bun')).toContain('bun run check');
-    expect(stopHookCommand('npm')).toContain('exit 2');
+describe('hooks (applyHooks / gateScript)', () => {
+  test('gate script runs the detected PM and blocks with exit 2', () => {
+    for (const pm of ['pnpm', 'npm', 'yarn', 'bun'] as const) {
+      expect(gateScript(pm)).toContain(`${pm} run check`);
+    }
+    expect(gateScript('pnpm')).toContain('exit 2');
   });
 
-  test('adds a Stop group to empty settings', () => {
-    const next = applyStopHook({}, stopHookCommand('pnpm'));
-    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain('pnpm run check');
+  test('settings entry is a stable one-liner invoking the checkride-owned script', () => {
+    const next = applyHooks({}, ['gate']);
+    const command = next.hooks?.Stop?.[0]?.hooks?.[0]?.command;
+    expect(command).toContain(GATE_SCRIPT_FILE);
+    // PM-independent: the PM lives in the script, so the settings entry never
+    // changes when the PM does — that is what makes a refresh lossless.
+    expect(command).not.toContain('run check');
   });
 
   test('applying twice is a no-op (deep equal)', () => {
-    const cmd = stopHookCommand('pnpm');
-    const once = applyStopHook({ hooks: { Stop: [] } }, cmd);
-    expect(applyStopHook(once, cmd)).toEqual(once);
+    const once = applyHooks({ hooks: { Stop: [] } }, ['gate']);
+    expect(applyHooks(once, ['gate'])).toEqual(once);
   });
 
   test('preserves unrelated settings keys and other Stop groups', () => {
@@ -466,41 +470,44 @@ describe('Stop hook (applyStopHook / stopHookCommand)', () => {
       permissions: { allow: ['Bash'] },
       hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo other' }] }] },
     };
-    const next = applyStopHook(settings, stopHookCommand('pnpm'));
+    const next = applyHooks(settings, ['gate']);
     expect(next['permissions']).toEqual({ allow: ['Bash'] });
     expect(next.hooks?.Stop).toHaveLength(2);
     expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toBe('echo other');
   });
 
-  test('refreshes the command in place when the PM changes (no duplicate group)', () => {
-    const first = applyStopHook({}, stopHookCommand('pnpm'));
-    const second = applyStopHook(first, stopHookCommand('npm'));
-    expect(second.hooks?.Stop).toHaveLength(1);
-    expect(second.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain('npm run check');
-    expect(second.hooks?.Stop?.[0]?.hooks?.[0]?.command).not.toContain('pnpm run check');
+  test('migrates the legacy inline command in place (no duplicate group)', () => {
+    const inline =
+      "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2; exit 2; }";
+    const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: inline }] }] } };
+    const next = applyHooks(legacy, ['gate']);
+    expect(next.hooks?.Stop).toHaveLength(1);
+    expect(next.hooks?.Stop?.[0]?.hooks).toHaveLength(1);
+    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain(GATE_SCRIPT_FILE);
+    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).not.toContain('pnpm run check');
   });
 });
 
-describe('writeStopHook', () => {
+describe('writeHooks', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  test('creates the settings file, then a second run is a no-op', async () => {
-    const first = await writeStopHook(dir);
-    expect(first.changed).toBe(true);
+  test('creates the settings file and gate script, then a second run is a no-op', async () => {
+    const first = await writeHooks(dir);
+    expect(first.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE]);
+    expect(first.files.every((f) => f.changed)).toBe(true);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(true);
-    const second = await writeStopHook(dir);
-    expect(second.changed).toBe(false);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+    const second = await writeHooks(dir);
+    expect(second.files.every((f) => !f.changed)).toBe(true);
   });
 
-  test('uses the detected package manager (npm lockfile → npm run check)', async () => {
+  test('the script uses the detected package manager (npm lockfile → npm run check)', async () => {
     await writeFile(join(dir, 'package-lock.json'), '{}');
-    await writeStopHook(dir);
-    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
-      hooks: { Stop: { hooks: { command: string }[] }[] };
-    };
-    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain('npm run check');
+    await writeHooks(dir);
+    const script = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
+    expect(script).toContain('npm run check');
   });
 
   test('merges into an existing settings file, preserving other keys', async () => {
@@ -509,7 +516,7 @@ describe('writeStopHook', () => {
       join(dir, CLAUDE_SETTINGS_FILE),
       JSON.stringify({ model: 'sonnet', hooks: { PreToolUse: [{ matcher: 'Bash' }] } }),
     );
-    await writeStopHook(dir);
+    await writeHooks(dir, { hooks: ['gate'] });
     const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
       model: string;
       hooks: { PreToolUse: unknown[]; Stop: unknown[] };
@@ -519,16 +526,33 @@ describe('writeStopHook', () => {
     expect(settings.hooks.Stop).toHaveLength(1);
   });
 
+  test('migrates a settings file carrying the inline form, replacing, never duplicating', async () => {
+    await mkdir(join(dir, '.claude'), { recursive: true });
+    const inline = "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json.' >&2; exit 2; }";
+    await writeFile(
+      join(dir, CLAUDE_SETTINGS_FILE),
+      JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: inline }] }] } }),
+    );
+    await writeHooks(dir);
+    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      hooks: { Stop: { hooks: { command: string }[] }[] };
+    };
+    expect(settings.hooks.Stop).toHaveLength(1);
+    expect(settings.hooks.Stop[0]?.hooks).toHaveLength(1);
+    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
+  });
+
   test('dryRun computes without writing', async () => {
-    const result = await writeStopHook(dir, { dryRun: true });
-    expect(result.changed).toBe(true);
+    const result = await writeHooks(dir, { dryRun: true });
+    expect(result.files.every((f) => f.changed)).toBe(true);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
   });
 
   test('throws a friendly error naming the file on a malformed settings.json', async () => {
     await mkdir(join(dir, '.claude'), { recursive: true });
     await writeFile(join(dir, CLAUDE_SETTINGS_FILE), '{ not valid json');
-    await expect(writeStopHook(dir)).rejects.toThrow('invalid .claude/settings.json');
+    await expect(writeHooks(dir)).rejects.toThrow('invalid .claude/settings.json');
   });
 });
 
@@ -554,7 +578,8 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     const second = await runAgentSetup({ cwd: dir });
     expect(second.written).toEqual([]);
     expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
-    expect(second.skipped).toContain(`${CLAUDE_SETTINGS_FILE} (Stop hook unchanged)`);
+    expect(second.skipped).toContain(`${CLAUDE_SETTINGS_FILE} (unchanged)`);
+    expect(second.skipped).toContain(`${GATE_SCRIPT_FILE} (unchanged)`);
   });
 
   test('stanza reports the configured gate, not detection: opted-in slots and custom checks appear', async () => {
@@ -594,5 +619,6 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     const result = await runAgentSetup({ cwd: dir, hook: false });
     expect(result.written).toContain('AGENTS.md');
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
   });
 });

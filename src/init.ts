@@ -21,7 +21,7 @@ import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
 import type { DocInput } from './snippets.js';
 import { planSnippets, selectDocFiles } from './snippets.js';
-import { CLAUDE_SETTINGS_FILE, writeStopHook } from './agent-setup/index.js';
+import { type HookName, writeHooks } from './agent-setup/index.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
@@ -48,10 +48,12 @@ export type InitOptions = {
    */
   force?: boolean;
   /**
-   * Write the Claude Code Stop hook to `.claude/settings.json`.
+   * Write the Claude Code hooks to `.claude/settings.json`.
    * Opt-out: defaults to on; `--no-hook` sets it `false`.
    */
   hook?: boolean;
+  /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
+  hooks?: readonly HookName[];
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -428,11 +430,18 @@ async function writePackage(w: Writer, dir: string, pkgName: string, value: stri
  * using the repo's detected package manager. Records the file when it
  * changed, else a no-op note in `skipped` when one is provided.
  */
-async function writeHook(w: Writer, hook: boolean | undefined, skipped?: string[]): Promise<void> {
+async function writeHook(
+  w: Writer,
+  hook: boolean | undefined,
+  hooks: readonly HookName[] | undefined,
+  skipped?: string[],
+): Promise<void> {
   if (hook === false) return;
-  const result = await writeStopHook(w.cwd, { dryRun: w.dryRun });
-  if (result.changed) w.written.push(result.path);
-  else skipped?.push(`${CLAUDE_SETTINGS_FILE} (Stop hook unchanged)`);
+  const result = await writeHooks(w.cwd, { dryRun: w.dryRun, ...(hooks ? { hooks } : {}) });
+  for (const f of result.files) {
+    if (f.changed) w.written.push(f.path);
+    else skipped?.push(`${f.path} (unchanged)`);
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -553,7 +562,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
 
   // Claude Code Stop hook (opt-out). A fresh project has no PM lockfile
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.
-  await writeHook(w, options.hook);
+  await writeHook(w, options.hook, options.hooks);
 
   if (options.stdout) reportNew(options.stdout, scaffold.shape, w, cwd);
   return { mode: 'new', shape: scaffold.shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
@@ -962,7 +971,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
   await writeClaudePointer(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
-  await writeHook(w, options.hook, skipped);
+  await writeHook(w, options.hook, options.hooks, skipped);
 
   if (options.stdout) {
     reportExisting(options.stdout, adopted, w, grandfathered, disabled);
@@ -989,8 +998,10 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
 export type AgentSetupOptions = {
   cwd?: string;
   dryRun?: boolean;
-  /** Write the Claude Code Stop hook (opt-out; `--no-hook`). Defaults to on. */
+  /** Write the Claude Code hooks (opt-out; `--no-hook`). Defaults to on. */
   hook?: boolean;
+  /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
+  hooks?: readonly HookName[];
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -1018,7 +1029,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
   await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
 
-  await writeHook(w, options.hook, skipped);
+  await writeHook(w, options.hook, options.hooks, skipped);
 
   if (options.stdout) {
     options.stdout.write(

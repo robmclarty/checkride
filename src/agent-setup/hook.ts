@@ -1,21 +1,30 @@
 /**
- * Claude Code Stop hook — the mechanical half of the agent contract.
+ * Claude Code hooks — the mechanical half of the agent contract.
  *
- * `init` and `checkride agent-setup` write an idempotent Stop hook into
- * `.claude/settings.json`. It runs the project's `check` script as a hard gate:
- * exit 2 blocks the agent from finishing while the pipeline is red, so "exit 0 =
- * done" becomes enforcement, not just advice. The command uses the *detected*
- * package manager's run form (`pnpm run check`, `npm run check`, `yarn run
- * check`, `bun run check`) so the hook works in any repo, not only pnpm ones.
- * Merging is surgical: unrelated hooks, other Stop groups, and every other
- * settings key are preserved, and re-applying with the same PM is a no-op.
+ * `init` and `checkride agent-setup` write a small registry of hooks into
+ * `.claude/settings.json`. The load-bearing one is the Stop-hook gate: it runs
+ * the project's `check` script and exits 2 while the pipeline is red, so
+ * "exit 0 = done" becomes enforcement, not just advice.
  *
- * This module owns only the hook; the AGENTS.md stanza and the higher-level
- * `agent-setup` command live in `init.ts`, which imports the writer here — a
+ * The settings entry for the gate is a stable one-liner invoking a
+ * checkride-owned script (`.claude/hooks/checkride-gate.sh`); the behavior
+ * lives in the script. That split is what makes a refresh lossless: checkride
+ * overwrites its script freely, while a consumer customizes via a sibling
+ * script or the environment — never by editing the settings command, which
+ * earlier versions rewrote in place and thereby clobbered.
+ *
+ * Merging into settings.json is surgical: each hook is identified by a
+ * per-hook sentinel substring in its command (legacy forms included, so repos
+ * carrying the old inline command are migrated, never duplicated). Unrelated
+ * hooks, sibling groups, and every other settings key are preserved, and
+ * re-applying is a no-op.
+ *
+ * This module owns only the hooks; the AGENTS.md stanza and the higher-level
+ * `agent-setup` command live in `init.ts`, which imports the writers here — a
  * single direction, so there is no cycle.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 import { detectPackageManager, type PackageManager } from '../pm/index.js';
@@ -23,56 +32,141 @@ import { detectPackageManager, type PackageManager } from '../pm/index.js';
 /** Project-shared Claude Code settings (committed), relative to the repo root. */
 export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
 
+/** The checkride-owned Stop-hook gate script, relative to the repo root. */
+export const GATE_SCRIPT_FILE = '.claude/hooks/checkride-gate.sh';
+
+/** Every hook `agent-setup` can write; `--hook <a,b>` selects a subset. */
+export const HOOK_NAMES = ['gate'] as const;
+export type HookName = (typeof HOOK_NAMES)[number];
+
 /**
- * Stable, package-manager-independent marker identifying checkride's Stop hook
- * inside a settings file. The run prefix varies by PM, so identity keys on the
- * guidance message, which does not.
+ * Sentinel carried by the legacy inline Stop command (pre-script versions
+ * rewrote the whole command in settings.json). Still matched so migration
+ * replaces that entry in place instead of adding a second gate.
  */
-const HOOK_SENTINEL = 'checkride: the gate is red';
+const LEGACY_GATE_SENTINEL = 'checkride: the gate is red';
+
+/** The settings events checkride writes hooks under. */
+type HookEvent = 'Stop' | 'PostToolUse' | 'PreToolUse';
 
 /** A single Claude Code command hook (fields optional — settings.json is untrusted). */
 type CommandHook = { type?: string; command?: string };
-/** A Stop-hook group. Only `hooks` is meaningful for Stop; other keys pass through. */
-type StopGroup = { hooks?: CommandHook[] } & Record<string, unknown>;
+/** A hook group. Tool events carry a `matcher`; Stop groups don't. Other keys pass through. */
+type HookGroup = { matcher?: string; hooks?: CommandHook[] } & Record<string, unknown>;
 /** The subset of `.claude/settings.json` we touch; every other key is preserved. */
-type ClaudeSettings = { hooks?: { Stop?: StopGroup[] } & Record<string, unknown> } & Record<string, unknown>;
+type ClaudeSettings = {
+  hooks?: Partial<Record<HookEvent, HookGroup[]>> & Record<string, unknown>;
+} & Record<string, unknown>;
 
-/** True when a hook entry is checkride's (matched by the PM-independent sentinel). */
-function isCheckrideHook(hook: CommandHook): boolean {
-  return hook.type === 'command' && typeof hook.command === 'string' && hook.command.includes(HOOK_SENTINEL);
+/** One registry entry: where the hook lives and how to recognize prior forms of it. */
+type HookSpec = {
+  name: HookName;
+  event: HookEvent;
+  /** Group matcher for tool events; absent for Stop. */
+  matcher?: string;
+  /** Recognition substrings, current form first, legacy forms after. */
+  sentinels: readonly string[];
+  /** The canonical settings command. */
+  command: string;
+};
+
+/**
+ * The gate's settings one-liner. `sh` (not the exec bit) runs the script so a
+ * clone that lost file modes still gates; `CLAUDE_PROJECT_DIR` anchors it when
+ * the session cwd is a subdirectory, falling back to cwd for older harnesses.
+ */
+const GATE_COMMAND = `sh "\${CLAUDE_PROJECT_DIR:-.}/${GATE_SCRIPT_FILE}"`;
+
+/** The hook registry. Order is write order; sentinels key identity in settings. */
+function hookSpecs(): HookSpec[] {
+  return [
+    {
+      name: 'gate',
+      event: 'Stop',
+      sentinels: [GATE_SCRIPT_FILE, LEGACY_GATE_SENTINEL],
+      command: GATE_COMMAND,
+    },
+  ];
+}
+
+/** The `check`-script invocation for `pm` (the alias `agent-setup` ensures exists). */
+function runCheckCommand(pm: PackageManager): string {
+  return `${pm} run check`;
 }
 
 /**
- * The Stop-hook command for `pm`: run the gate, and on red print guidance and
- * exit 2 (the blocking code — a plain exit 1 lets the agent stop anyway).
+ * The gate script for `pm`. checkride owns and overwrites this file on every
+ * `agent-setup`/`init`, so consumer customization belongs beside it, never in
+ * it.
  */
-export function stopHookCommand(pm: PackageManager): string {
-  const run = `${pm} run check`;
-  const guidance = `${HOOK_SENTINEL} — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).`;
-  return `${run} || { echo '${guidance}' >&2; exit 2; }`;
+export function gateScript(pm: PackageManager): string {
+  return [
+    '#!/bin/sh',
+    '# checkride-gate.sh — the Claude Code Stop-hook gate.',
+    '#',
+    '# checkride owns this file: `checkride agent-setup` (and `checkride init`)',
+    '# overwrite it on every run. Customize via a sibling script or the',
+    '# environment, not by editing here — edits are lost on the next refresh.',
+    '#',
+    "# Runs the repo's `check` script as a hard gate. Exit 2 blocks the agent",
+    '# from finishing while the pipeline is red.',
+    '',
+    'cd "${CLAUDE_PROJECT_DIR:-.}" || exit 2',
+    '',
+    `if ${runCheckCommand(pm)}; then`,
+    '  exit 0',
+    'fi',
+    '',
+    `echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2`,
+    'exit 2',
+    '',
+  ].join('\n');
+}
+
+/** True when a hook entry belongs to `spec` (matched by any of its sentinels). */
+function isSpecHook(spec: HookSpec, hook: CommandHook): boolean {
+  const command = hook.command;
+  return hook.type === 'command' && typeof command === 'string' && spec.sentinels.some((s) => command.includes(s));
+}
+
+/** The event's group list, tolerating a malformed (non-array) settings value. */
+function eventGroups(settings: ClaudeSettings, event: HookEvent): HookGroup[] {
+  const groups = settings.hooks?.[event];
+  return Array.isArray(groups) ? groups.map((g) => ({ ...g })) : [];
 }
 
 /**
- * Merge checkride's Stop hook into parsed settings, idempotently. An existing
- * checkride hook (found by its sentinel) has its command refreshed in place;
- * otherwise a new Stop group is appended. Sibling hooks in the same group, other
- * Stop groups, and every unrelated settings key are left untouched, so applying
- * twice with the same command yields deep-equal settings.
+ * Merge one hook into parsed settings, idempotently. An existing entry (found
+ * by sentinel, legacy forms included) has its command refreshed in place and
+ * its group's matcher normalized; otherwise a new group is appended. Sibling
+ * hooks in the same group, other groups, and every unrelated settings key are
+ * left untouched, so applying twice yields deep-equal settings.
  */
-export function applyStopHook(settings: ClaudeSettings, command: string): ClaudeSettings {
+function applyHook(settings: ClaudeSettings, spec: HookSpec): ClaudeSettings {
   const hooks = { ...settings.hooks };
-  const stop: StopGroup[] = Array.isArray(hooks.Stop) ? hooks.Stop.map((g) => ({ ...g })) : [];
-  const idx = stop.findIndex((g) => (g.hooks ?? []).some(isCheckrideHook));
-  const existing = idx >= 0 ? stop[idx] : undefined;
+  const groups = eventGroups(settings, spec.event);
+  const idx = groups.findIndex((g) => (g.hooks ?? []).some((h) => isSpecHook(spec, h)));
+  const existing = idx >= 0 ? groups[idx] : undefined;
   if (existing) {
-    stop[idx] = {
+    groups[idx] = {
       ...existing,
-      hooks: (existing.hooks ?? []).map((h) => (isCheckrideHook(h) ? { ...h, command } : h)),
+      ...(spec.matcher !== undefined ? { matcher: spec.matcher } : {}),
+      hooks: (existing.hooks ?? []).map((h) => (isSpecHook(spec, h) ? { ...h, command: spec.command } : h)),
     };
   } else {
-    stop.push({ hooks: [{ type: 'command', command }] });
+    groups.push({
+      ...(spec.matcher !== undefined ? { matcher: spec.matcher } : {}),
+      hooks: [{ type: 'command', command: spec.command }],
+    });
   }
-  return { ...settings, hooks: { ...hooks, Stop: stop } };
+  return { ...settings, hooks: { ...hooks, [spec.event]: groups } };
+}
+
+/** Merge the selected hooks into parsed settings (see {@link applyHook}). */
+export function applyHooks(settings: ClaudeSettings, names: readonly HookName[]): ClaudeSettings {
+  return hookSpecs()
+    .filter((spec) => names.includes(spec.name))
+    .reduce((acc, spec) => applyHook(acc, spec), settings);
 }
 
 async function readIfExists(path: string): Promise<string | null> {
@@ -97,28 +191,55 @@ function parseSettings(raw: string): ClaudeSettings {
   }
 }
 
-export type StopHookResult = { path: string; changed: boolean };
+type HookFile = { path: string; changed: boolean };
 
-/**
- * Write or refresh the Stop hook in `cwd/.claude/settings.json` for the detected
- * (or provided) package manager, preserving any other settings. Returns whether
- * the file changed: a second run with the same PM leaves it byte-identical, so
- * `changed` is `false`. `dryRun` computes the result without writing.
- */
-export async function writeStopHook(
+/** Write `content` to `cwd/rel` (creating directories) unless it already matches. */
+async function putFile(
   cwd: string,
-  opts: { pm?: PackageManager; dryRun?: boolean } = {},
-): Promise<StopHookResult> {
-  const path = join(cwd, CLAUDE_SETTINGS_FILE);
-  const pm = opts.pm ?? detectPackageManager({ cwd });
+  rel: string,
+  content: string,
+  opts: { dryRun: boolean; executable?: boolean },
+): Promise<HookFile> {
+  const path = join(cwd, rel);
   const raw = await readIfExists(path);
-  const settings: ClaudeSettings = raw ? parseSettings(raw) : {};
-  const next = applyStopHook(settings, stopHookCommand(pm));
-  const nextRaw = `${JSON.stringify(next, null, 2)}\n`;
-  const changed = raw !== nextRaw;
+  const changed = raw !== content;
   if (changed && !opts.dryRun) {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, nextRaw);
+    await writeFile(path, content);
+    if (opts.executable) await chmod(path, 0o755);
   }
-  return { path: CLAUDE_SETTINGS_FILE, changed };
+  return { path: rel, changed };
+}
+
+/**
+ * Write or refresh the selected hooks (default: all) in `cwd`: the settings
+ * entries in `.claude/settings.json`, plus the gate script the gate entry
+ * invokes, for the detected (or provided) package manager. Every write is
+ * idempotent — a second run reports `changed: false` per file. `dryRun`
+ * computes the result without writing.
+ */
+export async function writeHooks(
+  cwd: string,
+  opts: { pm?: PackageManager; dryRun?: boolean; hooks?: readonly HookName[] } = {},
+): Promise<{ files: HookFile[] }> {
+  const pm = opts.pm ?? detectPackageManager({ cwd });
+  const dryRun = opts.dryRun ?? false;
+  const names = opts.hooks ?? HOOK_NAMES;
+  const files: HookFile[] = [];
+
+  const settingsPath = join(cwd, CLAUDE_SETTINGS_FILE);
+  const raw = await readIfExists(settingsPath);
+  const settings: ClaudeSettings = raw ? parseSettings(raw) : {};
+  const nextRaw = `${JSON.stringify(applyHooks(settings, names), null, 2)}\n`;
+  const changed = raw !== nextRaw;
+  if (changed && !dryRun) {
+    await mkdir(dirname(settingsPath), { recursive: true });
+    await writeFile(settingsPath, nextRaw);
+  }
+  files.push({ path: CLAUDE_SETTINGS_FILE, changed });
+
+  if (names.includes('gate')) {
+    files.push(await putFile(cwd, GATE_SCRIPT_FILE, gateScript(pm), { dryRun, executable: true }));
+  }
+  return { files };
 }

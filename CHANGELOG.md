@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **The Stop-hook gate moved into a checkride-owned script,
+  `.claude/hooks/checkride-gate.sh`.** The settings.json entry is now a stable
+  one-liner invoking it (`sh "${CLAUDE_PROJECT_DIR:-.}/…"`), so refreshing is
+  genuinely lossless: checkride overwrites its script freely, and consumer
+  customization has a natural home (a sibling script, or the environment)
+  instead of an inline command the next `agent-setup` would clobber. Repos
+  carrying the old inline form are migrated in place on the next
+  `agent-setup`/`init` — detected by the existing sentinel and replaced, never
+  duplicated. `init`/`agent-setup` grow `--hook <a,b>` to select which hooks
+  to write (default: all); `--no-hook` remains the write-none escape.
+
 ### Fixed
 
 - **The AGENTS.md stanza reports the configured gate, not the detected one.**

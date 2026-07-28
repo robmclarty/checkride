@@ -1,7 +1,15 @@
 /**
- * Agent-setup module — the Claude Code Stop hook. This barrel is the
- * module's only public surface: siblings import from `../agent-setup`,
- * never from `./hook.js` directly.
+ * Agent-setup module — the Claude Code hooks (the Stop-hook gate and kin).
+ * This barrel is the module's only public surface: siblings import from
+ * `../agent-setup`, never from `./hook.js` directly.
  */
 
-export { applyStopHook, CLAUDE_SETTINGS_FILE, stopHookCommand, writeStopHook } from './hook.js';
+export {
+  applyHooks,
+  CLAUDE_SETTINGS_FILE,
+  GATE_SCRIPT_FILE,
+  gateScript,
+  HOOK_NAMES,
+  type HookName,
+  writeHooks,
+} from './hook.js';

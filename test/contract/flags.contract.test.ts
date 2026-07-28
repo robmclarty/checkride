@@ -99,3 +99,37 @@ describe('CLI slot-selection validation', () => {
     expect(stderr.text()).toContain('licenses');
   });
 });
+
+/**
+ * Contract: `init`/`agent-setup` take `--hook <a,b>` to select which Claude
+ * Code hooks to write (default: all), with `--no-hook` as the write-none
+ * escape. An unknown hook name is a usage error (exit 2) naming the valid set.
+ */
+describe('CLI hook selection (--hook / --no-hook)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-flag-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function deps(stderr: CliDeps['stderr']): CliDeps {
+    return { cwd: dir, stdout: { write: () => true }, stderr };
+  }
+
+  test('--hook gate is accepted on agent-setup and init', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['agent-setup', '--hook', 'gate', '--dry-run'], deps(capture()))).toBe(0);
+    expect(await runCli(['init', '--hook', 'gate', '--dry-run'], deps(capture()))).toBe(0);
+  });
+
+  test('an unknown hook name exits 2, naming it and the valid set', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    const stderr = capture();
+    expect(await runCli(['agent-setup', '--hook', 'bogus', '--dry-run'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain("'bogus'");
+    expect(stderr.text()).toContain('gate');
+  });
+
+  test('--no-hook still parses (the escape hatch is unchanged)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['agent-setup', '--no-hook', '--dry-run'], deps(capture()))).toBe(0);
+  });
+});

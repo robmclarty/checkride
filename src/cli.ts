@@ -14,6 +14,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
+import { HOOK_NAMES, type HookName } from './agent-setup/index.js';
 import { runBaseline } from './baseline-command.js';
 import { runDoctor } from './doctor.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
@@ -46,6 +47,7 @@ const INIT_OPTIONS = {
   'dry-run': { type: 'boolean', default: false },
   add: { type: 'string' },
   baseline: { type: 'boolean', default: false },
+  hook: { type: 'string' },
   'no-hook': { type: 'boolean', default: false },
   force: { type: 'boolean', default: false },
 } as const;
@@ -63,8 +65,8 @@ Commands:
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
-  agent-setup      Add the AGENTS.md stanza + Claude Code Stop hook to an
-                   existing repo (--no-hook to skip the hook).
+  agent-setup      Add the AGENTS.md stanza + Claude Code hooks to an existing
+                   repo (--hook <a,b> to select; --no-hook to skip them all).
 
 Run options:
   --only <a,b>     Run only these slots
@@ -101,7 +103,8 @@ Options:
   --add <a,b>      Scaffold blessed configs for empty slots (existing mode)
   --baseline       Grandfather currently-failing slots into a baseline (existing mode)
   --force          Overwrite existing files instead of refusing (new mode)
-  --no-hook        Skip writing the Claude Code Stop hook
+  --hook <a,b>     Write only these Claude Code hooks (${HOOK_NAMES.join(' | ')}; default all)
+  --no-hook        Skip writing the Claude Code hooks entirely
   --dry-run        Plan only; write nothing
   -h, --help       Show this help
 
@@ -202,6 +205,19 @@ function asShape(value: string | undefined): Shape | undefined {
   throw new Error(`invalid --shape '${value}' (expected flat | monorepo | hybrid)`);
 }
 
+/** Parse `--hook <a,b>` against the hook registry; an unknown name is a usage error. */
+function asHooks(value: string | undefined): HookName[] | undefined {
+  const names = parseList(value);
+  if (!names) return undefined;
+  return names.map((name) => {
+    const hit = HOOK_NAMES.find((h) => h === name);
+    if (hit === undefined) {
+      throw new Error(`invalid --hook '${name}' (expected ${HOOK_NAMES.join(' | ')})`);
+    }
+    return hit;
+  });
+}
+
 /** Parse `init` arguments into init options. */
 export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   const { rest } = detectCommand(argv);
@@ -216,6 +232,8 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   if (values['dry-run']) opts.dryRun = true;
   if (values.baseline) opts.baseline = true;
   if (values['no-hook']) opts.hook = false;
+  const hooks = asHooks(values.hook);
+  if (hooks) opts.hooks = hooks;
   if (values.force) opts.force = true;
   const add = parseList(values.add);
   if (add) opts.add = add;
@@ -258,6 +276,7 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
   const parsed = parseInitArgs(argv);
   const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
   if (parsed.hook !== undefined) opts.hook = parsed.hook;
+  if (parsed.hooks) opts.hooks = parsed.hooks;
   if (parsed.dryRun) opts.dryRun = true;
   const result = await runAgentSetup(opts);
   return result.exitCode;
