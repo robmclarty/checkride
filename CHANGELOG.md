@@ -4,6 +4,51 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-07-28
+
+### Changed
+
+- **`checkride init` now writes a newer toolchain into generated projects.**
+  The pinned versions a new project receives move to oxlint 1.74.0 (with
+  oxlint-tsgolint 0.25.0), fallow 3.9.1, ast-grep 0.45.0, vitest 4.1.10,
+  markdownlint-cli2 0.23.1, cspell 10.0.1, prettier 3.9.6, biome 2.5.6, jest
+  30.4.2, publint 0.3.22, attw 0.18.5, and `@types/node` 22.20.1. A freshly
+  generated project still installs and passes green out of the box. TypeScript
+  stays at 6.0.3, and the eslint and knip pins stay on their current majors —
+  all three are deliberate holds, now marked as such in the adapter registry.
+- **The documented fallow pin is 3.9.1.** The supported floor is unchanged:
+  fallow ≥ 3.5, JSON `schema_version` 7. Every release from 3.5.0 through 3.9.1
+  emits schema 7 with identical report layouts, so an existing baseline keeps
+  masking and no consumer has to move.
+
+### Fixed
+
+- **The bundled `check` skill quoted a markdownlint summary line that no longer
+  exists.** Its guidance on reading a failing `docs` slot cited
+  `Summary: 1 error(s)`; markdownlint-cli2 0.23 emits `Summary: 1 issue in 1
+  file`. The surrounding advice was still right — that tool puts the count on
+  stdout and the `file:line:rule` you actually need on stderr — but the quoted
+  string sent agents looking for text no run produces.
+
+### Internal
+
+- Development dependencies upgraded across the board, in separate verified
+  steps: fallow's report schema and layouts confirmed unchanged, ast-grep's
+  rules confirmed to still fire (repo *and* shipped template copies), and
+  oxlint's diagnostic text confirmed byte-identical for the baseline fixtures
+  it fingerprints.
+- Nine new oxlint errors from the 1.61 → 1.74 jump were fixed at the root
+  rather than suppressed: two genuinely unnecessary type assertions, and seven
+  test helpers hoisted out of the scopes they never captured.
+- `pnpm audit` is clean again. The `brace-expansion` override had gone stale as
+  its advisory widened, `fast-uri`, `postcss`, and a js-yaml 5.x entry were
+  added, and the `markdown-it` and js-yaml 4.x overrides were retired as
+  redundant — each verified by removal and re-audit, not by inspection.
+- Every GitHub Actions ref is now SHA-pinned with a version comment. `ci.yml`
+  alone had floated on mutable major tags, which made the workflow gating every
+  merge the one an upstream tag move could reach. CI's pnpm moves to 11.17.0,
+  verified to accept the committed lockfile unmodified.
+
 ## [0.9.1] - 2026-07-28
 
 ### Fixed
@@ -781,6 +826,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.9.2]: https://www.npmjs.com/package/checkride/v/0.9.2
 [0.9.1]: https://www.npmjs.com/package/checkride/v/0.9.1
 [0.9.0]: https://www.npmjs.com/package/checkride/v/0.9.0
 [0.8.1]: https://www.npmjs.com/package/checkride/v/0.8.1
