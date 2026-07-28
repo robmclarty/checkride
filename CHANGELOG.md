@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0] - 2026-07-28
 
 ### Added
 
@@ -42,12 +42,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   documented `output_file` → `<slot>.json` → `<slot>.stdout.txt`/`.stderr.txt`
   convention, which matters because `output_file` is null for 8 of this repo's
   17 slots — `test` among them.
+- **`examples/` — eight runnable projects, each demonstrating one thing.** They
+  are standalone packages rather than workspace members, so you `cd` in, install,
+  and run one without the rest of the repo: `agent-loop` (what an agent reads
+  when the gate is red), `existing-repo-baseline` (adopting checkride on a repo
+  that already has findings), `custom-checks` (the escape hatch — a bespoke
+  formatter ahead of the built-ins, `detect`-gated checks that stand down),
+  `shared-preset` (org-wide policy as one versioned package), `polyglot` (a
+  Python repo where the TypeScript built-ins stand down and ast-grep enforces
+  boundaries in Python), and `module-boundaries` / `dal-boundaries` /
+  `dal-boundaries-declarative` for boundary enforcement — the last expressing a
+  data-access policy with fallow zones and ast-grep rules alone, no custom script.
+  Each declares the exit code it expects and `test/e2e/examples.e2e.test.ts`
+  asserts it on every push, so an example that stops behaving as its README
+  claims fails CI.
 
 ### Changed
 
 - **The AGENTS.md stanza written by `checkride init` and `checkride agent-setup`
   names `/checkride:check`.** Exactly one added line; the prose procedure is
   unchanged and still works standalone in a repo that never installs the plugin.
+
+### Internal
+
+- `/version` now folds an existing `## [Unreleased]` changelog section into the
+  new release heading instead of inserting above it.
 
 ## [0.7.0] - 2026-07-22
 
@@ -613,6 +632,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.8.0]: https://www.npmjs.com/package/checkride/v/0.8.0
 [0.7.0]: https://www.npmjs.com/package/checkride/v/0.7.0
 [0.6.0]: https://www.npmjs.com/package/checkride/v/0.6.0
 [0.5.3]: https://www.npmjs.com/package/checkride/v/0.5.3
