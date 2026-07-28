@@ -32,6 +32,16 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(applyStanza(fromEmpty, body)).toBe(fromEmpty);
   });
 
+  test('names the plugin skill as the fuller path without displacing the prose procedure', () => {
+    // The stanza lands in repos that will never install the plugin, so the
+    // standalone procedure stays primary and the skill is exactly one added line.
+    expect(body).toContain('1. Read `.check/summary.json` to see which check failed.');
+    expect(body).toContain("2. Read that check's raw output");
+    expect(body).toContain('3. Fix the root cause, then re-run.');
+    const naming = body.split('\n').filter((line) => line.includes('/checkride:check'));
+    expect(naming).toEqual(['With the checkride plugin installed, `/checkride:check` runs this procedure in full.']);
+  });
+
   test('refreshes only the marked region, leaving the rest untouched', () => {
     const original = applyStanza('# Title\n\nkeep me\n', buildStanza(['types']));
     const refreshed = applyStanza(original, buildStanza(['types', 'lint']));
@@ -87,6 +97,7 @@ describe('new-project generation (flat)', () => {
 
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell.');
+    expect(agents).toContain('`/checkride:check` runs this procedure in full.');
   });
 
   test('default checkride spec pins the exact product version (no caret)', async () => {
@@ -538,6 +549,7 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(pkg.scripts['check']).toBe('checkride');
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('<!-- checkride:begin -->');
+    expect(agents).toContain('`/checkride:check` runs this procedure in full.');
 
     const second = await runAgentSetup({ cwd: dir });
     expect(second.written).toEqual([]);

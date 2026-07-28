@@ -248,7 +248,7 @@ checkride/ (package root == plugin root)
    - model: opus — ranking 777 survivors into a useful short list is a design call, and
      the 2.3 MB parse has to stay bounded
 
-6. [ ] feat(qa): add the qa skill that reads quality signal —
+6. [x] feat(qa): add the qa skill that reads quality signal —
    **done when:** `pnpm check` green and the skill grounds findings in the artifact
    priority order (surviving mutants, then dead code, then structure, then judgment last),
    opens with the present / stale / not-opted-in ledger rather than treating a gap as an edge

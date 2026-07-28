@@ -119,6 +119,8 @@ export function buildStanza(activeSlots: readonly string[]): string {
     "2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).",
     '3. Fix the root cause, then re-run.',
     '',
+    'With the checkride plugin installed, `/checkride:check` runs this procedure in full.',
+    '',
     'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
     '`pnpm check --changed`.',
     '',

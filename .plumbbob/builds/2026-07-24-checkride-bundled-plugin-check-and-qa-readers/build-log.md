@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — checkride bundled plugin: check and qa readers
 
-**Current step:** 6 — feat(qa): add the qa skill that reads quality signal
+**Current step:** 7 — feat(init): point the AGENTS.md stanza at the installed skill
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -28,7 +28,7 @@ check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 - ☑ 3. feat(check): add the check skill that triages a red gate
 - ☑ 4. fix(check): route triage to the bytes that explain the failure
 - ☑ 5. feat(qa): add a bounded extractor for the quality artifacts
-- ☐ 6. feat(qa): add the qa skill that reads quality signal
+- ☑ 6. feat(qa): add the qa skill that reads quality signal
 - ☐ 7. feat(init): point the AGENTS.md stanza at the installed skill
 - ☐ 8. docs(plugin): document the bundled plugin and its two skills
 
@@ -42,6 +42,7 @@ check green + checkpoint taken, via `/pb-verify` or `/pb-build`.)*
 - [x] src/artifacts/raw.ts:79 assumes stdout carries diagnostics and stderr is leftovers, but markdownlint-cli2 inverts it: docs.stdout.txt is progress narration ('Summary: 1 error(s)') while docs.stderr.txt (smaller!) holds the file:line:rule. Verified on a reddened run. The reader sends you to the count, not the location. Fix needs a per-adapter stream hint, or prefer the smaller .txt even when first is already .txt.
 - [x] pnpm-11 JSON pollution trigger identified (refines park 1): it fires ONLY when checkride runs with no outer pnpm process — 'node dist/cli.js' direct makes each inner 'pnpm exec' re-verify deps and print to stdout, so dead/dupes/health fail with exit 0 + 'did not emit valid JSON'; via 'pnpm run check' the outer pnpm already verified and the inner exec stays quiet. Validates D3 (repo-script-preflight): the triage reader runs '<pm> run check', which is the invocation that avoids it.
 - [x] co-locate unit tests in per-directory src/**/__tests__/ folders instead of one src/__tests__/ (20 files + import-path rewrites), and decide the enforcement mechanism — ast-grep can only do it via a files-glob rule that matches any statement, so a fallow policy or a custom check may fit better
+- [ ] Stop-hook guidance in src/agent-setup/hook.ts still carries the thin procedure ('read .check/summary.json, fix the failing slot') and never names /checkride:check — deferred: changing the command string rewrites .claude/settings.json in every repo on upgrade
 
 ## Harvest  *(run `/pb-harvest` at each step boundary, after green)*
 
@@ -130,3 +131,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-07-28 — step 3 checkpointed · 661907892 — feat(check): add the check skill that triages a red gate (5056m)
 - 2026-07-28 — step 4 checkpointed · 281d5ff3a — fix(check): route triage to the bytes that explain the failure (1 drift, 13m)
 - 2026-07-28 — step 5 checkpointed · 92bf88bc1 — feat(qa): add a bounded extractor for the quality artifacts (1 drift, 29m)
+- 2026-07-28 — step 6 checkpointed · 6e303f588 — feat(qa): add the qa skill that reads quality signal (1 drift, 8m)
