@@ -215,7 +215,7 @@ checkride/ (package root == plugin root)
    - seam: `skills/check/SKILL.md`
    - model: opus — the ordering judgment across simultaneous failures is the product
 
-4. [ ] fix(check): route triage to the bytes that explain the failure —
+4. [x] fix(check): route triage to the bytes that explain the failure —
    **done when:** two reader gaps found by step 3's dogfood are closed, with fixture tests
    for each. (a) A red gate that no slot explains — the compound `check` script
    (`tsc --build && node dist/cli.js`, the shape `init` writes) short-circuits before

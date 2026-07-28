@@ -17,8 +17,7 @@
 import { join } from 'node:path';
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import { CHECK_DIR, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
-import { loadConfig } from '../config.js';
+import { CHECK_DIR, configuredSlots, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator.js';
 import type { DoctorFold } from './doctor-fold.js';
@@ -108,22 +107,6 @@ async function buildRow(checkDir: string, check: SummaryCheck, windowStart: numb
     reason: check.reason ?? null,
     raw,
   };
-}
-
-/** Slots the repo names in `checkride.config.json` and has not switched off. */
-function configuredSlots(cwd: string): string[] | null {
-  try {
-    const checks = loadConfig(cwd)?.checks;
-    if (!checks) return null;
-    return Object.entries(checks)
-      .filter(([, value]) => value !== false)
-      .map(([slot]) => slot)
-      .toSorted();
-  } catch {
-    // An unparseable config is the gate's problem to report, not the reader's
-    // to crash on; coverage simply becomes unknowable.
-    return null;
-  }
 }
 
 function buildCoverage(cwd: string, rows: readonly SlotRow[]): Coverage {

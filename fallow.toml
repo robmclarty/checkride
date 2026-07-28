@@ -2,13 +2,14 @@
 # Docs: https://docs.fallow.tools
 
 # The bundled Claude Code plugin's readers are invoked as
-# `node dist/triage/cli.js` from a skill, never imported by src/index.ts or
-# src/cli.ts — so each executable entry module is declared here or `dead` flags
-# it as an unused file.
+# `node dist/triage/cli.js` and `node dist/qa/cli.js` from a skill,
+# never imported by src/index.ts or src/cli.ts — so each executable entry
+# module is declared here or `dead` flags it as an unused file.
 entry = [
   "src/index.ts",
   "src/cli.ts",
   "src/triage/cli.ts",
+  "src/qa/cli.ts",
   "src/**/*.test.ts",
   "test/**/*.test.ts",
   "stryker.config.mjs",
