@@ -32,6 +32,11 @@ const FRESH_MTIME = WINDOW_START + 1000;
 const FOUR_DAYS_MS = 4 * 86_400_000;
 const STALE_MTIME = WINDOW_START - FOUR_DAYS_MS;
 
+/** A stream with far more lines than any excerpt keeps, ending in `marker`. */
+function noisyStream(marker: string): string {
+  return `${'filler line\n'.repeat(4000)}${marker}`;
+}
+
 const dirs: string[] = [];
 
 afterEach(async () => {
@@ -187,6 +192,92 @@ describe('exit code branching', () => {
   });
 });
 
+/**
+ * The compound `check` script `checkride init` writes — `tsc --build && node
+ * dist/cli.js` — short-circuits before checkride ever runs, so a type error
+ * takes the gate red with no summary to explain it. That is the ordinary way a
+ * TypeScript repo fails, and the gate's own output is the only evidence of it.
+ *
+ * Measured on this repo: `tsc` reports on **stdout** while stderr carries only
+ * pnpm's command echo, so a reader that rendered stderr alone would print the
+ * echo and drop the error. Both streams render; neither is assumed.
+ */
+describe('a red gate that no slot explains', () => {
+  const TSC_ERROR = 'src/a.ts(12,5): error TS2322: Type \'string\' is not assignable to type \'number\'.\n';
+  /** What pnpm actually leaves on stderr while `tsc` reports on stdout. */
+  const PNPM_ECHO = '$ tsc --build && node dist/cli.js\n';
+  const COMPOUND = { script: 'tsc --build && node dist/cli.js' };
+
+  test('the gate output is rendered, because it is the only evidence there is', async () => {
+    const { report, text } = await run(
+      COMPOUND,
+      fakeEnv({ gate: { code: 1, stdout: TSC_ERROR, stderr: PNPM_ECHO } }),
+    );
+    expect(report.gate.verdict).toBe('red');
+    expect(report.failing).toEqual([]);
+    expect(text).toContain('**red, but no slot explains it**');
+    expect(text).toContain('## gate output');
+    expect(text).toContain('error TS2322');
+    expect(text).toContain('the only evidence there is');
+  });
+
+  test('a diagnosis on stdout is not dropped for being on the wrong stream', async () => {
+    // The measured shape: stderr holds the command echo, stdout holds the error.
+    const { text } = await run(COMPOUND, fakeEnv({ gate: { code: 1, stdout: TSC_ERROR, stderr: PNPM_ECHO } }));
+    expect(text).toContain('**stdout**');
+    expect(text).toContain('error TS2322');
+    expect(text).toContain('**stderr**');
+  });
+
+  test('a stream that caught nothing renders no block at all', async () => {
+    const { text } = await run(COMPOUND, fakeEnv({ gate: { code: 1, stderr: TSC_ERROR } }));
+    expect(text).toContain('**stderr**');
+    expect(text).not.toContain('**stdout**');
+  });
+
+  test('a stale green summary does not become the explanation', async () => {
+    const { report, text } = await run(
+      { ...COMPOUND, summary: summaryOf([check('links'), check('docs')]), summaryMtimeMs: STALE_MTIME },
+      fakeEnv({ gate: { code: 1, stdout: TSC_ERROR, stderr: PNPM_ECHO } }),
+    );
+    expect(report.fromThisRun).toBe(false);
+    expect(text).toContain('**red, but no slot explains it**');
+    expect(text).toContain('nothing in the table below describes this failure');
+    expect(text).toContain('error TS2322');
+  });
+
+  test('with neither stream captured, it says so rather than pointing at an empty section', async () => {
+    const { text } = await run({}, fakeEnv({ gate: { code: 1 } }));
+    expect(text).toContain('printed nothing on either stream');
+    expect(text).not.toContain('## gate output');
+  });
+
+  test('a red gate a slot DOES explain keeps the report an index, with no raw text', async () => {
+    const { text } = await run(
+      {
+        summary: summaryOf([check('types', { ok: false, exit_code: 2 })]),
+        artifacts: { 'types.stdout.txt': { text: 'error TS2322\n' } },
+      },
+      fakeEnv({ gate: { code: 1, stdout: 'GATE-STDOUT-MARKER\n', stderr: 'GATE-STDERR-MARKER\n' } }),
+    );
+    expect(text).toContain('**red** — 1 of 1 executed check(s) failed');
+    expect(text).not.toContain('## gate output');
+    expect(text).not.toContain('GATE-STDOUT-MARKER');
+    expect(text).not.toContain('GATE-STDERR-MARKER');
+  });
+
+  test('each stream stays a bounded tail, never a log dump', async () => {
+    const { text } = await run(
+      {},
+      fakeEnv({ gate: { code: 1, stdout: noisyStream(TSC_ERROR), stderr: noisyStream('boom\n') } }),
+    );
+    expect(text).toContain('error TS2322');
+    expect(text).toContain('last 25 of 4001 lines');
+    // Both streams together stay inside the old single-stream budget.
+    expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(8000);
+  });
+});
+
 describe('green that is not green', () => {
   test('vacuous green — ok with checks_run 0 — is called a failure wearing a pass', async () => {
     const { report, text } = await run(
@@ -298,6 +389,49 @@ describe('per-check reporting', () => {
       fakeEnv({ gate: { code: 1 } }),
     );
     expect(text).toContain('no output file found under `.check/`');
+  });
+
+  test('every alternate candidate is named with its size, not counted', async () => {
+    // markdownlint-cli2 inverts checkride's stream discipline: the chosen
+    // stdout carries a count while the smaller stderr carries the location. A
+    // bare `(+1)` leaves the agent guessing which sibling to open.
+    const { report, text } = await run(
+      {
+        summary: summaryOf([check('docs', { ok: false, exit_code: 1 })]),
+        artifacts: { 'docs.stdout.txt': { text: 'x'.repeat(2048) }, 'docs.stderr.txt': { text: 'y'.repeat(512) } },
+      },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(report.failing[0]?.raw?.candidates.map((c) => c.file)).toEqual(['docs.stdout.txt', 'docs.stderr.txt']);
+    expect(text).toContain('read `.check/docs.stdout.txt` (2.0 KB); also: `.check/docs.stderr.txt` (512 B)');
+    // The table stays width-constrained; `(+N)` is the compromise there only.
+    expect(text).toContain('`.check/docs.stdout.txt` (+1)');
+  });
+
+  test('a stale alternate carries its age, so it is never opened as this run\'s output', async () => {
+    const { text } = await run(
+      {
+        summary: summaryOf([check('test', { ok: false, exit_code: 1 })]),
+        artifacts: {
+          'test.json': { text: 'z'.repeat(4096), mtimeMs: STALE_MTIME },
+          'test.stdout.txt': { text: 'FAIL src/a.test.ts\n' },
+        },
+      },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(text).toContain('; also: `.check/test.json` (4.0 KB, stale 4.0d)');
+  });
+
+  test('a slot with one candidate gets no alternates clause at all', async () => {
+    const { text } = await run(
+      {
+        summary: summaryOf([check('lint', { ok: false, exit_code: 1, output_file: 'lint.json' })]),
+        artifacts: { 'lint.json': { text: '[]' } },
+      },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(text).toContain('read `.check/lint.json` (2 B)');
+    expect(text).not.toContain('; also:');
   });
 
   test('the table carries artifact SIZES, never artifact contents', async () => {

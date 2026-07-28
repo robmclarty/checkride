@@ -203,7 +203,7 @@ checkride/ (package root == plugin root)
    - model: opus — the deterministic reader is load-bearing; pm detection, exit-code
      capture without `set -e` death, and the schema assertion are each subtle
 
-3. [ ] feat(check): add the check skill that triages a red gate —
+3. [x] feat(check): add the check skill that triages a red gate —
    **done when:** `pnpm check` green (the new Markdown clears `docs`, `spell` and `links`)
    and a dogfood run — the plugin installed for real from a temporary local marketplace path
    entry (Q9 (dogfood-install)) — against a deliberately-reddened tree names one root cause,
@@ -215,7 +215,27 @@ checkride/ (package root == plugin root)
    - seam: `skills/check/SKILL.md`
    - model: opus — the ordering judgment across simultaneous failures is the product
 
-4. [ ] feat(qa): add a bounded extractor for the quality artifacts —
+4. [ ] fix(check): route triage to the bytes that explain the failure —
+   **done when:** two reader gaps found by step 3's dogfood are closed, with fixture tests
+   for each. (a) A red gate that no slot explains — the compound `check` script
+   (`tsc --build && node dist/cli.js`, the shape `init` writes) short-circuits before
+   checkride runs, so the gate exits 1, writes no summary, and the verdict reads "red, 0 of
+   N failed" over a stale table — renders the gate's own stderr tail, which the reader
+   already captured and currently drops on the one branch where it is the only evidence.
+   (b) The `failing slots` section names each alternate candidate with its size, not just
+   `(+N)`, so the skill's "if the chosen file gives you a count, open the `(+1)`" rule is
+   actionable without a guess. Existing triage tests stay green — this is additive
+   rendering, no model change.
+   - seam: `src/triage/render.ts`, `src/__tests__/triage.test.ts`
+   - note: `RawOutput.candidates` already carries file, bytes and freshness for every
+     alternate, so (b) needs no change to `src/artifacts/` — render-only, which is why the
+     seam excludes `raw.ts`. Deliberately *not* fixing the stdout-over-stderr preference at
+     `src/artifacts/raw.ts:79`: a reader cannot know which tools invert checkride's stream
+     discipline without a per-adapter table, so that judgment stays in the skill's prose
+     where step 3 put it.
+   - model: sonnet — both changes are fully specified by the done-when
+
+5. [ ] feat(qa): add a bounded extractor for the quality artifacts —
    **done when:** run against this repo's own `.check/`, output stays under 8 KB (matching
    `--digest`'s ceiling) while ranking the top surviving-mutant files out of 777 of 4453,
    reporting `health_score` 80.6/B with its penalty breakdown, and labelling `mutation.json`
@@ -227,7 +247,7 @@ checkride/ (package root == plugin root)
    - model: opus — ranking 777 survivors into a useful short list is a design call, and
      the 2.3 MB parse has to stay bounded
 
-5. [ ] feat(qa): add the qa skill that reads quality signal —
+6. [ ] feat(qa): add the qa skill that reads quality signal —
    **done when:** `pnpm check` green and the skill grounds findings in the artifact
    priority order (surviving mutants, then dead code, then structure, then judgment last),
    opens with the present / stale / not-opted-in ledger rather than treating a gap as an edge
@@ -237,7 +257,7 @@ checkride/ (package root == plugin root)
    - seam: `skills/qa/SKILL.md`
    - model: opus — the whole point is avoiding the always-8-issues failure mode
 
-6. [ ] feat(init): point the AGENTS.md stanza at the installed skill —
+7. [ ] feat(init): point the AGENTS.md stanza at the installed skill —
    **done when:** `checkride init` and `checkride agent-setup` still write a stanza whose
    prose procedure works standalone with no plugin installed, plus exactly one added line
    naming `/checkride:check` as the fuller path (D15 (stanza-stays-standalone)); existing
@@ -245,7 +265,7 @@ checkride/ (package root == plugin root)
    - seam: `src/init.ts` (`buildStanza`), `src/agent-setup/hook.ts`, their tests
    - model: sonnet — small prose and template edit
 
-7. [ ] docs(plugin): document the bundled plugin and its two skills —
+8. [ ] docs(plugin): document the bundled plugin and its two skills —
    **done when:** README and a `docs/` page cover install (the marketplace entry, and that
    the readers ship prebuilt in `dist/` so no consumer build step exists) and both skills,
    CHANGELOG has an `Added` entry for the release, and `pnpm check` green (`links` and
@@ -269,14 +289,14 @@ checkride/ (package root == plugin root)
     procedure lives centrally in the skill.
 
 - Q2 (storium-prior-art): *resolved:* 2026-07-24, read qa-analyze, qa-health, qa-
-  fragile; port nothing — should step 4/5 read storium's eight `qa-*` skills first?
+  fragile; port nothing — should step 5/6 read storium's eight `qa-*` skills first?
   - *plain:* `../qa/spec.md` says read all eight before designing, and flags honestly that
     the survey found them *by name, not by quality* — they have never run outside storium.
     They are 465 lines across eight files at `~/Projects/storium/.claude/skills/qa-*`.
     Reading all eight costs context on work that may not generalize; reading none risks
     rebuilding something already solved there.
   - *lean:* read the three closest to artifact reading — `qa-analyze` (78 lines),
-    `qa-health` (53), `qa-fragile` (56) — as input to steps 4 and 5, and port nothing from
+    `qa-health` (53), `qa-fragile` (56) — as input to steps 5 and 6, and port nothing from
     the other five. `qa-make-tests` is generation, a different job the spec already says
     not to ship alongside assessment.
 
@@ -296,7 +316,7 @@ checkride/ (package root == plugin root)
     the run's start — both fields are promised, so the derivation is contract-legal — and
     label anything older as stale, with its age; surface it, never silently drop it.
     Applies to both readers, so it lands in the shared module in step 2 and is reused in
-    step 4 (D11 (freshness-window)).
+    step 5 (D11 (freshness-window)).
 
 - Q4 (reader-home): *resolved:* 2026-07-24, TypeScript in src/, shipped in dist/ (D4) —
   where does the reader code live, given `scripts/` can never ship?
@@ -362,8 +382,8 @@ checkride/ (package root == plugin root)
     and nothing else. Partial data is the skill's normal case, not its edge case.
   - *lean:* qa stays a pure reader (D2 (reader-not-runner)) — for each of the four it
     reports present / stale / not-opted-in, names the exact command or config entry that
-    would produce a missing one, and never launches stryker itself. Step 5's "degrades
-    explicitly when an artifact is absent" is promoted to the main path, and step 4's
+    would produce a missing one, and never launches stryker itself. Step 6's "degrades
+    explicitly when an artifact is absent" is promoted to the main path, and step 5's
     fixtures cover mutation-absent.
 
 - Q8 (version-bump-coupling): *resolved:* 2026-07-24, keep the parity test, teach
@@ -379,7 +399,7 @@ checkride/ (package root == plugin root)
     step that creates the coupling, not in the docs step.
 
 - Q9 (dogfood-install): *resolved:* 2026-07-24, temporary local marketplace path entry —
-  how do steps 3 and 5 invoke the skills before any publish?
+  how do steps 3 and 6 invoke the skills before any publish?
   - *plain:* Steps 3 and 5 are the only ones whose done-when is a live skill run, and C6
     (catalog-after-publish) means npm cannot serve the plugin until a release exists.
     Nothing currently installs it from a working tree, so as written those two done-whens
@@ -425,11 +445,23 @@ checkride/ (package root == plugin root)
   with one added line naming `/checkride:check` (D15 (stanza-stays-standalone)); the
   plain-npm path must keep working untouched.
 - 2026-07-24 — Q2 (storium-prior-art) → chose **read three of the eight** (`qa-analyze`,
-  `qa-health`, `qa-fragile`) as input to steps 4 and 5; port nothing.
+  `qa-health`, `qa-fragile`) as input to steps 5 and 6; port nothing.
 - 2026-07-24 — Q8 (version-bump-coupling) → chose **keep D8 and teach `/version`**; the
   coupling is fixed in step 1, the step that creates it, not left for release day.
 - 2026-07-24 — Q9 (dogfood-install) → chose **a temporary uncommitted local marketplace path
-  entry** so steps 3 and 5 verify against a real install, removed once they land.
+  entry** so steps 3 and 6 verify against a real install, removed once they land.
+- 2026-07-28 — step 3's dogfood surfaced two reader gaps → **inserted a new step 4** and
+  renumbered the qa/init/docs steps to 5–8. Both gaps are in step 2's already-checkpointed
+  code, and the skill currently compensates for them in prose. The deciding argument is
+  traffic, not severity: `tsc --build && node dist/cli.js` is the shape `init` writes and a
+  type error is the usual way a TS repo goes red, so "red with no failing slot" is a
+  high-traffic branch on which the reader drops the only evidence it holds — the same
+  round-trip the `doctor` fold exists to eliminate. Sequenced before qa so the reader is
+  honest before a second skill is built on the same rendering ideas. Explicitly *not*
+  folded in: the stdout-over-stderr preference (the skill's prose is the right home, since
+  no reader can know which tools invert the convention) and the pnpm 11 stdout pollution
+  (an adapter-robustness bug affecting every pnpm 11 consumer — a different seam and its
+  own build, not scope drift on this one).
 
 ## Source
 

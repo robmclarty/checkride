@@ -77,10 +77,10 @@ fraction of it.
 
 | verdict | what it means | what to do |
 | --- | --- | --- |
-| **harness broken** | exit 2 — checkride reserves it for "the harness broke or was misused" | Read the `doctor` section and the `gate stderr` tail. **No check result from this run is evidence of anything.** Report *what doctor found* — the named requirement, what was found, what was expected — never just "the harness is broken". |
-| **off-contract exit** | not 0, 1 or 2 (a 127, a signal death, a wrapper that died before checkride ran) | Same posture as exit 2. Read the `gate stderr` tail: something in the `check` script failed around checkride, not inside it. |
+| **harness broken** | exit 2 — checkride reserves it for "the harness broke or was misused" | Read the `doctor` section and the `gate output` tail. **No check result from this run is evidence of anything.** Report *what doctor found* — the named requirement, what was found, what was expected — never just "the harness is broken". |
+| **off-contract exit** | not 0, 1 or 2 (a 127, a signal death, a wrapper that died before checkride ran) | Same posture as exit 2. Read the `gate output` tail: something in the `check` script failed around checkride, not inside it. |
 | **red** | exit 1 — at least one check failed | Go to step 4. This is the normal path. |
-| **red, but no slot failed** | exit 1 with an empty `failing slots` section | The failure happened *outside* checkride. See below — do not triage the table. |
+| **red, but no slot explains it** | exit 1 with an empty `failing slots` section | The failure happened *outside* checkride. Read the `gate output` tail, which the report includes on this branch. See below — do not triage the table. |
 | **vacuous green** | exit 0 with `checks_run: 0` | A failure wearing a pass: nothing was verified. Find out why no check was selected (a typo'd `--only`, an empty config) before believing anything. Treat it as red. |
 | **green, but narrow** | exit 0 over a subset | Say which slots were covered and which were not. Do not report the work as done on this evidence. |
 | **green** | exit 0, full coverage | Still check the caveats for `baselined` and `skipped` before saying clean — see step 7. |
@@ -88,18 +88,28 @@ fraction of it.
 
 ### Red with an empty `failing slots` section
 
-The verdict reads `red — 0 of N executed check(s) failed`, which is not a
-contradiction: the gate exited 1 but checkride never ran, so nothing in the table
-came from this run. `check` scripts are compound — `tsc --build && node
-dist/cli.js` is the standard shape `checkride init` writes — and when the command
-*before* checkride dies, the `&&` short-circuits and no summary is written.
+The verdict reads **`red, but no slot explains it`**: the gate exited 1 but
+checkride never ran, so nothing in the table came from this run. `check` scripts
+are compound — `tsc --build && node dist/cli.js` is the standard shape
+`checkride init` writes — and when the command *before* checkride dies, the `&&`
+short-circuits and no summary is written.
 
-The `summary` header line is the tell: **`left by an EARLIER run`**. The table
-below it describes something else entirely, and the coverage numbers belong to
-that other run too.
+The `summary` header line is the second tell: **`left by an EARLIER run`**. The
+table below it describes something else entirely, and the coverage numbers belong
+to that other run too.
 
-Read the gate's own output instead of `.check/`. Run the failing prefix directly
-(`pnpm exec tsc --build` for the shape above) and triage what it prints. Do not
+**The evidence is already in the report.** On this branch it renders a `gate
+output` section — a capped tail of both captured streams — because that is the
+only record of the failure that exists. Triage it there rather than re-running
+anything.
+
+Read **both** blocks. Which stream carries the diagnosis is the failing tool's
+choice, not a convention you can rely on: `tsc` reports errors on **stdout**
+while `stderr` holds nothing but pnpm's `$ tsc --build && node dist/cli.js`
+command echo. A near-empty `stderr` block is not "no output".
+
+Only if both blocks are absent, re-run the failing prefix directly (`pnpm exec
+tsc --build` for the shape above) and triage what it prints. Either way: do not
 report any slot in the table as passing.
 
 ## 4. Order the failures — this is the judgment
