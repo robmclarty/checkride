@@ -117,7 +117,7 @@ the exit code would let a green ✔ hide real issues. Reading the count gates al
 three analyses uniformly, and an **unrecognized report fails loudly** rather than
 passing silently.
 
-This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.5.0`.
+This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.9.1`.
 An older fallow (2.x emitted `schema_version` 4) fails the slot with an explicit
 "unsupported schema_version" message — upgrade with `pnpm up fallow`.
 

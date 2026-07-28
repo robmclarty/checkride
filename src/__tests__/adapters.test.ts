@@ -64,7 +64,7 @@ describe('registry invariants', () => {
       expect(a.gate).toBe('fallow');
       expect(a.detect).toEqual(['fallow.toml']);
       expect(a.args).toContain('--format');
-      expect(a.devDeps).toEqual({ fallow: '3.5.0' });
+      expect(a.devDeps).toEqual({ fallow: '3.9.1' });
     }
     // dupes/health are opt-in so adopting checkride never fails a repo on
     // duplication/complexity it never signed up for.

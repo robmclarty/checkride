@@ -153,7 +153,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'tsc', '--build'],
     outputFile: null,
-    devDeps: { typescript: '6.0.3', '@types/node': '22.20.0' },
+    devDeps: { typescript: '6.0.3', '@types/node': '22.20.1' },
   },
   {
     name: 'prettier',
@@ -179,7 +179,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'prettier', '--check', '.'],
     outputFile: null,
     fixArgs: ['exec', 'prettier', '--write', '.'],
-    devDeps: { prettier: '3.6.2' },
+    devDeps: { prettier: '3.9.6' },
   },
   {
     name: 'biome-format',
@@ -190,7 +190,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'biome', 'format', '.'],
     outputFile: null,
     fixArgs: ['exec', 'biome', 'format', '--write', '.'],
-    devDeps: { '@biomejs/biome': '2.2.4' },
+    devDeps: { '@biomejs/biome': '2.5.6' },
   },
   {
     name: 'oxlint',
@@ -202,7 +202,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'oxlint', '--type-aware', '--format=json'],
     outputFile: 'lint.json',
     fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
-    devDeps: { oxlint: '1.61.0', 'oxlint-tsgolint': '0.21.1' },
+    devDeps: { oxlint: '1.74.0', 'oxlint-tsgolint': '0.25.0' },
   },
   {
     name: 'biome',
@@ -213,7 +213,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'biome', 'check', '--reporter=json'],
     outputFile: 'lint.json',
     fixArgs: ['exec', 'biome', 'check', '--write'],
-    devDeps: { '@biomejs/biome': '2.2.4' },
+    devDeps: { '@biomejs/biome': '2.5.6' },
   },
   {
     name: 'eslint',
@@ -232,6 +232,10 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'eslint', '.', '--format', 'json'],
     outputFile: 'lint.json',
     fixArgs: ['exec', 'eslint', '.', '--fix'],
+    // Held at 9.x deliberately: eslint 10 is a major and nothing in this repo
+    // exercises the eslint adapter, so bumping it would ship a pin no run has
+    // ever executed. Needs a fixture project proving this command line and
+    // `--format json` still hold before it moves.
     devDeps: { eslint: '9.36.0' },
   },
   {
@@ -242,7 +246,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'ast-grep', 'scan', '--json=compact'],
     outputFile: 'struct.json',
-    devDeps: { '@ast-grep/cli': '0.42.1' },
+    devDeps: { '@ast-grep/cli': '0.45.0' },
   },
   {
     name: 'fallow',
@@ -257,7 +261,7 @@ export const ADAPTERS: readonly Adapter[] = [
     outputFile: 'dead.json',
     gate: 'fallow',
     fixArgs: ['exec', 'fallow', 'fix'],
-    devDeps: { fallow: '3.5.0' },
+    devDeps: { fallow: '3.9.1' },
   },
   {
     name: 'knip',
@@ -269,6 +273,9 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'knip', '--reporter', 'json'],
     outputFile: 'dead.json',
     fixArgs: ['exec', 'knip', '--fix'],
+    // Held at 5.x deliberately, for the same reason as eslint above: knip 6 is
+    // a major, the knip adapter is unexercised here, and `--reporter json` is
+    // exactly the kind of surface a major rearranges.
     devDeps: { knip: '5.64.0' },
   },
   {
@@ -280,7 +287,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
     outputFile: 'dupes.json',
     gate: 'fallow',
-    devDeps: { fallow: '3.5.0' },
+    devDeps: { fallow: '3.9.1' },
   },
   {
     name: 'fallow',
@@ -291,7 +298,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
     outputFile: 'health.json',
     gate: 'fallow',
-    devDeps: { fallow: '3.5.0' },
+    devDeps: { fallow: '3.9.1' },
   },
   {
     name: 'vitest',
@@ -309,7 +316,7 @@ export const ADAPTERS: readonly Adapter[] = [
     ],
     outputFile: null,
     changedArgs: ['--changed', 'origin/main'],
-    devDeps: { vitest: '4.1.5', '@vitest/coverage-v8': '4.1.5' },
+    devDeps: { vitest: '4.1.10', '@vitest/coverage-v8': '4.1.10' },
   },
   {
     name: 'jest',
@@ -326,7 +333,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'jest', '--ci', '--json', '--outputFile=.check/test.json'],
     outputFile: null,
     changedArgs: ['--changedSince', 'origin/main'],
-    devDeps: { jest: '30.0.5' },
+    devDeps: { jest: '30.4.2' },
   },
   {
     name: 'markdownlint-cli2',
@@ -343,7 +350,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'markdownlint-cli2'],
     outputFile: null,
     fixArgs: ['exec', 'markdownlint-cli2', '--fix'],
-    devDeps: { 'markdownlint-cli2': '0.22.1' },
+    devDeps: { 'markdownlint-cli2': '0.23.1' },
   },
   {
     name: 'links',
@@ -372,7 +379,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
     outputFile: null,
-    devDeps: { cspell: '10.0.0' },
+    devDeps: { cspell: '10.0.1' },
   },
   {
     name: 'stryker',
@@ -431,7 +438,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'publint'],
     outputFile: null,
-    devDeps: { publint: '0.3.21' },
+    devDeps: { publint: '0.3.22' },
   },
   {
     name: 'attw',
@@ -443,7 +450,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'attw', '--pack', '.', '--format', 'json'],
     outputFile: 'attw.json',
-    devDeps: { '@arethetypeswrong/cli': '0.18.4' },
+    devDeps: { '@arethetypeswrong/cli': '0.18.5' },
   },
   {
     name: 'pack',

@@ -10,7 +10,7 @@
   "devDependencies": {
     "@acme/checkride-preset": "link:./preset",
     "checkride": "link:../..",
-    "oxlint": "1.61.0",
+    "oxlint": "1.74.0",
     "typescript": "6.0.3"
   }
 }
