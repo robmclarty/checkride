@@ -18,6 +18,7 @@
  * which also owns fallow's gating verdict).
  */
 
+import { parseToolJson } from '../tool-json.js';
 import { fallowFindings } from './fallow.js';
 
 /** A stable, order-independent set of diagnostic keys for one adapter's output. */
@@ -36,14 +37,14 @@ function key(file: string, rule: string, message: string): string {
   return `${file}:${rule}:${message.replace(/\s+/g, ' ').trim()}`;
 }
 
-/** Parse JSON output defensively; malformed input yields `null`, never a throw. */
+/**
+ * Parse JSON output defensively; malformed input yields `null`, never a throw.
+ * Tolerant of a launcher preamble ahead of the JSON — see `parseToolJson` —
+ * because an extractor that silently finds no findings would quietly stop
+ * masking the baseline rather than fail loudly.
+ */
 function parseJson(raw: string): unknown {
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed;
-  } catch {
-    return null;
-  }
+  return parseToolJson(raw)?.value ?? null;
 }
 
 /** Narrow to a plain object so string fields can be read without assertions. */

@@ -21,6 +21,7 @@
  * kind has its own layout, so parsing dispatches on the top-level `kind`.
  */
 
+import { parseToolJson } from '../tool-json.js';
 import type { Fingerprint } from './fingerprint.js';
 import { applyBaseline } from './store.js';
 
@@ -237,12 +238,10 @@ function fallowSchemaError(j: Record<string, unknown>): string | null {
  */
 function parseFallow(raw: string): ParsedFallow {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
-  let j: unknown;
-  try {
-    j = JSON.parse(raw);
-  } catch {
-    return { ok: false, reason: 'fallow did not emit valid JSON' };
-  }
+  // Tolerant of a launcher preamble ahead of the report — see `parseToolJson`.
+  const parsed = parseToolJson(raw);
+  if (!parsed) return { ok: false, reason: 'fallow did not emit valid JSON' };
+  const j = parsed.value;
   if (!isPlainObject(j)) return { ok: false, reason: 'fallow output was not a JSON object' };
 
   const schemaError = fallowSchemaError(j);

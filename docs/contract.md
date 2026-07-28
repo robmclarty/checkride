@@ -70,6 +70,19 @@ the per-check durations, exactly as before.
 reshaped, or filtered. The summary is an index; the raw file is the truth.
 This is the product's thesis and will not change.
 
+The one thing dropped is output that is not the tool's. A launcher can print to
+stdout before the tool does — pnpm narrates its dependency check there ahead of
+`exec`/`run` — so a `<slot>.json` is written from the first character of the
+JSON onward, discarding at most ten leading non-JSON lines. Nothing *inside* the
+tool's output is touched, and a slot whose output never parses as JSON keeps
+every byte in `<slot>.stdout.txt` instead.
+
+**`output_file` names a file that exists.** It is what the run actually wrote,
+not what the adapter declares it usually writes: a slot that declares
+`<slot>.json` but emitted text this run (or was skipped) reports `null`, and its
+bytes are in `<slot>.stdout.txt`. A consumer may open a non-null `output_file`
+without a guard.
+
 **Artifacts are crash-consistent.** `summary.json`, the raw slot files,
 `digest.md`, and `checkride.baseline.json` are written atomically
 (temp-file-then-rename). A run killed at any point leaves each file either

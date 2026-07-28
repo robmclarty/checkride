@@ -54,8 +54,37 @@ describe('detectPackageManager', () => {
 describe('translateExec', () => {
   const execArgs = ['exec', 'oxlint', '--type-aware', '--format=json'];
 
-  test('leaves a pnpm exec invocation byte-identical under pnpm', () => {
-    expect(translateExec('pnpm', execArgs, 'pnpm')).toEqual({ command: 'pnpm', args: execArgs });
+  // pnpm narrates its dependency check on stdout ahead of the tool's own JSON
+  // (`Already up to date` / `Done in Xms`) whenever no outer pnpm process has
+  // already verified — which is exactly the `node dist/cli.js` case. The
+  // override is the only form that suppresses it, and it must precede `exec`.
+  const VERIFY_DEPS_OFF = '--config.verify-deps-before-run=false';
+
+  test('keeps the pnpm exec prefix, prepending only the deps-check override', () => {
+    expect(translateExec('pnpm', execArgs, 'pnpm')).toEqual({
+      command: 'pnpm',
+      args: [VERIFY_DEPS_OFF, ...execArgs],
+    });
+  });
+
+  test('puts the override before exec, where pnpm reads it as its own', () => {
+    // After `exec` it becomes the tool's argument and pnpm fails outright.
+    const { args } = translateExec('pnpm', execArgs, 'pnpm');
+    expect(args.indexOf(VERIFY_DEPS_OFF)).toBeLessThan(args.indexOf('exec'));
+  });
+
+  test('does not send the pnpm-only override to another package manager', () => {
+    for (const pm of ['npm', 'yarn', 'bun'] satisfies PackageManager[]) {
+      expect(translateExec('pnpm', execArgs, pm).args).not.toContain(VERIFY_DEPS_OFF);
+    }
+  });
+
+  test('leaves pnpm subcommands that never verify deps alone', () => {
+    // `audit` and `pack` do not run the dependency check, so the flag would be
+    // noise in the invocation the user sees.
+    for (const args of [['audit', '--json'], ['pack', '--dry-run', '--json']]) {
+      expect(translateExec('pnpm', args, 'pnpm')).toEqual({ command: 'pnpm', args });
+    }
   });
 
   test('rewrites the exec prefix per non-pnpm package manager', () => {
@@ -72,9 +101,14 @@ describe('translateExec', () => {
     }
   });
 
-  test('leaves a pnpm run invocation byte-identical under pnpm', () => {
+  test('keeps the pnpm run prefix, prepending only the deps-check override', () => {
+    // `pnpm run` verifies deps the same way `pnpm exec` does, so a script that
+    // emits JSON needs the same protection.
     const run = ['run', 'build'];
-    expect(translateExec('pnpm', run, 'pnpm')).toEqual({ command: 'pnpm', args: run });
+    expect(translateExec('pnpm', run, 'pnpm')).toEqual({
+      command: 'pnpm',
+      args: [VERIFY_DEPS_OFF, ...run],
+    });
   });
 
   test('rewrites the run launcher per non-pnpm PM, keeping the run keyword (D13)', () => {

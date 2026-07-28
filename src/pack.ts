@@ -28,6 +28,7 @@ import { join } from 'node:path';
 
 import type { CheckOutcome } from './links.js';
 import type { PackageManager } from './pm/index.js';
+import { parseToolJson } from './tool-json.js';
 
 /** A forbidden path in the tarball, tagged with the deny pattern it matched. */
 type Forbidden = { path: string; pattern: string };
@@ -159,9 +160,14 @@ function prop(value: unknown, key: string): unknown {
   return isRecord(value) ? value[key] : undefined;
 }
 
-/** Parse the `files[].path` array out of a `pack --dry-run --json` payload. */
+/**
+ * Parse the `files[].path` array out of a `pack --dry-run --json` payload.
+ * Tolerant of a launcher preamble ahead of the JSON — see `parseToolJson`.
+ */
 function parsePackFiles(stdout: string): string[] {
-  const parsed: unknown = JSON.parse(stdout);
+  const json = parseToolJson(stdout);
+  if (!json) throw new Error('pack output was not JSON');
+  const parsed = json.value;
   const entry = Array.isArray(parsed) ? parsed[0] : parsed;
   const files = prop(entry, 'files');
   if (!Array.isArray(files)) throw new Error('pack output missing a `files` array');

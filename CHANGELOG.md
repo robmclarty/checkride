@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A package-manager banner on stdout no longer fails the JSON-reading slots.**
+  pnpm verifies dependencies before `exec`/`run` and narrates it on **stdout**
+  (`Already up to date`, `Done in Xms using pnpm vN`) whenever no outer pnpm
+  process has already done so. That preamble landed ahead of the tool's own
+  JSON, so `checkride` invoked directly — `node dist/cli.js`, which is what the
+  bundled triage reader and any non-pnpm-wrapped call does — failed `dead`,
+  `dupes` and `health` with "fallow did not emit valid JSON" while the tools
+  themselves exited 0, and silently cost `lint`, `struct` and `attw` their JSON
+  artifacts. The same gate under `pnpm run check` passed, which is what made it
+  hard to see. Fixed at both ends: checkride now passes
+  `--config.verify-deps-before-run=false` ahead of `exec`/`run` under pnpm (the
+  only form that works — `--silent` does not suppress it, and after `exec` pnpm
+  reads it as the tool's argument), and every stdout-JSON parse tolerates up to
+  ten leading non-JSON lines, because a consumer's launcher is not checkride's
+  to pin. The `<slot>.json` artifact is written from the first JSON character
+  on, so it parses on its own; nothing inside the tool's output is altered.
+- **`summary.json`'s `output_file` no longer names files that were never
+  written.** It was copied from the adapter's declaration, so any run where a
+  JSON-declaring tool emitted something else — a warning first, a crash, or the
+  banner above — left the summary pointing at a `<slot>.json` that did not
+  exist while the real bytes sat in `<slot>.stdout.txt` beside it. It is now
+  what the run actually wrote, and `null` when that is nothing (including for a
+  skipped check, which writes nothing at all). This is the field's documented
+  meaning; see [docs/contract.md](./docs/contract.md).
+
 ## [0.8.0] - 2026-07-28
 
 ### Added

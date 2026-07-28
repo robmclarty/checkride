@@ -38,6 +38,7 @@ import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
 import { checkSmoke } from './smoke.js';
 import { checkSnippets } from './snippets.js';
+import { parseToolJson } from './tool-json.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -366,20 +367,31 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   return spawnCheck(command, args, ctx.cwd, timeout);
 };
 
-/** Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout/stderr text. */
-async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcome): Promise<void> {
+/**
+ * Persist raw output atomically: JSON to `.check/<outputFile>`, else
+ * stdout/stderr text.
+ *
+ * Returns the JSON file it wrote, or `null` when it fell through to text — the
+ * summary's `output_file` is that return value, never the adapter's
+ * *declaration*. A slot that declares an `outputFile` does not always produce
+ * one (the tool printed a warning first, crashed, or emitted plain text this
+ * run), and naming a file that was never written sends every consumer to an
+ * ENOENT while the real bytes sit in `<slot>.stdout.txt` beside it.
+ */
+async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcome): Promise<string | null> {
   const dir = join(cwd, '.check');
   if (adapter.outputFile && outcome.stdout.trim()) {
-    try {
-      JSON.parse(outcome.stdout);
-      await writeFileAtomic(join(dir, adapter.outputFile), outcome.stdout);
-      return;
-    } catch {
-      // Not JSON after all; fall through to raw text.
+    // Tolerates a launcher preamble ahead of the JSON; writes the tool's own
+    // bytes from the first JSON character on, so the artifact actually parses.
+    const parsed = parseToolJson(outcome.stdout);
+    if (parsed) {
+      await writeFileAtomic(join(dir, adapter.outputFile), parsed.text);
+      return adapter.outputFile;
     }
   }
   if (outcome.stdout.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stdout.txt`), outcome.stdout);
   if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
+  return null;
 }
 
 /**
@@ -423,7 +435,9 @@ function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
     reason: resolved.skip ?? 'skipped',
     exit_code: null,
     duration_ms: 0,
-    output_file: resolved.adapter?.outputFile ?? null,
+    // A skipped check ran nothing and wrote nothing; naming its adapter's
+    // declared output file would point at whatever an earlier run left there.
+    output_file: null,
   };
 }
 
@@ -606,7 +620,7 @@ async function runOneCheck(
   const start = performance.now();
   const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
   const duration_ms = Math.round(performance.now() - start);
-  await persistOutput(ctx.cwd, adapter, outcome);
+  const outputFile = await persistOutput(ctx.cwd, adapter, outcome);
 
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `.check/<slot>.json` is persisted untouched — masking changes the
@@ -619,7 +633,7 @@ async function runOneCheck(
     ok: mask.ok,
     exit_code: outcome.exit_code,
     duration_ms,
-    output_file: adapter.outputFile,
+    output_file: outputFile,
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
   return { entry, run: { slot: r.slot, adapter, outcome }, mask };

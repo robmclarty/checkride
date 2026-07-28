@@ -50,6 +50,18 @@ const jsonRunner: CheckRunner = () =>
 const textRunner: CheckRunner = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: 'not json output', stderr: '' });
 
+/**
+ * A runner whose JSON arrives behind pnpm's dependency-check narration — the
+ * shape a direct `node dist/cli.js` sees when no outer pnpm process has run.
+ */
+const preambleRunner: CheckRunner = () =>
+  Promise.resolve({
+    ok: true,
+    exit_code: 0,
+    stdout: `Already up to date\nDone in 210ms using pnpm v11.1.2\n${JSON.stringify({ analysis: { types: true } })}`,
+    stderr: '',
+  });
+
 const KEY_A = 'a.ts:no-x:bad';
 const KEY_B = 'b.ts:no-y:worse';
 
@@ -178,6 +190,34 @@ describe('library-publishing slots (publint, attw)', () => {
     expect(JSON.parse(await readFile(join(dir, '.check', 'attw.json'), 'utf8'))).toMatchObject({
       analysis: { types: true },
     });
+  });
+
+  /** Run the attw slot with a given runner; it is the simplest JSON-declaring slot. */
+  async function runAttw(runner: CheckRunner) {
+    const attw = ADAPTERS.find((a) => a.name === 'attw');
+    if (!attw) throw new Error('attw adapter missing from registry');
+    return runChecks({
+      cwd: dir, slots: [{ name: 'attw', optIn: true }], adapters: [attw], config: { checks: { attw: { use: 'attw' } } },
+      include: ['attw'], runner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+  }
+
+  test('output_file is null when the declared JSON file was never written', async () => {
+    const result = await runAttw(textRunner);
+    // The adapter *declares* attw.json; this run emitted text, so nothing wrote
+    // it. Naming it anyway sends every consumer to an ENOENT.
+    expect(result.summary.checks.find((c) => c.name === 'attw')?.output_file).toBeNull();
+    await expect(readFile(join(dir, '.check', 'attw.json'), 'utf8')).rejects.toThrow();
+    expect(await readFile(join(dir, '.check', 'attw.stdout.txt'), 'utf8')).toBe('not json output');
+  });
+
+  test('a launcher preamble does not cost the slot its JSON artifact', async () => {
+    const result = await runAttw(preambleRunner);
+    expect(result.summary.checks.find((c) => c.name === 'attw')).toMatchObject({ ok: true, output_file: 'attw.json' });
+    // The artifact must parse on its own — the preamble is not the tool's bytes.
+    const written = await readFile(join(dir, '.check', 'attw.json'), 'utf8');
+    expect(written.startsWith('Already up to date')).toBe(false);
+    expect(JSON.parse(written)).toMatchObject({ analysis: { types: true } });
   });
 });
 
@@ -851,8 +891,12 @@ describe('runFix', () => {
       // same translation the run path applies via `translateExec` in `defaultRunner`.
       const adapter = fakeAdapter({ name: 'oxlint', slot: 'lint', command: 'pnpm', args: ['exec', 'oxlint'], fixArgs: ['exec', 'oxlint', '--fix'] });
       expect(fixInvocation(adapter, pm)).toEqual({ command: 'npx', args: ['oxlint', '--fix'] });
-      // The default pnpm path stays byte-identical — no translation.
-      expect(fixInvocation(adapter, 'pnpm')).toEqual({ command: 'pnpm', args: ['exec', 'oxlint', '--fix'] });
+      // The pnpm path keeps its prefix; only the deps-check override is added,
+      // exactly as the run path does — a fix spawns tools the same way.
+      expect(fixInvocation(adapter, 'pnpm')).toEqual({
+        command: 'pnpm',
+        args: ['--config.verify-deps-before-run=false', 'exec', 'oxlint', '--fix'],
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
