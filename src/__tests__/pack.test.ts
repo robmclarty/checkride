@@ -21,6 +21,12 @@ function fakePack(files: readonly string[]): PackSpawn {
     });
 }
 
+/** Rejects `--dry-run` like an old pnpm, then fails the fallback pack too. */
+const doubleFailSpawn: PackSpawn = (_command, args) =>
+  args.includes('--dry-run')
+    ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: "Unknown option: 'dry-run'" })
+    : Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ERR_PNPM_REGISTRY_DOWN' });
+
 describe('deriveRequired', () => {
   test('collects exports/main/types/bin targets plus README.md', () => {
     const required = deriveRequired({
@@ -130,7 +136,62 @@ describe('checkPack', () => {
       Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ENOENT' } satisfies CheckOutcome);
     const outcome = await checkPack({ cwd: dir, pm: 'npm', spawn: brokenSpawn });
     expect(outcome.ok).toBe(false);
-    expect(outcome.stderr).toContain('pack --dry-run exited 1');
+    expect(outcome.stderr).toContain('pack exited 1');
+  });
+
+  test('falls back to a real pack when pnpm rejects --dry-run (pnpm < 10.26)', async () => {
+    await manifest({ name: 'lib', exports: './dist/index.js' });
+    const calls: string[][] = [];
+    const files = ['package.json', 'README.md', 'dist/index.js'];
+    const spawn: PackSpawn = (command, args) => {
+      calls.push([command, ...args]);
+      if (args.includes('--dry-run')) {
+        return Promise.resolve({
+          ok: false,
+          exit_code: 1,
+          stdout: '',
+          stderr: " ERROR  Unknown option: 'dry-run'\nFor help, run: pnpm help pack",
+        });
+      }
+      // Real pnpm emits a single object (not npm's array); both must parse.
+      return Promise.resolve({
+        ok: true,
+        exit_code: 0,
+        stdout: JSON.stringify({
+          name: 'lib',
+          version: '1.0.0',
+          filename: 'lib-1.0.0.tgz',
+          files: files.map((path) => ({ path })),
+        }),
+        stderr: '',
+      });
+    };
+    const outcome = await checkPack({ cwd: dir, pm: 'pnpm', spawn });
+    expect(outcome.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    const fallback = calls[1] ?? [];
+    expect(fallback).toContain('--pack-destination');
+    expect(fallback).toContain('--config.ignore-scripts=true');
+    expect(fallback).not.toContain('--dry-run');
+  });
+
+  test('the fallback is pnpm-only: the same rejection under npm stays a plain failure', async () => {
+    await manifest({ name: 'lib' });
+    let calls = 0;
+    const spawn: PackSpawn = () => {
+      calls += 1;
+      return Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: "Unknown option: 'dry-run'" });
+    };
+    const outcome = await checkPack({ cwd: dir, pm: 'npm', spawn });
+    expect(outcome.ok).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  test('a failing fallback still fails the check, surfacing its error', async () => {
+    await manifest({ name: 'lib' });
+    const outcome = await checkPack({ cwd: dir, pm: 'pnpm', spawn: doubleFailSpawn });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.stderr).toContain('ERR_PNPM_REGISTRY_DOWN');
   });
 });
 

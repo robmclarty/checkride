@@ -23,7 +23,8 @@
  *   stdout `{ ok: false, error, ... }`                         when pack itself failed or emitted malformed output (exit 1)
  */
 
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { CheckOutcome } from './links.js';
@@ -55,6 +56,42 @@ export function packInvocation(pm: PackageManager): { command: string; args: str
   if (pm === 'npm') return { command: 'npm', args: [...base, '--ignore-scripts'] };
   if (pm === 'pnpm') return { command: 'pnpm', args: [...base, '--config.ignore-scripts=true'] };
   return null;
+}
+
+/** True when the PM rejected the `--dry-run` flag itself, not the pack. */
+function rejectedDryRun(outcome: CheckOutcome): boolean {
+  const text = `${outcome.stdout}\n${outcome.stderr}`;
+  return text.includes('Unknown option') && text.includes('dry-run');
+}
+
+/**
+ * The fallback for pnpm without `pack --dry-run` — the flag only landed in
+ * pnpm 10.26.0, and every earlier pnpm (all of 9.x, 10.x through 10.25)
+ * rejects it with `Unknown option: 'dry-run'`, which failed the slot hard on
+ * a manager checkride promises to support. A real pack into a temp
+ * destination emits the same npm-shaped `files[].path` JSON (verified back to
+ * 10.18.1) and honors the same lifecycle-script suppression; the destination
+ * lives outside the repo so a tarball can never land in the tree or another
+ * check's view, and it is removed with the temp dir afterward, success or
+ * not. Capability fallback by design: probing `pnpm --version` would trade
+ * one brittle coupling for another.
+ */
+async function spawnPackFallback(
+  spawn: PackSpawn,
+  cwd: string,
+  timeoutSec: number | undefined,
+): Promise<CheckOutcome> {
+  const dest = await mkdtemp(join(tmpdir(), 'checkride-pack-'));
+  try {
+    return await spawn(
+      'pnpm',
+      ['pack', '--json', '--pack-destination', dest, '--config.ignore-scripts=true'],
+      cwd,
+      timeoutSec,
+    );
+  } finally {
+    await rm(dest, { recursive: true, force: true });
+  }
 }
 
 /** Strip a leading `./` so manifest targets and pack paths compare on equal footing. */
@@ -226,12 +263,15 @@ export async function checkPack(opts: {
   }
   const manifest = read.manifest;
 
-  const outcome = await spawn(invocation.command, invocation.args, cwd, timeoutSec);
+  let outcome = await spawn(invocation.command, invocation.args, cwd, timeoutSec);
+  if (outcome.exit_code !== 0 && pm === 'pnpm' && rejectedDryRun(outcome)) {
+    outcome = await spawnPackFallback(spawn, cwd, timeoutSec);
+  }
   if (outcome.exit_code !== 0) {
     const detail = outcome.stderr.trim() || outcome.stdout.trim();
     return fail(
-      `${JSON.stringify({ ok: false, error: `${invocation.command} pack --dry-run exited ${outcome.exit_code}` }, null, 2)}\n`,
-      `check-pack: ${invocation.command} pack --dry-run exited ${outcome.exit_code}${detail ? `\n${detail}` : ''}\n`,
+      `${JSON.stringify({ ok: false, error: `${invocation.command} pack exited ${outcome.exit_code}` }, null, 2)}\n`,
+      `check-pack: ${invocation.command} pack exited ${outcome.exit_code}${detail ? `\n${detail}` : ''}\n`,
     );
   }
 

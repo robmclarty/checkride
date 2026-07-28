@@ -51,6 +51,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`pack` no longer fails hard under pnpm older than 10.26.** pnpm only
+  learned `pack --dry-run` in 10.26.0; every earlier pnpm — including 10.18.x
+  lines consumers actually pin — rejects the flag with
+  `Unknown option: 'dry-run'`, and the slot failed on a manager checkride
+  has promised since 0.5.0 (reported by a real consumer on 10.18.1). On that
+  rejection checkride now falls back to a real pack into a temp destination
+  outside the repo (`pnpm pack --json --pack-destination <tmp>` — same
+  npm-shaped `files[].path` JSON, verified back to 10.18.1), with lifecycle
+  scripts suppressed the same way, and deletes the tarball afterward whether
+  the check passes or not. Capability fallback, not version sniffing, so it
+  keeps working wherever the flag is missing.
 - **The default concurrency no longer collapses to 1 on a 2-core CI runner.**
   `defaultConcurrency` reserved a core to keep the machine responsive — sound
   on a laptop, inapplicable on a hosted runner with no human at it. A
