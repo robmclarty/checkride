@@ -176,7 +176,7 @@ size. Open the one belonging to your chosen root cause, and nothing else.
   The reader prefers stdout because checkride's own stream discipline puts machine
   output there and progress on stderr — but not every tool obeys it.
   markdownlint-cli2 inverts it outright: `docs.stdout.txt` says
-  `Summary: 1 error(s)` while `docs.stderr.txt` carries the
+  `Summary: 1 issue in 1 file` while `docs.stderr.txt` carries the
   `file:line:rule` you actually need. A summary line is not a finding; go get the
   finding.
 - **Check the size before opening.** Anything past ~50 KB gets `Grep`, not
