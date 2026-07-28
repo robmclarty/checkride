@@ -69,11 +69,15 @@ pnpm check
 Both paths end in the same place — `init` auto-detects which case it is in.
 It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
 regardless of the tool's name. It also writes the agent contract: an AGENTS.md
-stanza stating the "exit 0 = done" rule, and a Claude Code **Stop hook** in
-`.claude/settings.json` that blocks an agent from finishing while the pipeline
-is red. The hook uses your detected package manager (`pnpm`/`npm`/`yarn`/`bun
-run check`); skip it with `--no-hook`. To add all of this — alias, stanza, and
-hook — to a repo you already set up, run `checkride agent-setup`.
+stanza stating the "exit 0 = done" rule, and Claude Code **hooks** in
+`.claude/settings.json` — a Stop-hook gate (a checkride-owned script,
+`.claude/hooks/checkride-gate.sh`, that runs your detected package manager's
+`run check --strict --digest` and blocks an agent from finishing while the
+pipeline is red), an edit marker so turns that touched no files skip the gate,
+and a PreToolUse guard that denies edits to `checkride.baseline.json` and
+`.check/**`. Select hooks with `--hook <a,b>` (gate | dirty | protect) or skip
+them all with `--no-hook`. To add all of this — alias, stanza, and hooks — to
+a repo you already set up, run `checkride agent-setup`.
 
 ## Docs
 
@@ -124,13 +128,15 @@ checkride init         Set up a project (new or existing — auto-detected).
   --add <a,b>  (existing mode) scaffold blessed configs for the named empty slots
   --baseline   (existing mode) grandfather current debt instead of disabling slots
   --force      (new mode) overwrite existing files instead of refusing
-  --no-hook    skip writing the Claude Code Stop hook
+  --hook <a,b> write only these Claude Code hooks (gate | dirty | protect)
+  --no-hook    skip writing the Claude Code hooks
   --dry-run    plan only; write nothing
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Stop hook to a repo.
-  --no-hook    skip the Stop hook (write only the stanza)
+checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Claude Code hooks to a repo.
+  --hook <a,b> write only these hooks (gate | dirty | protect)
+  --no-hook    skip the hooks (write only the stanza)
 ```
 
 During iteration, narrow the loop: `checkride --bail`, `checkride --only

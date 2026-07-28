@@ -1,6 +1,7 @@
 # Spec: agent-setup upgrade, the CI concurrency default, and two adapter fixes
 
-**Status:** draft (not yet built)
+**Status:** implemented — landed on main for the next minor (see the
+CHANGELOG's Unreleased section); kept as the design record.
 **Provenance:** items (1)-(6) were written by a consumer of checkride 0.7.0
 (a pnpm hybrid monorepo, 11 active checks, GitHub Actions gate) who hit all
 six while adopting the Stop hook and standing up CI, originally read from the

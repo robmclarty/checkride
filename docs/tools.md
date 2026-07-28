@@ -43,8 +43,17 @@ PATH (pnpm keeps its `>=9` floor; the others are presence-only for now).
 
 The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is
-reported **unavailable** until a per-manager audit adapter lands. Every other
-slot runs identically regardless of manager.
+reported **unavailable** until a per-manager audit adapter lands. checkride
+evaluates the audit JSON itself and gates at the `--audit-level` the adapter's
+args declare — pnpm's own JSON-mode exit code fails on *any* advisory
+regardless of level, so it is never trusted as the verdict. Every other slot
+runs identically regardless of manager.
+
+Two pnpm-version notes for the publish slots: `pack` prefers
+`pnpm pack --dry-run` (added in pnpm 10.26.0) and, on an older pnpm that
+rejects the flag, falls back automatically to a real pack into a temp
+directory outside the repo, deleting the tarball after reading the file list —
+same verdict either way.
 
 ## Slot tools
 

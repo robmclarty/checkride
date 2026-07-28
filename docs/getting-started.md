@@ -175,64 +175,67 @@ overwrite them.
 
 ### Make it a hard gate
 
-To turn "exit 0 = done" from advice into a mechanical gate, checkride writes a
-Claude Code **Stop hook** to `.claude/settings.json`. It fires when the agent
-tries to finish; exiting `2` blocks the stop and feeds the message back, so the
-agent keeps working until the pipeline is green.
+To turn "exit 0 = done" from advice into a mechanical gate, checkride writes
+Claude Code **hooks** into `.claude/settings.json`. The load-bearing one is the
+**Stop-hook gate**: it fires when the agent tries to finish; exiting `2` blocks
+the stop and feeds the message back, so the agent keeps working until the
+pipeline is green.
 
-`init` writes the hook automatically (both new and existing projects). To add it
-to a repo you have already set up — without re-running the full `init` — use:
+`init` writes the hooks automatically (both new and existing projects). To add
+them to a repo you have already set up — without re-running the full `init` —
+use:
 
 ```bash
-pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + Stop hook, nothing else
+pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + hooks, nothing else
 ```
 
-Both commands are idempotent (re-running is a no-op) and opt out with
-`--no-hook`. The generated hook uses your **detected package manager** —
-`pnpm run check`, `npm run check`, `yarn run check`, or `bun run check` — so it
-works in any repo, not only pnpm ones:
+Both commands are idempotent (re-running is a no-op), take `--hook <a,b>` to
+select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
 
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2; exit 2; }"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+- **`gate`** (Stop) — the hard gate. The settings entry is a stable one-liner
+  invoking a checkride-owned script, `.claude/hooks/checkride-gate.sh`;
+  checkride overwrites that script freely on refresh, so put customization in
+  a sibling script, never inside it. The script runs your **detected package
+  manager**'s `run check` with `--strict --digest`, and on red points the
+  agent at `.check/digest.md` (the capped failure excerpt) when it exists,
+  `.check/summary.json` otherwise.
+- **`dirty`** (PostToolUse on `Edit|Write|NotebookEdit`) — touches an edit
+  marker, `.check/.dirty`. The gate exits 0 immediately when the marker is
+  absent, so pure-conversation turns don't pay for a pipeline run; a green
+  gate clears it. (File writes made through Bash don't set the marker — a
+  known, accepted gap; the next tool-edited turn re-covers it. If you select
+  `--hook gate` without `dirty`, the generated script is unconditional.)
+- **`protect`** (PreToolUse on the same tools) — denies edits to
+  `checkride.baseline.json` and `.check/**`, turning "never add to the
+  baseline to make a check pass" into enforcement. Reads are never denied;
+  triage depends on them.
 
-The `|| { …; exit 2; }` wrapper matters: a plain `run check` exits `1` on
-failure, which Claude Code treats as a non-blocking error and lets the agent
-stop anyway. Exit `2` is the code that blocks. The hook input also carries a
-`stop_hook_active` flag — check it if you want to break out of a fix loop that
-is not converging.
+Exit codes matter in Stop hooks: a plain failing `run check` exits `1`, which
+Claude Code treats as a non-blocking error and lets the agent stop anyway.
+Exit `2` is the code that blocks — the gate script ends with it. The hook
+input also carries a `stop_hook_active` flag — check it in a sibling script if
+you want to break out of a fix loop that is not converging.
 
-The hook deliberately runs plain `<pm> run check`, without `--strict`. Two
-reasons: forwarding extra flags through a `run` script is inconsistent across
-package managers (npm needs a `--` separator; the others do not), and — more
-importantly — `--strict` turns "zero checks ran" into a failure, which is right
-for a gate but would let a misconfigured repo block the agent from ever
-stopping. So the local hook fails open, and the fail-closed `--strict` run
-belongs in CI, which is the other, more important, hard backstop — see
-[Running checkride in CI](./ci.md). The hook helps the agent locally; CI
-protects the branch.
+The gate runs `--strict` because it is a gate: zero checks actually running is
+exit 2, never a silent pass ([the contract](./contract.md#vacuous-green) asks
+this of anything that gates). The honest trade: in a misconfigured repo the
+agent is blocked from stopping until the configuration is fixed — which is the
+point of a definition-of-done gate. CI remains the other, branch-protecting
+backstop — see [Running checkride in CI](./ci.md).
+
+Repos that adopted an earlier checkride carry the old inline Stop command in
+settings.json; the next `agent-setup` (or `init`) migrates it in place to the
+script form — detected by its message sentinel, replaced, never duplicated.
 
 ### Avoiding duplicate runs
 
 A Stop hook and the AGENTS.md stanza both want `pnpm check`, so the agent can run
-the full pipeline itself and then the hook runs it again. To head that off, the
-generated stanza already tells the agent that *if a Stop hook is configured* it
-owns the final full run — so iterate with the narrow commands and let the hook
-run the authoritative pipeline once at the end. That is the "simplest fix" below,
-applied by default.
+the full pipeline itself and then the hook runs it again. Two things head that
+off. The `dirty` marker already skips the gate entirely on turns that touched
+no files. For turns that did edit, the generated stanza tells the agent that
+*if a Stop hook is configured* it owns the final full run — so iterate with the
+narrow commands and let the hook run the authoritative pipeline once at the
+end. That is the "simplest fix" below, applied by default.
 
 Do **not** delete the AGENTS.md block to dodge the duplicate. The block does two
 jobs — it tells the agent to run the gate, *and* it teaches the agent how to read
@@ -262,8 +265,9 @@ There is no lock-in to undo. checkride's whole footprint is: the `checkride`
 devDependency, `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if
-`init` created it), the Stop hook in `.claude/settings.json`, and the
-gitignored `.check/` output directory. Remove those and checkride is gone. The
+`init` created it), the hook entries in `.claude/settings.json` with their
+`.claude/hooks/checkride-*` scripts, and the gitignored `.check/` output
+directory. Remove those and checkride is gone. The
 tools keep working untouched — they are ordinary `devDependencies` with their
 own config files, so `pnpm exec oxlint`, `pnpm exec vitest run`, and the rest
 run exactly as before; you have merely dropped the orchestrator.

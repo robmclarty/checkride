@@ -104,7 +104,10 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
-is a breaking change.
+is a breaking change. `init` and `agent-setup` additionally promise
+`--hook <a,b>` (select which Claude Code hooks to write: `gate`, `dirty`,
+`protect`; an unknown name is a usage error naming the valid set) and
+`--no-hook` (write none).
 
 **Selection is validated.** An unknown slot name in `--only`, `--skip`, or
 `--include` is a **usage error (exit 2)**, not a silently-empty selection — the

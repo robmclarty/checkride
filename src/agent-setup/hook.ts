@@ -22,6 +22,14 @@
  * This module owns only the hooks; the AGENTS.md stanza and the higher-level
  * `agent-setup` command live in `init.ts`, which imports the writers here — a
  * single direction, so there is no cycle.
+ *
+ * Vendor coupling, noted deliberately: three Claude Code hooks is the most
+ * this flat module should carry. If the suite grows past gate/dirty/protect,
+ * the Claude-specific writers belong behind `src/agent-setup/claude/*` with
+ * room for a sibling harness, and the gate body behind a generic
+ * `checkride gate` command any harness can call. (The bundled plugin stays
+ * readers-only; these hooks are written into the consumer repo precisely so
+ * the gate works without it.)
  */
 
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
