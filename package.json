@@ -65,7 +65,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@ast-grep/cli": "0.42.1",
+    "@ast-grep/cli": "0.45.0",
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@types/node": "22.20.1",
