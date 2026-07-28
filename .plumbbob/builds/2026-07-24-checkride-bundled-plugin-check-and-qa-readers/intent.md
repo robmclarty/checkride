@@ -266,7 +266,7 @@ checkride/ (package root == plugin root)
    - seam: `src/init.ts` (`buildStanza`), `src/agent-setup/hook.ts`, their tests
    - model: sonnet — small prose and template edit
 
-8. [ ] docs(plugin): document the bundled plugin and its two skills —
+8. [x] docs(plugin): document the bundled plugin and its two skills —
    **done when:** README and a `docs/` page cover install (the marketplace entry, and that
    the readers ship prebuilt in `dist/` so no consumer build step exists) and both skills,
    CHANGELOG has an `Added` entry for the release, and `pnpm check` green (`links` and

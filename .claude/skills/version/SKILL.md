@@ -95,6 +95,13 @@ forms and stop.
    bullet; write for a reader who did not follow the work. For an initial
    release, title it `## [X.Y.Z] - YYYY-MM-DD` and summarize the whole history.
 
+   **If `CHANGELOG.md` already carries an `## [Unreleased]` section**, that is
+   release prose someone wrote *during* the work, describing the same commits
+   step 6 just collected. Do not draft alongside it and do not restate it: start
+   from its bullets, keep their wording and their `###` groupings, and add only
+   what the commit range covers and they miss. The section you print is the
+   merged result — one draft, not two.
+
    **Print the drafted section back to the user** as a fenced `markdown` block,
    verbatim, before editing any file — their one chance to read the prose in
    isolation. Continue automatically after printing; do not wait.
@@ -107,8 +114,14 @@ forms and stop.
      fails the release otherwise.
    - `CHANGELOG.md`: insert the new section immediately below the intro
      paragraph and above the current top `## [...]` section, keeping the single
-     `# Changelog` heading at the very top. Then add a link reference for the new
-     version directly above the existing top one at the bottom of the file:
+     `# Changelog` heading at the very top. **When that top section is
+     `## [Unreleased]`, replace it instead of inserting above it** — its heading
+     becomes `## [X.Y.Z] - YYYY-MM-DD` and its body becomes step 7's merged
+     draft. Inserting above would strand an `Unreleased` block *below* a dated
+     release, which reads as debt that shipped and then un-shipped. Leave no
+     empty `## [Unreleased]` shell behind: the next one gets written when the
+     next unreleased change lands. Then add a link reference for the new version
+     directly above the existing top one at the bottom of the file:
      `[X.Y.Z]: https://www.npmjs.com/package/checkride/v/X.Y.Z`.
 
 9. **Verify before staging:** `pnpm check --only docs,links,spell,test --bail`.
@@ -168,5 +181,9 @@ forms and stop.
   user adds the word and re-invokes. If instead the failure is
   `test/plugin-manifest.test.ts`, step 8 moved only one of the two version
   strings — fix that rather than editing the test.
+- **An `## [Unreleased]` section is present.** It is folded into the new release
+  section, never kept beside it (steps 7 and 8). Where its bullets and the commit
+  range disagree — a bullet describing work that was later reverted, say — the
+  commits win; say what you dropped when you print the draft.
 - **A commit reads `BREAKING` but the user asked for `patch`/`minor`.** Surface it
   and ask whether they meant `major` before applying step 8.
