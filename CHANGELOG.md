@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.0] - 2026-07-28
 
 ### Added
 
@@ -91,6 +91,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the serialized pool it replaces, and `order` waves now schedule as
   documented. docs/ci.md explains the runner-size effect and how to read
   `total_duration_ms` against the per-check sum.
+- **The AGENTS.md stanza reports the configured gate, not the detected one.**
   `init` and `agent-setup` derived the stanza's "Active checks in this repo"
   line from the adoption inventory, which has detection semantics and never
   reads `checkride.config.json` — so opt-in slots a config entry opts in
@@ -98,6 +99,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from the agent-facing contract while the gate ran them. The stanza now
   derives from the same selection a default run makes (the pattern `doctor`
   already used), so what it names and what `pnpm check` runs agree.
+
+### Internal
+
+- The design record for this release is
+  [docs/spec-agent-setup-upgrade.md](./docs/spec-agent-setup-upgrade.md): two
+  consumers' reports validated against source, with the measured pnpm version
+  boundaries. docs/getting-started.md's hard-gate section was rewritten for
+  the three-hook suite.
 
 ## [0.8.1] - 2026-07-28
 
@@ -756,6 +765,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.9.0]: https://www.npmjs.com/package/checkride/v/0.9.0
 [0.8.1]: https://www.npmjs.com/package/checkride/v/0.8.1
 [0.8.0]: https://www.npmjs.com/package/checkride/v/0.8.0
 [0.7.0]: https://www.npmjs.com/package/checkride/v/0.7.0
