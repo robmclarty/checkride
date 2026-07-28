@@ -575,7 +575,7 @@ describe('order validation', () => {
     expect(() =>
       resolveSlot(
         'lint',
-        { checks: { lint: { command: 'node', order: Number.POSITIVE_INFINITY } } } as unknown as CheckrideConfig,
+        { checks: { lint: { command: 'node', order: Number.POSITIVE_INFINITY } } },
         never,
       ),
     ).toThrow(/order must be/);

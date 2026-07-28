@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters.js';
-import type { Adapter } from '../adapters.js';
+import type { Adapter, Order } from '../adapters.js';
 import type { Out } from '../orchestrator.js';
 import { runChecks } from '../orchestrator.js';
 
@@ -18,6 +18,12 @@ const sleeper = (over: Partial<Adapter>): Adapter => ({
   name: 'sleep', slot: 'sleep', description: 'sleep', detect: [], outputFile: null, devDeps: {},
   command: 'node', args: ['-e', 'setTimeout(() => process.exit(0), 600)'], ...over,
 });
+
+/** Adapter names filling `slot`, in registry order (the first is the blessed default). */
+const adapterNames = (slot: string): string[] => ADAPTERS.filter((a) => a.slot === slot).map((a) => a.name);
+
+/** A slot's declared wave order, or undefined when it takes the `'any'` default. */
+const orderOf = (name: string): Order | undefined => SLOTS.find((s) => s.name === name)?.order;
 
 describe('registry invariants', () => {
   test('schema version is 1', () => {
@@ -45,11 +51,10 @@ describe('registry invariants', () => {
   });
 
   test('alternates are wired after the blessed default for swappable slots', () => {
-    const names = (slot: string): string[] => ADAPTERS.filter((a) => a.slot === slot).map((a) => a.name);
-    expect(names('format')).toEqual(['prettier', 'biome-format']);
-    expect(names('lint')).toEqual(['oxlint', 'biome', 'eslint']);
-    expect(names('dead')).toEqual(['fallow', 'knip']);
-    expect(names('test')).toEqual(['vitest', 'jest']);
+    expect(adapterNames('format')).toEqual(['prettier', 'biome-format']);
+    expect(adapterNames('lint')).toEqual(['oxlint', 'biome', 'eslint']);
+    expect(adapterNames('dead')).toEqual(['fallow', 'knip']);
+    expect(adapterNames('test')).toEqual(['vitest', 'jest']);
   });
 
   test('the three fallow analyses fill dead/dupes/health, each checkride-gated', () => {
@@ -133,7 +138,6 @@ describe('registry invariants', () => {
   });
 
   test('D4 wave defaults: mutation runs single, build wave 10, publint/attw/pack/smoke share wave 20, the rest default to any', () => {
-    const orderOf = (name: string) => SLOTS.find((s) => s.name === name)?.order;
     expect(orderOf('mutation')).toBe('single');
     expect(orderOf('build')).toBe(10);
     expect(orderOf('publint')).toBe(20);

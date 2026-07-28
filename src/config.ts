@@ -354,7 +354,7 @@ function resolveConfigFile(
 export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  return resolveConfigFile(path, [], CONFIG_FILE) as CheckrideConfig;
+  return resolveConfigFile(path, [], CONFIG_FILE);
 }
 
 /**

@@ -42,6 +42,32 @@ const failLint: CheckRunner = (r) =>
 
 const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
 
+/** A runner that writes its own `.check/test.json`, the way vitest/jest do via `--outputFile`. */
+const toolWrites: CheckRunner = async (_r, ctx) => {
+  await writeFile(join(ctx.cwd, '.check', 'test.json'), JSON.stringify({ fresh: true }));
+  return { ok: true, exit_code: 0, stdout: '', stderr: '' };
+};
+
+/**
+ * A fresh orchestrator module per test: `killLiveChecks` latches the module's
+ * one-way interrupt flag, and latching the statically-imported instance would
+ * stop every later test in this file from spawning checks.
+ */
+async function freshOrchestrator(): Promise<typeof import('../orchestrator.js')> {
+  vi.resetModules();
+  return import('../orchestrator.js');
+}
+
+/** Poll until `path` exists (the spawned check has started) or fail loudly. */
+async function waitFor(path: string): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  while (!existsSync(path) && Date.now() < deadline) {
+    // oxlint-disable-next-line no-await-in-loop -- poll loop: the await is the intentional delay between existence checks.
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  expect(existsSync(path)).toBe(true);
+}
+
 /** A runner that emits a small JSON payload on stdout (for output-capture tests). */
 const jsonRunner: CheckRunner = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: JSON.stringify({ analysis: { types: true } }), stderr: '' });
@@ -441,10 +467,6 @@ describe('runChecks (stale output cleanup)', () => {
     // the runner, so this run's own artifact survives (it would be deleted if the
     // clear lived in persistOutput, which fires after the check).
     const adapters = [fakeAdapter({ name: 'vitest', slot: 'test' })];
-    const toolWrites: CheckRunner = async (_r, ctx) => {
-      await writeFile(join(ctx.cwd, '.check', 'test.json'), JSON.stringify({ fresh: true }));
-      return { ok: true, exit_code: 0, stdout: '', stderr: '' };
-    };
     await runChecks({
       cwd: dir, slots: [{ name: 'test' }], adapters, config: null, runner: toolWrites, json: true,
       stdout: sink().out, stderr: sink().out,
@@ -916,26 +938,6 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-sig-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
-
-  /**
-   * A fresh orchestrator module per test: `killLiveChecks` latches the module's
-   * one-way interrupt flag, and latching the statically-imported instance would
-   * stop every later test in this file from spawning checks.
-   */
-  async function freshOrchestrator(): Promise<typeof import('../orchestrator.js')> {
-    vi.resetModules();
-    return import('../orchestrator.js');
-  }
-
-  /** Poll until `path` exists (the spawned check has started) or fail loudly. */
-  async function waitFor(path: string): Promise<void> {
-    const deadline = Date.now() + 15_000;
-    while (!existsSync(path) && Date.now() < deadline) {
-      // oxlint-disable-next-line no-await-in-loop -- poll loop: the await is the intentional delay between existence checks.
-      await new Promise((r) => setTimeout(r, 25));
-    }
-    expect(existsSync(path)).toBe(true);
-  }
 
   test("reaps an in-flight check's grandchild and lets the run resolve", async () => {
     const orch = await freshOrchestrator();

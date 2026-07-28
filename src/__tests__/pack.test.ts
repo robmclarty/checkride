@@ -27,6 +27,25 @@ const doubleFailSpawn: PackSpawn = (_command, args) =>
     ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: "Unknown option: 'dry-run'" })
     : Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ERR_PNPM_REGISTRY_DOWN' });
 
+/** The pack subprocess itself fails to launch, rather than reporting a bad tarball. */
+const brokenSpawn: PackSpawn = () =>
+  Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ENOENT' } satisfies CheckOutcome);
+
+/** Really spawns the package manager, for the cases that must exercise a live pack. */
+const realSpawn: PackSpawn = (command, args, cwd) =>
+  new Promise((resolve) => {
+    const proc = nodeSpawn(command, args, {
+      cwd,
+      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+    proc.on('error', (err) => resolve({ ok: false, exit_code: -1, stdout, stderr: err.message }));
+    proc.on('close', (code) => resolve({ ok: code === 0, exit_code: code ?? -1, stdout, stderr }));
+  });
+
 describe('deriveRequired', () => {
   test('collects exports/main/types/bin targets plus README.md', () => {
     const required = deriveRequired({
@@ -132,8 +151,6 @@ describe('checkPack', () => {
 
   test('fails when the pack subprocess itself exits non-zero', async () => {
     await manifest({ name: 'lib' });
-    const brokenSpawn: PackSpawn = () =>
-      Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ENOENT' } satisfies CheckOutcome);
     const outcome = await checkPack({ cwd: dir, pm: 'npm', spawn: brokenSpawn });
     expect(outcome.ok).toBe(false);
     expect(outcome.stderr).toContain('pack exited 1');
@@ -241,19 +258,6 @@ describe('checkPack under an unsupported PM', () => {
 
 describe('checkPack (real subprocess)', () => {
   let dir: string;
-  const realSpawn: PackSpawn = (command, args, cwd) =>
-    new Promise((resolve) => {
-      const proc = nodeSpawn(command, args, {
-        cwd,
-        env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
-      proc.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
-      proc.on('error', (err) => resolve({ ok: false, exit_code: -1, stdout, stderr: err.message }));
-      proc.on('close', (code) => resolve({ ok: code === 0, exit_code: code ?? -1, stdout, stderr }));
-    });
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'checkride-pack-real-'));
