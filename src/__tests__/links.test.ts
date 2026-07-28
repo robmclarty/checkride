@@ -97,3 +97,96 @@ test('an allowlist that matches every broken link passes', async () => {
   const out = await checkLinks(dir, { allowlist: ['.'] });
   expect(out.ok).toBe(true);
 });
+
+const TICKS = '`'.repeat(3);
+
+test('skips links inside a fenced code block, but not after it closes', async () => {
+  await write(
+    'README.md',
+    [
+      `${TICKS}markdown`,
+      '[example](./does-not-exist.md)',
+      TICKS,
+      '',
+      '[real miss](./missing.md)',
+    ].join('\n') + '\n',
+  );
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string; line: number }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+  expect(misses[0]?.line).toBe(5);
+});
+
+test('skips links inside a tilde fence', async () => {
+  await write('README.md', ['~~~', '[example](./nope.md)', '~~~'].join('\n') + '\n');
+  expect((await checkLinks(dir)).ok).toBe(true);
+});
+
+test('a fence is not closed by a shorter marker or a different character', async () => {
+  // The inner ``` and ~~~ lines are content of the ```` block, not terminators.
+  await write(
+    'README.md',
+    ['````', TICKS, '[a](./nope.md)', TICKS, '~~~', '[b](./nope.md)', '````'].join('\n') + '\n',
+  );
+  expect((await checkLinks(dir)).ok).toBe(true);
+});
+
+test('a closing fence may be longer than the opening one', async () => {
+  await write('README.md', [TICKS, '[a](./nope.md)', '`````', '[b](./missing.md)'].join('\n') + '\n');
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+});
+
+test('an indented fence still opens a block', async () => {
+  await write('README.md', [`   ${TICKS}`, '[a](./nope.md)', `   ${TICKS}`].join('\n') + '\n');
+  expect((await checkLinks(dir)).ok).toBe(true);
+});
+
+test('skips links inside inline code spans', async () => {
+  await write(
+    'README.md',
+    [
+      'write `[example](./nope.md)` to link a file',
+      'a doubled span: ``[example](./nope.md)`` too',
+      'but [real miss](./missing.md) still counts',
+    ].join('\n') + '\n',
+  );
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string; line: number }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+  expect(misses[0]?.line).toBe(3);
+});
+
+test('an unclosed backtick is literal text, not a span that swallows a link', async () => {
+  await write('README.md', 'a stray ` tick then [broken](./missing.md)\n');
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+});
+
+test('a backtick-fence info string containing backticks does not open a block', async () => {
+  // ``` `a` ``` is an inline span holding `a`, so the next line is ordinary text.
+  await write('README.md', [`${TICKS} \`a\` ${TICKS}`, '[broken](./missing.md)'].join('\n') + '\n');
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(false);
+  const misses = JSON.parse(out.stdout) as { link: string; line: number }[];
+  expect(misses.map((m) => m.link)).toEqual(['./missing.md']);
+  expect(misses[0]?.line).toBe(2);
+});
+
+test('an unterminated fence skips the rest of the file', async () => {
+  await write('README.md', [TICKS, '[a](./nope.md)', '[b](./nope.md)'].join('\n') + '\n');
+  expect((await checkLinks(dir)).ok).toBe(true);
+});
+
+test('a 4-space indented code block is still checked', async () => {
+  // Deliberate: indented blocks are ambiguous with list continuation, so the
+  // check stays strict there rather than risking false negatives.
+  await write('README.md', '    [indented](./missing.md)\n');
+  expect((await checkLinks(dir)).ok).toBe(false);
+});
