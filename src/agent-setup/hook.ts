@@ -89,9 +89,17 @@ function hookSpecs(): HookSpec[] {
   ];
 }
 
-/** The `check`-script invocation for `pm` (the alias `agent-setup` ensures exists). */
+/**
+ * The gate's `check`-script invocation for `pm` (the alias `agent-setup`
+ * ensures exists). The hook IS a gate, so it runs `--strict` (zero checks
+ * running is exit 2, not a pass — docs/contract.md) and `--digest` (the
+ * token-bounded failure excerpt is a far better landing spot for an agent than
+ * raw summary.json). npm alone needs `--` to reach the script with flags;
+ * pnpm/yarn/bun forward them directly.
+ */
 function runCheckCommand(pm: PackageManager): string {
-  return `${pm} run check`;
+  const passthrough = pm === 'npm' ? ' --' : '';
+  return `${pm} run check${passthrough} --strict --digest`;
 }
 
 /**
@@ -117,7 +125,10 @@ export function gateScript(pm: PackageManager): string {
     '  exit 0',
     'fi',
     '',
-    `echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2`,
+    '# --digest wrote a capped failure excerpt on red; point there when present.',
+    'where=.check/summary.json',
+    '[ -f .check/digest.md ] && where=.check/digest.md',
+    'echo "checkride: the gate is red — read $where, fix the failing slot, then finish (do not stop while checkride is red). With the checkride plugin installed, /checkride:check runs full triage." >&2',
     'exit 2',
     '',
   ].join('\n');

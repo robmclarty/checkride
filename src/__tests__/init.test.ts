@@ -347,7 +347,7 @@ describe('existing-project adoption (idempotent)', () => {
       hooks: { Stop: { hooks: { command: string }[] }[] };
     };
     expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
-    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('pnpm run check');
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('pnpm run check --strict --digest');
 
     await rm(join(dir, '.claude'), { recursive: true, force: true });
     const noHook = await runInit({ cwd: dir, hook: false, probeFailures: noFailures });
@@ -444,11 +444,22 @@ describe('publish-ready bundle (existing mode, step 9)', () => {
 });
 
 describe('hooks (applyHooks / gateScript)', () => {
-  test('gate script runs the detected PM and blocks with exit 2', () => {
-    for (const pm of ['pnpm', 'npm', 'yarn', 'bun'] as const) {
-      expect(gateScript(pm)).toContain(`${pm} run check`);
+  test('gate script runs the detected PM with --strict --digest and blocks with exit 2', () => {
+    // npm alone needs `--` to pass flags through to the script.
+    expect(gateScript('npm')).toContain('npm run check -- --strict --digest');
+    for (const pm of ['pnpm', 'yarn', 'bun'] as const) {
+      expect(gateScript(pm)).toContain(`${pm} run check --strict --digest`);
     }
     expect(gateScript('pnpm')).toContain('exit 2');
+  });
+
+  test('gate guidance points at the digest when present, summary otherwise, and names the skill', () => {
+    const script = gateScript('pnpm');
+    // The sentinel substring is stable — migration detection keys on it.
+    expect(script).toContain('checkride: the gate is red');
+    expect(script).toContain('.check/digest.md');
+    expect(script).toContain('.check/summary.json');
+    expect(script).toContain('/checkride:check');
   });
 
   test('settings entry is a stable one-liner invoking the checkride-owned script', () => {

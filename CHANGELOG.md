@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The generated gate runs `--strict --digest`.** The Stop hook is a gate,
+  and the contract says anything that gates should pass `--strict` — now
+  checkride's own generated hook does. `--digest` writes the token-bounded
+  `.check/digest.md` on red, and the guidance message points there when it
+  exists (summary.json otherwise) and names `/checkride:check` for full
+  triage. npm repos get the `--` passthrough form; pnpm/yarn/bun forward
+  flags directly.
+
 ### Changed
 
 - **The Stop-hook gate moved into a checkride-owned script,
