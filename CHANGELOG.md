@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-28
+
+### Fixed
+
+- **The `links` check no longer flags example links inside code blocks.** A
+  `[text](target)` shown inside a fenced block or inline backticks was resolved
+  against disk like any real link, so documentation that demonstrates Markdown
+  syntax could only pass by enumerating every example target in
+  `checks.links.allowlist`. Fence state is now tracked across the file —
+  honoring CommonMark on marker length, tilde fences, and info strings — and
+  inline code spans are masked before parsing. Two limits are deliberate and
+  tested: 4-space indented blocks are still checked, since indentation is
+  ambiguous with list continuation, and code spans straddling a newline stay
+  unmatched. The check only became less strict, so a repo passing on 0.9.0
+  still passes.
+
 ## [0.9.0] - 2026-07-28
 
 ### Added
@@ -765,6 +781,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.9.1]: https://www.npmjs.com/package/checkride/v/0.9.1
 [0.9.0]: https://www.npmjs.com/package/checkride/v/0.9.0
 [0.8.1]: https://www.npmjs.com/package/checkride/v/0.8.1
 [0.8.0]: https://www.npmjs.com/package/checkride/v/0.8.0
