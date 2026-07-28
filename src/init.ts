@@ -24,9 +24,9 @@ import { planSnippets, selectDocFiles } from './snippets.js';
 import { CLAUDE_SETTINGS_FILE, writeStopHook } from './agent-setup/index.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
-import { configSchemaUrl, resolveChecks } from './config.js';
+import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
-import { runChecks } from './orchestrator.js';
+import { runChecks, selectChecks } from './orchestrator.js';
 import { detectPackageManager } from './pm/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
@@ -692,6 +692,21 @@ function splitAdd(add: readonly string[], manifest: InitManifest): {
 }
 
 /**
+ * The stanza's active-check list: the selection a default `checkride` run
+ * makes, resolved config-aware from disk. `inventory()` is the wrong input
+ * here — it has detection semantics and never reads checkride.config.json, so
+ * it under-reports the gate (opt-in slots the config opts in, custom checks)
+ * to the exact audience the stanza exists to inform. Mirrors `doctor`'s
+ * `defaultActive` derivation.
+ */
+function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[]): string[] {
+  const resolved = resolveChecks({ slots, adapters, config: loadConfig(cwd), cwd });
+  return selectChecks(resolved, {})
+    .filter((r) => r.adapter !== null)
+    .map((r) => r.slot);
+}
+
+/**
  * Write (or refresh) the AGENTS.md stanza for `slots`, idempotently: it writes
  * only when the applied stanza differs from the current file, records the outcome
  * on `w`/`skipped`, and honours dry-run. Shared by `initExisting` and
@@ -942,8 +957,9 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await ensureGitignore(w, cwd, skipped);
   // package.json: add the `check: checkride` alias if missing.
   await addCheckAlias(w, skipped);
-  // AGENTS.md stanza (create or refresh, idempotent).
-  await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
+  // AGENTS.md stanza (create or refresh, idempotent), derived from the config
+  // written above so it reports the gate as configured, not as detected.
+  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
   await writeClaudePointer(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
   await writeHook(w, options.hook, skipped);
@@ -999,9 +1015,8 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
   await addCheckAlias(w, skipped);
 
-  // AGENTS.md stanza for the currently-adopted slots (create or refresh).
-  const adopted = inventory({ cwd, slots, adapters }).filter((i) => i.status === 'adopted');
-  await writeAgentsStanza(w, cwd, adopted.map((i) => i.slot), skipped);
+  // AGENTS.md stanza for the checks the default run selects (create or refresh).
+  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
 
   await writeHook(w, options.hook, skipped);
 

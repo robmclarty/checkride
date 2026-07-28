@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The AGENTS.md stanza reports the configured gate, not the detected one.**
+  `init` and `agent-setup` derived the stanza's "Active checks in this repo"
+  line from the adoption inventory, which has detection semantics and never
+  reads `checkride.config.json` — so opt-in slots a config entry opts in
+  (`format`, `build`, …) and non-catalogue custom checks were silently missing
+  from the agent-facing contract while the gate ran them. The stanza now
+  derives from the same selection a default run makes (the pattern `doctor`
+  already used), so what it names and what `pnpm check` runs agree.
+
 ## [0.8.1] - 2026-07-28
 
 ### Fixed

@@ -557,6 +557,38 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(second.skipped).toContain(`${CLAUDE_SETTINGS_FILE} (Stop hook unchanged)`);
   });
 
+  test('stanza reports the configured gate, not detection: opted-in slots and custom checks appear', async () => {
+    await writeFile(
+      join(dir, 'package.json'),
+      JSON.stringify({ name: 'legacy', scripts: { build: 'tsc --build' } }),
+    );
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+    await writeFile(join(dir, 'biome.json'), '{}');
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({
+        checks: {
+          format: 'biome-format',
+          build: 'build',
+          'typecheck-tests': { command: 'pnpm', args: ['exec', 'tsc', '-p', 'tsconfig.test.json'] },
+        },
+      }),
+    );
+
+    await runAgentSetup({ cwd: dir });
+    const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    const activeLine = agents.split('\n').find((line) => line.startsWith('Active checks in this repo:'));
+    // `format` and `build` are opt-in slots the config opts in; `typecheck-tests`
+    // is a non-catalogue custom check. inventory() sees none of the three.
+    expect(activeLine).toContain('format');
+    expect(activeLine).toContain('build');
+    expect(activeLine).toContain('typecheck-tests');
+    // Detection still contributes: tsconfig.json → types runs and is reported.
+    expect(activeLine).toContain('types');
+    // An opt-in slot the config does NOT name stays out of the reported gate.
+    expect(activeLine).not.toContain('mutation');
+  });
+
   test('--no-hook writes the stanza but not the Stop hook', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     const result = await runAgentSetup({ cwd: dir, hook: false });
