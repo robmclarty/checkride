@@ -8,6 +8,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **The gate now skips turns that edited nothing.** A new PostToolUse hook
+  (`dirty`) touches `.check/.dirty` on every Edit/Write/NotebookEdit; the gate
+  script exits 0 immediately when the marker is absent and clears it after a
+  green run. Stop fires at the end of *every* turn, including
+  pure-conversation ones — on a real repo that was a multi-second pipeline
+  tax (plus formatter writes) for a turn that changed nothing, the single
+  best reason to disable the gate. File writes made through Bash don't set
+  the marker (a known, accepted gap — matching Bash would fire on every
+  command); the next tool-edited turn re-covers it. A `--hook gate`
+  selection without `dirty` writes an unconditional script, so the guard can
+  never disarm a gate that has no marker source.
 - **The generated gate runs `--strict --digest`.** The Stop hook is a gate,
   and the contract says anything that gates should pass `--strict` — now
   checkride's own generated hook does. `--digest` writes the token-bounded

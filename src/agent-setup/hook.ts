@@ -36,8 +36,17 @@ export const CLAUDE_SETTINGS_FILE = '.claude/settings.json';
 export const GATE_SCRIPT_FILE = '.claude/hooks/checkride-gate.sh';
 
 /** Every hook `agent-setup` can write; `--hook <a,b>` selects a subset. */
-export const HOOK_NAMES = ['gate'] as const;
+export const HOOK_NAMES = ['gate', 'dirty'] as const;
 export type HookName = (typeof HOOK_NAMES)[number];
+
+/**
+ * The edit marker: touched by the `dirty` PostToolUse hook, checked by the
+ * gate script (marker absent → the turn edited nothing → skip the run), and
+ * cleared by a green gate. Dot-named so it can never collide with a slot's
+ * `<slot>.json`/`<slot>.stdout.txt` artifacts, which the orchestrator deletes
+ * per slot before a re-run — the marker must survive every run.
+ */
+const DIRTY_MARKER = '.check/.dirty';
 
 /**
  * Sentinel carried by the legacy inline Stop command (pre-script versions
@@ -77,6 +86,13 @@ type HookSpec = {
  */
 const GATE_COMMAND = `sh "\${CLAUDE_PROJECT_DIR:-.}/${GATE_SCRIPT_FILE}"`;
 
+/**
+ * The `dirty` hook's one-liner: mark that this turn edited a file. Stop fires
+ * on every turn, including pure-conversation ones; the marker is what lets the
+ * gate skip those instead of taxing every reply with a full pipeline run.
+ */
+const DIRTY_COMMAND = `mkdir -p "\${CLAUDE_PROJECT_DIR:-.}/.check" && touch "\${CLAUDE_PROJECT_DIR:-.}/${DIRTY_MARKER}"`;
+
 /** The hook registry. Order is write order; sentinels key identity in settings. */
 function hookSpecs(): HookSpec[] {
   return [
@@ -85,6 +101,13 @@ function hookSpecs(): HookSpec[] {
       event: 'Stop',
       sentinels: [GATE_SCRIPT_FILE, LEGACY_GATE_SENTINEL],
       command: GATE_COMMAND,
+    },
+    {
+      name: 'dirty',
+      event: 'PostToolUse',
+      matcher: 'Edit|Write|NotebookEdit',
+      sentinels: [DIRTY_MARKER],
+      command: DIRTY_COMMAND,
     },
   ];
 }
@@ -105,9 +128,14 @@ function runCheckCommand(pm: PackageManager): string {
 /**
  * The gate script for `pm`. checkride owns and overwrites this file on every
  * `agent-setup`/`init`, so consumer customization belongs beside it, never in
- * it.
+ * it. `dirtyGuard` (on when the `dirty` hook is written alongside — the
+ * default) makes the gate conditional on the edit marker, so
+ * pure-conversation turns don't pay for a full pipeline run; without the
+ * marker hook the guard would disarm the gate entirely, so a `--hook gate`
+ * selection writes an unconditional script.
  */
-export function gateScript(pm: PackageManager): string {
+export function gateScript(pm: PackageManager, opts: { dirtyGuard?: boolean } = {}): string {
+  const dirtyGuard = opts.dirtyGuard ?? true;
   return [
     '#!/bin/sh',
     '# checkride-gate.sh — the Claude Code Stop-hook gate.',
@@ -121,7 +149,18 @@ export function gateScript(pm: PackageManager): string {
     '',
     'cd "${CLAUDE_PROJECT_DIR:-.}" || exit 2',
     '',
+    ...(dirtyGuard
+      ? [
+          '# No edit marker → this turn touched no files → nothing to gate. The',
+          '# marker comes from the PostToolUse dirty hook (Edit/Write/NotebookEdit;',
+          '# file writes made through Bash are a known, accepted gap) and is',
+          '# cleared below after a green run.',
+          `[ -f ${DIRTY_MARKER} ] || exit 0`,
+          '',
+        ]
+      : []),
     `if ${runCheckCommand(pm)}; then`,
+    ...(dirtyGuard ? [`  rm -f ${DIRTY_MARKER}`] : []),
     '  exit 0',
     'fi',
     '',
@@ -250,7 +289,8 @@ export async function writeHooks(
   files.push({ path: CLAUDE_SETTINGS_FILE, changed });
 
   if (names.includes('gate')) {
-    files.push(await putFile(cwd, GATE_SCRIPT_FILE, gateScript(pm), { dryRun, executable: true }));
+    const script = gateScript(pm, { dirtyGuard: names.includes('dirty') });
+    files.push(await putFile(cwd, GATE_SCRIPT_FILE, script, { dryRun, executable: true }));
   }
   return { files };
 }

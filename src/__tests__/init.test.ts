@@ -1,12 +1,21 @@
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { applyHooks, CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, gateScript, writeHooks } from '../agent-setup/index.js';
+import {
+  applyHooks,
+  CLAUDE_SETTINGS_FILE,
+  GATE_SCRIPT_FILE,
+  gateScript,
+  HOOK_NAMES,
+  writeHooks,
+} from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
@@ -472,8 +481,28 @@ describe('hooks (applyHooks / gateScript)', () => {
   });
 
   test('applying twice is a no-op (deep equal)', () => {
-    const once = applyHooks({ hooks: { Stop: [] } }, ['gate']);
-    expect(applyHooks(once, ['gate'])).toEqual(once);
+    const once = applyHooks({ hooks: { Stop: [] } }, HOOK_NAMES);
+    expect(applyHooks(once, HOOK_NAMES)).toEqual(once);
+  });
+
+  test('the dirty hook is a PostToolUse edit-marker with the edit-tool matcher', () => {
+    const next = applyHooks({}, ['dirty']);
+    const group = next.hooks?.PostToolUse?.[0];
+    expect(group?.matcher).toBe('Edit|Write|NotebookEdit');
+    expect(group?.hooks?.[0]?.command).toContain('.check/.dirty');
+    // The gate is untouched: selecting only `dirty` writes no Stop group.
+    expect(next.hooks?.Stop).toBeUndefined();
+  });
+
+  test('gate script guards on the marker by default, and clears it after green', () => {
+    const script = gateScript('pnpm');
+    expect(script).toContain('[ -f .check/.dirty ] || exit 0');
+    expect(script).toContain('rm -f .check/.dirty');
+  });
+
+  test('a gate-only selection writes an unconditional script (no marker, no guard)', () => {
+    const script = gateScript('pnpm', { dirtyGuard: false });
+    expect(script).not.toContain('.check/.dirty');
   });
 
   test('preserves unrelated settings keys and other Stop groups', () => {
@@ -565,6 +594,31 @@ describe('writeHooks', () => {
     await writeFile(join(dir, CLAUDE_SETTINGS_FILE), '{ not valid json');
     await expect(writeHooks(dir)).rejects.toThrow('invalid .claude/settings.json');
   });
+
+  test('gate script behavior: no marker → skip; green → clears marker; red → exit 2, marker stays', async () => {
+    const sh = promisify(execFile);
+    const script = join(dir, GATE_SCRIPT_FILE);
+    const marker = join(dir, '.check', '.dirty');
+    const env = { ...process.env, CLAUDE_PROJECT_DIR: dir };
+    // `true`/`false` ignore the --strict --digest args the gate appends.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { check: 'true' } }));
+    await writeHooks(dir, { pm: 'pnpm' });
+
+    // Marker absent: the gate skips without running the pipeline.
+    await sh('sh', [script], { env });
+
+    // Marker present + green check: gate passes and clears the marker.
+    await mkdir(join(dir, '.check'), { recursive: true });
+    await writeFile(marker, '');
+    await sh('sh', [script], { env });
+    expect(existsSync(marker)).toBe(false);
+
+    // Marker present + red check: gate blocks with exit 2 and the marker survives.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { check: 'false' } }));
+    await writeFile(marker, '');
+    await expect(sh('sh', [script], { env })).rejects.toMatchObject({ code: 2 });
+    expect(existsSync(marker)).toBe(true);
+  }, 30000);
 });
 
 describe('runAgentSetup (existing repo, no full init)', () => {
