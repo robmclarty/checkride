@@ -4,19 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.9.3] - 2026-07-29
+
+### Contract
+
+- **An empty slot selection is now a usage error.** `--only`, `--skip` or
+  `--include` given a value that names nothing after trimming (`--only ,`,
+  `--only ''`, `--only '  '`) exits **2**, naming the flag. It previously
+  parsed to an empty list, which is truthy, so `--only ,` filtered every check
+  out and exited **0** having verified nothing — the same vacuous green that
+  `--only lints` was fixed for in 0.5.0, reached by a different route. The two
+  empty spellings also disagreed: `--only ''` ran the whole pipeline. The rule
+  now holds for a programmatic caller too — `runChecks({ only: [] })` throws
+  rather than selecting nothing. See `docs/contract.md` §CLI and §Exit codes.
+- **`summary.json`'s published schema described `total_duration_ms` as a sum.**
+  It is, and has been since concurrency landed, the **wall-clock** span of the
+  run; the two diverge whenever checks overlap. No behavior changed — the
+  description in `schema/checkride.summary.schema.json` was simply wrong, and a
+  consumer implementing against it would derive the wrong run-start
+  (`timestamp - total_duration_ms`) and read stale artifacts as fresh. The
+  semantics are now pinned by a test, not just prose. See `docs/contract.md`
+  §`.check/summary.json`.
 
 ### Fixed
 
-- **A selection flag that names nothing is now a usage error (exit 2), not a
-  silent pass.** `checkride --only ,` parsed to an empty list, which is truthy,
-  so every check was filtered out and the run exited **0** having verified
-  nothing — the exact vacuous green slot validation exists to prevent. The two
-  empty spellings also disagreed: `--only ''` ran the whole pipeline while
-  `--only ,` ran none of it. Both now exit 2, at the CLI and for a programmatic
-  caller that hands `runChecks` an empty array. **Behavior change:** a script
-  passing an empty `--only`/`--skip`/`--include` used to be tolerated and now
-  fails; that was never a meaningful selection.
 - **Tools are no longer installed from the registry mid-run under npm or bun.**
   The exec translation emitted a bare `npx <tool>` / `bunx <tool>`, and both
   launchers fetch a missing package and run it rather than failing — checks are
@@ -46,14 +57,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `schema_version` was recorded and never checked. Dropping it fails closed: the
   run reports the diagnostics that are really there, where guessing risks
   masking findings the author never grandfathered.
-- **The published summary schema described `total_duration_ms` as a sum.** It is
-  the run's wall-clock span, as `docs/contract.md` and the implementation have
-  said since concurrency landed; the two diverge whenever checks overlap. This
-  matters because consumers derive the run's start from it
-  (`timestamp - total_duration_ms`) to judge whether a `.check/` artifact belongs
-  to the run — under sum semantics that window opens far too early and stale
-  artifacts read as fresh. The shape was schema-validated all along; only the
-  description was wrong, which is why nothing caught it.
 - **AGENTS.md described a tree the repo does not have.** It named four folder
   modules where there are seven (`artifacts/`, `qa/` and `triage/` were
   missing), and stated a test-placement rule — colocate beside the source file —
@@ -930,6 +933,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.9.3]: https://www.npmjs.com/package/checkride/v/0.9.3
 [0.9.2]: https://www.npmjs.com/package/checkride/v/0.9.2
 [0.9.1]: https://www.npmjs.com/package/checkride/v/0.9.1
 [0.9.0]: https://www.npmjs.com/package/checkride/v/0.9.0
