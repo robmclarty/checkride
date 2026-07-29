@@ -41,12 +41,18 @@ With no lockfile or field, checkride falls back to pnpm. `doctor` prints the
 detected manager at the top of its report and verifies that manager is on your
 PATH (pnpm keeps its `>=9` floor; the others are presence-only for now).
 
-**Checks only ever run tools you installed.** `npx` and `bunx` will otherwise
-fetch a missing package from the registry and run it — and because a check is
-spawned without a TTY, neither stops to ask first. That would let a gate
-silently pull an unpinned `latest` for a tool the repo never declared, so
-checkride passes `--no-install` and a missing tool fails its slot instead.
-`pnpm exec` and `yarn` already behave this way and need no flag.
+**A check never fetches a tool from the registry.** `npx` and `bunx` will
+otherwise download a missing package and run it — and because a check is
+spawned without a TTY, neither stops to ask first, so a gate could silently
+pull an unpinned `latest` for a tool the repo never declared. checkride passes
+`--no-install` to both; a tool that has to be downloaded now fails its slot.
+
+One caveat worth knowing: `--no-install` stops the *download*, not every
+fallback. Both launchers will still run a copy already sitting in their global
+cache from some earlier, unrelated `npx`/`bunx` invocation on that machine — so
+the guarantee is "nothing new is fetched mid-run", not "only what this repo
+declared". Install your tools as `devDependencies` if you need the stronger
+one. `pnpm exec` and `yarn` have no such cache path and need no flag.
 
 The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is

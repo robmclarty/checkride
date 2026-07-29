@@ -22,9 +22,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   launchers fetch a missing package and run it rather than failing — checks are
   spawned without a TTY, which is precisely the non-interactive case where
   neither stops to prompt. A repo missing a tool could therefore have its gate
-  silently execute an unpinned `latest`. Both now carry `--no-install`.
-  **Behavior change:** a missing tool fails its slot instead of being fetched.
-  `pnpm exec` and `yarn` were already correct and are unchanged.
+  silently execute an unpinned `latest`. Both now carry `--no-install`, which
+  bounds the download but not the launcher's global cache — the guarantee is
+  "nothing new is fetched mid-run". **Behavior change:** a tool that would have
+  to be downloaded now fails its slot. `pnpm exec` and `yarn` have no such cache
+  path and are unchanged.
 - **The triage reader's gate timeout could not reap what it started.** It
   spawned without `detached` and sent a bare `SIGTERM` with no escalation, so
   the signal reached the package-manager wrapper and left the checks themselves
@@ -65,6 +67,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Internal
 
+- **This repo's own gate now runs the `security` slot.** `pnpm audit` takes well
+  under a second and reports zero advisories at every level, and a package that
+  publishes to npm with provenance should be auditing its own dependency tree as
+  part of "done" rather than out of band. Note the trade-off: the gate now needs
+  the registry to be reachable, and a failure to *verify* is a failure, not a
+  pass — so a network outage turns the run red rather than quietly skipping the
+  check.
+- **The stryker break threshold moves 55 → 68.** The measured score is 73.2%
+  (up from 71.7%), so the old gate sat 18 points below reality and could not
+  have failed on anything short of deleting a suite. It now sits ~5 points
+  under — enough headroom that a mutant timing out on a loaded machine does not
+  turn the run red, which is the only reason not to set it tighter. The two
+  bundled-plugin bins are excluded from the mutate set: they are three lines
+  each, do their work at module top level, and are unreachable from the unit
+  runner stryker drives, so they reported a permanent 0% no test could move.
+  They are covered as processes by `test/e2e/plugin-readers.e2e.test.ts`.
+- Tests for the last uncovered code in the package. The two bundled-plugin
+  entry points (`dist/triage/cli.js`, `dist/qa/cli.js`) are exercised as
+  processes, which is the only way to reach a bin that works at module top
+  level; `checkride fix` gained CLI-dispatch coverage it never had; and the
+  three `qa/` extractors gained tests for their truncation caps and
+  malformed-input fallbacks — the bounded-reader behavior those modules exist
+  for. Branch coverage 84.3% → 85.5%.
 - New guards for the claims that drifted: `test/conventions.test.ts` checks
   AGENTS.md's folder-module list and test placement against the tree, and the
   summary contract suite now pins `total_duration_ms` behaviorally — wall-clock

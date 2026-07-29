@@ -64,6 +64,13 @@ describe('parseInitArgs', () => {
   test('rejects an invalid shape', () => {
     expect(() => parseInitArgs(['init', '--shape', 'nope'])).toThrow('invalid --shape');
   });
+
+  test('parses --baseline and --force', () => {
+    expect(parseInitArgs(['init', '--baseline'])).toMatchObject({ baseline: true });
+    expect(parseInitArgs(['init', '--force'])).toMatchObject({ force: true });
+    // Absent stays absent, so `runInit` applies its own default.
+    expect(parseInitArgs(['init']).baseline).toBeUndefined();
+  });
 });
 
 describe('runCli help and version', () => {
@@ -260,5 +267,56 @@ describe('runCli agent-setup', () => {
     expect(code).toBe(0);
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(true);
     expect(existsSync(join(dir, '.claude', 'settings.json'))).toBe(false);
+  });
+});
+
+/**
+ * `fix` was the one command with no coverage of its CLI dispatch — `runFix`
+ * itself is well tested, but nothing drove it through `runCli`, so a broken
+ * wiring between the two (a dropped flag, a swapped stream, a lost exit code)
+ * would not have failed the build.
+ */
+describe('runCli fix', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-fix-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('reports and exits 0 when no active adapter exposes a fix', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'bare' }));
+    const err = sink();
+    const code = await runCli(['fix'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(0);
+    expect(err.text()).toContain('no active adapters');
+  });
+
+  test('runs a configured adapter fix and reports it on stderr', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixable' }));
+    // A custom check carrying `fixArgs`, so `fix` has something to run. The
+    // command is a no-op node process — this asserts the dispatch, not a tool.
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, tidy: { command: 'node', args: ['-e', ''], fixArgs: ['-e', ''] } },
+    }));
+    const err = sink();
+    const code = await runCli(['fix'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(0);
+    expect(err.text()).toContain('fix tidy');
+    expect(err.text()).toContain('✔ tidy');
+  });
+
+  test('a fix command that fails carries its exit code out of the CLI', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixable' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, tidy: { command: 'node', args: ['-e', ''], fixArgs: ['-e', 'process.exit(3)'] } },
+    }));
+    const err = sink();
+    expect(await runCli(['fix'], { cwd: dir, stdout: sink(), stderr: err })).toBe(1);
+    expect(err.text()).toContain('✘ tidy');
+  });
+
+  test('an unknown slot in --only is a usage error here too', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'bare' }));
+    const err = sink();
+    expect(await runCli(['fix', '--only', 'lints'], { cwd: dir, stdout: sink(), stderr: err })).toBe(2);
+    expect(err.text()).toContain("'lints'");
   });
 });

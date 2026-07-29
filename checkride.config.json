@@ -17,6 +17,7 @@
 
     "docs": { "use": "markdownlint-cli2", "order": 3 },
     "spell": { "use": "cspell", "order": 3 },
+    "security": { "use": "pnpm-audit", "order": 3 },
     "typecheck-tests": {
       "command": "pnpm",
       "args": ["exec", "tsc", "-p", "tsconfig.test.json"],

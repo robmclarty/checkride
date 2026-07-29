@@ -16,7 +16,9 @@ import type { PackageManager } from './detect.js';
  * along. `--no-install` is load-bearing: `npx` and `bunx` otherwise fetch a
  * missing tool from the registry and run it, and a check has no TTY to be
  * prompted through — so the gate would silently execute an unpinned `latest`.
- * `yarn` neither auto-installs nor accepts the flag.
+ * It bounds the download, not every fallback: a copy already in the launcher's
+ * global cache still runs (see `docs/tools.md` §Package managers). `yarn`
+ * neither auto-installs nor accepts the flag.
  */
 const EXEC: Record<Exclude<PackageManager, 'pnpm'>, { command: string; flags: readonly string[] }> = {
   npm: { command: 'npx', flags: ['--no-install'] },

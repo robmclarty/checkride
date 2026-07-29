@@ -114,6 +114,21 @@ async function run(spec: RepoSpec): Promise<{ report: QaReport; text: string }> 
 }
 
 /** The ledger row for one slot. */
+/** A clone family with `fileCount` files, ranked by a descending line count. */
+function cloneFamily(n: number, fileCount: number): Json {
+  return {
+    files: Array.from({ length: fileCount }, (_, i) => `src/f${n}-${i}.ts`),
+    groups: [{}],
+    total_duplicated_lines: 100 - n,
+    total_duplicated_tokens: 10,
+  };
+}
+
+/** A clone family with an explicit (possibly absent) line count, for ranking tests. */
+function familyAt(lines: number | null, files: string[]): Json {
+  return { files, groups: [], ...(lines === null ? {} : { total_duplicated_lines: lines }) };
+}
+
 function rowFor(report: QaReport, slot: string): QaReport['ledger'][number] {
   const entry = report.ledger.find((e) => e.slot === slot);
   if (entry === undefined) throw new Error(`no ledger entry for ${slot}`);
@@ -356,6 +371,74 @@ describe('the mutation fold', () => {
   test('a JSON file that is not a stryker report folds to null, not to an empty report', () => {
     expect(extractMutation({ kind: 'health' })).toBeNull();
   });
+
+  /**
+   * A file whose every mutant was `Ignored` has an empty denominator. Reporting
+   * `0%` there would rank a file nobody mutates as the worst in the repo; `null`
+   * says "not measurable", which is the truth.
+   */
+  test('a file with nothing testable scores null, not zero', () => {
+    const extract = extractMutation(mutationOf({ 'ignored.ts': repeat('Ignored', 5) }));
+    expect(extract?.score).toBeNull();
+    expect(extract?.scoreCovered).toBeNull();
+    expect(extract?.files[0]).toMatchObject({ score: null, tested: 0 });
+    // A report with no files at all is still a report, not a parse failure.
+    expect(extractMutation({ files: {} })).toMatchObject({ total: 0, score: null, totalFiles: 0 });
+  });
+
+  /**
+   * `scoreCovered` drops NoCoverage from the denominator, so the two columns
+   * diverge exactly when a file has mutants no test reaches — which is the case
+   * where the headline score understates how good the *reached* tests are.
+   */
+  test('the covered score ignores unreached mutants where the headline score does not', () => {
+    const extract = extractMutation(
+      mutationOf({ 'a.ts': [...repeat('Killed', 3), ...repeat('NoCoverage', 3)] }),
+    );
+    expect(extract?.score).toBe(50); // 3 detected of 6 tested
+    expect(extract?.scoreCovered).toBe(100); // 3 detected of 3 reached
+  });
+
+  test('an unrecognized status counts as other and stays out of the score', () => {
+    // Stryker can add statuses; an unknown one must not silently become a kill.
+    const extract = extractMutation(
+      mutationOf({ 'a.ts': [...repeat('Killed', 2), ...repeat('CompileError', 3)] }),
+    );
+    expect(extract?.other).toBe(3);
+    expect(extract?.score).toBe(100); // the 3 errors left the denominator
+    expect(extract?.total).toBe(5); // ...but they are still in the total
+  });
+
+  test('a mutant with no usable position or name degrades instead of being dropped', () => {
+    const extract = extractMutation({
+      files: { 'a.ts': { mutants: [{ status: 'Survived' }, 'not an object', { status: 'Survived', location: {} }] } },
+    });
+    expect(extract?.survived).toBe(2); // the non-object entry was dropped
+    expect(extract?.samples.map((s) => s.line)).toEqual([null, null]);
+    expect(extract?.samples[0]?.mutator).toBe('unknown');
+    expect(extract?.samples[0]?.replacement).toBe('');
+  });
+
+  test('a files entry that is not an object contributes nothing but still lists', () => {
+    const extract = extractMutation({ files: { 'a.ts': 'nonsense', 'b.ts': { mutants: 'nonsense' } } });
+    expect(extract?.totalFiles).toBe(2);
+    expect(extract?.total).toBe(0);
+    expect(extract?.files.every((f) => f.score === null)).toBe(true);
+  });
+
+  test('ranking falls back from undetected count to score to path', () => {
+    const extract = extractMutation(
+      mutationOf({
+        // Same undetected count as `b`, but a worse score — ranks first.
+        'b.ts': [...repeat('Survived', 2), ...repeat('Killed', 8)],
+        'a.ts': [...repeat('Survived', 2), ...repeat('Killed', 2)],
+        // Ties `a` on both count and score, so the path decides.
+        'a0.ts': [...repeat('Survived', 2), ...repeat('Killed', 2)],
+        'z.ts': [...repeat('Survived', 5)], // most undetected — first overall
+      }),
+    );
+    expect(extract?.files.map((f) => f.path)).toEqual(['z.ts', 'a.ts', 'a0.ts', 'b.ts']);
+  });
 });
 
 /* ------------------------------------------------------------- the fallow folds */
@@ -405,6 +488,62 @@ describe('the health fold', () => {
       { exceeded: 'unit_size', count: 1 },
     ]);
     expect(extract?.thresholds).toEqual({ cyclomatic: 15, cognitive: 15, crap: 30, unitSize: 60 });
+  });
+
+  /**
+   * `byThreshold` is derived from *every* finding, not just the listed ones —
+   * that is what makes the truncated list safe to read. A count that only
+   * covered the visible eight would understate the work by exactly the amount
+   * the cap hid.
+   */
+  test('findings and hotspots cap, but the threshold counts still span all of them', () => {
+    const extract = extractHealth({
+      kind: 'health',
+      health_score: { score: 50, grade: 'D', penalties: {} },
+      findings: [
+        ...Array.from({ length: 9 }, (_, i) => ({ path: `src/c${i}.ts`, exceeded: 'cyclomatic' })),
+        ...Array.from({ length: 3 }, (_, i) => ({ path: `src/u${i}.ts`, exceeded: 'unit_size' })),
+      ],
+      hotspots: Array.from({ length: 8 }, (_, i) => ({ path: `src/h${i}.ts` })),
+    });
+    expect(extract?.totalFindings).toBe(12);
+    expect(extract?.findings).toHaveLength(8);
+    expect(extract?.omittedFindings).toBe(4);
+    // All twelve are counted, including the four the list dropped.
+    expect(extract?.byThreshold).toEqual([
+      { exceeded: 'cyclomatic', count: 9 },
+      { exceeded: 'unit_size', count: 3 },
+    ]);
+    expect(extract?.totalHotspots).toBe(8);
+    expect(extract?.hotspots).toHaveLength(6);
+    expect(extract?.omittedHotspots).toBe(2);
+  });
+
+  test('missing fields read as explicit unknowns, never as plausible values', () => {
+    const extract = extractHealth({
+      kind: 'health',
+      health_score: {},
+      findings: [{}],
+      hotspots: [{}],
+    });
+    expect(extract?.grade).toBe('?');
+    expect(extract?.score).toBeNull();
+    expect(extract?.findings[0]).toMatchObject({ path: '?', name: '?', exceeded: 'unknown', severity: 'unknown' });
+    expect(extract?.hotspots[0]).toMatchObject({ path: '?', trend: 'unknown' });
+    expect(extract?.thresholds).toEqual({ cyclomatic: null, cognitive: null, crap: null, unitSize: null });
+  });
+
+  test('equal penalties break the tie by name, so the ranking is stable run to run', () => {
+    const extract = extractHealth({
+      kind: 'health',
+      health_score: { score: 90, grade: 'A', penalties: { unit_size: 5, coupling: 5, hotspots: 0, dead_files: -1 } },
+    });
+    expect(extract?.penalties).toEqual([
+      { name: 'coupling', points: 5 },
+      { name: 'unit_size', points: 5 },
+    ]);
+    // A zero and a negative both count as "no penalty" rather than being listed.
+    expect(extract?.zeroPenalties).toBe(2);
   });
 
   test('a report with no health_score folds to null rather than scoring zero', () => {
@@ -460,6 +599,53 @@ describe('the dupes fold', () => {
 
   test('a report with no clone_groups folds to null rather than reporting zero duplication', () => {
     expect(extractDupes({ kind: 'dupes', stats: {} })).toBeNull();
+  });
+
+  /**
+   * The caps are the point of this module: a real duplication report is mostly
+   * duplicated source text, so every list has a ceiling. What must never happen
+   * is a truncated list that reads as complete — each cap reports what it
+   * dropped.
+   */
+  test('both lists cap, and each says how much it left out', () => {
+    const extract = extractDupes({
+      kind: 'dupes',
+      clone_groups: Array.from({ length: 9 }, () => ({})),
+      clone_families: Array.from({ length: 9 }, (_, i) => cloneFamily(i, 7)),
+    });
+    expect(extract?.totalFamilies).toBe(9);
+    expect(extract?.families).toHaveLength(6);
+    expect(extract?.omittedFamilies).toBe(3);
+    // ...and within a family, the file list caps the same way.
+    expect(extract?.families[0]?.files).toHaveLength(4);
+    expect(extract?.families[0]?.omittedFiles).toBe(3);
+  });
+
+  test('ranking falls back from lines to file count to name, so the order is total', () => {
+    const extract = extractDupes({
+      kind: 'dupes',
+      clone_groups: [],
+      clone_families: [
+        familyAt(null, ['src/z.ts']), // no line count at all — sorts as 0, last
+        familyAt(10, ['src/b.ts']), // same lines as the next, fewer files
+        familyAt(10, ['src/a.ts', 'src/a2.ts']), // same lines, more files — wins
+        familyAt(10, ['src/a.ts']), // ties b on lines and file count — name breaks it
+      ],
+    });
+    expect(extract?.families.map((f) => f.files[0])).toEqual(['src/a.ts', 'src/a.ts', 'src/b.ts', 'src/z.ts']);
+    expect(extract?.families.at(-1)?.lines).toBeNull();
+  });
+
+  test('a family whose files field is not a list of strings degrades to an empty list', () => {
+    const extract = extractDupes({
+      kind: 'dupes',
+      clone_groups: [{}],
+      clone_families: [{ files: 'src/a.ts' }, { files: [1, null, 'src/b.ts'] }],
+    });
+    // Both lost their line counts, so the file-count tie-break orders them:
+    // the one string that survived filtering outranks the family left empty.
+    expect(extract?.families.map((f) => f.files)).toEqual([['src/b.ts'], []]);
+    expect(extract?.families.every((f) => f.omittedFiles === 0)).toBe(true);
   });
 });
 

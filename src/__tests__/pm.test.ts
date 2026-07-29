@@ -101,7 +101,7 @@ describe('translateExec', () => {
    * tool the repo never installed. `yarn` neither auto-installs nor takes the
    * flag, so it must not grow one.
    */
-  test('the auto-installing launchers are pinned to what is already installed', () => {
+  test('the auto-installing launchers are told not to fetch', () => {
     for (const pm of ['npm', 'bun'] satisfies PackageManager[]) {
       expect(translateExec('pnpm', execArgs, pm).args[0]).toBe('--no-install');
     }

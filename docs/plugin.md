@@ -29,8 +29,8 @@ schema says so — the summary is an *index*, not evidence.
 So each skill pairs a **deterministic reader** with **model judgment**. The
 reader measures artifacts instead of opening them, pins `schema_version`, dates
 every file against the run that claims it, and resolves a failing slot's raw
-output by the documented convention when the summary names no file (which it
-does not for 8 of checkride's own 17 slots, `test` among them). The skill then
+output by the documented convention when the summary names no file (true for
+roughly half of checkride's own slots, `test` among them). The skill then
 does the part no script can: rank simultaneous failures into one root cause,
 or decide which surviving mutant is worth a test.
 
