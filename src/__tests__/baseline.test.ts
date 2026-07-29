@@ -10,6 +10,7 @@ import type { Adapter } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
 import {
   applyBaseline,
+  BASELINE_SCHEMA_VERSION,
   baselinesEqual,
   fingerprint,
   isFingerprintable,
@@ -198,6 +199,31 @@ describe('loadBaseline / writeBaseline', () => {
     expect(loadBaseline(dir)).toBeNull();
     await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: ['a', 5, 'b'] } }));
     expect(loadBaseline(dir)?.slots['lint']).toEqual(['a', 'b']); // non-strings dropped
+  });
+
+  /**
+   * `slots` is a map from slot name to keys. An array passed the old guard
+   * (`typeof [] === 'object'`), and `Object.entries` then keyed the baseline by
+   * array *index* — a file that masked nothing while looking like it loaded.
+   */
+  test('rejects a slots array instead of keying it by index', async () => {
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: [['a']] }));
+    expect(loadBaseline(dir)).toBeNull();
+  });
+
+  /**
+   * Fail closed on a baseline from a newer checkride: the fields this version
+   * cannot see are the ones that say what is masked and why. Dropping it
+   * re-surfaces the real diagnostics (more red), where guessing risks masking
+   * findings the author never grandfathered.
+   */
+  test('drops a baseline from a newer schema version rather than half-reading it', async () => {
+    const path = join(dir, 'checkride.baseline.json');
+    await writeFile(path, JSON.stringify({ schema_version: BASELINE_SCHEMA_VERSION + 1, slots: { lint: ['a'] } }));
+    expect(loadBaseline(dir)).toBeNull();
+    // The current version, and an older one, still load.
+    await writeFile(path, JSON.stringify({ schema_version: BASELINE_SCHEMA_VERSION, slots: { lint: ['a'] } }));
+    expect(loadBaseline(dir)?.slots['lint']).toEqual(['a']);
   });
 });
 

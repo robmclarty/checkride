@@ -11,30 +11,28 @@
 
 import type { PackageManager } from './detect.js';
 
-/** The exec command each non-pnpm PM uses in place of `pnpm exec`. */
-const EXEC_COMMAND: Record<Exclude<PackageManager, 'pnpm'>, string> = {
-  npm: 'npx',
-  yarn: 'yarn',
-  bun: 'bunx',
+/**
+ * What each non-pnpm PM uses in place of `pnpm exec`, and the flags that ride
+ * along. `--no-install` is load-bearing: `npx` and `bunx` otherwise fetch a
+ * missing tool from the registry and run it, and a check has no TTY to be
+ * prompted through — so the gate would silently execute an unpinned `latest`.
+ * `yarn` neither auto-installs nor accepts the flag.
+ */
+const EXEC: Record<Exclude<PackageManager, 'pnpm'>, { command: string; flags: readonly string[] }> = {
+  npm: { command: 'npx', flags: ['--no-install'] },
+  yarn: { command: 'yarn', flags: [] },
+  bun: { command: 'bunx', flags: ['--no-install'] },
 };
 
 /**
- * pnpm verifies dependencies before `run`/`exec` and narrates it on **stdout** —
- * `Already up to date`, `Done in Xms using pnpm vN` — whenever no outer pnpm
- * process has already done so. That preamble lands ahead of the tool's own JSON,
- * which is why a direct `node dist/cli.js` failed `dead`/`dupes`/`health` with
- * "did not emit valid JSON" while the same gate under `pnpm run check` passed:
- * the outer pnpm had already verified, so the inner `exec` stayed quiet.
+ * Keeps pnpm's dependency-check narration (`Already up to date`) off **stdout**,
+ * where it would land in front of a tool's JSON and make it unparseable.
  *
- * The override is the only form that works. `--silent` and `--reporter=silent`
- * do not suppress it, the `npm_config_verify_deps_before_run` environment
- * variable is not read, and the flag must precede `exec` — after it, pnpm reads
- * it as the tool's argument and fails. Unknown config keys are accepted and
- * ignored by every pnpm in the supported range (`engines.pnpm >= 9`, verified
- * against 9, 10 and 11), so this is unconditional rather than version-gated.
- *
- * Belt and braces: `parseToolJson` tolerates a preamble anyway, because a
- * consumer's launcher is not checkride's to pin.
+ * This exact spelling, in this position, is the only form that works — not
+ * `--silent`, not the environment variable, and not after `exec`. Applied to
+ * every supported pnpm rather than version-gated. The full account, including
+ * the failure that found it, is in `docs/tools.md` §Launcher quirks; read it
+ * before touching this line.
  */
 const VERIFY_DEPS_OFF = '--config.verify-deps-before-run=false';
 
@@ -44,11 +42,12 @@ const VERIFY_DEPS_OFF = '--config.verify-deps-before-run=false';
  * check's own command, a built-in) is returned unchanged, and so is every
  * invocation under `pnpm` itself — the default stays exactly as it was.
  *
- * `exec` swaps the launcher and drops the keyword (`pnpm exec oxlint` → `npx
- * oxlint`); `run` keeps its keyword and only swaps the launcher, since all four
- * package managers spell it `<pm> run <script>` (`pnpm run build` → `npm run
- * build`). Under pnpm the invocation is unchanged but for `VERIFY_DEPS_OFF`,
- * which keeps pnpm's dependency-check narration off the tool's stdout.
+ * `exec` swaps the launcher, drops the keyword, and prepends the launcher's own
+ * flags (`pnpm exec oxlint` → `npx --no-install oxlint`); `run` keeps its
+ * keyword and only swaps the launcher, since all four package managers spell it
+ * `<pm> run <script>` (`pnpm run build` → `npm run build`). Under pnpm the
+ * invocation is unchanged but for `VERIFY_DEPS_OFF`, which keeps pnpm's
+ * dependency-check narration off the tool's stdout.
  */
 export function translateExec(
   command: string,
@@ -57,8 +56,8 @@ export function translateExec(
 ): { command: string; args: string[] } {
   if (command !== 'pnpm') return { command, args: [...args] };
   if (pm === 'pnpm') return { command, args: quieted(args) };
-  // Drop 'exec'; keep <tool> and its arguments, e.g. `npx oxlint --type-aware`.
-  if (args[0] === 'exec') return { command: EXEC_COMMAND[pm], args: args.slice(1) };
+  // Drop 'exec'; keep <tool> and its arguments, e.g. `npx --no-install oxlint --type-aware`.
+  if (args[0] === 'exec') return { command: EXEC[pm].command, args: [...EXEC[pm].flags, ...args.slice(1)] };
   // `<pm> run <script>` is universal; only the launcher changes.
   if (args[0] === 'run') return { command: pm, args: [...args] };
   return { command, args: [...args] };

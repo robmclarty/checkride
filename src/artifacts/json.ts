@@ -10,13 +10,14 @@
  * The `../artifacts` barrel is this module's only public surface.
  */
 
-/** A parsed JSON object — the only `JSON.parse` result either reader can index. */
-export type JsonRecord = Record<string, unknown>;
+import { isRecord } from '../json.js';
+import type { JsonRecord } from '../json.js';
 
-/** Whether a parsed value is an indexable JSON object (arrays and `null` are not). */
-export function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+// `isRecord`/`JsonRecord` are the package-wide primitives (`../json.ts`);
+// re-exported here so the artifacts barrel keeps its existing surface and the
+// readers' import sites are unchanged.
+export { isRecord };
+export type { JsonRecord };
 
 /** A string field, or `null` for every other type — including a missing key. */
 export function asStringOrNull(value: unknown): string | null {

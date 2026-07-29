@@ -49,9 +49,11 @@ const toolWrites: CheckRunner = async (_r, ctx) => {
 };
 
 /**
- * A fresh orchestrator module per test: `killLiveChecks` latches the module's
- * one-way interrupt flag, and latching the statically-imported instance would
- * stop every later test in this file from spawning checks.
+ * A fresh orchestrator module per test. `runChecks` clears the module's
+ * interrupt latch on entry, so a latched instance no longer poisons later
+ * tests, but each signal test still wants its own `liveChecks` registry — an
+ * in-flight check from another test would otherwise be reaped by this one's
+ * `killLiveChecks`.
  */
 async function freshOrchestrator(): Promise<typeof import('../orchestrator.js')> {
   vi.resetModules();
@@ -307,6 +309,22 @@ describe('runChecks (injected runner)', () => {
     expect(types?.reason).toBe('disabled in checkride.config.json');
     expect(result.ok).toBe(true);
     expect(std.lines.join('')).toContain('all checks passed');
+  });
+
+  /**
+   * The CLI rejects `--only ,` when it parses, but a programmatic caller can
+   * hand `runChecks` an array it computed. `[]` is truthy, so `selectChecks`
+   * reads it as "match nothing" — a run that verifies nothing and reports ok.
+   */
+  test('an empty selection array is a usage error, not a zero-check pass', async () => {
+    for (const flag of ['only', 'skip', 'include'] as const) {
+      await expect(runChecks({
+        cwd: dir, slots, adapters, config: null, runner: okRunner, json: true,
+        stdout: sink().out, stderr: sink().out, [flag]: [],
+      })).rejects.toThrow(`--${flag}`);
+    }
+    // Rejected before any side effect: no `.check/` directory was created.
+    expect(existsSync(join(dir, '.check'))).toBe(false);
   });
 });
 
@@ -909,10 +927,11 @@ describe('runFix', () => {
     try {
       const pm = detectPackageManager({ cwd: dir });
       expect(pm).toBe('npm');
-      // The canonical `pnpm exec oxlint --fix` becomes `npx oxlint --fix`, the
-      // same translation the run path applies via `translateExec` in `defaultRunner`.
+      // The canonical `pnpm exec oxlint --fix` becomes `npx --no-install oxlint
+      // --fix`, the same translation the run path applies via `translateExec` in
+      // `defaultRunner` — a fix must not npx-install a tool the run path won't.
       const adapter = fakeAdapter({ name: 'oxlint', slot: 'lint', command: 'pnpm', args: ['exec', 'oxlint'], fixArgs: ['exec', 'oxlint', '--fix'] });
-      expect(fixInvocation(adapter, pm)).toEqual({ command: 'npx', args: ['oxlint', '--fix'] });
+      expect(fixInvocation(adapter, pm)).toEqual({ command: 'npx', args: ['--no-install', 'oxlint', '--fix'] });
       // The pnpm path keeps its prefix; only the deps-check override is added,
       // exactly as the run path does — a fix spawns tools the same way.
       expect(fixInvocation(adapter, 'pnpm')).toEqual({
@@ -1015,6 +1034,43 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
     await orch.killLiveChecks();
     const result = await running;
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+  }, 30_000);
+
+  /**
+   * The latch is one-way *within* a run, and cleared at the start of the next
+   * one. On the CLI path that never matters — the process re-raises the signal
+   * and dies — but `runChecks` is exported, and a long-lived programmatic
+   * consumer (a watcher, a daemon) that absorbed one SIGINT would otherwise
+   * have every later run spawn nothing and report a green it never earned.
+   */
+  test('a later run on the same module still spawns checks after an interrupt', async () => {
+    const orch = await freshOrchestrator();
+    const marker = join(dir, 'hang.started');
+    await writeFile(
+      join(dir, 'hang.js'),
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '1'); setInterval(() => {}, 1000);`,
+    );
+    const hang = fakeAdapter({ name: 'hang', slot: 'hang', command: 'node', args: [join(dir, 'hang.js')] });
+    const interrupted = orch.runChecks({
+      cwd: dir, slots: [{ name: 'hang' }], adapters: [hang], config: null, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    await waitFor(marker);
+    await orch.killLiveChecks();
+    expect((await interrupted).summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+
+    // Same module instance, still latched before the fix — this run must execute.
+    const sentinel = join(dir, 'after.ran');
+    const after = fakeAdapter({
+      name: 'after', slot: 'after', command: 'node',
+      args: ['-e', `require('node:fs').writeFileSync(${JSON.stringify(sentinel)}, '1')`],
+    });
+    const result = await orch.runChecks({
+      cwd: dir, slots: [{ name: 'after' }], adapters: [after], config: null, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(existsSync(sentinel)).toBe(true);
+    expect(result.summary.checks[0]).toMatchObject({ ok: true, exit_code: 0 });
   }, 30_000);
 });
 

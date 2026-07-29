@@ -12,6 +12,7 @@ export type { Baseline } from './store.js';
 export {
   applyBaseline,
   BASELINE_FILE,
+  BASELINE_SCHEMA_VERSION,
   baselinesEqual,
   countBaselineKeys,
   loadBaseline,

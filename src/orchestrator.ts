@@ -36,6 +36,7 @@ import { checkLinks } from './links.js';
 import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
+import { KILL_GRACE_SECONDS, killGroup } from './proc.js';
 import { checkSecurity } from './security.js';
 import { checkSmoke } from './smoke.js';
 import { checkSnippets } from './snippets.js';
@@ -158,17 +159,29 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
 }
 
 /**
- * Reject unknown slot names in `--only`/`--skip`/`--include`. A typo like
+ * Reject bad slot selections in `--only`/`--skip`/`--include`. A typo like
  * `--only lints` would otherwise slip through `selectChecks` as a filter that matched
  * nothing, silently disabling the gate — the worst kind of vacuous green in a
  * definition-of-done check. It is a usage error instead (thrown here, surfaced
  * as exit 2 at the CLI). The valid set is every resolved slot: the catalogue
  * slots plus any config custom-check names.
+ *
+ * A *present but empty* list is rejected for the same reason. `[]` is truthy,
+ * so `selectChecks` reads it as "match nothing" rather than "no filter", and an
+ * empty `only` selects zero checks. The CLI already rejects `--only ,` when it
+ * parses (see `parseList`); this covers the programmatic API, where a caller can
+ * hand `runChecks` an array it computed. `selectChecks` itself is left alone —
+ * it is exported public surface, and the error belongs before it runs.
  */
 function validateSelection(resolved: readonly ResolvedCheck[], flags: RunFlags): void {
   const valid = new Set(resolved.map((r) => r.slot));
   for (const flag of ['only', 'skip', 'include'] as const) {
-    const unknown = (flags[flag] ?? []).filter((name) => !valid.has(name));
+    const names = flags[flag];
+    if (names === undefined || names === null) continue;
+    if (names.length === 0) {
+      throw new Error(`--${flag} was given an empty list, which selects nothing. Valid slots: ${[...valid].join(', ')}.`);
+    }
+    const unknown = names.filter((name) => !valid.has(name));
     if (unknown.length === 0) continue;
     const named = unknown.map((n) => `'${n}'`).join(', ');
     const noun = unknown.length > 1 ? 'slots' : 'slot';
@@ -205,27 +218,6 @@ export const DEFAULT_TIMEOUT_SECONDS = 600;
 export function defaultConcurrency(env: NodeJS.ProcessEnv = process.env, cores: number = cpus().length): number {
   const reserve = env['CI'] ? 0 : 1;
   return Math.min(4, Math.max(1, cores - reserve));
-}
-
-/** Grace between SIGTERM and SIGKILL when a timed-out check won't die politely. */
-const KILL_GRACE_SECONDS = 5;
-
-/**
- * Signal a spawned check's whole process group. The check is spawned
- * `detached`, so it leads its own group and a negated-pid `kill` reaches every
- * descendant — a wrapper's grandchildren included — not just the direct child.
- * That is the difference between a timed-out `sh -c 'slow-tool …'` leaving its
- * real worker orphaned and alive versus taking the whole tree down. ESRCH is
- * swallowed: the group racing to exit on its own before we signal is success,
- * not an error (and `pid` is absent only when the spawn itself failed).
- */
-function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
-  if (pid === undefined) return;
-  try {
-    process.kill(-pid, signal);
-  } catch {
-    // Group already gone (raced with a clean exit) — nothing left to kill.
-  }
 }
 
 /**
@@ -442,9 +434,19 @@ function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
 }
 
-function formatStatusLine(check: SummaryCheck): string {
+/**
+ * Width of the slot-name column, measured from the names this run will print
+ * (never below the historical 8). A fixed 8 was sized for catalogue slots, and
+ * a config custom check — `typecheck-tests` is 15 — pushed the duration and
+ * description columns right on its row alone.
+ */
+function nameWidth(selected: readonly ResolvedCheck[]): number {
+  return selected.reduce((n, r) => Math.max(n, r.slot.length), 8);
+}
+
+function formatStatusLine(check: SummaryCheck, width: number): string {
   const mark = check.ok ? '✔' : '✘';
-  const name = check.name.padEnd(8);
+  const name = check.name.padEnd(width);
   const duration = `${check.duration_ms}ms`.padStart(8);
   return `  ${mark} ${name} ${duration}  ${check.description}`;
 }
@@ -564,13 +566,20 @@ type RunContext = CommonContext & {
   baseline: Baseline | null;
   /** Effective wave pool width (see {@link defaultConcurrency}); unused under `bail`. */
   concurrency: number;
+  /** Slot-name column width for this run's status lines (see {@link nameWidth}). */
+  nameWidth: number;
 };
 
-/** Apply every run default: the common options plus runner, flags, PM, and baseline. */
+/**
+ * Apply every run default: the common options plus runner, flags, PM, and
+ * baseline. `nameWidth` is a placeholder here — the selection it measures is
+ * not known until after `selectChecks`, so `runChecks` narrows it then.
+ */
 function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
   return {
     ...common,
+    nameWidth: 8,
     runner: options.runner ?? defaultRunner,
     json: options.json ?? false,
     bail: options.bail ?? false,
@@ -611,17 +620,17 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
 }
 
 /** Build (and print) the skipped-entry row for a slot that won't run this pass. */
-function handleSkip(r: ResolvedCheck, unavailable: boolean, pm: PackageManager, json: boolean, stderr: Out): SummaryCheck {
+function handleSkip(r: ResolvedCheck, unavailable: boolean, ctx: RunContext): SummaryCheck {
   const entry = skippedEntry(
-    unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${pm}` } : r,
+    unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${ctx.pm}` } : r,
   );
-  if (!json) writeLine(stderr, `  ○ ${entry.name.padEnd(8)}      skip  ${entry.reason ?? ''}`);
+  if (!ctx.json) writeLine(ctx.stderr, `  ○ ${entry.name.padEnd(ctx.nameWidth)}      skip  ${entry.reason ?? ''}`);
   return entry;
 }
 
 /** Print one check's status line, its baselined count, and any new (non-grandfathered) findings. */
-function reportCheckResult(stderr: Out, entry: SummaryCheck, mask: MaskResult): void {
-  writeLine(stderr, formatStatusLine(entry));
+function reportCheckResult(stderr: Out, entry: SummaryCheck, mask: MaskResult, width: number): void {
+  writeLine(stderr, formatStatusLine(entry, width));
   if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
   if (!entry.ok && mask.reason) writeLine(stderr, `           ${mask.reason}`);
   if (!entry.ok && mask.newKeys.length > 0) {
@@ -690,10 +699,10 @@ async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<Chec
   // `pnpm audit` (the `security` slot) is unavailable off pnpm.
   const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
   if (r.skip || !r.adapter || unavailable) {
-    return { entry: handleSkip(r, unavailable, ctx.pm, ctx.json, ctx.stderr), run: null, observed: null };
+    return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null };
   }
   const { entry, run, mask } = await runOneCheck(r, r.adapter, ctx);
-  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask);
+  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
   return { entry, run, observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null };
 }
 
@@ -887,14 +896,24 @@ function computeExitCode(summary: Summary, strict: boolean, json: boolean, stder
 
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
-  const ctx = resolveRunContext(options);
-  const resolved = resolveChecks({ slots: ctx.slots, adapters: ctx.adapters, config: ctx.config, cwd: ctx.cwd });
+  // Clear the interrupt latch. On the CLI path this is a no-op — the process
+  // re-raises the signal and dies — but `runChecks` is exported, and a
+  // long-lived programmatic consumer that took one SIGINT would otherwise have
+  // every later run silently spawn nothing (`spawnCheck` starts nothing while
+  // latched). A new call necessarily follows the previous one's return, so
+  // there is no in-flight run for this to un-latch.
+  interrupted = false;
+  const base = resolveRunContext(options);
+  const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, cwd: base.cwd });
   // A usage error before any side effect: no `.check/` dir, no run, exit 2.
   validateSelection(resolved, options);
 
-  await mkdir(join(ctx.cwd, '.check'), { recursive: true });
+  await mkdir(join(base.cwd, '.check'), { recursive: true });
 
   const selected = selectChecks(resolved, options);
+  // The status-line column is sized once the selection is known, so a long
+  // custom-check name widens the column instead of overflowing it.
+  const ctx: RunContext = { ...base, nameWidth: nameWidth(selected) };
   if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
 
   // `--bail` is fail-fast sequential; a `--concurrency > 1` passed alongside
@@ -990,11 +1009,12 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
   }
 
   const ran: string[] = [];
+  const width = nameWidth(fixable);
   let ok = true;
   for (const r of fixable) {
     const adapter = r.adapter;
     if (!adapter) continue;
-    writeLine(stderr, `  ▸ fix ${r.slot.padEnd(8)} (${adapter.name})`);
+    writeLine(stderr, `  ▸ fix ${r.slot.padEnd(width)} (${adapter.name})`);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (e.g. oxlint --fix and prettier --write) racing on the same files.
     const outcome = await fixRunner(adapter, { cwd, pm });
     ran.push(adapter.name);

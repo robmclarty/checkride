@@ -411,10 +411,31 @@ const GROUPS: { key: DoctorCheck['category']; label: string }[] = [
   { key: 'workspace', label: 'WORKSPACE' },
 ];
 
-function renderToolRow(c: DoctorCheck, out: Out): void {
-  const slot = (c.slot ?? c.name).padEnd(10);
-  const adapter = (c.adapter ?? '—').padEnd(18);
-  const enablement = (c.enablement ?? '').padEnd(12);
+/** The padding widths for a tool table, measured from the rows it will hold. */
+type ToolWidths = { slot: number; adapter: number; enablement: number };
+
+/**
+ * Size each column to its widest row, never below the historical minimum.
+ * Fixed widths were sized for catalogue slot names and a config custom check
+ * blows straight past them — `typecheck-tests` (15) against a 10-wide column,
+ * `custom:typecheck-tests` (22) against 18 — which shunts every following
+ * column right on that row alone and makes the table unreadable at exactly the
+ * moment someone is reading it to debug their config.
+ */
+function toolWidths(items: readonly DoctorCheck[]): ToolWidths {
+  const widest = (pick: (c: DoctorCheck) => string, min: number): number =>
+    items.reduce((n, c) => Math.max(n, pick(c).length), min);
+  return {
+    slot: widest((c) => c.slot ?? c.name, 10),
+    adapter: widest((c) => c.adapter ?? '—', 18),
+    enablement: widest((c) => c.enablement ?? '', 12),
+  };
+}
+
+function renderToolRow(c: DoctorCheck, w: ToolWidths, out: Out): void {
+  const slot = (c.slot ?? c.name).padEnd(w.slot);
+  const adapter = (c.adapter ?? '—').padEnd(w.adapter);
+  const enablement = (c.enablement ?? '').padEnd(w.enablement);
   out.write(`  ${slotMark(c)} ${slot} ${adapter} ${enablement} ${slotNote(c)}\n`);
   if (c.hint) out.write(`      -> ${c.hint}\n`);
 }
@@ -445,7 +466,8 @@ function renderGroup(
   if (items.length === 0) return;
   out.write(`  ${group.label}\n`);
   if (group.key === 'tool') {
-    for (const c of items) renderToolRow(c, out);
+    const widths = toolWidths(items);
+    for (const c of items) renderToolRow(c, widths, out);
     renderSlotSummary(items, out);
     return;
   }

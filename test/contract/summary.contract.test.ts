@@ -31,6 +31,11 @@ function sink(): { write: (text: string) => boolean } {
   return { write: () => true };
 }
 
+/** A custom check that does nothing for `ms`, on the given wave. */
+function sleeper(ms: number, order = 1): Record<string, unknown> {
+  return { command: 'node', args: ['-e', `setTimeout(() => {}, ${ms})`], order };
+}
+
 describe('summary.json shape', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-summary-')); });
@@ -81,4 +86,56 @@ describe('summary.json shape', () => {
   test('the schema version constant is 1', () => {
     expect(SCHEMA_VERSION).toBe(1);
   });
+
+  /**
+   * Contract: `total_duration_ms` is the run's **wall-clock** span, not the sum
+   * of the per-check durations. Consumers derive the run's start from it
+   * (`timestamp - total_duration_ms`) to judge whether a `.check/` artifact
+   * belongs to this run — checkride's own readers included, in
+   * `src/artifacts/freshness.ts`. Under sum semantics that window opens far too
+   * early and stale artifacts read as fresh.
+   *
+   * ajv can only validate the *shape*, so nothing caught the published schema
+   * describing this field as a sum for several releases while the code and
+   * docs/contract.md said wall-clock. This pins the semantics: revert to a sum
+   * and the description is no longer the only thing that has to change.
+   */
+  test('total_duration_ms is wall-clock, not the sum of per-check durations', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    // Three sleepers in one wave. Run concurrently the wall-clock is ~one
+    // sleep; summed it is ~three.
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, a: sleeper(600), b: sleeper(600), c: sleeper(600) },
+    }));
+
+    await runCli(['--concurrency', '3'], { cwd: dir, stdout: sink(), stderr: sink() });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
+      total_duration_ms: number;
+      checks: { name: string; duration_ms: number; skipped?: boolean }[];
+    };
+
+    const ran = summary.checks.filter((c) => c.skipped !== true);
+    const summed = ran.reduce((n, c) => n + c.duration_ms, 0);
+    expect(ran).toHaveLength(3);
+    expect(summed).toBeGreaterThan(1500); // the three really did sleep
+    expect(summary.total_duration_ms).toBeLessThan(summed);
+  }, 30_000);
+
+  test('total_duration_ms equals the summed durations when execution is sequential', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, a: sleeper(150, 1), b: sleeper(150, 2) },
+    }));
+    await runCli(['--concurrency', '1'], { cwd: dir, stdout: sink(), stderr: sink() });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
+      total_duration_ms: number;
+      checks: { duration_ms: number; skipped?: boolean }[];
+    };
+    const summed = summary.checks
+      .filter((c) => c.skipped !== true)
+      .reduce((n, c) => n + c.duration_ms, 0);
+    // Equal but for the scheduling overhead between the two waves.
+    expect(summary.total_duration_ms).toBeGreaterThanOrEqual(summed);
+    expect(summary.total_duration_ms - summed).toBeLessThan(250);
+  }, 30_000);
 });

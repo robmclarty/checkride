@@ -135,6 +135,31 @@ dead code, then structure, then its own reading of the source, and it stops
 where the evidence stops. A short report is a strong one; there is no fixed-size
 finding list, and zero findings is a legitimate answer.
 
+## How the readers decide an artifact is stale
+
+`.check/` is a flat directory of last-write-wins files, and a run only writes
+the slots it selected. An unselected slot's artifact lingers with nothing in
+`summary.json` to contradict it — in checkride's own `.check/`, `mutation.json`
+and `security.json` routinely sit days older than everything else. Reading one
+as current is exactly the confidently-wrong answer these readers exist to
+prevent.
+
+So both readers judge every file against a window, and the window opens at the
+run's **start**: `timestamp - total_duration_ms`.
+
+Not at `timestamp`. That field is stamped when the summary is *built*, after
+every check has finished, so every artifact the run just wrote is necessarily
+older than it — comparing against `timestamp` alone would label a whole healthy
+run stale. Both fields are promised surfaces under `schema_version` 1, which is
+what makes the derivation contract-legal rather than a guess about internals.
+(It also means `total_duration_ms` must stay wall-clock; under a sum-of-checks
+reading the window would open far too early and stale files would read as
+fresh. See [the contract](./contract.md#checksummaryjson).)
+
+Anything outside the window is labelled with its age, never silently dropped —
+"this file is 3 days old" is information, and hiding it would be the same
+mistake as trusting it.
+
 ## What the plugin deliberately does not do
 
 - **No wrapper skills.** Nothing wraps `init`, `doctor`, `fix`, `baseline` or

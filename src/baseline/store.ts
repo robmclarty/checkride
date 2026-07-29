@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { writeFileAtomic } from '../atomic.js';
+import { isRecord } from '../json.js';
 import type { Fingerprint } from './fingerprint.js';
 
 /** The committed baseline artifact, at repo root beside `checkride.config.json`. */
@@ -38,16 +39,19 @@ export type BaselineAdjustment = {
   newKeys: string[];
 };
 
-/** Narrow to a plain object so fields can be read without an unsafe assertion. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
 /**
  * Read `checkride.baseline.json` from `cwd`; `null` when absent or unusable. The
  * baseline is a committed file a run reads on every invocation, so a malformed
  * one is coerced into a clean shape (or dropped) rather than thrown — a corrupt
  * baseline must never break `checkride`.
+ *
+ * A file from a *newer* schema is dropped rather than read optimistically. The
+ * fields it does not have yet are the ones that would say which findings are
+ * masked and why, so guessing means either masking findings it never
+ * grandfathered or claiming ones it did. Dropping it fails closed: the run
+ * reports the diagnostics that are actually there — more red than the author
+ * intended, never a green that was not earned. Same direction as
+ * {@link applyBaseline}'s refusal to mask an unparseable run.
  */
 export function loadBaseline(cwd: string): Baseline | null {
   const path = join(cwd, BASELINE_FILE);
@@ -55,11 +59,12 @@ export function loadBaseline(cwd: string): Baseline | null {
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
     if (!isRecord(parsed) || !isRecord(parsed['slots'])) return null;
+    const version = parsed['schema_version'];
+    if (typeof version === 'number' && version > BASELINE_SCHEMA_VERSION) return null;
     const slots: Record<string, string[]> = {};
     for (const [slot, keys] of Object.entries(parsed['slots'])) {
       if (Array.isArray(keys)) slots[slot] = keys.filter((k): k is string => typeof k === 'string');
     }
-    const version = parsed['schema_version'];
     return { schema_version: typeof version === 'number' ? version : BASELINE_SCHEMA_VERSION, slots };
   } catch {
     return null;

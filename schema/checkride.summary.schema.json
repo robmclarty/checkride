@@ -27,7 +27,7 @@
     "total_duration_ms": {
       "type": "number",
       "minimum": 0,
-      "description": "Sum of all check durations in milliseconds."
+      "description": "Wall-clock duration of the whole execution phase, in milliseconds — not the sum of the per-check durations, which is larger whenever checks ran concurrently. The two are equal only when execution was sequential (including any --bail run). The run STARTED at timestamp - total_duration_ms; readers use that to judge whether an artifact belongs to this run."
     },
     "checks": {
       "type": "array",

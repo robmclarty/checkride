@@ -89,9 +89,23 @@ describe('translateExec', () => {
 
   test('rewrites the exec prefix per non-pnpm package manager', () => {
     const tool = ['oxlint', '--type-aware', '--format=json'];
-    expect(translateExec('pnpm', execArgs, 'npm')).toEqual({ command: 'npx', args: tool });
+    expect(translateExec('pnpm', execArgs, 'npm')).toEqual({ command: 'npx', args: ['--no-install', ...tool] });
     expect(translateExec('pnpm', execArgs, 'yarn')).toEqual({ command: 'yarn', args: tool });
-    expect(translateExec('pnpm', execArgs, 'bun')).toEqual({ command: 'bunx', args: tool });
+    expect(translateExec('pnpm', execArgs, 'bun')).toEqual({ command: 'bunx', args: ['--no-install', ...tool] });
+  });
+
+  /**
+   * `npx`/`bunx` install a missing package from the registry and run it, and a
+   * spawned check has no TTY — the non-interactive case where neither prompts.
+   * Without this flag the gate would silently fetch an unpinned `latest` for a
+   * tool the repo never installed. `yarn` neither auto-installs nor takes the
+   * flag, so it must not grow one.
+   */
+  test('the auto-installing launchers are pinned to what is already installed', () => {
+    for (const pm of ['npm', 'bun'] satisfies PackageManager[]) {
+      expect(translateExec('pnpm', execArgs, pm).args[0]).toBe('--no-install');
+    }
+    expect(translateExec('pnpm', execArgs, 'yarn').args).not.toContain('--no-install');
   });
 
   test('leaves non-exec pnpm commands (audit) untranslated for every PM', () => {

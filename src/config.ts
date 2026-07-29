@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 
 import type { Adapter, Order, Slot } from './adapters.js';
+import { isRecord } from './json.js';
 
 /** A custom check: a bare command, no adapter required. */
 export type CustomCheck = {
@@ -158,10 +159,6 @@ export type ResolvedCheck = {
 
 const CONFIG_FILE = 'checkride.config.json';
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 /**
  * Recursive deep-merge with local-wins semantics: plain objects merge key by
  * key; arrays, scalars, and type mismatches from `over` replace `base` (arrays
@@ -174,7 +171,7 @@ function deepMerge(
   const out: Record<string, unknown> = { ...base };
   for (const [k, v] of Object.entries(over)) {
     const b = out[k];
-    out[k] = isPlainObject(b) && isPlainObject(v) ? deepMerge(b, v) : v;
+    out[k] = isRecord(b) && isRecord(v) ? deepMerge(b, v) : v;
   }
   return out;
 }
@@ -300,7 +297,7 @@ function parseConfigJson(absPath: string, label: string): Record<string, unknown
     const reason = err instanceof Error ? err.message : String(err);
     invalidConfig(label === CONFIG_FILE ? reason : `${reason} (in ${label})`, err);
   }
-  if (!isPlainObject(raw)) invalidConfig(`${label} is not a JSON object`);
+  if (!isRecord(raw)) invalidConfig(`${label} is not a JSON object`);
   return raw;
 }
 

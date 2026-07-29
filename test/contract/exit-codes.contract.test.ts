@@ -68,6 +68,11 @@ describe('exit-code taxonomy', () => {
     expect(await runCli(['--no-such-flag'], deps())).toBe(2);
   });
 
+  test('2: a selection flag that names nothing is a usage error, not a zero-check pass', async () => {
+    await configWithExit(0);
+    expect(await runCli(['--only', ','], deps())).toBe(2);
+  });
+
   test('2: --strict with zero checks run refuses the vacuous green', async () => {
     // An empty repo: nothing detected, everything sits out, nothing verified.
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));

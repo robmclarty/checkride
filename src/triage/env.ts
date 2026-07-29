@@ -13,6 +13,8 @@
 
 import { spawn } from 'node:child_process';
 
+import { killGroupEscalating } from '../proc.js';
+
 /**
  * A finished (or failed) child process. `code` is `null` when the process died
  * by signal or never started; `error` is set only in the latter case.
@@ -59,8 +61,18 @@ function appendCapped(buffer: string, chunk: string): string {
   return next.length > MAX_CAPTURE_CHARS ? next.slice(next.length - MAX_CAPTURE_CHARS) : next;
 }
 
-/** Spawn `command`, capture both streams, and resolve however it ends. Never rejects. */
-function spawnCapture(
+/**
+ * Spawn `command`, capture both streams, and resolve however it ends. Never rejects.
+ *
+ * `detached`, so the child leads its own process group and the timeout can
+ * reap the whole tree. The gate is `<pm> run check`, which means the process
+ * actually doing the work is a *grandchild* — a bare `proc.kill()` signals the
+ * package-manager wrapper and leaves the checks themselves running, which both
+ * defeats the budget and can hold this promise open forever, since `close`
+ * waits on every inherited pipe. `killGroupEscalating` signals the group and
+ * insists with SIGKILL after the grace (see `../proc.ts`).
+ */
+export function spawnCapture(
   command: string,
   args: readonly string[],
   opts: { cwd: string; timeoutMs: number },
@@ -68,17 +80,21 @@ function spawnCapture(
   return new Promise((resolve) => {
     const proc = spawn(command, [...args], {
       cwd: opts.cwd,
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     });
     let stdout = '';
     let stderr = '';
     let settled = false;
-    const timer = setTimeout(() => { proc.kill('SIGTERM'); }, opts.timeoutMs);
+    let escalation: ReturnType<typeof setTimeout> | null = null;
+    const timer = setTimeout(() => { escalation = killGroupEscalating(proc.pid); }, opts.timeoutMs);
     const settle = (outcome: SpawnOutcome): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // A pending SIGKILL timer would hold the event loop open past the run.
+      if (escalation !== null) clearTimeout(escalation);
       resolve(outcome);
     };
     // Decoded string streams: the internal StringDecoder holds a partial

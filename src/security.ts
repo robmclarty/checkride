@@ -15,6 +15,7 @@
  * stdout, so the orchestrator persists `.check/security.json` as before.
  */
 
+import { isRecord } from './json.js';
 import type { CheckOutcome } from './links.js';
 import { parseToolJson } from './tool-json.js';
 
@@ -40,10 +41,6 @@ export function auditLevelFromArgs(args: readonly string[]): AuditLevel {
   const flag = args.find((a) => a.startsWith('--audit-level='));
   const value = flag?.slice('--audit-level='.length);
   return LEVELS.find((l) => l === value) ?? 'low';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** Per-severity advisory counts out of `metadata.vulnerabilities`, absent keys as 0. */

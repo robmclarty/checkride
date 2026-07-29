@@ -18,6 +18,7 @@
  * which also owns fallow's gating verdict).
  */
 
+import { isRecord } from '../json.js';
 import { parseToolJson } from '../tool-json.js';
 import { fallowFindings } from './fallow.js';
 
@@ -45,11 +46,6 @@ function key(file: string, rule: string, message: string): string {
  */
 function parseJson(raw: string): unknown {
   return parseToolJson(raw)?.value ?? null;
-}
-
-/** Narrow to a plain object so string fields can be read without assertions. */
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
 }
 
 /** Read a field as a string, or `''` when it is missing or not a string. */

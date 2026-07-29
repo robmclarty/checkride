@@ -1,22 +1,17 @@
 /**
  * Tolerant parsing of a tool's stdout as JSON.
  *
- * A tool that emits JSON does not always get stdout to itself. pnpm's
- * `verifyDepsBeforeRun` narrates `Already up to date` / `Done in Xms` there
- * ahead of every `pnpm exec` when no outer pnpm process has already verified —
- * so a direct `node dist/cli.js` sees a two-line preamble that `pnpm run check`
- * never shows, and the JSON-emitting slots fail with "did not emit valid JSON"
- * while their tools exited 0. checkride suppresses that specific case at the
- * invocation (see `translateExec`), but the class is wider than one package
- * manager's flag: any launcher, wrapper or shell profile can print before the
- * tool does, and a consumer's pnpm is not checkride's to pin.
+ * A tool that emits JSON does not always get stdout to itself: any launcher,
+ * wrapper or shell profile can print before it does. checkride suppresses the
+ * one case it controls at the invocation (pnpm's dependency-check narration —
+ * see `translateExec` and `docs/tools.md` §Launcher quirks), but a consumer's
+ * launcher is not checkride's to pin, so the read tolerates a preamble too.
  *
  * **Skipping a preamble is not normalizing.** The tool's own bytes are returned
  * verbatim from the first character of the JSON onward — nothing inside them is
- * rewritten, reordered or reformatted. What gets dropped was never the tool's
- * output to begin with. That distinction is what keeps this compatible with
- * "the raw file is the truth": the raw file still holds exactly what the tool
- * said.
+ * rewritten, reordered or reformatted, and what gets dropped was never the
+ * tool's output to begin with. That is what keeps this compatible with "the raw
+ * file is the truth" (`docs/contract.md`), which is a promise, not a detail.
  */
 
 /**

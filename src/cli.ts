@@ -147,9 +147,25 @@ function readVersion(): string {
   }
 }
 
-function parseList(value: string | undefined): string[] | null {
-  if (!value) return null;
-  return value.split(',').map((s) => s.trim()).filter(Boolean);
+/**
+ * Parse a comma-separated list flag. Absent (`undefined`) is `null`, so the
+ * caller applies its own default.
+ *
+ * A flag that was *passed* but names nothing after trimming is a usage error,
+ * never an empty list. `--only ,` used to parse to `[]`, which is truthy, so
+ * `selectChecks` filtered every check out and `validateSelection` found no
+ * unknown name to complain about: the run exited 0 having verified nothing —
+ * exactly the vacuous green that validation exists to prevent. The two empty
+ * spellings also disagreed (`--only ''` ran *everything*, `--only ,` ran
+ * nothing); both are now exit 2.
+ */
+function parseList(value: string | undefined, flag: string): string[] | null {
+  if (value === undefined) return null;
+  const names = value.split(',').map((s) => s.trim()).filter(Boolean);
+  if (names.length === 0) {
+    throw new Error(`--${flag} was passed with no names (got ${JSON.stringify(value)})`);
+  }
+  return names;
 }
 
 /**
@@ -189,9 +205,9 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     changed: values.changed,
     digest: values.digest,
     strict: values.strict,
-    only: parseList(values.only),
-    skip: parseList(values.skip),
-    include: parseList(values.include),
+    only: parseList(values.only, 'only'),
+    skip: parseList(values.skip, 'skip'),
+    include: parseList(values.include, 'include'),
     // Omitted when absent, so the orchestrator's auto default applies (exact
     // optional types: an explicit `undefined` is not the same as absent).
     ...(concurrency !== undefined ? { concurrency } : {}),
@@ -207,7 +223,7 @@ function asShape(value: string | undefined): Shape | undefined {
 
 /** Parse `--hook <a,b>` against the hook registry; an unknown name is a usage error. */
 function asHooks(value: string | undefined): HookName[] | undefined {
-  const names = parseList(value);
+  const names = parseList(value, 'hook');
   if (!names) return undefined;
   return names.map((name) => {
     const hit = HOOK_NAMES.find((h) => h === name);
@@ -235,7 +251,7 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   const hooks = asHooks(values.hook);
   if (hooks) opts.hooks = hooks;
   if (values.force) opts.force = true;
-  const add = parseList(values.add);
+  const add = parseList(values.add, 'add');
   if (add) opts.add = add;
   return opts;
 }

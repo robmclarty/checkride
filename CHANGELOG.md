@@ -4,6 +4,85 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A selection flag that names nothing is now a usage error (exit 2), not a
+  silent pass.** `checkride --only ,` parsed to an empty list, which is truthy,
+  so every check was filtered out and the run exited **0** having verified
+  nothing — the exact vacuous green slot validation exists to prevent. The two
+  empty spellings also disagreed: `--only ''` ran the whole pipeline while
+  `--only ,` ran none of it. Both now exit 2, at the CLI and for a programmatic
+  caller that hands `runChecks` an empty array. **Behavior change:** a script
+  passing an empty `--only`/`--skip`/`--include` used to be tolerated and now
+  fails; that was never a meaningful selection.
+- **Tools are no longer installed from the registry mid-run under npm or bun.**
+  The exec translation emitted a bare `npx <tool>` / `bunx <tool>`, and both
+  launchers fetch a missing package and run it rather than failing — checks are
+  spawned without a TTY, which is precisely the non-interactive case where
+  neither stops to prompt. A repo missing a tool could therefore have its gate
+  silently execute an unpinned `latest`. Both now carry `--no-install`.
+  **Behavior change:** a missing tool fails its slot instead of being fetched.
+  `pnpm exec` and `yarn` were already correct and are unchanged.
+- **The triage reader's gate timeout could not reap what it started.** It
+  spawned without `detached` and sent a bare `SIGTERM` with no escalation, so
+  the signal reached the package-manager wrapper and left the checks themselves
+  running — which also meant `close` could wait on their inherited pipes
+  forever, hanging the reader the timeout existed to protect. It now leads its
+  own process group and escalates to `SIGKILL`, the same discipline the
+  orchestrator already applied; both share the new `killGroup` helper.
+- **`.check/` artifacts are now flushed before the rename that publishes them.**
+  The atomic write promised each file was "either the previous complete version
+  or the new complete version", but without an `fsync` a crash could leave the
+  renamed inode holding nothing — the torn read it exists to prevent, relocated.
+- **A committed baseline whose `slots` is an array is rejected instead of being
+  keyed by index.** Two of the four copies of the `isRecord` guard accepted
+  arrays (`typeof [] === 'object'`); the baseline read was one of them, so such
+  a file loaded cleanly and masked nothing. All four now share one definition.
+- **A baseline from a newer schema version is dropped rather than half-read.**
+  `schema_version` was recorded and never checked. Dropping it fails closed: the
+  run reports the diagnostics that are really there, where guessing risks
+  masking findings the author never grandfathered.
+- **The published summary schema described `total_duration_ms` as a sum.** It is
+  the run's wall-clock span, as `docs/contract.md` and the implementation have
+  said since concurrency landed; the two diverge whenever checks overlap. This
+  matters because consumers derive the run's start from it
+  (`timestamp - total_duration_ms`) to judge whether a `.check/` artifact belongs
+  to the run — under sum semantics that window opens far too early and stale
+  artifacts read as fresh. The shape was schema-validated all along; only the
+  description was wrong, which is why nothing caught it.
+- **AGENTS.md described a tree the repo does not have.** It named four folder
+  modules where there are seven (`artifacts/`, `qa/` and `triage/` were
+  missing), and stated a test-placement rule — colocate beside the source file —
+  that no test in the repo has ever followed. Both are corrected, and both are
+  now checked against the tree.
+- **Report columns no longer break on long check names.** Fixed widths were
+  sized for catalogue slots, so a config custom check (`typecheck-tests`, or
+  `custom:typecheck-tests` in the adapter column) shunted every later column
+  right on its own row. `doctor` and the run status lines now size each column
+  to the rows it holds.
+
+### Internal
+
+- New guards for the claims that drifted: `test/conventions.test.ts` checks
+  AGENTS.md's folder-module list and test placement against the tree, and the
+  summary contract suite now pins `total_duration_ms` behaviorally — wall-clock
+  under concurrency, equal to the summed durations when sequential. Both fail
+  when reverted, which is the point.
+- `test/e2e/defaults.e2e.test.ts` resolves a fixture repo that has the tool
+  configs but **no `checkride.config.json`**, so the shipped catalogue and the
+  detection path are exercised. This repo's own config names all twenty slots,
+  which is deliberate but meant daily runs never walked a consumer's path.
+- First tests for `src/triage/env.ts`, previously the only module in the package
+  with no coverage at all.
+- Two new single-file modules: `src/proc.ts` (process-group kill and escalation,
+  shared by both spawners) and `src/json.ts` (the one `isRecord`).
+- Long-form rationale moved out of source comments and into the docs that own
+  it: the pnpm stdout-narration investigation to `docs/tools.md` §Launcher
+  quirks, and the freshness-window derivation to `docs/plugin.md`. The comments
+  keep the "why" and point at the rest.
+
 ## [0.9.2] - 2026-07-28
 
 ### Changed

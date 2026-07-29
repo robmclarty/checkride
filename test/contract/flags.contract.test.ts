@@ -6,6 +6,7 @@
  * a "Contract" CHANGELOG entry).
  */
 
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -55,6 +56,16 @@ describe('CLI run flags', () => {
     }
   });
 
+  test('a list flag that names nothing is rejected at parse time', () => {
+    for (const flag of LIST_FLAGS) {
+      for (const empty of ['', ',', '  ', ' , ']) {
+        expect(() => parseCliArgs([`--${flag}`, empty])).toThrow(`--${flag}`);
+      }
+    }
+    // Absent is still `null` — the caller's default applies, not an error.
+    expect(parseCliArgs([]).flags.only).toBeNull();
+  });
+
   test('an unknown run flag is rejected (usage error, exit 2 at the CLI)', () => {
     expect(() => parseCliArgs(['--no-such-flag'])).toThrow();
   });
@@ -97,6 +108,28 @@ describe('CLI slot-selection validation', () => {
     const stderr = capture();
     expect(await runCli(['--only', 'nope'], deps(stderr))).toBe(2);
     expect(stderr.text()).toContain('licenses');
+  });
+
+  /**
+   * A list flag that names nothing is the same class of mistake as a typo, and
+   * `--only` is the dangerous one: it used to parse to `[]`, which is truthy,
+   * so every check was filtered out and the run exited 0 having verified
+   * nothing. The two empty spellings also disagreed — `--only ''` ran the whole
+   * pipeline, `--only ,` ran none of it. Both are exit 2 now.
+   */
+  for (const flag of LIST_FLAGS) {
+    for (const empty of ['', ',', '  ', ' , ']) {
+      test(`--${flag} ${JSON.stringify(empty)} names nothing and exits 2`, async () => {
+        const stderr = capture();
+        expect(await runCli([`--${flag}`, empty], deps(stderr))).toBe(2);
+        expect(stderr.text()).toContain(`--${flag}`);
+      });
+    }
+  }
+
+  test('an empty selection is rejected before any .check/ side effect', async () => {
+    expect(await runCli(['--only', ','], deps(capture()))).toBe(2);
+    expect(existsSync(join(dir, '.check'))).toBe(false);
   });
 });
 

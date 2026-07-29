@@ -33,13 +33,20 @@ field in `package.json` first, then the lockfile:
 | Lockfile | Manager | Exec form |
 | -------- | ------- | --------- |
 | `pnpm-lock.yaml` | pnpm (default) | `pnpm exec <tool>` |
-| `package-lock.json` | npm | `npx <tool>` |
+| `package-lock.json` | npm | `npx --no-install <tool>` |
 | `yarn.lock` | yarn | `yarn <tool>` |
-| `bun.lock` / `bun.lockb` | bun | `bunx <tool>` |
+| `bun.lock` / `bun.lockb` | bun | `bunx --no-install <tool>` |
 
 With no lockfile or field, checkride falls back to pnpm. `doctor` prints the
 detected manager at the top of its report and verifies that manager is on your
 PATH (pnpm keeps its `>=9` floor; the others are presence-only for now).
+
+**Checks only ever run tools you installed.** `npx` and `bunx` will otherwise
+fetch a missing package from the registry and run it — and because a check is
+spawned without a TTY, neither stops to ask first. That would let a gate
+silently pull an unpinned `latest` for a tool the repo never declared, so
+checkride passes `--no-install` and a missing tool fails its slot instead.
+`pnpm exec` and `yarn` already behave this way and need no flag.
 
 The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is
@@ -48,6 +55,36 @@ evaluates the audit JSON itself and gates at the `--audit-level` the adapter's
 args declare — pnpm's own JSON-mode exit code fails on *any* advisory
 regardless of level, so it is never trusted as the verdict. Every other slot
 runs identically regardless of manager.
+
+### Launcher quirks checkride works around
+
+Two of these are the kind of thing you only find by debugging a failure, so
+they are recorded here rather than rediscovered.
+
+**pnpm narrates its dependency check on stdout.** Before `run` and `exec`, pnpm
+verifies dependencies and prints `Already up to date` / `Done in Xms using pnpm
+vN` — to **stdout**, ahead of the tool's own output — whenever no outer pnpm
+process has already done so. That preamble lands in front of a tool's JSON. The
+symptom is memorable: running `node dist/cli.js` directly failed `dead`,
+`dupes` and `health` with "did not emit valid JSON", while the identical gate
+under `pnpm run check` passed, because there the outer pnpm had already
+verified and the inner `exec` stayed quiet.
+
+checkride prepends `--config.verify-deps-before-run=false` to every `pnpm
+exec`/`pnpm run` it spawns. That override is the only form that works:
+`--silent` and `--reporter=silent` do not suppress the narration, the
+`npm_config_verify_deps_before_run` environment variable is not read, and the
+flag must come *before* `exec` — after it, pnpm treats it as the tool's own
+argument and fails. Unknown config keys are accepted and ignored by every pnpm
+in the supported range (`engines.pnpm >= 9`, verified against 9, 10 and 11), so
+it is applied unconditionally rather than gated on a version.
+
+Belt and braces: checkride's JSON reader tolerates a leading preamble anyway,
+because a consumer's launcher is not checkride's to pin. See
+[the contract](./contract.md#checksummaryjson) for exactly how much it skips.
+
+**`npx` and `bunx` install what they cannot find.** Covered above — this is why
+both carry `--no-install`.
 
 Two pnpm-version notes for the publish slots: `pack` prefers
 `pnpm pack --dry-run` (added in pnpm 10.26.0) and, on an older pnpm that
