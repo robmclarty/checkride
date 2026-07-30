@@ -37,6 +37,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   actionable line on a red row named a package manager the repo does not use —
   while `checkInstall` two functions above it had been PM-aware all along. It
   now names the detected manager and the exact dev-dependency install.
+- **`doctor` reported a healthy Yarn PnP project as broken.** Both of its
+  install questions were path tests against a `node_modules/` tree, which a PnP
+  project does not have: `install` asserted the directory and so reported
+  `lockfile only`, and each slot's tool was looked for at
+  `node_modules/.bin/<tool>` and so reported missing — on a repo where every
+  tool was installed and every check ran green. The two commands therefore
+  contradicted each other, `doctor` calling the environment broken while the
+  gate passed. `install` is now satisfied by `.pnp.cjs` plus the lockfile, and a
+  tool is resolved with `yarn bin <tool>`, whose exit code carries the answer.
+  A tool that genuinely does not resolve still reports missing — the looser
+  question must not become a softer one, or this would trade a false red for a
+  false green, which is the worse of the two. Detection is gated on yarn so a
+  `.pnp.cjs` left by a migration off Yarn cannot reroute an npm or pnpm repo.
 - **`doctor` reported a hoisted workspace tool as missing.** The probe tested
   `<cwd>/node_modules/.bin/<tool>` and nothing above it, but pnpm and npm both
   hoist a shared tool's bin to the workspace root — so a correctly installed
