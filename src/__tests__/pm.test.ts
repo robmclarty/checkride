@@ -5,7 +5,15 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager, isAvailableUnder, translateExec } from '../pm/index.js';
+import {
+  detectPackageManager,
+  execTool,
+  execUsesGlobalCache,
+  installCommand,
+  isAvailableUnder,
+  resolveSlotTool,
+  translateExec,
+} from '../pm/index.js';
 
 /** Build a detector whose only present files are the ones listed. */
 function withFiles(present: string[], field?: string) {
@@ -159,5 +167,113 @@ describe('isAvailableUnder', () => {
   test('exec and custom commands are available under every PM', () => {
     expect(isAvailableUnder('pnpm', ['exec', 'oxlint'], 'npm')).toBe(true);
     expect(isAvailableUnder('node', ['script.mjs'], 'yarn')).toBe(true);
+  });
+});
+
+describe('execTool', () => {
+  test('names the tool in an exec invocation', () => {
+    expect(execTool('pnpm', ['exec', 'oxlint', '--type-aware'])).toBe('oxlint');
+  });
+
+  test('returns null for every invocation that has no tool to resolve', () => {
+    expect(execTool('pnpm', ['audit', '--json'])).toBeNull(); // PM subcommand
+    expect(execTool('pnpm', ['run', 'build'])).toBeNull(); // package script
+    expect(execTool('node', ['scripts/check-licenses.mjs'])).toBeNull(); // custom check
+    expect(execTool('pnpm', ['exec'])).toBeNull(); // malformed: exec with no tool
+    expect(execTool('pnpm', [])).toBeNull();
+  });
+
+  /**
+   * The pre-flight and `translateExec` must agree on what counts as a tool: a
+   * prefix one treats as exec and the other does not would either refuse a
+   * runnable check or spawn an unresolved one.
+   */
+  test('agrees with translateExec on which invocations are exec form', () => {
+    const cases = [
+      ['pnpm', ['exec', 'oxlint']],
+      ['pnpm', ['audit', '--json']],
+      ['pnpm', ['run', 'build']], // rewritten too, but to `npm run` — not a tool
+      ['node', ['script.mjs']],
+    ] as const;
+    for (const [command, args] of cases) {
+      // Under npm, the exec prefix is the only one that becomes `npx`.
+      const viaLauncher = translateExec(command, args, 'npm').command === 'npx';
+      expect(execTool(command, args) !== null, `${command} ${args.join(' ')}`).toBe(viaLauncher);
+    }
+  });
+});
+
+/** A tree whose only `node_modules/.bin` entries are the paths listed. */
+function tree(present: string[]) {
+  return (p: string) => present.includes(p);
+}
+
+describe('resolveSlotTool', () => {
+  test('finds a tool in the starting directory', () => {
+    const bin = join('/repo', 'node_modules', '.bin', 'oxlint');
+    expect(resolveSlotTool('/repo', 'oxlint', tree([bin]))).toBe(bin);
+  });
+
+  /**
+   * pnpm and npm both hoist a shared workspace tool's bin to the repo root, so
+   * a check running in a package subdirectory has to walk up to find it.
+   * Testing the starting directory alone reported every hoisted tool missing —
+   * which is most repos using a workspace preset.
+   */
+  test('walks up to a tool hoisted to the workspace root', () => {
+    const rootBin = join('/repo', 'node_modules', '.bin', 'oxlint');
+    expect(resolveSlotTool('/repo/packages/web', 'oxlint', tree([rootBin]))).toBe(rootBin);
+  });
+
+  test('prefers the nearest copy over a hoisted one', () => {
+    const near = join('/repo/packages/web', 'node_modules', '.bin', 'oxlint');
+    const root = join('/repo', 'node_modules', '.bin', 'oxlint');
+    expect(resolveSlotTool('/repo/packages/web', 'oxlint', tree([near, root]))).toBe(near);
+  });
+
+  test('returns null when no ancestor has the tool', () => {
+    expect(resolveSlotTool('/repo/packages/web', 'oxlint', tree([]))).toBeNull();
+  });
+
+  test('terminates at the filesystem root rather than looping', () => {
+    // A missing tool must walk to the top and stop; the guard is `dirname(dir) === dir`.
+    expect(resolveSlotTool('/', 'oxlint', tree([]))).toBeNull();
+  });
+
+  test('does not confuse one tool for another', () => {
+    const bin = join('/repo', 'node_modules', '.bin', 'oxlint');
+    expect(resolveSlotTool('/repo', 'markdownlint-cli2', tree([bin]))).toBeNull();
+  });
+});
+
+describe('installCommand', () => {
+  test('spells the dev-dependency install per PM', () => {
+    expect(installCommand('pnpm', 'oxlint')).toBe('pnpm add -D oxlint');
+    expect(installCommand('npm', 'oxlint')).toBe('npm install -D oxlint');
+    expect(installCommand('yarn', 'oxlint')).toBe('yarn add -D oxlint');
+    // bun spells the dev flag lowercase; `-D` means something else there.
+    expect(installCommand('bun', 'oxlint')).toBe('bun add -d oxlint');
+  });
+});
+
+describe('execUsesGlobalCache', () => {
+  /**
+   * The pre-flight is scoped to the launchers that can supply a tool this repo
+   * never declared. Keeping that set in lockstep with the `--no-install` table
+   * is the point: a PM that needs the flag has a cache to fall back on, and one
+   * with a cache but no pre-flight is the hole this all exists to close.
+   */
+  test('is exactly the set of launchers told not to fetch', () => {
+    for (const pm of ['pnpm', 'npm', 'yarn', 'bun'] satisfies PackageManager[]) {
+      const noInstall = translateExec('pnpm', ['exec', 'oxlint'], pm).args.includes('--no-install');
+      expect(execUsesGlobalCache(pm), `${pm} disagrees with its exec flags`).toBe(noInstall);
+    }
+  });
+
+  test('exempts the managers that resolve from the project tree only', () => {
+    // pnpm exec and yarn have no launcher cache — and Yarn PnP has no
+    // node_modules/.bin at all, so pre-flighting it would fail every slot.
+    expect(execUsesGlobalCache('pnpm')).toBe(false);
+    expect(execUsesGlobalCache('yarn')).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,7 +11,16 @@ import type { Baseline } from '../baseline/index.js';
 import { resolveChecks } from '../config.js';
 import type { ResolvedCheck } from '../config.js';
 import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
-import { defaultConcurrency, fixInvocation, runChecks, runFix, runtimeArgs, selectChecks } from '../orchestrator.js';
+import {
+  defaultConcurrency,
+  fixInvocation,
+  missingToolOutcome,
+  runChecks,
+  runFix,
+  runtimeArgs,
+  selectChecks,
+} from '../orchestrator.js';
+import type { PackageManager } from '../pm/index.js';
 import { detectPackageManager } from '../pm/index.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
@@ -1090,5 +1099,86 @@ describe('defaultConcurrency', () => {
     expect(defaultConcurrency({ CI: 'true' }, 1)).toBe(1);
     // An unset (or empty) CI variable means local.
     expect(defaultConcurrency({ CI: '' }, 2)).toBe(1);
+  });
+});
+
+/**
+ * The pre-flight that keeps a launcher's per-user cache from deciding a slot's
+ * verdict. `--no-install` stops the fetch but not the cache, so without this a
+ * tool the repo never declared passes on a machine holding a stray copy and
+ * fails on a clean checkout — the CI runner.
+ */
+describe('missingToolOutcome', () => {
+  /** An exec-form adapter for a tool no ancestor directory can plausibly hold. */
+  const absent: Adapter = {
+    name: 'absent-tool',
+    slot: 'lint',
+    description: 'Linting',
+    detect: [],
+    command: 'pnpm',
+    args: ['exec', 'checkride-nonexistent-tool'],
+    outputFile: null,
+    devDeps: {},
+  };
+
+  test('refuses the slot when the tool is not in the local tree', () => {
+    const outcome = missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm: 'npm' });
+    expect(outcome?.ok).toBe(false);
+    // Never spawned, so there is no real exit status to report.
+    expect(outcome?.exit_code).toBe(-1);
+  });
+
+  test('names the slot, the tool, and the PM-correct install command', () => {
+    const stderr = missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm: 'npm' })?.stderr ?? '';
+    expect(stderr).toContain('`lint` slot');
+    expect(stderr).toContain('checkride-nonexistent-tool');
+    expect(stderr).toContain('npm install -D checkride-nonexistent-tool');
+    // The raw launcher error ("npx canceled due to missing packages") named
+    // none of this, which is what a consumer's CI digest used to be handed.
+    expect(stderr).toContain('node_modules/.bin/checkride-nonexistent-tool');
+  });
+
+  test('lets the check spawn once the tool resolves', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-preflight-'));
+    try {
+      const bin = join(dir, 'node_modules', '.bin');
+      await mkdir(bin, { recursive: true });
+      await writeFile(join(bin, 'checkride-nonexistent-tool'), '');
+      expect(missingToolOutcome('lint', absent, absent.args, { cwd: dir, pm: 'npm' })).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * Scoped to the launchers with a cache to fall back on. `pnpm exec` and
+   * `yarn` resolve from the project tree already, and Yarn PnP has no
+   * `node_modules/.bin` at all — pre-flighting it would fail every slot on a
+   * repo where every tool is genuinely available.
+   */
+  test('does not pre-flight the managers that resolve from the tree only', () => {
+    for (const pm of ['pnpm', 'yarn'] satisfies PackageManager[]) {
+      expect(missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm })).toBeNull();
+    }
+  });
+
+  test('pre-flights both cache-backed launchers', () => {
+    for (const pm of ['npm', 'bun'] satisfies PackageManager[]) {
+      expect(missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm })?.ok).toBe(false);
+    }
+  });
+
+  test('ignores invocations that have no tool to resolve', () => {
+    // A custom check's own command, a PM subcommand, and a package script all
+    // resolve themselves; only `pnpm exec <tool>` is pre-flighted.
+    const cases: [string, string[]][] = [
+      ['node', ['scripts/check-licenses.mjs']],
+      ['pnpm', ['audit', '--json']],
+      ['pnpm', ['run', 'build']],
+    ];
+    for (const [command, args] of cases) {
+      const adapter: Adapter = { ...absent, command, args };
+      expect(missingToolOutcome('lint', adapter, args, { cwd: '/repo', pm: 'npm' })).toBeNull();
+    }
   });
 });

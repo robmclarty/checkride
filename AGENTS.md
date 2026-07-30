@@ -69,7 +69,7 @@ src/
   artifacts/        the shared, bounded read of `.check/`
   baseline/         fingerprints, the committed baseline store, the ratchet
   digest/           token-bounded digest.md of the failing slots
-  pm/               package-manager detection + command translation
+  pm/               package-manager detection, command translation, slot-tool resolution
   qa/               bundled-plugin reader: the quality artifacts
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules

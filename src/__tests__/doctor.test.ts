@@ -57,6 +57,41 @@ describe('runDoctor (injected env)', () => {
     expect(tool?.status).toBe('missing');
   });
 
+  /**
+   * The remediation a red tool row points at has to be runnable in the repo
+   * reading it. `checkInstall` was already PM-aware; this hint was not, so an
+   * npm repo's only actionable line told it to run `pnpm install`.
+   */
+  test('a missing tool names the detected package manager, not pnpm', async () => {
+    for (const pm of ['npm', 'yarn', 'bun'] as const) {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: fakeEnv({ packageManager: () => pm, exists: (p: string) => !p.includes('.bin') }),
+        stdout: sink(), json: true,
+      });
+      const tool = result.report.checks.find((c) => c.category === 'tool');
+      expect(tool?.hint, `${pm} got another PM's install command`).toContain(`${pm} install`);
+      expect(tool?.hint).not.toContain('pnpm install');
+    }
+  });
+
+  /**
+   * pnpm and npm hoist a shared workspace tool's bin to the repo root. Probing
+   * `cwd` alone reported it missing from every package subdirectory — a false
+   * red on a correctly installed monorepo, which is what the workspace presets
+   * produce.
+   */
+  test('a tool hoisted to the workspace root resolves from a package subdirectory', async () => {
+    const hoisted = join('/repo', 'node_modules', '.bin', 'oxlint');
+    const result = await runDoctor({
+      cwd: '/repo/packages/web', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ exists: (p: string) => p === hoisted }), stdout: sink(), json: true,
+    });
+    const tool = result.report.checks.find((c) => c.category === 'tool');
+    expect(tool?.status).toBe('ok');
+    expect(tool?.found).toBe(hoisted);
+  });
+
   test('an outdated node is flagged', async () => {
     const result = await runDoctor({
       cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,

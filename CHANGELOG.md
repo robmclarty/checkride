@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Contract
+
+- **A slot's tool is now resolved in the local tree before the check spawns,
+  under `npx` and `bunx`.** 0.9.3 stopped those launchers *fetching* a missing
+  tool, but `--no-install` bounds the download and not the per-user cache, so
+  both still run a copy left behind by some earlier unrelated invocation. The
+  gate's verdict therefore depended on machine state nobody declared: a repo
+  whose `docs` slot was detected from `.markdownlint-cli2.jsonc` but never
+  installed `markdownlint-cli2` passed for every developer holding a cached copy
+  and failed on the clean checkout — which is the CI runner, the most expensive
+  place to find out. The tool is now looked up at `node_modules/.bin/<tool>`,
+  searched from the check's directory upward so a workspace tool hoisted to the
+  repo root still counts, and a slot whose tool is absent fails there with a
+  message naming the slot, the path searched, and the PM's own install command
+  instead of the launcher's `npx canceled due to missing packages`. **Behavior
+  change:** a slot passing only because of a cached tool now fails until that
+  tool is a declared dependency — the same trade 0.9.3 made, applied to the
+  fallback it left open, and it fails on the developer's machine rather than
+  only in CI. Scoped to the two launchers that keep such a cache: `pnpm exec`
+  and `yarn` resolve from the project tree already and are not pre-flighted,
+  which also leaves Yarn PnP — where no `node_modules/.bin` exists to find —
+  working as before. See `docs/contract.md` §Vacuous green and `docs/tools.md`
+  §Package managers.
+
+### Fixed
+
+- **`doctor` told npm, yarn and bun repos to run `pnpm install`.** The
+  remediation hint on a missing-tool row was a hardcoded string, so the one
+  actionable line on a red row named a package manager the repo does not use —
+  while `checkInstall` two functions above it had been PM-aware all along. It
+  now names the detected manager and the exact dev-dependency install.
+- **`doctor` reported a hoisted workspace tool as missing.** The probe tested
+  `<cwd>/node_modules/.bin/<tool>` and nothing above it, but pnpm and npm both
+  hoist a shared tool's bin to the workspace root — so a correctly installed
+  monorepo showed a false `missing` for every tool from any package
+  subdirectory, on exactly the repos the workspace presets generate. It now
+  walks upward like the package managers do, sharing one resolver with the run
+  path so the two cannot disagree about where a tool lives.
+
 ## [0.9.4] - 2026-07-30
 
 ### Fixed

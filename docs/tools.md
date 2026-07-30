@@ -47,12 +47,25 @@ spawned without a TTY, neither stops to ask first, so a gate could silently
 pull an unpinned `latest` for a tool the repo never declared. checkride passes
 `--no-install` to both; a tool that has to be downloaded now fails its slot.
 
-One caveat worth knowing: `--no-install` stops the *download*, not every
-fallback. Both launchers will still run a copy already sitting in their global
-cache from some earlier, unrelated `npx`/`bunx` invocation on that machine — so
-the guarantee is "nothing new is fetched mid-run", not "only what this repo
-declared". Install your tools as `devDependencies` if you need the stronger
-one. `pnpm exec` and `yarn` have no such cache path and need no flag.
+**A slot's tool must be a dependency of your repo.** `--no-install` stops the
+*download*, not every fallback: both launchers will still run a copy sitting in
+their global cache from some earlier, unrelated `npx`/`bunx` invocation on that
+machine. That leaves the weaker guarantee "nothing new is fetched mid-run"
+rather than "only what this repo declared" — and a gate resting on it reports a
+different verdict per machine, passing for a developer whose cache happens to
+hold a tool and failing on the clean checkout that is your CI runner.
+
+So before spawning under `npx`/`bunx`, checkride resolves the tool's binary in
+the local tree — `node_modules/.bin/<tool>`, searched from the check's directory
+upward, so a tool hoisted to a workspace root counts. A slot whose tool doesn't
+resolve fails there, naming the tool and the install command, rather than
+handing you the launcher's own error. `pnpm exec` and `yarn` resolve from the
+project tree already and are not pre-flighted — which also keeps Yarn PnP, where
+there is no `node_modules/.bin` to find, working as before.
+
+The practical consequence: **adding a tool's config file is not enough to turn
+its slot on.** Install the tool too (`doctor` reports which active slots are
+missing theirs).
 
 The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is

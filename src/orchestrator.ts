@@ -35,7 +35,15 @@ import type { CheckOutcome } from './links.js';
 import { checkLinks } from './links.js';
 import { checkPack } from './pack.js';
 import type { PackageManager } from './pm/index.js';
-import { detectPackageManager, isAvailableUnder, translateExec } from './pm/index.js';
+import {
+  detectPackageManager,
+  execTool,
+  execUsesGlobalCache,
+  installCommand,
+  isAvailableUnder,
+  resolveSlotTool,
+  translateExec,
+} from './pm/index.js';
 import { KILL_GRACE_SECONDS, killGroup } from './proc.js';
 import { checkSecurity } from './security.js';
 import { checkSmoke } from './smoke.js';
@@ -370,6 +378,46 @@ function runBuiltin(
   }
 }
 
+/**
+ * Refuse a slot whose tool this repo never declared, rather than letting the
+ * launcher's per-user cache decide the verdict.
+ *
+ * `--no-install` stops `npx`/`bunx` fetching a missing tool, but both still run
+ * a copy cached from some earlier, unrelated invocation — so the same commit
+ * passes on a machine that happens to hold one and fails on a clean checkout,
+ * which is the CI runner. A gate whose result depends on that is not reporting
+ * on the code. Resolving the binary in the local tree first moves the failure
+ * to every machine equally, and to the one place it is cheap to fix.
+ *
+ * Scoped to the launchers that *have* such a cache ({@link
+ * execUsesGlobalCache}): `pnpm exec` and `yarn` resolve from the project tree
+ * already, and pre-flighting Yarn PnP — which has no `node_modules/.bin` — would
+ * report every tool missing. `null` means the check may spawn.
+ */
+export function missingToolOutcome(
+  slot: string,
+  adapter: Adapter,
+  args: readonly string[],
+  ctx: { cwd: string; pm: PackageManager },
+): CheckOutcome | null {
+  if (!execUsesGlobalCache(ctx.pm)) return null;
+  const tool = execTool(adapter.command, args);
+  if (!tool || resolveSlotTool(ctx.cwd, tool)) return null;
+  const stderr = [
+    `checkride: the \`${slot}\` slot needs \`${tool}\`, which is not installed in this project.`,
+    '',
+    `  looked for: node_modules/.bin/${tool} (from ${ctx.cwd} upward)`,
+    '',
+    'checkride never fetches a tool mid-run, and a launcher cache can still supply',
+    "one this repo never declared — so a tool that isn't a dependency here would",
+    'pass on your machine and fail on a clean checkout. Declare it instead:',
+    '',
+    `  ${installCommand(ctx.pm, tool)}`,
+    '',
+  ].join('\n');
+  return { ok: false, exit_code: -1, stdout: '', stderr };
+}
+
 const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
@@ -379,7 +427,10 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   const builtin = runBuiltin(adapter, ctx, timeout);
   if (builtin) return builtin;
-  const { command, args } = translateExec(adapter.command, runtimeArgs(adapter, ctx.changed), ctx.pm);
+  const declared = runtimeArgs(adapter, ctx.changed);
+  const missing = missingToolOutcome(resolved.slot, adapter, declared, ctx);
+  if (missing) return Promise.resolve(missing);
+  const { command, args } = translateExec(adapter.command, declared, ctx.pm);
   return spawnCheck(command, args, ctx.cwd, timeout);
 };
 
