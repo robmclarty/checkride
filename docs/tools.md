@@ -67,6 +67,19 @@ The practical consequence: **adding a tool's config file is not enough to turn
 its slot on.** Install the tool too (`doctor` reports which active slots are
 missing theirs).
 
+### Yarn Plug'n'Play
+
+A PnP project has no `node_modules/` at all — the install artifact is
+`.pnp.cjs`, and binaries resolve through Yarn's runtime rather than a
+`node_modules/.bin` directory. `doctor` detects that layout and changes both of
+its questions accordingly: `install` is satisfied by `.pnp.cjs` plus the
+lockfile, and each slot's tool is resolved with `yarn bin <tool>` instead of a
+path test. A tool that genuinely does not resolve is still reported missing, so
+the looser question does not become a softer one.
+
+Detection is gated on yarn, so a `.pnp.cjs` left behind by a migration *off*
+Yarn will not reroute an npm or pnpm repo.
+
 The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is
 reported **unavailable** until a per-manager audit adapter lands. checkride

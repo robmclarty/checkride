@@ -11,6 +11,7 @@ import {
   execUsesGlobalCache,
   installCommand,
   isAvailableUnder,
+  isPnPInstall,
   resolveSlotTool,
   translateExec,
 } from '../pm/index.js';
@@ -243,6 +244,23 @@ describe('resolveSlotTool', () => {
   test('does not confuse one tool for another', () => {
     const bin = join('/repo', 'node_modules', '.bin', 'oxlint');
     expect(resolveSlotTool('/repo', 'markdownlint-cli2', tree([bin]))).toBeNull();
+  });
+});
+
+describe('isPnPInstall', () => {
+  test('detects each generation of the PnP manifest', () => {
+    for (const f of ['.pnp.cjs', '.pnp.js', '.pnp.data.json']) {
+      expect(isPnPInstall('/repo', tree([join('/repo', f)])), f).toBe(true);
+    }
+  });
+
+  test('is false for a node_modules install', () => {
+    expect(isPnPInstall('/repo', tree([join('/repo', 'node_modules', '.bin', 'oxlint')]))).toBe(false);
+  });
+
+  test('does not walk up — PnP is per-project', () => {
+    // A parent's .pnp.cjs says nothing about how this project is installed.
+    expect(isPnPInstall('/repo/packages/web', tree([join('/repo', '.pnp.cjs')]))).toBe(false);
   });
 });
 

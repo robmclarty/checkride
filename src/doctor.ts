@@ -26,7 +26,14 @@ import { resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { resolveCommonOptions, selectChecks } from './orchestrator.js';
 import type { PackageManager } from './pm/index.js';
-import { detectPackageManager, execTool, installCommand, isAvailableUnder, resolveSlotTool } from './pm/index.js';
+import {
+  detectPackageManager,
+  execTool,
+  installCommand,
+  isAvailableUnder,
+  isPnPInstall,
+  resolveSlotTool,
+} from './pm/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -81,6 +88,8 @@ export type VersionProbe = string | typeof VERSION_TIMED_OUT | null;
 export type DoctorEnv = {
   which: (cmd: string) => Promise<string | null>;
   version: (cmd: string, args: string[]) => Promise<VersionProbe>;
+  /** `<pm> bin <tool>` — the tool's resolved path, or `null` if it does not resolve. */
+  binPath: (pm: PackageManager, tool: string, cwd: string) => Promise<string | null>;
   exists: (path: string) => boolean;
   canWrite: (dir: string) => Promise<boolean>;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
@@ -135,6 +144,25 @@ async function versionReal(cmd: string, args: string[]): Promise<VersionProbe> {
   }
 }
 
+/**
+ * Ask the package manager where a tool's binary is — the only way to answer that
+ * under Yarn PnP, where no `node_modules/.bin` exists to stat.
+ *
+ * `yarn bin <tool>` prints the resolved path and exits 0, or exits 1 when the
+ * tool is not a dependency, so the exit code carries the whole answer. Shares
+ * the version probe's timeout: this spawns a package manager, and a doctor that
+ * hangs is worse than one that reports a tool unresolved.
+ */
+async function binPathReal(pm: PackageManager, tool: string, cwd: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileP(pm, ['bin', tool], { cwd, timeout: VERSION_TIMEOUT_MS });
+    const path = stdout.trim();
+    return path.length > 0 ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 async function canWriteReal(dir: string): Promise<boolean> {
   try {
     await mkdir(dir, { recursive: true });
@@ -160,6 +188,7 @@ function readEnginesReal(cwd: string): { node?: string; pnpm?: string } {
 const realEnv: DoctorEnv = {
   which: whichReal,
   version: versionReal,
+  binPath: binPathReal,
   exists: existsSync,
   canWrite: canWriteReal,
   readEngines: readEnginesReal,
@@ -229,29 +258,70 @@ function checkPackageManager(pm: PackageManager, pnpmMin: Semver, env: DoctorEnv
   return pm === 'pnpm' ? checkVersioned('pnpm', 'pnpm', pnpmMin, env) : checkPresent(pm, pm, env);
 }
 
+/**
+ * Is the project installed? Lockfile plus the linker's own install artifact.
+ *
+ * Under Yarn PnP that artifact is `.pnp.cjs`, not a `node_modules/` directory —
+ * a PnP repo never has one, so asserting the directory reported every correctly
+ * installed PnP project as "lockfile only" and made `doctor` exit 1 on a repo
+ * whose checks all pass.
+ */
 function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCheck {
   const locks = PM_LOCKFILES[pm];
   const hint = `Run \`${pm} install\` from the repo root.`;
+  const base = { name: 'install', category: 'install' as const, required: true };
   if (!locks.some((lock) => env.exists(join(cwd, lock)))) {
-    return { name: 'install', category: 'install', required: true, status: 'missing', found: null, expected: `${locks.join(' or ')} present`, hint };
+    return { ...base, status: 'missing', found: null, expected: `${locks.join(' or ')} present`, hint };
+  }
+  // PnP is a Yarn feature; gating on the manager keeps a stale `.pnp.cjs` left
+  // behind by a migration off Yarn from rerouting an npm or pnpm repo.
+  if (pm === 'yarn' && isPnPInstall(cwd, env.exists)) {
+    return { ...base, status: 'ok', found: '.pnp.cjs + lockfile (Yarn PnP)', expected: null, hint: null };
   }
   if (!env.exists(join(cwd, 'node_modules'))) {
-    return { name: 'install', category: 'install', required: true, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint };
+    return { ...base, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint };
   }
-  return { name: 'install', category: 'install', required: true, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
+  return { ...base, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
 }
 
 type ToolProbe = { status: DoctorStatus; found: string | null; expected: string | null; hint: string | null };
 
 /**
- * Presence-only probe: does the adapter's tool binary resolve?
+ * Where a slot's tool has to be, and whether it is there.
  *
- * The tool lookup walks `cwd` upward via {@link resolveSlotTool} rather than
- * testing `cwd` alone, so a workspace tool hoisted to the repo root reports
- * `ok` from a package subdirectory instead of a false `missing`. The hint names
- * the detected manager's own install command — the row a reader lands on when a
- * slot is red is the wrong place to be told to run another PM.
+ * Two layouts, two questions. Under a `node_modules` install the lookup walks
+ * `cwd` upward via {@link resolveSlotTool}, so a workspace tool hoisted to the
+ * repo root reports `ok` from a package subdirectory instead of a false
+ * `missing`. Under Yarn PnP there is no `node_modules/.bin` to stat at all, so
+ * the question goes to the resolver that owns the answer: `<pm> bin <tool>`
+ * prints the path and exits 0, or exits 1. Gated on yarn for the same reason as
+ * {@link checkInstall} — a `.pnp.cjs` left by a migration off Yarn must not
+ * reroute an npm or pnpm repo.
+ *
+ * Either way a tool that does not resolve reports `missing`: the PnP path asks a
+ * looser question, not a softer one.
  */
+async function probeExecTool(tool: string, cwd: string, pm: PackageManager, env: DoctorEnv): Promise<ToolProbe> {
+  // The hint names the detected manager's own install command — the row a reader
+  // lands on when a slot is red is the wrong place to be told to run another PM.
+  const missing = (expected: string): ToolProbe => ({
+    status: 'missing',
+    found: null,
+    expected,
+    hint: `Run \`${pm} install\`, or declare it: \`${installCommand(pm, tool)}\`.`,
+  });
+  if (pm === 'yarn' && isPnPInstall(cwd, env.exists)) {
+    const expected = `resolvable via \`${pm} bin ${tool}\``;
+    const resolved = await env.binPath(pm, tool, cwd);
+    return resolved ? { status: 'ok', found: resolved, expected, hint: null } : missing(expected);
+  }
+  const bin = resolveSlotTool(cwd, tool, env.exists);
+  return bin
+    ? { status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
+    : missing(`node_modules/.bin/${tool}`);
+}
+
+/** Presence-only probe: does the adapter's tool resolve? Dispatch by adapter shape. */
 async function probeTool(adapter: Adapter, cwd: string, pm: PackageManager, env: DoctorEnv): Promise<ToolProbe> {
   if (adapter.builtin) {
     return { status: 'ok', found: 'built-in', expected: null, hint: null };
@@ -259,15 +329,7 @@ async function probeTool(adapter: Adapter, cwd: string, pm: PackageManager, env:
   if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
     const tool = execTool(adapter.command, adapter.args);
     if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
-    const bin = resolveSlotTool(cwd, tool, env.exists);
-    return bin
-      ? { status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
-      : {
-          status: 'missing',
-          found: null,
-          expected: `node_modules/.bin/${tool}`,
-          hint: `Run \`${pm} install\`, or declare it: \`${installCommand(pm, tool)}\`.`,
-        };
+    return probeExecTool(tool, cwd, pm, env);
   }
   const path = await env.which(adapter.command);
   return path
