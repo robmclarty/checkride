@@ -8,6 +8,7 @@ import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, VERSION_TIMED_OUT } from '../doctor.js';
+import type { PackageManager } from '../pm/index.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -18,6 +19,7 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
   return {
     which: (cmd: string) => Promise.resolve(`/usr/bin/${cmd}`),
     version: () => Promise.resolve('99.9.9'),
+    binPath: (_pm: PackageManager, tool: string) => Promise.resolve(`/repo/.yarn/bin/${tool}`),
     exists: () => true,
     canWrite: () => Promise.resolve(true),
     readEngines: () => ({ node: '>=22.18.0', pnpm: '>=9.0.0' }),
@@ -66,13 +68,92 @@ describe('runDoctor (injected env)', () => {
     for (const pm of ['npm', 'yarn', 'bun'] as const) {
       const result = await runDoctor({
         cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
-        env: fakeEnv({ packageManager: () => pm, exists: (p: string) => !p.includes('.bin') }),
+        // A node_modules layout with the bin absent — not PnP, which resolves
+        // through the package manager instead and is covered separately below.
+        env: fakeEnv({
+          packageManager: () => pm,
+          exists: (p: string) => !p.includes('.bin') && !p.includes('.pnp.'),
+        }),
         stdout: sink(), json: true,
       });
       const tool = result.report.checks.find((c) => c.category === 'tool');
       expect(tool?.hint, `${pm} got another PM's install command`).toContain(`${pm} install`);
       expect(tool?.hint).not.toContain('pnpm install');
     }
+  });
+
+  /**
+   * A Yarn PnP project has no `node_modules/` and no `node_modules/.bin` — the
+   * install artifact is `.pnp.cjs`. Both of doctor's path-based tests therefore
+   * reported a healthy PnP repo as broken: `install` as "lockfile only", and
+   * every tool as missing. Meanwhile the checks themselves ran green, so the two
+   * commands contradicted each other.
+   */
+  describe('Yarn PnP (no node_modules)', () => {
+    /** A PnP tree: lockfile and `.pnp.cjs`, and deliberately no node_modules. */
+    const pnpEnv = (over: Partial<DoctorEnv> = {}) =>
+      fakeEnv({
+        packageManager: () => 'yarn',
+        exists: (p: string) => p.includes('.pnp.cjs') || p.includes('yarn.lock') || p.includes('.check'),
+        ...over,
+      });
+
+    test('install is ok on .pnp.cjs + lockfile, with no node_modules', async () => {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: pnpEnv(), stdout: sink(), json: true,
+      });
+      const install = result.report.checks.find((c) => c.name === 'install');
+      expect(install?.status).toBe('ok');
+      expect(install?.found).toContain('PnP');
+    });
+
+    test('a tool is resolved through the package manager, not a path', async () => {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: pnpEnv({ binPath: () => Promise.resolve('/cache/oxlint.zip/bin/oxlint') }),
+        stdout: sink(), json: true,
+      });
+      const tool = result.report.checks.find((c) => c.category === 'tool');
+      expect(tool?.status).toBe('ok');
+      expect(tool?.found).toBe('/cache/oxlint.zip/bin/oxlint');
+      expect(result.ok).toBe(true);
+    });
+
+    /**
+     * The fix must not make doctor optimistic: a tool that genuinely does not
+     * resolve still has to report missing, or this trades a false red for a
+     * false green — the worse of the two.
+     */
+    test('a tool that does not resolve is still reported missing', async () => {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: pnpEnv({ binPath: () => Promise.resolve(null) }), stdout: sink(), json: true,
+      });
+      const tool = result.report.checks.find((c) => c.category === 'tool');
+      expect(tool?.status).toBe('missing');
+      expect(tool?.hint).toContain('yarn add -D oxlint');
+      expect(result.ok).toBe(false);
+    });
+
+    /**
+     * PnP is Yarn-only, so a `.pnp.cjs` left behind by a migration off Yarn must
+     * not reroute an npm or pnpm repo into asking `npm bin` for its tools.
+     */
+    test('a stale .pnp.cjs does not reroute a non-yarn repo', async () => {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: pnpEnv({
+          packageManager: () => 'npm',
+          // .pnp.cjs is present, but there is no node_modules/.bin either.
+          binPath: () => Promise.resolve('/should/not/be/consulted'),
+        }),
+        stdout: sink(), json: true,
+      });
+      const tool = result.report.checks.find((c) => c.category === 'tool');
+      expect(tool?.status).toBe('missing');
+      expect(tool?.expected).toContain('node_modules/.bin');
+    });
   });
 
   /**

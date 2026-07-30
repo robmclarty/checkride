@@ -71,6 +71,27 @@ export function resolveSlotTool(cwd: string, tool: string, exists: (p: string) =
 }
 
 /**
+ * The artifacts a Yarn Plug'n'Play install writes in place of `node_modules/`.
+ * `.pnp.cjs` is the current name, `.pnp.js` the Yarn 2 one; `.pnp.data.json`
+ * rides alongside the loader when the manifest is split out.
+ */
+const PNP_FILES = ['.pnp.cjs', '.pnp.js', '.pnp.data.json'] as const;
+
+/**
+ * Whether this project is installed under Yarn PnP, where there is no
+ * `node_modules/` tree at all.
+ *
+ * Every path-based test for "is it installed" is wrong here: a healthy PnP repo
+ * has no `node_modules/` and no `node_modules/.bin/<tool>`, so asserting either
+ * reports a correctly installed project as broken. Callers use this to pick a
+ * different question — the install artifact rather than the directory, and the
+ * package manager's own resolution rather than a path — instead of guessing.
+ */
+export function isPnPInstall(cwd: string, exists: (p: string) => boolean = existsSync): boolean {
+  return PNP_FILES.some((f) => exists(join(cwd, f)));
+}
+
+/**
  * Whether `pm`'s exec launcher can supply a tool this repo never declared.
  *
  * True for exactly the two launchers that keep a per-user package cache: `npx`
