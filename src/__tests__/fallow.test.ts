@@ -134,6 +134,99 @@ describe('fallowVerdict (with baseline)', () => {
     expect(v.newKeys).toEqual(['dead-code:unused_files:src/new.ts']);
   });
 
+  test('members of one file get distinct, line-free <parent>.<member> keys', () => {
+    // Shape verified against real fallow 3.9.1 output: an unused class or enum
+    // member is reported as parent_name + member_name, never a single symbol.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 3, unused_class_members: 2, unused_enum_members: 1 },
+      unused_class_members: [
+        { path: 'src/a.ts', parent_name: 'Svc', member_name: 'unusedOne', line: 3, col: 2 },
+        { path: 'src/a.ts', parent_name: 'Svc', member_name: 'unusedTwo', line: 4, col: 2 },
+      ],
+      unused_enum_members: [{ path: 'src/a.ts', parent_name: 'Color', member_name: 'Blue', line: 6, col: 33 }],
+    });
+    // No line or column: inserting code above a member must not re-key it.
+    expect(capture(raw).toSorted()).toEqual([
+      'dead-code:unused_class_members:src/a.ts:Svc.unusedOne',
+      'dead-code:unused_class_members:src/a.ts:Svc.unusedTwo',
+      'dead-code:unused_enum_members:src/a.ts:Color.Blue',
+    ]);
+    expect(fallowVerdict(raw, capture(raw)).ok).toBe(true);
+  });
+
+  test('component bindings and catalog entries compose <container>.<leaf> too', () => {
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 4 },
+      unused_component_inputs: [{ path: 'src/c.ts', component_name: 'Card', input_name: 'title' }],
+      unused_component_outputs: [{ path: 'src/c.ts', component_name: 'Card', output_name: 'closed' }],
+      unused_catalog_entries: [{ path: 'pnpm-workspace.yaml', catalog_name: 'default', entry_name: 'lodash' }],
+      // container with no leaf: the component itself is the whole identity
+      unrendered_components: [{ path: 'src/d.vue', component_name: 'Widget' }],
+    });
+    expect(capture(raw).toSorted()).toEqual([
+      'dead-code:unrendered_components:src/d.vue:Widget',
+      'dead-code:unused_catalog_entries:pnpm-workspace.yaml:default.lodash',
+      'dead-code:unused_component_inputs:src/c.ts:Card.title',
+      'dead-code:unused_component_outputs:src/c.ts:Card.closed',
+    ]);
+  });
+
+  test('arrays absent from total_issues are not fingerprinted', () => {
+    // workspace_diagnostics carries a path and thin_wrappers a file, so both key
+    // readily — but fallow counts neither in total_issues. Keying them would put
+    // the key count past the issue count and mask the un-keyable finding below.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 1, unused_files: 1 },
+      unused_files: [{ path: 'src/a.ts' }],
+      workspace_diagnostics: [{ kind: 'undeclared-workspace', path: 'packages/x', message: 'not declared' }],
+      thin_wrappers: [{ file: 'src/w.tsx', line: 4, component: 'Wrap', child_component: 'Inner' }],
+      next_steps: [{ id: 'trace', command: 'fallow dead-code --trace src/a.ts', reason: 'verify' }],
+    });
+    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    expect(v.findings).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
+    expect(v.ok).toBe(true);
+  });
+
+  test('a key for something uncounted cannot offset an un-keyable finding', () => {
+    // A future fallow adding an uncounted array this version does not know to
+    // skip. Counting keys against total_issues alone would call this tracked —
+    // the spurious key (2 keys, 2 issues) exactly offsets the un-keyable member —
+    // and mask a finding no baseline ever grandfathered. Counting the items we
+    // could not key is what catches it.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2, unused_files: 1, unused_store_members: 1 },
+      unused_files: [{ path: 'src/a.ts' }],
+      unused_store_members: [{ note: 'opaque' }],
+      future_advisories: [{ path: 'src/b.ts' }],
+    });
+    const v = fallowVerdict(raw, capture(raw));
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('2 finding(s)');
+  });
+
+  test('findings the parse never reached block masking, though nothing was un-keyable', () => {
+    // The mirror blind spot: every item present was keyed, so an un-keyable
+    // count sees nothing wrong, but the authoritative count says two findings
+    // exist and only one is in an array we read.
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2, unused_files: 1 },
+      unused_files: [{ path: 'src/a.ts' }],
+    });
+    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    expect(v.ok).toBe(false);
+    expect(v.reason).toBe('2 finding(s)');
+  });
+
   test('untracked findings (count exceeds fingerprints) block masking to green', () => {
     // summary claims 2 issues, but only one carries a fingerprintable identity.
     const raw = JSON.stringify({

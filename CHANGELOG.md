@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Member-scoped fallow findings now key on `<container>.<leaf>` instead of a
+  line and column.** fallow reports an unused class/enum/store member as
+  `parent_name` + `member_name`, a component binding as `component_name` +
+  `prop_name`/`input_name`/`output_name`/`emit_name`/`event_name`, and a catalog
+  entry as `catalog_name` + `entry_name` — none of which the extractor
+  recognized, so every such finding fell through to the `<path>:<line>:<col>`
+  fallback. That key moves whenever code above it does, so editing anything
+  earlier in a file re-keyed its grandfathered members and re-surfaced them as
+  new findings. They are now line-free (`dead-code:unused_class_members:
+  src/a.ts:Svc.unusedOne`) and survive the edit, as every other category already
+  did. **This changes the `dead` slot's fingerprints — re-run `checkride
+  baseline` to re-capture, or those findings will report as new once.**
+- **Report arrays that fallow does not count are no longer fingerprinted.**
+  `workspace_diagnostics` carries a `path`, and the opt-in `thin_wrappers` and
+  `duplicate_prop_shapes` rules a `file`, so all three produced keys while
+  fallow's issue registry marks them `counts_in_total: false`. The extra keys
+  pushed the key count past the issue count, where the un-keyable-findings guard
+  clamped the difference to zero — so a spurious key could offset a finding that
+  genuinely had no stable identity, and the baseline masked a slot green that it
+  had never grandfathered. The guard now counts un-keyable findings directly
+  rather than inferring them from the totals, which closes that offset even if a
+  future fallow adds an uncounted array this version does not know to skip.
+
 ## [0.9.3] - 2026-07-29
 
 ### Contract
