@@ -1124,8 +1124,18 @@ describe('missingToolOutcome', () => {
   test('refuses the slot when the tool is not in the local tree', () => {
     const outcome = missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm: 'npm' });
     expect(outcome?.ok).toBe(false);
-    // Never spawned, so there is no real exit status to report.
-    expect(outcome?.exit_code).toBe(-1);
+    expect(outcome?.exit_code).toBe(1);
+  });
+
+  /**
+   * -1 is reserved for a spawn failure or timeout, which `triage` reports as "a
+   * harness problem, not a finding" (`docs/plugin.md`). An undeclared tool is
+   * the finding itself, so reporting it as -1 told the reader to discount the
+   * one thing this refusal exists to make them act on.
+   */
+  test('does not use the reserved spawn-failure code', () => {
+    const outcome = missingToolOutcome('lint', absent, absent.args, { cwd: '/repo', pm: 'npm' });
+    expect(outcome?.exit_code).not.toBe(-1);
   });
 
   test('names the slot, the tool, and the PM-correct install command', () => {

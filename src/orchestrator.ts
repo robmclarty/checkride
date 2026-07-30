@@ -406,7 +406,7 @@ export function missingToolOutcome(
   const stderr = [
     `checkride: the \`${slot}\` slot needs \`${tool}\`, which is not installed in this project.`,
     '',
-    `  looked for: node_modules/.bin/${tool} (from ${ctx.cwd} upward)`,
+    `  looked for: node_modules/.bin/${tool} (from ${ctx.cwd} up to the repo root)`,
     '',
     'checkride never fetches a tool mid-run, and a launcher cache can still supply',
     "one this repo never declared — so a tool that isn't a dependency here would",
@@ -415,7 +415,12 @@ export function missingToolOutcome(
     `  ${installCommand(ctx.pm, tool)}`,
     '',
   ].join('\n');
-  return { ok: false, exit_code: -1, stdout: '', stderr };
+  // Exit 1, not -1. Nothing spawned, so there is no real status to report — but
+  // -1 is reserved for a spawn failure or timeout, which `triage` discounts as
+  // "a harness problem, not a finding" (see `docs/plugin.md`). An undeclared
+  // tool is the opposite: the finding the run exists to surface, and the one
+  // the reader has to act on. Reporting it as -1 would tell them to ignore it.
+  return { ok: false, exit_code: 1, stdout: '', stderr };
 }
 
 const defaultRunner: CheckRunner = (resolved, ctx) => {

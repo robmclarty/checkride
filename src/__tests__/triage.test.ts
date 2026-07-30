@@ -480,6 +480,22 @@ describe('per-check reporting', () => {
     expect(text).toContain('failed to spawn or timed out');
   });
 
+  /**
+   * The counterpart to the test above, and the gap that let a real defect
+   * through: a slot refused because its tool is not a declared dependency
+   * (`missingToolOutcome`) exits 1, so it must read as a finding. While it
+   * carried -1 the caveat above fired on it and told the reader the actionable
+   * failure was a harness problem to disregard.
+   */
+  test('a refused slot is not discounted as a harness problem', async () => {
+    const { text } = await run(
+      { summary: summaryOf([check('lint', { ok: false, exit_code: 1 })]) },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(text).not.toContain('failed to spawn or timed out');
+    expect(text).not.toContain('not a finding');
+  });
+
   test('a stale artifact is labelled with its age, never silently read as current', async () => {
     const { report, text } = await run(
       {

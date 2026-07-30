@@ -79,17 +79,27 @@ const VERSION_TIMEOUT_S = VERSION_TIMEOUT_MS / 1000;
  * kept distinct from `null` (the probe ran but its output could not be parsed) so
  * `doctor` reports "timed out" rather than misdiagnosing a hung tool as a parse failure.
  */
-export const VERSION_TIMED_OUT = Symbol('checkride.version.timed-out');
+export const PROBE_TIMED_OUT = Symbol('checkride.probe.timed-out');
 
-/** Result of a `<cmd> --version` probe: raw output, `null` if it failed or could not be parsed, or {@link VERSION_TIMED_OUT}. */
-export type VersionProbe = string | typeof VERSION_TIMED_OUT | null;
+/** Result of a `<cmd> --version` probe: raw output, `null` if it failed or could not be parsed, or {@link PROBE_TIMED_OUT}. */
+export type VersionProbe = string | typeof PROBE_TIMED_OUT | null;
+
+/**
+ * Result of a `<pm> bin <tool>` probe: the resolved path, `null` when the tool
+ * is not a dependency, or {@link PROBE_TIMED_OUT}.
+ *
+ * The timeout is a distinct answer on purpose. Collapsing it into `null` would
+ * report a tool the probe never got an answer about as *missing* and tell the
+ * reader to install something they already have.
+ */
+export type BinProbe = string | typeof PROBE_TIMED_OUT | null;
 
 /** Every environment touch, injectable for tests. */
 export type DoctorEnv = {
   which: (cmd: string) => Promise<string | null>;
   version: (cmd: string, args: string[]) => Promise<VersionProbe>;
-  /** `<pm> bin <tool>` — the tool's resolved path, or `null` if it does not resolve. */
-  binPath: (pm: PackageManager, tool: string, cwd: string) => Promise<string | null>;
+  /** `<pm> bin <tool>` — the tool's resolved path, `null` if it does not resolve, or {@link PROBE_TIMED_OUT}. */
+  binPath: (pm: PackageManager, tool: string, cwd: string) => Promise<BinProbe>;
   exists: (path: string) => boolean;
   canWrite: (dir: string) => Promise<boolean>;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
@@ -140,7 +150,7 @@ async function versionReal(cmd: string, args: string[]): Promise<VersionProbe> {
     const { stdout } = await execFileP(cmd, args, { timeout: VERSION_TIMEOUT_MS });
     return stdout.trim();
   } catch (err) {
-    return isProbeTimeout(err) ? VERSION_TIMED_OUT : null;
+    return isProbeTimeout(err) ? PROBE_TIMED_OUT : null;
   }
 }
 
@@ -152,14 +162,19 @@ async function versionReal(cmd: string, args: string[]): Promise<VersionProbe> {
  * tool is not a dependency, so the exit code carries the whole answer. Shares
  * the version probe's timeout: this spawns a package manager, and a doctor that
  * hangs is worse than one that reports a tool unresolved.
+ *
+ * A timeout is reported as {@link PROBE_TIMED_OUT} rather than folded into
+ * `null`, for the same reason the version probe distinguishes it: "the probe
+ * never answered" is not "the tool is absent", and the remediation for the
+ * second is wrong advice for the first.
  */
-async function binPathReal(pm: PackageManager, tool: string, cwd: string): Promise<string | null> {
+async function binPathReal(pm: PackageManager, tool: string, cwd: string): Promise<BinProbe> {
   try {
     const { stdout } = await execFileP(pm, ['bin', tool], { cwd, timeout: VERSION_TIMEOUT_MS });
     const path = stdout.trim();
     return path.length > 0 ? path : null;
-  } catch {
-    return null;
+  } catch (err) {
+    return isProbeTimeout(err) ? PROBE_TIMED_OUT : null;
   }
 }
 
@@ -220,7 +235,7 @@ async function checkVersioned(name: string, cmd: string, min: Semver, env: Docto
     return { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
   }
   const raw = await env.version(cmd, ['--version']);
-  if (raw === VERSION_TIMED_OUT) {
+  if (raw === PROBE_TIMED_OUT) {
     return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `\`${cmd} --version\` timed out (>${VERSION_TIMEOUT_S}s). Is ${cmd} responsive?` };
   }
   const found = parseSemver(raw);
@@ -313,6 +328,12 @@ async function probeExecTool(tool: string, cwd: string, pm: PackageManager, env:
   if (pm === 'yarn' && isPnPInstall(cwd, env.exists)) {
     const expected = `resolvable via \`${pm} bin ${tool}\``;
     const resolved = await env.binPath(pm, tool, cwd);
+    // A probe that never answered is `unknown`, not `missing` — the same
+    // treatment `checkVersioned` gives a timed-out `--version`. Reporting it as
+    // missing would advise installing a tool that may well be right there.
+    if (resolved === PROBE_TIMED_OUT) {
+      return { status: 'unknown', found: null, expected, hint: `\`${pm} bin ${tool}\` timed out (>${VERSION_TIMEOUT_S}s). Is ${pm} responsive?` };
+    }
     return resolved ? { status: 'ok', found: resolved, expected, hint: null } : missing(expected);
   }
   const bin = resolveSlotTool(cwd, tool, env.exists);

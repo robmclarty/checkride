@@ -16,6 +16,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { PackageManager } from './detect.js';
+import { LOCKFILE_NAMES } from './detect.js';
 
 /**
  * The `<tool>` in a canonical `pnpm exec <tool> …` adapter invocation, or `null`
@@ -48,14 +49,36 @@ export function installCommand(pm: PackageManager, tool: string): string {
 }
 
 /**
+ * What marks the top of a repository: its VCS directory, or a lockfile. `.git`
+ * is a file rather than a directory inside a worktree, which `existsSync`
+ * answers the same either way.
+ */
+const ROOT_MARKERS: readonly string[] = ['.git', ...LOCKFILE_NAMES];
+
+/** Is `dir` the top of a repository — the last directory a tool search may look in? */
+function isRepoRoot(dir: string, exists: (p: string) => boolean): boolean {
+  return ROOT_MARKERS.some((m) => exists(join(dir, m)));
+}
+
+/**
  * Find `tool`'s binary in the local tree, walking `cwd` upward the way the
- * package managers themselves do.
+ * package managers themselves do — and stopping at the repo root.
  *
  * The walk is what makes this correct in a workspace: pnpm and npm both hoist a
  * shared tool's bin to the workspace root, so a check running in
  * `packages/web` finds it two directories up and a root-only check finds it
  * immediately. Checking `cwd` alone would report every hoisted tool missing in
  * every monorepo — which is most of the repos with a workspace preset.
+ *
+ * The boundary matters as much as the walk. An unbounded search would accept a
+ * `node_modules/.bin/<tool>` sitting in some parent of the checkout — a stray
+ * install in a home or projects directory — and that is the same defect as
+ * trusting the launcher cache, reached by a different route: the slot passes for
+ * whoever happens to have that directory above their clone and fails on the
+ * clean checkout. Stopping at the root keeps the verdict a property of the repo.
+ * The root itself is searched before the walk ends; a tree with no marker at all
+ * (a synthetic one, or a directory outside any repo) walks to the filesystem
+ * root as before.
  *
  * `exists` is injected so the walk is testable against a synthetic tree.
  */
@@ -64,6 +87,7 @@ export function resolveSlotTool(cwd: string, tool: string, exists: (p: string) =
   for (;;) {
     const bin = join(dir, 'node_modules', '.bin', tool);
     if (exists(bin)) return bin;
+    if (isRepoRoot(dir, exists)) return null;
     const parent = dirname(dir);
     if (parent === dir) return null;
     dir = parent;

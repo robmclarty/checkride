@@ -29,6 +29,12 @@ const LOCKFILES: readonly { file: string; pm: PackageManager }[] = [
   { file: 'package-lock.json', pm: 'npm' },
 ];
 
+/**
+ * Every lockfile name, without its package manager — a lockfile is also what
+ * marks the top of a repository, which is where a tool search has to stop.
+ */
+export const LOCKFILE_NAMES: readonly string[] = LOCKFILES.map((l) => l.file);
+
 /** Parse the `packageManager` field value (`"yarn@3.6.1"` → `'yarn'`), if known. */
 function parseField(value: string | undefined): PackageManager | null {
   if (!value) return null;

@@ -241,6 +241,28 @@ describe('resolveSlotTool', () => {
     expect(resolveSlotTool('/', 'oxlint', tree([]))).toBeNull();
   });
 
+  /**
+   * A stray install above the checkout is the launcher-cache defect by another
+   * route: the slot would pass for whoever has that directory above their clone
+   * and fail on the clean checkout. The search stops where the repo does.
+   */
+  test('does not accept a tool installed above the repo root', () => {
+    const outside = join('/Users/dev', 'node_modules', '.bin', 'oxlint');
+    const marker = join('/Users/dev/repo', '.git');
+    expect(resolveSlotTool('/Users/dev/repo', 'oxlint', tree([outside, marker]))).toBeNull();
+  });
+
+  test('searches the repo root itself before stopping', () => {
+    const rootBin = join('/repo', 'node_modules', '.bin', 'oxlint');
+    expect(resolveSlotTool('/repo/packages/web', 'oxlint', tree([rootBin, join('/repo', '.git')]))).toBe(rootBin);
+  });
+
+  test('treats a lockfile as a root marker too, for a repo with no .git', () => {
+    const outside = join('/Users/dev', 'node_modules', '.bin', 'oxlint');
+    const marker = join('/Users/dev/repo', 'pnpm-lock.yaml');
+    expect(resolveSlotTool('/Users/dev/repo', 'oxlint', tree([outside, marker]))).toBeNull();
+  });
+
   test('does not confuse one tool for another', () => {
     const bin = join('/repo', 'node_modules', '.bin', 'oxlint');
     expect(resolveSlotTool('/repo', 'markdownlint-cli2', tree([bin]))).toBeNull();

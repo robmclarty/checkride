@@ -8,6 +8,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A slot refused for a missing tool was reported as a harness problem.** The
+  refusal carried `exit_code: -1`, which is reserved for a spawn failure or
+  timeout — so `triage` matched it and printed "it failed to spawn or timed out.
+  That is a harness problem, not a finding," telling the reader to discount the
+  one failure the pre-flight exists to make them act on, remediation and all. It
+  now exits **1**, a finding like any other. `-1` keeps meaning the harness
+  broke, and a triage test now pins the two apart.
+- **A tool installed above the repo root satisfied the pre-flight.** The upward
+  search for `node_modules/.bin/<tool>` stopped only at the filesystem root, so
+  a stray install in a home or projects directory counted — the same
+  machine-state dependence the local resolution was added to remove, reached by
+  a different route: the slot passed for whoever had that directory above their
+  clone and failed on the clean checkout. The search now stops at the repo root,
+  marked by a `.git` or a lockfile, and searches that root before stopping.
+- **A timed-out `yarn bin` probe reported the tool as missing.** Under Yarn PnP
+  `doctor` folded every probe failure into "not a dependency", so a slow package
+  manager produced a confident `missing` and told you to install a tool that was
+  already there. A timeout is now `unknown`, with a hint naming it — the
+  treatment the `--version` probe alongside it already had.
 - **`doctor` reported a healthy Yarn PnP project as broken.** Both of its
   install questions were path tests against a `node_modules/` tree, which a PnP
   project does not have: `install` asserted the directory and so reported

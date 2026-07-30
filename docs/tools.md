@@ -57,11 +57,15 @@ hold a tool and failing on the clean checkout that is your CI runner.
 
 So before spawning under `npx`/`bunx`, checkride resolves the tool's binary in
 the local tree — `node_modules/.bin/<tool>`, searched from the check's directory
-upward, so a tool hoisted to a workspace root counts. A slot whose tool doesn't
-resolve fails there, naming the tool and the install command, rather than
-handing you the launcher's own error. `pnpm exec` and `yarn` resolve from the
-project tree already and are not pre-flighted — which also keeps Yarn PnP, where
-there is no `node_modules/.bin` to find, working as before.
+upward, so a tool hoisted to a workspace root counts. The search **stops at the
+repo root** (a `.git` or a lockfile): a stray `node_modules` in some parent of
+your checkout is the launcher-cache problem wearing a different hat, and
+accepting one would put the verdict back on machine state. A slot whose tool
+doesn't resolve fails there — exit 1, a finding like any other — naming the tool
+and the install command, rather than handing you the launcher's own error.
+`pnpm exec` and `yarn` resolve from the project tree already and are not
+pre-flighted, which also keeps Yarn PnP, where there is no `node_modules/.bin`
+to find, working as before.
 
 The practical consequence: **adding a tool's config file is not enough to turn
 its slot on.** Install the tool too (`doctor` reports which active slots are
@@ -75,7 +79,9 @@ A PnP project has no `node_modules/` at all — the install artifact is
 its questions accordingly: `install` is satisfied by `.pnp.cjs` plus the
 lockfile, and each slot's tool is resolved with `yarn bin <tool>` instead of a
 path test. A tool that genuinely does not resolve is still reported missing, so
-the looser question does not become a softer one.
+the looser question does not become a softer one. A `yarn bin` that times out is
+reported `unknown` rather than missing — the probe not answering is not evidence
+the tool is absent, and "install it" would be the wrong advice.
 
 Detection is gated on yarn, so a `.pnp.cjs` left behind by a migration *off*
 Yarn will not reroute an npm or pnpm repo.

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { DoctorEnv } from '../doctor.js';
-import { isProbeTimeout, runDoctor, VERSION_TIMED_OUT } from '../doctor.js';
+import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PackageManager } from '../pm/index.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
@@ -137,6 +137,22 @@ describe('runDoctor (injected env)', () => {
     });
 
     /**
+     * "The probe never answered" is not "the tool is absent". Folding a timeout
+     * into missing told the reader to install a tool that may be sitting right
+     * there — the same distinction `checkVersioned` draws for `--version`.
+     */
+    test('a timed-out bin probe is unknown, not missing', async () => {
+      const result = await runDoctor({
+        cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+        env: pnpEnv({ binPath: () => Promise.resolve(PROBE_TIMED_OUT) }), stdout: sink(), json: true,
+      });
+      const tool = result.report.checks.find((c) => c.category === 'tool');
+      expect(tool?.status).toBe('unknown');
+      expect(tool?.hint).toContain('timed out');
+      expect(tool?.hint).not.toContain('yarn add -D');
+    });
+
+    /**
      * PnP is Yarn-only, so a `.pnp.cjs` left behind by a migration off Yarn must
      * not reroute an npm or pnpm repo into asking `npm bin` for its tools.
      */
@@ -196,7 +212,7 @@ describe('runDoctor (injected env)', () => {
     const result = await runDoctor({
       cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
       // node's --version probe exceeds its budget: the seam signals a timeout, not the null it returns for a parse failure.
-      env: fakeEnv({ version: (cmd: string) => Promise.resolve(cmd === 'node' ? VERSION_TIMED_OUT : '99.9.9') }),
+      env: fakeEnv({ version: (cmd: string) => Promise.resolve(cmd === 'node' ? PROBE_TIMED_OUT : '99.9.9') }),
       stdout: sink(), json: true,
     });
     const node = result.report.checks.find((c) => c.name === 'node');
