@@ -26,7 +26,7 @@ import { resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { resolveCommonOptions, selectChecks } from './orchestrator.js';
 import type { PackageManager } from './pm/index.js';
-import { detectPackageManager, isAvailableUnder } from './pm/index.js';
+import { detectPackageManager, execTool, installCommand, isAvailableUnder, resolveSlotTool } from './pm/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -243,18 +243,31 @@ function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
 
 type ToolProbe = { status: DoctorStatus; found: string | null; expected: string | null; hint: string | null };
 
-/** Presence-only probe: does the adapter's tool binary resolve? */
-async function probeTool(adapter: Adapter, cwd: string, env: DoctorEnv): Promise<ToolProbe> {
+/**
+ * Presence-only probe: does the adapter's tool binary resolve?
+ *
+ * The tool lookup walks `cwd` upward via {@link resolveSlotTool} rather than
+ * testing `cwd` alone, so a workspace tool hoisted to the repo root reports
+ * `ok` from a package subdirectory instead of a false `missing`. The hint names
+ * the detected manager's own install command — the row a reader lands on when a
+ * slot is red is the wrong place to be told to run another PM.
+ */
+async function probeTool(adapter: Adapter, cwd: string, pm: PackageManager, env: DoctorEnv): Promise<ToolProbe> {
   if (adapter.builtin) {
     return { status: 'ok', found: 'built-in', expected: null, hint: null };
   }
   if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
-    const tool = adapter.args[1];
+    const tool = execTool(adapter.command, adapter.args);
     if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
-    const bin = join(cwd, 'node_modules', '.bin', tool);
-    return env.exists(bin)
+    const bin = resolveSlotTool(cwd, tool, env.exists);
+    return bin
       ? { status: 'ok', found: bin, expected: `node_modules/.bin/${tool}`, hint: null }
-      : { status: 'missing', found: null, expected: `node_modules/.bin/${tool}`, hint: `Run \`pnpm install\` (or add ${tool}).` };
+      : {
+          status: 'missing',
+          found: null,
+          expected: `node_modules/.bin/${tool}`,
+          hint: `Run \`${pm} install\`, or declare it: \`${installCommand(pm, tool)}\`.`,
+        };
   }
   const path = await env.which(adapter.command);
   return path
@@ -369,7 +382,7 @@ async function classifySlot(
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, adapters) };
   }
   // Adapter resolved: probe the tool, classify by default-run membership.
-  const probe = await probeTool(adapter, cwd, env);
+  const probe = await probeTool(adapter, cwd, pm, env);
   return toolRow(base, r, adapter, defaultActive, probe);
 }
 

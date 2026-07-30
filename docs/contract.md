@@ -37,6 +37,11 @@ distinguishable by every consumer:
 - `--strict` turns a zero-run into **exit 2**. Anything that gates on
   checkride (CI, commit hooks, plumbbob) should run with `--strict`; a human
   exploring a fresh repo isn't punished by default.
+- An active slot whose tool is not installed **fails** (exit 1); it does not
+  skip. A skip would let the slot's absence read as coverage. Under
+  `npx`/`bunx` the tool is resolved in the local tree rather than trusted to a
+  per-user launcher cache, so the verdict follows the committed lockfile
+  instead of varying by machine — see [tools.md](tools.md#package-managers).
 
 ## `.check/summary.json`
 
