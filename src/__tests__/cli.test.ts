@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { CliDeps } from '../cli.js';
-import { parseCliArgs, parseInitArgs, runCli } from '../cli.js';
+import { parseCliArgs, parseHooksArgs, parseInitArgs, runCli } from '../cli.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -70,6 +70,31 @@ describe('parseInitArgs', () => {
     expect(parseInitArgs(['init', '--force'])).toMatchObject({ force: true });
     // Absent stays absent, so `runInit` applies its own default.
     expect(parseInitArgs(['init']).baseline).toBeUndefined();
+  });
+});
+
+describe('parseHooksArgs', () => {
+  test('takes the action and hook names as positionals', () => {
+    expect(parseHooksArgs(['hooks', 'remove', 'protect'])).toEqual({ action: 'remove', hooks: ['protect'] });
+    expect(parseHooksArgs(['hooks', 'add', 'gate,dirty'])).toEqual({ action: 'add', hooks: ['gate', 'dirty'] });
+    expect(parseHooksArgs(['hooks', 'add'])).toEqual({ action: 'add' });
+  });
+
+  test('parses --harness and --dry-run', () => {
+    expect(parseHooksArgs(['hooks', 'add', '--harness', 'cursor', '--dry-run'])).toEqual({
+      action: 'add', harnesses: ['cursor'], dryRun: true,
+    });
+  });
+
+  test('an unknown action or hook name is a usage error naming the valid set', () => {
+    expect(() => parseHooksArgs(['hooks', 'sideways'])).toThrow("expected 'add' or 'remove', got 'sideways'");
+    expect(() => parseHooksArgs(['hooks'])).toThrow("expected 'add' or 'remove'");
+    expect(() => parseHooksArgs(['hooks', 'remove', 'nope'])).toThrow('expected gate | dirty | protect');
+  });
+
+  test('an empty selection is left for runHooks to answer per action', () => {
+    // Not a malformed list — `add` means all, `remove` means "say which".
+    expect(parseHooksArgs(['hooks', 'remove']).hooks).toBeUndefined();
   });
 });
 

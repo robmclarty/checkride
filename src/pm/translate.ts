@@ -66,6 +66,36 @@ export function translateExec(
 }
 
 /**
+ * How `pm` invokes a package.json script, as a command line.
+ *
+ * Bare `pnpm <script>` is pnpm's own shorthand and the form checkride's docs
+ * use; the other three need the `run` keyword, and not merely for tidiness —
+ * `npm check` is not a command at all, and `yarn check` resolves to Yarn 1's
+ * built-in integrity checker rather than the repo's script, so both fail in a
+ * way that looks like checkride is broken. `<pm> run <script>` is correct
+ * everywhere, which is why it is the fallback for all of them.
+ */
+export function runScript(pm: PackageManager, script: string): string {
+  return pm === 'pnpm' ? `${pm} ${script}` : `${pm} run ${script}`;
+}
+
+/**
+ * A canonical `pnpm exec <tool> …` rendered as one command line for `pm`.
+ *
+ * `quiet` decides whether {@link VERIFY_DEPS_OFF} survives into the rendered
+ * string, and the two callers want opposite answers. A generated script whose
+ * stdout checkride parses needs it, or pnpm's narration lands in front of the
+ * JSON. Prose — the AGENTS.md stanza, a doc — does not: nothing parses that
+ * output, and a documented command carrying
+ * `--config.verify-deps-before-run=false` is a line nobody wants to retype.
+ */
+export function execCommand(pm: PackageManager, args: readonly string[], opts: { quiet?: boolean } = {}): string {
+  const translated = translateExec('pnpm', ['exec', ...args], pm);
+  const rest = opts.quiet === true ? translated.args : translated.args.filter((a) => a !== VERIFY_DEPS_OFF);
+  return [translated.command, ...rest].join(' ');
+}
+
+/**
  * Prepend `VERIFY_DEPS_OFF` to the two pnpm subcommands that verify first.
  * `pnpm audit` and `pnpm pack` never do, so they are left exactly as written —
  * the flag is added where it changes something, not everywhere it is harmless.

@@ -14,7 +14,7 @@
  */
 
 import { DIRTY_MARKER, type HarnessName } from '../gate.js';
-import { type PackageManager, translateExec } from '../pm/index.js';
+import { execCommand, type PackageManager } from '../pm/index.js';
 
 /**
  * The repo root, however the calling harness spells it. Cursor sets
@@ -24,10 +24,12 @@ import { type PackageManager, translateExec } from '../pm/index.js';
  */
 const PROJECT_DIR = '"${CURSOR_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-.}}"';
 
-/** `<pm> exec checkride <args…>`, spelled for `pm`'s launcher. */
+/**
+ * `<pm> exec checkride <args…>`, spelled for `pm`'s launcher. Quieted: the gate
+ * parses this command's stdout, so pnpm's narration must not lead it.
+ */
 function checkrideCommand(pm: PackageManager, args: readonly string[]): string {
-  const translated = translateExec('pnpm', ['exec', 'checkride', ...args], pm);
-  return [translated.command, ...translated.args].join(' ');
+  return execCommand(pm, ['checkride', ...args], { quiet: true });
 }
 
 /**

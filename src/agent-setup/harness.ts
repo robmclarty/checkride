@@ -9,7 +9,7 @@
  */
 
 import type { HarnessName } from '../gate.js';
-import { detectPackageManager, type PackageManager } from '../pm/index.js';
+import { detectPackageManager, type PackageManager, runScript } from '../pm/index.js';
 import type { HookFile } from './files.js';
 import { dropFile, putFile, putJson } from './files.js';
 import { dirtyScript, gateScript, protectScript } from './scripts.js';
@@ -44,7 +44,7 @@ export const GATE_TIMEOUT_SECONDS = 900;
  * is actually running answers that in the one place they are already looking.
  */
 export function gateStatusMessage(pm: PackageManager): string {
-  return `checkride gate — running \`${pm} check\``;
+  return `checkride gate — running \`${runScript(pm, 'check')}\``;
 }
 
 /**

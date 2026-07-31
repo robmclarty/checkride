@@ -186,7 +186,10 @@ describe('claude merge (applyHooks)', () => {
    */
   test('the gate names the command it is running in the spinner', () => {
     const entry = applyHooks({}, ['gate'], 'npm').hooks?.Stop?.[0]?.hooks?.[0];
-    expect(entry?.statusMessage).toContain('npm check');
+    // `npm check` is not a command — the label has to be a line the user could
+    // actually paste, since the reason they are reading it is to run it themselves.
+    expect(entry?.statusMessage).toContain('npm run check');
+    expect(applyHooks({}, ['gate'], 'pnpm').hooks?.Stop?.[0]?.hooks?.[0]?.statusMessage).toContain('pnpm check');
   });
 
   /**

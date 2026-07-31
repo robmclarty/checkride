@@ -13,6 +13,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { GATE_SCRIPT_FILE } from '../../src/agent-setup/index.js';
 import type { CliDeps } from '../../src/cli.js';
 import { parseCliArgs, runCli } from '../../src/cli.js';
 
@@ -291,5 +292,30 @@ describe('AGENTS.md stanza ownership (--force)', () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
     expect(await runCli(['agent-setup', '--no-hook'], deps(capture()))).toBe(0);
     expect(await runCli(['agent-setup', '--no-hook'], deps(capture()))).toBe(0);
+  });
+
+  /**
+   * Contract: `hooks` manages hooks and touches nothing else (docs/contract.md
+   * §CLI). The stanza guard above is exactly what it must not inherit — an
+   * edited AGENTS.md is not a reason a repo cannot remove a hook.
+   */
+  test('`hooks` works on a repo whose stanza would stop agent-setup', async () => {
+    const custom = await customizeStanza();
+    expect(await runCli(['hooks', 'add', 'gate'], deps(capture()))).toBe(0);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+    expect(await runCli(['hooks', 'remove', 'gate'], deps(capture()))).toBe(0);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    // Untouched throughout — the whole point of the separate command.
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(custom);
+  });
+
+  test('`hooks remove` requires an explicit list, and `hooks` rejects a bad action', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['hooks', 'add'], deps(capture()))).toBe(0);
+    const stderr = capture();
+    expect(await runCli(['hooks', 'remove'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain('name the hooks to remove');
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+    expect(await runCli(['hooks', 'sideways'], deps(capture()))).toBe(2);
   });
 });

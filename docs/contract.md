@@ -101,7 +101,7 @@ existence always means "this run had failures".
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
-`agent-setup`, `gate`, `triage`, `qa` — and the run flags:
+`agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the run flags:
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
@@ -118,15 +118,28 @@ and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
 write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
 selects `claude` plus any harness the repo shows evidence of.
 
+**`hooks` manages hooks and touches nothing else.** `checkride hooks add [a,b]`
+and `checkride hooks remove <a,b>` write or tear out the harness config entries
+and generated scripts for the named hooks, taking `--harness <a,b>` and
+`--dry-run`. They never read or write AGENTS.md — so no state of that file can
+block them, and no run of them can change it. `add` defaults to every hook;
+`remove` requires an explicit list, because a bare command that tore out the gate
+would be the silent un-gating this tool exists to prevent. Both are idempotent.
+
 **checkride owns the AGENTS.md stanza, and only the stanza.** Everything outside
 the `checkride:begin`/`checkride:end` markers is yours and is never rewritten;
 the marked region is checkride's and is refreshed in place. The begin marker
 carries a hash of the body checkride generated, so the two stay distinguishable:
-a run whose stanza no longer matches its hash — or that predates the hash —
-refuses rather than overwrite it, exits 2, and writes nothing at all, so a
-refused run leaves the repo as it found it. `--force` overrides, on both `init`
-and `agent-setup`. Silently discarding a repo's own additions is the failure this
-prevents; the exit code and the "writes nothing" rule are the promise.
+a run whose stanza no longer matches its hash refuses rather than overwrite it,
+exits 2, and writes nothing at all, so a refused run leaves the repo as it found
+it. `--force` overrides, on both `init` and `agent-setup`. Silently discarding a
+repo's own additions is the failure this prevents; the exit code and the "writes
+nothing" rule are the promise.
+
+A stanza written before the hash existed is checked against the wordings
+checkride actually released: one that matches is its own output and refreshes
+normally, and only one that matches nothing is treated as edited. The guard is
+for repos that customized their stanza, not for every repo that upgraded.
 
 **`gate` is the one command outside the 0/1/2 split**, because it answers a
 harness's hook protocol rather than checkride's own. Under `--harness claude` it

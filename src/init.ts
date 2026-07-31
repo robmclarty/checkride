@@ -30,7 +30,8 @@ import { runBaseline } from './baseline-command.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator.js';
 import { runChecks, selectChecks } from './orchestrator.js';
-import { detectPackageManager } from './pm/index.js';
+import type { PackageManager } from './pm/index.js';
+import { detectPackageManager, execCommand, runScript } from './pm/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -146,15 +147,58 @@ function stanzaStamp(body: string): string {
 }
 
 /**
+ * A stanza body without its trailing generated `Active checks in this repo: …`
+ * line — the part that is pure wording, identical in every repo running a given
+ * checkride version.
+ *
+ * The active-checks line is what makes two stanzas from the same release differ,
+ * so a registry of released wordings has to compare everything but that. If the
+ * line is missing, or something follows it inside the markers, nothing is
+ * stripped and the digest simply fails to match — which is the safe answer.
+ */
+function stanzaPreamble(body: string): string {
+  return normalizeStanza(normalizeStanza(body).replace(/\nActive checks in this repo:[^\n]*$/, ''));
+}
+
+/**
+ * The wording of every stanza checkride released before it stamped them, keyed
+ * by {@link stanzaPreamble} digest. Four distinct texts across v0.1.1–v0.10.0.
+ *
+ * This is what makes the stamp's arrival a non-event for repos that never
+ * touched their stanza. Without it, every upgrading repo looked `unstamped` —
+ * an older version's wording is not distinguishable from a customization by
+ * comparison alone — so the first run after upgrading refused and wrote
+ * *nothing*, hooks and config included. That is how the 0.10.1 gate-timeout fix
+ * failed to reach the repos that most needed it: the guard protecting AGENTS.md
+ * prose was also withholding a fix for a gate that had silently stopped gating.
+ *
+ * Recognizing the wording collapses that to the case it was always meant to
+ * cover. A pre-stamp stanza whose preamble is one of these is checkride's own
+ * output, untouched, and refreshing it loses nothing; one that has been edited
+ * still fails to match and is still refused.
+ *
+ * The list is closed. Every release from 0.10.1 stamps what it writes, so no
+ * future version can add an unstamped wording — nothing here needs maintaining.
+ */
+const LEGACY_STANZA_PREAMBLES: ReadonlySet<string> = new Set([
+  'v16da2ec6a25e24085', // v0.1.1–v0.1.6
+  'v190c2d48a280ff92c', // v0.2.0–v0.7.0
+  'v1d4b4eaeeccb5faa2', // v0.8.0–v0.9.6
+  'v17a3a1a85e3c3123e', // v0.10.0 (0.10.1 shares the wording but stamps it)
+]);
+
+/**
  * How the stanza on disk relates to the one checkride would write:
  *
  * - `absent` — no stanza yet; writing one takes nothing away.
  * - `pristine` — checkride's own output, untouched; refreshing it is lossless.
+ *   Either it carries a stamp that still matches, or it predates stamping and
+ *   its wording is one checkride shipped (see {@link LEGACY_STANZA_PREAMBLES}).
  * - `edited` — stamped, but the body no longer matches its stamp: a human or an
  *   agent customized it, and a blind refresh would silently discard that.
- * - `unstamped` — written before checkride stamped stanzas, and not identical to
- *   today's. An older version's wording and a customization are indistinguishable
- *   here, so it gets the same protection as `edited` — once.
+ * - `unstamped` — predates stamping and matches no wording checkride released,
+ *   so it has been edited too; same protection as `edited`, and the message says
+ *   so differently because the evidence is weaker.
  */
 export type StanzaState = 'absent' | 'pristine' | 'edited' | 'unstamped';
 
@@ -168,19 +212,51 @@ export function inspectStanza(content: string, body: string): StanzaState {
   }
   const [, stamp, found = ''] = match;
   if (stamp === undefined) {
-    return normalizeStanza(found) === normalizeStanza(body) ? 'pristine' : 'unstamped';
+    if (normalizeStanza(found) === normalizeStanza(body)) return 'pristine';
+    return LEGACY_STANZA_PREAMBLES.has(stanzaStamp(stanzaPreamble(found))) ? 'pristine' : 'unstamped';
   }
   return stamp === stanzaStamp(found) ? 'pristine' : 'edited';
 }
 
-/** The agent-facing contract block, parameterized by the active checks. */
-export function buildStanza(activeSlots: readonly string[]): string {
+/**
+ * The `struct` slot's section: where the boundary rules live, not what they say.
+ *
+ * checkride ships opinionated ast-grep defaults (`no-class.yml` and friends),
+ * but it does not own the repo's architecture, and the stanza is the one place
+ * a repo cannot talk back — editing it blocks the next refresh. So this points
+ * at the rule files and stops. A repo that allows classes, default exports, or
+ * bundler-style extensionless imports deletes those rules and this stays true.
+ */
+function structSection(): string[] {
+  return [
+    '### Module boundaries',
+    '',
+    'The `struct` check runs whatever ast-grep rules `sgconfig.yml` points at',
+    "(`rules/` by default). Those files are this repo's boundary convention —",
+    'read them rather than assuming one.',
+    '',
+  ];
+}
+
+/**
+ * The agent-facing contract block, parameterized by the active checks and the
+ * repo's package manager.
+ *
+ * `pm` is not cosmetic. The stanza is a list of commands an agent is told to
+ * run, and `pnpm check` in an npm repo is an instruction that cannot succeed —
+ * the agent either invents a substitute or reports the pipeline as broken.
+ * Everything here routes through {@link runScript}/{@link execCommand} for that
+ * reason; nothing spells a launcher literally.
+ */
+export function buildStanza(activeSlots: readonly string[], pm: PackageManager = 'pnpm'): string {
+  const check = runScript(pm, 'check');
+  const triage = execCommand(pm, ['checkride', 'triage']);
   return [
     '## Checkride: the definition of done',
     '',
-    '`pnpm check` is the single source of truth for "done". Exit 0 means the work is',
+    `\`${check}\` is the single source of truth for "done". Exit 0 means the work is`,
     'complete; any other exit code means it is not. Never claim a task is finished while',
-    '`pnpm check` is red.',
+    `\`${check}\` is red.`,
     '',
     'When it fails:',
     '',
@@ -188,14 +264,14 @@ export function buildStanza(activeSlots: readonly string[]): string {
     "2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).",
     '3. Fix the root cause, then re-run.',
     '',
-    '`pnpm exec checkride triage` runs this procedure in full and reads `.check/` for you',
+    `\`${triage}\` runs this procedure in full and reads \`.check/\` for you`,
     '(`/checkride:check` and `/checkride-check` are the same thing as a skill).',
     '',
-    'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
-    '`pnpm check --changed`.',
+    `Tight feedback loops: \`${check} --bail\`, \`${check} --only types,lint\`, and`,
+    `\`${check} --changed\`.`,
     '',
     'If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.json`),',
-    'it runs the full `pnpm check` as the final gate — so while iterating, prefer the narrow',
+    `it runs the full \`${check}\` as the final gate — so while iterating, prefer the narrow`,
     'commands above and let the hook run the authoritative pipeline once at the end rather',
     'than running the full check yourself every loop.',
     '',
@@ -207,15 +283,7 @@ export function buildStanza(activeSlots: readonly string[]): string {
     'the ratchet, so the baseline only ever shrinks. Never add to the baseline to make a',
     'check pass; fix the finding.',
     '',
-    '### Module boundaries',
-    '',
-    'A module is a unit of encapsulation. A single file is a module; promote it to a',
-    'folder with a barrel `index.ts` when it grows internals worth hiding. A folder',
-    "module's `index.ts` is its only public surface — re-exports only, no logic. Import",
-    "siblings through `'../<sibling>/index.js'`, never their internals.",
-    '',
-    'Named exports only; no classes; `.js` extensions on relative imports.',
-    '',
+    ...(activeSlots.includes('struct') ? structSection() : []),
     `Active checks in this repo: ${activeSlots.join(', ')}.`,
   ].join('\n');
 }
@@ -846,7 +914,8 @@ function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonl
 
 const STANZA_REFUSALS: Record<'edited' | 'unstamped', string> = {
   edited: 'it has been edited since checkride wrote it',
-  unstamped: "it predates checkride's stanza stamp, so an older version's wording and your own edits are indistinguishable",
+  unstamped:
+    'it predates the stanza stamp and matches no wording checkride has released, so it has been changed since it was written',
 };
 
 /**
@@ -856,12 +925,14 @@ const STANZA_REFUSALS: Record<'edited' | 'unstamped', string> = {
  *
  * Called before either entry point writes anything, so a refusal leaves the repo
  * exactly as it found it (the same rule `assertNoCollisions` follows in new
- * mode). That ordering costs one thing: in existing mode the config is written
- * *after* this runs, so `body` here is derived from the config as it is on disk
- * now. Only the `unstamped` comparison uses `body` at all, so the worst case is
- * a one-time over-refusal on a legacy stanza in a repo whose active checks this
- * run is about to change — recoverable with `--force`. A stamped stanza is
- * verified against its own stamp and is unaffected.
+ * mode). In existing mode that puts it ahead of the config write, so `body` here
+ * reflects the config as it is on disk now rather than as this run will leave
+ * it — which no longer costs anything: a stamped stanza is checked against its
+ * own stamp, and an unstamped one against a registry of released wordings that
+ * ignores the active-checks line entirely. Neither reads `body`'s slot list.
+ *
+ * Hook management deliberately does not come through here — see the `hooks`
+ * command, which never touches AGENTS.md and so has nothing to refuse.
  */
 async function assertStanzaUnedited(cwd: string, body: string, opts: { force?: boolean }): Promise<void> {
   if (opts.force === true) return;
@@ -891,11 +962,12 @@ async function writeAgentsStanza(
   w: Writer,
   cwd: string,
   slots: readonly string[],
+  pm: PackageManager,
   skipped: string[],
 ): Promise<void> {
   const agentsPath = join(cwd, 'AGENTS.md');
   const existing = await readIfExists(agentsPath);
-  const nextAgents = applyStanza(existing ?? '', buildStanza(slots));
+  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, pm));
   if (nextAgents !== existing) {
     if (!w.dryRun) await writeFile(agentsPath, nextAgents);
     w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
@@ -911,12 +983,19 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
   types: [['shared/tsconfig.base.json', 'tsconfig.base.json'], ['flat/tsconfig.json', 'tsconfig.json']],
   format: [['shared/prettierrc.json', '.prettierrc.json']],
   lint: [['shared/oxlintrc.json', '.oxlintrc.json']],
+  // `struct` scaffolds the boundary rule and stops. New-mode `init` writes all
+  // four (`writeSharedStatic`), and that is a different bargain: there checkride
+  // is creating the package, so its house style has nobody to override. Here the
+  // repo already exists and has already decided. `no-class`, `no-default-export`
+  // and `require-js-extension` are style and module-system opinions — a repo
+  // with classes, default exports, or bundler resolution goes red on adoption
+  // for writing the code it always wrote, which reads as checkride being broken.
+  // `no-deep-sibling-import` is the one that makes `struct` the slot it is, and
+  // failing it means what it says. The other three stay one copy away, in
+  // `docs/deep-modules.md`.
   struct: [
     ['shared/sgconfig.yml', 'sgconfig.yml'],
-    ['shared/rules/no-class.yml', 'rules/no-class.yml'],
-    ['shared/rules/no-default-export.yml', 'rules/no-default-export.yml'],
     ['shared/rules/no-deep-sibling-import.yml', 'rules/no-deep-sibling-import.yml'],
-    ['shared/rules/require-js-extension.yml', 'rules/require-js-extension.yml'],
   ],
   dead: [['flat/fallow.toml', 'fallow.toml']],
   // dupes/health are the same fallow tool + config as `dead`, just other slots.
@@ -1108,10 +1187,11 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const manifest = readInitManifest(cwd);
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
+  const pm = detectPackageManager({ cwd });
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
-  await assertStanzaUnedited(cwd, buildStanza(activeCheckSlots(cwd, slots, adapters)), options);
+  await assertStanzaUnedited(cwd, buildStanza(activeCheckSlots(cwd, slots, adapters), pm), options);
 
   // Route --add: publish slots (and the library path) opt into the bundle; the
   // rest scaffold blessed configs before inventory, so they're detected this run.
@@ -1138,7 +1218,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await addCheckAlias(w, skipped);
   // AGENTS.md stanza (create or refresh, idempotent), derived from the config
   // written above so it reports the gate as configured, not as detected.
-  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
+  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), pm, skipped);
   await writeClaudePointer(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
   await writeHook(w, options, skipped);
@@ -1223,16 +1303,17 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
   const stanzaSlots = activeCheckSlots(cwd, slots, adapters);
+  const pm = detectPackageManager({ cwd });
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
-  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots), options);
+  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots, pm), options);
 
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
   await addCheckAlias(w, skipped);
 
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
-  await writeAgentsStanza(w, cwd, stanzaSlots, skipped);
+  await writeAgentsStanza(w, cwd, stanzaSlots, pm, skipped);
 
   await writeHook(w, options, skipped);
   await writeSkills(w, options, skipped);

@@ -12,6 +12,7 @@ checkride doctor       Verify environment + every slot's status (read-only).
 checkride fix          Run every active adapter's fix command (oxlint --fix, …).
 checkride baseline     Record current diagnostics as a committed baseline.
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
+checkride hooks        Install/remove agent hooks only — never touches AGENTS.md.
 checkride triage       Triage a red gate into one root cause (what /checkride:check runs).
 checkride qa           Read the quality artifacts a previous run left.
 ```
@@ -54,6 +55,19 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--remove-hook <a,b>` | Remove installed hooks — entry + generated script. With `--no-hook`, remove only. |
 | `--harness <a,b>` | Write hooks for these harnesses: `claude`, `cursor`. Default: `claude`, plus `cursor` when `.cursor/` exists. |
 | `--dry-run` | Print what would be written; change nothing. |
+
+## `checkride hooks`
+
+Hook management on its own. Unlike `agent-setup`, it never reads or writes
+AGENTS.md — so an edited stanza cannot block it, and removing a hook cannot
+rewrite your contract file.
+
+| Command | Does |
+| --- | --- |
+| `checkride hooks add [a,b]` | Install the named hooks (default: all). |
+| `checkride hooks remove <a,b>` | Tear out the named hooks — entry + generated script. An explicit list is required. |
+
+Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.
 
 ## npm-script aliases
 

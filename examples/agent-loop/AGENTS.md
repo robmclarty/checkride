@@ -1,4 +1,4 @@
-<!-- checkride:begin hash=v1d4cf790e8175e188 -->
+<!-- checkride:begin hash=v169e1bb7d970fedf3 -->
 
 ## Checkride: the definition of done
 
@@ -30,15 +30,6 @@ lists: a slot is green as long as only baselined findings remain, while a genuin
 new diagnostic still fails it. Fixing a baselined finding prunes it from the file —
 the ratchet, so the baseline only ever shrinks. Never add to the baseline to make a
 check pass; fix the finding.
-
-### Module boundaries
-
-A module is a unit of encapsulation. A single file is a module; promote it to a
-folder with a barrel `index.ts` when it grows internals worth hiding. A folder
-module's `index.ts` is its only public surface — re-exports only, no logic. Import
-siblings through `'../<sibling>/index.js'`, never their internals.
-
-Named exports only; no classes; `.js` extensions on relative imports.
 
 Active checks in this repo: types, lint, links.
 

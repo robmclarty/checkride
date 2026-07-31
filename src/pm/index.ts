@@ -9,4 +9,4 @@
 export type { PackageManager } from './detect.js';
 export { detectPackageManager } from './detect.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './tools.js';
-export { isAvailableUnder, translateExec } from './translate.js';
+export { execCommand, isAvailableUnder, runScript, translateExec } from './translate.js';

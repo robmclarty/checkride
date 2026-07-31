@@ -368,6 +368,13 @@ pnpm check                                    # the slots now run
 `devDependencies` — that is the `pnpm add -D` step. Once both the config and the
 package exist, the slot is detected automatically on the next run.
 
+For `struct` that means `sgconfig.yml` and `rules/no-deep-sibling-import.yml` —
+the boundary rule, and nothing that legislates style. A repo that uses classes
+or default exports is not adopting a broken convention, and a check that fails
+on adoption for reasons unrelated to the check reads as checkride being wrong.
+New-mode `init` is the exception: it writes the full rule set because it is
+creating the package, so there is no prior decision to override.
+
 ## ast-grep, specifically
 
 ast-grep is also distributed as a standalone binary (for example via Homebrew or

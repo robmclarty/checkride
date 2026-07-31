@@ -10,6 +10,7 @@
     "package.json",
     "CHANGELOG.md"
   ],
+  "ignoreRegExpList": ["/v1[0-9a-f]{16}/g"],
   "words": [
     "checkride",
     "baselined",

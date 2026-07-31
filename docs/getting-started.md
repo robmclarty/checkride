@@ -84,8 +84,15 @@ pnpm exec checkride init --add struct,dead
 pnpm add -D @ast-grep/cli fallow
 ```
 
-`--add` writes the config files (for example `sgconfig.yml` plus the rule set,
-and `fallow.toml`); the follow-up `pnpm add -D` installs the tools themselves.
+`--add` writes the config files (for example `sgconfig.yml` plus
+`rules/no-deep-sibling-import.yml`, and `fallow.toml`); the follow-up
+`pnpm add -D` installs the tools themselves.
+
+`--add struct` scaffolds the boundary rule only. checkride's other house rules —
+no classes, named exports, NodeNext `.js` extensions — are style decisions your
+repo has already made, so adopting a check does not hand you three of them to
+argue with. They are listed in [deep modules](./deep-modules.md) if you want
+them; copy in the ones you agree with.
 
 ### A new project
 

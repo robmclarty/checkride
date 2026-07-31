@@ -86,7 +86,14 @@ Re-running either command refreshes the stanza in place, but never behind your
 back: the marker carries a hash of what checkride wrote, so a stanza you have
 since edited stops the run (exit 2) instead of being overwritten. Keep
 repo-specific additions outside the markers, where nothing rewrites them — or
-pass `--force` to discard the edits and refresh.
+pass `--force` to discard the edits and refresh. A stanza written before the hash
+existed is matched against the wordings checkride released, so upgrading is not
+itself mistaken for an edit.
+
+To add or remove a hook on its own, use `checkride hooks add <a,b>` /
+`checkride hooks remove <a,b>`. It writes only the harness config and the
+generated scripts, and never reads or writes AGENTS.md — managing a hook is not
+managing your contract file, and an edited stanza does not stand in its way.
 
 ## Docs
 

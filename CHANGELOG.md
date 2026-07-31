@@ -4,6 +4,102 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`checkride hooks add <a,b>` / `checkride hooks remove <a,b>` — hook
+  management that never touches AGENTS.md.** `agent-setup` writes four things at
+  once (the `check` alias, the stanza, the hooks, the Cursor skills) with the
+  stanza guard in front of all of them, so managing a hook inherited the stanza's
+  problems: a repo whose AGENTS.md had been edited could not remove a hook *at
+  all* — the run refused and, by contract, wrote nothing — and a repo mid-upgrade
+  had its stanza rewritten by a command it had asked to touch hooks.
+
+  The new command writes only the harness config entries and the generated
+  scripts. It never reads or writes AGENTS.md, so no state of that file can block
+  it and no run of it can change that file. `--harness <a,b>` and `--dry-run`
+  both apply, and both directions are idempotent. `add` defaults to every hook;
+  `remove` requires an explicit list, because a bare command that tore out the
+  gate would be the silent un-gating checkride exists to prevent.
+
+  `agent-setup` is unchanged, flags and refusal included.
+
+### Changed
+
+- **The AGENTS.md stanza no longer prescribes an architecture.** It carried
+  checkride's own house style as if it were law — "Named exports only; no
+  classes; `.js` extensions on relative imports", plus the barrel-`index.ts`
+  rules — into every repo that ran `init` or `agent-setup`. For a repo that uses
+  classes, default exports, or bundler-style extensionless imports, that is a
+  contract file instructing the agent to write the wrong code. The stanza is
+  also the one region a repo cannot correct: editing it is what makes the next
+  refresh refuse.
+
+  The `### Module boundaries` section now names where the rules live instead of
+  what they say — the `struct` check runs whatever ast-grep rules `sgconfig.yml`
+  points at, and those files are the convention. It is emitted only when
+  `struct` is an active check; a repo without it gets no section at all. Delete
+  `rules/no-class.yml` and the stanza stays true, which is the property it was
+  missing.
+
+  `init` still *scaffolds* those rules as its opinionated default — that part is
+  a starter you own and can edit, and is unchanged.
+
+- **`--add struct` scaffolds the boundary rule and stops.** It used to write
+  four ast-grep rules, three of which are style, not structure: `no-class`,
+  `no-default-export`, and `require-js-extension`. A repo that uses classes,
+  default exports, or bundler resolution went red the moment it adopted the
+  slot — for code it had always written, over a convention it never chose, which
+  reads as checkride being broken rather than as a finding. `--add struct` now
+  writes `sgconfig.yml` and `rules/no-deep-sibling-import.yml`: the rule that
+  makes `struct` the slot it is, and one whose failures mean what they say.
+
+  New-mode `init` still writes all four. That is a different bargain — it is
+  creating the package, so there is no prior decision to override — and the
+  other rules are listed in `docs/deep-modules.md` for any repo that wants them.
+
+### Fixed
+
+- **Upgrading no longer looks like an edit.** 0.10.1 started stamping the stanza
+  so a refresh could tell its own output from a customization — but a stanza
+  written *before* the stamp carries no evidence either way, so every upgrading
+  repo read as `unstamped`, refused, and by contract wrote **nothing**: not the
+  stanza, not the config, not the hooks. That is how 0.10.1's own gate-timeout
+  fix failed to reach the repos it was written for. The guard protecting AGENTS.md
+  prose was withholding a fix for a gate that had silently stopped gating.
+
+  checkride now recognizes the wordings it actually shipped — four distinct texts
+  across v0.1.1–v0.10.0, matched on everything but the generated
+  `Active checks in this repo:` line, so a repo's own slot list is irrelevant. A
+  pre-stamp stanza that matches one is checkride's own output, refreshes without
+  `--force`, and comes back stamped; one that matches nothing has been edited and
+  is still refused, with a message that now says so plainly instead of hedging
+  about indistinguishable wordings.
+
+  The list is closed and needs no maintenance: every release from 0.10.1 stamps
+  what it writes, so no future version can add an unstamped wording.
+
+- **The AGENTS.md stanza is package-manager-agnostic.** It hardcoded `pnpm
+  check` and `pnpm exec checkride triage` regardless of the repo's package
+  manager, while checkride detects that manager everywhere else and README
+  promises the tool is agnostic. The stanza is a list of commands an agent is
+  told to run, so in an npm repo it was an instruction that cannot succeed: the
+  agent either invents a substitute or reports the pipeline as broken. It now
+  renders `npm run check` / `npx --no-install checkride triage`, `yarn run
+  check`, or `bun run check` from the detected manager, and `pnpm check` is
+  unchanged for pnpm repos.
+
+  The Claude Code gate's `statusMessage` had the same bug from the same source
+  and is fixed with it — the spinner said `npm check`, which is not a command,
+  and `yarn check` names Yarn 1's integrity checker rather than the repo's
+  script.
+
+- **The `spell` check no longer trips over checkride's own stanza hash.** The
+  `hash=v1…` marker is 16 hex digits, so sooner or later it spells something
+  cspell does not recognize (`…fedf…`) and fails a slot for a string checkride
+  itself generated. The shipped `cspell.json` now ignores the marker.
+
 ## [0.10.1] - 2026-07-31
 
 ### Added

@@ -17,7 +17,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
-import { HOOK_NAMES, type HookName } from './agent-setup/index.js';
+import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
 import { runBaseline } from './baseline-command.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
@@ -60,6 +60,11 @@ const INIT_OPTIONS = {
   force: { type: 'boolean', default: false },
 } as const;
 
+const HOOKS_OPTIONS = {
+  'dry-run': { type: 'boolean', default: false },
+  harness: { type: 'string' },
+} as const;
+
 const GATE_OPTIONS = {
   'if-dirty': { type: 'boolean', default: false },
   harness: { type: 'string' },
@@ -83,6 +88,8 @@ Commands:
                    --remove-hook <a,b> to tear installed ones back out;
                    --harness <a,b> to pick the harnesses; --force to refresh a
                    stanza carrying local edits).
+  hooks            Install or remove agent hooks on their own, without touching
+                   AGENTS.md: \`hooks add [a,b]\`, \`hooks remove <a,b>\`.
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
   triage           Triage a red gate: run it, then read .check/ as a bounded
@@ -161,8 +168,35 @@ treats any non-zero exit as a broken hook, so it always exits 0.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const HOOKS_HELP_TEXT = `checkride hooks — install or remove agent hooks, and nothing else
+
+Usage: checkride hooks add [a,b] [options]
+       checkride hooks remove <a,b> [options]
+
+Writes or tears out the harness config entries and the generated scripts for the
+named hooks (${HOOK_NAMES.join(' | ')}). It never reads or writes AGENTS.md, so no
+state of that file can block it and no run of it can change that file — which is
+what separates it from \`agent-setup\`, where the hooks ride along with the stanza,
+the check alias, and the Cursor skills.
+
+\`add\` defaults to every hook. \`remove\` requires an explicit list, so a bare
+command cannot silently tear out the gate.
+
+Options:
+  --harness <a,b>  Act on these harnesses (${HARNESS_NAMES.join(' | ')};
+                   default: claude, plus cursor when .cursor/ exists)
+  --dry-run        Report what would change without writing
+  -h, --help       Show this help
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
-const COMMAND_HELP: Record<string, string> = { init: INIT_HELP_TEXT, gate: GATE_HELP_TEXT };
+const COMMAND_HELP: Record<string, string> = {
+  init: INIT_HELP_TEXT,
+  gate: GATE_HELP_TEXT,
+  hooks: HOOKS_HELP_TEXT,
+};
 
 function commandHelp(command: string): string {
   return COMMAND_HELP[command] ?? HELP_TEXT;
@@ -390,6 +424,38 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
   return result.exitCode;
 }
 
+/**
+ * Parse `hooks <add|remove> [a,b]` into options.
+ *
+ * The hook names are a positional rather than a flag: the command exists to do
+ * one thing to a named set, and `checkride hooks remove protect` reads the way
+ * the user thinks about it. An unknown action or name is a usage error naming
+ * the valid set, the same rule `--hook` follows.
+ */
+export function parseHooksArgs(argv: string[]): HooksOptions {
+  const { rest } = detectCommand(argv);
+  const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: HOOKS_OPTIONS });
+  const [action, ...names] = positionals;
+  if (action !== 'add' && action !== 'remove') {
+    throw new Error(`hooks: expected 'add' or 'remove'${action === undefined ? '' : `, got '${action}'`}`);
+  }
+  // Only parse a list that is actually there: an empty one is not a malformed
+  // `--hook`, it is "no names given", which `runHooks` answers per action.
+  const hooks = names.length > 0 ? asHooks(names.join(','), 'hook') : undefined;
+  const harnesses = asHarnesses(values.harness);
+  return {
+    action,
+    ...(hooks ? { hooks } : {}),
+    ...(harnesses ? { harnesses } : {}),
+    ...(values['dry-run'] ? { dryRun: true } : {}),
+  };
+}
+
+async function dispatchHooks(argv: string[], deps: CliDeps): Promise<number> {
+  const result = await runHooks({ ...parseHooksArgs(argv), cwd: deps.cwd, stdout: deps.stdout });
+  return result.exitCode;
+}
+
 async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
   const { rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: GATE_OPTIONS });
@@ -442,6 +508,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     fix: dispatchFix,
     baseline: dispatchBaseline,
     'agent-setup': dispatchAgentSetup,
+    hooks: dispatchHooks,
     gate: dispatchGate,
     triage: dispatchTriage,
     qa: dispatchQa,

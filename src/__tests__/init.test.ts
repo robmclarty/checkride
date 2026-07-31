@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE } from '../agent-setup/index.js';
+import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE } from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
+import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
 describe('AGENTS stanza (idempotency)', () => {
   const body = buildStanza(['types', 'lint', 'spell']);
@@ -48,6 +49,42 @@ describe('AGENTS stanza (idempotency)', () => {
     // AGENTS.md is the one contract file every harness reads; it must not
     // assume the reader is Claude Code.
     expect(body).not.toContain('Claude Code');
+  });
+
+  test('prescribes no house style: struct points at the rules, it does not restate them', () => {
+    // The stanza is the one region a repo cannot edit back, so it must not
+    // dictate architecture. checkride's ast-grep defaults ban classes and
+    // default exports; a repo that wants either just deletes those rule files,
+    // and the stanza has to stay true when it does.
+    const struct = buildStanza(['types', 'struct']);
+    expect(struct).toContain('### Module boundaries');
+    expect(struct).toContain('whatever ast-grep rules `sgconfig.yml` points at');
+    for (const s of [struct, body]) {
+      expect(s).not.toMatch(/no classes|Named exports only|barrel `index\.ts`/);
+    }
+  });
+
+  test('omits the struct section entirely when struct is not an active check', () => {
+    expect(body).not.toContain('### Module boundaries');
+    expect(body).not.toContain('sgconfig.yml');
+  });
+
+  test('spells every command for the repo’s package manager, not pnpm’s', () => {
+    // The stanza is a list of commands an agent is told to run. `pnpm check` in
+    // an npm repo is an instruction that cannot succeed, so the agent either
+    // invents a substitute or reports the pipeline as broken.
+    const npm = buildStanza(['types'], 'npm');
+    expect(npm).not.toContain('pnpm');
+    expect(npm).toContain('`npm run check` is the single source of truth');
+    expect(npm).toContain('`npm run check --bail`');
+    expect(npm).toContain('`npx --no-install checkride triage` runs this procedure');
+
+    // `yarn check` is Yarn 1's integrity checker, not the repo's script.
+    expect(buildStanza(['types'], 'yarn')).toContain('`yarn run check` is red');
+    expect(buildStanza(['types'], 'bun')).toContain('`bun run check` is red');
+    // pnpm's shorthand is real, and stays the default for callers without a repo.
+    expect(buildStanza(['types'], 'pnpm')).toContain('`pnpm check` is red');
+    expect(buildStanza(['types'])).toBe(buildStanza(['types'], 'pnpm'));
   });
 
   test('refreshes only the marked region, leaving the rest untouched', () => {
@@ -111,9 +148,64 @@ describe('AGENTS stanza (edit detection)', () => {
     expect(inspectStanza(refreshed, body)).toBe('pristine');
   });
 
-  test('an unstamped stanza is pristine only when it matches today’s text', () => {
+  test('an unstamped stanza matching today’s text is pristine', () => {
     expect(inspectStanza(legacy(body), body)).toBe('pristine');
     expect(inspectStanza(legacy(`${body}\n\nSkip \`spell\` on vendored files.`), body)).toBe('unstamped');
+  });
+
+  describe('legacy wording registry', () => {
+    /**
+     * Every pre-stamp release is a stanza sitting in a real repo right now.
+     * Before the registry, upgrading made all of them look `unstamped`, and the
+     * refusal that followed wrote *nothing* — which is how 0.10.1's gate-timeout
+     * fix failed to reach the repos whose gate had stopped gating.
+     */
+    test('recognizes every wording checkride shipped, whatever the repo’s active checks', () => {
+      expect(RELEASED_STANZAS).toHaveLength(4);
+      for (const { range, body: released } of RELEASED_STANZAS) {
+        expect(inspectStanza(legacy(released), body), range).toBe('pristine');
+        // The fixture is captured with `types, lint`; a real repo has its own.
+        const other = released.replace(/^Active checks in this repo:.*$/m, 'Active checks in this repo: spell, docs, links.');
+        expect(other).not.toBe(released);
+        expect(inspectStanza(legacy(other), body), `${range} (other slots)`).toBe('pristine');
+      }
+    });
+
+    test('still refuses a legacy stanza someone edited', () => {
+      const released = RELEASED_STANZAS[2]?.body ?? '';
+      const edited = released.replace('### Baseline', '### This repo\n\nSkip `spell` on vendored files.\n\n### Baseline');
+      expect(inspectStanza(legacy(edited), body)).toBe('unstamped');
+      // Appending inside the markers puts text after the active-checks line, so
+      // nothing is stripped and the preamble digest cannot match by accident.
+      expect(inspectStanza(legacy(`${released}\n\nAnd one more rule.`), body)).toBe('unstamped');
+    });
+
+    test('agent-setup still refuses an edited stanza, hook flags and all', async () => {
+      // The other half of the `hooks` command's reason for existing: this run is
+      // still blocked, which is why hook management needed its own door out.
+      const dir = await mkdtemp(join(tmpdir(), 'checkride-refuse-'));
+      try {
+        await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
+        await runAgentSetup({ cwd: dir });
+        const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+        await writeFile(join(dir, 'AGENTS.md'), agents.replace('### Baseline', '### Mine\n\nkeep\n\n### Baseline'));
+        await expect(runAgentSetup({ cwd: dir, removeHooks: ['protect'] })).rejects.toThrow('refusing to overwrite');
+        expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(true);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    test('a recognized legacy stanza refreshes and comes back stamped', () => {
+      // The point of recognizing it: the run proceeds, and the next one needs no
+      // registry at all because what it wrote carries its own stamp.
+      const released = RELEASED_STANZAS[2]?.body ?? '';
+      const refreshed = applyStanza(`# AGENTS.md\n\nintro\n\n${legacy(released)}`, body);
+      expect(refreshed).toContain('<!-- checkride:begin hash=v1');
+      expect(refreshed).toContain('intro');
+      expect(refreshed.match(/checkride:begin/g)).toHaveLength(1);
+      expect(inspectStanza(refreshed, body)).toBe('pristine');
+    });
   });
 });
 
@@ -394,6 +486,20 @@ describe('existing-project adoption (idempotent)', () => {
     // format is opt-in: scaffolding its config does not enable it in checks.
     const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
     expect(cfg.checks['format']).toBeUndefined();
+  });
+
+  test('--add struct scaffolds the boundary rule, not checkride’s style opinions', async () => {
+    // An existing repo has already chosen whether it uses classes, default
+    // exports, and NodeNext extensions. Handing it three rules that say
+    // otherwise turns adoption into a wall of findings about code it always
+    // wrote. The boundary rule is the one that makes `struct` the slot it is.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await runInit({ cwd: dir, add: ['struct'], probeFailures: noFailures });
+    expect(existsSync(join(dir, 'sgconfig.yml'))).toBe(true);
+    expect(existsSync(join(dir, 'rules/no-deep-sibling-import.yml'))).toBe(true);
+    for (const r of ['no-class.yml', 'no-default-export.yml', 'require-js-extension.yml']) {
+      expect(existsSync(join(dir, 'rules', r)), r).toBe(false);
+    }
   });
 
   test('--add never clobbers a config that already exists', async () => {

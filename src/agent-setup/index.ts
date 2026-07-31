@@ -12,6 +12,8 @@ export {
   removeHooks,
 } from './claude.js';
 
+export { type HooksOptions, runHooks } from './command.js';
+
 export { applyCursorHooks, CURSOR_HOOKS_FILE, removeCursorHooks } from './cursor.js';
 
 export type { HookFile } from './files.js';
