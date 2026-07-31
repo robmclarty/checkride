@@ -4,107 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Changed
-
-- **checkride generates one file for Claude Code, not four.** `protect` is now a
-  pair of `permissions.deny` rules and `dirty` is an inline command, so
-  `.claude/hooks/checkride-protect.cjs` and `.claude/hooks/checkride-dirty.sh`
-  are gone. Both are deleted automatically on the next `agent-setup`, `init`, or
-  `hooks add`.
-
-  `protect` gains more than tidiness from the move. Claude Code evaluates a deny
-  rule **regardless of what a `PreToolUse` hook returns**, so the same paths are
-  now guarded a layer below the hook that used to guard them — and at no cost
-  per tool call, where the script spawned Node on every single edit while
-  allowing essentially all of them. The rules are also a list checkride
-  *appends* to and removes only its own entries from, so a repo can add its own
-  suppression files beside them (a `fallow.baseline`, a lint baseline) and keep
-  them across every refresh. The generated script could never offer that: it was
-  checkride-owned and overwritten wholesale on every run.
-
-  ```json
-  "permissions": {
-    "deny": ["Edit(**/checkride.baseline.json)", "Edit(**/.check/**)"]
-  }
-  ```
-
-  `Edit(...)` is the only correct spelling, and getting it wrong fails silently:
-  Claude Code checks file paths against `Edit` and `Read` rules only, and a
-  `Write(...)` or `NotebookEdit(...)` path rule is accepted, never consulted, and
-  warns at startup. An `Edit` rule covers every file-editing tool. `Read` deny
-  rules stay deliberately absent — triage reads `.check/` artifacts.
-
-  Nothing moves in the user-facing surface: `--hook protect`,
-  `--remove-hook protect`, and `checkride hooks add|remove protect` all mean what
-  they meant. **Cursor is unchanged** and still gets all three scripts; its
-  config is hooks and nothing else, with no documented file-path deny list to
-  move `protect` into.
-
-- **`checkride hooks` counts files changed, not files deleted.** Removing a hook
-  a harness expresses as configuration rewrites the config and deletes nothing,
-  and the old wording reported that as `removed 0 file(s)` — a run that did
-  exactly what was asked, reading as a no-op. The line now names the hooks and
-  counts every file it touched.
-
-### Contract
-
-- **A gate that could not run answers "could not run", not "red"**
-  (docs/contract.md §CLI). The exit codes are unchanged and remain the promise —
-  2 while blocked under `--harness claude`, always 0 under `--harness cursor` —
-  because an unrunnable gate has always blocked. What is new is that the verdict
-  distinguishes a red pipeline from a launch that never happened, so anything
-  reading the `systemMessage` / `followup_message` body sees a cause instead of a
-  pointer to an artifact this run did not write. Additive: a hook script that
-  gates on the exit code alone is unaffected.
-
-- **`checkride.config.json` promises a `gate` key** (docs/contract.md §CLI), and
-  with it the disclosure: while a profile is active, every gate verdict names the
-  profile and states that it was not the full check.
-
-- **`CHECKRIDE_NODE_BIN`** is promised as the hook author's wrapping point: a
-  directory prepended to the check run's `PATH`, or `off` to disable checkride's
-  own Node-pin alignment.
-
-- **What a hook *is* belongs to the harness** (docs/contract.md §CLI). The three
-  hook names stay promised; whether one lands as a config entry, a permission
-  rule, or a generated script is checkride's to choose per harness and may change
-  again. What is promised about the Claude Code deny rules is the part a consumer
-  builds on: checkride appends its own and removes only those. Anyone scripting
-  against the *path* `.claude/hooks/checkride-protect.cjs` should read
-  `permissions.deny` instead.
-
-### Fixed
-
-- **A package manager that refuses to start the check script is no longer
-  reported as a red pipeline.** In any repo pinning `engines.node`, pnpm answers
-  a Node it does not accept with `ERR_PNPM_UNSUPPORTED_ENGINE` and **exit 1** —
-  the same exit code a failing test uses. The gate read that as a verdict on the
-  code and said so: `checkride ✘ red in 265ms`, exit 2, turn blocked, every turn,
-  regardless of what was written. It then sent the reader to
-  `.check/summary.json`, which no run had written, because no check had run.
-
-  That is the vacuous gate inverted — not a silent green but a permanent red no
-  code change can clear, whose rational response is to switch the gate off. And
-  it is not one repo's problem: agent harnesses run hooks in a **non-login
-  shell**, which never sources the rc file a version manager puts its shims in,
-  so the hook gets the machine's default Node rather than the contributor's. On
-  nvm that is the norm, not the exception.
-
-  `gate` now answers a third verdict — **could not run** — for a launch that
-  never happened, naming the cause and saying plainly that nothing ran and no
-  artifact describes this turn. It still blocks, in both harnesses: an unrunnable
-  gate has never been a pass. `triage` gained the matching `could-not-start`
-  verdict, since it runs the same script and had folded the same exit into `red`,
-  confirming the gate's wrong answer to whoever came asking why.
-
-  The classification is guarded on both sides. Only pnpm's and npm's own error
-  codes are matched — npm's `EBADENGINE` *warning* deliberately is not, because
-  npm runs the script anyway unless `engine-strict` is set — and a summary
-  written by the current run vetoes the whole thing, so a check that merely
-  *printed* one of these strings can never be reclassified into an environment
-  problem.
+## [0.10.2] - 2026-07-31
 
 ### Added
 
@@ -180,6 +80,46 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **checkride generates one file for Claude Code, not four.** `protect` is now a
+  pair of `permissions.deny` rules and `dirty` is an inline command, so
+  `.claude/hooks/checkride-protect.cjs` and `.claude/hooks/checkride-dirty.sh`
+  are gone. Both are deleted automatically on the next `agent-setup`, `init`, or
+  `hooks add`.
+
+  `protect` gains more than tidiness from the move. Claude Code evaluates a deny
+  rule **regardless of what a `PreToolUse` hook returns**, so the same paths are
+  now guarded a layer below the hook that used to guard them — and at no cost
+  per tool call, where the script spawned Node on every single edit while
+  allowing essentially all of them. The rules are also a list checkride
+  *appends* to and removes only its own entries from, so a repo can add its own
+  suppression files beside them (a `fallow.baseline`, a lint baseline) and keep
+  them across every refresh. The generated script could never offer that: it was
+  checkride-owned and overwritten wholesale on every run.
+
+  ```json
+  "permissions": {
+    "deny": ["Edit(**/checkride.baseline.json)", "Edit(**/.check/**)"]
+  }
+  ```
+
+  `Edit(...)` is the only correct spelling, and getting it wrong fails silently:
+  Claude Code checks file paths against `Edit` and `Read` rules only, and a
+  `Write(...)` or `NotebookEdit(...)` path rule is accepted, never consulted, and
+  warns at startup. An `Edit` rule covers every file-editing tool. `Read` deny
+  rules stay deliberately absent — triage reads `.check/` artifacts.
+
+  Nothing moves in the user-facing surface: `--hook protect`,
+  `--remove-hook protect`, and `checkride hooks add|remove protect` all mean what
+  they meant. **Cursor is unchanged** and still gets all three scripts; its
+  config is hooks and nothing else, with no documented file-path deny list to
+  move `protect` into.
+
+- **`checkride hooks` counts files changed, not files deleted.** Removing a hook
+  a harness expresses as configuration rewrites the config and deletes nothing,
+  and the old wording reported that as `removed 0 file(s)` — a run that did
+  exactly what was asked, reading as a no-op. The line now names the hooks and
+  counts every file it touched.
+
 - **The AGENTS.md stanza no longer prescribes an architecture.** It carried
   checkride's own house style as if it were law — "Named exports only; no
   classes; `.js` extensions on relative imports", plus the barrel-`index.ts`
@@ -213,6 +153,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   other rules are listed in `docs/deep-modules.md` for any repo that wants them.
 
 ### Fixed
+
+- **A package manager that refuses to start the check script is no longer
+  reported as a red pipeline.** In any repo pinning `engines.node`, pnpm answers
+  a Node it does not accept with `ERR_PNPM_UNSUPPORTED_ENGINE` and **exit 1** —
+  the same exit code a failing test uses. The gate read that as a verdict on the
+  code and said so: `checkride ✘ red in 265ms`, exit 2, turn blocked, every turn,
+  regardless of what was written. It then sent the reader to
+  `.check/summary.json`, which no run had written, because no check had run.
+
+  That is the vacuous gate inverted — not a silent green but a permanent red no
+  code change can clear, whose rational response is to switch the gate off. And
+  it is not one repo's problem: agent harnesses run hooks in a **non-login
+  shell**, which never sources the rc file a version manager puts its shims in,
+  so the hook gets the machine's default Node rather than the contributor's. On
+  nvm that is the norm, not the exception.
+
+  `gate` now answers a third verdict — **could not run** — for a launch that
+  never happened, naming the cause and saying plainly that nothing ran and no
+  artifact describes this turn. It still blocks, in both harnesses: an unrunnable
+  gate has never been a pass. `triage` gained the matching `could-not-start`
+  verdict, since it runs the same script and had folded the same exit into `red`,
+  confirming the gate's wrong answer to whoever came asking why.
+
+  The classification is guarded on both sides. Only pnpm's and npm's own error
+  codes are matched — npm's `EBADENGINE` *warning* deliberately is not, because
+  npm runs the script anyway unless `engine-strict` is set — and a summary
+  written by the current run vetoes the whole thing, so a check that merely
+  *printed* one of these strings can never be reclassified into an environment
+  problem.
 
 - **Upgrading no longer looks like an edit.** 0.10.1 started stamping the stanza
   so a refresh could tell its own output from a customization — but a stanza
@@ -252,6 +221,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `hash=v1…` marker is 16 hex digits, so sooner or later it spells something
   cspell does not recognize (`…fedf…`) and fails a slot for a string checkride
   itself generated. The shipped `cspell.json` now ignores the marker.
+
+### Contract
+
+- **A gate that could not run answers "could not run", not "red"**
+  (docs/contract.md §CLI). The exit codes are unchanged and remain the promise —
+  2 while blocked under `--harness claude`, always 0 under `--harness cursor` —
+  because an unrunnable gate has always blocked. What is new is that the verdict
+  distinguishes a red pipeline from a launch that never happened, so anything
+  reading the `systemMessage` / `followup_message` body sees a cause instead of a
+  pointer to an artifact this run did not write. Additive: a hook script that
+  gates on the exit code alone is unaffected.
+
+- **`checkride.config.json` promises a `gate` key** (docs/contract.md §CLI), and
+  with it the disclosure: while a profile is active, every gate verdict names the
+  profile and states that it was not the full check.
+
+- **`CHECKRIDE_NODE_BIN`** is promised as the hook author's wrapping point: a
+  directory prepended to the check run's `PATH`, or `off` to disable checkride's
+  own Node-pin alignment.
+
+- **What a hook *is* belongs to the harness** (docs/contract.md §CLI). The three
+  hook names stay promised; whether one lands as a config entry, a permission
+  rule, or a generated script is checkride's to choose per harness and may change
+  again. What is promised about the Claude Code deny rules is the part a consumer
+  builds on: checkride appends its own and removes only those. Anyone scripting
+  against the *path* `.claude/hooks/checkride-protect.cjs` should read
+  `permissions.deny` instead.
 
 ## [0.10.1] - 2026-07-31
 
@@ -1457,6 +1453,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.10.2]: https://www.npmjs.com/package/checkride/v/0.10.2
 [0.10.1]: https://www.npmjs.com/package/checkride/v/0.10.1
 [0.10.0]: https://www.npmjs.com/package/checkride/v/0.10.0
 [0.9.6]: https://www.npmjs.com/package/checkride/v/0.9.6
