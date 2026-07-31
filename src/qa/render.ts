@@ -20,6 +20,7 @@
  */
 
 import { formatBytes, formatDuration } from '../artifacts/index.js';
+import type { SummaryRead } from '../artifacts/index.js';
 import type { DeadExtract } from './dead.js';
 import type { DupesExtract } from './dupes.js';
 import type { HealthExtract } from './health.js';
@@ -175,6 +176,17 @@ function ageClause(ageMs: number | null): string {
   return `${formatDuration(ageMs)} ago`;
 }
 
+/**
+ * Why the summary is unusable, in the words that distinguish the cases. An
+ * absent `schema_version` means a stranger wrote this file, which is a
+ * different report from a checkride that is simply newer than this reader.
+ */
+function summaryProblem(summary: SummaryRead): string {
+  if (summary.state === 'foreign') return 'no `schema_version` field — NOT written by checkride';
+  if (summary.state === 'schema-mismatch') return `\`schema_version\` is ${JSON.stringify(summary.found)}, not 1; STOP`;
+  return summary.state;
+}
+
 /** Provenance first: what wrote these artifacts, when, and over which slots. */
 function renderHead(report: QaReport): string {
   const { summary } = report;
@@ -182,7 +194,7 @@ function renderHead(report: QaReport): string {
   const provenance =
     summary.state === 'ok'
       ? `${at} — \`schema_version\` 1, ${ageClause(report.summaryAgeMs)}, ${formatDuration(summary.summary.total_duration_ms)}`
-      : `${at} — ${summary.state === 'schema-mismatch' ? `\`schema_version\` is ${JSON.stringify(summary.found)}, not 1; STOP` : summary.state}`;
+      : `${at} — ${summaryProblem(summary)}`;
   const covered =
     report.covered.length === 0
       ? 'covered: nothing — no readable summary, so the artifacts below belong to no known run'

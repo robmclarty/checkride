@@ -3,10 +3,18 @@
  *
  * The summary is checkride's promised index: `schema_version`-ed, additive-only,
  * deterministically ordered and crash-consistent. This module turns it into a
- * four-state result rather than a value-or-throw, because every failure mode is
+ * five-state result rather than a value-or-throw, because every failure mode is
  * something a reader has to *report* — a missing summary means the gate never
  * wrote one, and a `schema_version` this reader does not understand means stop,
  * not guess.
+ *
+ * `foreign` and `schema-mismatch` are deliberately separate states even though
+ * both end in "this reader cannot use the file". An absent `schema_version` is
+ * evidence the file was not written by checkride at all — a repo whose gate is
+ * a homegrown script that happens to write `.check/` — and the honest report
+ * there is "your gate is not checkride", not "STOP, version boundary". A
+ * `schema_version` of 2 is the opposite case: checkride wrote it, and a newer
+ * one, so guessing across the boundary is what has to stop.
  *
  * Validation here is deliberately structural, not schematic: the full JSON
  * Schema lives in `schema/checkride.summary.schema.json` and is the engine's
@@ -44,6 +52,8 @@ export const SUPPORTED_SCHEMA_VERSION = 1;
 /** The outcome of reading `.check/summary.json`. Every state is reportable. */
 export type SummaryRead =
   | { state: 'ok'; path: string; mtimeMs: number; summary: Summary }
+  /** A JSON object with no `schema_version` at all — not checkride's file. */
+  | { state: 'foreign'; path: string; mtimeMs: number }
   | { state: 'schema-mismatch'; path: string; mtimeMs: number; found: unknown }
   | { state: 'unreadable'; path: string; detail: string }
   | { state: 'missing'; path: string };
@@ -96,8 +106,12 @@ function isSummary(value: JsonRecord): value is JsonRecord & Summary {
 export function parseSummary(raw: string, path: string, mtimeMs: number): SummaryRead {
   const value = parseJson(raw);
   if (!isRecord(value)) return { state: 'unreadable', path, detail: 'not a JSON object' };
-  // Version first: a summary this reader cannot read is a version problem, not
-  // a shape problem, even when its other fields also fail to narrow.
+  // Provenance first, then version: a summary this reader cannot read is a
+  // whose-file-is-this problem or a version problem, not a shape problem, even
+  // when its other fields also fail to narrow. Key presence rather than value,
+  // so an explicit `"schema_version": null` stays a mismatch — a malformed
+  // checkride summary — instead of being read as a stranger's file.
+  if (!('schema_version' in value)) return { state: 'foreign', path, mtimeMs };
   if (value['schema_version'] !== SUPPORTED_SCHEMA_VERSION) {
     return { state: 'schema-mismatch', path, mtimeMs, found: value['schema_version'] };
   }

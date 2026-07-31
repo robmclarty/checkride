@@ -18,7 +18,7 @@
  * The `../artifacts` barrel is this module's only public surface.
  */
 
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Freshness } from './freshness.js';
@@ -56,6 +56,30 @@ export async function statArtifact(
   } catch {
     return null;
   }
+}
+
+/**
+ * Measure every file directly in `checkDir`, name-ordered so the render is
+ * byte-stable. Subdirectories and anything that vanishes mid-read drop out;
+ * an absent directory is `[]`, because "there is nothing there" is an answer.
+ *
+ * This is the fallback index. Normally the summary names what to look at and
+ * {@link resolveRawOutput} locates it, but when the summary cannot be parsed
+ * the directory itself is the only inventory that exists — and a reader that
+ * gave up there would leave an agent to run `ls` by hand, which is the
+ * unbounded read this module exists to prevent.
+ */
+export async function listArtifacts(checkDir: string, windowStart: number | null): Promise<ArtifactFile[]> {
+  let names: string[];
+  try {
+    names = await readdir(checkDir);
+  } catch {
+    return [];
+  }
+  const found = await Promise.all(
+    names.toSorted().map((name) => statArtifact(checkDir, name, windowStart)),
+  );
+  return found.filter((file): file is ArtifactFile => file !== null);
 }
 
 /**

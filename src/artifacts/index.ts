@@ -20,7 +20,7 @@ export type { Freshness } from './freshness.js';
 
 export { asNumberOrNull, asRecord, asRecordArray, asStringOrNull, isRecord, parseJson } from './json.js';
 
-export { resolveRawOutput, statArtifact } from './raw.js';
+export { listArtifacts, resolveRawOutput, statArtifact } from './raw.js';
 export type { ArtifactFile, RawOutput } from './raw.js';
 
 export { CHECK_DIR, parseSummary, readSummary, SUPPORTED_SCHEMA_VERSION } from './summary.js';

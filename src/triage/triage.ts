@@ -17,7 +17,7 @@
 import { join } from 'node:path';
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import { CHECK_DIR, configuredSlots, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
+import { CHECK_DIR, configuredSlots, listArtifacts, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator.js';
 import type { DoctorFold } from './doctor-fold.js';
@@ -77,6 +77,14 @@ export type TriageReport = {
   digest: ArtifactFile | null;
   /** Every measured file older than this run's start, deduped by path. */
   stale: ArtifactFile[];
+  /**
+   * Every file in `.check/`, measured — populated only when the summary could
+   * not be parsed, because there {@link rows} is empty for want of an index
+   * rather than for want of artifacts, and this listing is the only inventory
+   * left. `null` whenever the summary *was* parsed: the rows are the index then,
+   * and repeating the directory beside them would be noise.
+   */
+  checkDir: ArtifactFile[] | null;
 };
 
 /**
@@ -142,19 +150,35 @@ type Artifacts = {
   windowStart: number | null;
   rows: SlotRow[];
   digest: ArtifactFile | null;
+  checkDir: ArtifactFile[] | null;
 };
 
+/**
+ * When the summary is gone, an anchor for judging what in `.check/` is a
+ * leftover. The contract window comes from the summary's own `timestamp`, so an
+ * unparseable summary leaves none — but the reader *ran the gate* and knows
+ * when it started, which is a strictly better anchor than giving up and
+ * labelling every file `?`. Not applied to the parsed path, where the
+ * documented derivation in `../artifacts/freshness.ts` is the contract.
+ */
+function gateAnchor(gate: GateOutcome): number | null {
+  return gate.verdict === 'not-run' ? null : gate.startedMs - MTIME_TOLERANCE_MS;
+}
+
 /** Read everything the run left behind, measuring and never opening. */
-async function readArtifacts(cwd: string): Promise<Artifacts> {
+async function readArtifacts(cwd: string, gate: GateOutcome): Promise<Artifacts> {
   const checkDir = join(cwd, CHECK_DIR);
   const summary = await readSummary(cwd);
-  const windowStart = summary.state === 'ok' ? runWindowStart(summary.summary) : null;
+  const parsed = summary.state === 'ok';
+  const windowStart = parsed ? runWindowStart(summary.summary) : null;
+  const anchor = parsed ? windowStart : gateAnchor(gate);
   const checks: readonly SummaryCheck[] = summary.state === 'ok' ? summary.summary.checks : [];
-  const [rows, digest] = await Promise.all([
+  const [rows, digest, listing] = await Promise.all([
     Promise.all(checks.map((check) => buildRow(checkDir, check, windowStart))),
-    statArtifact(checkDir, DIGEST_FILE, windowStart),
+    statArtifact(checkDir, DIGEST_FILE, anchor),
+    parsed ? Promise.resolve(null) : listArtifacts(checkDir, anchor),
   ]);
-  return { summary, windowStart, rows, digest };
+  return { summary, windowStart, rows, digest, checkDir: listing };
 }
 
 function isVacuous(summary: SummaryRead): boolean {
@@ -169,7 +193,7 @@ function isVacuous(summary: SummaryRead): boolean {
 export async function triage(cwd: string, env: TriageEnv): Promise<TriageReport> {
   const gate = await runGate(cwd, env);
   const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env) : null;
-  const { summary, windowStart, rows, digest } = await readArtifacts(cwd);
+  const { summary, windowStart, rows, digest, checkDir } = await readArtifacts(cwd, gate);
   return {
     cwd,
     gate,
@@ -183,5 +207,6 @@ export async function triage(cwd: string, env: TriageEnv): Promise<TriageReport>
     vacuous: isVacuous(summary),
     digest,
     stale: collectStale(rows, digest),
+    checkDir,
   };
 }

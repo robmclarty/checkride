@@ -68,10 +68,13 @@ to be confidently wrong about a checkride run are visible only here.
   an EARLIER run`** means the table below describes something else entirely and
   every row in it is suspect. `schema_version` anything but 1 means **stop**: the
   reader is pinned to schema 1, additive-only guarantees hold within a version
-  and promise nothing across one, so guessing is how you invent a finding.
+  and promise nothing across one, so guessing is how you invent a finding. **`NOT
+  written by checkride`** (no `schema_version` at all) means this repo's gate is
+  a different tool — see below.
 - **`covered`** — how much was verified. Compare it against the `coverage`
   section, which names the slots `checkride.config.json` configures but this run
-  never touched.
+  never touched. **`unknown`** is not `0`: it means no summary could be parsed,
+  so nothing about coverage was measured either way.
 
 **Always open your report with the covered-slot count and the run's age.** A
 finding without its coverage is an assertion about the whole repo built from a
@@ -85,6 +88,8 @@ fraction of it.
 | **off-contract exit** | not 0, 1 or 2 (a 127, a signal death, a wrapper that died before checkride ran) | Same posture as exit 2. Read the `gate output` tail: something in the `check` script failed around checkride, not inside it. |
 | **red** | exit 1 — at least one check failed | Go to step 4. This is the normal path. |
 | **red, but no slot explains it** | exit 1 with an empty `failing slots` section | The failure happened *outside* checkride. Read the `gate output` tail, which the report includes on this branch. See below — do not triage the table. |
+| **red, and the summary cannot be read** | exit 1, and `.check/summary.json` exists but this reader cannot parse it | There is **no table at all**, and its absence is not evidence. Read the `gate output` tail and the `.check/ contents` listing; report *only* what those show. See below. |
+| **green, with no index** | exit 0, same unparseable summary | The repo's own gate passed — report that, and nothing more. Attaching a slot count or a "clean" claim to it is inventing coverage. |
 | **vacuous green** | exit 0 with `checks_run: 0` | A failure wearing a pass: nothing was verified. Find out why no check was selected (a typo'd `--only`, an empty config) before believing anything. Treat it as red. |
 | **green, but narrow** | exit 0 over a subset | Say which slots were covered and which were not. Do not report the work as done on this evidence. |
 | **green** | exit 0, full coverage | Still check the caveats for `baselined` and `skipped` before saying clean — see step 7. |
@@ -115,6 +120,30 @@ command echo. A near-empty `stderr` block is not "no output".
 Only if both blocks are absent, re-run the failing prefix directly (`pnpm exec
 tsc --build` for the shape above) and triage what it prints. Either way: do not
 report any slot in the table as passing.
+
+### A summary this reader cannot parse
+
+Distinct from the branch above, and the distinction is the whole point. There
+the summary is **absent** — checkride never ran, so it wrote nothing. Here a
+`.check/summary.json` exists and cannot be parsed, which says *nothing at all*
+about what ran. The verdict reads **`red, and the summary cannot be read`** (or
+**`green, with no index`**), and the header names which of three it is:
+
+- **`NOT written by checkride`** — no `schema_version`. The repo's gate is a
+  homegrown script that writes a checkride-shaped `.check/`. Its artifacts follow
+  no contract, so their names and freshness are all you can trust about them.
+- **`schema_version` is N, not 1** — checkride wrote it, but a newer one.
+- **unreadable** — truncated, or not JSON.
+
+On this branch the report gives you two things and no table: the `gate output`
+tail, and a **`.check/ contents`** listing of every file with its size and age.
+`fresh` there means written after the gate started; `stale` means a leftover that
+describes no part of this run. Triage from those, and open at most one file.
+
+What you must not do is fill the gap. `covered: unknown` is not `covered: 0`;
+`baselined` and `skipped` are both **unknown**, and because a baselined slot
+*passes* and a skipped one reports nothing, "no caveats raised" and "no caveats
+could be raised" look identical. No slot can be reported as passing on this run.
 
 ## 4. Order the failures — this is the judgment
 

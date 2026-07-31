@@ -350,6 +350,10 @@ describe('the summary is an index, not evidence', () => {
     expect(report.summary.state).toBe('schema-mismatch');
     expect(report.rows).toEqual([]);
     expect(text).toContain('`schema_version` is 2, not 1; STOP');
+    // The header alone is not enough: the verdict has to carry it too, or the
+    // reader announces STOP and then narrates a cause anyway.
+    expect(text).toContain('**red, and the summary cannot be read**');
+    expect(text).not.toContain('**red, but no slot explains it**');
   });
 
   test('a summary predating the run is called out as an earlier run', async () => {
@@ -365,6 +369,108 @@ describe('the summary is an index, not evidence', () => {
   test('a summary written by the run just made is trusted', async () => {
     const { report } = await run({ summary: summaryOf([check('links')]) }, fakeEnv({ gate: { code: 0 } }));
     expect(report.fromThisRun).toBe(true);
+  });
+});
+
+/**
+ * The case that motivated this branch: a repo whose gate is a homegrown
+ * `node scripts/check.mjs` writing a checkride-shaped `.check/` — same file
+ * names, no `schema_version`. Measured against a real one, the reader used to
+ * fall through to the compound-script verdict and tell an agent "checkride
+ * never ran, a compound script short-circuited", which was a confident,
+ * specific and false diagnosis of a gate that had run all eight of its checks.
+ *
+ * The rule this pins: an *absent* summary is the short-circuit story; a summary
+ * that exists and cannot be parsed says nothing at all, and the report must say
+ * exactly that much and no more.
+ */
+describe('a summary this reader cannot parse', () => {
+  /** No `schema_version`: the shape a non-checkride gate writes. */
+  const HOMEGROWN = { ok: false, checks: [{ name: 'types', ok: false }] };
+  const SCRIPT = { script: 'node scripts/check.mjs' };
+  const GATE_OUT = 'types FAILED\nlint FAILED\n';
+
+  test('it is named as not-checkride rather than as a version boundary', async () => {
+    const { report, text } = await run(
+      { ...SCRIPT, summary: HOMEGROWN },
+      fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }),
+    );
+    expect(report.summary.state).toBe('foreign');
+    expect(text).toContain('NOT written by checkride');
+    expect(text).toContain('**red, and the summary cannot be read**');
+    expect(text).toContain('was not written by checkride');
+    // The wrong answer: a story about checkride short-circuiting before it ran.
+    expect(text).not.toContain('**red, but no slot explains it**');
+    expect(text).not.toContain('short-circuits');
+  });
+
+  test('an empty table is reported as unparsed, never as nothing-failed', async () => {
+    const { text } = await run({ ...SCRIPT, summary: HOMEGROWN }, fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }));
+    expect(text).toContain('NOT because nothing failed');
+    expect(text).toContain('What this run covered is unknown');
+  });
+
+  test('coverage counts read unknown, not zero — a zero is a measurement', async () => {
+    const { text } = await run({ ...SCRIPT, summary: HOMEGROWN }, fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }));
+    expect(text).toContain('covered: unknown');
+    expect(text).not.toContain('covered: 0 slot(s) ran, 0 skipped');
+  });
+
+  test('baselined and skipped are called unknown, because both are silent by construction', async () => {
+    const { text } = await run({ ...SCRIPT, summary: HOMEGROWN }, fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }));
+    expect(text).toContain('`baselined` and `skipped` counts are **unknown**, not zero');
+  });
+
+  test('the gate output still renders: with no index it is the only record of the run', async () => {
+    const { text } = await run({ ...SCRIPT, summary: HOMEGROWN }, fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }));
+    expect(text).toContain('## gate output');
+    expect(text).toContain('types FAILED');
+  });
+
+  test('`.check/` is listed with ages, so the leftovers are visible without an `ls`', async () => {
+    const { report, text } = await run(
+      {
+        ...SCRIPT,
+        summary: HOMEGROWN,
+        artifacts: {
+          'types.stdout.txt': { text: 'error TS2307\n' },
+          'struct.stdout.txt': { mtimeMs: STALE_MTIME },
+        },
+      },
+      fakeEnv({ gate: { code: 1, stdout: GATE_OUT } }),
+    );
+    expect(report.checkDir?.map((f) => f.file)).toEqual(['struct.stdout.txt', 'summary.json', 'types.stdout.txt']);
+    expect(text).toContain('## .check/ contents');
+    expect(text).toContain('`.check/types.stdout.txt`');
+    // Freshness anchors on the gate's own start, so the leftover is still named.
+    expect(text).toMatch(/`\.check\/struct\.stdout\.txt` \| [^|]+ \| stale/);
+  });
+
+  test('a parsed summary suppresses the listing: the rows are already the index', async () => {
+    const { report, text } = await run(
+      { summary: summaryOf([check('types', { ok: false })]), artifacts: { 'types.stdout.txt': {} } },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(report.checkDir).toBeNull();
+    expect(text).not.toContain('## .check/ contents');
+  });
+
+  test('an ABSENT summary keeps the short-circuit story — the distinction is the point', async () => {
+    const { report, text } = await run(
+      { script: 'tsc --build && checkride' },
+      fakeEnv({ gate: { code: 1, stdout: 'error TS2322\n' } }),
+    );
+    expect(report.summary.state).toBe('missing');
+    expect(text).toContain('**red, but no slot explains it**');
+    expect(text).not.toContain('**red, and the summary cannot be read**');
+  });
+
+  test('a green gate reports the pass without claiming to know what it covered', async () => {
+    const { text } = await run({ ...SCRIPT, summary: { ok: true } }, fakeEnv({ gate: { code: 0 } }));
+    expect(text).toContain('**green, with no index**');
+    expect(text).toContain("the repo's own definition of done was met");
+    expect(text).not.toContain('**green, but narrow**');
+    expect(text).not.toContain('check(s) passed');
   });
 });
 

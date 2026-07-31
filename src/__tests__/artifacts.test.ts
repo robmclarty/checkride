@@ -88,9 +88,20 @@ describe('parseSummary', () => {
     expect(read.found).toBe(2);
   });
 
-  test('a missing schema_version is a mismatch, not a default', () => {
+  // An absent `schema_version` is not a version problem at all — it is evidence
+  // the file was written by something that is not checkride. Repos with a
+  // homegrown `check` script that happens to write `.check/` hit this, and
+  // telling them "STOP, unknown schema version" points at the wrong thing.
+  test('an absent schema_version is foreign — not written by checkride — not a mismatch', () => {
     const read = parseSummary(JSON.stringify({ ok: true }), '/tmp/summary.json', 5);
+    expect(read.state).toBe('foreign');
+  });
+
+  test('an explicitly null schema_version stays a mismatch: checkride wrote it, malformed', () => {
+    const read = parseSummary(summaryJson({ schema_version: null }), '/tmp/summary.json', 5);
     expect(read.state).toBe('schema-mismatch');
+    if (read.state !== 'schema-mismatch') return;
+    expect(read.found).toBeNull();
   });
 
   test('the version check precedes the shape check', () => {

@@ -59,6 +59,9 @@ function provenance(report: TriageReport): string {
   const at = '`.check/summary.json`';
   if (summary.state === 'missing') return `${at} — absent; this run wrote no summary`;
   if (summary.state === 'unreadable') return `${at} — unreadable (${summary.detail})`;
+  if (summary.state === 'foreign') {
+    return `${at} — no \`schema_version\` field, so it was NOT written by checkride; this repo's gate is something else`;
+  }
   if (summary.state === 'schema-mismatch') {
     return `${at} — \`schema_version\` is ${JSON.stringify(summary.found)}, not 1; STOP`;
   }
@@ -66,13 +69,36 @@ function provenance(report: TriageReport): string {
   return `${at} — \`schema_version\` 1, ${written}, ${formatDuration(summary.summary.total_duration_ms)}`;
 }
 
+/**
+ * Whether the slot table below came from a summary this reader actually parsed.
+ * Everything downstream that counts slots has to ask: with no parse, `rows` is
+ * empty because nothing was *read*, and rendering `0` from it would report a
+ * measurement that was never taken.
+ */
+function summaryParsed(report: TriageReport): boolean {
+  return report.summary.state === 'ok';
+}
+
+/**
+ * What the run verified — or, with no parseable summary, an explicit `unknown`.
+ * Zero is a measurement; the difference between "no slot was skipped" and "we
+ * cannot say whether any slot was skipped" is the whole point of this line.
+ */
+function coveredLine(report: TriageReport): string {
+  if (!summaryParsed(report)) {
+    return 'covered: unknown — no summary this reader could parse, so ran, skipped and baselined counts are all unknown, NOT zero';
+  }
+  const { coverage } = report;
+  return `covered: ${coverage.ran.length} slot(s) ran, ${coverage.skipped.length} skipped`;
+}
+
 function renderHeader(report: TriageReport): string {
-  const { gate, coverage } = report;
+  const { gate } = report;
   const lines = [
     `gate: \`${gate.command}\` → ${exitClause(gate)}${gate.verdict === 'not-run' ? '' : ` (${formatDuration(gate.durationMs)})`}`,
     gate.script === null ? 'script: none — this repo has no `check` script' : `script: \`${gate.script}\``,
     `summary: ${provenance(report)}`,
-    `covered: ${coverage.ran.length} slot(s) ran, ${coverage.skipped.length} skipped`,
+    coveredLine(report),
   ];
   return `${bullets(lines)}\n`;
 }
@@ -104,22 +130,75 @@ function unexplainedRed(report: TriageReport): boolean {
   return report.gate.verdict === 'red' && report.failing.length === 0;
 }
 
+/** Where to look when no slot accounts for the failure. Shared by both branches. */
+function gateEvidenceClause(report: TriageReport): string {
+  return `${report.gate.stdout}${report.gate.stderr}`.trim() === ''
+    ? 'The gate printed nothing on either stream — re-run the `check` script by hand and read what it prints.'
+    : 'The `gate output` tail below is the only evidence there is; read it first.';
+}
+
+/**
+ * Why an empty slot table is the *summary's* fault rather than the run's, or
+ * `null` when it is not.
+ *
+ * The distinction this draws is the one a reader gets wrong for free. A summary
+ * that is **absent** is the compound-script short-circuit in
+ * {@link redVerdict}'s last branch: checkride never ran, so it wrote nothing.
+ * But a summary that *exists* and cannot be parsed says nothing whatsoever
+ * about what ran — and telling an agent "checkride never ran, a compound script
+ * short-circuited" on that evidence is a specific, confident, and usually false
+ * diagnosis. The file is right there; what is missing is this reader's ability
+ * to read it.
+ */
+function unparsedSummaryClause(report: TriageReport): string | null {
+  const { summary } = report;
+  if (summary.state === 'foreign') {
+    return (
+      'a `.check/summary.json` exists but carries no `schema_version`, so it was not written by checkride — ' +
+      "this repo's gate is a different tool, and its artifacts follow no contract this reader can index"
+    );
+  }
+  if (summary.state === 'schema-mismatch') {
+    return (
+      `\`.check/summary.json\` is \`schema_version\` ${JSON.stringify(summary.found)}, which this reader is not ` +
+      'pinned to — the additive-only guarantee holds within a version and promises nothing across one'
+    );
+  }
+  if (summary.state === 'unreadable') return `\`.check/summary.json\` could not be parsed (${summary.detail})`;
+  return null;
+}
+
 function redVerdict(report: TriageReport): string {
   if (!unexplainedRed(report)) {
     return `**red** — ${report.failing.length} of ${report.coverage.ran.length} executed check(s) failed.`;
   }
-  const evidence =
-    `${report.gate.stdout}${report.gate.stderr}`.trim() === ''
-      ? 'The gate printed nothing on either stream — re-run the `check` script by hand and read what it prints.'
-      : 'The `gate output` tail below is the only evidence there is; read it before the table.';
+  const unparsed = unparsedSummaryClause(report);
+  if (unparsed !== null) {
+    return (
+      `**red, and the summary cannot be read** — the gate exited 1, and ${unparsed}. There is no slot table below ` +
+      'because nothing was parsed, NOT because nothing failed: which slots ran, which failed, what was baselined ' +
+      `and what was skipped are all unknown. ${gateEvidenceClause(report)}`
+    );
+  }
   return (
     '**red, but no slot explains it** — the gate exited 1 and no check in the summary failed. Something in the ' +
     '`check` script failed before checkride ran (a compound script like `tsc --build && node dist/cli.js` ' +
-    `short-circuits), so nothing in the table below describes this failure. ${evidence}`
+    `short-circuits), so nothing in the table below describes this failure. ${gateEvidenceClause(report)}`
   );
 }
 
 function greenVerdict(report: TriageReport): string {
+  // Same trap as the red branch: with no parse, `coverage` is empty because
+  // nothing was read, and the narrow-green sentence would report a subset that
+  // was never measured. The pass itself is real — the repo's own gate exited 0
+  // — but this reader cannot say what it covered, and should not imply it can.
+  if (!summaryParsed(report)) {
+    return (
+      "**green, with no index** — the gate exited 0, so the repo's own definition of done was met, but no summary " +
+      'this reader can parse says what that covered. Report the pass; do not attach a slot count to it. See the ' +
+      'header for why the summary could not be read.'
+    );
+  }
   if (report.vacuous) {
     return (
       '**vacuous green** — the gate exited 0 but `checks_run` is 0: nothing was verified. This is a ' +
@@ -200,7 +279,9 @@ function renderCoverage(report: TriageReport): string {
   if (gate.narrowingFlags.length > 0) {
     lines.push(`The \`check\` script narrows the run on purpose (${gate.narrowingFlags.join(', ')}). A green here is green *for those slots*.`);
   }
-  if (coverage.configured === null) {
+  if (!summaryParsed(report)) {
+    lines.push('What this run covered is unknown — there is no parseable summary to read it from.');
+  } else if (coverage.configured === null) {
     lines.push('This repo has no `checkride.config.json`, so the slots below are simply what the run selected — this reader will not guess at the default catalogue.');
   } else if (coverage.uncovered.length > 0) {
     lines.push(`\`checkride.config.json\` names ${coverage.configured.length} slot(s); ${coverage.uncovered.length} had no entry in this run: ${coverage.uncovered.join(', ')}.`);
@@ -227,6 +308,35 @@ function tableRow(row: SlotRow): string {
 function renderChecks(report: TriageReport): string {
   if (report.rows.length === 0) return '';
   return heading('checks', [TABLE_HEAD, ...report.rows.map(tableRow)].join('\n'));
+}
+
+/** Rows past this are counted rather than listed — bounded, but never silently. */
+const CHECK_DIR_LIMIT = 40;
+
+const CHECK_DIR_HEAD = '| file | size | age |\n| --- | --- | --- |';
+
+/**
+ * Everything in `.check/`, measured — rendered only when the summary could not
+ * be parsed, because then it is the only inventory there is. Without it the
+ * report's answer to "what is even in there?" is silence, and an agent's next
+ * move is an unbounded `ls` plus a guess at which files belong to this run.
+ *
+ * Ages here are measured against the *gate's own start*, not the summary's
+ * window: this reader ran the gate and knows when, which is a firmer anchor
+ * than a timestamp inside a file it could not read.
+ */
+function renderCheckDir(report: TriageReport): string {
+  const files = report.checkDir;
+  if (files === null || files.length === 0) return '';
+  const shown = files.slice(0, CHECK_DIR_LIMIT);
+  const rows = shown.map((f) => `| \`.check/${f.file}\` | ${formatBytes(f.bytes)} | ${ageCell(f.freshness)} |`);
+  const omitted = files.length - shown.length;
+  const note = omitted === 0 ? '' : `\n\n${omitted} further file(s) present and not listed.`;
+  const body =
+    'No parseable summary, so this listing is the index. `fresh` means the file was written after this run\'s ' +
+    'gate started; `stale` means it is a leftover from something earlier and describes no part of this run.\n\n' +
+    `${[CHECK_DIR_HEAD, ...rows].join('\n')}${note}`;
+  return heading('.check/ contents', body);
 }
 
 /** One alternate, named and sized — a stale one carries its age, never dropped. */
@@ -265,7 +375,10 @@ function renderFailing(report: TriageReport): string {
 function renderDigest(report: TriageReport): string {
   const { digest } = report;
   if (digest === null) {
-    return heading('digest', 'No `.check/digest.md`: this run passed no `--digest`, so there is no pre-built excerpt. Read the raw files above.');
+    // Only a run this reader can index supports the `--digest` explanation;
+    // a gate it could not parse may have no such flag to pass.
+    const why = summaryParsed(report) ? 'this run passed no `--digest`, so there is' : 'there is';
+    return heading('digest', `No \`.check/digest.md\`: ${why} no pre-built excerpt. Read the raw files above.`);
   }
   if (digest.freshness.state === 'stale') {
     return heading('digest', `\`.check/digest.md\` (${formatBytes(digest.bytes)}) is from an EARLIER run — ${formatDuration(digest.freshness.ageMs ?? 0)} before this one started. Do not read it as this run's failures.`);
@@ -295,14 +408,29 @@ function spawnFailureCaveats(rows: readonly SlotRow[]): string[] {
     .map((r) => `\`${r.slot}\` has \`exit_code: -1\` — it failed to spawn or timed out. That is a harness problem, not a finding.`);
 }
 
-function provenanceCaveats(report: TriageReport): string[] {
+/**
+ * What the summary's own state costs everything below it.
+ *
+ * The unparsed case earns a caveat of its own because the absence of findings
+ * reads as their absence in the repo. `baselined` and `skipped` are the sharp
+ * edges: both are silent by construction — a baselined slot *passes* and a
+ * skipped one reports nothing — so with no summary to name them, "no caveats
+ * were raised" and "no caveats could be raised" look identical on the page.
+ */
+function summaryCaveats(report: TriageReport): string[] {
+  if (report.summary.state !== 'ok') {
+    return [
+      '`.check/summary.json` could not be parsed, so there is no slot table: `baselined` and `skipped` counts are ' +
+        '**unknown**, not zero, and no slot in this repo can be reported as passing on this run\'s evidence.',
+    ];
+  }
   if (report.fromThisRun !== false) return [];
   return ['`.check/summary.json` predates the run just made, so the table above describes an earlier run. Everything in it is suspect.'];
 }
 
 function renderCaveats(report: TriageReport): string {
   const items = [
-    ...provenanceCaveats(report),
+    ...summaryCaveats(report),
     ...baselineCaveats(report.rows),
     ...spawnFailureCaveats(report.rows),
     ...skipCaveats(report.rows),
@@ -319,6 +447,7 @@ const SECTIONS: readonly ((report: TriageReport) => string)[] = [
   renderDoctor,
   renderCoverage,
   renderChecks,
+  renderCheckDir,
   renderFailing,
   renderDigest,
   renderCaveats,
