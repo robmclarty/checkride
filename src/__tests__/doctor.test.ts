@@ -8,6 +8,7 @@ import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
+import type { PinEnv } from '../node-pin.js';
 import type { PackageManager } from '../pm/index.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
@@ -467,4 +468,91 @@ describe('runDoctor (real env, gutted project)', () => {
     const missingTool = result.report.checks.find((c) => c.category === 'tool' && c.status === 'missing');
     expect(missingTool).toBeDefined();
   }, 30_000);
+});
+
+/**
+ * The hook-context row.
+ *
+ * `doctor` runs in the shell someone typed it into; the gate runs in a hook,
+ * which an agent harness launches from a non-login shell — one that never
+ * sources the rc file a version manager puts its shims in. That is how `doctor`
+ * reported `environment ok` for a repo whose gate could not start at all. This
+ * row is the part of the answer that does not depend on which shell asks: given
+ * the repo's pin, could checkride put the right Node back if a hook arrived with
+ * the wrong one?
+ */
+/** The hook-context row, if `doctor` emitted one. */
+function pinRow(r: Awaited<ReturnType<typeof runDoctor>>) {
+  return r.report.checks.find((c) => c.name === 'node pin');
+}
+
+describe('runDoctor — the Node pin a hook would need', () => {
+  const HOME = '/home/dev';
+
+  function pinEnv(over: Partial<PinEnv> = {}): PinEnv {
+    return {
+      exists: () => false,
+      read: () => null,
+      list: () => [],
+      home: () => HOME,
+      running: () => '24.9.0',
+      variable: () => undefined,
+      ...over,
+    };
+  }
+
+  /** A repo pinning 22.22.3, with an nvm install of it when `installed`. */
+  function pinned(installed: boolean): PinEnv {
+    const root = join(HOME, '.nvm', 'versions', 'node');
+    return pinEnv({
+      read: (p) => (p.endsWith('.nvmrc') ? '22.22.3\n' : null),
+      list: (d) => (installed && d === root ? ['v22.22.3'] : []),
+      exists: (p) => installed && p.startsWith(join(root, 'v22.22.3')),
+    });
+  }
+
+  function doctorWith(pin: PinEnv, engines: { node?: string } = { node: '>=22 <23' }) {
+    return runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ readEngines: () => engines }), pinEnv: pin, stdout: sink(), json: true,
+    });
+  }
+
+  test('names the install a hook on the wrong Node would be aligned to', async () => {
+    const row = pinRow(await doctorWith(pinned(true)));
+    expect(row?.status).toBe('ok');
+    expect(row?.expected).toBe('.nvmrc 22.22.3');
+    expect(row?.found).toBe(join(HOME, '.nvm', 'versions', 'node', 'v22.22.3', 'bin'));
+  });
+
+  test('flags a pin nothing on this machine satisfies — the gate could not align', async () => {
+    const row = pinRow(await doctorWith(pinned(false)));
+    expect(row?.status).toBe('outdated');
+    expect(row?.hint).toContain('non-login shell');
+    expect(row?.hint).toContain('CHECKRIDE_NODE_BIN');
+  });
+
+  /** `engines.node` is a range. It can refuse a hook and names nothing to align to. */
+  test('flags engines.node with no exact pin to align to', async () => {
+    const row = pinRow(await doctorWith(pinEnv()));
+    expect(row?.status).toBe('outdated');
+    expect(row?.found).toBe('no .nvmrc or .node-version');
+    expect(row?.hint).toContain('.nvmrc');
+  });
+
+  test('says nothing at all about a repo that pins no Node', async () => {
+    expect(pinRow(await doctorWith(pinEnv(), {}))).toBeUndefined();
+  });
+
+  /**
+   * Never required. A repo whose contributors always work in the right shell is
+   * not broken, and failing `doctor` for it would be the false alarm this whole
+   * change exists to remove.
+   */
+  test('never fails the report — it describes a risk, not a fault', async () => {
+    const result = await doctorWith(pinned(false));
+    expect(pinRow(result)?.required).toBe(false);
+    expect(result.ok).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
 });

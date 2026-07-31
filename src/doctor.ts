@@ -9,6 +9,12 @@
  * and exits 0 when everything required is present, 1 otherwise. Only slots that
  * run by default are required; opt-in/disabled/unavailable slots never fail it.
  *
+ * One row deliberately describes a shell this process is not in. `doctor` runs
+ * in the user's terminal; the gate runs in a hook, which agent harnesses launch
+ * from a non-login shell with a different Node. Reporting only what is true here
+ * is how `doctor` said `environment ok` about a repo whose gate could not start
+ * — see {@link checkNodePin}.
+ *
  * Every environment touch (PATH, fs, package.json) goes through an injectable
  * {@link DoctorEnv}, so the logic is unit-testable without a real toolchain.
  */
@@ -23,6 +29,8 @@ import { promisify } from 'node:util';
 import type { Adapter, Slot } from './adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
+import type { PinEnv } from './node-pin.js';
+import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator.js';
 import { resolveCommonOptions, selectChecks } from './orchestrator.js';
 import type { PackageManager } from './pm/index.js';
@@ -115,6 +123,8 @@ export type DoctorOptions = {
   adapters?: readonly Adapter[];
   config?: CheckrideConfig | null;
   env?: DoctorEnv;
+  /** The Node-pin surface; injectable so the hook-context row is testable. */
+  pinEnv?: PinEnv;
 };
 
 type Semver = { major: number; minor: number; patch: number; raw: string };
@@ -469,6 +479,74 @@ async function classifySlot(
   return toolRow(base, r, adapter, defaultActive, probe);
 }
 
+/**
+ * The one thing `doctor` cannot see by looking at itself: what a hook would get.
+ *
+ * Every other row here describes the shell `doctor` was typed into. An agent
+ * harness runs its hooks in a **non-login shell**, which never sources the rc
+ * file a version manager puts its shims in, so the hook gets the machine's
+ * default Node instead. In a repo pinning `engines.node` that is enough for the
+ * package manager to refuse to run anything — and `doctor`, running on the right
+ * Node, reported `environment ok` throughout. This bug was invisible to every
+ * read-only command checkride had.
+ *
+ * So the row does not ask "is the Node here correct" — it is, that is the whole
+ * problem. It asks the question that *is* answerable from any shell: **if a hook
+ * arrives on a different Node, can checkride put the pinned one back?** That
+ * depends only on the pin and on what is installed, both of which are the same
+ * from either shell.
+ *
+ * Never required. A repo whose contributors always work in the right shell is
+ * not broken, and flipping `doctor` red for it would be the false alarm this
+ * whole change is about removing.
+ */
+function checkNodePin(cwd: string, engines: { node?: string }, env: PinEnv): DoctorCheck | null {
+  const base = { name: 'node pin', category: 'env' as const, required: false as const };
+  const pin = readNodePin(cwd, env);
+  if (pin === null) return engines.node === undefined ? null : unpinnedRow(base, engines);
+  const install = findPinnedNode(pin, env);
+  const expected = `${pin.file} ${pin.version}`;
+  if (install === null) {
+    return {
+      ...base,
+      status: 'outdated',
+      found: 'no matching install found',
+      expected,
+      hint:
+        `Agent hooks run in a non-login shell and get this machine's default Node, not this shell's ` +
+        `(${env.running()}). No Node satisfying ${pin.version} is installed in a layout checkride knows ` +
+        `(nvm, fnm, nodenv, asdf, volta, n), so it cannot align a hook that arrives on the wrong one — ` +
+        `the gate will report "could not run" rather than a misleading red. Install it, or set ` +
+        `${NODE_BIN_VAR} to its bin directory.`,
+    };
+  }
+  return {
+    ...base,
+    status: 'ok',
+    found: install.bin,
+    expected,
+    hint: "Agent hooks run in a non-login shell; the gate aligns to this when the hook's Node differs.",
+  };
+}
+
+/**
+ * The row for a repo with `engines.node` and no `.nvmrc`/`.node-version` — a
+ * repo whose package manager can refuse a hook, with no exact version for
+ * checkride to align to when it does.
+ */
+function unpinnedRow(base: { name: string; category: 'env'; required: false }, engines: { node?: string }): DoctorCheck {
+  return {
+    ...base,
+    status: 'outdated',
+    found: 'no .nvmrc or .node-version',
+    expected: engines.node ?? null,
+    hint:
+      `This repo pins \`engines.node\` ${engines.node} but names no exact version. Agent hooks run in ` +
+      `a non-login shell and get this machine's default Node, which a package manager may then refuse ` +
+      `to run under. Add a \`.nvmrc\` so checkride can align the gate to it, or set ${NODE_BIN_VAR}.`,
+  };
+}
+
 async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
   const dir = join(cwd, '.check');
   const ok = await env.canWrite(dir);
@@ -588,8 +666,10 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
   const pm = env.packageManager(cwd);
 
+  const nodePin = checkNodePin(cwd, engines, options.pinEnv ?? realPinEnv);
   const checks: DoctorCheck[] = [
     await checkVersioned('node', 'node', nodeMin, env),
+    ...(nodePin === null ? [] : [nodePin]),
     await checkPackageManager(pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
     checkInstall(cwd, pm, env),

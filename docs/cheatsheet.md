@@ -151,5 +151,7 @@ output for structured diagnostics. On a big repo, `--digest` writes a capped
 | Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes the hooks (gate + edit marker + baseline guard) for Claude Code and Cursor |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
 | Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
+| Gate says "could not run", not red | Nothing ran; it is the environment, not the code. Usually the hook's Node: harnesses run hooks in a non-login shell. See [Node pins and hook context](./tools.md#node-pins-and-hook-context) |
+| The hook's Node is not the one your shell has | Add a `.nvmrc` and checkride aligns the gate to it, or set `CHECKRIDE_NODE_BIN=<bin dir>` (`off` disables) |
 | "Do the tests actually test anything?" | `checkride qa`, or `/checkride:qa` — same reader, reads the quality artifacts |
 | Using Cursor rather than Claude Code | same `agent-setup`; see [Cursor](./cursor.md) |

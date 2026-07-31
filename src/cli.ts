@@ -161,6 +161,15 @@ Options:
   --if-dirty       Skip the run when .check/.dirty is absent (no edits this turn)
   -h, --help       Show this help
 
+Environment:
+  CHECKRIDE_NODE_BIN   A bin directory to put in front of the check run's PATH,
+                       or \`off\` to disable checkride's Node-pin alignment.
+
+Three verdicts: green, red, and "could not run" — the last for a package manager
+that refused to start the check script (an engines.node pin the hook's Node does
+not satisfy, most often). It blocks like a red, but nothing ran and no artifact
+describes the turn, so it names the cause instead of naming a file.
+
 Exit codes differ by harness, because the harnesses differ: claude blocks on
 exit 2 and reads stderr; cursor reads {"followup_message": …} on stdout and
 treats any non-zero exit as a broken hook, so it always exits 0.

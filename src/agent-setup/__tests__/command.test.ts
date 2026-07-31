@@ -21,6 +21,25 @@ const EDITED_AGENTS = [
   '',
 ].join('\n');
 
+/**
+ * The other refusing state, and the one a consumer is most likely to be in: a
+ * stanza with no `hash=` at all, whose wording matches nothing checkride
+ * released. `edited` has a stamp that disagrees; `unstamped` has no stamp to
+ * disagree with, and the guard treats it the same way.
+ */
+const UNSTAMPED_AGENTS = [
+  '# AGENTS.md',
+  '',
+  '<!-- checkride:begin -->',
+  '',
+  '## Checkride: the definition of done',
+  '',
+  'A wording from some fork or hand-edit that checkride never shipped.',
+  '',
+  '<!-- checkride:end -->',
+  '',
+].join('\n');
+
 describe('hooks command', () => {
   let dir: string;
 
@@ -48,6 +67,34 @@ describe('hooks command', () => {
     expect(result.removed).toContain(PROTECT_SCRIPT_FILE);
     expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(false);
     expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(EDITED_AGENTS);
+  });
+
+  /**
+   * The state a consumer upgrading from an old checkride, or running a forked
+   * one, actually lands in — and the one that made removal impossible: with the
+   * guard in front of every `agent-setup` write, `--remove-hook` threw
+   * "refusing to overwrite the checkride stanza" and the gate had to be torn out
+   * by hand. Uninstalling the gate must never require permission to rewrite the
+   * repo's contract file.
+   *
+   * Both directions are asserted. That this same stanza state genuinely stops
+   * `agent-setup` — so the test cannot pass merely because it was not refusing —
+   * is the paired half in `init.test.ts`, which is where a test may import both
+   * commands without crossing a module boundary.
+   */
+  test('adds and removes hooks in a repo whose stanza is unstamped', async () => {
+    await writeFile(join(dir, 'AGENTS.md'), UNSTAMPED_AGENTS);
+
+    const removed = await runHooks({ cwd: dir, action: 'remove', hooks: ['gate', 'dirty', 'protect'] });
+    expect(removed.exitCode).toBe(0);
+    expect(removed.removed).toContain(GATE_SCRIPT_FILE);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+
+    const added = await runHooks({ cwd: dir, action: 'add' });
+    expect(added.written).toContain(GATE_SCRIPT_FILE);
+
+    // Byte-identical through both: the contract file is not this command's.
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(UNSTAMPED_AGENTS);
   });
 
   test('never reads or writes AGENTS.md — not even when there is none', async () => {

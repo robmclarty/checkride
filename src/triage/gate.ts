@@ -12,17 +12,24 @@
  * before anything is read. Anything outside it — 127, a signal death, a wrapper
  * command that failed before checkride ran — is `off-contract`, reported as
  * itself rather than folded into one of the three.
+ *
+ * One exit *inside* the split still is not checkride's: a package manager that
+ * refuses to start the script — an `engines.node` pin the running Node does not
+ * satisfy, most often — exits 1, exactly as a red pipeline does. Left
+ * unclassified, the reader an agent is sent to by a red gate would confirm the
+ * red and point at slots that never ran. See `../pm/launch.ts`.
  */
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { readSummary } from '../artifacts/index.js';
 import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager } from '../pm/index.js';
+import { detectPackageManager, launchRefusal } from '../pm/index.js';
 import type { SpawnOutcome, TriageEnv } from './env.js';
 
 /** How the gate ended, in the reader's vocabulary. */
-export type GateVerdict = 'green' | 'red' | 'harness-broken' | 'off-contract' | 'not-run';
+export type GateVerdict = 'green' | 'red' | 'could-not-start' | 'harness-broken' | 'off-contract' | 'not-run';
 
 /** The gate run: what was executed, how it ended, and what it printed. */
 export type GateOutcome = {
@@ -39,6 +46,8 @@ export type GateOutcome = {
   stdout: string;
   stderr: string;
   spawnError: string | null;
+  /** Why the package manager never started the script, on the `could-not-start` verdict. */
+  refusal: string | null;
   /** Selection flags found in the script text: it narrows the run on purpose. */
   narrowingFlags: string[];
 };
@@ -66,8 +75,36 @@ function readCheckScript(cwd: string): string | null {
   }
 }
 
-function verdictFor(outcome: SpawnOutcome): GateVerdict {
+/**
+ * Tolerance for a summary written moments before the gate's own clock reading —
+ * mirrors `MTIME_TOLERANCE_MS` in `./triage.ts`, where the same comparison
+ * decides whether the summary belongs to this run.
+ */
+const MTIME_TOLERANCE_MS = 1000;
+
+/**
+ * Did this run write a summary? Proof that the pipeline started, whatever its
+ * output happens to contain — the guard that keeps a check which merely
+ * *printed* a package-manager error code from being read as a refusal to launch.
+ */
+async function wroteSummary(cwd: string, startedMs: number): Promise<boolean> {
+  const read = await readSummary(cwd);
+  return read.state === 'ok' && read.mtimeMs >= startedMs - MTIME_TOLERANCE_MS;
+}
+
+/**
+ * Classify an exit-1 gate: a red pipeline, or a package manager that never
+ * started one. Only exit 1 is examined — 0 and 2 are checkride's own answers and
+ * mean the pipeline ran, and everything else is already `off-contract`.
+ */
+async function refusalFor(outcome: SpawnOutcome, cwd: string, startedMs: number): Promise<string | null> {
+  if (outcome.code !== 1 || (await wroteSummary(cwd, startedMs))) return null;
+  return launchRefusal(`${outcome.stdout}${outcome.stderr}`)?.cause ?? null;
+}
+
+function verdictFor(outcome: SpawnOutcome, refusal: string | null): GateVerdict {
   if (outcome.error !== null || outcome.code === null) return 'off-contract';
+  if (refusal !== null) return 'could-not-start';
   return VERDICT_BY_CODE[outcome.code] ?? 'off-contract';
 }
 
@@ -87,22 +124,31 @@ export async function runGate(cwd: string, env: TriageEnv): Promise<GateOutcome>
     narrowingFlags: NARROWING_FLAGS.filter((flag) => script?.includes(flag) ?? false),
   };
   if (script === null) {
-    return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null };
+    return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null, refusal: null };
   }
   const outcome = await env.spawn(pm, ['run', CHECK_SCRIPT], { cwd, timeoutMs: env.timeoutMs });
+  const refusal = await refusalFor(outcome, cwd, base.startedMs);
   return {
     ...base,
-    verdict: verdictFor(outcome),
+    verdict: verdictFor(outcome, refusal),
     exitCode: outcome.code,
     signal: outcome.signal,
     durationMs: env.now() - base.startedMs,
     stdout: outcome.stdout,
     stderr: outcome.stderr,
     spawnError: outcome.error,
+    refusal,
   };
 }
 
-/** Whether this ending means the harness itself is suspect, not the code. */
+/**
+ * Whether this ending means the harness itself is suspect, not the code.
+ *
+ * `could-not-start` belongs here for the strongest version of that reason:
+ * nothing ran at all, so the environment is the entire finding and the slot
+ * table is not evidence of anything. It is also what folds `doctor` into the
+ * report, which is where the reader will find the Node the hook got.
+ */
 export function isHarnessProblem(verdict: GateVerdict): boolean {
-  return verdict === 'harness-broken' || verdict === 'off-contract';
+  return verdict === 'harness-broken' || verdict === 'off-contract' || verdict === 'could-not-start';
 }

@@ -12,7 +12,9 @@ import {
   installCommand,
   isAvailableUnder,
   isPnPInstall,
+  launchRefusal,
   resolveSlotTool,
+  SPAWN_FAILED_MARKER,
   translateExec,
 } from '../pm/index.js';
 
@@ -315,5 +317,64 @@ describe('execUsesGlobalCache', () => {
     // node_modules/.bin at all, so pre-flighting it would fail every slot.
     expect(execUsesGlobalCache('pnpm')).toBe(false);
     expect(execUsesGlobalCache('yarn')).toBe(false);
+  });
+});
+
+/**
+ * Refusals — the package manager declining to start the script at all.
+ *
+ * These matter because they are indistinguishable from a failing test by exit
+ * code alone: pnpm answers an `engines.node` mismatch with exit 1, exactly as a
+ * red pipeline does. The whole value is in the two directions being right — a
+ * refusal recognized, and a genuine red never mistaken for one.
+ */
+describe('launchRefusal', () => {
+  /** Verbatim from pnpm 11 running a script in a repo whose engines exclude the running Node. */
+  const PNPM_ENGINE = [
+    '[ERR_PNPM_UNSUPPORTED_ENGINE] Unsupported environment (bad pnpm and/or Node.js version)',
+    '',
+    'Your Node version is incompatible with "/repo".',
+    '',
+    'Expected version: >=22 <23',
+    'Got: v24.15.0',
+  ].join('\n');
+
+  test('the reported bug: pnpm refusing an engines.node mismatch', () => {
+    expect(launchRefusal(PNPM_ENGINE)?.cause).toContain('engines');
+  });
+
+  test.each([
+    ['npm under engine-strict', 'npm error code EBADENGINE'],
+    ['npm, older spelling', 'npm ERR! code EBADENGINE'],
+    ['pnpm with no such script', 'ERR_PNPM_NO_SCRIPT  Missing script: check'],
+    ['npm with no such script', 'npm error Missing script: "check"'],
+    ['pnpm with no manifest', 'ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND'],
+    ['corepack failing to verify', 'Error: Cannot find matching keyid: {"signatures":[]}'],
+    ['the launcher missing entirely', `${SPAWN_FAILED_MARKER} \`pnpm\`: spawn pnpm ENOENT`],
+  ])('recognizes %s', (_name, output) => {
+    expect(launchRefusal(output)).not.toBeNull();
+  });
+
+  /**
+   * npm prints `EBADENGINE` as a *warning* and runs the script anyway unless
+   * `engine-strict` is set, and a stale `engines` field somewhere in a
+   * dependency tree is common. Matching the bare code would reclassify a real
+   * red as an environment problem — telling someone their machine is broken
+   * while their code is what failed, which is worse than the bug this fixes.
+   */
+  test('npm’s EBADENGINE warning is not a refusal — the script ran', () => {
+    expect(launchRefusal('npm warn EBADENGINE Unsupported engine {\n')).toBeNull();
+  });
+
+  test('ordinary tool failure is not a refusal', () => {
+    expect(launchRefusal('src/a.ts(3,1): error TS2345: Argument of type ...\n')).toBeNull();
+    expect(launchRefusal('FAIL src/__tests__/a.test.ts > adds\nExpected 2, got 3\n')).toBeNull();
+    expect(launchRefusal('')).toBeNull();
+  });
+
+  test('names a cause that completes “the gate could not run — …”', () => {
+    const refusal = launchRefusal(PNPM_ENGINE);
+    expect(refusal?.cause[0]).toBe(refusal?.cause[0]?.toLowerCase());
+    expect(refusal?.cause.endsWith('.')).toBe(false);
   });
 });

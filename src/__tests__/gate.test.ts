@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { checkArgs, DIRTY_MARKER, type GateSpawn, runGate } from '../gate.js';
+import type { PinEnv } from '../node-pin.js';
 import type { Out } from '../orchestrator.js';
 
 /** A collecting `Out`, so the two streams can be asserted apart. */
@@ -37,6 +38,58 @@ const noisy: GateSpawn = (_command, _args, opts) => {
 const never: GateSpawn = () => {
   throw new Error('the deferred gate must not run the pipeline');
 };
+
+/** A spawn that prints `text` the way a refusing package manager would, then reports red. */
+const printing =
+  (text: string): GateSpawn =>
+  (_command, _args, opts) => {
+    opts.stderr.write(text);
+    return Promise.resolve(1);
+  };
+
+/** What pnpm prints when the repo's `engines.node` excludes the Node it is running on. */
+const PNPM_ENGINE_REFUSAL = [
+  '[ERR_PNPM_UNSUPPORTED_ENGINE] Unsupported environment (bad pnpm and/or Node.js version)',
+  '',
+  'Expected version: >=22 <23',
+  'Got: v24.9.0',
+  '',
+].join('\n');
+
+/** A {@link PinEnv} that finds nothing, so alignment is a no-op unless a test says otherwise. */
+function pinEnv(over: Partial<PinEnv> = {}): PinEnv {
+  return {
+    exists: () => false,
+    read: () => null,
+    list: () => [],
+    home: () => '/home/dev',
+    running: () => '24.9.0',
+    variable: () => undefined,
+    ...over,
+  };
+}
+
+/** The PATH the child was handed, captured from the spawn. */
+function capturingSpawn(): { spawn: GateSpawn; path: () => string | undefined } {
+  let seen: string | undefined;
+  return {
+    spawn: (_command, _args, opts) => {
+      seen = opts.env['PATH'];
+      return Promise.resolve(0);
+    },
+    path: () => seen,
+  };
+}
+
+/** A repo pinning `version`, with an nvm install of it present when `installed`. */
+function pinnedRepo(version: string, opts: { installed: boolean }): PinEnv {
+  const root = join('/home/dev', '.nvm', 'versions', 'node');
+  return pinEnv({
+    read: (path) => (path.endsWith('.nvmrc') ? `${version}\n` : null),
+    list: (dir) => (opts.installed && dir === root ? [`v${version}`] : []),
+    exists: (path) => opts.installed && path.startsWith(join(root, `v${version}`)),
+  });
+}
 
 /** A clock that advances by exactly `elapsedMs` across the run, so the report is assertable. */
 function fakeClock(elapsedMs: number): () => number {
@@ -100,7 +153,7 @@ describe('runGate', () => {
       stdout: capture(),
       stderr: capture(),
     });
-    expect(result).toEqual({ exitCode: 0, ran: false, green: true });
+    expect(result).toEqual({ exitCode: 0, ran: false, green: true, refusal: null });
     // A stop hook fires on every turn; a conversation must not run the pipeline.
     expect(ran).toBe(false);
   });
@@ -119,7 +172,7 @@ describe('runGate', () => {
   test('a green gate clears the marker', async () => {
     await touchMarker();
     const result = await runGate({ cwd: dir, ifDirty: true, spawn: exits(0), stdout: capture(), stderr: capture() });
-    expect(result).toEqual({ exitCode: 0, ran: true, green: true });
+    expect(result).toEqual({ exitCode: 0, ran: true, green: true, refusal: null });
     expect(existsSync(marker())).toBe(false);
   });
 
@@ -247,7 +300,7 @@ describe('runGate', () => {
     const result = await runGate({ cwd: dir, harness: 'cursor', spawn: exits(1), stdout, stderr });
     // Cursor reads a non-zero stop hook as a *broken* hook and ends the turn
     // anyway, so the verdict cannot ride on the exit code.
-    expect(result).toEqual({ exitCode: 0, ran: true, green: false });
+    expect(result).toEqual({ exitCode: 0, ran: true, green: false, refusal: null });
     expect(stderr.text()).toBe('');
     const body = JSON.parse(stdout.text()) as { followup_message: string };
     expect(body.followup_message).toContain('the gate is red');
@@ -299,6 +352,206 @@ describe('runGate', () => {
 });
 
 /**
+ * A package manager refusing to *start* the check script exits non-zero exactly
+ * as a failing test does, and pnpm does it for an `engines.node` pin the running
+ * Node does not satisfy — which is the norm under an agent harness, since hooks
+ * run in a non-login shell and get the machine's default Node. Read as a red,
+ * that is a verdict no code change can clear, pointing the reader at a summary
+ * no run wrote.
+ */
+describe('runGate — the package manager refused to start the check', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-gate-refusal-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('reports "could not run" rather than red, and names the cause', async () => {
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      spawn: printing(PNPM_ENGINE_REFUSAL),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+      now: fakeClock(265),
+    });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toContain('checkride ⚠ could not run in 265ms');
+    expect(systemMessage).toContain('engines');
+    expect(systemMessage).not.toContain('red');
+    expect(result.refusal).not.toBeNull();
+  });
+
+  /**
+   * The failure this replaces: a reader sent to an artifact that describes some
+   * earlier turn, because this one wrote none.
+   */
+  test('does not send the reader to an artifact this run never wrote', async () => {
+    const stderr = capture();
+    await runGate({ cwd: dir, spawn: printing(PNPM_ENGINE_REFUSAL), stdout: capture(), stderr, pinEnv: pinEnv() });
+    expect(stderr.text()).not.toContain('.check/summary.json');
+    expect(stderr.text()).toContain('Nothing ran');
+    expect(stderr.text()).toContain('non-login shell');
+  });
+
+  test('still blocks — an unrunnable gate is never a pass', async () => {
+    const claude = await runGate({ cwd: dir, spawn: printing(PNPM_ENGINE_REFUSAL), stdout: capture(), stderr: capture(), pinEnv: pinEnv() });
+    expect(claude).toMatchObject({ exitCode: 2, ran: true, green: false });
+
+    const stdout = capture();
+    const cursor = await runGate({ cwd: dir, harness: 'cursor', spawn: printing(PNPM_ENGINE_REFUSAL), stdout, stderr: capture(), pinEnv: pinEnv() });
+    // Cursor reads any non-zero stop hook as a broken hook, so the block rides
+    // in the body — the same split a red uses.
+    expect(cursor.exitCode).toBe(0);
+    expect((JSON.parse(stdout.text()) as { followup_message: string }).followup_message).toContain('could not run');
+  });
+
+  /**
+   * The guard that makes the whole classification safe. checkride's own test
+   * suite prints these markers; any repo's could. A summary written by *this*
+   * run proves the pipeline started, so on that branch the output cannot mean it
+   * did not — a false "could not run" would blame the environment for broken
+   * code, which is worse than the bug being fixed.
+   */
+  test('a run that wrote a summary is red however its output reads', async () => {
+    // The pipeline runs and fails, and one of its checks happens to print the
+    // marker — checkride's own suite does exactly this.
+    const ranAndFailed: GateSpawn = async (_command, _args, opts) => {
+      opts.stderr.write(`a test asserted on ${PNPM_ENGINE_REFUSAL}`);
+      await mkdir(join(dir, '.check'), { recursive: true });
+      await writeFile(
+        join(dir, '.check', 'summary.json'),
+        JSON.stringify({
+          schema_version: 1,
+          timestamp: new Date(0).toISOString(),
+          ok: false,
+          checks_run: 1,
+          total_duration_ms: 10,
+          checks: [{ adapter: 'test', name: 'test', description: 'test', ok: false, exit_code: 1, duration_ms: 10, output_file: null }],
+        }),
+      );
+      return 1;
+    };
+    const stdout = capture();
+    const result = await runGate({ cwd: dir, spawn: ranAndFailed, stdout, stderr: capture(), pinEnv: pinEnv() });
+    expect(result.refusal).toBeNull();
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toContain('✘ red');
+    expect(systemMessage).toContain('1 of 1 failed: test');
+  });
+
+  test('a package manager that is not on PATH is a refusal, not an unexplained red', async () => {
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir,
+      spawn: printing('checkride: could not start `pnpm`: spawn pnpm ENOENT\n'),
+      stdout: capture(),
+      stderr,
+      pinEnv: pinEnv(),
+    });
+    expect(result.refusal).toContain('PATH');
+    expect(stderr.text()).toContain('could not run');
+  });
+
+  /** With a pin to name, the message says which Node the repo wanted and which one ran. */
+  test('names the repo’s pin and the Node the hook actually got', async () => {
+    const stderr = capture();
+    await runGate({
+      cwd: dir,
+      spawn: printing(PNPM_ENGINE_REFUSAL),
+      stdout: capture(),
+      stderr,
+      pinEnv: pinnedRepo('22.22.3', { installed: false }),
+    });
+    expect(stderr.text()).toContain('the repo pins 22.22.3 (.nvmrc)');
+    expect(stderr.text()).toContain('Node 24.9.0');
+    expect(stderr.text()).toContain('CHECKRIDE_NODE_BIN');
+  });
+});
+
+/**
+ * Aligning the child to the repo's Node pin — the half that stops the refusal
+ * from happening at all. Narrow by construction: only an explicit `.nvmrc` /
+ * `.node-version`, only when the running Node does not satisfy it, only an
+ * interpreter already installed, and never without saying so.
+ */
+describe('runGate — aligning to the repo’s Node pin', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-gate-pin-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('puts the pinned interpreter in front of the child’s PATH', async () => {
+    const { spawn, path } = capturingSpawn();
+    await runGate({
+      cwd: dir,
+      spawn,
+      stdout: capture(),
+      stderr: capture(),
+      env: { PATH: '/usr/bin' },
+      pinEnv: pinnedRepo('22.22.3', { installed: true }),
+    });
+    expect(path()).toBe(`${join('/home/dev', '.nvm', 'versions', 'node', 'v22.22.3', 'bin')}:/usr/bin`);
+  });
+
+  test('says so — which Node a pipeline ran on is never changed silently', async () => {
+    const stderr = capture();
+    await runGate({
+      cwd: dir,
+      spawn: exits(0),
+      stdout: capture(),
+      stderr,
+      env: { PATH: '/usr/bin' },
+      pinEnv: pinnedRepo('22.22.3', { installed: true }),
+    });
+    expect(stderr.text()).toContain('running the check on Node 22.22.3');
+    expect(stderr.text()).toContain('.nvmrc pins 22.22.3');
+    expect(stderr.text()).toContain('this hook started on 24.9.0');
+  });
+
+  test('leaves a healthy environment alone', async () => {
+    const { spawn, path } = capturingSpawn();
+    const stderr = capture();
+    await runGate({
+      cwd: dir,
+      spawn,
+      stdout: capture(),
+      stderr,
+      env: { PATH: '/usr/bin' },
+      // The running Node already satisfies the pin: nothing to do.
+      pinEnv: pinnedRepo('24.9.0', { installed: true }),
+    });
+    expect(path()).toBe('/usr/bin');
+    expect(stderr.text()).not.toContain('running the check on Node');
+  });
+
+  test('CHECKRIDE_NODE_BIN=off declines to align at all', async () => {
+    const { spawn, path } = capturingSpawn();
+    const pinned = pinnedRepo('22.22.3', { installed: true });
+    await runGate({
+      cwd: dir,
+      spawn,
+      stdout: capture(),
+      stderr: capture(),
+      env: { PATH: '/usr/bin' },
+      pinEnv: { ...pinned, variable: () => 'off' },
+    });
+    expect(path()).toBe('/usr/bin');
+  });
+
+  test('CHECKRIDE_NODE_BIN=<dir> is used verbatim, whatever the layouts hold', async () => {
+    const { spawn, path } = capturingSpawn();
+    await runGate({
+      cwd: dir,
+      spawn,
+      stdout: capture(),
+      stderr: capture(),
+      env: { PATH: '/usr/bin' },
+      pinEnv: { ...pinEnv(), variable: () => '/opt/node22/bin' },
+    });
+    expect(path()).toBe('/opt/node22/bin:/usr/bin');
+  });
+});
+
+/**
  * Cursor loads a repo's `.claude/settings.json` hooks alongside its own and runs
  * every matching source, so a repo wired for both harnesses would fire two full
  * pipelines into one `.check/` for a single turn. The Claude-protocol run is the
@@ -324,7 +577,7 @@ describe('runGate — deferring to a native Cursor gate', () => {
   test('stands down when Cursor is running the repo’s Claude hooks', async () => {
     await writeCursorHooks('sh .cursor/hooks/checkride-gate.sh');
     const result = await runGate({ cwd: dir, harness: 'claude', spawn: never, env: underCursor, stdout: capture(), stderr: capture() });
-    expect(result).toEqual({ exitCode: 0, ran: false, green: true });
+    expect(result).toEqual({ exitCode: 0, ran: false, green: true, refusal: null });
   });
 
   test('leaves the edit marker for the Cursor gate that will run', async () => {
@@ -342,7 +595,7 @@ describe('runGate — deferring to a native Cursor gate', () => {
   test('runs normally under Claude Code, however the repo is wired', async () => {
     await writeCursorHooks('sh .cursor/hooks/checkride-gate.sh');
     const result = await runGate({ cwd: dir, harness: 'claude', spawn: exits(1), env: {}, stdout: capture(), stderr: capture() });
-    expect(result).toEqual({ exitCode: 2, ran: true, green: false });
+    expect(result).toEqual({ exitCode: 2, ran: true, green: false, refusal: null });
   });
 
   test('runs when Cursor has hooks but no checkride gate among them', async () => {

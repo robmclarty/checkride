@@ -6,7 +6,82 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Contract
+
+- **A gate that could not run answers "could not run", not "red"**
+  (docs/contract.md §CLI). The exit codes are unchanged and remain the promise —
+  2 while blocked under `--harness claude`, always 0 under `--harness cursor` —
+  because an unrunnable gate has always blocked. What is new is that the verdict
+  distinguishes a red pipeline from a launch that never happened, so anything
+  reading the `systemMessage` / `followup_message` body sees a cause instead of a
+  pointer to an artifact this run did not write. Additive: a hook script that
+  gates on the exit code alone is unaffected.
+
+- **`CHECKRIDE_NODE_BIN`** is promised as the hook author's wrapping point: a
+  directory prepended to the check run's `PATH`, or `off` to disable checkride's
+  own Node-pin alignment.
+
+### Fixed
+
+- **A package manager that refuses to start the check script is no longer
+  reported as a red pipeline.** In any repo pinning `engines.node`, pnpm answers
+  a Node it does not accept with `ERR_PNPM_UNSUPPORTED_ENGINE` and **exit 1** —
+  the same exit code a failing test uses. The gate read that as a verdict on the
+  code and said so: `checkride ✘ red in 265ms`, exit 2, turn blocked, every turn,
+  regardless of what was written. It then sent the reader to
+  `.check/summary.json`, which no run had written, because no check had run.
+
+  That is the vacuous gate inverted — not a silent green but a permanent red no
+  code change can clear, whose rational response is to switch the gate off. And
+  it is not one repo's problem: agent harnesses run hooks in a **non-login
+  shell**, which never sources the rc file a version manager puts its shims in,
+  so the hook gets the machine's default Node rather than the contributor's. On
+  nvm that is the norm, not the exception.
+
+  `gate` now answers a third verdict — **could not run** — for a launch that
+  never happened, naming the cause and saying plainly that nothing ran and no
+  artifact describes this turn. It still blocks, in both harnesses: an unrunnable
+  gate has never been a pass. `triage` gained the matching `could-not-start`
+  verdict, since it runs the same script and had folded the same exit into `red`,
+  confirming the gate's wrong answer to whoever came asking why.
+
+  The classification is guarded on both sides. Only pnpm's and npm's own error
+  codes are matched — npm's `EBADENGINE` *warning* deliberately is not, because
+  npm runs the script anyway unless `engine-strict` is set — and a summary
+  written by the current run vetoes the whole thing, so a check that merely
+  *printed* one of these strings can never be reclassified into an environment
+  problem.
+
 ### Added
+
+- **checkride aligns the gate to the repo's Node pin.** Before running the check
+  script, if the repo names an exact interpreter (`.nvmrc` or `.node-version`)
+  and the running Node does not satisfy it, checkride puts a matching installed
+  Node in front of the child's `PATH` — so a hook that arrived on the wrong Node
+  runs the pipeline on the right one instead of failing to run it at all.
+
+  Four rules bound it, because choosing the interpreter a repo's whole pipeline
+  runs on is not a small thing to do silently: only on an explicit pin file
+  (`engines.node` is a *range* — a compatibility declaration, not an instruction
+  to switch interpreters — and is read for diagnosis only); only when the running
+  Node does not already satisfy it; only an interpreter already installed under a
+  known layout (nvm, fnm, nodenv, asdf, volta, n — nothing is downloaded and no
+  version manager is invoked, since under a non-login shell `nvm` is a shell
+  function and not a binary); and never without a line on stderr saying what it
+  aligned to and why.
+
+  `CHECKRIDE_NODE_BIN` is the escape hatch in both directions: a directory to use
+  verbatim — the documented wrapping point for a layout checkride does not know —
+  or `off` to disable alignment entirely. When alignment cannot help, nothing
+  changes and the refusal above names the pin, the Node that ran, and the lever.
+
+- **`doctor` reports the Node a hook would get, not just this shell's.** Every
+  other row describes the terminal `doctor` was typed into, which is how it said
+  `environment ok` about a repo whose gate could not start — the bug was
+  invisible to every read-only command checkride had. The new `node pin` row asks
+  the question that *is* answerable from any shell: given the repo's pin, could
+  checkride put the right Node back if a hook arrived with the wrong one? It is
+  never required, so it flags a risk without failing a repo that works.
 
 - **`checkride hooks add <a,b>` / `checkride hooks remove <a,b>` — hook
   management that never touches AGENTS.md.** `agent-setup` writes four things at

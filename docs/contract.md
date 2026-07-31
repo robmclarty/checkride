@@ -150,6 +150,26 @@ stop hook as a broken hook and lets the turn end. A `gate` that could not run at
 all still blocks, in both harnesses: a gate that silently stops gating is the
 vacuous green this contract exists to prevent.
 
+**A launch that never happened is not a red.** A package manager can refuse to
+start the check script and exit non-zero for it — pnpm answers an `engines.node`
+mismatch with `ERR_PNPM_UNSUPPORTED_ENGINE` and exit 1, exactly as a failing test
+does. `gate` reports that as **could not run**, naming the cause, and `triage`
+reports it as `could-not-start`. The promise is what the two verdicts mean: a red
+says checks ran and some failed, and `.check/` describes this run; a could-not-run
+says **nothing ran and no artifact was written**, so no `.check/` file describes
+this turn and no code change will clear it. The exit codes do not change — it
+blocks either way — so a hook script that reads only the status is unaffected.
+
+**checkride aligns the check run to the repo's Node pin.** When the repo names an
+exact interpreter (`.nvmrc` or `.node-version`), the running Node does not
+satisfy it, and a matching one is installed under a known version-manager layout,
+`gate` prepends that interpreter's `bin` to the check run's `PATH` and says so on
+stderr. Agent harnesses run hooks in a non-login shell, so a hook otherwise gets
+the machine's default Node rather than the contributor's. `engines.node` is a
+*range* and never selects an interpreter — it is read only to explain a failure.
+`CHECKRIDE_NODE_BIN` is promised: a directory to prepend verbatim, or `off` to
+disable alignment. Nothing is ever downloaded and no version manager is invoked.
+
 `gate` also writes its verdict to **stdout as a single-line JSON hook body**, in
 the calling harness's schema, and that is where a *user-visible* report lives —
 `systemMessage` under `--harness claude` (both green and red), the

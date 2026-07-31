@@ -124,6 +124,64 @@ because a consumer's launcher is not checkride's to pin. See
 **`npx` and `bunx` install what they cannot find.** Covered above — this is why
 both carry `--no-install`.
 
+**`pnpm run` enforces `engines`; `pnpm exec` does not.** In a repo with
+`engines.node` (and `engineStrict`), `pnpm run <script>` aborts with
+`ERR_PNPM_UNSUPPORTED_ENGINE` and **exit 1** before the script runs, while
+`pnpm exec <tool>` on the same repo and the same Node runs fine. That asymmetry
+is why the failure surfaces where it does: the generated hook script's
+`pnpm exec checkride gate` succeeds, and the `pnpm run check` that `gate` spawns
+is what dies — so the symptom is checkride's own `✘ red in 265ms`, not a hook
+that never started. Exit 1 is also a red pipeline's code, which is why the gate
+reads the output rather than the status to tell them apart. See
+[Node pins and hook context](#node-pins-and-hook-context).
+
+## Node pins and hook context
+
+Agent harnesses run their hooks in a **non-login shell**. A version manager puts
+its shims on `PATH` from a shell rc file, so the hook never sees them: it gets
+whatever `node` the machine defaults to, not the one your terminal has. With
+`nvm alias default 24` and a repo pinning `>=22 <23`, every hook arrives on the
+wrong Node — and in a repo with `engineStrict`, the package manager then refuses
+to run anything at all.
+
+checkride handles this in two halves.
+
+**It aligns, when it can.** Before running the check script, if the repo names an
+exact interpreter and the running Node does not satisfy it, checkride prepends a
+matching installed Node's `bin` to the child's `PATH`:
+
+```text
+checkride: running the check on Node 22.22.3 from ~/.nvm/versions/node/v22.22.3/bin
+(.nvmrc pins 22.22.3; this hook started on 24.9.0).
+```
+
+The rules are deliberately narrow, because which interpreter a pipeline runs on
+is not a thing to change quietly:
+
+| Rule | Why |
+| ---- | --- |
+| Only `.nvmrc` / `.node-version` | These name an exact version. `engines.node` is a *range* — a compatibility declaration, not an instruction to switch interpreters — so it is read only to explain a failure. An alias (`lts/*`, `node`) is not resolvable without the version manager, and is treated as no pin. |
+| Only when the running Node fails the pin | A healthy environment is never touched. |
+| Only an already-installed interpreter | Searched under `~/.nvm`, `~/.local/share/fnm`, `~/.fnm`, `~/.nodenv`, `~/.asdf`, `~/.volta`, `~/n`. Nothing is downloaded, and no version manager is invoked — under a non-login shell `nvm` is a shell function, not a binary. |
+| Never silently | The line above is printed on every aligned run, red or green. |
+
+**It names the cause, when it cannot.** If nothing satisfying the pin is
+installed, checkride changes nothing and the gate reports `could not run` rather
+than a red, naming the pin, the Node the hook got, and the lever. What it must
+never do is report a launch that never happened as a verdict on your code.
+
+`CHECKRIDE_NODE_BIN` is the escape hatch, and the wrapping point for a layout
+checkride does not know:
+
+```bash
+CHECKRIDE_NODE_BIN=/opt/node/22.22.3/bin   # prepend this, whatever the repo pins
+CHECKRIDE_NODE_BIN=off                      # never align; leave PATH alone
+```
+
+`checkride doctor` reports what it can see of this from your shell — the `node
+pin` row names the install a hook would be aligned to, or says none was found.
+It is never required, so it flags the risk without failing a repo that works.
+
 Two pnpm-version notes for the publish slots: `pack` prefers
 `pnpm pack --dry-run` (added in pnpm 10.26.0) and, on an older pnpm that
 rejects the flag, falls back automatically to a real pack into a temp

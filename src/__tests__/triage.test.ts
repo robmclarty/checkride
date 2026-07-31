@@ -141,6 +141,46 @@ describe('exit code branching', () => {
     expect(text).toContain('**red** — 1 of 2 executed check(s) failed');
   });
 
+  /**
+   * A package manager refusing to start the script exits 1 — the same code a
+   * red pipeline uses. Left unclassified, this reader confirmed the red a gate
+   * had already reported and pointed at slots that never ran, which is the exact
+   * confusion the reader exists to end.
+   */
+  test('exit 1 with a launch refusal and no summary is not red — nothing ran', async () => {
+    const { report, text } = await run(
+      { installCheckride: true },
+      fakeEnv({
+        gate: {
+          code: 1,
+          stderr:
+            '[ERR_PNPM_UNSUPPORTED_ENGINE] Unsupported environment (bad pnpm and/or Node.js version)\n' +
+            'Expected version: >=22 <23\nGot: v24.9.0\n',
+        },
+      }),
+    );
+    expect(report.gate.verdict).toBe('could-not-start');
+    expect(report.gate.refusal).toContain('engines');
+    expect(text).toContain('**the gate could not start**');
+    expect(text).toContain('no check ran and no artifact was written');
+    // The environment is the entire finding, so `doctor` comes with it.
+    expect(report.doctor).not.toBeNull();
+  });
+
+  /**
+   * The guard. A summary written by this run proves the pipeline started, so
+   * nothing in the output can mean it did not — a check that merely printed the
+   * marker must never be reclassified into an environment problem.
+   */
+  test('the same output with a summary from this run is still red', async () => {
+    const { report } = await run(
+      { summary: summaryOf([check('test', { ok: false })]) },
+      fakeEnv({ gate: { code: 1, stderr: 'FAIL: expected ERR_PNPM_UNSUPPORTED_ENGINE\n' } }),
+    );
+    expect(report.gate.verdict).toBe('red');
+    expect(report.gate.refusal).toBeNull();
+  });
+
   test('exit 2 is a broken harness, and doctor is folded in with the diagnosis', async () => {
     const doctorReport = JSON.stringify({
       ok: false,

@@ -14,6 +14,16 @@
  * shell inside `.claude/hooks/checkride-gate.sh`, untestable outside an e2e run
  * and impossible to share with a second harness.
  *
+ * The gate answers three verdicts, not two. Green and red are the pipeline's;
+ * the third is **could not run**, for a package manager that refused to start
+ * the check script at all — an `engines.node` pin the hook's Node does not
+ * satisfy is the common cause, and it exits non-zero exactly like a failing
+ * test. Reading that as red produced a permanent red no code change could clear,
+ * pointing at a `.check/summary.json` no run had written. It still blocks, for
+ * the same reason every unrunnable gate does; what changes is that it names the
+ * cause instead of naming an artifact. See `./pm/launch.ts` for the
+ * classification and `./node-pin.ts` for the alignment that avoids it.
+ *
  * Not to be confused with `../triage/gate.ts`, which also runs the `check`
  * script: that one runs it *verbatim* as a reader's preflight and classifies the
  * result for a report. This one appends `--strict --digest` because it IS the
@@ -24,10 +34,17 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { formatDuration, readSummary } from './artifacts/index.js';
+import { formatDuration, readSummary, type SummaryRead } from './artifacts/index.js';
 import { DIGEST_FILE } from './digest/index.js';
+import type { NodeAlignment, PinEnv } from './node-pin.js';
+import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
 import type { Out, SummaryCheck } from './orchestrator.js';
-import { detectPackageManager, type PackageManager } from './pm/index.js';
+import {
+  detectPackageManager,
+  launchRefusal,
+  type PackageManager,
+  SPAWN_FAILED_MARKER,
+} from './pm/index.js';
 
 /**
  * The edit marker: touched by the harness's "a file changed" hook, checked here
@@ -80,7 +97,7 @@ const CHECK_SCRIPT = 'check';
 export type GateSpawn = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; stderr: Out },
+  opts: { cwd: string; stderr: Out; env: Record<string, string | undefined> },
 ) => Promise<number | null>;
 
 const spawnForward: GateSpawn = (command, args, opts) =>
@@ -88,17 +105,44 @@ const spawnForward: GateSpawn = (command, args, opts) =>
     const proc = spawn(command, [...args], {
       cwd: opts.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      env: { ...opts.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     });
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
     proc.stdout.on('data', (chunk: string) => opts.stderr.write(chunk));
     proc.stderr.on('data', (chunk: string) => opts.stderr.write(chunk));
-    // A gate that cannot spawn its package manager is red, not a crash: the
-    // harness gets a verdict it can act on rather than a stack trace.
-    proc.on('error', () => resolve(null));
+    // A gate that cannot spawn its package manager is not a crash: the harness
+    // gets a verdict it can act on rather than a stack trace. The message goes
+    // to the stream so it is both visible and classifiable — a spawn failure
+    // that printed nothing at all was reported as a red with no explanation.
+    proc.on('error', (err) => {
+      opts.stderr.write(`${SPAWN_FAILED_MARKER} \`${command}\`: ${err.message}\n`);
+      resolve(null);
+    });
     proc.on('close', (code) => resolve(code));
   });
+
+/**
+ * How much of the child's output to keep for {@link launchRefusal}.
+ *
+ * The **head**, not the tail: a package manager that refuses to launch says so
+ * before anything else runs, so the evidence is always in the first bytes. A
+ * check that fails after this much output is a pipeline red, which needs no
+ * classification.
+ */
+const CAPTURE_LIMIT = 8 * 1024;
+
+/** An `Out` that forwards everything and remembers the beginning. */
+function recording(out: Out): Out & { text: () => string } {
+  let kept = '';
+  return {
+    write: (chunk: string) => {
+      if (kept.length < CAPTURE_LIMIT) kept += chunk;
+      return out.write(chunk);
+    },
+    text: () => kept,
+  };
+}
 
 export type GateOptions = {
   cwd?: string;
@@ -112,6 +156,8 @@ export type GateOptions = {
   spawn?: GateSpawn;
   /** Process environment; injectable so {@link deferredToCursor} is testable. */
   env?: Record<string, string | undefined>;
+  /** The Node-pin surface; injectable so alignment is testable without a version manager. */
+  pinEnv?: PinEnv;
   /** Wall-clock source for the elapsed time the gate reports; injectable for tests. */
   now?: () => number;
 };
@@ -121,6 +167,12 @@ export type GateResult = {
   /** False when `--if-dirty` or the Cursor deferral short-circuited the run. */
   ran: boolean;
   green: boolean;
+  /**
+   * Why the package manager never started the check script, or `null` when it
+   * did. A refusal is not a red: it blocks the turn all the same, but nothing
+   * was checked and nothing was written, so no artifact describes this run.
+   */
+  refusal: string | null;
 };
 
 /**
@@ -187,21 +239,27 @@ function greenDetail(ran: readonly SummaryCheck[]): string {
 }
 
 /**
- * What the run itself says, read back out of `.check/summary.json`, or `null`
- * when there is no usable summary — a gate that could not run wrote none, and a
- * report that invents "0 checks failed" from a missing file is exactly the
- * vacuous green the artifact exists to disprove. The caller still has the
- * elapsed time, which is true regardless.
+ * Is the summary on disk the one *this* run wrote?
  *
- * A summary older than `startedAt` belongs to a *previous* run and is dropped
- * for the same reason. That is not hypothetical: a check script of the shape
+ * A gate that could not run wrote none, and a report that invents "0 checks
+ * failed" from a missing file is exactly the vacuous green the artifact exists
+ * to disprove. A summary older than `startedAt` belongs to a *previous* run and
+ * is dropped for the same reason — not hypothetical: a check script of the shape
  * `tsc --build && checkride` leaves the summary untouched when the build fails,
  * so trusting whatever is on disk would report the last run's failing slots as
- * this one's — confidently, and wrongly.
+ * this one's, confidently and wrongly.
  */
-async function runDetail(cwd: string, green: boolean, startedAt: number): Promise<string | null> {
-  const read = await readSummary(cwd);
-  if (read.state !== 'ok' || read.mtimeMs < startedAt) return null;
+function isFresh(read: SummaryRead, startedAt: number): boolean {
+  return read.state === 'ok' && read.mtimeMs >= startedAt;
+}
+
+/**
+ * What the run itself says, read back out of a summary already known to be this
+ * run's, or `null` when there is none. The caller still has the elapsed time,
+ * which is true regardless.
+ */
+function runDetail(read: SummaryRead, green: boolean): string | null {
+  if (read.state !== 'ok') return null;
   const ran = ranChecks(read.summary.checks);
   if (green) return greenDetail(ran);
   const failed = ran.filter((c) => !c.ok).map((c) => c.name);
@@ -220,8 +278,7 @@ async function runDetail(cwd: string, green: boolean, startedAt: number): Promis
  * the honest answer to "why did that pause" is the whole pause, not the part
  * checkride chooses to measure.
  */
-function headline(green: boolean, elapsedMs: number, detail: string | null): string {
-  const verdict = green ? '✔ green' : '✘ red';
+function headline(verdict: string, elapsedMs: number, detail: string | null): string {
   return `checkride ${verdict} in ${formatDuration(elapsedMs)}${detail === null ? '' : ` — ${detail}`}`;
 }
 
@@ -232,6 +289,119 @@ function redMessage(cwd: string, pm: PackageManager): string {
     `checkride: the gate is red — read ${where}, fix the failing slot, then finish ` +
     `(do not stop while checkride is red). Run \`${pm} exec checkride triage\` for full triage.`
   );
+}
+
+/**
+ * The Node half of a refusal message: what this process is running, what the
+ * repo asked for, and the one lever that closes the gap.
+ *
+ * This clause is why the whole classification exists. The default cause of a
+ * refused launch is that the harness ran its hook in a non-login shell, so the
+ * hook got the machine's default interpreter rather than the contributor's —
+ * a fact no amount of reading `.check/` would ever reveal.
+ */
+function nodeClause(alignment: NodeAlignment | null, running: string): string {
+  const context =
+    'Agent harnesses run hooks in a non-login shell, so a hook gets the machine’s default ' +
+    'Node rather than the one your terminal has.';
+  const pin = alignment?.pin ?? null;
+  if (pin === null) {
+    return (
+      `${context} This process is on Node ${running} and the repo pins no ` +
+      `\`.nvmrc\`/\`.node-version\` for checkride to align to; add one, or set ${NODE_BIN_VAR} to the ` +
+      'bin directory of a Node the repo accepts.'
+    );
+  }
+  return (
+    `${context} This one is on Node ${running}, the repo pins ${pin.version} ` +
+    `(${pin.file}), and no matching install was found in a known version-manager layout — ` +
+    `so checkride could not align to it. Install that Node, or set ${NODE_BIN_VAR} to its bin directory.`
+  );
+}
+
+/**
+ * The verdict for a package manager that refused to start the check script.
+ *
+ * It says the three things a red verdict would get wrong here: nothing ran, so
+ * `.check/` describes some earlier turn and not this one; the code is not what
+ * failed, so no edit will clear it; and here is the actual cause. A gate that
+ * sent a reader to `summary.json` for a run that never happened is the confusion
+ * this replaces.
+ */
+function refusalMessage(
+  cause: string,
+  context: { alignment: NodeAlignment | null; running: string; pm: PackageManager },
+): string {
+  return [
+    `checkride: the gate could not run — ${cause}.`,
+    'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from ' +
+      'this turn and the code is not what to look at.',
+    nodeClause(context.alignment, context.running),
+    `Run \`${context.pm} run check\` in a terminal to see the same failure directly.`,
+  ].join(' ');
+}
+
+/**
+ * Put the pinned Node in front of the child's `PATH`, and say so on stderr.
+ *
+ * Never silent, by rule: which interpreter the whole pipeline runs on is not
+ * something to change behind the reader's back, and the line is what turns a
+ * mysteriously-different result into an explained one. It goes to stderr with
+ * the rest of the run's progress rather than into the one-line verdict, so it is
+ * present on a red run too — which is exactly when it is worth knowing.
+ *
+ * Returns `env` unchanged when there is nothing to align, which is every repo
+ * that pins nothing and every hook that already arrived on the right Node.
+ */
+function announceAlignment(
+  alignment: NodeAlignment | null,
+  env: Record<string, string | undefined>,
+  stderr: Out,
+): Record<string, string | undefined> {
+  if (alignment === null) return env;
+  const { bin } = alignment;
+  if (bin === null) return env;
+  const target = alignment.version ?? alignment.pin?.version ?? 'the pinned version';
+  const why = alignment.pin === null ? NODE_BIN_VAR : `${alignment.pin.file} pins ${alignment.pin.version}`;
+  stderr.write(`checkride: running the check on Node ${target} from ${bin} (${why}; this hook started on ${alignment.running}).\n`);
+  return withNodeBin(env, bin);
+}
+
+/** Everything a failed run needs to say what failed, and whether anything ran at all. */
+type Failure = {
+  cwd: string;
+  pm: PackageManager;
+  elapsedMs: number;
+  summary: SummaryRead;
+  /** Whether the summary on disk was written by this run. */
+  fresh: boolean;
+  output: string;
+  alignment: NodeAlignment | null;
+  running: string;
+};
+
+/**
+ * Classify a non-green run and phrase it.
+ *
+ * The one judgement here is whether the pipeline ran. A summary from this run
+ * proves it did, so on that branch nothing in the output can mean otherwise —
+ * the guard that keeps a check which merely *printed* a package-manager error
+ * code from being read as a launch refusal.
+ */
+function failedVerdict(f: Failure): { status: string; instruction: string; refusal: string | null } {
+  const refusal = f.fresh ? null : launchRefusal(f.output);
+  if (refusal === null) {
+    return {
+      status: headline('✘ red', f.elapsedMs, f.fresh ? runDetail(f.summary, false) : null),
+      instruction: redMessage(f.cwd, f.pm),
+      refusal: null,
+    };
+  }
+  return {
+    status: headline('⚠ could not run', f.elapsedMs, refusal.cause),
+    instruction: refusalMessage(refusal.cause, { alignment: f.alignment, running: f.running, pm: f.pm }),
+    refusal: refusal.cause,
+  };
 }
 
 /**
@@ -253,7 +423,8 @@ function reportGreen(harness: HarnessName, stdout: Out, status: string): void {
 }
 
 /**
- * Answer a red run in `harness`'s protocol.
+ * Answer a run that was not green in `harness`'s protocol — a pipeline red or a
+ * launch refusal alike, since both must block and the wire format is the same.
  *
  * Claude Code gets both spellings of the same verdict, because which one lands
  * depends on the hook script the repo happens to have. The JSON body
@@ -292,50 +463,87 @@ function reportRed(
 }
 
 /**
+ * The options with their defaults applied — every injection point this command
+ * has, resolved in one place so {@link runGate} reads as the decision it makes
+ * rather than as a list of fallbacks.
+ */
+type GateContext = {
+  cwd: string;
+  harness: HarnessName;
+  stdout: Out;
+  stderr: Out;
+  run: GateSpawn;
+  env: Record<string, string | undefined>;
+  pinEnv: PinEnv;
+  now: () => number;
+};
+
+function gateContext(options: GateOptions): GateContext {
+  return {
+    cwd: options.cwd ?? process.cwd(),
+    harness: options.harness ?? 'claude',
+    stdout: options.stdout ?? process.stdout,
+    stderr: options.stderr ?? process.stderr,
+    run: options.spawn ?? spawnForward,
+    env: options.env ?? process.env,
+    pinEnv: options.pinEnv ?? realPinEnv,
+    now: options.now ?? Date.now,
+  };
+}
+
+/**
  * Run the gate and answer in `harness`'s protocol.
  *
  * The exit code is unchanged and stays as `docs/contract.md` promises it: 2 while
- * red under `--harness claude`, always 0 under `--harness cursor`. What each
+ * blocked under `--harness claude`, always 0 under `--harness cursor`. What each
  * harness *displays* is carried by the JSON body on stdout — see
  * {@link reportGreen} and {@link reportRed} — because that is the only channel
  * either harness renders for a human.
  */
 export async function runGate(options: GateOptions = {}): Promise<GateResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const harness = options.harness ?? 'claude';
-  const stdout = options.stdout ?? process.stdout;
-  const stderr = options.stderr ?? process.stderr;
-  const run = options.spawn ?? spawnForward;
-  const env = options.env ?? process.env;
-  const now = options.now ?? Date.now;
+  const { cwd, harness, stdout, stderr, run, env, pinEnv, now } = gateContext(options);
   const marker = join(cwd, DIRTY_MARKER);
 
   // Cursor running this repo's Claude hooks alongside its own. Stand down before
   // touching the marker: the native Cursor gate owns both the verdict and the
   // marker for this turn.
   if (harness === 'claude' && deferredToCursor(cwd, env)) {
-    return { exitCode: 0, ran: false, green: true };
+    return { exitCode: 0, ran: false, green: true, refusal: null };
   }
 
   // No edit marker → this turn touched no files → nothing to gate. Stop hooks
   // fire on every turn, including pure-conversation ones; without this the gate
   // taxes every reply with a full pipeline run.
   if (options.ifDirty === true && !existsSync(marker)) {
-    return { exitCode: 0, ran: false, green: true };
+    return { exitCode: 0, ran: false, green: true, refusal: null };
   }
 
   const pm = options.pm ?? detectPackageManager({ cwd });
+  const alignment = alignNode(cwd, pinEnv);
+  const childEnv = announceAlignment(alignment, env, stderr);
   const startedAt = now();
-  const code = await run(pm, checkArgs(pm), { cwd, stderr });
+  const output = recording(stderr);
+  const code = await run(pm, checkArgs(pm), { cwd, stderr: output, env: childEnv });
   const green = code === 0;
-  const status = headline(green, now() - startedAt, await runDetail(cwd, green, startedAt));
+  const summary = await readSummary(cwd);
+  const fresh = isFresh(summary, startedAt);
 
   if (green) {
     rmSync(marker, { force: true });
-    reportGreen(harness, stdout, status);
-    return { exitCode: 0, ran: true, green: true };
+    reportGreen(harness, stdout, headline('✔ green', now() - startedAt, fresh ? runDetail(summary, true) : null));
+    return { exitCode: 0, ran: true, green: true, refusal: null };
   }
 
-  const exitCode = reportRed(harness, { stdout, stderr }, { status, instruction: redMessage(cwd, pm) });
-  return { exitCode, ran: true, green: false };
+  const verdict = failedVerdict({
+    cwd,
+    pm,
+    elapsedMs: now() - startedAt,
+    summary,
+    fresh,
+    output: output.text(),
+    alignment,
+    running: pinEnv.running(),
+  });
+  const exitCode = reportRed(harness, { stdout, stderr }, verdict);
+  return { exitCode, ran: true, green: false, refusal: verdict.refusal };
 }

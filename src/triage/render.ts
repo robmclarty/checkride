@@ -107,6 +107,14 @@ function renderHeader(report: TriageReport): string {
 const VERDICTS: Readonly<Record<GateOutcome['verdict'], (r: TriageReport) => string>> = {
   green: greenVerdict,
   red: redVerdict,
+  'could-not-start': (r) =>
+    `**the gate could not start** — ${r.gate.refusal ?? 'the package manager refused to run the script'}. ` +
+    'The exit code is 1, the same code a red pipeline uses, but **no check ran and no artifact was ' +
+    'written**: everything under `.check/` belongs to an earlier run and nothing below describes this ' +
+    'one. This is an environment finding, not a code one — no edit will clear it. The most common cause ' +
+    'is Node: an agent harness runs hooks in a non-login shell, so a hook gets the machine’s default ' +
+    'interpreter rather than the one your terminal has, and a repo pinning `engines.node` then refuses ' +
+    'to run anything at all. See the `doctor` fold above for what this process is running.',
   'harness-broken': () =>
     '**harness broken** — the gate exited 2, which checkride reserves for "the harness broke or was ' +
     'misused". No check result from this run is evidence of anything; fix the harness first.',
