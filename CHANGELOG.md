@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.1] - 2026-07-31
 
 ### Added
 
@@ -36,6 +36,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first run after upgrading refuses with its own wording of the message.
   `--force` once stamps it; detection is automatic from then on.
 
+- **`--remove-hook <a,b>` tears an installed hook back out** — the config entry
+  and the generated script both. `--hook` only ever chose what to *write*, so
+  there was no supported way to drop the gate after the fact. It pairs with
+  `--no-hook` to remove without refreshing anything else, and removing `dirty`
+  rewrites a surviving gate unguarded, so the gate cannot silently disarm itself
+  on the way out.
+
+- **A `note` field on any check entry, and at the config root**, for commentary
+  aimed at whoever reads `checkride.config.json` next. It is validated as a
+  string and then dropped — no code path carries it onto an Adapter, so it
+  cannot reach the status line or `summary.json`. `description` keeps its
+  user-facing role; this repo's own config dogfoods the split.
+
+- **The gate states its verdict in words**, not just an exit code: the wall
+  clock and the failing slots, read back from `.check/summary.json` —
+  `checkride red in 41.7s, 2 of 15 failed: lint, test`. Under Claude Code it
+  rides in the hook body as `systemMessage`, which moves the block onto
+  `decision: "block"`, since hook JSON is parsed only on exit 0. `checkride
+  gate`'s own exit codes are unchanged: the generated script does the
+  translation and falls back to exit-2 blocking when no body comes back, so an
+  unrefreshed repo or an older checkride keeps gating either way. Cursor gets
+  the same line atop its `followup_message` on red; a green Cursor gate stays
+  silent, because its only stop-hook output field submits a new turn, and the
+  gap is recorded in docs/cursor.md rather than papered over.
+
+- **The Claude Code Stop entry carries `statusMessage` and `timeout: 900`.** The
+  spinner now names the command rather than leaving a multi-minute pipeline
+  indistinguishable from a hung model, and the timeout closes a live hole: the
+  platform default is 600s, and a hook cancelled by it exits non-zero, which
+  Claude Code reads as a broken hook and lets the turn end. Any repo whose
+  pipeline crossed ten minutes had a gate that had quietly stopped gating.
+
+### Fixed
+
+- **`triage` no longer reports an unparseable summary as a run with no
+  failures.** A repo whose gate is a homegrown script writing a checkride-shaped
+  `.check/` — same file names, no `schema_version` — made the reader announce
+  "checkride never ran, a compound script short-circuited" about a gate that had
+  run all eight of its checks and failed three. An empty slot table now reads as
+  "nothing was read", not "nothing failed": the short-circuit verdict is
+  reserved for a genuinely absent summary, `covered:` renders `unknown` rather
+  than a count nobody measured, a missing `schema_version` becomes its own
+  `foreign` state, and a new `.check/ contents` section lists the directory when
+  the summary is not an index.
+
+- **The gate ignores a summary older than its own start time.** A check script
+  shaped `tsc --build && checkride` leaves `summary.json` untouched when the
+  build fails, and trusting it would report the previous run's failing slots as
+  this run's.
+
 ### Contract
 
 - **checkride owns the AGENTS.md stanza and only the stanza**, and the boundary
@@ -43,7 +93,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `test/contract/flags.contract.test.ts`). The promise a consumer can build on:
   a stanza carrying local edits is never overwritten without `--force`, and the
   run that refuses writes nothing. Behavioural break for anyone scripting
-  `agent-setup` over a repo with a hand-edited or pre-0.11 stanza — that
+  `agent-setup` over a repo with a hand-edited or pre-0.10.1 stanza — that
   invocation exited 0 and now exits 2 until it is re-run with `--force`.
 
 ## [0.10.0] - 2026-07-31
@@ -1158,6 +1208,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.10.1]: https://www.npmjs.com/package/checkride/v/0.10.1
 [0.10.0]: https://www.npmjs.com/package/checkride/v/0.10.0
 [0.9.6]: https://www.npmjs.com/package/checkride/v/0.9.6
 [0.9.5]: https://www.npmjs.com/package/checkride/v/0.9.5
