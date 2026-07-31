@@ -168,6 +168,16 @@ says **nothing ran and no artifact was written**, so no `.check/` file describes
 this turn and no code change will clear it. The exit codes do not change — it
 blocks either way — so a hook script that reads only the status is unaffected.
 
+**A gate profile narrows the gate, and the gate says so.** `checkride.config.json`
+may carry a `gate` key (`only`, `skip`, `changed`) that applies to the stop-gate
+run and nothing else; its flags are appended after the check script's own, so the
+profile wins. The promise is the disclosure: while a profile is active, every
+verdict the gate emits carries the profile and the words "NOT the full check". A
+narrowed green that read as a full green would be the vacuous pass this contract
+exists to prevent, so the clause is part of the feature rather than a nicety. A
+profile that narrows nothing (`"gate": {}`) is treated as no profile, and the
+verdict says nothing.
+
 **checkride aligns the check run to the repo's Node pin.** When the repo names an
 exact interpreter (`.nvmrc` or `.node-version`), the running Node does not
 satisfy it, and a matching one is installed under a known version-manager layout,

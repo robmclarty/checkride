@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { checkArgs, DIRTY_MARKER, type GateSpawn, runGate } from '../gate.js';
+import { checkArgs, DIRTY_MARKER, type GateSpawn, gateProfile, runGate } from '../gate.js';
 import type { PinEnv } from '../node-pin.js';
 import type { Out } from '../orchestrator.js';
 
@@ -78,6 +78,18 @@ function capturingSpawn(): { spawn: GateSpawn; path: () => string | undefined } 
       return Promise.resolve(0);
     },
     path: () => seen,
+  };
+}
+
+/** The argv the check script was handed, captured from the spawn. */
+function capturingArgs(): { spawn: GateSpawn; args: () => readonly string[] } {
+  let seen: readonly string[] = [];
+  return {
+    spawn: (_command, args) => {
+      seen = args;
+      return Promise.resolve(0);
+    },
+    args: () => seen,
   };
 }
 
@@ -607,5 +619,116 @@ describe('runGate — deferring to a native Cursor gate', () => {
   test('runs when there is no Cursor config at all', async () => {
     const result = await runGate({ cwd: dir, harness: 'claude', spawn: exits(1), env: underCursor, stdout: capture(), stderr: capture() });
     expect(result.ran).toBe(true);
+  });
+});
+
+/**
+ * The gate profile — a narrower run for the stop hook than for `check` itself.
+ *
+ * The gate fires on every turn that touched a file, and a full pipeline is
+ * minutes in a large repo. Paid per edit, that is enough friction that the
+ * rational response is to switch the gate off, which loses the guarantee
+ * outright. A profile is the middle, and the whole of its cost is that its green
+ * means less — so the tests that matter here are the ones about saying so.
+ */
+describe('runGate — the gate profile', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-gate-profile-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('appends the profile after the gate’s own flags, so the profile wins', async () => {
+    const { spawn, args } = capturingArgs();
+    await runGate({
+      cwd: dir,
+      spawn,
+      stdout: capture(),
+      stderr: capture(),
+      pinEnv: pinEnv(),
+      profile: { only: ['types', 'lint'], changed: true },
+    });
+    expect(args()).toEqual(['run', 'check', '--strict', '--digest', '--only', 'types,lint', '--changed']);
+  });
+
+  test('npm still gets its `--` before any of them', async () => {
+    expect(checkArgs('npm', { only: ['types'] })).toEqual([
+      'run', 'check', '--', '--strict', '--digest', '--only', 'types',
+    ]);
+  });
+
+  /**
+   * The point of the whole feature, and its price. A gate that ran two of
+   * eighteen slots and reported a bare `✔ green` has told the reader the work is
+   * done, which is exactly what it does not know.
+   */
+  test('a narrowed green says it is not the full check', async () => {
+    const stdout = capture();
+    await runGate({
+      cwd: dir,
+      spawn: exits(0),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+      profile: { only: ['types', 'lint'] },
+      now: fakeClock(4100),
+    });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toBe('checkride ✔ green in 4.1s — gate profile: only types, lint — NOT the full check');
+  });
+
+  test('a narrowed red says the same, and points past itself', async () => {
+    const stderr = capture();
+    const stdout = capture();
+    await runGate({
+      cwd: dir,
+      spawn: exits(1),
+      stdout,
+      stderr,
+      pinEnv: pinEnv(),
+      profile: { skip: ['test', 'mutation'] },
+    });
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('NOT the full check');
+    // Fixing what the profile found may not be enough; say where the rest is.
+    expect(stderr.text()).toContain('ran a profile, not the full check');
+  });
+
+  /** No profile, no clause: the note must not appear on a run that was complete. */
+  test('a gate with no profile reports exactly what it did before', async () => {
+    const stdout = capture();
+    await runGate({
+      cwd: dir,
+      spawn: exits(0),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+      profile: null,
+      now: fakeClock(4100),
+    });
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toBe('checkride ✔ green in 4.1s');
+  });
+
+  test('reads the profile from checkride.config.json when none is passed', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { only: ['types'] } }));
+    const { spawn, args } = capturingArgs();
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn, stdout, stderr: capture(), pinEnv: pinEnv() });
+    expect(args()).toContain('--only');
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('gate profile');
+  });
+
+  /**
+   * `"gate": {}` narrows nothing, so carrying it forward would put "NOT the full
+   * check" on a verdict that was the full check — a warning that means the
+   * opposite of the truth.
+   */
+  test('an empty profile is no profile at all', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: {} }));
+    expect(gateProfile(dir)).toBeNull();
+
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { only: [] } }));
+    expect(gateProfile(dir)).toBeNull();
+  });
+
+  test('a repo with no config runs the whole check', async () => {
+    expect(gateProfile(dir)).toBeNull();
   });
 });

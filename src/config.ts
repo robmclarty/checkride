@@ -131,6 +131,32 @@ export type CheckrideConfig = Noted & {
    * disables the cap.
    */
   timeout?: number;
+  /** What the stop gate runs, when the full check is too slow to pay per turn. */
+  gate?: GateProfile;
+};
+
+/**
+ * A narrower run for the stop-gate hook than for `check` itself.
+ *
+ * The gate fires on every turn that touched a file, and a full pipeline is
+ * minutes in a large repo. Paid on every edit, that is enough friction that the
+ * rational response is to turn the gate off — which loses the guarantee
+ * entirely. A profile is the middle: a fast gate per turn, with the full check
+ * still binding wherever it already is (a commit hook, CI).
+ *
+ * **A narrowed gate must say so, every time.** Its green means less than a full
+ * green, and a green that quietly means less is the vacuous pass this whole
+ * contract exists to prevent — the same failure as a red that means nothing,
+ * inverted. `../gate.ts` puts the profile in the verdict rather than leaving the
+ * reader to infer it from a slot count.
+ */
+export type GateProfile = Noted & {
+  /** Run only these slots. */
+  only?: string[];
+  /** Run everything but these. */
+  skip?: string[];
+  /** Affected-only mode, as `--changed`. */
+  changed?: boolean;
 };
 
 /**

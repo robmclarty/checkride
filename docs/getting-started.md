@@ -281,6 +281,40 @@ are deliberately absent here, because triage reads `.check/` artifacts.
 Cursor still gets three scripts: its config is hooks and nothing else, with no
 documented file-path deny list to move `protect` into.
 
+#### When the gate is too slow
+
+The gate fires on every turn that touched a file, and a full pipeline is minutes
+in a large repo. Paid on every edit, that is enough friction that the rational
+response is to turn the gate off — which loses the guarantee entirely. A **gate
+profile** is the middle: declare what the *turn* gate runs, and keep the full
+check binding where it already is (a commit hook, CI).
+
+```json
+{
+  "gate": { "only": ["types", "lint", "struct"], "changed": true }
+}
+```
+
+`only`, `skip` and `changed` mean what the run flags mean, and are appended after
+the check script's own flags, so the profile wins over anything the script
+already carried.
+
+**The gate then says so, in every verdict it produces:**
+
+```text
+checkride ✔ green in 4.1s — gate profile: only types, lint, struct — NOT the full check
+```
+
+That clause is the price of the feature and it is not optional. A gate that runs
+three of eighteen slots and reports a bare `✔ green` has told you the work is
+done, which is exactly what it does not know — the vacuous pass this whole tool
+exists to prevent, arrived at from the comfortable direction. A narrowed red
+likewise points past itself, because fixing what the profile found may not be
+enough.
+
+So a profile is a trade, not a free win: use one when something else still runs
+the full check before the work lands. If nothing does, leave it unset.
+
 #### Turning the gate off
 
 `--hook <a,b>` chooses what to *write*; it does not touch what is already there.

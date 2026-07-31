@@ -59,6 +59,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pointer to an artifact this run did not write. Additive: a hook script that
   gates on the exit code alone is unaffected.
 
+- **`checkride.config.json` promises a `gate` key** (docs/contract.md §CLI), and
+  with it the disclosure: while a profile is active, every gate verdict names the
+  profile and states that it was not the full check.
+
 - **`CHECKRIDE_NODE_BIN`** is promised as the hook author's wrapping point: a
   directory prepended to the check run's `PATH`, or `off` to disable checkride's
   own Node-pin alignment.
@@ -103,6 +107,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   problem.
 
 ### Added
+
+- **A gate profile, for repos where the full pipeline is too slow to run every
+  turn.** `checkride.config.json` gains a `gate` key — `only`, `skip`, `changed`
+  — that applies to the stop-gate run and nothing else:
+
+  ```json
+  { "gate": { "only": ["types", "lint", "struct"], "changed": true } }
+  ```
+
+  The flags are appended after the check script's own, so the profile wins over
+  anything the script already carried. The intended shape is a fast gate per
+  turn with the full check still binding at commit or in CI; the gate is not the
+  only place "done" can be enforced, and in a large repo it should not be the
+  expensive one.
+
+  **Every verdict a profiled gate emits says it was a profile**, in those words:
+  `checkride ✔ green in 4.1s — gate profile: only types, lint — NOT the full
+  check`. That is the price of the feature and it is deliberately not
+  configurable. A gate that runs three of eighteen slots and reports a bare
+  green has told the reader the work is done, which is the one thing it does not
+  know — the vacuous pass this tool exists to prevent, reached from the
+  comfortable direction rather than the alarming one. A narrowed red points past
+  itself for the same reason. A profile that narrows nothing is treated as no
+  profile, so the warning never appears on a run that was in fact complete.
 
 - **checkride aligns the gate to the repo's Node pin.** Before running the check
   script, if the repo names an exact interpreter (`.nvmrc` or `.node-version`)

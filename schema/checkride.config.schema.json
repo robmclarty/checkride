@@ -23,6 +23,28 @@
       "minimum": 0,
       "description": "Default per-check timeout in seconds. Unset, checks fall back to the built-in 600s cap; 0 here or on a check disables the cap."
     },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the agent stop-gate runs, when the full check is too slow to pay for on every turn. The gate then reports the profile in its verdict, so a narrowed green is never mistaken for a full one — keep the full check binding somewhere else (a commit hook, CI).",
+      "properties": {
+        "note": { "$ref": "#/definitions/note" },
+        "only": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Run only these slots in the gate."
+        },
+        "skip": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Run everything but these slots in the gate."
+        },
+        "changed": {
+          "type": "boolean",
+          "description": "Affected-only mode for the gate, as --changed."
+        }
+      }
+    },
     "checks": {
       "type": "object",
       "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, mutation, security, publint, attw) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, mutation, security, publint, attw) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",

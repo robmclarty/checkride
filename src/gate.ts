@@ -35,6 +35,8 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { formatDuration, readSummary, type SummaryRead } from './artifacts/index.js';
+import type { CheckrideConfig, GateProfile } from './config.js';
+import { loadConfig } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
@@ -43,6 +45,7 @@ import {
   detectPackageManager,
   launchRefusal,
   type PackageManager,
+  runScript,
   SPAWN_FAILED_MARKER,
 } from './pm/index.js';
 
@@ -158,6 +161,11 @@ export type GateOptions = {
   env?: Record<string, string | undefined>;
   /** The Node-pin surface; injectable so alignment is testable without a version manager. */
   pinEnv?: PinEnv;
+  /**
+   * The gate profile. Read from `checkride.config.json` when absent; pass `null`
+   * to run the full check whatever the config says.
+   */
+  profile?: GateProfile | null;
   /** Wall-clock source for the elapsed time the gate reports; injectable for tests. */
   now?: () => number;
 };
@@ -212,8 +220,64 @@ function deferredToCursor(cwd: string, env: Record<string, string | undefined>):
  * raw summary.json). npm alone needs `--` to reach the script with flags;
  * pnpm/yarn/bun forward them directly.
  */
-export function checkArgs(pm: PackageManager): string[] {
-  return ['run', CHECK_SCRIPT, ...(pm === 'npm' ? ['--'] : []), '--strict', '--digest'];
+export function checkArgs(pm: PackageManager, profile: GateProfile | null = null): string[] {
+  return [
+    'run',
+    CHECK_SCRIPT,
+    ...(pm === 'npm' ? ['--'] : []),
+    '--strict',
+    '--digest',
+    ...profileArgs(profile),
+  ];
+}
+
+/**
+ * The profile's flags, appended **after** the check script's own.
+ *
+ * Last wins in `parseArgs`, so a repo whose `check` script already carries
+ * `--only` has the profile override it rather than fight it — the profile is the
+ * more specific statement, made about this hook in particular.
+ */
+function profileArgs(profile: GateProfile | null): string[] {
+  if (profile === null) return [];
+  return [
+    ...(profile.only && profile.only.length > 0 ? ['--only', profile.only.join(',')] : []),
+    ...(profile.skip && profile.skip.length > 0 ? ['--skip', profile.skip.join(',')] : []),
+    ...(profile.changed === true ? ['--changed'] : []),
+  ];
+}
+
+/**
+ * The repo's gate profile, or `null` when it configures none and the gate should
+ * run the whole check.
+ *
+ * A profile with nothing in it is `null` too: `"gate": {}` narrows nothing, and
+ * carrying it forward would put "not the full check" on a verdict that *was* the
+ * full check.
+ */
+export function gateProfile(cwd: string, config: CheckrideConfig | null = loadConfig(cwd)): GateProfile | null {
+  const profile = config?.gate;
+  if (!profile) return null;
+  return profileArgs(profile).length > 0 ? profile : null;
+}
+
+/**
+ * How a narrowed run must describe itself — appended to every verdict the gate
+ * produces while a profile is active.
+ *
+ * This is the price of the profile and it is not optional. A gate that runs two
+ * of eighteen slots and reports a bare `✔ green` has told the reader the work is
+ * done, which is exactly what it does not know. Naming the profile turns a
+ * silent partial pass into a stated one.
+ */
+function profileClause(profile: GateProfile | null): string | null {
+  if (profile === null) return null;
+  const parts = [
+    profile.only && profile.only.length > 0 ? `only ${profile.only.join(', ')}` : null,
+    profile.skip && profile.skip.length > 0 ? `without ${profile.skip.join(', ')}` : null,
+    profile.changed === true ? 'affected-only' : null,
+  ].filter((p): p is string => p !== null);
+  return `gate profile: ${parts.join(', ')} — NOT the full check`;
 }
 
 /**
@@ -282,12 +346,24 @@ function headline(verdict: string, elapsedMs: number, detail: string | null): st
   return `checkride ${verdict} in ${formatDuration(elapsedMs)}${detail === null ? '' : ` — ${detail}`}`;
 }
 
+/** Join the run's own detail with the narrowing note, dropping whichever is absent. */
+function detailWith(detail: string | null, profile: GateProfile | null): string | null {
+  const parts = [detail, profileClause(profile)].filter((p): p is string => p !== null);
+  return parts.length === 0 ? null : parts.join(' — ');
+}
+
 /** The sentence a red gate hands the agent, naming what to open first. */
-function redMessage(cwd: string, pm: PackageManager): string {
+function redMessage(cwd: string, pm: PackageManager, profile: GateProfile | null): string {
   const where = existsSync(join(cwd, '.check', DIGEST_FILE)) ? `.check/${DIGEST_FILE}` : SUMMARY_PATH;
+  // A narrowed red is still a red, but it is not the whole story: the slots the
+  // profile skipped were never asked, so fixing what it names may not be enough.
+  const narrowed =
+    profile === null
+      ? ''
+      : ` This gate ran a profile, not the full check — run \`${runScript(pm, CHECK_SCRIPT)}\` for the rest.`;
   return (
     `checkride: the gate is red — read ${where}, fix the failing slot, then finish ` +
-    `(do not stop while checkride is red). Run \`${pm} exec checkride triage\` for full triage.`
+    `(do not stop while checkride is red). Run \`${pm} exec checkride triage\` for full triage.${narrowed}`
   );
 }
 
@@ -378,6 +454,7 @@ type Failure = {
   output: string;
   alignment: NodeAlignment | null;
   running: string;
+  profile: GateProfile | null;
 };
 
 /**
@@ -392,11 +469,13 @@ function failedVerdict(f: Failure): { status: string; instruction: string; refus
   const refusal = f.fresh ? null : launchRefusal(f.output);
   if (refusal === null) {
     return {
-      status: headline('✘ red', f.elapsedMs, f.fresh ? runDetail(f.summary, false) : null),
-      instruction: redMessage(f.cwd, f.pm),
+      status: headline('✘ red', f.elapsedMs, detailWith(f.fresh ? runDetail(f.summary, false) : null, f.profile)),
+      instruction: redMessage(f.cwd, f.pm, f.profile),
       refusal: null,
     };
   }
+  // A launch refusal names no profile: nothing ran, so how much would have run
+  // is beside the point.
   return {
     status: headline('⚠ could not run', f.elapsedMs, refusal.cause),
     instruction: refusalMessage(refusal.cause, { alignment: f.alignment, running: f.running, pm: f.pm }),
@@ -519,18 +598,20 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   }
 
   const pm = options.pm ?? detectPackageManager({ cwd });
+  const profile = options.profile !== undefined ? options.profile : gateProfile(cwd);
   const alignment = alignNode(cwd, pinEnv);
   const childEnv = announceAlignment(alignment, env, stderr);
   const startedAt = now();
   const output = recording(stderr);
-  const code = await run(pm, checkArgs(pm), { cwd, stderr: output, env: childEnv });
+  const code = await run(pm, checkArgs(pm, profile), { cwd, stderr: output, env: childEnv });
   const green = code === 0;
   const summary = await readSummary(cwd);
   const fresh = isFresh(summary, startedAt);
 
   if (green) {
     rmSync(marker, { force: true });
-    reportGreen(harness, stdout, headline('✔ green', now() - startedAt, fresh ? runDetail(summary, true) : null));
+    const detail = detailWith(fresh ? runDetail(summary, true) : null, profile);
+    reportGreen(harness, stdout, headline('✔ green', now() - startedAt, detail));
     return { exitCode: 0, ran: true, green: true, refusal: null };
   }
 
@@ -543,6 +624,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
     output: output.text(),
     alignment,
     running: pinEnv.running(),
+    profile,
   });
   const exitCode = reportRed(harness, { stdout, stderr }, verdict);
   return { exitCode, ran: true, green: false, refusal: verdict.refusal };

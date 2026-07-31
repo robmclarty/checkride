@@ -161,6 +161,12 @@ Options:
   --if-dirty       Skip the run when .check/.dirty is absent (no edits this turn)
   -h, --help       Show this help
 
+Config:
+  A \`gate\` key in checkride.config.json narrows what the stop hook runs
+  (\`only\`, \`skip\`, \`changed\`) when the full check is too slow to pay for on
+  every turn. Every verdict then says so — a narrowed green is never reported
+  as a full one.
+
 Environment:
   CHECKRIDE_NODE_BIN   A bin directory to put in front of the check run's PATH,
                        or \`off\` to disable checkride's Node-pin alignment.

@@ -220,3 +220,46 @@ describe('protect as configuration', () => {
     expect((await settings()).permissions?.deny).toEqual([mine]);
   });
 });
+
+/** The user-visible line out of a Claude-protocol hook body. */
+function message(out: { text: () => string }): string {
+  return (JSON.parse(out.text()) as { systemMessage: string }).systemMessage;
+}
+
+/**
+ * Contract: a narrowed gate discloses it (docs/contract.md §CLI).
+ *
+ * A profile trades coverage for speed, which is a legitimate trade only while
+ * the reader knows they made it. A green that quietly covered three of eighteen
+ * slots is the vacuous pass this contract exists to prevent, arrived at from the
+ * comfortable direction — so the clause is part of the feature, not a nicety.
+ */
+describe('gate profile disclosure', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-profile-contract-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test.each([
+    ['green', 0],
+    ['red', 1],
+  ])('a %s verdict under a profile states it was not the full check', async (_name, code) => {
+    const stdout = capture();
+    await runGate({
+      cwd: dir,
+      spawn: () => Promise.resolve(code),
+      stdout,
+      stderr: capture(),
+      pinEnv: bare(),
+      profile: { only: ['types'] },
+    });
+    expect(message(stdout)).toContain('gate profile');
+    expect(message(stdout)).toContain('NOT the full check');
+  });
+
+  /** The inverse matters as much: the warning must not appear on a complete run. */
+  test('a verdict with no profile claims nothing about narrowing', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: () => Promise.resolve(0), stdout, stderr: capture(), pinEnv: bare() });
+    expect(message(stdout)).not.toContain('profile');
+  });
+});
