@@ -51,6 +51,7 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--baseline` | (existing repo) Grandfather current debt instead of disabling failing slots. |
 | `--hook <a,b>` | Write only these hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). |
 | `--no-hook` | Skip writing the agent hooks (also honored by `agent-setup`). |
+| `--remove-hook <a,b>` | Remove installed hooks — entry + generated script. With `--no-hook`, remove only. |
 | `--harness <a,b>` | Write hooks for these harnesses: `claude`, `cursor`. Default: `claude`, plus `cursor` when `.cursor/` exists. |
 | `--dry-run` | Print what would be written; change nothing. |
 

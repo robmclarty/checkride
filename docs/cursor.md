@@ -75,7 +75,9 @@ so its entry overrides all three:
 
 **These three are checkride-owned.** Editing them in `.cursor/hooks.json` gets
 them restored on the next `agent-setup`. The supported way to turn the gate off
-is to not write it: `--hook dirty,protect`, or `--no-hook` for none of the three.
+is to not write it (`--hook dirty,protect`, or `--no-hook` for none of the
+three), or to take an installed one back out with `--remove-hook gate` — which
+deletes the entry and the script it invoked.
 
 The two guards keep Cursor's fail-open default, deliberately and for the same
 reason in both cases: a broken `dirty` hook costs one skipped gate, and a broken
@@ -84,7 +86,36 @@ reason in both cases: a broken `dirty` hook costs one skipped gate, and a broken
 `loop_limit: null` plus `failClosed: true` means a genuinely broken gate can keep
 a turn from ending. That is the same property the Claude Code gate has had since
 it existed — it is what "exit 0 = done" costs — but it is worth knowing the
-escape hatch is `--no-hook` (or deleting the entry), not waiting it out.
+escape hatch is `--remove-hook gate`, not waiting it out.
+
+## What the gate can and cannot show you
+
+This is the second place the two harnesses are not symmetric, and unlike the
+first one it is not a choice checkride made.
+
+A full pipeline run is minutes of silence in the middle of a turn. Claude Code
+offers two places to say what is going on, and checkride uses both: a
+`statusMessage` on the hook entry (the spinner reads `checkride gate — running
+\`pnpm check\`` while it runs) and a `systemMessage` in the hook's JSON body
+(a one-line verdict with the wall clock when it finishes, green or red).
+
+**Cursor has neither.**
+
+- Its hook configuration has no spinner or progress field. While the gate runs,
+  nothing in the UI says a gate is running.
+- Its `stop` hook accepts exactly one output field, `followup_message`, and that
+  field **submits a new user turn**. It is the wrong instrument for "everything
+  passed, that took 38 seconds": announcing a pass through it would put the
+  agent back to work every time it succeeded.
+
+So under Cursor a **red** gate carries the verdict line at the top of the
+follow-up it submits — visible in the chat, because Cursor shows the message it
+submits — and a **green** gate says nothing at all. The common `user_message`
+field is documented for *denials*, not for the `stop` event, and with
+`failClosed: true` an output Cursor rejects as malformed is a hook failure that
+blocks the turn. Guessing at an undocumented field is not worth that risk, so
+checkride does not send one. If Cursor documents a display field for `stop`,
+this is the gap to close.
 
 ## Cursor also runs your Claude Code hooks
 
@@ -166,6 +197,11 @@ worse than one with a known hole. The AGENTS.md stanza covers it as instruction.
 **The edit marker misses shell writes too**, for the same reason — a file
 written through the shell does not set `.check/.dirty`, so a turn that *only*
 did that skips the gate. The next tool-edited turn re-covers it.
+
+**No progress or completion display.** Covered in full
+[above](#what-the-gate-can-and-cannot-show-you): Cursor's hook API offers no
+spinner field and no user-visible output field on `stop`, so a green Cursor gate
+is silent and a running one is invisible. Claude Code shows both.
 
 **Skill frontmatter carries fields Cursor does not read.** The bundled skills
 declare `argument-hint` and `allowed-tools`, which are Claude Code's; Cursor's

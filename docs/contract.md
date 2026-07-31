@@ -112,9 +112,11 @@ are promised. New commands and flags are additive; removing or repurposing one
 is a breaking change. `init` and `agent-setup` additionally promise
 `--hook <a,b>` (select which hooks to write: `gate`, `dirty`, `protect`; an
 unknown name is a usage error naming the valid set), `--no-hook` (write none),
-and `--harness <a,b>` (which harnesses to write them for: `claude`, `cursor`;
-same usage-error rule). Omitting `--harness` selects `claude` plus any harness
-the repo shows evidence of.
+`--remove-hook <a,b>` (tear installed ones back out — the config entry and the
+generated script; same usage-error rule, and naming one hook in both `--hook`
+and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
+write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
+selects `claude` plus any harness the repo shows evidence of.
 
 **`gate` is the one command outside the 0/1/2 split**, because it answers a
 harness's hook protocol rather than checkride's own. Under `--harness claude` it
@@ -124,6 +126,14 @@ verdict as `{"followup_message": …}` on stdout, because Cursor reads a non-zer
 stop hook as a broken hook and lets the turn end. A `gate` that could not run at
 all still blocks, in both harnesses: a gate that silently stops gating is the
 vacuous green this contract exists to prevent.
+
+`gate` also writes its verdict to **stdout as a single-line JSON hook body**, in
+the calling harness's schema, and that is where a *user-visible* report lives —
+`systemMessage` under `--harness claude` (both green and red), the
+`followup_message` under `--harness cursor` (red only, because that field
+submits a turn). The exit code above is unchanged and remains the promise; the
+body is additive, and a hook script that ignores stdout still gates correctly on
+the code alone.
 
 One exception is promised alongside it: under `--harness claude`, `gate` reports
 `ran: false` and exits 0 without running the pipeline when Cursor is executing

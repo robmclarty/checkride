@@ -92,12 +92,26 @@ vacuous one.
 hook**:
 
 ```json
-"command": "pnpm run check || { echo 'checkride: the gate is red ...' >&2; exit 2; }"
+{
+  "type": "command",
+  "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\"",
+  "timeout": 900,
+  "statusMessage": "checkride gate — running `pnpm check`"
+}
 ```
 
-Exit 2 from a Stop hook blocks the agent from ending its turn and feeds the
-message back to it. So the loop closes without depending on the agent's
-judgment: it cannot decide it is finished while the pipeline disagrees.
+The entry is a stable one-liner into a checkride-owned script
+([`.claude/hooks/checkride-gate.sh`](./.claude/hooks/checkride-gate.sh)), which
+is a thin adapter over `checkride gate`. A red gate blocks the agent from ending
+its turn and hands it the failure; so the loop closes without depending on the
+agent's judgment — it cannot decide it is finished while the pipeline disagrees.
+
+The other two fields exist because the gate is not an observer. `timeout: 900`
+beats Claude Code's 600s default, since a *cancelled* Stop hook is read as a
+broken one and lets the turn end. `statusMessage` names the command in the
+spinner, so the minute the pipeline takes reads as work rather than as a hang —
+and when it finishes, the gate reports the verdict and the wall clock
+(`checkride ✔ green in 38.2s — 15 checks, slowest test 21.4s`).
 
 `AGENTS.md` carries the same contract in prose, for agents that read
 instructions but do not run hooks.

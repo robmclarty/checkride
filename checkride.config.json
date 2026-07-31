@@ -4,7 +4,8 @@
     "lint": {
       "use": "oxlint",
       "args": ["exec", "oxlint", "--type-aware", "--format=json", "--disable-nested-config"],
-      "description": "Oxlint, with nested-config discovery off (see test/dogfood-config.test.ts)",
+      "description": "Oxlint",
+      "note": "Nested-config discovery is off: an .oxlintrc.json under examples/ would otherwise govern its own subtree and void the root ignorePatterns, linting the deliberately broken example sources. Pinned by test/dogfood-config.test.ts.",
       "order": 1
     },
     "struct": { "use": "ast-grep", "order": 1 },
@@ -21,7 +22,8 @@
     "typecheck-tests": {
       "command": "pnpm",
       "args": ["exec", "tsc", "-p", "tsconfig.test.json"],
-      "description": "Type-check test files (the published build, tsconfig.json, excludes them)",
+      "description": "Type-check test files",
+      "note": "tsconfig.json is the published build and excludes tests, so they would otherwise never be type-checked.",
       "order": 3
     },
 
@@ -31,7 +33,8 @@
     "attw": {
       "use": "attw",
       "profile": "esm-only",
-      "description": "Are the types wrong? (esm-only profile: this package ships ESM only; Node >=22 engines can require() it)",
+      "description": "Are the types wrong?",
+      "note": "esm-only profile: this package ships ESM only, and its Node >=22 engines range can require() it.",
       "order": 5
     },
     "pack": { "use": "pack", "order": 5 },

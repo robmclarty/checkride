@@ -221,6 +221,31 @@ Each lands on the nearest event its harness offers:
 | `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit` |
 | `protect` | `PreToolUse`, same matcher | `preToolUse`, matcher `Write\|Delete` |
 
+#### Turning the gate off
+
+`--hook <a,b>` chooses what to *write*; it does not touch what is already there.
+To take an installed hook back out — entry and generated script both — name it
+in `--remove-hook`:
+
+```bash
+pnpm exec checkride agent-setup --remove-hook gate   # keep the guards, drop the stop gate
+pnpm exec checkride agent-setup --hook gate          # and put it back
+```
+
+On its own, `--remove-hook` still refreshes everything else (that is what
+`agent-setup` is for). Pair it with `--no-hook` to remove and touch nothing
+else:
+
+```bash
+pnpm exec checkride agent-setup --no-hook --remove-hook gate
+```
+
+Dropping the gate leaves the AGENTS.md stanza in place, so the contract survives
+as instruction — the agent is still told `pnpm check` is the definition of done,
+it is just no longer stopped from ignoring it. Removing `dirty` while keeping
+`gate` rewrites the gate script unguarded, so it runs on every turn rather than
+skipping conversation-only ones.
+
 #### The gate command
 
 The decision — is it dirty, is it green, which artifact should the agent read —
@@ -239,6 +264,39 @@ the disagreement is total:**
 So `checkride gate --harness cursor` always exits 0 by design. Run it by hand
 with `--harness claude` (the default) if you want the exit code.
 
+#### Seeing the gate run
+
+A full pipeline takes as long as it takes, and a stop hook that runs one with no
+output is indistinguishable from a model that has hung. Two things say otherwise
+under Claude Code:
+
+- **While it runs**, the Stop entry carries a `statusMessage`, so the spinner
+  reads `checkride gate — running \`pnpm check\`` instead of nothing. The entry
+  also raises `timeout` to 900s: Claude Code's default is 600, and a cancelled
+  Stop hook is a *broken* one, which ends the turn — a pipeline slower than the
+  default would stop gating without saying so.
+- **When it finishes**, `checkride gate` writes a one-line verdict as the hook's
+  `systemMessage`, so the wall clock you just waited on is stated rather than
+  guessed at:
+
+  ```text
+  checkride ✔ green in 38.2s — 15 checks, slowest test 21.4s
+  checkride ✘ red in 41.7s — 2 of 15 failed: lint, test
+  ```
+
+  The elapsed time is the gate's own wall clock — package-manager startup and
+  incremental build included — not the pipeline's `total_duration_ms`, because
+  the honest answer to "why did that pause" is the whole pause. The failing-slot
+  detail comes from `.check/summary.json`; when there is no readable summary the
+  line reports the time and claims nothing else.
+
+**Cursor has neither.** Its hook config has no spinner field, and its `stop`
+hook accepts exactly one output field — `followup_message` — which *submits a
+new turn*, so it cannot be used to announce a pass. A red Cursor gate carries
+the same verdict line at the top of the follow-up it submits; a green one is
+silent, and nothing in Cursor's documented hook API can change that today. See
+[Cursor](./cursor.md#what-the-gate-can-and-cannot-show-you).
+
 A gate that *could not run at all* — an uninstalled checkride, a broken launcher,
 a repo it cannot even enter — blocks in both harnesses rather than passing. A
 gate that silently stops gating is the vacuous green this whole tool exists to
@@ -252,8 +310,8 @@ indefinitely — so checkride writes `loop_limit: null`. And Cursor is fail-*ope
 by default: a hook that crashes, times out or emits unparseable JSON lets the
 turn end silently, so the gate writes `failClosed: true`. Both are
 checkride-owned and restored on the next `agent-setup`; the supported way to
-stand the gate down is `--hook dirty,protect` or `--no-hook`, not editing the
-entry. The two guards keep the fail-open default on purpose.
+stand the gate down is [`--remove-hook gate`](#turning-the-gate-off), not
+editing the entry. The two guards keep the fail-open default on purpose.
 
 One more Cursor-only wrinkle: with third-party configs enabled, Cursor runs your
 `.claude/settings.json` hooks *alongside* its own, which would fire two full

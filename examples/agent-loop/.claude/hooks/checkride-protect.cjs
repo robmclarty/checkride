@@ -8,7 +8,7 @@
 // matched — triage depends on reading .check artifacts.
 'use strict';
 const { realpathSync } = require('node:fs');
-const { basename, dirname, isAbsolute, join, relative, resolve, sep } = require('node:path');
+const { basename, dirname, isAbsolute, relative, resolve, sep } = require('node:path');
 
 const PATH_KEYS = ["file_path","notebook_path","path","target_file","filePath","relative_workspace_path"];
 
@@ -17,13 +17,21 @@ const PATH_KEYS = ["file_path","notebook_path","path","target_file","filePath","
 // the harness passes /var/…, the environment reports /private/var/… — and a
 // raw string comparison across the two rejects every path in the repo.
 //
-// The *directory* is what gets resolved, never the file: this hook runs before
-// the write, so the target itself often does not exist yet.
+// `p` need not exist: this hook runs *before* the write, and the target is
+// often a file (or a whole directory) that is about to be created. So walk up
+// to the first ancestor that does exist, resolve that, and re-append the rest.
 function canon(p) {
-  try {
-    return join(realpathSync(dirname(p)), basename(p));
-  } catch {
-    return p;
+  let dir = resolve(p);
+  const rest = [];
+  for (;;) {
+    try {
+      return resolve(realpathSync(dir), ...rest);
+    } catch {
+      const up = dirname(dir);
+      if (up === dir) return resolve(p);
+      rest.unshift(basename(dir));
+      dir = up;
+    }
   }
 }
 

@@ -38,6 +38,12 @@ const never: GateSpawn = () => {
   throw new Error('the deferred gate must not run the pipeline');
 };
 
+/** A clock that advances by exactly `elapsedMs` across the run, so the report is assertable. */
+function fakeClock(elapsedMs: number): () => number {
+  let calls = 0;
+  return () => (calls++ === 0 ? 0 : elapsedMs);
+}
+
 describe('checkArgs', () => {
   test('runs the gate strictly and writes a digest', () => {
     expect(checkArgs('pnpm')).toEqual(['run', 'check', '--strict', '--digest']);
@@ -57,6 +63,29 @@ describe('runGate', () => {
   async function touchMarker(): Promise<void> {
     await mkdir(join(dir, '.check'), { recursive: true });
     await writeFile(marker(), '');
+  }
+
+  /** Write the `.check/summary.json` a run would have left, from the fields a report reads. */
+  async function writeSummary(input: {
+    ok: boolean;
+    checks: { name: string; ok: boolean; duration_ms: number; skipped?: boolean }[];
+  }): Promise<void> {
+    await mkdir(join(dir, '.check'), { recursive: true });
+    const summary = {
+      schema_version: 1,
+      timestamp: new Date(0).toISOString(),
+      ok: input.ok,
+      checks_run: input.checks.filter((c) => c.skipped !== true).length,
+      total_duration_ms: input.checks.reduce((n, c) => n + c.duration_ms, 0),
+      checks: input.checks.map((c) => ({
+        adapter: c.name,
+        description: c.name,
+        exit_code: c.ok ? 0 : 1,
+        output_file: null,
+        ...c,
+      })),
+    };
+    await writeFile(join(dir, '.check', 'summary.json'), JSON.stringify(summary));
   }
 
   test('--if-dirty skips entirely when no edit happened this turn', async () => {
@@ -107,7 +136,109 @@ describe('runGate', () => {
     // Exit 1 would not block — Claude Code treats only 2 as deny.
     expect(result.exitCode).toBe(2);
     expect(stderr.text()).toContain('the gate is red');
+  });
+
+  /**
+   * Claude Code parses a hook body only on exit 0, and only a body can carry a
+   * `systemMessage` for the user alongside the block. checkride emits both
+   * spellings so a hook script generated before the body existed — which blocks
+   * on the exit code and ignores stdout — keeps gating across the upgrade.
+   */
+  test('claude: red also writes a blocking hook body on stdout', async () => {
+    const stdout = capture();
+    const result = await runGate({ cwd: dir, harness: 'claude', spawn: exits(1), stdout, stderr: capture() });
+    expect(result.exitCode).toBe(2);
+    const body = JSON.parse(stdout.text()) as { decision: string; reason: string; systemMessage: string };
+    expect(body.decision).toBe('block');
+    expect(body.reason).toContain('the gate is red');
+    expect(body.systemMessage).toContain('checkride ✘ red');
+  });
+
+  test('claude: green says so, so a silent minute is not mistaken for a hang', async () => {
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      harness: 'claude',
+      spawn: exits(0),
+      stdout,
+      stderr: capture(),
+      now: fakeClock(4200),
+    });
+    expect(result.green).toBe(true);
+    const body = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
+    expect(body.systemMessage).toBe('checkride ✔ green in 4.2s');
+    // Nothing to block on: a green gate must not carry a decision.
+    expect(body.decision).toBeUndefined();
+  });
+
+  /**
+   * Cursor's stop hook takes one field, and that field *submits a new turn*.
+   * Announcing a pass through it would put the agent back to work every time it
+   * succeeded, so a green Cursor gate stays silent. See docs/cursor.md.
+   */
+  test('cursor: green writes nothing, because its only field starts a turn', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, harness: 'cursor', spawn: exits(0), stdout, stderr: capture() });
     expect(stdout.text()).toBe('');
+  });
+
+  test('the report names the failing slots and the wall clock the user waited', async () => {
+    await writeSummary({
+      ok: false,
+      checks: [
+        { name: 'types', ok: true, duration_ms: 900 },
+        { name: 'lint', ok: false, duration_ms: 300 },
+        { name: 'test', ok: false, duration_ms: 8000 },
+        { name: 'spell', ok: true, skipped: true, duration_ms: 0 },
+      ],
+    });
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(61_000) });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    // Skipped checks are not part of "3 checks" — nothing ran for them.
+    expect(systemMessage).toBe('checkride ✘ red in 1.0m — 2 of 3 failed: lint, test');
+  });
+
+  test('a green report names the slowest check, the one worth knowing about', async () => {
+    await writeSummary({
+      ok: true,
+      checks: [
+        { name: 'lint', ok: true, duration_ms: 300 },
+        { name: 'test', ok: true, duration_ms: 21_400 },
+      ],
+    });
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: exits(0), stdout, stderr: capture(), now: fakeClock(30_000) });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toBe('checkride ✔ green in 30.0s — 2 checks, slowest test 21.4s');
+  });
+
+  /**
+   * A gate that could not run wrote no summary, and a report that invents "0
+   * checks failed" from a missing file is the vacuous green the artifact exists
+   * to disprove. The elapsed time is still true, so it is still reported.
+   */
+  test('no readable summary reports the time and claims nothing else', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(1500) });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toBe('checkride ✘ red in 1.5s');
+  });
+
+  /**
+   * A check script shaped `tsc --build && checkride` leaves the summary
+   * untouched when the build fails. Reading it anyway would report the previous
+   * run's failing slots as this run's — confidently, and wrongly.
+   */
+  test('a summary older than this run is not this run’s, and is not reported', async () => {
+    await writeSummary({ ok: false, checks: [{ name: 'lint', ok: false, duration_ms: 10 }] });
+    const stdout = capture();
+    // A start time after the summary was written: nothing on disk can belong to it.
+    const after = Date.now() + 60_000;
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: () => after });
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).not.toContain('lint');
+    expect(systemMessage).toBe('checkride ✘ red in 0ms');
   });
 
   test('cursor: red exits 0 and carries the verdict as JSON on stdout', async () => {

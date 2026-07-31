@@ -56,6 +56,12 @@ export type InitOptions = {
   hook?: boolean;
   /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
   hooks?: readonly HookName[];
+  /**
+   * Hooks to tear out of an already-wired repo (`--remove-hook <a,b>`): the
+   * config entry is stripped and the generated script deleted. Composes with
+   * `hook: false` to remove without refreshing anything else.
+   */
+  removeHooks?: readonly HookName[];
   /** Which harnesses to write them for (`--harness <a,b>`). Omitted → detected. */
   harnesses?: readonly HarnessName[];
   stdout?: Out;
@@ -78,6 +84,8 @@ export type InitResult = {
   mode: 'new' | 'existing';
   shape: Shape | null;
   written: string[];
+  /** Files deleted by `--remove-hook`. */
+  removed: string[];
   skipped: string[];
   disabled: string[];
   /** Slots whose failing debt was grandfathered into the baseline (`--baseline`). */
@@ -397,6 +405,8 @@ type Writer = {
   cwd: string;
   dryRun: boolean;
   written: string[];
+  /** Files this run deleted (`--remove-hook`), kept apart so a removal never reads as a write. */
+  removed: string[];
 };
 
 async function put(w: Writer, relPath: string, content: string): Promise<void> {
@@ -434,20 +444,29 @@ async function writePackage(w: Writer, dir: string, pkgName: string, value: stri
 type HookSelection = {
   hook?: boolean;
   hooks?: readonly HookName[];
+  removeHooks?: readonly HookName[];
   harnesses?: readonly HarnessName[];
 };
 
 /**
- * Write/refresh the agent hooks unless opted out (`hook === false`), for the
- * selected harnesses (default: detected) and the repo's detected package
- * manager. Records each file when it changed, else a no-op note in `skipped`
- * when one is provided.
+ * Write/refresh the agent hooks unless opted out (`hook === false`), remove any
+ * named for removal, for the selected harnesses (default: detected) and the
+ * repo's detected package manager. Records each file when it changed, else a
+ * no-op note in `skipped` when one is provided.
+ *
+ * `--no-hook` and `--remove-hook` compose rather than conflict: the first says
+ * "write nothing", the second "take this one out", and together they mean
+ * "remove the gate and leave the rest of the setup untouched" — which is the
+ * whole point of being able to drop a hook after the fact.
  */
 async function writeHook(w: Writer, options: HookSelection, skipped?: string[]): Promise<void> {
-  if (options.hook === false) return;
+  const remove = options.removeHooks ?? [];
+  if (options.hook === false && remove.length === 0) return;
+  const hooks = options.hook === false ? [] : options.hooks;
   const result = await writeHooks(w.cwd, {
     dryRun: w.dryRun,
-    ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...(hooks ? { hooks } : {}),
+    ...(remove.length > 0 ? { remove } : {}),
     ...(options.harnesses ? { harnesses: options.harnesses } : {}),
   });
   record(w, result.files, skipped);
@@ -467,11 +486,16 @@ async function writeSkills(w: Writer, options: HookSelection, skipped?: string[]
   record(w, await writeCursorSkills(w.cwd, { dryRun: w.dryRun }), skipped);
 }
 
-/** Fold a writer's file list into the run's written/skipped report. */
+/**
+ * Fold a writer's file list into the run's written/removed/skipped report. A
+ * deleted file is a change, but not a *write* — counting it as one would have
+ * `--remove-hook gate` report that it wrote a file it actually took away.
+ */
 function record(w: Writer, files: readonly HookFile[], skipped?: string[]): void {
   for (const f of files) {
-    if (f.changed) w.written.push(f.path);
-    else skipped?.push(`${f.path} (unchanged)`);
+    if (!f.changed) skipped?.push(`${f.path} (${f.removed === true ? 'absent' : 'unchanged'})`);
+    else if (f.removed === true) w.removed.push(f.path);
+    else w.written.push(f.path);
   }
 }
 
@@ -527,7 +551,7 @@ async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
  * into `.claude/settings.json` idempotently rather than overwriting.
  */
 async function planCollisions(s: NewScaffold, cwd: string): Promise<string[]> {
-  const plan: Writer = { cwd, dryRun: true, written: [] };
+  const plan: Writer = { cwd, dryRun: true, written: [], removed: [] };
   await writeNewScaffold(plan, s);
   return plan.written.filter((rel) => existsSync(join(cwd, rel)));
 }
@@ -588,7 +612,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const scaffold = resolveNewScaffold(options, cwd);
   await assertNoCollisions(scaffold, cwd, options.force ?? false);
 
-  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   await writeNewScaffold(w, scaffold);
 
   // Claude Code Stop hook (opt-out). A fresh project has no PM lockfile
@@ -597,7 +621,16 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   await writeSkills(w, options);
 
   if (options.stdout) reportNew(options.stdout, scaffold.shape, w, cwd);
-  return { mode: 'new', shape: scaffold.shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
+  return {
+    mode: 'new',
+    shape: scaffold.shape,
+    written: w.written,
+    removed: w.removed,
+    skipped: [],
+    disabled: [],
+    grandfathered: [],
+    exitCode: 0,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -972,7 +1005,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const adapters = options.adapters ?? ADAPTERS;
   const slots = options.slots ?? SLOTS;
   const manifest = readInitManifest(cwd);
-  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
 
   // Route --add: publish slots (and the library path) opt into the bundle; the
@@ -1010,7 +1043,16 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     reportExisting(options.stdout, adopted, w, grandfathered, disabled);
     reportInitBundle(options.stdout, bundle);
   }
-  return { mode: 'existing', shape: null, written: w.written, skipped, disabled, grandfathered, exitCode: 0 };
+  return {
+    mode: 'existing',
+    shape: null,
+    written: w.written,
+    removed: w.removed,
+    skipped,
+    disabled,
+    grandfathered,
+    exitCode: 0,
+  };
 }
 
 // ----------------------------------------------------------------------------
@@ -1035,6 +1077,12 @@ export type AgentSetupOptions = {
   hook?: boolean;
   /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
   hooks?: readonly HookName[];
+  /**
+   * Hooks to tear out (`--remove-hook <a,b>`): the config entry is stripped and
+   * the generated script deleted. With `hook: false` it removes those and
+   * refreshes nothing else.
+   */
+  removeHooks?: readonly HookName[];
   /** Which harnesses to write them for (`--harness <a,b>`). Omitted → detected. */
   harnesses?: readonly HarnessName[];
   stdout?: Out;
@@ -1042,7 +1090,13 @@ export type AgentSetupOptions = {
   adapters?: readonly Adapter[];
 };
 
-export type AgentSetupResult = { written: string[]; skipped: string[]; exitCode: number };
+export type AgentSetupResult = {
+  written: string[];
+  /** Files deleted by `--remove-hook`. */
+  removed: string[];
+  skipped: string[];
+  exitCode: number;
+};
 
 /**
  * `checkride agent-setup` — wire the agent contract into an *existing* repo
@@ -1056,7 +1110,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   const cwd = options.cwd ?? process.cwd();
   const slots = options.slots ?? SLOTS;
   const adapters = options.adapters ?? ADAPTERS;
-  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [] };
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
 
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
@@ -1069,9 +1123,10 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   await writeSkills(w, options, skipped);
 
   if (options.stdout) {
+    const removed = w.removed.length > 0 ? `, removed ${w.removed.length}` : '';
     options.stdout.write(
-      `checkride agent-setup: wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
+      `checkride agent-setup: wrote ${w.written.length} file(s)${removed}${w.dryRun ? ' [dry run]' : ''}.\n`,
     );
   }
-  return { written: w.written, skipped, exitCode: 0 };
+  return { written: w.written, removed: w.removed, skipped, exitCode: 0 };
 }

@@ -23,7 +23,7 @@
 import type { HarnessName } from '../gate.js';
 import { CURSOR_HOOKS_FILE } from '../gate.js';
 import type { HarnessSpec, WriteOptions } from './harness.js';
-import { HOOK_NAMES, writeHarnessHooks } from './harness.js';
+import { GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
 
 /**
@@ -41,13 +41,6 @@ const HARNESS: HarnessName = 'cursor';
 
 /** The schema version Cursor's loader expects at the top of the file. */
 const SCHEMA_VERSION = 1;
-
-/**
- * Ceiling for the gate run, in seconds. Generous on purpose: it exists to break
- * a hang, not to police a slow repo, and checkride's own per-check timeouts fire
- * long before it does.
- */
-const GATE_TIMEOUT_SECONDS = 900;
 
 /** The Cursor hook events checkride writes under. */
 type HookEvent = 'stop' | 'afterFileEdit' | 'preToolUse';
@@ -209,11 +202,38 @@ export function applyCursorHooks(config: CursorHooks = {}, names: readonly strin
     .reduce((acc, spec) => applyHook(acc, spec), seeded);
 }
 
+/**
+ * Strip one hook from a parsed config. An event left with no entries loses its
+ * key; `version` and every unrelated entry stay. Cursor's schema is flat, so
+ * there is no empty group to prune — the Claude writer's extra step has no
+ * counterpart here.
+ */
+function removeHook(config: CursorHooks, spec: HookSpec): CursorHooks {
+  const hooks = { ...config.hooks };
+  const entries = eventHooks(config, spec.event).filter((h) => !isSpecHook(spec, h));
+  if (entries.length > 0) hooks[spec.event] = entries;
+  else delete hooks[spec.event];
+  return { ...config, hooks };
+}
+
+/** Remove the named hooks from a parsed config — the inverse of {@link applyCursorHooks}. */
+export function removeCursorHooks(
+  config: CursorHooks = {},
+  names: readonly string[] = HOOK_NAMES,
+): CursorHooks {
+  return hookSpecs()
+    .filter((spec) => names.includes(spec.name))
+    .reduce((acc, spec) => removeHook(acc, spec), config);
+}
+
 const SPEC: HarnessSpec<CursorHooks> = {
   name: HARNESS,
   configFile: CURSOR_HOOKS_FILE,
-  scripts: { gate: GATE_SCRIPT_FILE, dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
+  // Cursor's config has no field that renders the gate's command in its UI, so
+  // the package manager reaches its hooks only through the generated script.
   apply: applyCursorHooks,
+  scripts: { gate: GATE_SCRIPT_FILE, dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
+  remove: removeCursorHooks,
 };
 
 /** Write or refresh the selected Cursor hooks in `cwd`. */

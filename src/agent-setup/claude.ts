@@ -14,8 +14,9 @@
 
 import type { HarnessName } from '../gate.js';
 import { DIRTY_MARKER } from '../gate.js';
+import type { PackageManager } from '../pm/index.js';
 import type { HarnessSpec, WriteOptions } from './harness.js';
-import { HOOK_NAMES, writeHarnessHooks } from './harness.js';
+import { gateStatusMessage, GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
 
 /** Project-shared Claude Code settings (committed), relative to the repo root. */
@@ -48,8 +49,17 @@ const LEGACY_DIRTY_SENTINEL = DIRTY_MARKER;
 /** The settings events checkride writes hooks under. */
 type HookEvent = 'Stop' | 'PostToolUse' | 'PreToolUse';
 
-/** A single Claude Code command hook (fields optional — settings.json is untrusted). */
-type CommandHook = { type?: string; command?: string };
+/**
+ * A single Claude Code command hook (fields optional — settings.json is
+ * untrusted). Unknown keys pass through untouched, so a hand-added `if` or
+ * `once` on a checkride entry survives a refresh.
+ */
+type CommandHook = {
+  type?: string;
+  command?: string;
+  timeout?: number;
+  statusMessage?: string;
+} & Record<string, unknown>;
 /** A hook group. Tool events carry a `matcher`; Stop groups don't. Other keys pass through. */
 type HookGroup = { matcher?: string; hooks?: CommandHook[] } & Record<string, unknown>;
 /** The subset of `.claude/settings.json` we touch; every other key is preserved. */
@@ -67,6 +77,10 @@ type HookSpec = {
   sentinels: readonly string[];
   /** The canonical settings command. */
   command: string;
+  /** Seconds before Claude Code cancels the hook; absent leaves its default. */
+  timeout?: number;
+  /** Spinner text shown while the hook runs; absent leaves the default spinner. */
+  statusMessage?: string;
 };
 
 /**
@@ -82,14 +96,28 @@ const run = (interpreter: string, file: string): string => `${interpreter} "\${C
  */
 const EDIT_TOOLS = 'Edit|Write|NotebookEdit';
 
-/** The hook registry. Order is write order; sentinels key identity in settings. */
-function hookSpecs(): HookSpec[] {
+/**
+ * The hook registry. Order is write order; sentinels key identity in settings.
+ *
+ * Only the gate carries `timeout` and `statusMessage`, and for the same reason
+ * Cursor's gate entry carries three fields of its own: the platform defaults are
+ * tuned for hooks that observe, and the gate does not observe. It runs for
+ * minutes (Claude Code's 600s default can cut a slow pipeline short, and a
+ * cancelled Stop hook exits non-zero, which Claude Code reads as a *broken* hook
+ * and lets the turn end — a silent vacuous green), and it is the one hook whose
+ * runtime the user actually waits on, so it names itself in the spinner instead
+ * of leaving them to guess whether the model hung. The two guards are fast and
+ * invisible, and take the defaults.
+ */
+function hookSpecs(pm: PackageManager): HookSpec[] {
   return [
     {
       name: 'gate',
       event: 'Stop',
       sentinels: [GATE_SCRIPT_FILE, LEGACY_GATE_SENTINEL],
       command: run('sh', GATE_SCRIPT_FILE),
+      timeout: GATE_TIMEOUT_SECONDS,
+      statusMessage: gateStatusMessage(pm),
     },
     {
       name: 'dirty',
@@ -120,12 +148,22 @@ function eventGroups(settings: ClaudeSettings, event: HookEvent): HookGroup[] {
   return Array.isArray(groups) ? groups.map((g) => ({ ...g })) : [];
 }
 
+/** The canonical fields for `spec`, omitting the optional ones it doesn't set. */
+function specFields(spec: HookSpec): CommandHook {
+  return {
+    command: spec.command,
+    ...(spec.timeout !== undefined ? { timeout: spec.timeout } : {}),
+    ...(spec.statusMessage !== undefined ? { statusMessage: spec.statusMessage } : {}),
+  };
+}
+
 /**
  * Merge one hook into parsed settings, idempotently. An existing entry (found by
- * sentinel, legacy forms included) has its command refreshed in place and its
- * group's matcher normalized; otherwise a new group is appended. Sibling hooks in
- * the same group, other groups, and every unrelated settings key are left
- * untouched, so applying twice yields deep-equal settings.
+ * sentinel, legacy forms included) has its checkride-owned fields refreshed in
+ * place and its group's matcher normalized; otherwise a new group is appended.
+ * Sibling hooks in the same group, other groups, keys checkride does not own, and
+ * every unrelated settings key are left untouched, so applying twice yields
+ * deep-equal settings.
  */
 function applyHook(settings: ClaudeSettings, spec: HookSpec): ClaudeSettings {
   const hooks = { ...settings.hooks };
@@ -136,22 +174,63 @@ function applyHook(settings: ClaudeSettings, spec: HookSpec): ClaudeSettings {
     groups[idx] = {
       ...existing,
       ...(spec.matcher !== undefined ? { matcher: spec.matcher } : {}),
-      hooks: (existing.hooks ?? []).map((h) => (isSpecHook(spec, h) ? { ...h, command: spec.command } : h)),
+      hooks: (existing.hooks ?? []).map((h) => (isSpecHook(spec, h) ? { ...h, ...specFields(spec) } : h)),
     };
   } else {
     groups.push({
       ...(spec.matcher !== undefined ? { matcher: spec.matcher } : {}),
-      hooks: [{ type: 'command', command: spec.command }],
+      hooks: [{ type: 'command', ...specFields(spec) }],
     });
   }
   return { ...settings, hooks: { ...hooks, [spec.event]: groups } };
 }
 
-/** Merge the selected hooks into parsed settings (see {@link applyHook}). */
-export function applyHooks(settings: ClaudeSettings = {}, names: readonly string[] = HOOK_NAMES): ClaudeSettings {
-  return hookSpecs()
+/**
+ * Merge the selected hooks into parsed settings (see {@link applyHook}). `pm`
+ * only reaches the gate's spinner text, so it defaults to the near-universal
+ * `pnpm` for callers (tests, the removal path) that have no repo to detect one from.
+ */
+export function applyHooks(
+  settings: ClaudeSettings = {},
+  names: readonly string[] = HOOK_NAMES,
+  pm: PackageManager = 'pnpm',
+): ClaudeSettings {
+  return hookSpecs(pm)
     .filter((spec) => names.includes(spec.name))
     .reduce((acc, spec) => applyHook(acc, spec), settings);
+}
+
+/**
+ * Strip one hook from parsed settings. A group that is left with no hooks is
+ * dropped, and an event left with no groups loses its key — a settings file that
+ * accumulates empty scaffolding is worse than one that reads as if the hook was
+ * never there. Sibling hooks sharing the group survive, so removing `protect`
+ * cannot take a co-located `PreToolUse` hook with it.
+ */
+function removeHook(settings: ClaudeSettings, spec: HookSpec): ClaudeSettings {
+  const hooks = { ...settings.hooks };
+  const groups = eventGroups(settings, spec.event)
+    .map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isSpecHook(spec, h)) }))
+    .filter((g) => g.hooks.length > 0);
+  if (groups.length > 0) hooks[spec.event] = groups;
+  else delete hooks[spec.event];
+  return { ...settings, hooks };
+}
+
+/**
+ * Remove the named hooks from parsed settings — the inverse of
+ * {@link applyHooks}, and idempotent in the same way. The package manager is
+ * irrelevant here: entries are matched by sentinel, never by their rendered
+ * fields, so a repo whose gate was written under a different launcher still has
+ * its gate found and removed.
+ */
+export function removeHooks(
+  settings: ClaudeSettings = {},
+  names: readonly string[] = HOOK_NAMES,
+): ClaudeSettings {
+  return hookSpecs('pnpm')
+    .filter((spec) => names.includes(spec.name))
+    .reduce((acc, spec) => removeHook(acc, spec), settings);
 }
 
 const SPEC: HarnessSpec<ClaudeSettings> = {
@@ -159,6 +238,7 @@ const SPEC: HarnessSpec<ClaudeSettings> = {
   configFile: CLAUDE_SETTINGS_FILE,
   scripts: { gate: GATE_SCRIPT_FILE, dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
   apply: applyHooks,
+  remove: removeHooks,
 };
 
 /** Write or refresh the selected Claude Code hooks in `cwd`. */

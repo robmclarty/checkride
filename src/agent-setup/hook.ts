@@ -58,8 +58,14 @@ export function detectHarnesses(cwd: string): HarnessName[] {
 
 /**
  * Write or refresh the selected hooks (default: all) for the selected harnesses
- * (default: detected) in `cwd`. Every write is idempotent — a second run reports
- * `changed: false` per file — and `dryRun` computes the result without writing.
+ * (default: detected) in `cwd`, and tear out any named in `remove`. Every write
+ * is idempotent — a second run reports `changed: false` per file — and `dryRun`
+ * computes the result without writing.
+ *
+ * Removal is how a hook goes away *after the fact*: unselecting one with
+ * `hooks` only declines to refresh it, which leaves an already-installed gate
+ * firing. The two compose — `{ hooks: [], remove: ['gate'] }` removes the gate
+ * and leaves everything else exactly as it stands.
  */
 export async function writeHooks(
   cwd: string,
@@ -67,12 +73,18 @@ export async function writeHooks(
     pm?: PackageManager;
     dryRun?: boolean;
     hooks?: readonly HookName[];
+    remove?: readonly HookName[];
     harnesses?: readonly HarnessName[];
   } = {},
 ): Promise<{ files: HookFile[] }> {
   const hooks = opts.hooks ?? HOOK_NAMES;
   const harnesses = opts.harnesses ?? detectHarnesses(cwd);
-  const write: WriteOptions = { ...(opts.pm ? { pm: opts.pm } : {}), dryRun: opts.dryRun ?? false, hooks };
+  const write: WriteOptions = {
+    ...(opts.pm ? { pm: opts.pm } : {}),
+    ...(opts.remove ? { remove: opts.remove } : {}),
+    dryRun: opts.dryRun ?? false,
+    hooks,
+  };
   // Concurrent: no two harnesses share a path, and `Promise.all` keeps the
   // reported order tied to the selection rather than to who finished first.
   const perHarness = await Promise.all(harnesses.map((h) => WRITERS[h](cwd, write)));

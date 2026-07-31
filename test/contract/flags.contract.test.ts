@@ -135,10 +135,11 @@ describe('CLI slot-selection validation', () => {
 
 /**
  * Contract: `init`/`agent-setup` take `--hook <a,b>` to select which agent
- * hooks to write (default: all), with `--no-hook` as the write-none
- * escape. An unknown hook name is a usage error (exit 2) naming the valid set.
+ * hooks to write (default: all), `--no-hook` as the write-none escape, and
+ * `--remove-hook <a,b>` to tear installed ones back out. An unknown hook name is
+ * a usage error (exit 2) naming the valid set, for either selecting flag.
  */
-describe('CLI hook selection (--hook / --no-hook)', () => {
+describe('CLI hook selection (--hook / --no-hook / --remove-hook)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-flag-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
@@ -164,6 +165,33 @@ describe('CLI hook selection (--hook / --no-hook)', () => {
   test('--no-hook still parses (the escape hatch is unchanged)', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
     expect(await runCli(['agent-setup', '--no-hook', '--dry-run'], deps(capture()))).toBe(0);
+  });
+
+  test('--remove-hook is accepted on agent-setup and init, alone and with --no-hook', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['agent-setup', '--remove-hook', 'gate', '--dry-run'], deps(capture()))).toBe(0);
+    expect(await runCli(['init', '--remove-hook', 'gate', '--dry-run'], deps(capture()))).toBe(0);
+    expect(
+      await runCli(['agent-setup', '--no-hook', '--remove-hook', 'gate', '--dry-run'], deps(capture())),
+    ).toBe(0);
+  });
+
+  test('an unknown --remove-hook name exits 2, naming it and the valid set', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    const stderr = capture();
+    expect(await runCli(['agent-setup', '--remove-hook', 'bogus', '--dry-run'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain("'bogus'");
+    expect(stderr.text()).toContain('gate');
+  });
+
+  /** Writing and removing the same hook has no coherent reading; say so rather than pick one. */
+  test('naming one hook in both flags is a usage error', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    const stderr = capture();
+    expect(
+      await runCli(['agent-setup', '--hook', 'gate', '--remove-hook', 'gate', '--dry-run'], deps(stderr)),
+    ).toBe(2);
+    expect(stderr.text()).toContain('--remove-hook');
   });
 });
 

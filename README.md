@@ -77,8 +77,9 @@ from finishing while the pipeline is red), an edit marker so turns that touched
 no files skip the gate, and a guard that denies edits to
 `checkride.baseline.json` and `.check/**`. Select hooks with `--hook <a,b>`
 (gate | dirty | protect), harnesses with `--harness <a,b>` (claude | cursor;
-detected by default), or skip the hooks with `--no-hook`. To add all of this —
-alias, stanza, hooks, and the Cursor skills — to a repo you already set up, run
+detected by default), skip the hooks with `--no-hook`, or take an installed one
+back out with `--remove-hook <a,b>`. To add all of this — alias, stanza, hooks,
+and the Cursor skills — to a repo you already set up, run
 `checkride agent-setup`.
 
 ## Docs
@@ -135,6 +136,7 @@ checkride init         Set up a project (new or existing — auto-detected).
   --force      (new mode) overwrite existing files instead of refusing
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip writing the agent hooks
+  --remove-hook <a,b>  remove these installed hooks (entry + generated script)
   --harness <a,b> write them for these harnesses (claude | cursor; default: detected)
   --dry-run    plan only; write nothing
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
@@ -143,6 +145,7 @@ checkride baseline     Record current diagnostics as a committed baseline.
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip the hooks (write only the stanza)
+  --remove-hook <a,b>  remove these installed hooks; with --no-hook, remove only
   --harness <a,b> which harnesses to write for (claude | cursor; default: detected)
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
@@ -330,11 +333,28 @@ prints the same report. Full details in [docs/plugin.md](./docs/plugin.md).
     },
     "licenses": {           // a custom check (runs last by default)
       "command": "node",
-      "args": ["scripts/check-licenses.mjs"]
+      "args": ["scripts/check-licenses.mjs"],
+      "description": "License audit",     // rendered beside the check in the output
+      "note": "Legal asked for this in RFC-114; drop it when the SBOM job lands."
     }
   }
 }
 ```
+
+### `description` vs `note`
+
+Two strings, deliberately not one. **`description`** is user-facing: it is the
+text a run prints beside the check in its status line and records in
+`.check/summary.json`, so it wants to be short. **`note`** is the opposite —
+maintainer commentary that never renders anywhere, the JSON-comment this file
+otherwise has no room for. Put "why is this check here", "revisit after the
+2.0 upgrade", or a ticket number in `note` and keep the output readable.
+
+`note` is accepted on any check entry — an adapter override (`{ "use": … }`) or
+a custom check (`{ "command": … }`) — and at the top level of the file for a
+note about the config as a whole. It is validated as a string (a typo is a
+config error, not silence) and then dropped: no code path carries it onto an
+adapter, so it cannot reach the CLI output or the summary.
 
 ### The `$schema` pointer
 

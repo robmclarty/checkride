@@ -18,8 +18,21 @@ import { join, relative } from 'node:path';
 import type { Adapter, Order, Slot } from './adapters.js';
 import { isRecord } from './json.js';
 
+/**
+ * A comment for whoever reads the config next — never rendered, never reported.
+ *
+ * JSON has no comments, so the only place a "why is this check here" note could
+ * previously live was `description`, which is the *user-facing* string the run
+ * prints beside every check. Overloading it made the status output carry
+ * paragraphs meant for maintainers. `note` is the other half of that split: it
+ * is validated (a typo surfaces as a config error rather than silence) and then
+ * deliberately dropped — it is never copied onto an `Adapter`, so no code path
+ * can reach it from the CLI output or `.check/summary.json`.
+ */
+type Noted = { note?: string };
+
 /** A custom check: a bare command, no adapter required. */
-export type CustomCheck = {
+export type CustomCheck = Noted & {
   command: string;
   args?: string[];
   description?: string;
@@ -55,7 +68,7 @@ export type CustomCheck = {
 };
 
 /** Pick an adapter by name, with optional field overrides. */
-export type UseConfig = {
+export type UseConfig = Noted & {
   use: string;
   command?: string;
   args?: string[];
@@ -100,7 +113,7 @@ export type UseConfig = {
 export type SlotConfig = string | false | UseConfig | CustomCheck;
 
 /** Shape of `checkride.config.json`. */
-export type CheckrideConfig = {
+export type CheckrideConfig = Noted & {
   /** URL of the JSON Schema for this file, for editor validation. Ignored by the runner. */
   $schema?: string;
   /**
@@ -217,6 +230,19 @@ function readOptIn(entry: { optIn?: unknown }, context: string): boolean | undef
     invalidConfig(`'${context}' optIn must be a boolean (got ${JSON.stringify(entry.optIn)})`);
   }
   return entry.optIn;
+}
+
+/**
+ * Validate a config entry's `note` and discard it. Nothing consumes the value —
+ * that is the whole point of {@link Noted} — but a `note` that is not a string
+ * is a mistake worth naming, and validating here is what keeps "it never
+ * renders" from also meaning "it is never checked". `context` names the
+ * offending check.
+ */
+function checkNote(entry: { note?: unknown }, context: string): void {
+  if (entry.note !== undefined && typeof entry.note !== 'string') {
+    invalidConfig(`'${context}' note must be a string (got ${JSON.stringify(entry.note)})`);
+  }
 }
 
 /** True for an array whose every element is a string. */
@@ -555,6 +581,7 @@ function resolveObjectEntry(
   adapters: readonly Adapter[],
   explicit: boolean,
 ): ResolvedCheck | null {
+  checkNote(entry, slot.name);
   if ('use' in entry) {
     const base = byName(entry.use, adapters, slot.name);
     return base
@@ -627,6 +654,7 @@ function customCheckEntry(
   fileExists: (file: string) => boolean,
 ): ResolvedCheck | null {
   if (!(entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry)) return null;
+  checkNote(entry, name);
   const detect = entry.detect ?? [];
   if (detect.length > 0 && !detect.some((f) => fileExists(f))) {
     // No adapter carries the order on a skip, so pin it on the synthetic slot.

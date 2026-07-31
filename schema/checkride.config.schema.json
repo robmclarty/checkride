@@ -10,6 +10,7 @@
       "type": "string",
       "description": "URL of this JSON Schema, for editor validation and autocompletion."
     },
+    "note": { "$ref": "#/definitions/note" },
     "extends": {
       "description": "Preset(s) to inherit — a file path (./base.json) or package specifier (@acme/preset), or an array of them. Bases merge left-to-right and the local config wins over all; objects deep-merge, arrays and scalars replace (arrays are not concatenated).",
       "oneOf": [
@@ -31,6 +32,10 @@
     }
   },
   "definitions": {
+    "note": {
+      "type": "string",
+      "description": "Internal documentation for whoever reads this config next. Never rendered in the CLI output or written to .check/summary.json — use description for the user-facing text a run prints beside the check."
+    },
     "slotConfig": {
       "description": "How to fill a slot: an adapter name, false to disable it, an adapter with overrides, or a custom check.",
       "oneOf": [
@@ -58,7 +63,11 @@
         },
         "command": { "type": "string" },
         "args": { "type": "array", "items": { "type": "string" } },
-        "description": { "type": "string" },
+        "description": {
+          "type": "string",
+          "description": "User-facing text rendered beside this check in the CLI output. For maintainer commentary that should not render, use note."
+        },
+        "note": { "$ref": "#/definitions/note" },
         "outputFile": { "type": ["string", "null"] },
         "changedArgs": { "type": "array", "items": { "type": "string" } },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
@@ -102,7 +111,11 @@
           "description": "Executable to spawn."
         },
         "args": { "type": "array", "items": { "type": "string" } },
-        "description": { "type": "string" },
+        "description": {
+          "type": "string",
+          "description": "User-facing text rendered beside this check in the CLI output. For maintainer commentary that should not render, use note."
+        },
+        "note": { "$ref": "#/definitions/note" },
         "outputFile": { "type": ["string", "null"] },
         "changedArgs": { "type": "array", "items": { "type": "string" } },
         "fixArgs": { "type": "array", "items": { "type": "string" } },

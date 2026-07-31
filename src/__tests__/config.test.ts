@@ -592,6 +592,59 @@ describe('order validation', () => {
   });
 });
 
+/**
+ * `description` is the string a run prints beside a check; `note` is for
+ * whoever reads the config next. Keeping them apart is the whole feature —
+ * a note that reaches the status line is a note that will not be written.
+ */
+describe('note (internal documentation)', () => {
+  test('never reaches the adapter, so no renderer can find it', () => {
+    const resolved = resolveSlot(
+      'lint',
+      {
+        checks: {
+          lint: {
+            command: 'node',
+            description: 'Lint the sources',
+            note: 'Pinned to node because oxlint 1.74 mis-parses our decorators; revisit after 2.0.',
+          },
+        },
+      },
+      never,
+    );
+    expect(resolved.adapter?.description).toBe('Lint the sources');
+    expect(JSON.stringify(resolved)).not.toContain('mis-parses');
+  });
+
+  test('rides on an adapter override too, and is still dropped', () => {
+    const resolved = resolveSlot(
+      'test',
+      { checks: { test: { use: 'vitest', note: 'why we keep the default args' } } },
+      never,
+    );
+    expect(resolved.adapter?.name).toBe('vitest');
+    expect(JSON.stringify(resolved)).not.toContain('why we keep');
+  });
+
+  test('a config-only custom check carries one as well', () => {
+    const [resolved] = resolveChecks({
+      slots: [],
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['scripts/licenses.js'], note: 'legal asked' } } },
+      fileExists: never,
+    });
+    expect(resolved?.slot).toBe('licenses');
+    expect(JSON.stringify(resolved)).not.toContain('legal asked');
+  });
+
+  /** Never read is not never checked: a typo here should surface, not vanish. */
+  test('a non-string note is a friendly config error naming the check', () => {
+    expect(() =>
+      resolveSlot('lint', { checks: { lint: { command: 'node', note: 42 } } } as unknown as CheckrideConfig, never),
+    ).toThrow(/invalid checkride\.config\.json: 'lint' note must be a string/);
+  });
+});
+
 describe('published JSON Schema', () => {
   const schemaPath = join(
     dirname(fileURLToPath(import.meta.url)),
@@ -615,6 +668,7 @@ describe('published JSON Schema', () => {
   test('validates a representative config exercising every branch', () => {
     const config: CheckrideConfig = {
       $schema: configSchemaUrl('0.1.6'),
+      note: 'Presets live in @acme/checkride-preset; this file only holds the deviations.',
       timeout: 600,
       checks: {
         lint: 'biome', // string: pick an alternate adapter
@@ -625,9 +679,16 @@ describe('published JSON Schema', () => {
         links: { use: 'links', exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] },
         tidy: { command: 'pnpm', args: ['exec', 'biome', 'format', '--write'], order: 'first' },
         licenses: { command: 'node', args: ['scripts/check-licenses.mjs'], optIn: true },
+        docs: { use: 'markdownlint-cli2', description: 'Markdown lint', note: 'why, for maintainers' },
       },
     };
     expect(validate(config)).toBe(true);
+  });
+
+  test('rejects a non-string note, at the root and on a check', () => {
+    expect(validate({ note: 42 })).toBe(false);
+    expect(validate({ checks: { lint: { use: 'oxlint', note: ['a', 'b'] } } })).toBe(false);
+    expect(validate({ checks: { lint: { command: 'node', note: null } } })).toBe(false);
   });
 
   test('rejects a non-boolean optIn', () => {

@@ -81,6 +81,17 @@ function gateTail(harness: HarnessName): string[] {
     ];
   }
   return [
+    '# Claude Code parses a hook body only on exit 0, and only a body can carry a',
+    '# user-visible message alongside the block. So when checkride produced one,',
+    '# forward it and exit 0: the verdict rides in `decision`, not in the status.',
+    'if [ -n "$body" ]; then',
+    "  printf '%s\\n' \"$body\"",
+    '  case "$status" in',
+    '    0|2) exit 0 ;;',
+    '  esac',
+    'fi',
+    '',
+    '# No body — an older checkride that reports only through the exit code.',
     '[ "$status" -eq 0 ] && exit 0',
     '[ "$status" -eq 2 ] && exit 2',
     '',
@@ -102,6 +113,23 @@ function gateTail(harness: HarnessName): string[] {
 function enterRepo(harness: HarnessName): string[] {
   const { emit, exit } = unrunnable(harness);
   return [`if ! cd ${PROJECT_DIR}; then`, `  ${emit}`, `  exit ${exit}`, 'fi'];
+}
+
+/**
+ * How the gate's stdout is taken.
+ *
+ * Cursor's script lets it stream straight through: Cursor reads the hook's own
+ * stdout, and there is nothing for the script to decide. Claude Code's captures
+ * it, because the script has to *choose an exit code based on whether a body
+ * came back* — see {@link gateTail}. Capturing costs nothing that is visible:
+ * the pipeline's human-readable progress is on stderr and streams live either
+ * way; stdout carries only the one-line JSON verdict, written at the very end.
+ */
+function invokeGate(pm: PackageManager, harness: HarnessName, args: readonly string[]): string[] {
+  const command = checkrideCommand(pm, args);
+  return harness === 'cursor'
+    ? [command, 'status=$?']
+    : [`body=$(${command})`, 'status=$?'];
 }
 
 /**
@@ -131,8 +159,7 @@ export function gateScript(
     '',
     ...enterRepo(opts.harness),
     '',
-    checkrideCommand(pm, args),
-    'status=$?',
+    ...invokeGate(pm, opts.harness, args),
     ...gateTail(opts.harness),
     '',
   ].join('\n');

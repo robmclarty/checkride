@@ -55,6 +55,7 @@ const INIT_OPTIONS = {
   baseline: { type: 'boolean', default: false },
   hook: { type: 'string' },
   'no-hook': { type: 'boolean', default: false },
+  'remove-hook': { type: 'string' },
   harness: { type: 'string' },
   force: { type: 'boolean', default: false },
 } as const;
@@ -79,6 +80,7 @@ Commands:
   baseline         Record current diagnostics as a committed baseline.
   agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
                    (--hook <a,b> to select; --no-hook to skip them all;
+                   --remove-hook <a,b> to tear installed ones back out;
                    --harness <a,b> to pick the harnesses).
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
@@ -124,6 +126,9 @@ Options:
   --force          Overwrite existing files instead of refusing (new mode)
   --hook <a,b>     Write only these hooks (${HOOK_NAMES.join(' | ')}; default all)
   --no-hook        Skip writing the agent hooks entirely
+  --remove-hook <a,b>  Remove these already-installed hooks (config entry +
+                   generated script). Combine with --no-hook to remove without
+                   refreshing the others. Cannot name a hook --hook also names.
   --harness <a,b>  Write hooks for these harnesses (${HARNESS_NAMES.join(' | ')};
                    default: claude, plus cursor when .cursor/ exists)
   --dry-run        Plan only; write nothing
@@ -262,14 +267,18 @@ function asShape(value: string | undefined): Shape | undefined {
   throw new Error(`invalid --shape '${value}' (expected flat | monorepo | hybrid)`);
 }
 
-/** Parse `--hook <a,b>` against the hook registry; an unknown name is a usage error. */
-function asHooks(value: string | undefined): HookName[] | undefined {
-  const names = parseList(value, 'hook');
+/**
+ * Parse `--hook <a,b>` / `--remove-hook <a,b>` against the hook registry; an
+ * unknown name is a usage error naming the valid set. `flag` is the one being
+ * parsed, so the error points at the flag the user actually typed.
+ */
+function asHooks(value: string | undefined, flag = 'hook'): HookName[] | undefined {
+  const names = parseList(value, flag);
   if (!names) return undefined;
   return names.map((name) => {
     const hit = HOOK_NAMES.find((h) => h === name);
     if (hit === undefined) {
-      throw new Error(`invalid --hook '${name}' (expected ${HOOK_NAMES.join(' | ')})`);
+      throw new Error(`invalid --${flag} '${name}' (expected ${HOOK_NAMES.join(' | ')})`);
     }
     return hit;
   });
@@ -314,6 +323,16 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   if (values['no-hook']) opts.hook = false;
   const hooks = asHooks(values.hook);
   if (hooks) opts.hooks = hooks;
+  const removeHooks = asHooks(values['remove-hook'], 'remove-hook');
+  if (removeHooks) {
+    // Writing and removing the same hook has no coherent reading, and silently
+    // picking one would leave the user's repo in the state they did not ask for.
+    const both = removeHooks.filter((h) => hooks?.includes(h));
+    if (both.length > 0) {
+      throw new Error(`'${both.join(', ')}' named by both --hook and --remove-hook`);
+    }
+    opts.removeHooks = removeHooks;
+  }
   const harnesses = asHarnesses(values.harness);
   if (harnesses) opts.harnesses = harnesses;
   if (values.force) opts.force = true;
@@ -359,6 +378,7 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
   const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
   if (parsed.hook !== undefined) opts.hook = parsed.hook;
   if (parsed.hooks) opts.hooks = parsed.hooks;
+  if (parsed.removeHooks) opts.removeHooks = parsed.removeHooks;
   if (parsed.harnesses) opts.harnesses = parsed.harnesses;
   if (parsed.dryRun) opts.dryRun = true;
   const result = await runAgentSetup(opts);

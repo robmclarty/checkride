@@ -4,9 +4,15 @@
  * `../agent-setup`, never from `./hook.js` or a per-harness writer directly.
  */
 
-export { applyHooks, CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE } from './claude.js';
+export {
+  applyHooks,
+  CLAUDE_SETTINGS_FILE,
+  GATE_SCRIPT_FILE,
+  PROTECT_SCRIPT_FILE,
+  removeHooks,
+} from './claude.js';
 
-export { applyCursorHooks, CURSOR_HOOKS_FILE } from './cursor.js';
+export { applyCursorHooks, CURSOR_HOOKS_FILE, removeCursorHooks } from './cursor.js';
 
 export type { HookFile } from './files.js';
 

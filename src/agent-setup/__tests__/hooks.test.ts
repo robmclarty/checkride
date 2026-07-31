@@ -31,6 +31,8 @@ import {
   HOOK_NAMES,
   PROTECT_SCRIPT_FILE,
   protectScript,
+  removeCursorHooks,
+  removeHooks,
   renameSkill,
   writeHooks,
 } from '../index.js';
@@ -116,6 +118,32 @@ describe('generated scripts', () => {
     }
   });
 
+  /**
+   * Claude Code parses a hook body only on exit 0, and only a body can carry a
+   * user-visible message alongside the block — so the script forwards what
+   * checkride wrote and exits 0, rather than re-blocking on the status.
+   */
+  test('the claude gate script forwards checkride’s hook body and exits 0 on it', () => {
+    const script = gateScript('pnpm', { harness: 'claude' });
+    expect(script).toMatch(/body=\$\(.*checkride gate/);
+    expect(script).toMatch(/if \[ -n "\$body" \][\s\S]*0\|2\) exit 0 ;;/);
+  });
+
+  /**
+   * A hook script generated before the body existed blocks on exit 2 and ignores
+   * stdout. Keeping that branch means an unrefreshed repo keeps gating — and it
+   * is also what answers an older checkride that emits no body at all.
+   */
+  test('the claude gate script still blocks on the exit code when no body came back', () => {
+    const script = gateScript('pnpm', { harness: 'claude' });
+    expect(script).toContain('[ "$status" -eq 2 ] && exit 2');
+  });
+
+  /** Cursor reads the hook's own stdout, so there is nothing for its script to capture. */
+  test('the cursor gate script lets its stdout stream straight through', () => {
+    expect(gateScript('pnpm', { harness: 'cursor' })).not.toContain('body=$(');
+  });
+
   test('the dirty script creates the marker directory and always exits 0', () => {
     const script = dirtyScript();
     expect(script).toContain('.check/.dirty');
@@ -151,6 +179,45 @@ describe('claude merge (applyHooks)', () => {
     expect(applyHooks(once, HOOK_NAMES)).toEqual(once);
   });
 
+  /**
+   * The gate is the one hook a user waits on, and the default spinner says
+   * nothing about why. Naming the command in `statusMessage` is the difference
+   * between "a full pipeline is running" and "the model appears to have hung".
+   */
+  test('the gate names the command it is running in the spinner', () => {
+    const entry = applyHooks({}, ['gate'], 'npm').hooks?.Stop?.[0]?.hooks?.[0];
+    expect(entry?.statusMessage).toContain('npm check');
+  });
+
+  /**
+   * Claude Code's default command-hook timeout is 600s, and it reads a cancelled
+   * hook as a *broken* one — which ends the turn. A pipeline slower than the
+   * default would therefore stop gating silently: a vacuous green.
+   */
+  test('the gate raises the timeout past a real pipeline’s runtime', () => {
+    const entry = applyHooks({}, ['gate']).hooks?.Stop?.[0]?.hooks?.[0];
+    expect(entry?.timeout).toBeGreaterThan(600);
+  });
+
+  /** The two guards are fast and invisible; only the gate overrides the defaults. */
+  test('the guards take the platform defaults', () => {
+    const entry = applyHooks({}, ['dirty']).hooks?.PostToolUse?.[0]?.hooks?.[0];
+    expect(entry?.timeout).toBeUndefined();
+    expect(entry?.statusMessage).toBeUndefined();
+  });
+
+  test('a refresh restores the gate’s fields but keeps keys checkride does not own', () => {
+    const weakened = applyHooks({}, ['gate']);
+    const entry = weakened.hooks?.Stop?.[0]?.hooks?.[0];
+    if (entry) {
+      entry.timeout = 5;
+      entry['if'] = 'Edit(*.ts)';
+    }
+    const next = applyHooks(weakened, ['gate']).hooks?.Stop?.[0]?.hooks?.[0];
+    expect(next?.timeout).toBeGreaterThan(600);
+    expect(next?.['if']).toBe('Edit(*.ts)');
+  });
+
   test('protect is a PreToolUse deny on the edit tools, and only those', () => {
     const group = applyHooks({}, ['protect']).hooks?.PreToolUse?.[0];
     // Read is deliberately absent: the stanza's procedure and the skills read
@@ -184,6 +251,26 @@ describe('claude merge (applyHooks)', () => {
     expect(next.hooks?.Stop?.[0]?.hooks).toHaveLength(1);
     expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain(GATE_SCRIPT_FILE);
     expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).not.toContain('pnpm run check');
+  });
+
+  test('removing the gate takes its group with it, leaving no empty scaffolding', () => {
+    const next = removeHooks(applyHooks({}, HOOK_NAMES), ['gate']);
+    expect(next.hooks?.Stop).toBeUndefined();
+    expect(next.hooks?.PostToolUse).toHaveLength(1);
+  });
+
+  test('removing keeps a sibling hook that shares the group', () => {
+    const withSibling = applyHooks(
+      { hooks: { PreToolUse: [{ matcher: 'Edit|Write|NotebookEdit', hooks: [{ type: 'command', command: 'echo mine' }] }] } },
+      ['protect'],
+    );
+    const next = removeHooks(withSibling, ['protect']);
+    expect(next.hooks?.PreToolUse?.[0]?.hooks).toEqual([{ type: 'command', command: 'echo mine' }]);
+  });
+
+  test('removing what was never there changes nothing', () => {
+    const settings = { permissions: { allow: ['Bash'] } };
+    expect(removeHooks(settings, HOOK_NAMES)).toEqual({ ...settings, hooks: {} });
   });
 
   /** The dirty hook was an inline `touch` before it became a script. */
@@ -296,6 +383,19 @@ describe('cursor merge (applyCursorHooks)', () => {
     expect(entry?.['loop_limit']).toBeNull();
     expect(entry?.['failClosed']).toBe(true);
   });
+
+  test('removing the gate drops its event key and leaves the rest standing', () => {
+    const next = removeCursorHooks(applyCursorHooks({}, HOOK_NAMES), ['gate']);
+    expect(next.hooks?.stop).toBeUndefined();
+    expect(next.hooks?.preToolUse).toHaveLength(1);
+    expect(next.version).toBe(1);
+  });
+
+  test('removing keeps a foreign hook registered on the same event', () => {
+    const config = applyCursorHooks({ hooks: { stop: [{ command: './notify.sh' }] } }, ['gate']);
+    const next = removeCursorHooks(config, ['gate']);
+    expect(next.hooks?.stop).toEqual([{ command: './notify.sh' }]);
+  });
 });
 
 describe('harness detection', () => {
@@ -372,6 +472,97 @@ describe('writeHooks', () => {
     await mkdir(join(dir, file, '..'), { recursive: true });
     await writeFile(join(dir, file), '{ not valid json');
     await expect(writeHooks(dir, { harnesses: [harness] })).rejects.toThrow(`invalid ${file}`);
+  });
+});
+
+/**
+ * Removal is what makes the gate optional *after* it is installed. Declining to
+ * refresh a hook (`--hook dirty,protect`) leaves an installed one firing
+ * exactly as before, so "I no longer want the stop hook" needs its own verb.
+ */
+describe('writeHooks — removal', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-unhook-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** The parsed Claude settings on disk. */
+  async function settings(): Promise<{ hooks?: Record<string, unknown[]> } & Record<string, unknown>> {
+    return JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      hooks?: Record<string, unknown[]>;
+    } & Record<string, unknown>;
+  }
+
+  test('takes out the config entry and the script it invoked', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    const result = await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
+
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    expect((await settings()).hooks?.['Stop']).toBeUndefined();
+    expect(result.files.find((f) => f.path === GATE_SCRIPT_FILE)).toEqual({
+      path: GATE_SCRIPT_FILE,
+      changed: true,
+      removed: true,
+    });
+  });
+
+  test('leaves the hooks it was not asked to remove', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
+    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(true);
+    expect((await settings()).hooks?.['PreToolUse']).toHaveLength(1);
+  });
+
+  test('removing twice is a no-op, like every other write here', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
+    const again = await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
+    expect(again.files.every((f) => !f.changed || f.removed !== true)).toBe(true);
+  });
+
+  /**
+   * The gate guards on the edit marker only while the hook that sets it exists.
+   * Dropping `dirty` and leaving the guard in place would disarm the gate on
+   * every turn — it would find no marker and skip.
+   */
+  test('removing dirty rewrites a surviving gate unguarded', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('--if-dirty');
+    await writeHooks(dir, { remove: ['dirty'], harnesses: ['claude'] });
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('--if-dirty');
+  });
+
+  test('a pure removal never creates a config for a harness that had none', async () => {
+    const result = await writeHooks(dir, { hooks: [], remove: ['gate'], harnesses: ['claude'] });
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+    expect(result.files.every((f) => !f.changed)).toBe(true);
+  });
+
+  test('removes from every selected harness', async () => {
+    await writeHooks(dir, { harnesses: ['claude', 'cursor'] });
+    await writeHooks(dir, { remove: ['gate'], harnesses: ['claude', 'cursor'] });
+    expect(existsSync(join(dir, '.cursor/hooks/checkride-gate.sh'))).toBe(false);
+    const cursor = JSON.parse(await readFile(join(dir, CURSOR_HOOKS_FILE), 'utf8')) as {
+      version: number;
+      hooks: Record<string, unknown[]>;
+    };
+    expect(cursor.hooks['stop']).toBeUndefined();
+    expect(cursor.hooks['preToolUse']).toHaveLength(1);
+    expect(cursor.version).toBe(1);
+  });
+
+  test('dryRun removes nothing', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    const result = await writeHooks(dir, { dryRun: true, remove: ['gate'], harnesses: ['claude'] });
+    expect(result.files.find((f) => f.path === GATE_SCRIPT_FILE)?.changed).toBe(true);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+  });
+
+  test('a hook removed by hand from settings still has its script cleaned up', async () => {
+    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeFile(join(dir, CLAUDE_SETTINGS_FILE), JSON.stringify({ model: 'sonnet' }));
+    await writeHooks(dir, { hooks: [], remove: ['gate'], harnesses: ['claude'] });
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    expect((await settings())['model']).toBe('sonnet');
   });
 });
 
