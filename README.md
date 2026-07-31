@@ -82,6 +82,12 @@ back out with `--remove-hook <a,b>`. To add all of this — alias, stanza, hooks
 and the Cursor skills — to a repo you already set up, run
 `checkride agent-setup`.
 
+Re-running either command refreshes the stanza in place, but never behind your
+back: the marker carries a hash of what checkride wrote, so a stanza you have
+since edited stops the run (exit 2) instead of being overwritten. Keep
+repo-specific additions outside the markers, where nothing rewrites them — or
+pass `--force` to discard the edits and refresh.
+
 ## Docs
 
 Task-focused guides live in [docs/](./docs/README.md):
@@ -147,6 +153,7 @@ checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to 
   --no-hook    skip the hooks (write only the stanza)
   --remove-hook <a,b>  remove these installed hooks; with --no-hook, remove only
   --harness <a,b> which harnesses to write for (claude | cursor; default: detected)
+  --force      refresh a stanza that has local edits (refused otherwise)
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
 checkride triage       Triage a red gate: run it, then read .check/ as a bounded report.

@@ -118,6 +118,16 @@ and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
 write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
 selects `claude` plus any harness the repo shows evidence of.
 
+**checkride owns the AGENTS.md stanza, and only the stanza.** Everything outside
+the `checkride:begin`/`checkride:end` markers is yours and is never rewritten;
+the marked region is checkride's and is refreshed in place. The begin marker
+carries a hash of the body checkride generated, so the two stay distinguishable:
+a run whose stanza no longer matches its hash — or that predates the hash —
+refuses rather than overwrite it, exits 2, and writes nothing at all, so a
+refused run leaves the repo as it found it. `--force` overrides, on both `init`
+and `agent-setup`. Silently discarding a repo's own additions is the failure this
+prevents; the exit code and the "writes nothing" rule are the promise.
+
 **`gate` is the one command outside the 0/1/2 split**, because it answers a
 harness's hook protocol rather than checkride's own. Under `--harness claude` it
 exits 2 while the pipeline is red (Claude Code blocks on 2 and ignores 1) and 0

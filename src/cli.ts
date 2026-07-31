@@ -81,7 +81,8 @@ Commands:
   agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
                    (--hook <a,b> to select; --no-hook to skip them all;
                    --remove-hook <a,b> to tear installed ones back out;
-                   --harness <a,b> to pick the harnesses).
+                   --harness <a,b> to pick the harnesses; --force to refresh a
+                   stanza carrying local edits).
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
   triage           Triage a red gate: run it, then read .check/ as a bounded
@@ -114,6 +115,8 @@ Usage: checkride init [options]
 New project (no package.json): scaffolds a full project. Refuses to overwrite
 existing files unless --force.
 Existing project: adopts detectable slots; --baseline grandfathers current debt.
+Either mode refuses (exit 2) rather than overwrite an AGENTS.md stanza that has
+been edited since checkride wrote it.
 
 Options:
   --shape <s>      Project shape: flat | monorepo | hybrid (new mode; default flat)
@@ -123,7 +126,8 @@ Options:
   --author <a>     Package author (new mode)
   --add <a,b>      Scaffold blessed configs for empty slots (existing mode)
   --baseline       Grandfather currently-failing slots into a baseline (existing mode)
-  --force          Overwrite existing files instead of refusing (new mode)
+  --force          Overwrite instead of refusing: existing files (new mode), or
+                   an AGENTS.md stanza carrying local edits (existing mode)
   --hook <a,b>     Write only these hooks (${HOOK_NAMES.join(' | ')}; default all)
   --no-hook        Skip writing the agent hooks entirely
   --remove-hook <a,b>  Remove these already-installed hooks (config entry +
@@ -381,6 +385,7 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
   if (parsed.removeHooks) opts.removeHooks = parsed.removeHooks;
   if (parsed.harnesses) opts.harnesses = parsed.harnesses;
   if (parsed.dryRun) opts.dryRun = true;
+  if (parsed.force) opts.force = true;
   const result = await runAgentSetup(opts);
   return result.exitCode;
 }

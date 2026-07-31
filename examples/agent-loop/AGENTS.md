@@ -1,4 +1,4 @@
-<!-- checkride:begin -->
+<!-- checkride:begin hash=v1d4cf790e8175e188 -->
 
 ## Checkride: the definition of done
 

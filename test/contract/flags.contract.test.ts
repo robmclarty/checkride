@@ -7,7 +7,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -241,5 +241,55 @@ describe('CLI harness selection (--harness)', () => {
 
   test('gate answers one harness at a time; a list is a usage error', async () => {
     expect(await runCli(['gate', '--harness', 'claude,cursor'], deps(capture()))).toBe(2);
+  });
+});
+
+/**
+ * Contract: checkride owns the AGENTS.md stanza and only the stanza
+ * (docs/contract.md §CLI). A stanza edited since checkride wrote it stops the
+ * run — exit 2, nothing written — instead of being silently overwritten;
+ * `--force` overrides, on both `init` and `agent-setup`.
+ */
+describe('AGENTS.md stanza ownership (--force)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-stanza-flag-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function deps(stderr: CliDeps['stderr']): CliDeps {
+    return { cwd: dir, stdout: { write: () => true }, stderr };
+  }
+
+  /** Wire the repo, then customize inside the markers the way a consumer would. */
+  async function customizeStanza(): Promise<string> {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    await runCli(['agent-setup', '--no-hook'], deps(capture()));
+    const custom = (await readFile(join(dir, 'AGENTS.md'), 'utf8')).replace(
+      '### Baseline',
+      '### This repo\n\nThe generated migrations are exempt.\n\n### Baseline',
+    );
+    await writeFile(join(dir, 'AGENTS.md'), custom);
+    return custom;
+  }
+
+  test('an edited stanza stops agent-setup: exit 2, file intact, hooks unwritten', async () => {
+    const custom = await customizeStanza();
+    const stderr = capture();
+    expect(await runCli(['agent-setup'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain('--force');
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(custom);
+    expect(existsSync(join(dir, '.claude'))).toBe(false);
+  });
+
+  test('--force refreshes it, on agent-setup and on init', async () => {
+    const custom = await customizeStanza();
+    expect(await runCli(['agent-setup', '--no-hook', '--force'], deps(capture()))).toBe(0);
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).not.toBe(custom);
+    expect(await runCli(['init', '--no-hook', '--force'], deps(capture()))).toBe(0);
+  }, 30000);
+
+  test('an untouched stanza refreshes without --force', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['agent-setup', '--no-hook'], deps(capture()))).toBe(0);
+    expect(await runCli(['agent-setup', '--no-hook'], deps(capture()))).toBe(0);
   });
 });

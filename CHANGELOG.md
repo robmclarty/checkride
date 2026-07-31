@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`init` and `agent-setup` refuse to overwrite an AGENTS.md stanza that has
+  been edited.** Repos routinely need a line or two of their own in the contract
+  — a directory the `spell` check is allowed to skip, what a custom check means
+  here — and the refresh rewrote the marked region blind, taking those additions
+  with it. Idempotent, as promised, and lossy: the second run reported
+  `changed: false` precisely because the first one had already discarded the
+  edit.
+
+  The begin marker now carries a hash of the body checkride generated
+  (`<!-- checkride:begin hash=v1… -->`), so a later run can tell its own output
+  from a block someone has since changed. A changed one stops the run: exit 2, a
+  message naming the file and the two ways forward, and **nothing written at
+  all** — not the config, not the hooks — so a refused run leaves the repo
+  exactly as it found it, the rule new-mode `init` already followed for scaffold
+  collisions. `--force` accepts the loss and refreshes, and now carries that
+  meaning on `agent-setup` too, where the flag previously reached nothing.
+
+  Two things are deliberately *not* edits. Reformatting: line endings and
+  trailing whitespace are normalized away before hashing, so a Prettier run over
+  AGENTS.md does not read as a customization. And anything outside the markers,
+  which stays the right home for repo-specific additions — checkride has never
+  rewritten a line out there and still does not.
+
+  One-time cost on upgrade: a stanza written by 0.10.0 or earlier carries no
+  hash, and an older version's wording is indistinguishable from an edit, so the
+  first run after upgrading refuses with its own wording of the message.
+  `--force` once stamps it; detection is automatic from then on.
+
+### Contract
+
+- **checkride owns the AGENTS.md stanza and only the stanza**, and the boundary
+  is now enforced rather than documented (docs/contract.md §CLI, locked by
+  `test/contract/flags.contract.test.ts`). The promise a consumer can build on:
+  a stanza carrying local edits is never overwritten without `--force`, and the
+  run that refuses writes nothing. Behavioural break for anyone scripting
+  `agent-setup` over a repo with a hand-edited or pre-0.11 stanza — that
+  invocation exited 0 and now exits 2 until it is re-run with `--force`.
+
 ## [0.10.0] - 2026-07-31
 
 ### Added

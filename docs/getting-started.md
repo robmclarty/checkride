@@ -157,7 +157,7 @@ adopts the "exit 0 = done" rule on its own.
 
 `init` writes the contract into two files:
 
-- **`AGENTS.md`** — a stanza, between `<!-- checkride:begin -->` and
+- **`AGENTS.md`** — a stanza, between `<!-- checkride:begin … -->` and
   `<!-- checkride:end -->` markers, stating that `pnpm check` is the definition
   of done, how to read `.check/` when it fails, the module-boundary conventions,
   and the tight-loop commands.
@@ -170,8 +170,26 @@ context at the start of a session. That is the whole integration: the agent runs
 the tool. It is guidance, not enforcement — the model has to follow it.
 
 `init` rewrites the stanza in place on every run, so keep any edits of your own
-*outside* the `checkride:begin`/`checkride:end` markers, or the next `init` will
-overwrite them.
+*outside* the `checkride:begin`/`checkride:end` markers. That is where
+repo-specific additions belong: checkride never touches a line outside them.
+
+It will not silently take an edit from you, though. The begin marker carries a
+hash of the stanza checkride generated (`<!-- checkride:begin hash=… -->`), so a
+later run can tell its own output from a block someone has since edited. If the
+stanza has changed, `init` and `agent-setup` refuse the whole run — writing
+nothing, not even the hooks — and say so:
+
+```text
+checkride: refusing to overwrite the checkride stanza in AGENTS.md: it has been
+edited since checkride wrote it.
+  Move your additions outside the markers — checkride never rewrites what is
+  outside them — or re-run with --force to discard them and refresh.
+```
+
+`--force` accepts the loss and refreshes. A stanza written before checkride
+started stamping them (v0.10.0 and earlier) is indistinguishable from an edited
+one, so the first run after upgrading refuses too; `--force` once stamps it, and
+detection is automatic from then on.
 
 ### Make it a hard gate
 

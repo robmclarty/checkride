@@ -12,6 +12,7 @@
  * it afterward.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
@@ -44,9 +45,10 @@ export type InitOptions = {
   add?: string[] | null;
   checkrideSpec?: string;
   /**
-   * New mode: overwrite existing files instead of refusing. Without it, `init`
-   * refuses (exit 2) rather than clobber any file it would scaffold;
-   * existing mode is already additive-only and ignores this flag.
+   * Overwrite instead of refusing. Without it, `init` refuses (exit 2) rather
+   * than clobber any file new mode would scaffold, or an AGENTS.md stanza
+   * existing mode would refresh that carries local edits. Existing mode is
+   * otherwise additive-only, so the flag reaches nothing else there.
    */
   force?: boolean;
   /**
@@ -107,15 +109,68 @@ export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapte
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(HERE, '..', 'templates');
 
-const STANZA_BEGIN = '<!-- checkride:begin -->';
+const STANZA_BEGIN_PREFIX = '<!-- checkride:begin';
 const STANZA_END = '<!-- checkride:end -->';
+/** The block, capturing its stamp (absent on stanzas written before v0.11.0) and its body. */
+const STANZA_RE = /<!-- checkride:begin(?: hash=([0-9a-z]+))? -->([\s\S]*?)<!-- checkride:end -->/;
+const STANZA_BEGIN_RE = /<!-- checkride:begin(?: hash=[0-9a-z]+)? -->/;
 
 // ----------------------------------------------------------------------------
 // AGENTS.md stanza (gate: idempotent)
 // ----------------------------------------------------------------------------
 
-function escapeRegex(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Compare two stanza bodies the way a reader would: line endings and trailing
+ * whitespace are not edits. Deliberately minimal — one checkride version stamps
+ * a block and a later one verifies that stamp, so every rule here has to keep
+ * holding across versions or a pristine stanza starts reading as an edited one.
+ */
+function normalizeStanza(text: string): string {
+  return text.replace(/\r\n/g, '\n').replace(/[ \t]+$/gm, '').trim();
+}
+
+/**
+ * The stamp written into the begin marker: a digest of the body checkride
+ * generated. A later run recomputes it from what is on disk — a match means the
+ * block is still checkride's own output and is safe to refresh; a mismatch means
+ * someone edited it and refreshing would destroy their work.
+ *
+ * The `v1` prefix earns its place twice: it dates the normalization rules above
+ * (change them and bump it, so old stamps read as unverifiable rather than
+ * edited), and it guarantees the token contains a digit. cspell ignores words
+ * with digits, so a digest that happened to come up all `a`-`f` cannot fail the
+ * `spell` check of the repo checkride wrote it into.
+ */
+function stanzaStamp(body: string): string {
+  return `v1${createHash('sha256').update(normalizeStanza(body)).digest('hex').slice(0, 16)}`;
+}
+
+/**
+ * How the stanza on disk relates to the one checkride would write:
+ *
+ * - `absent` — no stanza yet; writing one takes nothing away.
+ * - `pristine` — checkride's own output, untouched; refreshing it is lossless.
+ * - `edited` — stamped, but the body no longer matches its stamp: a human or an
+ *   agent customized it, and a blind refresh would silently discard that.
+ * - `unstamped` — written before checkride stamped stanzas, and not identical to
+ *   today's. An older version's wording and a customization are indistinguishable
+ *   here, so it gets the same protection as `edited` — once.
+ */
+export type StanzaState = 'absent' | 'pristine' | 'edited' | 'unstamped';
+
+/** Classify the stanza in `content` against the `body` checkride would write. */
+export function inspectStanza(content: string, body: string): StanzaState {
+  const match = STANZA_RE.exec(content);
+  if (!match) {
+    // A begin marker with no end is a stanza someone edited badly, not an absent
+    // one: appending a second block would be the same data loss in another form.
+    return content.includes(STANZA_BEGIN_PREFIX) ? 'edited' : 'absent';
+  }
+  const [, stamp, found = ''] = match;
+  if (stamp === undefined) {
+    return normalizeStanza(found) === normalizeStanza(body) ? 'pristine' : 'unstamped';
+  }
+  return stamp === stanzaStamp(found) ? 'pristine' : 'edited';
 }
 
 /** The agent-facing contract block, parameterized by the active checks. */
@@ -167,13 +222,22 @@ export function buildStanza(activeSlots: readonly string[]): string {
 
 /**
  * Insert or refresh the checkride stanza in an AGENTS.md body. Idempotent:
- * applying twice yields identical output.
+ * applying twice yields identical output. It rewrites the marked region without
+ * looking at what was there — callers gate on {@link inspectStanza} first.
  */
 export function applyStanza(content: string, body: string): string {
-  const block = `${STANZA_BEGIN}\n\n${body}\n\n${STANZA_END}`;
-  const re = new RegExp(`${escapeRegex(STANZA_BEGIN)}[\\s\\S]*?${escapeRegex(STANZA_END)}`);
-  if (re.test(content)) {
-    return content.replace(re, block);
+  // A replacer function, not the string: a `$&` in the stanza would otherwise be
+  // read as a backreference.
+  const block = `${STANZA_BEGIN_PREFIX} hash=${stanzaStamp(body)} -->\n\n${body}\n\n${STANZA_END}`;
+  if (STANZA_RE.test(content)) {
+    return content.replace(STANZA_RE, () => block);
+  }
+  if (STANZA_BEGIN_RE.test(content)) {
+    // A begin marker with no end: replace the marker in place rather than
+    // appending a second block, which would leave two begins and make the next
+    // refresh swallow everything between them. What followed the orphaned marker
+    // stays where it is — now outside the markers, so nothing rewrites it again.
+    return content.replace(STANZA_BEGIN_RE, () => block);
   }
   if (content.trim().length === 0) {
     return `${block}\n`;
@@ -780,11 +844,48 @@ function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonl
     .map((r) => r.slot);
 }
 
+const STANZA_REFUSALS: Record<'edited' | 'unstamped', string> = {
+  edited: 'it has been edited since checkride wrote it',
+  unstamped: "it predates checkride's stanza stamp, so an older version's wording and your own edits are indistinguishable",
+};
+
+/**
+ * Refuse to refresh a stanza that is not checkride's own output, so a repo's
+ * edge-case additions survive the next `init`/`agent-setup` instead of being
+ * silently overwritten. `opts.force` overrides.
+ *
+ * Called before either entry point writes anything, so a refusal leaves the repo
+ * exactly as it found it (the same rule `assertNoCollisions` follows in new
+ * mode). That ordering costs one thing: in existing mode the config is written
+ * *after* this runs, so `body` here is derived from the config as it is on disk
+ * now. Only the `unstamped` comparison uses `body` at all, so the worst case is
+ * a one-time over-refusal on a legacy stanza in a repo whose active checks this
+ * run is about to change — recoverable with `--force`. A stamped stanza is
+ * verified against its own stamp and is unaffected.
+ */
+async function assertStanzaUnedited(cwd: string, body: string, opts: { force?: boolean }): Promise<void> {
+  if (opts.force === true) return;
+  const existing = await readIfExists(join(cwd, 'AGENTS.md'));
+  if (existing === null) return;
+  const state = inspectStanza(existing, body);
+  if (state === 'absent' || state === 'pristine') return;
+  const remedy =
+    state === 'edited'
+      ? 'Move your additions outside the markers — checkride never rewrites what is outside them — or re-run with --force to discard them and refresh.'
+      : 'If you have not edited it, re-run with --force: the refreshed stanza carries a stamp, and later runs tell an edit from a refresh on their own.';
+  throw new Error(
+    `refusing to overwrite the checkride stanza in AGENTS.md: ${STANZA_REFUSALS[state]}.\n  ${remedy}`,
+  );
+}
+
 /**
  * Write (or refresh) the AGENTS.md stanza for `slots`, idempotently: it writes
  * only when the applied stanza differs from the current file, records the outcome
  * on `w`/`skipped`, and honours dry-run. Shared by `initExisting` and
  * `runAgentSetup` (both create-or-refresh the same stanza).
+ *
+ * It rewrites the marked region unconditionally; whether that is allowed is
+ * {@link assertStanzaUnedited}'s call, made before either caller writes anything.
  */
 async function writeAgentsStanza(
   w: Writer,
@@ -1008,6 +1109,10 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
 
+  // Before the first write: a stanza this repo has customized stops the run
+  // rather than being clobbered by the refresh below.
+  await assertStanzaUnedited(cwd, buildStanza(activeCheckSlots(cwd, slots, adapters)), options);
+
   // Route --add: publish slots (and the library path) opt into the bundle; the
   // rest scaffold blessed configs before inventory, so they're detected this run.
   const { publishRequested, fileAdds } = splitAdd(options.add ?? [], manifest);
@@ -1085,6 +1190,11 @@ export type AgentSetupOptions = {
   removeHooks?: readonly HookName[];
   /** Which harnesses to write them for (`--harness <a,b>`). Omitted → detected. */
   harnesses?: readonly HarnessName[];
+  /**
+   * Refresh the AGENTS.md stanza even when it carries local edits. Without it a
+   * customized stanza stops the run (exit 2) instead of being overwritten.
+   */
+  force?: boolean;
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -1112,12 +1222,17 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   const adapters = options.adapters ?? ADAPTERS;
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   const skipped: string[] = [];
+  const stanzaSlots = activeCheckSlots(cwd, slots, adapters);
+
+  // Before the first write: a stanza this repo has customized stops the run
+  // rather than being clobbered by the refresh below.
+  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots), options);
 
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
   await addCheckAlias(w, skipped);
 
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
-  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
+  await writeAgentsStanza(w, cwd, stanzaSlots, skipped);
 
   await writeHook(w, options, skipped);
   await writeSkills(w, options, skipped);

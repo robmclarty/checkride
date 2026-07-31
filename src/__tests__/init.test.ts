@@ -7,21 +7,21 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE } from '../agent-setup/index.js';
-import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
+import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
   const body = buildStanza(['types', 'lint', 'spell']);
 
   test('inserts a stanza into existing content', () => {
     const out = applyStanza('# AGENTS.md\n\nintro\n', body);
-    expect(out).toContain('<!-- checkride:begin -->');
+    expect(out).toMatch(/<!-- checkride:begin hash=v1[0-9a-f]{16} -->/);
     expect(out).toContain('<!-- checkride:end -->');
     expect(out.startsWith('# AGENTS.md')).toBe(true);
   });
 
   test('creates a body when content is empty', () => {
     const out = applyStanza('', body);
-    expect(out.startsWith('<!-- checkride:begin -->')).toBe(true);
+    expect(out.startsWith('<!-- checkride:begin hash=')).toBe(true);
   });
 
   test('applying twice is a no-op (refresh in place)', () => {
@@ -56,6 +56,64 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(refreshed).toContain('keep me');
     expect(refreshed).toContain('types, lint');
     expect(refreshed.match(/checkride:begin/g)).toHaveLength(1);
+  });
+});
+
+/** A stanza as checkride wrote it before v0.11.0: same markers, no hash. */
+function legacy(text: string): string {
+  return `<!-- checkride:begin -->\n\n${text}\n\n<!-- checkride:end -->\n`;
+}
+
+describe('AGENTS stanza (edit detection)', () => {
+  const body = buildStanza(['types', 'lint']);
+  const stanza = applyStanza('# AGENTS.md\n\nintro\n', body);
+
+  test('a file with no stanza is absent, and checkride’s own output is pristine', () => {
+    expect(inspectStanza('# AGENTS.md\n\nintro\n', body)).toBe('absent');
+    expect(inspectStanza('', body)).toBe('absent');
+    expect(inspectStanza(stanza, body)).toBe('pristine');
+  });
+
+  test('a stanza whose active-check line moved on is still pristine', () => {
+    // The stamp travels with the block, so a refresh that would *change* the
+    // stanza is not an edit — only a change already on disk is.
+    expect(inspectStanza(stanza, buildStanza(['types', 'lint', 'spell']))).toBe('pristine');
+  });
+
+  test('an addition inside the markers reads as edited', () => {
+    const edited = stanza.replace('### Baseline', '### This repo\n\nSkip `spell` on vendored files.\n\n### Baseline');
+    expect(inspectStanza(edited, body)).toBe('edited');
+  });
+
+  test('edits outside the markers are not edits: that is where customization belongs', () => {
+    expect(inspectStanza(`${stanza}\n## Repo-specific\n\nanything at all\n`, body)).toBe('pristine');
+    expect(inspectStanza(`## First\n\nmine\n\n${stanza}`, body)).toBe('pristine');
+  });
+
+  test('reformatting is not an edit: line endings and trailing spaces are ignored', () => {
+    expect(inspectStanza(stanza.replace(/\n/g, '\r\n'), body)).toBe('pristine');
+    expect(inspectStanza(stanza.replace(/\n/g, '   \n'), body)).toBe('pristine');
+  });
+
+  test('a stanza with no end marker reads as edited, not absent', () => {
+    // Treating it as absent would append a second block — the same data loss.
+    expect(inspectStanza(stanza.replace('<!-- checkride:end -->', ''), body)).toBe('edited');
+  });
+
+  test('refreshing over an orphaned begin marker leaves one block, not two', () => {
+    // Only reachable under --force, and the outcome has to stay coherent: two
+    // begin markers would make the *next* refresh treat everything between the
+    // first begin and the last end as checkride's, and swallow it.
+    const orphaned = `${stanza.replace('<!-- checkride:end -->', '')}\n## Mine\n\nkeep me\n`;
+    const refreshed = applyStanza(orphaned, body);
+    expect(refreshed.match(/checkride:begin/g)).toHaveLength(1);
+    expect(refreshed).toContain('keep me');
+    expect(inspectStanza(refreshed, body)).toBe('pristine');
+  });
+
+  test('an unstamped stanza is pristine only when it matches today’s text', () => {
+    expect(inspectStanza(legacy(body), body)).toBe('pristine');
+    expect(inspectStanza(legacy(`${body}\n\nSkip \`spell\` on vendored files.`), body)).toBe('unstamped');
   });
 });
 
@@ -467,7 +525,7 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
     expect(pkg.scripts['check']).toBe('checkride');
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
-    expect(agents).toContain('<!-- checkride:begin -->');
+    expect(agents).toContain('<!-- checkride:begin hash=');
     expect(agents).toContain('`pnpm exec checkride triage` runs this procedure in full');
 
     const second = await runAgentSetup({ cwd: dir });
@@ -507,6 +565,54 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(activeLine).toContain('types');
     // An opt-in slot the config does NOT name stays out of the reported gate.
     expect(activeLine).not.toContain('mutation');
+  });
+
+  test('refuses to overwrite a customized stanza, and writes nothing at all', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await runAgentSetup({ cwd: dir, hook: false });
+
+    const custom = (await readFile(join(dir, 'AGENTS.md'), 'utf8')).replace(
+      '### Baseline',
+      '### This repo\n\n`spell` skips vendored files; see docs/spelling.md.\n\n### Baseline',
+    );
+    await writeFile(join(dir, 'AGENTS.md'), custom);
+
+    await expect(runAgentSetup({ cwd: dir })).rejects.toThrow(/refusing to overwrite the checkride stanza/);
+    // The refusal is a full stop, not a skip: the hooks it would also have
+    // written stay unwritten, so the repo is exactly as the run found it.
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(custom);
+    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+  });
+
+  test('--force overwrites a customized stanza', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await runAgentSetup({ cwd: dir, hook: false });
+    const original = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    await writeFile(join(dir, 'AGENTS.md'), original.replace('### Baseline', '### Mine\n\nkeep me\n\n### Baseline'));
+
+    const result = await runAgentSetup({ cwd: dir, hook: false, force: true });
+    expect(result.written).toContain('AGENTS.md (refreshed stanza)');
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(original);
+  });
+
+  test('a dry run refuses too, so the plan matches what the real run would do', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await runAgentSetup({ cwd: dir, hook: false });
+    const custom = (await readFile(join(dir, 'AGENTS.md'), 'utf8')).replace('### Baseline', '### Mine\n\nx\n\n### Baseline');
+    await writeFile(join(dir, 'AGENTS.md'), custom);
+
+    await expect(runAgentSetup({ cwd: dir, dryRun: true })).rejects.toThrow(/--force/);
+  });
+
+  test('the refusal survives a round trip through disk: a stamped stanza re-reads as pristine', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'AGENTS.md'), '# AGENTS.md\n\nhouse rules\n');
+    await runAgentSetup({ cwd: dir, hook: false });
+    // Untouched between runs: the second run refreshes rather than refusing,
+    // which is the property the stamp exists to preserve.
+    const second = await runAgentSetup({ cwd: dir, hook: false });
+    expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('house rules');
   });
 
   test('--no-hook writes the stanza but not the Stop hook', async () => {
