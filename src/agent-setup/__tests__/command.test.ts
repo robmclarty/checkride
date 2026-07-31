@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -43,6 +43,19 @@ const UNSTAMPED_AGENTS = [
 describe('hooks command', () => {
   let dir: string;
 
+  /** The parsed `.claude/settings.json`. */
+  async function settings(): Promise<{
+    hooks?: Record<string, unknown[]>;
+    permissions?: { deny?: string[] };
+  }> {
+    return JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8'));
+  }
+
+  /** checkride's deny rules, or `undefined` once they are gone. */
+  async function deny(): Promise<string[] | undefined> {
+    return (await settings()).permissions?.deny;
+  }
+
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'checkride-hooks-cmd-'));
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'demo', version: '1.0.0' }));
@@ -64,8 +77,7 @@ describe('hooks command', () => {
     const result = await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'] });
 
     expect(result.exitCode).toBe(0);
-    expect(result.removed).toContain(PROTECT_SCRIPT_FILE);
-    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(false);
+    expect(await deny()).toBeUndefined();
     expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toBe(EDITED_AGENTS);
   });
 
@@ -107,33 +119,32 @@ describe('hooks command', () => {
     const before = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
     const result = await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toBe(before);
-    // The settings file is edited (its entry dropped), so it counts as written;
-    // no *script* is, which is what "the others are untouched" means here.
+    // `protect` is a settings region here, so tearing it out rewrites the config
+    // and deletes nothing — and the gate's script, which it was not asked about,
+    // is untouched.
     expect(result.written).toEqual([CLAUDE_SETTINGS_FILE]);
-    expect(result.removed).toEqual([PROTECT_SCRIPT_FILE]);
-    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
-      hooks: Record<string, unknown[]>;
-    };
-    expect(settings.hooks['Stop']).toHaveLength(1);
-    expect(settings.hooks['PreToolUse']).toBeUndefined();
+    expect(result.removed).toEqual([]);
+    expect(await deny()).toBeUndefined();
+    expect((await settings()).hooks?.['Stop']).toHaveLength(1);
   });
 
   test('is idempotent in both directions', async () => {
     await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'] });
     const again = await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'] });
-    expect(again.removed).toEqual([]);
-    expect(again.skipped.some((s) => s.includes('(absent)'))).toBe(true);
+    expect(again.written).toEqual([]);
+    expect(again.skipped.some((s) => s.includes('(unchanged)'))).toBe(true);
 
     await runHooks({ cwd: dir, action: 'add', hooks: ['protect'] });
+    expect(await deny()).toHaveLength(2);
     const secondAdd = await runHooks({ cwd: dir, action: 'add', hooks: ['protect'] });
     expect(secondAdd.written).toEqual([]);
     expect(secondAdd.skipped.some((s) => s.includes('(unchanged)'))).toBe(true);
   });
 
   test('--dry-run reports the change without making it', async () => {
-    const result = await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'], dryRun: true });
-    expect(result.removed).toContain(PROTECT_SCRIPT_FILE);
-    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(true);
+    const result = await runHooks({ cwd: dir, action: 'remove', hooks: ['gate'], dryRun: true });
+    expect(result.removed).toContain(GATE_SCRIPT_FILE);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
   });
 
   test('remove refuses an empty selection rather than tearing out the gate', async () => {
@@ -146,6 +157,20 @@ describe('hooks command', () => {
     await runHooks({ cwd: dir, action: 'remove', hooks: ['gate', 'dirty', 'protect'] });
     const result = await runHooks({ cwd: dir, action: 'add' });
     expect(result.written).toContain(GATE_SCRIPT_FILE);
-    expect(result.written).toContain(PROTECT_SCRIPT_FILE);
+    expect(await deny()).toHaveLength(2);
+    expect((await settings()).hooks?.['PostToolUse']).toHaveLength(1);
+  });
+
+  /**
+   * Adopting the deny rules must also clear the script an older checkride left,
+   * or the repo keeps a dead `.cjs` beside a settings file that no longer names
+   * it.
+   */
+  test('sweeps away the protect script a previous checkride wrote', async () => {
+    await mkdir(join(dir, '.claude', 'hooks'), { recursive: true });
+    await writeFile(join(dir, PROTECT_SCRIPT_FILE), '// stale');
+    const result = await runHooks({ cwd: dir, action: 'add', hooks: ['protect'] });
+    expect(result.removed).toContain(PROTECT_SCRIPT_FILE);
+    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(false);
   });
 });

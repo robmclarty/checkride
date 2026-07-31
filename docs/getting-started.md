@@ -238,13 +238,48 @@ select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
   turning "never add to the baseline to make a check pass" into enforcement.
   Reads are never denied; triage depends on them.
 
-Each lands on the nearest event its harness offers:
+Each lands on the nearest thing its harness offers:
 
 | hook | Claude Code | Cursor |
 | --- | --- | --- |
 | `gate` | `Stop` | `stop` |
 | `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit` |
-| `protect` | `PreToolUse`, same matcher | `preToolUse`, matcher `Write\|Delete` |
+| `protect` | `permissions.deny` rules | `preToolUse`, matcher `Write\|Delete` |
+
+#### What lands in your repo
+
+Under Claude Code, one generated file:
+
+```text
+.claude/settings.json          the hook entries and the deny rules
+.claude/hooks/checkride-gate.sh
+```
+
+`protect` is a pair of `permissions.deny` rules and `dirty` is an inline
+command, so neither needs a script. That is not only tidier — Claude Code
+evaluates a deny rule regardless of what a `PreToolUse` hook returns, so
+`protect` is now enforced *below* the layer it used to live in, and costs
+nothing per tool call instead of spawning Node on every edit:
+
+```json
+"permissions": {
+  "deny": ["Edit(**/checkride.baseline.json)", "Edit(**/.check/**)"]
+}
+```
+
+checkride appends to that list and removes only its own entries, so rules you
+add alongside — a `fallow.baseline`, a lint baseline, anything else that
+suppresses findings — survive every refresh. Adding your own is the supported
+way to widen what `protect` covers.
+
+Two details worth knowing if you write rules by hand. They must be `Edit(...)`:
+Claude Code checks file paths against `Edit` and `Read` rules only, and a
+`Write(...)` or `NotebookEdit(...)` path rule is accepted, never consulted, and
+warns at startup — it looks like protection and is none. And `Read` deny rules
+are deliberately absent here, because triage reads `.check/` artifacts.
+
+Cursor still gets three scripts: its config is hooks and nothing else, with no
+documented file-path deny list to move `protect` into.
 
 #### Turning the gate off
 

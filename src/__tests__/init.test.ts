@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
+import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
@@ -189,8 +189,9 @@ describe('AGENTS stanza (edit detection)', () => {
         await runAgentSetup({ cwd: dir });
         const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
         await writeFile(join(dir, 'AGENTS.md'), agents.replace('### Baseline', '### Mine\n\nkeep\n\n### Baseline'));
-        await expect(runAgentSetup({ cwd: dir, removeHooks: ['protect'] })).rejects.toThrow('refusing to overwrite');
-        expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(true);
+        await expect(runAgentSetup({ cwd: dir, removeHooks: ['gate'] })).rejects.toThrow('refusing to overwrite');
+        // The refusal is a full stop: the hook it was asked to remove is intact.
+        expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

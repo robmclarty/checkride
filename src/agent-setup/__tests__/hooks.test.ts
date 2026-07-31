@@ -37,12 +37,11 @@ import {
   writeHooks,
 } from '../index.js';
 
-const CLAUDE_FILES = [
-  CLAUDE_SETTINGS_FILE,
-  GATE_SCRIPT_FILE,
-  '.claude/hooks/checkride-dirty.sh',
-  PROTECT_SCRIPT_FILE,
-];
+/**
+ * Claude Code gets two files, not four: `protect` is a `permissions.deny` rule
+ * and `dirty` is an inline command, so only the gate still needs a script.
+ */
+const CLAUDE_FILES = [CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE];
 const CURSOR_FILES = [
   CURSOR_HOOKS_FILE,
   '.cursor/hooks/checkride-gate.sh',
@@ -151,17 +150,20 @@ describe('generated scripts', () => {
     expect(script).toContain('exit 0');
   });
 
-  test.each(['claude', 'cursor'] as const)('the %s protect script names what it defends', (harness) => {
-    const script = protectScript(harness);
+  test('the protect script names what it defends', () => {
+    const script = protectScript();
     expect(script).toContain('checkride.baseline.json');
     expect(script).toContain('.check');
   });
 
-  test('protect denies in each harness’s own spelling', () => {
-    expect(protectScript('claude')).toContain('process.exit(2)');
-    expect(protectScript('cursor')).toContain("permission: 'deny'");
-    // Cursor reads a non-zero hook as broken, so its denial cannot use the code.
-    expect(protectScript('cursor')).not.toContain('process.exit(2)');
+  /**
+   * Cursor only: Claude Code enforces the same paths through `permissions.deny`.
+   * Cursor reads a non-zero hook as *broken* and proceeds, so its denial cannot
+   * ride on the exit code and has to travel in the body.
+   */
+  test('protect denies in the one spelling that still needs a script', () => {
+    expect(protectScript()).toContain("permission: 'deny'");
+    expect(protectScript()).not.toContain('process.exit(2)');
   });
 });
 
@@ -221,12 +223,83 @@ describe('claude merge (applyHooks)', () => {
     expect(next?.['if']).toBe('Edit(*.ts)');
   });
 
-  test('protect is a PreToolUse deny on the edit tools, and only those', () => {
-    const group = applyHooks({}, ['protect']).hooks?.PreToolUse?.[0];
-    // Read is deliberately absent: the stanza's procedure and the skills read
-    // `.check/` artifacts, so a read-deny would break checkride's own triage.
-    expect(group?.matcher).toBe('Edit|Write|NotebookEdit');
-    expect(group?.hooks?.[0]?.command).toContain(PROTECT_SCRIPT_FILE);
+  /**
+   * `protect` is configuration, not a hook: Claude Code evaluates a deny rule
+   * regardless of what a PreToolUse hook returns, so this is the same protection
+   * enforced a level lower, with no process spawned per edit.
+   */
+  test('protect is a permissions deny rule, not a hook at all', () => {
+    const next = applyHooks({}, ['protect']);
+    expect(next.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)']);
+    expect(next.hooks?.PreToolUse).toBeUndefined();
+  });
+
+  /**
+   * Only `Edit(path)` and `Read(path)` rules are consulted for file paths. A
+   * `Write(...)` or `NotebookEdit(...)` rule is accepted, never checked, and
+   * warns at startup — it would look like protection and be none. `Read` is
+   * deliberately absent for the opposite reason: the stanza's procedure and the
+   * skills read `.check/` artifacts, so denying reads would break triage.
+   */
+  test('every rule is an Edit rule — the only kind checked against a path', () => {
+    for (const rule of applyHooks({}, ['protect']).permissions?.deny ?? []) {
+      expect(rule.startsWith('Edit(')).toBe(true);
+    }
+  });
+
+  test('appends to a deny list rather than owning it', () => {
+    const mine = 'Edit(**/fallow.baseline.json)';
+    const next = applyHooks({ permissions: { deny: [mine] } }, ['protect']);
+    expect(next.permissions?.deny?.[0]).toBe(mine);
+    expect(next.permissions?.deny).toHaveLength(3);
+    // A second run adds nothing: the rules are keyed by their exact text.
+    expect(applyHooks(next, ['protect'])).toEqual(next);
+  });
+
+  test('removing protect strips checkride’s rules and leaves the repo’s own', () => {
+    const mine = 'Edit(**/fallow.baseline.json)';
+    const added = applyHooks({ permissions: { deny: [mine] } }, ['protect']);
+    expect(removeHooks(added, ['protect']).permissions?.deny).toEqual([mine]);
+  });
+
+  test('removing protect from a repo that had only checkride’s rules leaves no scaffolding', () => {
+    const added = applyHooks({}, ['protect']);
+    expect(removeHooks(added, ['protect'])).toEqual({});
+  });
+
+  /**
+   * A repo set up by an older checkride has the `.cjs` hook. Adopting the deny
+   * rules must take that entry with it, or one path ends up guarded by two
+   * mechanisms and the dead one keeps spawning Node on every edit.
+   */
+  test('adopting the deny rules retires the PreToolUse hook that used to do this', () => {
+    const legacy = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Edit|Write|NotebookEdit',
+            hooks: [{ type: 'command', command: `node "\${CLAUDE_PROJECT_DIR:-.}/${PROTECT_SCRIPT_FILE}"` }],
+          },
+        ],
+      },
+    };
+    const next = applyHooks(legacy, ['protect']);
+    expect(next.hooks?.PreToolUse).toBeUndefined();
+    expect(next.permissions?.deny).toHaveLength(2);
+  });
+
+  test('removing protect works whichever form the repo had', () => {
+    const legacy = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Edit|Write|NotebookEdit',
+            hooks: [{ type: 'command', command: `node "\${CLAUDE_PROJECT_DIR:-.}/${PROTECT_SCRIPT_FILE}"` }],
+          },
+        ],
+      },
+    };
+    expect(removeHooks(legacy, ['protect'])).toEqual({});
   });
 
   test('dirty is a PostToolUse marker, and selecting it alone leaves the gate unwritten', () => {
@@ -272,16 +345,34 @@ describe('claude merge (applyHooks)', () => {
   });
 
   test('removing what was never there changes nothing', () => {
+    // An unrelated `permissions.allow` is exactly what must survive, now that
+    // checkride writes into `permissions` itself.
     const settings = { permissions: { allow: ['Bash'] } };
-    expect(removeHooks(settings, HOOK_NAMES)).toEqual({ ...settings, hooks: {} });
+    expect(removeHooks(settings, HOOK_NAMES)).toEqual(settings);
   });
 
-  /** The dirty hook was an inline `touch` before it became a script. */
-  test('migrates the legacy inline dirty command in place', () => {
-    const inline = 'mkdir -p "${CLAUDE_PROJECT_DIR:-.}/.check" && touch "${CLAUDE_PROJECT_DIR:-.}/.check/.dirty"';
-    const next = applyHooks({ hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: inline }] }] } }, ['dirty']);
+  /**
+   * `dirty` is three shell words with nothing to customize, so it holds no
+   * script — it was inline before it became one, and is inline again.
+   */
+  test('dirty is an inline command, not a script', () => {
+    const command = applyHooks({}, ['dirty']).hooks?.PostToolUse?.[0]?.hooks?.[0]?.command ?? '';
+    expect(command).toContain('touch');
+    expect(command).toContain('.check/.dirty');
+    expect(command).not.toContain('checkride-dirty.sh');
+    // Never fails the edit it was only observing.
+    expect(command.endsWith('|| true')).toBe(true);
+  });
+
+  test('migrates the script form back to inline, in place', () => {
+    const scripted = 'sh "${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-dirty.sh"';
+    const next = applyHooks(
+      { hooks: { PostToolUse: [{ hooks: [{ type: 'command', command: scripted }] }] } },
+      ['dirty'],
+    );
+    // One entry, migrated — not a second one alongside the old.
     expect(next.hooks?.PostToolUse).toHaveLength(1);
-    expect(next.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).toContain('checkride-dirty.sh');
+    expect(next.hooks?.PostToolUse?.[0]?.hooks?.[0]?.command).not.toContain('checkride-dirty.sh');
   });
 });
 
@@ -489,9 +580,13 @@ describe('writeHooks — removal', () => {
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   /** The parsed Claude settings on disk. */
-  async function settings(): Promise<{ hooks?: Record<string, unknown[]> } & Record<string, unknown>> {
+  async function settings(): Promise<{
+    hooks?: Record<string, unknown[]>;
+    permissions?: { deny?: string[] };
+  } & Record<string, unknown>> {
     return JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
       hooks?: Record<string, unknown[]>;
+      permissions?: { deny?: string[] };
     } & Record<string, unknown>;
   }
 
@@ -511,8 +606,11 @@ describe('writeHooks — removal', () => {
   test('leaves the hooks it was not asked to remove', async () => {
     await writeHooks(dir, { harnesses: ['claude'] });
     await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
-    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(true);
-    expect((await settings()).hooks?.['PreToolUse']).toHaveLength(1);
+    // `protect` and `dirty` are configuration here, so "still installed" is a
+    // deny rule and a PostToolUse entry rather than two files on disk.
+    expect((await settings()).permissions?.deny).toHaveLength(2);
+    expect((await settings()).hooks?.['PostToolUse']).toHaveLength(1);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
   });
 
   test('removing twice is a no-op, like every other write here', async () => {
@@ -591,8 +689,8 @@ describe('protect script behavior (live)', () => {
    * exits 0 and reads as "allowed", so the race fails the *assertion* rather
    * than the run.
    */
-  function verdict(harness: 'claude' | 'cursor', stdin: string): { code: number; stdout: string } {
-    const script = join(dir, harness === 'claude' ? PROTECT_SCRIPT_FILE : '.cursor/hooks/checkride-protect.cjs');
+  function verdict(stdin: string): { code: number; stdout: string } {
+    const script = join(dir, '.cursor/hooks/checkride-protect.cjs');
     const env = { ...process.env, CLAUDE_PROJECT_DIR: dir, CURSOR_PROJECT_DIR: dir };
     try {
       const stdout = execFileSync('node', [script], { input: stdin, env, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -602,15 +700,15 @@ describe('protect script behavior (live)', () => {
     }
   }
 
-  /** Write the harness's hooks once, then run every payload against them. */
-  async function verdicts(harness: 'claude' | 'cursor', inputs: string[]): Promise<boolean[]> {
-    await writeHooks(dir, { harnesses: [harness] });
-    return inputs.map((i) => denied(verdict(harness, i)));
+  /** Write Cursor's hooks once, then run every payload against them. */
+  async function verdicts(inputs: string[]): Promise<boolean[]> {
+    await writeHooks(dir, { harnesses: ['cursor'] });
+    return inputs.map((i) => denied(verdict(i)));
   }
 
-  test.each(['claude', 'cursor'] as const)('%s: denies the accounting files, allows the rest', async (harness) => {
+  test('denies the accounting files, allows the rest', async () => {
     expect(
-      await verdicts(harness, [
+      await verdicts([
         call({ file_path: join(dir, 'checkride.baseline.json') }),
         call({ file_path: join(dir, '.check', 'summary.json') }),
         // A relative path is resolved against the project root, not the cwd.
@@ -622,10 +720,10 @@ describe('protect script behavior (live)', () => {
     ).toEqual([true, true, true, false, false]);
   }, 30000);
 
-  test.each(['claude', 'cursor'] as const)('%s: fails open on input it cannot read', async (harness) => {
+  test('fails open on input it cannot read', async () => {
     // A broken hook must not brick every edit in the repo.
     expect(
-      await verdicts(harness, [
+      await verdicts([
         'not json',
         JSON.stringify({ tool_name: 'Write' }),
         JSON.stringify({ tool_input: { file_path: 42 } }),
@@ -633,13 +731,16 @@ describe('protect script behavior (live)', () => {
     ).toEqual([false, false, false]);
   }, 30000);
 
-  test('reads the path key each harness actually sends', async () => {
-    // Claude Code documents `notebook_path`; Cursor documents neither key for
-    // Write/Delete, so the script accepts the plausible spellings.
-    expect(await verdicts('claude', [call({ notebook_path: join(dir, '.check', 'n.ipynb') })])).toEqual([true]);
+  test('reads every path key Cursor might send', async () => {
+    // Cursor documents no key for Write/Delete, so the script accepts each
+    // plausible spelling — including the two Claude Code documents.
     expect(
-      await verdicts('cursor', [call({ path: join(dir, '.check', 'x') }), call({ target_file: join(dir, '.check', 'y') })]),
-    ).toEqual([true, true]);
+      await verdicts([
+        call({ notebook_path: join(dir, '.check', 'n.ipynb') }),
+        call({ path: join(dir, '.check', 'x') }),
+        call({ target_file: join(dir, '.check', 'y') }),
+      ]),
+    ).toEqual([true, true, true]);
   }, 30000);
 
   /**
@@ -648,23 +749,18 @@ describe('protect script behavior (live)', () => {
    * raw made every in-repo path look external, so the baseline was writable.
    */
   test('resolves a symlinked project root before comparing', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
-    const script = join(dir, PROTECT_SCRIPT_FILE);
+    await writeHooks(dir, { harnesses: ['cursor'] });
+    const script = join(dir, '.cursor/hooks/checkride-protect.cjs');
     // `dir` is under /var on macOS; process.cwd() would report /private/var.
-    const env = { ...process.env, CLAUDE_PROJECT_DIR: dir, CURSOR_PROJECT_DIR: '' };
-    const target = join(dir, 'checkride.baseline.json');
-    let code = 0;
-    try {
-      execFileSync('node', [script], {
-        input: call({ file_path: target }),
-        env,
-        cwd: dir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      code = (err as { status?: number }).status ?? -1;
-    }
-    expect(code).toBe(2);
+    const env = { ...process.env, CURSOR_PROJECT_DIR: dir, CLAUDE_PROJECT_DIR: '' };
+    const stdout = execFileSync('node', [script], {
+      input: call({ file_path: join(dir, 'checkride.baseline.json') }),
+      env,
+      cwd: dir,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString();
+    // Cursor's denial rides in the body, not the exit code.
+    expect(stdout).toContain('deny');
   }, 30000);
 });
 

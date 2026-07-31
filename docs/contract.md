@@ -126,6 +126,14 @@ block them, and no run of them can change it. `add` defaults to every hook;
 `remove` requires an explicit list, because a bare command that tore out the gate
 would be the silent un-gating this tool exists to prevent. Both are idempotent.
 
+**What a hook *is* belongs to the harness, not to checkride.** The three hook
+names are promised; whether one lands as a config entry, a permission rule, or a
+generated script is checkride's to choose per harness, and may change. Under
+Claude Code, `protect` is `permissions.deny` rules and `dirty` is an inline
+command, so the gate script is the only file generated there. What is promised
+about the deny rules is the part a consumer builds on: checkride **appends** its
+own and removes only those, so rules you add beside them survive every refresh.
+
 **checkride owns the AGENTS.md stanza, and only the stanza.** Everything outside
 the `checkride:begin`/`checkride:end` markers is yours and is never rewritten;
 the marked region is checkride's and is refreshed in place. The begin marker

@@ -84,10 +84,15 @@ export async function runHooks(options: HooksOptions): Promise<HooksResult> {
   });
   const parts = partition(files);
   if (options.stdout) {
+    // Counted as *files changed*, not files deleted. A hook a harness expresses
+    // as configuration — Claude Code's `protect` is a `permissions.deny` rule —
+    // is torn out by rewriting the config and deleting nothing, and a report of
+    // "removed 0 file(s)" for a run that did exactly what was asked reads as a
+    // no-op.
     const verb = options.action === 'remove' ? 'removed' : 'wrote';
-    const count = options.action === 'remove' ? parts.removed.length : parts.written.length;
+    const count = parts.written.length + parts.removed.length;
     const dry = options.dryRun === true ? ' [dry run]' : '';
-    options.stdout.write(`checkride hooks: ${verb} ${count} file(s)${dry}.\n`);
+    options.stdout.write(`checkride hooks: ${verb} ${options.hooks?.join(', ') ?? 'every hook'} — ${count} file(s) changed${dry}.\n`);
   }
   return { ...parts, exitCode: 0 };
 }

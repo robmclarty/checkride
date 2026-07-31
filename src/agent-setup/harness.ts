@@ -1,11 +1,12 @@
 /**
  * The shape a harness writer fills in, and the one routine that drives it.
  *
- * Every harness needs the same four writes — merge the hook entries into its
- * config file, then drop the three scripts those entries invoke — and differs
- * only in *where* each lands and *how* its config merges. Keeping that common
- * body here is what makes a new harness a description rather than a copy: a
- * `HarnessSpec` plus a merge function, and nothing else.
+ * Every harness needs the same two writes — merge its hook entries into its
+ * config file, then drop whichever scripts those entries invoke — and differs
+ * only in *where* each lands, *how* its config merges, and how much of the work
+ * its config can do without a script at all. Keeping that common body here is
+ * what makes a new harness a description rather than a copy: a `HarnessSpec`
+ * plus a merge function, and nothing else.
  */
 
 import type { HarnessName } from '../gate.js';
@@ -57,8 +58,23 @@ export type HarnessSpec<T> = {
   name: HarnessName;
   /** The harness's hook config, relative to the repo root. */
   configFile: string;
-  /** Where each hook's script lives, relative to the repo root. */
-  scripts: Record<HookName, string>;
+  /**
+   * Where each hook's script lives, relative to the repo root — for the hooks
+   * that still need one.
+   *
+   * A hook is absent here when the harness can express it as *configuration*
+   * instead: Claude Code's `protect` is a `permissions.deny` rule and its
+   * `dirty` is an inline one-liner, so neither writes a file. Generated code in
+   * a consumer's repo is a cost — a file to review, to keep in sync, and to
+   * wonder about — and it should be paid only where config cannot do the job.
+   */
+  scripts: Partial<Record<HookName, string>>;
+  /**
+   * Scripts an earlier checkride wrote for this harness that this one does not.
+   * Deleted whenever their hook is written or removed, so a repo upgrading into
+   * the config-only form does not keep a dead file it will never run again.
+   */
+  retired?: Partial<Record<HookName, string>>;
   /**
    * Merge the named hooks into a parsed config. Must be idempotent. `pm` is the
    * repo's package manager, which a harness that renders the gate's command in
@@ -109,7 +125,7 @@ export async function writeHarnessHooks<T extends object>(
     // config merge and the script bodies both read the post-removal selection.
     gate: () => gateScript(pm, { harness: spec.name, dirtyGuard: names.includes('dirty') }),
     dirty: dirtyScript,
-    protect: () => protectScript(spec.name),
+    protect: protectScript,
   };
 
   const config = await putJson<T>(
@@ -118,13 +134,30 @@ export async function writeHarnessHooks<T extends object>(
     (c) => spec.apply(spec.remove(c, gone), names, pm),
     { dryRun, skipIfMissing: names.length === 0 },
   );
-  const scripts = await Promise.all([
-    ...HOOK_NAMES.filter((name) => names.includes(name)).map((name) =>
-      putFile(cwd, spec.scripts[name], bodies[name](), { dryRun, executable: true }),
+  // A hook this harness expresses as config has no script to write, and may have
+  // a retired one to clear away. `touched` is both directions at once, because a
+  // dead file is worth deleting whether the hook is arriving or leaving.
+  const touched = HOOK_NAMES.filter((name) => names.includes(name) || gone.includes(name));
+  const [written, removed, swept] = await Promise.all([
+    Promise.all(
+      HOOK_NAMES.filter((name) => names.includes(name) && spec.scripts[name] !== undefined).map((name) =>
+        putFile(cwd, spec.scripts[name] ?? '', bodies[name](), { dryRun, executable: true }),
+      ),
     ),
-    ...HOOK_NAMES.filter((name) => gone.includes(name)).map((name) =>
-      dropFile(cwd, spec.scripts[name], { dryRun }),
+    Promise.all(
+      HOOK_NAMES.filter((name) => gone.includes(name) && spec.scripts[name] !== undefined).map((name) =>
+        dropFile(cwd, spec.scripts[name] ?? '', { dryRun }),
+      ),
+    ),
+    Promise.all(
+      touched
+        .map((name) => spec.retired?.[name])
+        .filter((path): path is string => path !== undefined)
+        .map((path) => dropFile(cwd, path, { dryRun })),
     ),
   ]);
-  return [config, ...scripts];
+  // Only report a retired script that was actually there. Every repo set up
+  // after these became configuration has none, and listing files that never
+  // existed as "absent" would make the common run read like a cleanup.
+  return [config, ...written, ...removed, ...swept.filter((f) => f.changed)];
 }

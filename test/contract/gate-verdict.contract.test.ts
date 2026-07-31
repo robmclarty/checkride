@@ -23,12 +23,13 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { CLAUDE_SETTINGS_FILE, runHooks } from '../../src/agent-setup/index.js';
 import type { GateSpawn } from '../../src/gate.js';
 import { DIRTY_MARKER, runGate } from '../../src/gate.js';
 import type { PinEnv } from '../../src/node-pin.js';
@@ -168,5 +169,54 @@ describe('CHECKRIDE_NODE_BIN', () => {
       pinEnv: bare({ variable: () => '/opt/node22/bin' }),
     });
     expect(stderr.text()).toContain('/opt/node22/bin');
+  });
+});
+
+/**
+ * Contract: `protect` is enforcement wherever it lives (docs/contract.md §CLI).
+ *
+ * The three hook names are promised; the *mechanism* is checkride's to choose
+ * per harness. Under Claude Code it is a `permissions.deny` rule rather than a
+ * generated script, which is a better guarantee — Claude Code evaluates deny
+ * rules regardless of what a PreToolUse hook returns — but only if the rules are
+ * spelled the one way that is actually consulted.
+ */
+describe('protect as configuration', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-protect-contract-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const settings = async (): Promise<{ permissions?: { deny?: string[] } }> =>
+    JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8'));
+
+  /**
+   * Claude Code checks file paths against `Edit` and `Read` rules only. A
+   * `Write(...)` or `NotebookEdit(...)` path rule is accepted, never consulted,
+   * and warns at startup — it would look like protection and be none. `Read` is
+   * absent for the opposite reason: triage reads `.check/` artifacts.
+   */
+  test('every rule is an Edit rule, which is the only kind consulted for a path', async () => {
+    await runHooks({ cwd: dir, action: 'add', hooks: ['protect'], harnesses: ['claude'] });
+    const deny = (await settings()).permissions?.deny ?? [];
+    expect(deny.length).toBeGreaterThan(0);
+    for (const rule of deny) expect(rule.startsWith('Edit(')).toBe(true);
+    expect(deny.some((r) => r.includes('checkride.baseline.json'))).toBe(true);
+    expect(deny.some((r) => r.includes('.check'))).toBe(true);
+  });
+
+  /** The promise a consumer builds on: the list is shared, not owned. */
+  test('checkride appends to the deny list and removes only its own rules', async () => {
+    const mine = 'Edit(**/fallow.baseline.json)';
+    await mkdir(join(dir, '.claude'), { recursive: true });
+    await writeFile(join(dir, CLAUDE_SETTINGS_FILE), JSON.stringify({ permissions: { deny: [mine] } }));
+
+    await runHooks({ cwd: dir, action: 'add', hooks: ['protect'], harnesses: ['claude'] });
+    expect((await settings()).permissions?.deny).toContain(mine);
+
+    await runHooks({ cwd: dir, action: 'remove', hooks: ['protect'], harnesses: ['claude'] });
+    expect((await settings()).permissions?.deny).toEqual([mine]);
   });
 });

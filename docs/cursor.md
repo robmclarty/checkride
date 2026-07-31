@@ -151,7 +151,13 @@ tree.
 | --- | --- | --- |
 | `gate` | `Stop` | `stop` |
 | `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit`, no matcher |
-| `protect` | `PreToolUse`, same matcher | `preToolUse`, matcher `Write\|Delete` |
+| `protect` | `permissions.deny` rules | `preToolUse`, matcher `Write\|Delete` |
+
+`protect` is the row where the two harnesses stopped being the same shape.
+Claude Code has a declarative file-path deny list, checked below the hook layer,
+so checkride writes rules rather than a script. Cursor's config is hooks and
+nothing else, so it keeps `.cursor/hooks/checkride-protect.cjs` — with the
+best-effort caveat below, which the deny rules do not share.
 
 Two notes on the right-hand column. `afterFileEdit` is purpose-built for "a file
 changed", so it needs no matcher and cannot drift when Cursor renames a tool.

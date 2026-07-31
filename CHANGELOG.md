@@ -6,6 +6,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **checkride generates one file for Claude Code, not four.** `protect` is now a
+  pair of `permissions.deny` rules and `dirty` is an inline command, so
+  `.claude/hooks/checkride-protect.cjs` and `.claude/hooks/checkride-dirty.sh`
+  are gone. Both are deleted automatically on the next `agent-setup`, `init`, or
+  `hooks add`.
+
+  `protect` gains more than tidiness from the move. Claude Code evaluates a deny
+  rule **regardless of what a `PreToolUse` hook returns**, so the same paths are
+  now guarded a layer below the hook that used to guard them — and at no cost
+  per tool call, where the script spawned Node on every single edit while
+  allowing essentially all of them. The rules are also a list checkride
+  *appends* to and removes only its own entries from, so a repo can add its own
+  suppression files beside them (a `fallow.baseline`, a lint baseline) and keep
+  them across every refresh. The generated script could never offer that: it was
+  checkride-owned and overwritten wholesale on every run.
+
+  ```json
+  "permissions": {
+    "deny": ["Edit(**/checkride.baseline.json)", "Edit(**/.check/**)"]
+  }
+  ```
+
+  `Edit(...)` is the only correct spelling, and getting it wrong fails silently:
+  Claude Code checks file paths against `Edit` and `Read` rules only, and a
+  `Write(...)` or `NotebookEdit(...)` path rule is accepted, never consulted, and
+  warns at startup. An `Edit` rule covers every file-editing tool. `Read` deny
+  rules stay deliberately absent — triage reads `.check/` artifacts.
+
+  Nothing moves in the user-facing surface: `--hook protect`,
+  `--remove-hook protect`, and `checkride hooks add|remove protect` all mean what
+  they meant. **Cursor is unchanged** and still gets all three scripts; its
+  config is hooks and nothing else, with no documented file-path deny list to
+  move `protect` into.
+
+- **`checkride hooks` counts files changed, not files deleted.** Removing a hook
+  a harness expresses as configuration rewrites the config and deletes nothing,
+  and the old wording reported that as `removed 0 file(s)` — a run that did
+  exactly what was asked, reading as a no-op. The line now names the hooks and
+  counts every file it touched.
+
 ### Contract
 
 - **A gate that could not run answers "could not run", not "red"**
@@ -20,6 +62,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`CHECKRIDE_NODE_BIN`** is promised as the hook author's wrapping point: a
   directory prepended to the check run's `PATH`, or `off` to disable checkride's
   own Node-pin alignment.
+
+- **What a hook *is* belongs to the harness** (docs/contract.md §CLI). The three
+  hook names stay promised; whether one lands as a config entry, a permission
+  rule, or a generated script is checkride's to choose per harness and may change
+  again. What is promised about the Claude Code deny rules is the part a consumer
+  builds on: checkride appends its own and removes only those. Anyone scripting
+  against the *path* `.claude/hooks/checkride-protect.cjs` should read
+  `permissions.deny` instead.
 
 ### Fixed
 

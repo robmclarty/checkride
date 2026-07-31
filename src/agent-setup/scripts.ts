@@ -7,10 +7,13 @@
  * rather than the behavior inline: a refresh rewrites the script freely without
  * ever clobbering an entry a human may have edited.
  *
- * The gate and dirty scripts are harness-independent but for one flag, because
- * the decision lives in `checkride gate` (see `../gate.ts`). Only `protect` still
- * differs in substance: Claude Code denies a tool call with exit 2 and a stderr
- * message, Cursor with a `{"permission":"deny"}` JSON body on stdout.
+ * **Every script here is one a harness's configuration could not express.** A
+ * generated file in someone's repo is a standing cost — reviewed, kept in sync,
+ * wondered about — so it is written only where config falls short. Claude Code
+ * takes just the gate: its `protect` is a `permissions.deny` rule and its
+ * `dirty` an inline command. Cursor, whose config is hooks and nothing else,
+ * still takes all three. The gate is the one both need, because it alone has a
+ * branch neither config can carry (see {@link gateTail}).
  */
 
 import { DIRTY_MARKER, type HarnessName } from '../gate.js';
@@ -194,14 +197,15 @@ export function dirtyScript(): string {
 }
 
 /**
- * Keys a harness may use for the target path in a tool call's `tool_input`.
+ * Keys Cursor may use for the target path in a tool call's `tool_input`.
  *
- * Claude Code documents `file_path` and `notebook_path`. Cursor documents the
- * shape for `Shell` but not for `Write`/`Delete`, so the list is deliberately
- * broad and order-independent: the script takes the first string it finds. An
- * unrecognized shape yields no target and the script fails open, which is the
- * correct failure — a protect hook that cannot read its input must not become a
- * repo where nothing can be written.
+ * Cursor documents the shape for `Shell` but not for `Write`/`Delete`, so the
+ * list is deliberately broad and order-independent: the script takes the first
+ * string it finds. It keeps Claude Code's documented `file_path` and
+ * `notebook_path` too, since a harness that borrowed the schema would send
+ * those. An unrecognized shape yields no target and the script fails open, which
+ * is the correct failure — a protect hook that cannot read its input must not
+ * become a repo where nothing can be written.
  *
  * **The Cursor half of this list is a guess, and a wrong guess is silent**: an
  * unmatched shape allows the write with no output, so `protect` would simply
@@ -220,26 +224,20 @@ const DENY_MESSAGE =
   "    'artifacts to make a check pass — fix the finding instead (the ratchet prunes the baseline on its own).'";
 
 /**
- * How each harness spells "deny this tool call".
- *
- * Claude Code: stderr plus exit 2 (exit 2 is the deny signal; stderr is what the
- * agent is shown). Cursor: a JSON body on stdout with exit 0 — it reads a
- * non-zero hook as a *broken* hook and proceeds, so the denial has to travel in
- * the body, where `agent_message` is what the model sees.
+ * How Cursor spells "deny this tool call": a JSON body on stdout with exit 0. It
+ * reads a non-zero hook as a *broken* hook and proceeds, so the denial has to
+ * travel in the body, where `agent_message` is what the model sees.
  */
-function denyTail(harness: HarnessName): string[] {
-  if (harness === 'cursor') {
-    return [
-      '  const message = ' + DENY_MESSAGE + ';',
-      '  process.stdout.write(JSON.stringify({',
-      "    permission: 'deny',",
-      '    user_message: message,',
-      '    agent_message: message,',
-      '  }));',
-      '  process.exit(0);',
-    ];
-  }
-  return ['  process.stderr.write(' + DENY_MESSAGE + " + '\\n');", '  process.exit(2);'];
+function denyTail(): string[] {
+  return [
+    '  const message = ' + DENY_MESSAGE + ';',
+    '  process.stdout.write(JSON.stringify({',
+    "    permission: 'deny',",
+    '    user_message: message,',
+    '    agent_message: message,',
+    '  }));',
+    '  process.exit(0);',
+  ];
 }
 
 /**
@@ -249,15 +247,21 @@ function denyTail(harness: HarnessName): string[] {
  * `.cjs` so it runs regardless of the repo's module type. Only edit tools are
  * matched — reads are never denied, because triage depends on reading `.check/`
  * artifacts.
+ *
+ * **Cursor only.** Claude Code enforces the same paths through
+ * `permissions.deny`, which is checked below the hook layer and costs nothing
+ * per tool call, so it needs no script. Cursor has no documented equivalent —
+ * its config is hooks — so the script survives for the harness that still
+ * requires one. If Cursor grows a file-path deny list, this file goes away.
  */
-export function protectScript(harness: HarnessName): string {
+export function protectScript(): string {
   return [
     '#!/usr/bin/env node',
     "// checkride-protect.cjs — deny agent edits to checkride's accounting files.",
     '// checkride owns this file: `checkride agent-setup` (and `checkride init`)',
     '// overwrite it on every run.',
     '//',
-    `// Pre-tool hook for ${harness}. Reads the tool call as JSON on stdin and`,
+    '// Pre-tool hook for Cursor. Reads the tool call as JSON on stdin and',
     '// denies the write when it targets the baseline or .check/. Reads are never',
     '// matched — triage depends on reading .check artifacts.',
     "'use strict';",
@@ -306,7 +310,7 @@ export function protectScript(harness: HarnessName): string {
     "  const rel = relative(root, abs).split(sep).join('/');",
     "  const denied = rel === 'checkride.baseline.json' || rel === '.check' || rel.startsWith('.check/');",
     '  if (!denied) process.exit(0);',
-    ...denyTail(harness),
+    ...denyTail(),
     '});',
     '',
   ].join('\n');
