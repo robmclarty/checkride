@@ -59,7 +59,7 @@ describe('AGENTS stanza (idempotency)', () => {
   });
 });
 
-/** A stanza as checkride wrote it before v0.11.0: same markers, no hash. */
+/** A stanza as checkride wrote it before v0.10.1: same markers, no hash. */
 function legacy(text: string): string {
   return `<!-- checkride:begin -->\n\n${text}\n\n<!-- checkride:end -->\n`;
 }

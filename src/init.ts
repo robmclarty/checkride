@@ -111,7 +111,7 @@ const TEMPLATES_DIR = join(HERE, '..', 'templates');
 
 const STANZA_BEGIN_PREFIX = '<!-- checkride:begin';
 const STANZA_END = '<!-- checkride:end -->';
-/** The block, capturing its stamp (absent on stanzas written before v0.11.0) and its body. */
+/** The block, capturing its stamp (absent on stanzas written before v0.10.1) and its body. */
 const STANZA_RE = /<!-- checkride:begin(?: hash=([0-9a-z]+))? -->([\s\S]*?)<!-- checkride:end -->/;
 const STANZA_BEGIN_RE = /<!-- checkride:begin(?: hash=[0-9a-z]+)? -->/;
 
