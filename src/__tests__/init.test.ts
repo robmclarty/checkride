@@ -51,6 +51,17 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(body).not.toContain('Claude Code');
   });
 
+  test('never promises the gate ran everything, since a profile can narrow it', () => {
+    // A repo can set `gate` in checkride.config.json, and then the hook's green
+    // covers a subset. The stanza is written once and the config moves on
+    // without it, so it must not name a profile or call any gate run
+    // authoritative — it points at the verdict, which is generated per run and
+    // says "NOT the full check" when it was not.
+    expect(body).toContain('`NOT the full check`');
+    expect(body).toContain('run `pnpm check` in full before you');
+    expect(body).not.toMatch(/authoritative|runs the full `pnpm check` as the final gate/);
+  });
+
   test('prescribes no house style: struct points at the rules, it does not restate them', () => {
     // The stanza is the one region a repo cannot edit back, so it must not
     // dictate architecture. checkride's ast-grep defaults ban classes and

@@ -435,9 +435,14 @@ A Stop hook and the AGENTS.md stanza both want `pnpm check`, so the agent can ru
 the full pipeline itself and then the hook runs it again. Two things head that
 off. The `dirty` marker already skips the gate entirely on turns that touched
 no files. For turns that did edit, the generated stanza tells the agent that
-*if a Stop hook is configured* it owns the final full run — so iterate with the
-narrow commands and let the hook run the authoritative pipeline once at the
-end. That is the "simplest fix" below, applied by default.
+*if a stop-gate hook is configured* it runs the check when the turn ends — so
+iterate with the narrow commands rather than running the full pipeline every
+loop. That is the "simplest fix" below, applied by default.
+
+The stanza stops short of calling that run authoritative, because a [gate
+profile](#when-the-gate-is-too-slow) can narrow it and the stanza is written
+once while the config moves on without it. It sends the agent to the gate's own
+verdict instead, which states the profile on every run.
 
 Do **not** delete the AGENTS.md block to dodge the duplicate. The block does two
 jobs — it tells the agent to run the gate, *and* it teaches the agent how to read
@@ -453,7 +458,7 @@ is:
   guarantees the gate saw the final tree, whatever the agent did.
 - **Slow suite (minutes), simplest fix:** rely on the stanza note above — the
   agent runs only cheap, narrowed checks during the loop, and the hook runs the
-  one authoritative pipeline at the end.
+  pipeline once at the end.
 - **Slow suite, most robust fix:** make the hook *verify the artifact instead of
   recomputing*. `.check/summary.json` records every slot that ran and whether it
   passed, so the hook can accept a complete, green summary that is newer than

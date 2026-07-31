@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The AGENTS.md stanza no longer promises the gate ran everything.** It said
+  the stop-gate hook "runs the full `pnpm check`" and told the agent to "let the
+  hook run the authoritative pipeline once at the end" — written before gate
+  profiles existed, and false in any repo that declares one. The cost of that is
+  specific: the stanza is what an agent reads *first*, so it pre-authorized
+  reading a profiled `✔ green` as done, and the `NOT the full check` clause
+  arrived after the agent had already been told the hook was the last word. The
+  disclosure and the contract disagreed, and the contract was the one being read
+  in advance.
+
+  The paragraph now sends the reader to the gate's own verdict — "read the
+  gate's verdict rather than assuming it covered everything" — and says plainly
+  that a narrowed green is not the "done" defined above. It names no profile
+  deliberately: a repo can add `gate` to `checkride.config.json` without
+  re-running `agent-setup`, so any stanza that spelled out a specific profile
+  would drift back into over-promising, while the verdict is generated per run
+  and cannot.
+
 ## [0.10.2] - 2026-07-31
 
 ### Added

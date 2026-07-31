@@ -247,6 +247,13 @@ function structSection(): string[] {
  * the agent either invents a substitute or reports the pipeline as broken.
  * Everything here routes through {@link runScript}/{@link execCommand} for that
  * reason; nothing spells a launcher literally.
+ *
+ * The gate profile is deliberately *not* a parameter. A repo can add `gate` to
+ * checkride.config.json without re-running `agent-setup`, so a stanza naming a
+ * specific profile would go stale in exactly the direction that costs something
+ * — telling an agent the hook covered everything when it no longer does. The
+ * paragraph points at the gate's verdict instead, which is generated per run and
+ * states the narrowing itself (see `gate.ts`'s `profileClause`).
  */
 export function buildStanza(activeSlots: readonly string[], pm: PackageManager = 'pnpm'): string {
   const check = runScript(pm, 'check');
@@ -271,9 +278,12 @@ export function buildStanza(activeSlots: readonly string[], pm: PackageManager =
     `\`${check} --changed\`.`,
     '',
     'If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.json`),',
-    `it runs the full \`${check}\` as the final gate — so while iterating, prefer the narrow`,
-    'commands above and let the hook run the authoritative pipeline once at the end rather',
-    'than running the full check yourself every loop.',
+    'it runs the check when a turn ends — so while iterating, prefer the narrow commands',
+    "above rather than running the full check yourself every loop. Read the gate's verdict",
+    'rather than assuming it covered everything: a repo can narrow the gate with `gate` in',
+    '`checkride.config.json`, and a narrowed one prints `NOT the full check` in every',
+    `verdict. That green is not the "done" defined above; run \`${check}\` in full before you`,
+    'claim the work is finished.',
     '',
     '### Baseline',
     '',
