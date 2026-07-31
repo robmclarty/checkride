@@ -101,7 +101,7 @@ existence always means "this run had failures".
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
-`agent-setup` — and the run flags:
+`agent-setup`, `gate`, `triage`, `qa` — and the run flags:
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
@@ -110,9 +110,30 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 
 are promised. New commands and flags are additive; removing or repurposing one
 is a breaking change. `init` and `agent-setup` additionally promise
-`--hook <a,b>` (select which Claude Code hooks to write: `gate`, `dirty`,
-`protect`; an unknown name is a usage error naming the valid set) and
-`--no-hook` (write none).
+`--hook <a,b>` (select which hooks to write: `gate`, `dirty`, `protect`; an
+unknown name is a usage error naming the valid set), `--no-hook` (write none),
+and `--harness <a,b>` (which harnesses to write them for: `claude`, `cursor`;
+same usage-error rule). Omitting `--harness` selects `claude` plus any harness
+the repo shows evidence of.
+
+**`gate` is the one command outside the 0/1/2 split**, because it answers a
+harness's hook protocol rather than checkride's own. Under `--harness claude` it
+exits 2 while the pipeline is red (Claude Code blocks on 2 and ignores 1) and 0
+when green. Under `--harness cursor` it **always exits 0** and carries the
+verdict as `{"followup_message": …}` on stdout, because Cursor reads a non-zero
+stop hook as a broken hook and lets the turn end. A `gate` that could not run at
+all still blocks, in both harnesses: a gate that silently stops gating is the
+vacuous green this contract exists to prevent.
+
+One exception is promised alongside it: under `--harness claude`, `gate` reports
+`ran: false` and exits 0 without running the pipeline when Cursor is executing
+the repo's Claude Code hooks *and* a native Cursor gate is registered — Cursor
+runs every matching hook source, and two gates for one turn is two pipelines in
+one `.check/`. See [Cursor](./cursor.md#cursor-also-runs-your-claude-code-hooks).
+
+`triage` and `qa` render a Markdown report on stdout and exit 0 whenever a
+report was produced — the verdict is in the report, not the process status, so a
+red repo never looks like a broken reader.
 
 **Selection is validated.** An unknown slot name in `--only`, `--skip`, or
 `--include` is a **usage error (exit 2)**, not a silently-empty selection — the

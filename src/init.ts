@@ -21,7 +21,9 @@ import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
 import type { DocInput } from './snippets.js';
 import { planSnippets, selectDocFiles } from './snippets.js';
-import { type HookName, writeHooks } from './agent-setup/index.js';
+import type { HookFile, HookName } from './agent-setup/index.js';
+import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/index.js';
+import type { HarnessName } from './gate.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
@@ -48,12 +50,14 @@ export type InitOptions = {
    */
   force?: boolean;
   /**
-   * Write the Claude Code hooks to `.claude/settings.json`.
+   * Write the agent stop-gate hooks into each selected harness's config.
    * Opt-out: defaults to on; `--no-hook` sets it `false`.
    */
   hook?: boolean;
   /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
   hooks?: readonly HookName[];
+  /** Which harnesses to write them for (`--harness <a,b>`). Omitted → detected. */
+  harnesses?: readonly HarnessName[];
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -121,15 +125,16 @@ export function buildStanza(activeSlots: readonly string[]): string {
     "2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).",
     '3. Fix the root cause, then re-run.',
     '',
-    'With the checkride plugin installed, `/checkride:check` runs this procedure in full.',
+    '`pnpm exec checkride triage` runs this procedure in full and reads `.check/` for you',
+    '(`/checkride:check` and `/checkride-check` are the same thing as a skill).',
     '',
     'Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and',
     '`pnpm check --changed`.',
     '',
-    'If a Claude Code Stop hook is configured (`.claude/settings.json`), it runs the full',
-    '`pnpm check` as the final gate — so while iterating, prefer the narrow commands above',
-    'and let the hook run the authoritative pipeline once at the end rather than running',
-    'the full check yourself every loop.',
+    'If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.json`),',
+    'it runs the full `pnpm check` as the final gate — so while iterating, prefer the narrow',
+    'commands above and let the hook run the authoritative pipeline once at the end rather',
+    'than running the full check yourself every loop.',
     '',
     '### Baseline',
     '',
@@ -425,20 +430,46 @@ async function writePackage(w: Writer, dir: string, pkgName: string, value: stri
   await put(w, join(dir, 'src', 'index.test.ts'), smokeTest(value));
 }
 
+/** The hook-writing slice of the init/agent-setup options. */
+type HookSelection = {
+  hook?: boolean;
+  hooks?: readonly HookName[];
+  harnesses?: readonly HarnessName[];
+};
+
 /**
- * Write/refresh the Claude Code Stop hook unless opted out (`hook === false`),
- * using the repo's detected package manager. Records the file when it
- * changed, else a no-op note in `skipped` when one is provided.
+ * Write/refresh the agent hooks unless opted out (`hook === false`), for the
+ * selected harnesses (default: detected) and the repo's detected package
+ * manager. Records each file when it changed, else a no-op note in `skipped`
+ * when one is provided.
  */
-async function writeHook(
-  w: Writer,
-  hook: boolean | undefined,
-  hooks: readonly HookName[] | undefined,
-  skipped?: string[],
-): Promise<void> {
-  if (hook === false) return;
-  const result = await writeHooks(w.cwd, { dryRun: w.dryRun, ...(hooks ? { hooks } : {}) });
-  for (const f of result.files) {
+async function writeHook(w: Writer, options: HookSelection, skipped?: string[]): Promise<void> {
+  if (options.hook === false) return;
+  const result = await writeHooks(w.cwd, {
+    dryRun: w.dryRun,
+    ...(options.hooks ? { hooks: options.hooks } : {}),
+    ...(options.harnesses ? { harnesses: options.harnesses } : {}),
+  });
+  record(w, result.files, skipped);
+}
+
+/**
+ * Write the bundled skills for every selected harness that cannot install them
+ * as a plugin. Only Cursor needs this today; Claude Code gets the same two
+ * skills from `.claude-plugin/`, installed once for every repo.
+ *
+ * Unlike the hooks this is not covered by `--no-hook`: that flag turns off the
+ * mechanical gate, and a skill gates nothing.
+ */
+async function writeSkills(w: Writer, options: HookSelection, skipped?: string[]): Promise<void> {
+  const harnesses = options.harnesses ?? detectHarnesses(w.cwd);
+  if (!harnesses.includes('cursor')) return;
+  record(w, await writeCursorSkills(w.cwd, { dryRun: w.dryRun }), skipped);
+}
+
+/** Fold a writer's file list into the run's written/skipped report. */
+function record(w: Writer, files: readonly HookFile[], skipped?: string[]): void {
+  for (const f of files) {
     if (f.changed) w.written.push(f.path);
     else skipped?.push(`${f.path} (unchanged)`);
   }
@@ -562,7 +593,8 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
 
   // Claude Code Stop hook (opt-out). A fresh project has no PM lockfile
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.
-  await writeHook(w, options.hook, options.hooks);
+  await writeHook(w, options);
+  await writeSkills(w, options);
 
   if (options.stdout) reportNew(options.stdout, scaffold.shape, w, cwd);
   return { mode: 'new', shape: scaffold.shape, written: w.written, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
@@ -971,7 +1003,8 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
   await writeClaudePointer(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
-  await writeHook(w, options.hook, options.hooks, skipped);
+  await writeHook(w, options, skipped);
+  await writeSkills(w, options, skipped);
 
   if (options.stdout) {
     reportExisting(options.stdout, adopted, w, grandfathered, disabled);
@@ -998,10 +1031,12 @@ export async function runInit(options: InitOptions): Promise<InitResult> {
 export type AgentSetupOptions = {
   cwd?: string;
   dryRun?: boolean;
-  /** Write the Claude Code hooks (opt-out; `--no-hook`). Defaults to on. */
+  /** Write the agent hooks (opt-out; `--no-hook`). Defaults to on. */
   hook?: boolean;
   /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
   hooks?: readonly HookName[];
+  /** Which harnesses to write them for (`--harness <a,b>`). Omitted → detected. */
+  harnesses?: readonly HarnessName[];
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
@@ -1012,9 +1047,10 @@ export type AgentSetupResult = { written: string[]; skipped: string[]; exitCode:
 /**
  * `checkride agent-setup` — wire the agent contract into an *existing* repo
  * without a full `init`: the `check` alias the hook resolves to, the AGENTS.md
- * stanza (the human-readable contract), and the Claude Code Stop hook (the
- * mechanical gate). Every write is additive and idempotent — a second run is a
- * no-op — and the hook is opt-out (`hook: false`).
+ * stanza (the human-readable contract), the stop-gate hooks for every detected
+ * harness (the mechanical gate), and the skills a harness cannot get from the
+ * bundled plugin. Every write is additive and idempotent — a second run is a
+ * no-op — and the hooks are opt-out (`hook: false`).
  */
 export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSetupResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -1029,7 +1065,8 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
   await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), skipped);
 
-  await writeHook(w, options.hook, options.hooks, skipped);
+  await writeHook(w, options, skipped);
+  await writeSkills(w, options, skipped);
 
   if (options.stdout) {
     options.stdout.write(

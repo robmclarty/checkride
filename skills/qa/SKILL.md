@@ -2,7 +2,7 @@
 name: qa
 description: Read checkride's quality artifacts — surviving mutants, dead code, duplication and the health score — and say what the test suite actually proves. Use when asked how healthy the codebase is, whether the tests are any good, where the risk or the tech debt is, what mutation testing found, or which files need better coverage. Reads a bounded report instead of megabytes of `.check/` artifacts, runs nothing, and reports which quality dimensions were never measured rather than guessing at them.
 argument-hint: "[repo-path]"
-allowed-tools: Read, Grep, Glob, Bash(node *), Bash(wc *), Bash(git log *)
+allowed-tools: Read, Grep, Glob, Bash(node *), Bash(pnpm *), Bash(npx checkride*), Bash(yarn *), Bash(bunx *), Bash(wc *), Bash(git log *)
 ---
 
 # checkride: read the quality signal
@@ -14,23 +14,28 @@ threshold fires. That is exactly why this is the easiest report in the repo to
 hallucinate: with no failure to anchor to, a plausible-sounding list of eight
 issues costs nothing to write and means nothing.
 
-So the discipline is inverted from triage. `/checkride:check` starts from a
+So the discipline is inverted from triage. The triage skill starts from a
 failure and narrows to one cause. This skill starts from evidence and stops when
 the evidence stops — which is sometimes after one finding, and sometimes after
 none.
 
-For a red gate, use `/checkride:check` instead. This skill reads what a *past*
-run left behind and never runs the gate itself.
+For a red gate, use the triage skill instead (`/checkride:check` under the
+plugin, `/checkride-check` in Cursor, or `checkride triage` directly). This skill
+reads what a *past* run left behind and never runs the gate itself.
 
 ## 1. Run the reader
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/dist/qa/cli.js"
+pnpm exec checkride qa
 ```
 
-Pass a repo path as the one optional argument to read somewhere other than the
-current directory. If `CLAUDE_PLUGIN_ROOT` is unset, use the copy in the target
-repo: `node node_modules/checkride/dist/qa/cli.js`.
+Substitute the repo's package manager (`npx checkride`, `yarn checkride`, `bunx
+checkride`). Pass a repo path as the one optional argument to read somewhere
+other than the current directory.
+
+If checkride is not a dependency of the target repo, run the copy the plugin
+ships instead: `node "${CLAUDE_PLUGIN_ROOT}/dist/qa/cli.js"`. Both entry points
+render the identical report.
 
 It **runs nothing** — no stryker, no fallow, not the gate. It opens `.check/`,
 folds each artifact to a ranked short list, and renders under 8 KB (the same
@@ -63,7 +68,7 @@ very nearly the *whole* report.
   artifact here can be dated and none of them is evidence.
 
 **Open your report with that covered count and the run's age**, the same way
-`/checkride:check` does. A quality claim without its coverage is an assertion
+the triage skill does. A quality claim without its coverage is an assertion
 about the whole repo built from a fraction of it.
 
 | state | what it means | what it licenses you to say |
@@ -172,7 +177,7 @@ So for the one or two survivors that look genuinely load-bearing:
 "Coverage could be improved here" is not that sentence.
 
 **Open at most two or three files.** If the report ranks eight, read the top one
-properly rather than all eight badly — the same economy `/checkride:check` uses
+properly rather than all eight badly — the same economy the triage skill uses
 when it opens exactly one artifact.
 
 ## 5. Report
@@ -220,7 +225,7 @@ Three specific ways it goes wrong:
 - **It does not write tests.** Naming the unasserted branch is the deliverable.
   Writing the test is the next request, and it should start from the named
   mutant.
-- **It does not triage a red gate.** That is `/checkride:check`, which runs the
+- **It does not triage a red gate.** That is the triage skill, which runs the
   gate and reads different artifacts entirely.
 - **It does not touch the baseline.** `checkride baseline` hides findings
   permanently; that is never a reading step.

@@ -29,5 +29,5 @@
       }
     }
   ],
-  "ignorePatterns": ["dist/**", ".check/**", ".claude/**", "node_modules/**"]
+  "ignorePatterns": ["dist/**", ".check/**", ".claude/**", ".cursor/**", "node_modules/**"]
 }

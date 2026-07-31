@@ -11,7 +11,9 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only).
 checkride fix          Run every active adapter's fix command (oxlint --fix, …).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Claude Code hooks to a repo.
+checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
+checkride triage       Triage a red gate into one root cause (what /checkride:check runs).
+checkride qa           Read the quality artifacts a previous run left.
 ```
 
 Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly with
@@ -47,8 +49,9 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--author <a>` | Package author. |
 | `--add <a,b>` | Scaffold config for the named empty slots. |
 | `--baseline` | (existing repo) Grandfather current debt instead of disabling failing slots. |
-| `--hook <a,b>` | Write only these Claude Code hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). |
-| `--no-hook` | Skip writing the Claude Code hooks (also honored by `agent-setup`). |
+| `--hook <a,b>` | Write only these hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). |
+| `--no-hook` | Skip writing the agent hooks (also honored by `agent-setup`). |
+| `--harness <a,b>` | Write hooks for these harnesses: `claude`, `cursor`. Default: `claude`, plus `cursor` when `.cursor/` exists. |
 | `--dry-run` | Print what would be written; change nothing. |
 
 ## npm-script aliases
@@ -130,7 +133,8 @@ output for structured diagnostics. On a big repo, `--digest` writes a capped
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
-| Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes the Claude Code hooks (gate + edit marker + baseline guard) |
+| Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes the hooks (gate + edit marker + baseline guard) for Claude Code and Cursor |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
-| Red gate, want one root cause instead of the whole `.check/` | `/checkride:check` — the [bundled plugin](./plugin.md) |
-| "Do the tests actually test anything?" | `/checkride:qa` — same plugin, reads the quality artifacts |
+| Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
+| "Do the tests actually test anything?" | `checkride qa`, or `/checkride:qa` — same reader, reads the quality artifacts |
+| Using Cursor rather than Claude Code | same `agent-setup`; see [Cursor](./cursor.md) |

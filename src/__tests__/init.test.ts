@@ -1,23 +1,12 @@
-import { execFile, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import {
-  applyHooks,
-  CLAUDE_SETTINGS_FILE,
-  GATE_SCRIPT_FILE,
-  gateScript,
-  HOOK_NAMES,
-  PROTECT_SCRIPT_FILE,
-  protectScript,
-  writeHooks,
-} from '../agent-setup/index.js';
+import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE } from '../agent-setup/index.js';
 import { applyStanza, buildStanza, detectMode, inventory, runAgentSetup, runInit } from '../init.js';
 
 describe('AGENTS stanza (idempotency)', () => {
@@ -43,14 +32,22 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(applyStanza(fromEmpty, body)).toBe(fromEmpty);
   });
 
-  test('names the plugin skill as the fuller path without displacing the prose procedure', () => {
+  test('names the fuller path without displacing the prose procedure', () => {
     // The stanza lands in repos that will never install the plugin, so the
-    // standalone procedure stays primary and the skill is exactly one added line.
+    // standalone procedure stays primary and the reader is one added line.
     expect(body).toContain('1. Read `.check/summary.json` to see which check failed.');
     expect(body).toContain("2. Read that check's raw output");
     expect(body).toContain('3. Fix the root cause, then re-run.');
-    const naming = body.split('\n').filter((line) => line.includes('/checkride:check'));
-    expect(naming).toEqual(['With the checkride plugin installed, `/checkride:check` runs this procedure in full.']);
+    // The command works in every harness; the two skill spellings are asides.
+    expect(body).toContain('`pnpm exec checkride triage` runs this procedure in full');
+  });
+
+  test('names both harnesses’ gate config, since the stanza is harness-neutral', () => {
+    expect(body).toContain('.claude/settings.json');
+    expect(body).toContain('.cursor/hooks.json');
+    // AGENTS.md is the one contract file every harness reads; it must not
+    // assume the reader is Claude Code.
+    expect(body).not.toContain('Claude Code');
   });
 
   test('refreshes only the marked region, leaving the rest untouched', () => {
@@ -108,7 +105,7 @@ describe('new-project generation (flat)', () => {
 
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell.');
-    expect(agents).toContain('`/checkride:check` runs this procedure in full.');
+    expect(agents).toContain('`pnpm exec checkride triage` runs this procedure in full');
   });
 
   test('default checkride spec pins the exact product version (no caret)', async () => {
@@ -349,7 +346,7 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.skipped).toContain('.oxlintrc.json (exists)');
   });
 
-  test('init writes the Claude Code hooks, and --no-hook skips them', async () => {
+  test('init writes the agent hooks, and --no-hook skips them', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     const withHook = await runInit({ cwd: dir, probeFailures: noFailures });
     expect(withHook.written).toContain(CLAUDE_SETTINGS_FILE);
@@ -358,7 +355,7 @@ describe('existing-project adoption (idempotent)', () => {
       hooks: { Stop: { hooks: { command: string }[] }[] };
     };
     expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
-    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('pnpm run check --strict --digest');
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('checkride gate --harness claude');
 
     await rm(join(dir, '.claude'), { recursive: true, force: true });
     const noHook = await runInit({ cwd: dir, hook: false, probeFailures: noFailures });
@@ -454,217 +451,6 @@ describe('publish-ready bundle (existing mode, step 9)', () => {
   });
 });
 
-describe('hooks (applyHooks / gateScript)', () => {
-  test('gate script runs the detected PM with --strict --digest and blocks with exit 2', () => {
-    // npm alone needs `--` to pass flags through to the script.
-    expect(gateScript('npm')).toContain('npm run check -- --strict --digest');
-    for (const pm of ['pnpm', 'yarn', 'bun'] as const) {
-      expect(gateScript(pm)).toContain(`${pm} run check --strict --digest`);
-    }
-    expect(gateScript('pnpm')).toContain('exit 2');
-  });
-
-  test('gate guidance points at the digest when present, summary otherwise, and names the skill', () => {
-    const script = gateScript('pnpm');
-    // The sentinel substring is stable — migration detection keys on it.
-    expect(script).toContain('checkride: the gate is red');
-    expect(script).toContain('.check/digest.md');
-    expect(script).toContain('.check/summary.json');
-    expect(script).toContain('/checkride:check');
-  });
-
-  test('settings entry is a stable one-liner invoking the checkride-owned script', () => {
-    const next = applyHooks({}, ['gate']);
-    const command = next.hooks?.Stop?.[0]?.hooks?.[0]?.command;
-    expect(command).toContain(GATE_SCRIPT_FILE);
-    // PM-independent: the PM lives in the script, so the settings entry never
-    // changes when the PM does — that is what makes a refresh lossless.
-    expect(command).not.toContain('run check');
-  });
-
-  test('applying twice is a no-op (deep equal)', () => {
-    const once = applyHooks({ hooks: { Stop: [] } }, HOOK_NAMES);
-    expect(applyHooks(once, HOOK_NAMES)).toEqual(once);
-  });
-
-  test('the protect hook is a PreToolUse deny on the edit tools, and only those', () => {
-    const next = applyHooks({}, ['protect']);
-    const group = next.hooks?.PreToolUse?.[0];
-    // Edit tools only: Read is deliberately absent — the stanza's procedure
-    // and the plugin skills read .check artifacts, so a read-deny would break
-    // checkride's own triage flow.
-    expect(group?.matcher).toBe('Edit|Write|NotebookEdit');
-    expect(group?.hooks?.[0]?.command).toContain(PROTECT_SCRIPT_FILE);
-    expect(protectScript()).toContain('checkride.baseline.json');
-    expect(protectScript()).toContain('.check');
-  });
-
-  test('the dirty hook is a PostToolUse edit-marker with the edit-tool matcher', () => {
-    const next = applyHooks({}, ['dirty']);
-    const group = next.hooks?.PostToolUse?.[0];
-    expect(group?.matcher).toBe('Edit|Write|NotebookEdit');
-    expect(group?.hooks?.[0]?.command).toContain('.check/.dirty');
-    // The gate is untouched: selecting only `dirty` writes no Stop group.
-    expect(next.hooks?.Stop).toBeUndefined();
-  });
-
-  test('gate script guards on the marker by default, and clears it after green', () => {
-    const script = gateScript('pnpm');
-    expect(script).toContain('[ -f .check/.dirty ] || exit 0');
-    expect(script).toContain('rm -f .check/.dirty');
-  });
-
-  test('a gate-only selection writes an unconditional script (no marker, no guard)', () => {
-    const script = gateScript('pnpm', { dirtyGuard: false });
-    expect(script).not.toContain('.check/.dirty');
-  });
-
-  test('preserves unrelated settings keys and other Stop groups', () => {
-    const settings = {
-      permissions: { allow: ['Bash'] },
-      hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo other' }] }] },
-    };
-    const next = applyHooks(settings, ['gate']);
-    expect(next['permissions']).toEqual({ allow: ['Bash'] });
-    expect(next.hooks?.Stop).toHaveLength(2);
-    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toBe('echo other');
-  });
-
-  test('migrates the legacy inline command in place (no duplicate group)', () => {
-    const inline =
-      "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2; exit 2; }";
-    const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: inline }] }] } };
-    const next = applyHooks(legacy, ['gate']);
-    expect(next.hooks?.Stop).toHaveLength(1);
-    expect(next.hooks?.Stop?.[0]?.hooks).toHaveLength(1);
-    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).toContain(GATE_SCRIPT_FILE);
-    expect(next.hooks?.Stop?.[0]?.hooks?.[0]?.command).not.toContain('pnpm run check');
-  });
-});
-
-/** A PreToolUse hook payload for the protect script, as Claude Code sends it. */
-function call(toolInput: Record<string, string>): string {
-  return JSON.stringify({ tool_name: 'Edit', tool_input: toolInput });
-}
-
-describe('writeHooks', () => {
-  let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-')); });
-  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
-
-  test('creates the settings file and gate script, then a second run is a no-op', async () => {
-    const first = await writeHooks(dir);
-    expect(first.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE]);
-    expect(first.files.every((f) => f.changed)).toBe(true);
-    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(true);
-    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
-    const second = await writeHooks(dir);
-    expect(second.files.every((f) => !f.changed)).toBe(true);
-  });
-
-  test('the script uses the detected package manager (npm lockfile → npm run check)', async () => {
-    await writeFile(join(dir, 'package-lock.json'), '{}');
-    await writeHooks(dir);
-    const script = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
-    expect(script).toContain('npm run check');
-  });
-
-  test('merges into an existing settings file, preserving other keys', async () => {
-    await mkdir(join(dir, '.claude'), { recursive: true });
-    await writeFile(
-      join(dir, CLAUDE_SETTINGS_FILE),
-      JSON.stringify({ model: 'sonnet', hooks: { PreToolUse: [{ matcher: 'Bash' }] } }),
-    );
-    await writeHooks(dir, { hooks: ['gate'] });
-    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
-      model: string;
-      hooks: { PreToolUse: unknown[]; Stop: unknown[] };
-    };
-    expect(settings.model).toBe('sonnet');
-    expect(settings.hooks.PreToolUse).toHaveLength(1);
-    expect(settings.hooks.Stop).toHaveLength(1);
-  });
-
-  test('migrates a settings file carrying the inline form, replacing, never duplicating', async () => {
-    await mkdir(join(dir, '.claude'), { recursive: true });
-    const inline = "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json.' >&2; exit 2; }";
-    await writeFile(
-      join(dir, CLAUDE_SETTINGS_FILE),
-      JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: inline }] }] } }),
-    );
-    await writeHooks(dir);
-    const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
-      hooks: { Stop: { hooks: { command: string }[] }[] };
-    };
-    expect(settings.hooks.Stop).toHaveLength(1);
-    expect(settings.hooks.Stop[0]?.hooks).toHaveLength(1);
-    expect(settings.hooks.Stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
-  });
-
-  test('dryRun computes without writing', async () => {
-    const result = await writeHooks(dir, { dryRun: true });
-    expect(result.files.every((f) => f.changed)).toBe(true);
-    expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
-    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
-    expect(existsSync(join(dir, PROTECT_SCRIPT_FILE))).toBe(false);
-  });
-
-  test('throws a friendly error naming the file on a malformed settings.json', async () => {
-    await mkdir(join(dir, '.claude'), { recursive: true });
-    await writeFile(join(dir, CLAUDE_SETTINGS_FILE), '{ not valid json');
-    await expect(writeHooks(dir)).rejects.toThrow('invalid .claude/settings.json');
-  });
-
-  test('gate script behavior: no marker → skip; green → clears marker; red → exit 2, marker stays', async () => {
-    const sh = promisify(execFile);
-    const script = join(dir, GATE_SCRIPT_FILE);
-    const marker = join(dir, '.check', '.dirty');
-    const env = { ...process.env, CLAUDE_PROJECT_DIR: dir };
-    // `true`/`false` ignore the --strict --digest args the gate appends.
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { check: 'true' } }));
-    await writeHooks(dir, { pm: 'pnpm' });
-
-    // Marker absent: the gate skips without running the pipeline.
-    await sh('sh', [script], { env });
-
-    // Marker present + green check: gate passes and clears the marker.
-    await mkdir(join(dir, '.check'), { recursive: true });
-    await writeFile(marker, '');
-    await sh('sh', [script], { env });
-    expect(existsSync(marker)).toBe(false);
-
-    // Marker present + red check: gate blocks with exit 2 and the marker survives.
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { check: 'false' } }));
-    await writeFile(marker, '');
-    await expect(sh('sh', [script], { env })).rejects.toMatchObject({ code: 2 });
-    expect(existsSync(marker)).toBe(true);
-  }, 30000);
-
-  test('protect script behavior: denies baseline and .check edits, allows the rest, fails open', async () => {
-    await writeHooks(dir);
-    const script = join(dir, PROTECT_SCRIPT_FILE);
-    const env = { ...process.env, CLAUDE_PROJECT_DIR: dir };
-    const status = (stdin: string): number => {
-      try {
-        execFileSync('node', [script], { input: stdin, env, stdio: ['pipe', 'pipe', 'pipe'] });
-        return 0;
-      } catch (err) {
-        return (err as { status?: number }).status ?? -1;
-      }
-    };
-
-    expect(status(call({ file_path: join(dir, 'checkride.baseline.json') }))).toBe(2);
-    expect(status(call({ file_path: join(dir, '.check', 'summary.json') }))).toBe(2);
-    expect(status(call({ notebook_path: join(dir, '.check', 'notes.ipynb') }))).toBe(2);
-    expect(status(call({ file_path: join(dir, 'src', 'index.ts') }))).toBe(0);
-    // A file merely *named* like the baseline elsewhere in the tree is allowed.
-    expect(status(call({ file_path: join(dir, 'fixtures', 'checkride.baseline.json') }))).toBe(0);
-    // Malformed input fails open: a broken hook must not brick every edit.
-    expect(status('not json')).toBe(0);
-    expect(status(JSON.stringify({ tool_name: 'Edit' }))).toBe(0);
-  }, 30000);
-});
-
 describe('runAgentSetup (existing repo, no full init)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-agent-setup-')); });
@@ -682,7 +468,7 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(pkg.scripts['check']).toBe('checkride');
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('<!-- checkride:begin -->');
-    expect(agents).toContain('`/checkride:check` runs this procedure in full.');
+    expect(agents).toContain('`pnpm exec checkride triage` runs this procedure in full');
 
     const second = await runAgentSetup({ cwd: dir });
     expect(second.written).toEqual([]);

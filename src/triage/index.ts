@@ -14,6 +14,7 @@
  */
 
 export type { SpawnOutcome, TriageEnv } from './env.js';
+export { realEnv } from './env.js';
 
 export { isHarnessProblem } from './gate.js';
 

@@ -2,12 +2,15 @@
 /**
  * CLI entry — arg parsing and command dispatch (the package `bin`).
  *
- * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`, and
- * `agent-setup`. The command is the first non-flag token; everything after it
- * is parsed against that command's options. The module is import-safe: it only executes when invoked directly,
- * so tests can import {@link runCli} without triggering a process exit.
+ * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`,
+ * `agent-setup`, `gate`, `triage` and `qa`. The command is the first non-flag
+ * token; everything after it is parsed against that command's options. The
+ * module is import-safe: it only executes when invoked directly, so tests can
+ * import {@link runCli} without triggering a process exit.
  *
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.
+ * `gate` is the documented exception — it speaks a harness's hook protocol
+ * rather than checkride's own split (see `./gate.ts`).
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
@@ -17,10 +20,13 @@ import { fileURLToPath } from 'node:url';
 import { HOOK_NAMES, type HookName } from './agent-setup/index.js';
 import { runBaseline } from './baseline-command.js';
 import { runDoctor } from './doctor.js';
+import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
 import { runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator.js';
 import { killLiveChecks, runChecks, runFix } from './orchestrator.js';
+import { qaExtract, renderQa } from './qa/index.js';
+import { realEnv, renderTriage, triage } from './triage/index.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
 export type CliDeps = { cwd: string; stdout: Out; stderr: Out };
@@ -49,7 +55,13 @@ const INIT_OPTIONS = {
   baseline: { type: 'boolean', default: false },
   hook: { type: 'string' },
   'no-hook': { type: 'boolean', default: false },
+  harness: { type: 'string' },
   force: { type: 'boolean', default: false },
+} as const;
+
+const GATE_OPTIONS = {
+  'if-dirty': { type: 'boolean', default: false },
+  harness: { type: 'string' },
 } as const;
 
 const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
@@ -58,15 +70,22 @@ Usage: checkride [command] [options]
 
 Commands:
   (default)        Run the checks. Exit 0 pass / 1 fail / 2 error.
-  init             Set up a project (new or existing — auto-detected). Writes a
-                   Claude Code Stop hook (--no-hook to skip). New mode refuses to
+  init             Set up a project (new or existing — auto-detected). Writes the
+                   agent stop-gate hooks (--no-hook to skip). New mode refuses to
                    overwrite existing files (--force to override). Existing mode:
                    --baseline grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
-  agent-setup      Add the AGENTS.md stanza + Claude Code hooks to an existing
-                   repo (--hook <a,b> to select; --no-hook to skip them all).
+  agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
+                   (--hook <a,b> to select; --no-hook to skip them all;
+                   --harness <a,b> to pick the harnesses).
+  gate             Run the check script as a stop gate and answer in a harness's
+                   hook protocol. Invoked by the generated hook scripts.
+  triage           Triage a red gate: run it, then read .check/ as a bounded
+                   report. Takes an optional repo path.
+  qa               Read the quality artifacts (mutation, dead, dupes, health)
+                   a previous run left. Takes an optional repo path.
 
 Run options:
   --only <a,b>     Run only these slots
@@ -103,16 +122,38 @@ Options:
   --add <a,b>      Scaffold blessed configs for empty slots (existing mode)
   --baseline       Grandfather currently-failing slots into a baseline (existing mode)
   --force          Overwrite existing files instead of refusing (new mode)
-  --hook <a,b>     Write only these Claude Code hooks (${HOOK_NAMES.join(' | ')}; default all)
-  --no-hook        Skip writing the Claude Code hooks entirely
+  --hook <a,b>     Write only these hooks (${HOOK_NAMES.join(' | ')}; default all)
+  --no-hook        Skip writing the agent hooks entirely
+  --harness <a,b>  Write hooks for these harnesses (${HARNESS_NAMES.join(' | ')};
+                   default: claude, plus cursor when .cursor/ exists)
   --dry-run        Plan only; write nothing
   -h, --help       Show this help
 
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const GATE_HELP_TEXT = `checkride gate — run the check script as an agent stop gate
+
+Usage: checkride gate [options]
+
+Runs \`<pm> run check --strict --digest\` and reports the verdict in the calling
+harness's stop-hook protocol. The generated hook scripts invoke this; you rarely
+run it by hand.
+
+Options:
+  --harness <h>    Protocol to answer in (${HARNESS_NAMES.join(' | ')}; default claude)
+  --if-dirty       Skip the run when .check/.dirty is absent (no edits this turn)
+  -h, --help       Show this help
+
+Exit codes differ by harness, because the harnesses differ: claude blocks on
+exit 2 and reads stderr; cursor reads {"followup_message": …} on stdout and
+treats any non-zero exit as a broken hook, so it always exits 0.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
-const COMMAND_HELP: Record<string, string> = { init: INIT_HELP_TEXT };
+const COMMAND_HELP: Record<string, string> = { init: INIT_HELP_TEXT, gate: GATE_HELP_TEXT };
 
 function commandHelp(command: string): string {
   return COMMAND_HELP[command] ?? HELP_TEXT;
@@ -234,6 +275,29 @@ function asHooks(value: string | undefined): HookName[] | undefined {
   });
 }
 
+/** Parse `--harness <a,b>` against the harness registry; an unknown name is a usage error. */
+function asHarnesses(value: string | undefined): HarnessName[] | undefined {
+  const names = parseList(value, 'harness');
+  if (!names) return undefined;
+  return names.map((name) => {
+    const hit = HARNESS_NAMES.find((h) => h === name);
+    if (hit === undefined) {
+      throw new Error(`invalid --harness '${name}' (expected ${HARNESS_NAMES.join(' | ')})`);
+    }
+    return hit;
+  });
+}
+
+/** Parse the single-valued `--harness <h>` on `gate`. */
+function asHarness(value: string | undefined): HarnessName | undefined {
+  const names = asHarnesses(value);
+  if (!names) return undefined;
+  if (names.length !== 1) {
+    throw new Error(`invalid --harness '${value}' (gate answers one harness at a time)`);
+  }
+  return names[0];
+}
+
 /** Parse `init` arguments into init options. */
 export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   const { rest } = detectCommand(argv);
@@ -250,6 +314,8 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   if (values['no-hook']) opts.hook = false;
   const hooks = asHooks(values.hook);
   if (hooks) opts.hooks = hooks;
+  const harnesses = asHarnesses(values.harness);
+  if (harnesses) opts.harnesses = harnesses;
   if (values.force) opts.force = true;
   const add = parseList(values.add, 'add');
   if (add) opts.add = add;
@@ -293,9 +359,43 @@ async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number
   const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
   if (parsed.hook !== undefined) opts.hook = parsed.hook;
   if (parsed.hooks) opts.hooks = parsed.hooks;
+  if (parsed.harnesses) opts.harnesses = parsed.harnesses;
   if (parsed.dryRun) opts.dryRun = true;
   const result = await runAgentSetup(opts);
   return result.exitCode;
+}
+
+async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
+  const { rest } = detectCommand(argv);
+  const { values } = parseArgs({ args: rest, allowPositionals: true, options: GATE_OPTIONS });
+  const harness = asHarness(values.harness);
+  const result = await runGate({
+    cwd: deps.cwd,
+    ifDirty: values['if-dirty'],
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+    ...(harness ? { harness } : {}),
+  });
+  return result.exitCode;
+}
+
+/** The optional repo-path positional the reader commands take. */
+function readerCwd(argv: string[], deps: CliDeps): string {
+  const { rest } = detectCommand(argv);
+  const { positionals } = parseArgs({ args: rest, allowPositionals: true, options: {} });
+  return positionals[0] ?? deps.cwd;
+}
+
+async function dispatchTriage(argv: string[], deps: CliDeps): Promise<number> {
+  const report = await triage(readerCwd(argv, deps), realEnv);
+  deps.stdout.write(`${renderTriage(report)}\n`);
+  return 0;
+}
+
+async function dispatchQa(argv: string[], deps: CliDeps): Promise<number> {
+  const report = await qaExtract(readerCwd(argv, deps));
+  deps.stdout.write(`${renderQa(report)}\n`);
+  return 0;
 }
 
 /** Dispatch a CLI invocation; returns the process exit code. */
@@ -317,6 +417,9 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     fix: dispatchFix,
     baseline: dispatchBaseline,
     'agent-setup': dispatchAgentSetup,
+    gate: dispatchGate,
+    triage: dispatchTriage,
+    qa: dispatchQa,
   };
   const handler = dispatch[command];
   if (!handler) {

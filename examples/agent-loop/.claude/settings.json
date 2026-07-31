@@ -5,7 +5,29 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).' >&2; exit 2; }"
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-dirty.sh\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-protect.cjs\""
           }
         ]
       }

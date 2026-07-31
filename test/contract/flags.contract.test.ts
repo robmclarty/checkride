@@ -39,7 +39,7 @@ describe('CLI run flags', () => {
   });
 
   test('the promised commands are recognized', () => {
-    for (const command of ['run', 'init', 'doctor', 'fix', 'baseline', 'agent-setup']) {
+    for (const command of ['run', 'init', 'doctor', 'fix', 'baseline', 'agent-setup', 'gate', 'triage', 'qa']) {
       expect(parseCliArgs([command]).command).toBe(command);
     }
   });
@@ -134,8 +134,8 @@ describe('CLI slot-selection validation', () => {
 });
 
 /**
- * Contract: `init`/`agent-setup` take `--hook <a,b>` to select which Claude
- * Code hooks to write (default: all), with `--no-hook` as the write-none
+ * Contract: `init`/`agent-setup` take `--hook <a,b>` to select which agent
+ * hooks to write (default: all), with `--no-hook` as the write-none
  * escape. An unknown hook name is a usage error (exit 2) naming the valid set.
  */
 describe('CLI hook selection (--hook / --no-hook)', () => {
@@ -164,5 +164,54 @@ describe('CLI hook selection (--hook / --no-hook)', () => {
   test('--no-hook still parses (the escape hatch is unchanged)', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
     expect(await runCli(['agent-setup', '--no-hook', '--dry-run'], deps(capture()))).toBe(0);
+  });
+});
+
+/**
+ * Contract: `init`/`agent-setup` take `--harness <a,b>` to select which agent
+ * harnesses to write hooks for (default: claude, plus any the repo shows
+ * evidence of). An unknown name is a usage error (exit 2) naming the valid set,
+ * the same rule `--hook` follows.
+ */
+describe('CLI harness selection (--harness)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-harness-flag-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function deps(stderr: CliDeps['stderr']): CliDeps {
+    return { cwd: dir, stdout: { write: () => true }, stderr };
+  }
+
+  test('every promised harness is accepted, alone and together', async () => {
+    // Each case gets its own repo: `init` probes by running the checks, so two
+    // sharing a cwd would race in `.check/`.
+    const cases = ['claude', 'cursor', 'claude,cursor'].flatMap((value) =>
+      ['agent-setup', 'init'].map((command) => [command, '--harness', value, '--dry-run']),
+    );
+    const codes = await Promise.all(
+      cases.map(async (argv) => {
+        const cwd = await mkdtemp(join(tmpdir(), 'checkride-harness-case-'));
+        await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'x' }));
+        try {
+          return await runCli(argv, { cwd, stdout: { write: () => true }, stderr: capture() });
+        } finally {
+          await rm(cwd, { recursive: true, force: true });
+        }
+      }),
+    );
+    expect(codes).toEqual(cases.map(() => 0));
+  }, 30000);
+
+  test('an unknown harness name exits 2, naming it and the valid set', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    const stderr = capture();
+    expect(await runCli(['agent-setup', '--harness', 'windsurf', '--dry-run'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain("'windsurf'");
+    expect(stderr.text()).toContain('claude');
+    expect(stderr.text()).toContain('cursor');
+  });
+
+  test('gate answers one harness at a time; a list is a usage error', async () => {
+    expect(await runCli(['gate', '--harness', 'claude,cursor'], deps(capture()))).toBe(2);
   });
 });

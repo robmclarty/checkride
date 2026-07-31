@@ -22,12 +22,16 @@ minutes ago).
 ## 1. Run the reader
 
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/dist/triage/cli.js"
+pnpm exec checkride triage
 ```
 
-Pass a repo path as the one optional argument to triage somewhere other than the
-current directory. If `CLAUDE_PLUGIN_ROOT` is unset, use the copy in the target
-repo: `node node_modules/checkride/dist/triage/cli.js`.
+Substitute the repo's package manager (`npx checkride`, `yarn checkride`, `bunx
+checkride`). Pass a repo path as the one optional argument to triage somewhere
+other than the current directory.
+
+If checkride is not a dependency of the target repo, run the copy the plugin
+ships instead: `node "${CLAUDE_PLUGIN_ROOT}/dist/triage/cli.js"`. Both entry
+points render the identical report.
 
 What it does, in order: runs the repo's **own** `check` script (that script is
 the definition of done and may carry deliberate `--only` / `--skip` / `--changed`

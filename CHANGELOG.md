@@ -4,6 +4,81 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cursor support — hooks and skills.** `init` and `agent-setup` now write the
+  same three hooks (`gate`, `dirty`, `protect`) into `.cursor/hooks.json` as
+  they do into `.claude/settings.json`, and write the bundled `check` and `qa`
+  skills into `.cursor/skills/` as `checkride-check` and `checkride-qa` —
+  Cursor has no plugin system to install them from. Which harnesses get wired
+  is detected (Claude Code always, Cursor when `.cursor/` exists) and
+  overridable with `--harness <a,b>`.
+
+  The gate had to learn a second protocol to get there. Claude Code blocks a
+  turn on **exit 2** and reads stderr; Cursor treats any non-zero stop hook as a
+  *broken* hook and lets the turn end, so its verdict rides in a
+  `{"followup_message": …}` body on stdout instead. Same decision, two wire
+  formats.
+
+  Cursor's defaults would have made that gate advisory, so the entry overrides
+  three of them: `timeout` (a pipeline is minutes), `loop_limit: null` (the
+  default of 5 stops the gate replying after five turns, where Claude Code
+  re-blocks indefinitely) and `failClosed: true` (Cursor is fail-open, so a
+  crashed or timed-out gate would end the turn silently). The `dirty` and
+  `protect` guards keep the fail-open default, deliberately.
+
+- **[Cursor](docs/cursor.md).** A page for the parts that are not symmetric with
+  Claude Code — the reply-don't-block stop protocol, the three overridden
+  defaults, the third-party-configs setting, and an explicit list of the
+  assumptions Cursor's own docs leave open (chiefly: the `tool_input` path key
+  `protect` matches on is a guess, and a wrong guess fails open silently).
+
+- **`checkride gate`, `checkride triage`, `checkride qa`.** The gate's body —
+  the edit-marker check, the `check` run, the digest-or-summary choice — moved
+  out of the generated shell script into a real command, so it is testable and
+  every harness's hook script is now a thin adapter over it. `triage` and `qa`
+  promote the two bundled plugin readers to first-class commands, so a skill no
+  longer needs `${CLAUDE_PLUGIN_ROOT}` (or a hardcoded `node_modules/` path) to
+  find them.
+
+### Fixed
+
+- **The gate no longer fails open when checkride cannot run.** An uninstalled
+  or unresolvable checkride made the hook exit 1, which Claude Code reads as
+  "hook failed, carry on" — leaving a repo whose gate had silently stopped
+  gating. Any exit outside the gate's own 0/2 now blocks, naming the cause.
+  (`protect` still fails open, deliberately: a broken protect hook must not
+  become a repo where nothing can be written.)
+- **A repo wired for both harnesses no longer runs two gates per turn.** Cursor
+  loads `.claude/settings.json` hooks when third-party configs are enabled, maps
+  `Stop` onto `stop`, and runs *every* matching source — so the default wiring
+  (Claude Code is always selected) fired two full pipelines concurrently into one
+  `.check/`, racing on the artifacts the orchestrator clears per slot and on the
+  edit marker. `checkride gate --harness claude` now stands down when Cursor is
+  running it and a native Cursor gate is registered. Narrow on purpose: a stale
+  `CURSOR_PROJECT_DIR` costs a duplicate run, never the gate.
+- **A gate that cannot enter the repo now reports it.** The `cd` guard was a bare
+  `exit 2`, which said nothing under Claude Code and — because Cursor reads any
+  non-zero stop hook as a broken one — ended the turn silently under Cursor. It
+  now emits the same "could not run" verdict as every other way the gate can fail
+  to start, in each harness's protocol.
+- **`protect` no longer misses paths under a symlinked repo root.** It compared
+  the harness's spelling of a path against the environment's, which on macOS
+  routinely differ (`/var/…` vs `/private/var/…`), making every in-repo path
+  look external — so an edit to `checkride.baseline.json` was allowed through.
+  Both sides are now resolved before comparison.
+
+### Contract
+
+- The command set gains `gate`, `triage` and `qa`; `init`/`agent-setup` gain
+  `--harness <a,b>`. All additive. `gate` is documented as the one command
+  outside the 0/1/2 exit split, because it answers a harness's hook protocol
+  rather than checkride's own — see `docs/contract.md` §CLI. Its one documented
+  no-op is promised there too: `--harness claude` stands down for a registered
+  native Cursor gate.
+
 ## [0.9.6] - 2026-07-30
 
 ### Fixed

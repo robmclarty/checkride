@@ -176,10 +176,13 @@ overwrite them.
 ### Make it a hard gate
 
 To turn "exit 0 = done" from advice into a mechanical gate, checkride writes
-Claude Code **hooks** into `.claude/settings.json`. The load-bearing one is the
-**Stop-hook gate**: it fires when the agent tries to finish; exiting `2` blocks
-the stop and feeds the message back, so the agent keeps working until the
-pipeline is green.
+**hooks** into your agent harness's config — `.claude/settings.json` for Claude
+Code, `.cursor/hooks.json` for Cursor. The load-bearing one is the **stop
+gate**: it fires when the agent tries to finish and refuses to let it, so the
+agent keeps working until the pipeline is green.
+
+Which harnesses get wired is detected — Claude Code always, Cursor when
+`.cursor/` exists — and `--harness <a,b>` overrides that.
 
 `init` writes the hooks automatically (both new and existing projects). To add
 them to a repo you have already set up — without re-running the full `init` —
@@ -192,29 +195,75 @@ pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + hooks, no
 Both commands are idempotent (re-running is a no-op), take `--hook <a,b>` to
 select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
 
-- **`gate`** (Stop) — the hard gate. The settings entry is a stable one-liner
-  invoking a checkride-owned script, `.claude/hooks/checkride-gate.sh`;
-  checkride overwrites that script freely on refresh, so put customization in
-  a sibling script, never inside it. The script runs your **detected package
-  manager**'s `run check` with `--strict --digest`, and on red points the
-  agent at `.check/digest.md` (the capped failure excerpt) when it exists,
-  `.check/summary.json` otherwise.
-- **`dirty`** (PostToolUse on `Edit|Write|NotebookEdit`) — touches an edit
-  marker, `.check/.dirty`. The gate exits 0 immediately when the marker is
-  absent, so pure-conversation turns don't pay for a pipeline run; a green
-  gate clears it. (File writes made through Bash don't set the marker — a
-  known, accepted gap; the next tool-edited turn re-covers it. If you select
-  `--hook gate` without `dirty`, the generated script is unconditional.)
-- **`protect`** (PreToolUse on the same tools) — denies edits to
-  `checkride.baseline.json` and `.check/**`, turning "never add to the
-  baseline to make a check pass" into enforcement. Reads are never denied;
-  triage depends on them.
+- **`gate`** — the hard gate. The config entry is a stable one-liner invoking a
+  checkride-owned script (`.claude/hooks/checkride-gate.sh`,
+  `.cursor/hooks/checkride-gate.sh`); checkride overwrites that script freely
+  on refresh, so put customization in a sibling script, never inside it. The
+  script is a thin adapter over [`checkride gate`](#the-gate-command), which
+  runs your **detected package manager**'s `run check` with `--strict
+  --digest` and on red points the agent at `.check/digest.md` (the capped
+  failure excerpt) when it exists, `.check/summary.json` otherwise.
+- **`dirty`** — touches an edit marker, `.check/.dirty`. The gate exits 0
+  immediately when the marker is absent, so pure-conversation turns don't pay
+  for a pipeline run; a green gate clears it. (File writes made through a shell
+  don't set the marker — a known, accepted gap; the next tool-edited turn
+  re-covers it. If you select `--hook gate` without `dirty`, the generated
+  script is unconditional.)
+- **`protect`** — denies edits to `checkride.baseline.json` and `.check/**`,
+  turning "never add to the baseline to make a check pass" into enforcement.
+  Reads are never denied; triage depends on them.
 
-Exit codes matter in Stop hooks: a plain failing `run check` exits `1`, which
-Claude Code treats as a non-blocking error and lets the agent stop anyway.
-Exit `2` is the code that blocks — the gate script ends with it. The hook
-input also carries a `stop_hook_active` flag — check it in a sibling script if
-you want to break out of a fix loop that is not converging.
+Each lands on the nearest event its harness offers:
+
+| hook | Claude Code | Cursor |
+| --- | --- | --- |
+| `gate` | `Stop` | `stop` |
+| `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit` |
+| `protect` | `PreToolUse`, same matcher | `preToolUse`, matcher `Write\|Delete` |
+
+#### The gate command
+
+The decision — is it dirty, is it green, which artifact should the agent read —
+lives in `checkride gate`, so each harness's hook script only has to translate
+the verdict. **The two harnesses disagree about how a stop hook says "no", and
+the disagreement is total:**
+
+- **Claude Code** blocks on **exit 2** and shows the agent stderr. A plain
+  failing `run check` exits `1`, which it treats as a non-blocking error and
+  lets the agent stop anyway — so the gate has to translate.
+- **Cursor** treats *any* non-zero stop hook as a **broken** hook and ends the
+  turn regardless. Its verdict rides in the body instead:
+  `{"followup_message": "…"}` on stdout, exit 0. Cursor submits that as the next
+  user message.
+
+So `checkride gate --harness cursor` always exits 0 by design. Run it by hand
+with `--harness claude` (the default) if you want the exit code.
+
+A gate that *could not run at all* — an uninstalled checkride, a broken launcher,
+a repo it cannot even enter — blocks in both harnesses rather than passing. A
+gate that silently stops gating is the vacuous green this whole tool exists to
+prevent. (`protect` goes the other way and fails open: a broken protect hook must
+not become a repo where nothing can be written.)
+
+Cursor's defaults would undo that in two more places, so the gate entry
+overrides both. `loop_limit` defaults to **5** — after five auto-followups the
+gate stops replying and a red repo finishes anyway, where Claude Code re-blocks
+indefinitely — so checkride writes `loop_limit: null`. And Cursor is fail-*open*
+by default: a hook that crashes, times out or emits unparseable JSON lets the
+turn end silently, so the gate writes `failClosed: true`. Both are
+checkride-owned and restored on the next `agent-setup`; the supported way to
+stand the gate down is `--hook dirty,protect` or `--no-hook`, not editing the
+entry. The two guards keep the fail-open default on purpose.
+
+One more Cursor-only wrinkle: with third-party configs enabled, Cursor runs your
+`.claude/settings.json` hooks *alongside* its own, which would fire two full
+pipelines per turn. `checkride gate --harness claude` detects that and stands
+down in favour of the native Cursor gate. Details, along with the assumptions
+Cursor's docs leave open, are in **[Cursor](./cursor.md)**.
+
+Claude Code's Stop-hook input also carries a `stop_hook_active` flag, and
+Cursor's carries `loop_count` — check either in a sibling script if you want to
+break out of a fix loop that is not converging.
 
 The gate runs `--strict` because it is a gate: zero checks actually running is
 exit 2, never a silent pass ([the contract](./contract.md#vacuous-green) asks
@@ -223,9 +272,10 @@ agent is blocked from stopping until the configuration is fixed — which is the
 point of a definition-of-done gate. CI remains the other, branch-protecting
 backstop — see [Running checkride in CI](./ci.md).
 
-Repos that adopted an earlier checkride carry the old inline Stop command in
-settings.json; the next `agent-setup` (or `init`) migrates it in place to the
-script form — detected by its message sentinel, replaced, never duplicated.
+Repos that adopted an earlier checkride carry the old inline `Stop` and
+`PostToolUse` commands in settings.json; the next `agent-setup` (or `init`)
+migrates them in place to the script form — each detected by its own sentinel,
+replaced, never duplicated.
 
 ### Avoiding duplicate runs
 
@@ -240,9 +290,9 @@ end. That is the "simplest fix" below, applied by default.
 Do **not** delete the AGENTS.md block to dodge the duplicate. The block does two
 jobs — it tells the agent to run the gate, *and* it teaches the agent how to read
 `.check/summary.json`, what the module conventions are, and which narrow commands
-to iterate with. A Stop hook only replaces the first job; deleting the whole
+to iterate with. A stop hook only replaces the first job; deleting the whole
 block makes every agent worse at *fixing* what the hook flags, and it strands
-non-Claude agents, since the hook is Claude Code only.
+any harness checkride has no hook writer for.
 
 Whether the duplicate matters depends on your suite — pick by how expensive a run
 is:
@@ -265,8 +315,9 @@ There is no lock-in to undo. checkride's whole footprint is: the `checkride`
 devDependency, `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if
-`init` created it), the hook entries in `.claude/settings.json` with their
-`.claude/hooks/checkride-*` scripts, and the gitignored `.check/` output
+`init` created it), the hook entries in `.claude/settings.json` and
+`.cursor/hooks.json` with their `checkride-*` scripts, the
+`.cursor/skills/checkride-*` directories, and the gitignored `.check/` output
 directory. Remove those and checkride is gone. The
 tools keep working untouched — they are ordinary `devDependencies` with their
 own config files, so `pnpm exec oxlint`, `pnpm exec vitest run`, and the rest

@@ -69,15 +69,17 @@ pnpm check
 Both paths end in the same place — `init` auto-detects which case it is in.
 It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
 regardless of the tool's name. It also writes the agent contract: an AGENTS.md
-stanza stating the "exit 0 = done" rule, and Claude Code **hooks** in
-`.claude/settings.json` — a Stop-hook gate (a checkride-owned script,
-`.claude/hooks/checkride-gate.sh`, that runs your detected package manager's
-`run check --strict --digest` and blocks an agent from finishing while the
-pipeline is red), an edit marker so turns that touched no files skip the gate,
-and a PreToolUse guard that denies edits to `checkride.baseline.json` and
-`.check/**`. Select hooks with `--hook <a,b>` (gate | dirty | protect) or skip
-them all with `--no-hook`. To add all of this — alias, stanza, and hooks — to
-a repo you already set up, run `checkride agent-setup`.
+stanza stating the "exit 0 = done" rule, and **hooks** in your agent harness's
+config — `.claude/settings.json` for Claude Code, `.cursor/hooks.json` for
+Cursor. Three of them: a stop gate (a checkride-owned script that runs your
+detected package manager's `run check --strict --digest` and blocks an agent
+from finishing while the pipeline is red), an edit marker so turns that touched
+no files skip the gate, and a guard that denies edits to
+`checkride.baseline.json` and `.check/**`. Select hooks with `--hook <a,b>`
+(gate | dirty | protect), harnesses with `--harness <a,b>` (claude | cursor;
+detected by default), or skip the hooks with `--no-hook`. To add all of this —
+alias, stanza, hooks, and the Cursor skills — to a repo you already set up, run
+`checkride agent-setup`.
 
 ## Docs
 
@@ -100,6 +102,9 @@ Task-focused guides live in [docs/](./docs/README.md):
 - [The Claude Code plugin](./docs/plugin.md) — the bundled `/checkride:check`
   and `/checkride:qa` skills: install, what each one reads, and what they
   deliberately do not do.
+- [Cursor](./docs/cursor.md) — what `agent-setup` writes for Cursor, where
+  Cursor's hook API differs from Claude Code's, and the assumptions not yet
+  verified against a live Cursor.
 - [Reliability](./docs/reliability.md) — why checkride is safe to build a
   gate on.
 
@@ -128,15 +133,21 @@ checkride init         Set up a project (new or existing — auto-detected).
   --add <a,b>  (existing mode) scaffold blessed configs for the named empty slots
   --baseline   (existing mode) grandfather current debt instead of disabling slots
   --force      (new mode) overwrite existing files instead of refusing
-  --hook <a,b> write only these Claude Code hooks (gate | dirty | protect)
-  --no-hook    skip writing the Claude Code hooks
+  --hook <a,b> write only these hooks (gate | dirty | protect)
+  --no-hook    skip writing the agent hooks
+  --harness <a,b> write them for these harnesses (claude | cursor; default: detected)
   --dry-run    plan only; write nothing
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride agent-setup  Add the "check" alias, AGENTS.md stanza + Claude Code hooks to a repo.
+checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip the hooks (write only the stanza)
+  --harness <a,b> which harnesses to write for (claude | cursor; default: detected)
+checkride gate         Run the check script as a stop gate, answering a harness's
+                       hook protocol. The generated hook scripts invoke this.
+checkride triage       Triage a red gate: run it, then read .check/ as a bounded report.
+checkride qa           Read the quality artifacts a previous run left.
 ```
 
 During iteration, narrow the loop: `checkride --bail`, `checkride --only

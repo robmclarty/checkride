@@ -12,15 +12,16 @@ When it fails:
 2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).
 3. Fix the root cause, then re-run.
 
-With the checkride plugin installed, `/checkride:check` runs this procedure in full.
+`pnpm exec checkride triage` runs this procedure in full and reads `.check/` for you
+(`/checkride:check` and `/checkride-check` are the same thing as a skill).
 
 Tight feedback loops: `pnpm check --bail`, `pnpm check --only types,lint`, and
 `pnpm check --changed`.
 
-If a Claude Code Stop hook is configured (`.claude/settings.json`), it runs the full
-`pnpm check` as the final gate — so while iterating, prefer the narrow commands above
-and let the hook run the authoritative pipeline once at the end rather than running
-the full check yourself every loop.
+If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.json`),
+it runs the full `pnpm check` as the final gate — so while iterating, prefer the narrow
+commands above and let the hook run the authoritative pipeline once at the end rather
+than running the full check yourself every loop.
 
 ### Baseline
 

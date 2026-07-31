@@ -58,17 +58,56 @@ fuller path in one added line, and that line is the only difference.
 
 ### Without the plugin
 
-Both readers are plain Node entry points inside the installed package, so any
-agent — or you — can run them directly:
+Both readers are first-class CLI commands, so any agent — or you — can run them
+directly:
 
 ```bash
-node node_modules/checkride/dist/triage/cli.js   # what /checkride:check runs
-node node_modules/checkride/dist/qa/cli.js       # what /checkride:qa runs
+pnpm exec checkride triage   # what /checkride:check runs
+pnpm exec checkride qa       # what /checkride:qa runs
 ```
 
 Each takes one optional argument: a repo path, defaulting to the current
-directory. Each writes Markdown to stdout. What you lose is the skill — the
-procedure and the judgment that turn a report into a diagnosis.
+directory. Each writes Markdown to stdout and exits 0 whenever a report was
+produced. What you lose is the skill — the procedure and the judgment that turn
+a report into a diagnosis.
+
+The same readers also ship as plain Node entry points, which is how the plugin
+invokes them in a repo that does not depend on checkride:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/dist/triage/cli.js"
+node node_modules/checkride/dist/qa/cli.js
+```
+
+## Cursor
+
+The plugin is Claude Code only — Cursor has no plugin system to install it
+from. Cursor gets the same two skills a different way: `checkride agent-setup`
+writes them into the repo at `.cursor/skills/checkride-check/` and
+`.cursor/skills/checkride-qa/`, from the same source files the plugin ships.
+
+Three differences follow from that:
+
+- **The names are prefixed.** `/checkride-check` and `/checkride-qa`, because a
+  repo-local skill named `check` would take the bare `/check` command in every
+  repo it lands in. The plugin gets that namespacing for free.
+- **They live in the repo**, so they are committed, reviewed and versioned with
+  it — and refreshed by the next `agent-setup` rather than by a plugin update.
+- **They invoke `checkride triage` / `checkride qa`**, not `${CLAUDE_PLUGIN_ROOT}`,
+  which is exactly why those commands exist.
+
+Cursor also reads `.claude/skills/` — but only with **Settings → Rules, Skills,
+Subagents → "Include third-party Plugins, Skills, and other configs"** enabled,
+so a skill already installed there works without being copied *if* that setting
+is on. checkride writes to `.cursor/skills/` regardless: that is the directory
+Cursor owns, it needs no setting, and a repo with no Claude Code setup should not
+be growing a `.claude/` tree.
+
+That setting has a second effect worth knowing about — it makes Cursor run your
+`.claude/settings.json` **hooks** too. See [Cursor](./cursor.md) for what
+checkride does about it, along with the rest of the Cursor-specific behavior:
+the stop gate, the two guards, and the assumptions that are not yet verified
+against a live Cursor.
 
 ## `/checkride:check` — triage a red gate
 

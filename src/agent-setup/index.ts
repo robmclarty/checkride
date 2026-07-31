@@ -1,17 +1,17 @@
 /**
- * Agent-setup module — the Claude Code hooks (the Stop-hook gate and kin).
- * This barrel is the module's only public surface: siblings import from
- * `../agent-setup`, never from `./hook.js` directly.
+ * Agent-setup module — the hooks every supported harness gets (the stop gate and
+ * kin). This barrel is the module's only public surface: siblings import from
+ * `../agent-setup`, never from `./hook.js` or a per-harness writer directly.
  */
 
-export {
-  applyHooks,
-  CLAUDE_SETTINGS_FILE,
-  GATE_SCRIPT_FILE,
-  gateScript,
-  HOOK_NAMES,
-  type HookName,
-  PROTECT_SCRIPT_FILE,
-  protectScript,
-  writeHooks,
-} from './hook.js';
+export { applyHooks, CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, PROTECT_SCRIPT_FILE } from './claude.js';
+
+export { applyCursorHooks, CURSOR_HOOKS_FILE } from './cursor.js';
+
+export type { HookFile } from './files.js';
+
+export { detectHarnesses, HOOK_NAMES, type HookName, writeHooks } from './hook.js';
+
+export { dirtyScript, gateScript, protectScript } from './scripts.js';
+
+export { CURSOR_SKILLS_DIR, renameSkill, writeCursorSkills } from './skills.js';
