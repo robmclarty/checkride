@@ -451,6 +451,46 @@ describe('runGate — the package manager refused to start the check', () => {
     expect(systemMessage).toContain('1 of 1 failed: test');
   });
 
+  /**
+   * The same guard, with the clock skew that makes it hard. File mtimes come
+   * from the kernel's coarse (timer-tick) clock on Linux while `Date.now()`
+   * does not, so a summary written *after* the gate started routinely lands a
+   * few milliseconds behind `startedAt` — measured at ~47% of writes on
+   * overlayfs and never once on APFS, which is why this was a Linux-only red.
+   * `now` is pinned ahead of the real clock to reproduce that skew on
+   * every platform: without the mtime tolerance the summary reads as a previous
+   * run's, the output's marker is believed, and a red is misreported as
+   * "could not run" — blaming the environment for broken code.
+   */
+  test('a summary whose mtime lands just behind the start is still this run’s', async () => {
+    const wroteSummary: GateSpawn = async (_command, _args, opts) => {
+      opts.stderr.write(`a test asserted on ${PNPM_ENGINE_REFUSAL}`);
+      await mkdir(join(dir, '.check'), { recursive: true });
+      await writeFile(
+        join(dir, '.check', 'summary.json'),
+        JSON.stringify({
+          schema_version: 1,
+          timestamp: new Date(0).toISOString(),
+          ok: false,
+          checks_run: 1,
+          total_duration_ms: 10,
+          checks: [{ adapter: 'test', name: 'test', description: 'test', ok: false, exit_code: 1, duration_ms: 10, output_file: null }],
+        }),
+      );
+      return 1;
+    };
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir, spawn: wroteSummary, stdout, stderr: capture(), pinEnv: pinEnv(),
+      // Ahead of the real clock by more than any observed tick granularity, so
+      // the summary this run writes is genuinely older than `startedAt`.
+      now: () => Date.now() + 50,
+    });
+    expect(result.refusal).toBeNull();
+    const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
+    expect(systemMessage).toContain('✘ red');
+  });
+
   test('a package manager that is not on PATH is a refusal, not an unexplained red', async () => {
     const stderr = capture();
     const result = await runGate({

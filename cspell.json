@@ -21,6 +21,7 @@
   ],
   "words": [
     "Amp",
+    "APFS",
     "asdf",
     "assertable",
     "backticked",
@@ -70,6 +71,7 @@
     "npmjs",
     "nvmrc",
     "Ousterhout",
+    "overlayfs",
     "oxlint",
     "oxlintrc",
     "Parnas",

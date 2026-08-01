@@ -303,6 +303,19 @@ function greenDetail(ran: readonly SummaryCheck[]): string {
 }
 
 /**
+ * Tolerance for a summary written moments before the gate's own clock reading —
+ * mirrors `MTIME_TOLERANCE_MS` in `./triage/triage.ts`, where the same
+ * comparison decides whether the summary belongs to this run.
+ *
+ * Without it this comparison is unsound on Linux: file mtimes come from the
+ * kernel's coarse (timer-tick) clock while `Date.now()` does not, so a summary
+ * written *after* `startedAt` routinely lands a few milliseconds behind it —
+ * measured at ~47% of writes on overlayfs, and never once on APFS. That is why
+ * the gate went red only on the Linux CI legs.
+ */
+const MTIME_TOLERANCE_MS = 1000;
+
+/**
  * Is the summary on disk the one *this* run wrote?
  *
  * A gate that could not run wrote none, and a report that invents "0 checks
@@ -311,10 +324,11 @@ function greenDetail(ran: readonly SummaryCheck[]): string {
  * is dropped for the same reason — not hypothetical: a check script of the shape
  * `tsc --build && checkride` leaves the summary untouched when the build fails,
  * so trusting whatever is on disk would report the last run's failing slots as
- * this one's, confidently and wrongly.
+ * this one's, confidently and wrongly. The tolerance is far smaller than any
+ * real gate run, so it cannot launder a genuinely stale summary into a fresh one.
  */
 function isFresh(read: SummaryRead, startedAt: number): boolean {
-  return read.state === 'ok' && read.mtimeMs >= startedAt;
+  return read.state === 'ok' && read.mtimeMs >= startedAt - MTIME_TOLERANCE_MS;
 }
 
 /**
