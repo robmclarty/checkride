@@ -52,6 +52,42 @@ jobs:
       - name: pnpm check
         run: pnpm check
 
+      # A failing slot prints only its status line: with no baseline file there
+      # are no per-finding keys to report, so the captured output that says
+      # *what* broke lives solely in `.check/` — which a hosted runner discards.
+      # Without this, a red CI run is undiagnosable from the log alone.
+      - name: Failing check output
+        if: failure()
+        run: |
+          [ -d .check ] || exit 0
+          failed=$(node -e '
+            const s = require("./.check/summary.json");
+            console.log(s.checks.filter(c => c.ok === false).map(c => c.name).join(" "));
+          ' 2>/dev/null) || failed=""
+          echo "failing slots: ${failed:-<none recorded>}"
+          for slot in $failed; do
+            for f in ".check/$slot.stdout.txt" ".check/$slot.stderr.txt"; do
+              [ -s "$f" ] || continue
+              echo "::group::$f"
+              cat "$f"
+              echo "::endgroup::"
+            done
+          done
+
+      # Keep the whole report so an intermittent, platform-specific failure can
+      # be read after the fact rather than reproduced by guesswork. Coverage is
+      # excluded: it is large and never the thing being diagnosed.
+      - name: Upload check report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: check-${{ matrix.os }}-node${{ matrix.node }}
+          path: |
+            .check/
+            !.check/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
       # The green-out-of-the-box invariant: generate each shape, install it, and
       # run the built CLI against it (the predecessor's encoded lesson) — plus
       # the PM quartet and the interrupted-run (never-torn artifacts) cases.
