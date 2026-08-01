@@ -14,6 +14,14 @@
  * - The events are lowercase and differently cut: `stop`, `afterFileEdit`
  *   (purpose-built, no matcher) and `preToolUse` (matched against Cursor's own
  *   tool names — `Shell`, `Read`, `Write`, `Grep`, `Delete`, `Task`, `MCP:*`).
+ * - Cursor cuts the shell out as its own pair of events, `beforeShellExecution`
+ *   and `afterShellExecution`, whose matchers run against the **command string**
+ *   rather than a tool name. Both guards take a second entry there to cover what
+ *   the file tools never see; the gate does not, since it is not per-call.
+ *
+ * A hook name therefore maps to one *or more* entries, on different events. They
+ * share a name because they are one guard — `--remove-hook protect` takes out
+ * both — and share a script, since the script branches on `hook_event_name`.
  *
  * The gate entry carries three fields the Claude writer has no equivalent for —
  * `timeout`, `loop_limit` and `failClosed` — because Cursor's defaults for all
@@ -43,7 +51,7 @@ const HARNESS: HarnessName = 'cursor';
 const SCHEMA_VERSION = 1;
 
 /** The Cursor hook events checkride writes under. */
-type HookEvent = 'stop' | 'afterFileEdit' | 'preToolUse';
+type HookEvent = 'stop' | 'afterFileEdit' | 'preToolUse' | 'beforeShellExecution' | 'afterShellExecution';
 
 /**
  * One Cursor hook entry. Unknown keys pass through untouched.
@@ -101,6 +109,36 @@ const run = (interpreter: string, file: string): string => `${interpreter} "\${C
 const EDIT_TOOLS = 'Write|Delete';
 
 /**
+ * Commands `protect` bothers to parse: the ones that name an accounting path at
+ * all. `beforeShellExecution` matches its `matcher` against the **full command
+ * string**, and that is the whole reason a shell guard is affordable here.
+ *
+ * checkride's standing objection to matching a shell tool is that a guard firing
+ * on a wrong parse is worse than a known hole. Filtering first turns the blast
+ * radius from "every command the agent runs" into "commands that already mention
+ * `checkride.baseline.json` or `.check`" — and inside that set the script still
+ * denies only on demonstrated write intent. Reads land here too and are allowed;
+ * they have to be, because triage reads these files.
+ */
+const ACCOUNTING_PATHS = 'checkride\\.baseline\\.json|\\.check\\b';
+
+/**
+ * Commands `dirty` reads as having written a file: a `>`/`>>` redirect, or one of
+ * the mutating verbs. The negative lookahead on `&` is load-bearing — without it
+ * the `2>&1` on the end of half the agent's commands marks every turn dirty and
+ * the gate stops skipping anything.
+ *
+ * Heuristic on purpose, and biased toward matching: a false positive costs one
+ * pipeline run on a turn that changed nothing, while a false negative is the
+ * status quo — a shell-written file that no gate ever sees. Only the first of
+ * those is recoverable by running the gate.
+ */
+const SHELL_WRITES =
+  '>>?\\s*[^&\\s>]' +
+  '|(^|[\\s;&|(])(rm|mv|cp|tee|sed|truncate|dd|patch|install|shred|ln)(\\s|$)' +
+  '|(^|[\\s;&|(])git\\s+(apply|checkout|restore|stash|clean|reset|revert|switch|merge|rebase|pull|cherry-pick)(\\s|$)';
+
+/**
  * Cursor's defaults are tuned for observers; the gate is not one, so all three
  * of its non-command fields are set against the default rather than with it:
  *
@@ -137,9 +175,32 @@ function hookSpecs(): HookSpec[] {
       command: run('sh', DIRTY_SCRIPT_FILE),
     },
     {
+      // The shell half of the edit marker. `afterFileEdit` sees only the file
+      // tools, so a turn that wrote through the shell alone used to skip the
+      // gate entirely. The matcher does all the deciding here — the script is
+      // the same unconditional `touch` either event reaches it through.
+      name: 'dirty',
+      event: 'afterShellExecution',
+      matcher: SHELL_WRITES,
+      sentinels: [DIRTY_SCRIPT_FILE],
+      command: run('sh', DIRTY_SCRIPT_FILE),
+    },
+    {
       name: 'protect',
       event: 'preToolUse',
       matcher: EDIT_TOOLS,
+      sentinels: [PROTECT_SCRIPT_FILE],
+      command: run('node', PROTECT_SCRIPT_FILE),
+    },
+    {
+      // The shell half of the same guard. A tool-name matcher cannot see
+      // `echo … > checkride.baseline.json`, because that is a shell call and not
+      // a `Write`; `beforeShellExecution` is where it becomes visible. Same
+      // script, same fail-open default — see `protectScript` in `./scripts.ts`
+      // for why the parse behind it refuses to guess.
+      name: 'protect',
+      event: 'beforeShellExecution',
+      matcher: ACCOUNTING_PATHS,
       sentinels: [PROTECT_SCRIPT_FILE],
       command: run('node', PROTECT_SCRIPT_FILE),
     },

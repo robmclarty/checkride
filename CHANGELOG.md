@@ -6,6 +6,34 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Both Cursor guards now cover the shell.** `protect` and `dirty` each take a
+  second `.cursor/hooks.json` entry — on `beforeShellExecution` and
+  `afterShellExecution` — whose matchers run against the command string rather
+  than a tool name. This closes the older of the two documented Cursor gaps:
+  `echo … > checkride.baseline.json` is a shell call, not a `Write`, so no
+  file-tool matcher could ever see it, and a turn that wrote only through the
+  shell used to skip the gate entirely.
+
+  The standing objection was that matching the shell means parsing arbitrary
+  command lines, and a guard that fires on a wrong parse is worse than one with
+  a known hole. That objection is answered rather than dropped. `protect`'s
+  matcher admits only commands already naming an accounting path — reads
+  included — and the script then denies solely on demonstrated write intent: a
+  `>`/`>>` redirect target, or a positional argument of `rm`, `mv`, `tee`,
+  `sed -i`, `dd of=` and kin. Anything it cannot read that way is allowed, so
+  `cat`, `jq`, `grep` and `cp .check/summary.json /tmp/x` keep working, as
+  triage requires. `dirty` decides from its matcher alone and biases the other
+  way, toward marking a turn dirty, because there the recoverable error is one
+  extra pipeline run.
+
+  Both entries share their sibling's name and script: one guard, one
+  `--remove-hook protect`, one `.cjs` branching on `hook_event_name`. The gate
+  takes no shell entry — it is not per-call. Claude Code's half of the gap stays
+  open; `permissions.deny` is a file-path list, and a `Bash` matcher there would
+  mean shipping a generated script that harness does not currently need.
+
 ### Changed
 
 - **The AGENTS.md stanza no longer promises the gate ran everything.** It said

@@ -122,7 +122,8 @@ this is the gap to close.
 This is the one that surprises people, and checkride works around it.
 
 With **Settings → Rules, Skills, Subagents → "Include third-party Plugins,
-Skills, and other configs"** enabled, Cursor loads hooks from
+Skills, and other configs"** enabled — and it ships **enabled by default**, so
+this is the case to assume rather than the exception — Cursor loads hooks from
 `.claude/settings.json` too, maps `Stop` onto `stop`, and — the load-bearing
 detail — runs **all matching hooks from every source**. A repo wired for both
 harnesses (the default, since Claude Code is always selected) would therefore
@@ -139,6 +140,11 @@ The check is deliberately narrow. It defers only when a Cursor gate is actually
 *registered*, not merely when Cursor appears to be running, so the failure mode
 of a stale environment variable is a duplicate run rather than no gate at all.
 
+There was a stretch where this did not bite — a Cursor bug silently skipped
+`.claude/settings.json` hooks entirely, reported against 2.6.11 and fixed in
+April 2026. It is loading them again, so the stand-down is load-bearing, not
+belt-and-braces.
+
 The same setting governs skills: Cursor reads `.claude/skills/` for
 compatibility only when third-party configs are enabled. checkride writes to
 `.cursor/skills/` regardless — that is the directory Cursor owns, it needs no
@@ -150,8 +156,8 @@ tree.
 | hook | Claude Code | Cursor |
 | --- | --- | --- |
 | `gate` | `Stop` | `stop` |
-| `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit`, no matcher |
-| `protect` | `permissions.deny` rules | `preToolUse`, matcher `Write\|Delete` |
+| `dirty` | `PostToolUse`, matcher `Edit\|Write\|NotebookEdit` | `afterFileEdit`, no matcher **+** `afterShellExecution`, matched on the command |
+| `protect` | `permissions.deny` rules | `preToolUse`, matcher `Write\|Delete` **+** `beforeShellExecution`, matched on the command |
 
 `protect` is the row where the two harnesses stopped being the same shape.
 Claude Code has a declarative file-path deny list, checked below the hook layer,
@@ -164,6 +170,37 @@ changed", so it needs no matcher and cannot drift when Cursor renames a tool.
 And Cursor has no `Edit` tool — `Write` covers both creating and modifying —
 while `Delete` can remove an accounting file just as effectively as a write can
 overwrite it.
+
+### Why each guard takes a second entry
+
+Cursor cuts the shell out as its own pair of events, and their matchers run
+against the **command string** rather than a tool name. That is what makes the
+shell reachable at all: a file-tool matcher cannot see
+`echo … > checkride.baseline.json`, because that is a shell call and not a
+`Write`.
+
+Both entries share their sibling's name and script — one guard, one
+`--remove-hook protect`, one `.cjs` that branches on `hook_event_name`. The gate
+takes no shell entry; it is not per-call.
+
+The two matchers do very different amounts of work:
+
+- **`protect`** matches `checkride.baseline.json|\.check\b` — every command that
+  so much as names an accounting path, *including reads*. The matcher only
+  decides what is worth parsing; the script decides what is denied, and it denies
+  only on demonstrated write intent (a `>`/`>>` target, or a positional argument
+  of `rm`, `mv`, `tee`, `sed -i`, `dd of=` and kin). `cat`, `jq`, `grep` and
+  `cp .check/summary.json /tmp/x` all pass, and must: triage reads these files.
+- **`dirty`** matches write-shaped commands and its script does no deciding at
+  all — the matcher is the whole judgment, since the marker is one `touch`.
+
+This is checkride's standing objection to shell matching answered rather than
+abandoned: a guard that fires on a wrong parse is still worse than a known hole,
+so the blast radius shrinks from "every command the agent runs" to "commands
+that already name an accounting path," and within that set anything unreadable
+is allowed. The two biases differ because their costs do — `protect` errs toward
+allowing a write, `dirty` errs toward marking a turn dirty, and each is the
+recoverable direction for that hook.
 
 ## Known gaps and unverified assumptions
 
@@ -193,16 +230,21 @@ cannot catch, because the hook it would guard never started. If you see hooks
 that never appear to run, replace the command with the bare relative path
 Cursor's docs show and report it.
 
-**Neither harness matches its shell tool.** `protect` guards `Write`/`Delete`
-(Cursor) and `Edit`/`Write`/`NotebookEdit` (Claude Code), so a redirect through
-the shell — `echo … > checkride.baseline.json` — walks through under both. This
-gap predates Cursor support and is accepted: matching the shell tool means
-parsing arbitrary command lines, and a guard that fires on the wrong parse is
-worse than one with a known hole. The AGENTS.md stanza covers it as instruction.
+**Claude Code still does not match its shell tool.** Cursor's half of this gap
+is now covered by the `beforeShellExecution` and `afterShellExecution` entries
+[above](#why-each-guard-takes-a-second-entry). Claude Code has no equivalent:
+`permissions.deny` is a file-path list, so `echo … > checkride.baseline.json`
+still walks through, and a `Bash` matcher would mean shipping Claude Code a
+generated script it currently does not need. The AGENTS.md stanza covers it as
+instruction, and the ratchet prunes the baseline on its own regardless.
 
-**The edit marker misses shell writes too**, for the same reason — a file
-written through the shell does not set `.check/.dirty`, so a turn that *only*
-did that skips the gate. The next tool-edited turn re-covers it.
+**The shell parse is a heuristic, in both directions.** `protect` allows any
+command it cannot read as a write, so an exotic spelling — a path built from a
+variable, an `eval`, a heredoc — reaches the file. `dirty` decides from its
+matcher alone, so a write it does not recognize skips the gate for that turn,
+and a command that merely looks write-shaped costs one unnecessary pipeline run.
+Neither is a parser for the shell and neither is trying to be; the file tools
+remain the covered path, and this is the uncovered one narrowed.
 
 **No progress or completion display.** Covered in full
 [above](#what-the-gate-can-and-cannot-show-you): Cursor's hook API offers no

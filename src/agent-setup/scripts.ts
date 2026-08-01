@@ -218,6 +218,21 @@ export function dirtyScript(): string {
  */
 const PATH_KEYS = ['file_path', 'notebook_path', 'path', 'target_file', 'filePath', 'relative_workspace_path'];
 
+/**
+ * Shell verbs that can destroy *any* path they are handed, so every positional
+ * argument is a write target. `mv` belongs here rather than with the
+ * destination-only verbs because moving an accounting file away removes it just
+ * as effectively as overwriting it.
+ */
+const ALL_ARGS_VERBS = ['rm', 'unlink', 'shred', 'mv', 'truncate', 'tee', 'rmdir'];
+
+/**
+ * Shell verbs whose sources are *read* and whose last positional argument is the
+ * only thing written. `cp .check/summary.json /tmp/x` has to stay allowed — it
+ * is a backup, not an edit — and treating its source as a target would deny it.
+ */
+const DEST_ONLY_VERBS = ['cp', 'install', 'ln', 'rsync'];
+
 /** The deny message, shared by both harnesses. */
 const DENY_MESSAGE =
   "'checkride: ' + rel + ' is checkride-owned accounting. Never edit the baseline or .check ' +\n" +
@@ -248,11 +263,27 @@ function denyTail(): string[] {
  * matched — reads are never denied, because triage depends on reading `.check/`
  * artifacts.
  *
+ * Two Cursor events land here. `preToolUse` carries a file-tool call, whose
+ * target is read from {@link PATH_KEYS}. `beforeShellExecution` carries a
+ * command line, which is scanned for a write *to* an accounting path — the gap
+ * a tool-name matcher cannot close, since `echo … > checkride.baseline.json` is
+ * a shell call and not a `Write`.
+ *
+ * The command scan is deliberately timid, because a guard that fires on a wrong
+ * parse is worse than a known hole. It denies only on demonstrated write intent
+ * — a `>`/`>>` redirect target, or a positional argument of a known mutating
+ * verb — and anything it cannot read that way is allowed. `cat`, `grep`, `jq`
+ * and `cp … /tmp/x` over `.check/` all pass, which they must: triage reads those
+ * artifacts. The hook's own `matcher` narrows the input further, so a command
+ * that never names an accounting path is not parsed at all.
+ *
  * **Cursor only.** Claude Code enforces the same paths through
  * `permissions.deny`, which is checked below the hook layer and costs nothing
  * per tool call, so it needs no script. Cursor has no documented equivalent —
  * its config is hooks — so the script survives for the harness that still
  * requires one. If Cursor grows a file-path deny list, this file goes away.
+ * (Claude Code's deny rules have the same shell-redirect hole and no script to
+ * close it with; that half of the gap is still open. See docs/cursor.md.)
  */
 export function protectScript(): string {
   return [
@@ -261,14 +292,16 @@ export function protectScript(): string {
     '// checkride owns this file: `checkride agent-setup` (and `checkride init`)',
     '// overwrite it on every run.',
     '//',
-    '// Pre-tool hook for Cursor. Reads the tool call as JSON on stdin and',
-    '// denies the write when it targets the baseline or .check/. Reads are never',
-    '// matched — triage depends on reading .check artifacts.',
+    '// Guard hook for Cursor. Reads the hook payload as JSON on stdin and denies',
+    '// the call when it *writes* to the baseline or .check/. Reads are never',
+    '// denied — triage depends on reading .check artifacts.',
     "'use strict';",
     "const { realpathSync } = require('node:fs');",
     "const { basename, dirname, isAbsolute, relative, resolve, sep } = require('node:path');",
     '',
     `const PATH_KEYS = ${JSON.stringify(PATH_KEYS)};`,
+    `const ALL_ARGS_VERBS = ${JSON.stringify(ALL_ARGS_VERBS)};`,
+    `const DEST_ONLY_VERBS = ${JSON.stringify(DEST_ONLY_VERBS)};`,
     '',
     '// Resolve symlinks in `p`, so a symlinked prefix cannot make an in-repo path',
     '// look external. On macOS the repo root routinely arrives in two spellings —',
@@ -293,6 +326,84 @@ export function protectScript(): string {
     '  }',
     '}',
     '',
+    '// Split a command line into tokens, keeping quoted spans whole and emitting',
+    '// each unquoted operator as a token of its own — so `echo x>f` and `echo x > f`',
+    '// tokenize alike, and a `>` inside quotes is never mistaken for a redirect.',
+    'function tokenize(command) {',
+    '  const tokens = [];',
+    "  let cur = '';",
+    '  let quote = null;',
+    "  const flush = () => { if (cur !== '') { tokens.push(cur); cur = ''; } };",
+    '  for (let i = 0; i < command.length; i += 1) {',
+    '    const c = command[i];',
+    '    if (quote !== null) {',
+    '      if (c === quote) quote = null;',
+    '      else cur += c;',
+    '    } else if (/["\']/.test(c)) {',
+    '      quote = c;',
+    "    } else if (c === '\\\\') {",
+    "      i += 1; cur += command[i] || '';",
+    '    } else if (/\\s/.test(c)) {',
+    '      flush();',
+    '    } else if (/[<>|&;]/.test(c)) {',
+    '      flush();',
+    '      let op = c;',
+    '      while (command[i + 1] === c) { op += c; i += 1; }',
+    '      tokens.push(op);',
+    '    } else {',
+    '      cur += c;',
+    '    }',
+    '  }',
+    '  flush();',
+    '  return tokens;',
+    '}',
+    '',
+    'const isOperator = (t) => /^[<>|&;]+$/.test(t);',
+    '',
+    '// Break a token stream at the operators that start a new command, so the verb',
+    '// of `cat x | tee .check/f` is read as `tee` and not as `cat`.',
+    'function segments(tokens) {',
+    '  const out = [[]];',
+    '  for (const t of tokens) {',
+    '    if (/^[|&;]+$/.test(t)) out.push([]);',
+    '    else out[out.length - 1].push(t);',
+    '  }',
+    '  return out;',
+    '}',
+    '',
+    '// Every path a command line demonstrably writes to. Anything this cannot read',
+    '// as a write yields nothing, and the caller then allows the command.',
+    'function commandTargets(command) {',
+    '  const targets = [];',
+    '  for (const segment of segments(tokenize(command))) {',
+    '    for (let i = 0; i < segment.length; i += 1) {',
+    "      if (segment[i] !== '>' && segment[i] !== '>>') continue;",
+    '      const next = segment[i + 1];',
+    '      if (next !== undefined && !isOperator(next)) targets.push(next);',
+    '    }',
+    '    const words = segment.filter((t) => !isOperator(t));',
+    '    // Step over any leading `VAR=value` assignments to reach the verb itself.',
+    '    let i = 0;',
+    '    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) i += 1;',
+    "    const verb = (words[i] || '').split('/').pop();",
+    '    const rest = words.slice(i + 1);',
+    "    const args = rest.filter((a) => !a.startsWith('-'));",
+    '    if (ALL_ARGS_VERBS.indexOf(verb) >= 0) targets.push(...args);',
+    '    else if (DEST_ONLY_VERBS.indexOf(verb) >= 0 && args.length > 0) targets.push(args[args.length - 1]);',
+    "    else if ((verb === 'sed' || verb === 'perl') && rest.some((a) => /^-[a-zA-Z]*i/.test(a))) targets.push(...args);",
+    "    else if (verb === 'dd') targets.push(...rest.filter((a) => a.startsWith('of=')).map((a) => a.slice(3)));",
+    '  }',
+    '  return targets;',
+    '}',
+    '',
+    "// `target`'s repo-relative path when it is checkride accounting, else undefined.",
+    'function accounting(target, root, base) {',
+    '  const abs = canon(isAbsolute(target) ? target : resolve(base, target));',
+    "  const rel = relative(root, abs).split(sep).join('/');",
+    "  if (rel === 'checkride.baseline.json' || rel === '.check' || rel.startsWith('.check/')) return rel;",
+    '  return undefined;',
+    '}',
+    '',
     "let raw = '';",
     "process.stdin.on('data', (chunk) => { raw += chunk; });",
     "process.stdin.on('end', () => {",
@@ -302,14 +413,17 @@ export function protectScript(): string {
     '  } catch {',
     '    process.exit(0); // fail open: a broken hook must not brick every edit',
     '  }',
-    '  const tool = (input && input.tool_input) || {};',
-    "  const target = PATH_KEYS.map((k) => tool[k]).find((v) => typeof v === 'string' && v.length > 0);",
-    '  if (target === undefined) process.exit(0);',
+    "  if (input === null || typeof input !== 'object') process.exit(0);",
     '  const root = canon(process.env.CURSOR_PROJECT_DIR || process.env.CLAUDE_PROJECT_DIR || process.cwd());',
-    '  const abs = canon(isAbsolute(target) ? target : resolve(root, target));',
-    "  const rel = relative(root, abs).split(sep).join('/');",
-    "  const denied = rel === 'checkride.baseline.json' || rel === '.check' || rel.startsWith('.check/');",
-    '  if (!denied) process.exit(0);',
+    "  // A shell command resolves against the shell's own cwd, which Cursor sends;",
+    '  // a file-tool path has always been resolved against the repo root.',
+    "  const base = typeof input.cwd === 'string' && input.cwd.length > 0 ? canon(input.cwd) : root;",
+    '  const tool = input.tool_input || {};',
+    "  const targets = input.hook_event_name === 'beforeShellExecution'",
+    "    ? commandTargets(typeof input.command === 'string' ? input.command : '')",
+    "    : PATH_KEYS.map((k) => tool[k]).filter((v) => typeof v === 'string' && v.length > 0);",
+    '  const rel = targets.map((t) => accounting(t, root, base)).find((r) => r !== undefined);',
+    '  if (rel === undefined) process.exit(0);',
     ...denyTail(),
     '});',
     '',

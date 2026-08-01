@@ -431,6 +431,61 @@ describe('cursor merge (applyCursorHooks)', () => {
     expect(entry?.matcher).not.toContain('NotebookEdit');
   });
 
+  /**
+   * Each guard takes a second entry on the shell events, because the file tools
+   * never see `echo … > checkride.baseline.json`. They share their sibling's
+   * name — one guard, one `--remove-hook` — and its script.
+   */
+  test('both guards extend onto the shell events, under the same name', () => {
+    const next = applyCursorHooks({}, HOOK_NAMES);
+    expect(next.hooks?.beforeShellExecution?.[0]?.command).toContain('checkride-protect.cjs');
+    expect(next.hooks?.afterShellExecution?.[0]?.command).toContain('checkride-dirty.sh');
+    // The gate is not per-call, so it takes no shell entry.
+    expect(next.hooks?.beforeShellExecution).toHaveLength(1);
+    expect(applyCursorHooks({}, ['gate']).hooks?.beforeShellExecution).toBeUndefined();
+  });
+
+  test('removing a guard takes out both of its entries', () => {
+    const next = removeCursorHooks(applyCursorHooks({}, HOOK_NAMES), ['protect']);
+    expect(next.hooks?.preToolUse).toBeUndefined();
+    expect(next.hooks?.beforeShellExecution).toBeUndefined();
+    // Its sibling guard is untouched.
+    expect(next.hooks?.afterShellExecution).toHaveLength(1);
+  });
+
+  /**
+   * `protect`'s matcher is what keeps a command-line parse affordable: only
+   * commands already naming an accounting path are parsed at all. Reads match
+   * too — the script, not the matcher, is what decides they are allowed.
+   */
+  test('protect’s shell matcher selects the commands worth parsing', () => {
+    const matcher = applyCursorHooks({}, ['protect']).hooks?.beforeShellExecution?.[0]?.matcher;
+    const re = new RegExp(String(matcher));
+    expect(re.test('echo x > checkride.baseline.json')).toBe(true);
+    expect(re.test('rm -rf .check')).toBe(true);
+    expect(re.test('cat .check/summary.json')).toBe(true);
+    // `pnpm check` is the script, not the directory.
+    expect(re.test('pnpm check')).toBe(false);
+    expect(re.test('echo hi > src/index.ts')).toBe(false);
+  });
+
+  /**
+   * `dirty`'s matcher decides entirely on its own whether a turn is dirty, so
+   * the `2>&1` trailing half the agent's commands is the case that matters: a
+   * matcher that reads it as a redirect marks every turn and the gate stops
+   * skipping anything.
+   */
+  test('dirty’s shell matcher reads a write, not a stderr redirect', () => {
+    const matcher = applyCursorHooks({}, ['dirty']).hooks?.afterShellExecution?.[0]?.matcher;
+    const re = new RegExp(String(matcher));
+    expect(re.test('pnpm test 2>&1')).toBe(false);
+    expect(re.test('git status')).toBe(false);
+    expect(re.test('grep -rn foo src/')).toBe(false);
+    expect(re.test('echo hi > src/new.ts')).toBe(true);
+    expect(re.test('sed -i s/a/b/ src/x.ts')).toBe(true);
+    expect(re.test('git apply patch.diff')).toBe(true);
+  });
+
   test('applying twice is a no-op (deep equal)', () => {
     const once = applyCursorHooks({}, HOOK_NAMES);
     expect(applyCursorHooks(once, HOOK_NAMES)).toEqual(once);
@@ -677,6 +732,14 @@ function call(toolInput: Record<string, string>): string {
   return JSON.stringify({ tool_name: 'Write', tool_input: toolInput });
 }
 
+/**
+ * A `beforeShellExecution` payload. `cwd` is what a relative path in the command
+ * resolves against, and Cursor sends it separately from the project root.
+ */
+function shellCall(command: string, cwd: string): string {
+  return JSON.stringify({ hook_event_name: 'beforeShellExecution', command, cwd });
+}
+
 describe('protect script behavior (live)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-protect-')); });
@@ -741,6 +804,67 @@ describe('protect script behavior (live)', () => {
         call({ target_file: join(dir, '.check', 'y') }),
       ]),
     ).toEqual([true, true, true]);
+  }, 30000);
+
+  /**
+   * The gap a tool-name matcher cannot close: `echo … > checkride.baseline.json`
+   * is a shell call, not a `Write`, so `preToolUse` never sees it.
+   */
+  test('denies a shell command that writes to the accounting files', async () => {
+    expect(
+      await verdicts([
+        shellCall('echo "[]" > checkride.baseline.json', dir),
+        shellCall('echo "[]" >> checkride.baseline.json', dir),
+        // No spaces around the operator — the tokenizer splits on it anyway.
+        shellCall('echo x>.check/summary.json', dir),
+        shellCall('rm -rf .check', dir),
+        shellCall('mv checkride.baseline.json /tmp/stash.json', dir),
+        shellCall('sed -i s/a/b/ checkride.baseline.json', dir),
+        shellCall('cat x | tee .check/summary.json', dir),
+        shellCall('dd if=/dev/null of=.check/summary.json', dir),
+        // Only the second command writes; a segment is judged on its own verb.
+        shellCall('git status && echo "{}" > checkride.baseline.json', dir),
+      ]),
+    ).toEqual([true, true, true, true, true, true, true, true, true]);
+  }, 30000);
+
+  /**
+   * The half that matters more. Triage *reads* `.check/` artifacts, so a guard
+   * that denied on the mere mention of one would break the flow it exists to
+   * protect — and the matcher routes every such command here to be judged.
+   */
+  test('allows every shell command that only reads the accounting files', async () => {
+    expect(
+      await verdicts([
+        shellCall('cat .check/summary.json', dir),
+        shellCall('jq . .check/summary.json', dir),
+        shellCall('grep -r ok .check/', dir),
+        shellCall('ls -la .check', dir),
+        // A copy *out* of .check is a backup: the source is read, the dest written.
+        shellCall('cp .check/summary.json /tmp/backup.json', dir),
+        shellCall('cat .check/summary.json > /tmp/out.json', dir),
+        // Mentioning the path in prose is not touching it.
+        shellCall('echo ".check is checkride-owned"', dir),
+        // A write, but not to accounting.
+        shellCall('echo hi > src/index.ts', dir),
+        shellCall('rm -rf node_modules', dir),
+      ]),
+    ).toEqual([false, false, false, false, false, false, false, false, false]);
+  }, 30000);
+
+  /**
+   * The command's own cwd, not the project root, is what a relative path in it
+   * resolves against — Cursor sends the two separately and they differ whenever
+   * the agent has cd'd into a subdirectory.
+   */
+  test('resolves a shell path against the command’s cwd', async () => {
+    expect(
+      await verdicts([
+        shellCall('echo x > ../checkride.baseline.json', join(dir, 'src')),
+        // The same relative path from the root is a different file, and fine.
+        shellCall('echo x > ../checkride.baseline.json', dir),
+      ]),
+    ).toEqual([true, false]);
   }, 30000);
 
   /**

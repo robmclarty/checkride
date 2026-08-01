@@ -81,8 +81,14 @@ node node_modules/checkride/dist/qa/cli.js
 
 ## Cursor
 
-The plugin is Claude Code only — Cursor has no plugin system to install it
-from. Cursor gets the same two skills a different way: `checkride agent-setup`
+The plugin is Claude Code only. Cursor has had a plugin system since 2.5
+(February 2026) and checkride deliberately does not ship one: a Cursor plugin
+cannot name a script it shipped itself — there is no `${CURSOR_PLUGIN_ROOT}`
+equivalent and manifest paths may not be absolute or use `..` — it installs per
+user rather than per repo, and it distributes from git rather than npm, which
+gives up the one-version-one-install property this page exists to explain.
+
+So Cursor gets the same two skills a different way: `checkride agent-setup`
 writes them into the repo at `.cursor/skills/checkride-check/` and
 `.cursor/skills/checkride-qa/`, from the same source files the plugin ships.
 
@@ -97,9 +103,10 @@ Three differences follow from that:
   which is exactly why those commands exist.
 
 Cursor also reads `.claude/skills/` — but only with **Settings → Rules, Skills,
-Subagents → "Include third-party Plugins, Skills, and other configs"** enabled,
-so a skill already installed there works without being copied *if* that setting
-is on. checkride writes to `.cursor/skills/` regardless: that is the directory
+Subagents → "Include third-party Plugins, Skills, and other configs"** enabled
+(it ships on by default), so a skill already installed there works without being
+copied *if* that setting is still on. checkride writes to `.cursor/skills/`
+regardless: that is the directory
 Cursor owns, it needs no setting, and a repo with no Claude Code setup should not
 be growing a `.claude/` tree.
 
