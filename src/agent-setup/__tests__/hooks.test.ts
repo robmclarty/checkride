@@ -71,49 +71,137 @@ describe('generated scripts', () => {
   });
 
   /**
-   * The gate is the one hook that fails *closed*. Claude Code reads a plain
-   * exit 1 as "hook failed, carry on", so an unresolvable checkride would leave
-   * a repo whose gate had silently stopped gating.
+   * A repo that never installed its dependencies has no checkride to run, and no
+   * edit the agent can make puts one there. The gate says what to run — the
+   * package manager, by name — and lets the turn end, because blocking would
+   * re-ask every turn for a fix that is an install rather than an edit.
    */
-  test('an exit outside the gate’s own 0/2 still blocks, per harness', () => {
+  test('a missing install stands the gate down and names `<pm> install`', () => {
     const claude = gateScript('pnpm', { harness: 'claude' });
-    expect(claude).toContain('[ "$status" -eq 2 ] && exit 2');
-    expect(claude).toMatch(/could not run[\s\S]*exit 2/);
+    expect(claude).toMatch(/stand_down 'checkride: the gate could not run — checkride is not installed/);
+    expect(claude).toContain('Run `pnpm install` (checkride is a devDependency of this repo)');
+    // The remedy the old message named needed the very binary that is missing,
+    // and rewrote AGENTS.md besides.
+    expect(claude).not.toContain('agent-setup` before finishing');
 
-    const cursor = gateScript('pnpm', { harness: 'cursor' });
-    // Cursor treats non-zero as a broken hook, so the fallback rides in the body.
-    expect(cursor).toContain('followup_message');
-    expect(cursor.trimEnd().endsWith('exit 0')).toBe(true);
+    expect(gateScript('npm', { harness: 'claude' })).toContain('Run `npm install`');
+    expect(gateScript('yarn', { harness: 'cursor' })).toContain('Run `yarn install`');
   });
 
   /**
-   * A repo it cannot even enter is a gate that never ran, which is the same
-   * verdict as an unresolvable checkride — and under Cursor, exiting non-zero
-   * there would read as a *broken* hook and let the turn end.
+   * The other half: checkride *is* installed and still did not answer. There is
+   * no remedy to name, so the gate stops and is looked at — it fails closed,
+   * exactly as it always has.
    */
-  test('a repo it cannot enter reports the unrunnable verdict, per harness', () => {
+  test('an installed checkride that does not answer still blocks, per harness', () => {
     const claude = gateScript('pnpm', { harness: 'claude' });
-    expect(claude).toMatch(/if ! cd [\s\S]*could not run[\s\S]*exit 2\nfi/);
+    expect(claude).toContain('[ -e node_modules/.bin/checkride ]');
+    expect(claude).toMatch(/block 'checkride: the gate could not run — checkride is installed here/);
+    expect(claude).toMatch(/printf '%s\\n' "\$1" >&2\n {2}exit 2/);
 
     const cursor = gateScript('pnpm', { harness: 'cursor' });
-    expect(cursor).toMatch(/if ! cd [\s\S]*followup_message[\s\S]*exit 0\nfi/);
+    // Cursor treats non-zero as a broken hook, so the block rides in the body.
+    expect(cursor).toContain('followup_message');
     // Nowhere in the cursor script may a non-zero status escape.
     expect(cursor).not.toMatch(/^\s*exit [1-9]/m);
   });
 
   /**
-   * `sh` runs a backtick span inside double quotes as a command. The message
-   * carries two backticked command names, and an early draft using `echo "…"`
-   * had them silently substituted away.
+   * The bound on every could-not-run cause, named and unnamed alike. Claude Code
+   * sends `stop_hook_active`, Cursor `loop_count`; either says the last turn
+   * already ended on this verdict, so blocking has been tried.
    */
-  test('the unrunnable message is single-quoted, so its backticks survive', () => {
-    const claude = gateScript('pnpm', { harness: 'claude' });
-    // Both branches that can emit it — the failed `cd` and the unknown status.
-    const lines = claude.split('\n').filter((l) => l.includes('could not run'));
-    expect(lines).toHaveLength(2);
-    for (const line of lines) {
-      expect(line.trim()).toMatch(/^printf '%s\\n' '.*' >&2$/);
-      expect(line).not.toContain('"');
+  test('a second consecutive could-not-run stands down instead of blocking again', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      const script = gateScript('pnpm', { harness });
+      expect(script).toContain('stop_hook_active');
+      expect(script).toContain('loop_count');
+      // Read from a pipe only: `cat` on a terminal hangs a hand-run forever.
+      expect(script).toContain('[ -t 0 ] || payload=$(cat)');
+      // The bound lives inside `block`, so no branch can forget it.
+      expect(script).toMatch(/block\(\) \{\n {2}retry && stand_down /);
+    }
+  });
+
+  /**
+   * The one supported seam for wrapping the gate. checkride owns and overwrites
+   * the generated script, so a repo with something to say before the gate needs
+   * somewhere that survives a refresh — which is why the path comes from
+   * checkride.config.json and is baked in at write time.
+   */
+  test('a configured preflight runs before checkride, in the gate’s own exit vocabulary', () => {
+    const script = gateScript('pnpm', { harness: 'claude', preflight: 'scripts/pre.sh' });
+    // Before the gate is invoked, so it can answer for a repo where checkride
+    // itself cannot start. (`exec`, not the `checkride gate --help` in the
+    // header comment above it.)
+    expect(script.indexOf("sh 'scripts/pre.sh'")).toBeLessThan(script.indexOf('exec checkride gate'));
+    expect(script).toMatch(/case "\$code" in\n {2}0\) ;;\n {2}2\) block .*\n {2}\*\) stand_down /);
+  });
+
+  /** Absent unless asked for: no repo pays for a seam it never declared. */
+  test('no preflight is emitted when none is configured', () => {
+    expect(gateScript('pnpm', { harness: 'claude' })).not.toContain('preflight');
+    expect(gateScript('pnpm', { harness: 'cursor' })).not.toContain('preflight');
+  });
+
+  /**
+   * A typo in one config key must not silently disarm the gate forever, so a
+   * configured-but-absent preflight blocks. A missing file is repo-fixable,
+   * which is what the block/stand-down split turns on everywhere else.
+   */
+  test('a preflight that is not there blocks rather than standing the gate down', () => {
+    const script = gateScript('pnpm', { harness: 'claude', preflight: 'scripts/pre.sh' });
+    expect(script).toMatch(/if \[ ! -e 'scripts\/pre\.sh' \]; then\n {2}block '[^']*that is not there/);
+  });
+
+  /**
+   * The path is embedded inside `'…'` and inside a message that later becomes a
+   * JSON string field. Rejected loudly rather than escaped: every one of these in
+   * a repo-relative path is a mistake, and mangling it would fail later as
+   * "preflight not found", pointing at the wrong thing.
+   */
+  test('a shell-hostile preflight path is refused, not escaped', () => {
+    for (const bad of ["a'b.sh", 'a"b.sh', 'a\\b.sh', 'a`b.sh', 'a\nb.sh']) {
+      expect(() => gateScript('pnpm', { harness: 'claude', preflight: bad })).toThrow(/gate\.preflight/);
+    }
+  });
+
+  /** A bare name would resolve against PATH, which is never what a repo path means. */
+  test('a preflight with no directory is anchored to the repo root', () => {
+    expect(gateScript('pnpm', { harness: 'claude', preflight: 'pre.sh' })).toContain("'./pre.sh'");
+  });
+
+  /**
+   * A repo it cannot even enter is a gate that never ran — and under Cursor,
+   * exiting non-zero there would read as a *broken* hook and let the turn end.
+   */
+  test('a repo it cannot enter reports a verdict rather than a bare status', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      expect(gateScript('pnpm', { harness })).toMatch(/if ! cd [\s\S]*block 'checkride: the gate could not run/);
+    }
+  });
+
+  /**
+   * Two characters are banned from every generated message. A single quote would
+   * end the `'…'` its call site wraps it in; a double quote (or a backslash)
+   * would break the `printf '{"systemMessage":"%s"}'` body, which is built from
+   * the same string rather than from a second pre-encoded copy of it.
+   *
+   * Backticks are fine, and load-bearing — `sh` runs a backtick span inside
+   * double quotes as a command, but never re-scans an expanded variable, which
+   * is why every message travels as `"$1"` and never inline.
+   */
+  test('every generated message survives the shell and the JSON body', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      const script = gateScript('pnpm', { harness });
+      const emits = script.split('\n').filter((l) => /^\s*(block|stand_down) '/.test(l));
+      expect(emits.length).toBeGreaterThanOrEqual(3);
+      for (const emit of emits) {
+        const message = /'(.*)'/.exec(emit)?.[1] ?? '';
+        expect(message).toContain('could not run');
+        expect(message).not.toContain('"');
+        expect(message).not.toContain('\\');
+      }
     }
   });
 
@@ -125,7 +213,7 @@ describe('generated scripts', () => {
   test('the claude gate script forwards checkride’s hook body and exits 0 on it', () => {
     const script = gateScript('pnpm', { harness: 'claude' });
     expect(script).toMatch(/body=\$\(.*checkride gate/);
-    expect(script).toMatch(/if \[ -n "\$body" \][\s\S]*0\|2\) exit 0 ;;/);
+    expect(script).toMatch(/0\|2\)\n\s*if \[ -n "\$body" \]/);
   });
 
   /**
@@ -135,7 +223,22 @@ describe('generated scripts', () => {
    */
   test('the claude gate script still blocks on the exit code when no body came back', () => {
     const script = gateScript('pnpm', { harness: 'claude' });
-    expect(script).toContain('[ "$status" -eq 2 ] && exit 2');
+    expect(script).toContain('exit "$status"');
+  });
+
+  /**
+   * The status is checked *before* the body is forwarded, and that order is the
+   * fix for a real failure. On a missing install pnpm writes
+   * `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` to stdout — ahead of a stray `undefined`
+   * on pnpm 11 — so `$body` holds the launcher's error, not a hook body.
+   * Forwarding it put unparseable text where Claude Code expects JSON.
+   */
+  test('the claude gate script forwards a body only on a status checkride wrote', () => {
+    const script = gateScript('pnpm', { harness: 'claude' });
+    const guard = script.indexOf('case "$status" in');
+    const forward = script.indexOf('if [ -n "$body" ]');
+    expect(guard).toBeGreaterThan(-1);
+    expect(forward).toBeGreaterThan(guard);
   });
 
   /** Cursor reads the hook's own stdout, so there is nothing for its script to capture. */
@@ -588,6 +691,36 @@ describe('writeHooks', () => {
     await writeFile(join(dir, 'package-lock.json'), '{}');
     await writeHooks(dir, { harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('npx --no-install checkride gate');
+  });
+
+  /**
+   * The property the whole seam exists for. A `--preflight` flag would have been
+   * dropped by the next bare `hooks add`, and a re-pointed harness config gets
+   * rewritten — so the wiring is re-derived from the repo's own config on every
+   * write, and a plain refresh restores it rather than clobbering it.
+   */
+  test('a gate.preflight is read from config and survives a bare refresh', async () => {
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ gate: { preflight: 'scripts/pre.sh' } }),
+    );
+    await writeHooks(dir, { harnesses: ['claude'] });
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain("sh 'scripts/pre.sh'");
+
+    // The refresh a teammate runs, with no flags and no knowledge of the seam.
+    await writeHooks(dir, { harnesses: ['claude'] });
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain("sh 'scripts/pre.sh'");
+  });
+
+  /** Dropping the key is how the seam goes away — the next write rewrites it out. */
+  test('removing gate.preflight from config removes it from the script', async () => {
+    const config = join(dir, 'checkride.config.json');
+    await writeFile(config, JSON.stringify({ gate: { preflight: 'scripts/pre.sh' } }));
+    await writeHooks(dir, { harnesses: ['claude'] });
+
+    await writeFile(config, JSON.stringify({}));
+    await writeHooks(dir, { harnesses: ['claude'] });
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('preflight');
   });
 
   test('merges into an existing settings file, preserving other keys', async () => {

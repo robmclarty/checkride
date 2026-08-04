@@ -9,7 +9,7 @@
  * plus a merge function, and nothing else.
  */
 
-import type { HarnessName } from '../gate.js';
+import { gatePreflight, type HarnessName } from '../gate.js';
 import { detectPackageManager, type PackageManager, runScript } from '../pm/index.js';
 import type { HookFile } from './files.js';
 import { dropFile, putFile, putJson } from './files.js';
@@ -117,13 +117,22 @@ export async function writeHarnessHooks<T extends object>(
   const dryRun = opts.dryRun ?? false;
   const gone = opts.remove ?? [];
   const names = opts.hooks.filter((name) => !gone.includes(name));
+  // Read on every write, which is what makes the preflight the one seam that
+  // survives a refresh: `hooks add` rewrites the script and re-points the
+  // harness config, and re-derives this from the repo's own config each time.
+  const preflight = gatePreflight(cwd);
 
   const bodies: Record<HookName, () => string> = {
     // The gate guards on the edit marker only when the hook that sets it is
     // written too; alone, the guard would disarm the gate entirely. Removing
     // `dirty` therefore rewrites a surviving gate unguarded, which is why the
     // config merge and the script bodies both read the post-removal selection.
-    gate: () => gateScript(pm, { harness: spec.name, dirtyGuard: names.includes('dirty') }),
+    gate: () =>
+      gateScript(pm, {
+        harness: spec.name,
+        dirtyGuard: names.includes('dirty'),
+        ...(preflight === null ? {} : { preflight }),
+      }),
     dirty: dirtyScript,
     protect: protectScript,
   };

@@ -83,10 +83,19 @@ The two guards keep Cursor's fail-open default, deliberately and for the same
 reason in both cases: a broken `dirty` hook costs one skipped gate, and a broken
 `protect` hook must never become a repo where nothing can be written.
 
-`loop_limit: null` plus `failClosed: true` means a genuinely broken gate can keep
-a turn from ending. That is the same property the Claude Code gate has had since
-it existed — it is what "exit 0 = done" costs — but it is worth knowing the
-escape hatch is `--remove-hook gate`, not waiting it out.
+`loop_limit: null` plus `failClosed: true` would mean a genuinely broken gate
+could keep a turn from ending forever, so the generated script bounds itself
+rather than the config bounding it. Cursor sends a `loop_count` on the stop
+payload; on the second consecutive **could not run** the script stands down
+instead of blocking again, and a cause nothing in the repo can fix (checkride
+never installed, an `engines` pin the hook's Node fails) stands down on the
+first. Neither is silent — the text goes to stderr, because Cursor's one stop
+hook output field, `followup_message`, submits a new turn and would rebuild the
+loop by hand.
+
+What stays uncapped is a **red** gate, which is the point of `loop_limit: null`:
+a gate that stops re-blocking after five turns is five nudges. The escape hatch
+for that one is `--remove-hook gate`, not waiting it out.
 
 ## What the gate can and cannot show you
 

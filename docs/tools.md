@@ -170,6 +170,11 @@ installed, checkride changes nothing and the gate reports `could not run` rather
 than a red, naming the pin, the Node the hook got, and the lever. What it must
 never do is report a launch that never happened as a verdict on your code.
 
+Since no edit can put a Node on the hook's `PATH`, that verdict **stands down**
+rather than blocking: it exits 0 with no `decision`, having said that nothing was
+verified. Blocking would re-ask the same agent every turn for a fix it cannot
+make. See [the contract](./contract.md) for the full split.
+
 `CHECKRIDE_NODE_BIN` is the escape hatch, and the wrapping point for a layout
 checkride does not know:
 

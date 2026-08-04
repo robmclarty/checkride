@@ -173,8 +173,10 @@ Environment:
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
-not satisfy, most often). It blocks like a red, but nothing ran and no artifact
-describes the turn, so it names the cause instead of naming a file.
+not satisfy, most often). Nothing ran and no artifact describes the turn, so it
+names the cause instead of naming a file. It blocks like a red when the repo can
+fix it (no check script); when only the environment can, it says so and lets the
+turn end rather than re-asking an agent that has no lever to pull.
 
 Exit codes differ by harness, because the harnesses differ: claude blocks on
 exit 2 and reads stderr; cursor reads {"followup_message": …} on stdout and

@@ -9,6 +9,7 @@
 
 export type { PackageManager } from './detect.js';
 export { detectPackageManager } from './detect.js';
+export type { LaunchRefusal } from './launch.js';
 export { launchRefusal, SPAWN_FAILED_MARKER } from './launch.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './tools.js';
 export { execCommand, isAvailableUnder, runScript, translateExec } from './translate.js';

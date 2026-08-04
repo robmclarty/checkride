@@ -19,10 +19,17 @@
  * the check script at all — an `engines.node` pin the hook's Node does not
  * satisfy is the common cause, and it exits non-zero exactly like a failing
  * test. Reading that as red produced a permanent red no code change could clear,
- * pointing at a `.check/summary.json` no run had written. It still blocks, for
- * the same reason every unrunnable gate does; what changes is that it names the
- * cause instead of naming an artifact. See `./pm/launch.ts` for the
- * classification and `./node-pin.ts` for the alignment that avoids it.
+ * pointing at a `.check/summary.json` no run had written. So it names the cause
+ * instead of naming an artifact. See `./pm/launch.ts` for the classification and
+ * `./node-pin.ts` for the alignment that avoids it.
+ *
+ * Whether that third verdict *blocks* turns on one question: can the turn clear
+ * it? A missing `check` script can be fixed by the agent holding the edit tools,
+ * so the gate blocks and the agent fixes it. A Node the harness never put on
+ * `PATH` cannot, so the gate says so and stands down (see
+ * {@link reportStandDown}). Blocking on the second only re-asks an agent that
+ * has no lever to pull, which is not gating — it is a loop, and the way out of
+ * a loop is turning the gate off.
  *
  * Not to be confused with `../triage/gate.ts`, which also runs the `check`
  * script: that one runs it *verbatim* as a reader's preflight and classifies the
@@ -43,6 +50,7 @@ import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js'
 import type { Out, SummaryCheck } from './orchestrator.js';
 import {
   detectPackageManager,
+  type LaunchRefusal,
   launchRefusal,
   type PackageManager,
   runScript,
@@ -262,6 +270,29 @@ export function gateProfile(cwd: string, config: CheckrideConfig | null = loadCo
 }
 
 /**
+ * The repo's gate preflight, or `null` when it declares none.
+ *
+ * Read at *write* time rather than at run time, by the hook writers in
+ * `./agent-setup/`, and baked into the generated script as a literal path. Two
+ * reasons, and both are the point of the seam:
+ *
+ * 1. A preflight that only ran once checkride had started could not answer for
+ *    the case it exists to cover — a repo whose dependencies were never
+ *    installed, where `checkride gate` is the thing that cannot run.
+ * 2. Every `hooks add`/`agent-setup` re-reads this file, so the wiring is
+ *    restored on every refresh instead of being clobbered by it. That is exactly
+ *    the failure a `--preflight` flag would have kept: a teammate running the
+ *    bare command would silently drop the guard.
+ *
+ * Kept separate from {@link gateProfile} because a preflight narrows nothing —
+ * it must never put a "NOT the full check" clause on a verdict.
+ */
+export function gatePreflight(cwd: string, config: CheckrideConfig | null = loadConfig(cwd)): string | null {
+  const path = config?.gate?.preflight;
+  return path !== undefined && path.length > 0 ? path : null;
+}
+
+/**
  * How a narrowed run must describe itself — appended to every verdict the gate
  * produces while a profile is active.
  *
@@ -410,6 +441,19 @@ function nodeClause(alignment: NodeAlignment | null, running: string): string {
 }
 
 /**
+ * Said on the refusals nobody in the turn can clear, and only those: the gate is
+ * declining to block.
+ *
+ * Stating it is the whole point. A turn that ended unverified must not look like
+ * a turn that passed, and the reader — who *can* fix their environment, unlike
+ * the agent — is the one who needs to know a check was owed and never ran.
+ */
+const STOOD_DOWN =
+  'This gate is not blocking the turn: nothing here is fixable by editing the repo, so blocking ' +
+  'would only re-ask an agent that has no lever to pull. Nothing was verified — fix the ' +
+  'environment and run the check yourself before trusting this turn.';
+
+/**
  * The verdict for a package manager that refused to start the check script.
  *
  * It says the three things a red verdict would get wrong here: nothing ran, so
@@ -417,17 +461,23 @@ function nodeClause(alignment: NodeAlignment | null, running: string): string {
  * failed, so no edit will clear it; and here is the actual cause. A gate that
  * sent a reader to `summary.json` for a run that never happened is the confusion
  * this replaces.
+ *
+ * {@link nodeClause} rides only on an `environment` refusal. It is a paragraph
+ * about which interpreter this process got, and appending it to "this repo has
+ * no `check` script" pointed a reader at their Node version to explain a missing
+ * line of package.json.
  */
 function refusalMessage(
-  cause: string,
+  refusal: LaunchRefusal,
   context: { alignment: NodeAlignment | null; running: string; pm: PackageManager },
 ): string {
+  const environment = refusal.fixable === 'environment';
   return [
-    `checkride: the gate could not run — ${cause}.`,
+    `checkride: the gate could not run — ${refusal.cause}.`,
     'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from ' +
       'this turn and the code is not what to look at.',
-    nodeClause(context.alignment, context.running),
-    `Run \`${context.pm} run check\` in a terminal to see the same failure directly.`,
+    ...(environment ? [nodeClause(context.alignment, context.running), STOOD_DOWN] : []),
+    `Run \`${runScript(context.pm, CHECK_SCRIPT)}\` in a terminal to see the same failure directly.`,
   ].join(' ');
 }
 
@@ -479,21 +529,23 @@ type Failure = {
  * the guard that keeps a check which merely *printed* a package-manager error
  * code from being read as a launch refusal.
  */
-function failedVerdict(f: Failure): { status: string; instruction: string; refusal: string | null } {
+function failedVerdict(f: Failure): Verdict {
   const refusal = f.fresh ? null : launchRefusal(f.output);
   if (refusal === null) {
     return {
       status: headline('✘ red', f.elapsedMs, detailWith(f.fresh ? runDetail(f.summary, false) : null, f.profile)),
       instruction: redMessage(f.cwd, f.pm, f.profile),
       refusal: null,
+      standDown: false,
     };
   }
   // A launch refusal names no profile: nothing ran, so how much would have run
   // is beside the point.
   return {
     status: headline('⚠ could not run', f.elapsedMs, refusal.cause),
-    instruction: refusalMessage(refusal.cause, { alignment: f.alignment, running: f.running, pm: f.pm }),
+    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, pm: f.pm }),
     refusal: refusal.cause,
+    standDown: refusal.fixable === 'environment',
   };
 }
 
@@ -515,9 +567,46 @@ function reportGreen(harness: HarnessName, stdout: Out, status: string): void {
   stdout.write(`${JSON.stringify({ systemMessage: status })}\n`);
 }
 
+/** A non-green run, phrased — and whether blocking on it would accomplish anything. */
+type Verdict = {
+  status: string;
+  instruction: string;
+  refusal: string | null;
+  /** True when the cause is outside the turn's reach, so the gate declines to block. */
+  standDown: boolean;
+};
+
 /**
- * Answer a run that was not green in `harness`'s protocol — a pipeline red or a
- * launch refusal alike, since both must block and the wire format is the same.
+ * Answer a refusal the turn cannot possibly clear: say so, loudly, and do not
+ * block.
+ *
+ * This is the one place checkride chooses *not* to gate, and it is not a
+ * softening of the vacuous-green rule — it is that rule reaching its limit.
+ * Blocking exists to make an agent fix what it broke. When the cause is a Node
+ * the harness did not put on `PATH`, or a package manager corepack will not
+ * verify, there is nothing to fix from inside the turn; the block just re-asks
+ * the same agent forever, and the observed end of that road is a contributor
+ * turning the gate off. A standing gate that says "I could not run" beats a
+ * removed one.
+ *
+ * The message goes to whoever can act on it. Under Claude Code that is
+ * `systemMessage`, which the *user* sees — and the full text rides there rather
+ * than the one-line status, because without a `decision: "block"` there is no
+ * `reason` channel to carry the rest. Cursor gets stderr alone: its only stop
+ * hook output field is `followup_message`, and that *submits a new turn*, which
+ * is precisely the loop being stood down from.
+ */
+function reportStandDown(harness: HarnessName, out: { stdout: Out; stderr: Out }, full: string): number {
+  if (harness !== 'cursor') out.stdout.write(`${JSON.stringify({ systemMessage: full })}\n`);
+  out.stderr.write(`${full}\n`);
+  return 0;
+}
+
+/**
+ * Answer a run that was not green in `harness`'s protocol — a pipeline red, or a
+ * launch refusal the repo can fix; the wire format is the same for both, because
+ * both block. A refusal nothing in the turn can fix takes
+ * {@link reportStandDown} instead, before any of this.
  *
  * Claude Code gets both spellings of the same verdict, because which one lands
  * depends on the hook script the repo happens to have. The JSON body
@@ -535,15 +624,12 @@ function reportGreen(harness: HarnessName, stdout: Out, status: string): void {
  * (`loop_limit: null`), because a gate that stops replying after five turns is
  * not a gate.
  */
-function reportRed(
-  harness: HarnessName,
-  out: { stdout: Out; stderr: Out },
-  verdict: { status: string; instruction: string },
-): number {
+function reportRed(harness: HarnessName, out: { stdout: Out; stderr: Out }, verdict: Verdict): number {
   // The agent is told what to open and what not to do; the user is told what
   // happened and how long it took. Handing the user the agent's marching orders
   // would bury the one line they are actually reading.
   const full = `${verdict.status}\n${verdict.instruction}`;
+  if (verdict.standDown) return reportStandDown(harness, out, full);
   if (harness === 'cursor') {
     out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
     return 0;

@@ -4,6 +4,100 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`gate.preflight` — a supported seam for wrapping the stop gate.** checkride
+  owns the generated hook scripts and overwrites them on every refresh, so a repo
+  with something to say before the gate had nowhere to say it: editing the script
+  lost the edit, and re-pointing the harness config lost it to the next
+  `hooks add`. A `"preflight"` under `gate` in checkride.config.json names a
+  repo-relative script the generated gate runs, from the repo root, before
+  checkride is started — which is what lets it answer for a repo where checkride
+  *cannot* start.
+
+  Its exit code is read in the gate's own vocabulary rather than a second
+  convention: `0` runs the gate, `2` blocks the turn, anything else stands the
+  gate down. Both non-zero branches use the script's output as the message and
+  never start checkride. A configured path that does not exist **blocks**, so a
+  typo cannot quietly disarm the gate.
+
+  It is a config key rather than a `hooks add --preflight` flag for one reason:
+  the path is re-read on every write, so a teammate running the bare command
+  restores the wiring instead of silently dropping it. A preflight narrows
+  nothing, so it never adds the "NOT the full check" clause to a verdict.
+
+### Contract
+
+- **A could-not-run gate now blocks only when blocking could lead to a fix.**
+  Previously every could-not-run verdict blocked, in both harnesses, on the
+  reasoning that a gate which stops gating is a vacuous green. That reasoning
+  holds only while the block can *cause* the fix, and for a whole class of causes
+  it cannot: the harness re-prompts the same agent, which has no lever to pull.
+  The observed end of that road is an unbounded retry against an impossible
+  remedy, and then a contributor removing the gate.
+
+  Launch refusals are now classified by who can clear them. A **repo** refusal —
+  no `check` script, no package.json — blocks exactly as before, because an agent
+  holding the edit tools can fix it. (A missing `check` script stays blocking for
+  a second reason: it is the one refusal an agent could otherwise *create* to
+  escape the gate.) An **environment** refusal — an `engines` pin the hook's Node
+  fails, a corepack that will not verify the package manager, a package manager
+  absent from `PATH` — stands down: exit 0, no `decision`, `green: false`.
+
+  Two properties are promised about the stand-down and neither may be weakened:
+  it is never silent (Claude Code gets a `systemMessage`, Cursor gets stderr,
+  both stating that nothing was verified), and it is never reported as green.
+  `docs/contract.md` and `test/contract/gate-verdict.contract.test.ts` are
+  updated deliberately; a hook script that reads only the exit status will now
+  let a turn end on an environment refusal, which is the intended change.
+
+### Fixed
+
+- **An uninstalled repo no longer traps the agent in an unbreakable loop.** A
+  developer who pulled a branch that newly added checkride — or cloned fresh —
+  and started a session before `<pm> install` got a gate that blocked every turn
+  with `checkride gate is not resolvable in this repo. Install checkride (or
+  re-run checkride agent-setup)`. Every part of that was a dead end: the
+  suggested remedy needs the missing binary, and in a repo with a customized
+  AGENTS.md stanza `agent-setup` would refuse and exit 2 even if it could run.
+  The actual fix, `<pm> install`, was never named. Nothing bounded the retry.
+
+  The generated gate now distinguishes the two ways checkride can fail to answer.
+  Dependencies never installed → it names `<pm> install`, says checkride is a
+  devDependency, and stands down. Installed but not answering → it blocks, as
+  before, since there is no remedy to name. Yarn PnP is recognized, so a healthy
+  PnP repo is not misread as uninstalled.
+
+- **Both generated gates bound every could-not-run cause.** The scripts now read
+  the Stop payload from stdin and consult Claude Code's `stop_hook_active` and
+  Cursor's `loop_count`. On the second consecutive could-not-run, whatever the
+  cause, the gate stands down instead of blocking again — the previous script
+  read no stdin at all, so `stop_hook_active` was discarded and
+  `"loop_limit": null` left the Cursor gate unbounded by design. A **red**
+  pipeline is deliberately still unbounded: that loop is the gate working.
+
+- **The claude gate no longer forwards the launcher's error as a hook body.** On
+  a missing install pnpm writes `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` to *stdout*
+  — ahead of a stray `undefined` on pnpm 11 — which the script captured into
+  `$body` and printed where Claude Code expects JSON. The status is now checked
+  before the body is forwarded, so a body travels only when checkride wrote it.
+
+- **A refusal the repo can fix is no longer explained by the hook's Node.** The
+  `nodeClause` paragraph rode on every refusal, so "this repo has no `check`
+  script" was followed by an account of non-login shells and interpreter
+  alignment. It is now attached to environment refusals only.
+
+- **A green run that skipped most of its slots says so.** `✔ all checks passed`
+  is a true sentence about the checks that ran and a misleading one about the
+  repo, and the gap was invisible exactly where it matters: a repo configuring
+  almost nothing reported the same confident green as one configuring
+  everything. The line now reads `✔ all checks passed in 13ms — only 1 of 8
+  checks ran, 7 skipped` whenever any slot sat out. `--strict` is unchanged; its
+  floor is *zero* checks, which an always-available slot like `links` keeps a
+  repo off by itself.
+
 ## [0.10.3] - 2026-08-01
 
 ### Added

@@ -157,6 +157,27 @@ export type GateProfile = Noted & {
   skip?: string[];
   /** Affected-only mode, as `--changed`. */
   changed?: boolean;
+  /**
+   * A repo-owned script the generated stop-hook gate runs *before* checkride,
+   * and the one supported seam for wrapping the gate.
+   *
+   * checkride owns the generated hook scripts and overwrites them on every
+   * refresh, so a repo with something to say before the gate had nowhere to say
+   * it: editing the script lost the edit, and re-pointing the harness config lost
+   * it to the next `hooks add`. Naming the script *here* survives both, because
+   * every write re-reads this file — which is the whole reason this is a config
+   * key and not a `hooks add` flag.
+   *
+   * Path is relative to the repo root. Its exit code is read in the gate's own
+   * vocabulary, so there is one meaning per code across the whole system: **0**
+   * runs the gate, **2** blocks the turn, and anything else stands the gate down.
+   * Either non-zero branch uses the script's stdout as the message, and neither
+   * runs checkride at all.
+   *
+   * It does *not* narrow what the gate runs, so it is not part of the profile
+   * clause a narrowed verdict carries — see {@link GateProfile} above.
+   */
+  preflight?: string;
 };
 
 /**

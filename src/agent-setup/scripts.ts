@@ -17,7 +17,7 @@
  */
 
 import { DIRTY_MARKER, type HarnessName } from '../gate.js';
-import { execCommand, type PackageManager } from '../pm/index.js';
+import { execCommand, type PackageManager, runScript } from '../pm/index.js';
 
 /**
  * The repo root, however the calling harness spells it. Cursor sets
@@ -36,88 +36,255 @@ function checkrideCommand(pm: PackageManager, args: readonly string[]): string {
 }
 
 /**
- * What a harness is told when `checkride gate` itself could not run.
+ * Every message this script can emit is passed to `printf` as an *argument*,
+ * never inlined into a double-quoted format string, so its backticks survive:
+ * `sh` runs a backtick span inside double quotes as a command, but it does not
+ * re-scan the result of a variable expansion. An early draft used `echo "…"`
+ * with the text inline and the shell silently ate two quoted command names.
  *
- * Emitted through `printf '%s\n' '…'` — single-quoted, never double — because
- * the text carries backticks and `sh` runs a backtick span inside double quotes
- * as a command. The first draft of this message used `echo "…"` and the shell
- * silently ate the two quoted command names, substituting their output. Keep it
- * free of single quotes for the same reason.
+ * Two characters are therefore banned from every message here, and a test
+ * enforces both. A single quote would end the `'…'` the call site wraps it in. A
+ * double quote (or a backslash) would break {@link standDown}, which builds its
+ * JSON body with `printf '{"systemMessage":"%s"}'` rather than carrying a
+ * second, pre-encoded copy of the same sentence out of step with the first.
  */
-const UNRUNNABLE =
-  'checkride: the gate could not run — `checkride gate` is not resolvable in this repo. ' +
-  'Install checkride (or re-run `checkride agent-setup`) before finishing.';
+const NOTHING_RAN =
+  'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from this turn.';
+
+/** `<pm> install`, which is how all four package managers spell it. */
+const installFix = (pm: PackageManager): string =>
+  `Run \`${pm} install\` (checkride is a devDependency of this repo), then run \`${runScript(pm, 'check')}\`.`;
 
 /**
- * The one line that hands `harness` the {@link UNRUNNABLE} verdict, and the exit
- * status that goes with it.
+ * The repo has no checkride to run, because its dependencies were never
+ * installed — someone pulled a branch that added checkride, or cloned fresh, and
+ * started a session before installing.
  *
- * The statuses differ because the harnesses do: Claude Code blocks on 2, while
- * Cursor reads any non-zero stop hook as a *broken* hook and ends the turn —
- * there, blocking has to ride in the body with an exit of 0. Kept as a pair so
- * no branch can pick one without the other.
+ * This stands the gate down instead of blocking, and it is the one case where
+ * that is clearly right. Blocking exists to make an agent fix what it broke; an
+ * absent toolchain is not something the turn broke, and the remedy is an install
+ * rather than an edit. Blocking on it re-asks the same agent every turn, forever,
+ * for a change that cannot clear it — the loop that ends with a contributor
+ * removing the gate. See `../gate.ts` {@link reportStandDown} for the same
+ * judgement one layer down.
  */
-function unrunnable(harness: HarnessName): { emit: string; exit: number } {
-  return harness === 'cursor'
-    ? { emit: `printf '%s\\n' '${JSON.stringify({ followup_message: UNRUNNABLE })}'`, exit: 0 }
-    : { emit: `printf '%s\\n' '${UNRUNNABLE}' >&2`, exit: 2 };
+const notInstalled = (pm: PackageManager): string =>
+  [
+    'checkride: the gate could not run — checkride is not installed in this repo.',
+    NOTHING_RAN,
+    installFix(pm),
+    'Not blocking: the fix is an install rather than an edit, so blocking would only repeat this ' +
+      'message. Nothing was verified this turn.',
+  ].join(' ');
+
+/**
+ * checkride *is* installed and still did not answer with one of its own two gate
+ * codes — a broken launcher, a corrupt install, a crash. This one blocks: it is
+ * rare, it is not self-explanatory, and unlike a missing install there is no
+ * known remedy to name, so the honest move is to stop and be looked at. The
+ * retry guard in {@link gatePreamble} still bounds it.
+ */
+const notAnswering = (pm: PackageManager, harness: HarnessName): string =>
+  [
+    'checkride: the gate could not run — checkride is installed here but `checkride gate` did not answer.',
+    NOTHING_RAN,
+    `Run \`${execCommand(pm, ['checkride', 'gate', '--harness', harness])}\` in a terminal to see the failure directly.`,
+  ].join(' ');
+
+/** The harness pointed the hook at a directory that is not there. */
+const noRepo =
+  'checkride: the gate could not run — the project directory the harness named does not exist or ' +
+  'cannot be entered, so there is no repo to check.';
+
+/**
+ * The shell functions every branch below answers through: one for a verdict that
+ * blocks, one for a verdict that gives up on blocking.
+ *
+ * `block` consults `retry` first, which is what bounds *every* could-not-run
+ * cause rather than only the ones enumerated here. Claude Code sends
+ * `stop_hook_active` on the Stop payload and Cursor sends `loop_count`; either
+ * one says the previous turn already ended on this verdict, and a second
+ * identical block has been demonstrated not to help. A red pipeline never
+ * reaches this — that loop is the gate working, and is deliberately unbounded.
+ */
+function gatePreamble(harness: HarnessName): string[] {
+  const cursor = harness === 'cursor';
+  return [
+    '# The Stop payload arrives as JSON on stdin and says whether the harness has',
+    '# already been round this loop once. Read it before anything else can consume',
+    '# it, and only from a pipe: `cat` on a terminal would hang a hand-run forever.',
+    "payload=''",
+    '[ -t 0 ] || payload=$(cat)',
+    '',
+    '# True once a previous turn already ended on a could-not-run verdict.',
+    'retry() {',
+    '  printf %s "$payload" |',
+    `    grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true|"loop_count"[[:space:]]*:[[:space:]]*[1-9]'`,
+    '}',
+    '',
+    '# Give up on blocking, and say so. Nothing here is silent: a turn that ended',
+    '# unverified must never look like one that passed.',
+    'stand_down() {',
+    ...(cursor
+      ? [
+          '  # Cursor has one stop-hook output field, `followup_message`, and it submits',
+          '  # a new turn — which is the loop being stood down from. So stderr is all',
+          '  # there is.',
+          '  printf \'%s\\n\' "$1" >&2',
+        ]
+      : [
+          '  # `systemMessage` reaches the user — the one party who can fix an',
+          '  # environment. With no `decision` in the body, Claude Code does not block.',
+          '  printf \'{"systemMessage":"%s"}\\n\' "$1"',
+          '  printf \'%s\\n\' "$1" >&2',
+        ]),
+    '  exit 0',
+    '}',
+    '',
+    '# Block the turn — unless this is the second consecutive attempt, in which',
+    '# case blocking is the thing already shown not to work.',
+    'block() {',
+    '  retry && stand_down "$1 Standing down rather than blocking a second time on the same verdict."',
+    ...(cursor
+      ? [
+          '  # Cursor reads any non-zero stop hook as a *broken* hook and ends the turn,',
+          '  # so the block has to ride in the body with an exit of 0.',
+          '  printf \'{"followup_message":"%s"}\\n\' "$1"',
+          '  exit 0',
+        ]
+      : ['  printf \'%s\\n\' "$1" >&2', '  exit 2']),
+    '}',
+  ];
 }
 
 /**
  * Translate the gate's exit status into `harness`'s protocol.
  *
- * The interesting branch is the last one. `checkride gate` exits 0 or 2 by
- * design; anything else means it never ran — an uninstalled checkride, a broken
- * launcher — and that must **block**, not pass. Claude Code reads a plain exit 1
- * as "hook failed, carry on", which would leave a repo whose gate had silently
- * stopped gating: precisely the vacuous green checkride exists to prevent. So
- * the gate alone fails closed. (`protect` fails open, deliberately: the cost of
- * a broken protect hook is a repo where nothing can be written at all.)
+ * `checkride gate` exits 0 or 2 by design, and only on those two is its stdout a
+ * hook body worth forwarding. Anything else means checkride never ran, and
+ * whatever is on stdout then is the *launcher's* error — pnpm writes
+ * `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` there, ahead of a stray `undefined` on
+ * pnpm 11. Forwarding that as a hook body puts unparseable text where Claude
+ * Code expects JSON, so the status is checked first and the body is forwarded
+ * only when checkride is the one that wrote it.
  */
-function gateTail(harness: HarnessName): string[] {
-  const { emit, exit } = unrunnable(harness);
-  if (harness === 'cursor') {
-    return [
-      '# On success checkride has already written its JSON to stdout, which is what',
-      '# Cursor reads. Only the never-ran case is left to answer for.',
-      '[ "$status" -eq 0 ] && exit 0',
-      emit,
-      `exit ${exit}`,
-    ];
-  }
+function gateTail(harness: HarnessName, pm: PackageManager): string[] {
+  const answered =
+    harness === 'cursor'
+      ? [
+          '# On 0 checkride has already written its JSON to stdout, which is what Cursor',
+          '# reads, and on 2 it has written the followup body. Either way it answered.',
+          'case "$status" in',
+          '  0|2) exit 0 ;;',
+          'esac',
+        ]
+      : [
+          '# Claude Code parses a hook body only on exit 0, and only a body can carry a',
+          '# user-visible message alongside the block. So when checkride produced one,',
+          '# forward it and exit 0: the verdict rides in `decision`, not in the status.',
+          'case "$status" in',
+          '  0|2)',
+          '    if [ -n "$body" ]; then',
+          "      printf '%s\\n' \"$body\"",
+          '      exit 0',
+          '    fi',
+          '    # No body — an older checkride that reports only through the exit code.',
+          '    exit "$status"',
+          '    ;;',
+          'esac',
+        ];
   return [
-    '# Claude Code parses a hook body only on exit 0, and only a body can carry a',
-    '# user-visible message alongside the block. So when checkride produced one,',
-    '# forward it and exit 0: the verdict rides in `decision`, not in the status.',
-    'if [ -n "$body" ]; then',
-    "  printf '%s\\n' \"$body\"",
-    '  case "$status" in',
-    '    0|2) exit 0 ;;',
-    '  esac',
+    ...answered,
+    '',
+    "# Neither of checkride's two gate codes: checkride itself never ran. Which of",
+    '# the two reasons it was decides whether blocking could accomplish anything.',
+    'if [ -e node_modules/.bin/checkride ] || [ -e .pnp.cjs ] || [ -e .pnp.js ]; then',
+    `  block '${notAnswering(pm, harness)}'`,
     'fi',
-    '',
-    '# No body — an older checkride that reports only through the exit code.',
-    '[ "$status" -eq 0 ] && exit 0',
-    '[ "$status" -eq 2 ] && exit 2',
-    '',
-    "# Neither of checkride's two gate codes: it never ran. Block anyway.",
-    emit,
-    `exit ${exit}`,
+    `stand_down '${notInstalled(pm)}'`,
   ];
 }
 
 /**
- * Enter the repo, or report the same "could not run" verdict as any other way
- * the gate can fail to start.
+ * Characters a `gate.preflight` path may not contain, because the generated
+ * script embeds it inside `'…'` and inside a message that later becomes a JSON
+ * string field.
+ *
+ * Rejected loudly rather than escaped or stripped. Every one of these in a
+ * repo-relative script path is a mistake, and a mangled path would fail later as
+ * "preflight not found", pointing at the wrong thing.
+ */
+const PREFLIGHT_HOSTILE = /['"\\`\n]/;
+
+/**
+ * The repo-owned preflight, run from the repo root before checkride is started.
+ *
+ * Its exit code is read in the gate's own vocabulary — 0 runs the gate, 2 blocks
+ * the turn, anything else stands it down — so there is one meaning per code
+ * across the whole system rather than a second convention to learn. Both
+ * non-zero branches use the script's own output as the message and never start
+ * checkride, which is what lets a preflight answer for a repo where checkride
+ * *cannot* start.
+ *
+ * A configured path that is not there **blocks**, and deliberately: treating it
+ * as a stand-down would mean a typo in one config key silently disarms the gate
+ * forever. A missing file is repo-fixable, so blocking is the consistent answer.
+ */
+function preflight(path: string): string[] {
+  if (PREFLIGHT_HOSTILE.test(path)) {
+    throw new Error(
+      `checkride.config.json: gate.preflight '${path}' contains a quote, backslash, backtick or newline. ` +
+        'Use a plain repo-relative path.',
+    );
+  }
+  // `sh` resolves a command with no `/` against PATH, which is never what a
+  // repo-relative config value means.
+  const target = path.includes('/') ? path : `./${path}`;
+  return [
+    '# The repo-owned preflight, from `gate.preflight` in checkride.config.json.',
+    '# checkride owns this script and overwrites it; the preflight is where a repo',
+    '# says something before the gate and keeps it across every refresh.',
+    `if [ ! -e '${target}' ]; then`,
+    `  block 'checkride: the gate could not run — checkride.config.json names a gate.preflight (${target}) that is not there. Add the script, or drop the key.'`,
+    'fi',
+    '',
+    '# A preflight prints for humans; this has to survive a JSON string field. The',
+    '# two characters that would break one are dropped and newlines folded.',
+    'say() {',
+    `  printf %s "$1" | tr -d '"\\\\' | tr '\\n' ' '`,
+    '}',
+    '',
+    '# Honour the shebang when the file is executable, and fall back to `sh` when it',
+    '# is not — a checked-in script routinely arrives without its exec bit.',
+    `if [ -x '${target}' ]; then`,
+    `  said=$('${target}' 2>&1)`,
+    'else',
+    `  said=$(sh '${target}' 2>&1)`,
+    'fi',
+    'code=$?',
+    `[ "$code" -eq 0 ] || [ -n "$said" ] ||`,
+    `  said='checkride: the gate could not run — the preflight ${target} exited non-zero and printed nothing.'`,
+    '',
+    '# 0 runs the gate; 2 blocks; anything else stands down. checkride is never',
+    '# started on a non-zero branch.',
+    'case "$code" in',
+    '  0) ;;',
+    '  2) block "$(say "$said")" ;;',
+    '  *) stand_down "$(say "$said")" ;;',
+    'esac',
+  ];
+}
+
+/**
+ * Enter the repo, or report a verdict rather than a bare status.
  *
  * Spelled as a block rather than `cd … || exit 2` for two reasons: a bare status
  * tells the agent nothing, and under Cursor a non-zero stop hook is a *broken*
  * hook, so the one branch that used to exit 2 there was the one branch that
  * silently let a turn end.
  */
-function enterRepo(harness: HarnessName): string[] {
-  const { emit, exit } = unrunnable(harness);
-  return [`if ! cd ${PROJECT_DIR}; then`, `  ${emit}`, `  exit ${exit}`, 'fi'];
+function enterRepo(): string[] {
+  return [`if ! cd ${PROJECT_DIR}; then`, `  block '${noRepo}'`, 'fi'];
 }
 
 /**
@@ -145,10 +312,16 @@ function invokeGate(pm: PackageManager, harness: HarnessName, args: readonly str
  * makes the gate conditional on the edit marker, so pure-conversation turns
  * don't pay for a full pipeline run. Without the marker hook the guard would
  * disarm the gate entirely, so a `--hook gate` selection writes it unguarded.
+ *
+ * `preflight` is the repo's own script, from `gate.preflight` in
+ * checkride.config.json, baked in here rather than looked up at run time — see
+ * {@link preflight} and `../gate.ts` `gatePreflight`. It runs *before* the edit
+ * marker is consulted, because a repo that cannot run the gate at all wants to
+ * say so on every turn, not only on the ones that edited a file.
  */
 export function gateScript(
   pm: PackageManager,
-  opts: { harness: HarnessName; dirtyGuard?: boolean },
+  opts: { harness: HarnessName; dirtyGuard?: boolean; preflight?: string },
 ): string {
   const args = ['gate', '--harness', opts.harness, ...((opts.dirtyGuard ?? true) ? ['--if-dirty'] : [])];
   return [
@@ -156,16 +329,20 @@ export function gateScript(
     `# checkride-gate.sh — the ${opts.harness} stop-hook gate.`,
     '#',
     '# checkride owns this file: `checkride agent-setup` (and `checkride init`)',
-    '# overwrite it on every run. Customize via a sibling script or the',
-    '# environment, not by editing here — edits are lost on the next refresh.',
+    '# overwrite it on every run. Customize through checkride.config.json (a `gate`',
+    '# key narrows what runs) or the environment (CHECKRIDE_NODE_BIN), not by',
+    '# editing here — edits are lost on the next refresh.',
     '#',
     "# Runs the repo's `check` script as a hard gate, and reports the verdict in",
     `# ${opts.harness}'s hook protocol. See \`checkride gate --help\`.`,
     '',
-    ...enterRepo(opts.harness),
+    ...gatePreamble(opts.harness),
     '',
+    ...enterRepo(),
+    '',
+    ...(opts.preflight === undefined ? [] : [...preflight(opts.preflight), '']),
     ...invokeGate(pm, opts.harness, args),
-    ...gateTail(opts.harness),
+    ...gateTail(opts.harness, pm),
     '',
   ].join('\n');
 }

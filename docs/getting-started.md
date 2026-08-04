@@ -315,6 +315,41 @@ enough.
 So a profile is a trade, not a free win: use one when something else still runs
 the full check before the work lands. If nothing does, leave it unset.
 
+#### Running something before the gate
+
+checkride owns the generated hook scripts and overwrites them on every refresh,
+so an edit to `.claude/hooks/checkride-gate.sh` is lost on the next
+`agent-setup`, and a harness config re-pointed at your own wrapper is rewritten
+by the next `hooks add`. `gate.preflight` is the seam that survives both:
+
+```json
+{
+  "gate": { "preflight": "scripts/checkride-preflight.sh" }
+}
+```
+
+The path is repo-relative, and the script runs from the repo root **before**
+checkride is started — which is what lets it answer for a repo where checkride
+*cannot* start, such as one whose dependencies were never installed. Its exit
+code is read in the gate's own vocabulary, so there is one meaning per code:
+
+| Exit | What happens |
+| --- | --- |
+| `0` | The gate runs, as if the preflight were not there. |
+| `2` | The turn is **blocked**, with the script's output as the message. |
+| anything else | The gate **stands down**, with the script's output as the message. |
+
+Neither non-zero branch starts checkride. A configured path that is not there
+blocks, so a typo cannot quietly disarm your gate. Output is folded to one line
+and stripped of `"` and `\` on its way into the harness's JSON, so keep the
+message to a plain sentence. Because the path is re-read on every write, a
+teammate running a bare `checkride hooks add` restores your wiring instead of
+clobbering it.
+
+Note that checkride already handles the commonest reason to reach for this — an
+uninstalled repo — natively, per [the section above](#make-it-a-hard-gate).
+Reach for a preflight when your repo has something of its own to say.
+
 #### Turning the gate off
 
 `--hook <a,b>` chooses what to *write*; it does not touch what is already there.
@@ -391,11 +426,35 @@ the same verdict line at the top of the follow-up it submits; a green one is
 silent, and nothing in Cursor's documented hook API can change that today. See
 [Cursor](./cursor.md#what-the-gate-can-and-cannot-show-you).
 
-A gate that *could not run at all* — an uninstalled checkride, a broken launcher,
-a repo it cannot even enter — blocks in both harnesses rather than passing. A
-gate that silently stops gating is the vacuous green this whole tool exists to
-prevent. (`protect` goes the other way and fails open: a broken protect hook must
-not become a repo where nothing can be written.)
+A gate that *could not run at all* answers one question before deciding what to
+do: **can this turn fix it?**
+
+If it can — the repo has no `check` script, no package.json — the gate blocks in
+both harnesses, exactly as a red does. The agent has the edit tools, so blocking
+is what gets it fixed.
+
+If it cannot — checkride was never installed, the hook's Node does not satisfy
+the repo's `engines` pin, corepack will not verify the package manager — the gate
+**says so and lets the turn end**. Nothing here is silent: Claude Code gets a
+`systemMessage` naming the fix (`pnpm install`, or the `CHECKRIDE_NODE_BIN`
+lever) and stating that nothing was verified, and Cursor gets the same text on
+stderr. This is the one place checkride declines to gate, and it is not a
+softening of the vacuous-green rule — it is that rule reaching its limit.
+Blocking is how you make an agent fix what it broke; when the cause is a Node the
+harness never put on `PATH`, the agent has no lever to pull, and the block just
+re-asks it every turn until a contributor removes the gate. A standing gate that
+reports "could not run" beats a removed one.
+
+The commonest case by far is a fresh clone, or a branch that newly added
+checkride, opened before `<pm> install`. The gate names the package manager and
+the fact that checkride is a devDependency, because that is the whole fix.
+
+The generated scripts bound this in one more place. Claude Code's Stop payload
+carries `stop_hook_active` and Cursor's a `loop_count`; on the **second**
+consecutive could-not-run the script stands down rather than blocking again,
+whatever the cause. A red pipeline is never bounded that way — that loop is the
+gate working. (`protect` goes the other way and fails open too: a broken protect
+hook must not become a repo where nothing can be written.)
 
 Cursor's defaults would undo that in two more places, so the gate entry
 overrides both. `loop_limit` defaults to **5** — after five auto-followups the
@@ -413,9 +472,11 @@ pipelines per turn. `checkride gate --harness claude` detects that and stands
 down in favour of the native Cursor gate. Details, along with the assumptions
 Cursor's docs leave open, are in **[Cursor](./cursor.md)**.
 
-Claude Code's Stop-hook input also carries a `stop_hook_active` flag, and
-Cursor's carries `loop_count` — check either in a sibling script if you want to
-break out of a fix loop that is not converging.
+The generated gate reads `stop_hook_active` (Claude Code) and `loop_count`
+(Cursor) off the Stop payload and uses them to bound its own could-not-run
+verdicts, as above. It does **not** bound a red one: a red gate re-blocking until
+the pipeline is green is the gate working, and capping that is how a repo
+finishes red.
 
 The gate runs `--strict` because it is a gate: zero checks actually running is
 exit 2, never a silent pass ([the contract](./contract.md#vacuous-green) asks

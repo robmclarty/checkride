@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { checkArgs, DIRTY_MARKER, type GateSpawn, gateProfile, runGate } from '../gate.js';
+import { checkArgs, DIRTY_MARKER, type GateSpawn, gatePreflight, gateProfile, runGate } from '../gate.js';
 import type { PinEnv } from '../node-pin.js';
 import type { Out } from '../orchestrator.js';
 
@@ -405,16 +405,81 @@ describe('runGate — the package manager refused to start the check', () => {
     expect(stderr.text()).toContain('non-login shell');
   });
 
-  test('still blocks — an unrunnable gate is never a pass', async () => {
+  /**
+   * An `engines` mismatch is an `environment` refusal: no edit the agent can
+   * make clears it, so blocking only re-asks it every turn. The gate says so and
+   * lets the turn end — never silently, and never as a green.
+   */
+  test('stands down rather than blocking, because no edit could clear it', async () => {
     const claude = await runGate({ cwd: dir, spawn: printing(PNPM_ENGINE_REFUSAL), stdout: capture(), stderr: capture(), pinEnv: pinEnv() });
+    expect(claude).toMatchObject({ exitCode: 0, ran: true, green: false });
+
+    const stdout = capture();
+    const stderr = capture();
+    const cursor = await runGate({ cwd: dir, harness: 'cursor', spawn: printing(PNPM_ENGINE_REFUSAL), stdout, stderr, pinEnv: pinEnv() });
+    expect(cursor.exitCode).toBe(0);
+    // Cursor's only stop-hook output field *submits a new turn*, which is the
+    // loop being stood down from — so it must stay empty here.
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain('could not run');
+  });
+
+  /** Standing down is not going quiet: the user is the one who can fix this. */
+  test('a stand-down still says what happened, and that nothing was verified', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: printing(PNPM_ENGINE_REFUSAL), stdout, stderr: capture(), pinEnv: pinEnv() });
+    const { systemMessage, decision } = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
+    expect(decision).toBeUndefined();
+    expect(systemMessage).toContain('could not run');
+    expect(systemMessage).toContain('not blocking');
+    expect(systemMessage).toContain('Nothing was verified');
+  });
+
+  /**
+   * The other half of the split, and the one that keeps this from being a hole:
+   * a missing `check` script is one edit away, so the gate blocks exactly as it
+   * always has. Standing down here would make "delete the check script" a way
+   * out of the gate.
+   */
+  test('a repo-fixable refusal still blocks', async () => {
+    const claude = await runGate({
+      cwd: dir,
+      spawn: printing('ERR_PNPM_NO_SCRIPT  Missing script: check'),
+      stdout: capture(),
+      stderr: capture(),
+      pinEnv: pinEnv(),
+    });
     expect(claude).toMatchObject({ exitCode: 2, ran: true, green: false });
 
     const stdout = capture();
-    const cursor = await runGate({ cwd: dir, harness: 'cursor', spawn: printing(PNPM_ENGINE_REFUSAL), stdout, stderr: capture(), pinEnv: pinEnv() });
-    // Cursor reads any non-zero stop hook as a broken hook, so the block rides
-    // in the body — the same split a red uses.
+    const cursor = await runGate({
+      cwd: dir,
+      harness: 'cursor',
+      spawn: printing('ERR_PNPM_NO_SCRIPT  Missing script: check'),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+    });
     expect(cursor.exitCode).toBe(0);
     expect((JSON.parse(stdout.text()) as { followup_message: string }).followup_message).toContain('could not run');
+  });
+
+  /**
+   * `nodeClause` is a paragraph about which interpreter this process got.
+   * Appended to "this repo has no `check` script" it pointed a reader at their
+   * Node version to explain a missing line of package.json.
+   */
+  test('a repo-fixable refusal is not explained by the Node the hook happens to be on', async () => {
+    const stderr = capture();
+    await runGate({
+      cwd: dir,
+      spawn: printing('ERR_PNPM_NO_SCRIPT'),
+      stdout: capture(),
+      stderr,
+      pinEnv: pinEnv(),
+    });
+    expect(stderr.text()).toContain('no `check` script');
+    expect(stderr.text()).not.toContain('non-login shell');
   });
 
   /**
@@ -770,5 +835,25 @@ describe('runGate — the gate profile', () => {
 
   test('a repo with no config runs the whole check', async () => {
     expect(gateProfile(dir)).toBeNull();
+  });
+
+  /**
+   * A preflight narrows nothing, so it must not put "NOT the full check" on a
+   * verdict that was the full check — the same failure `"gate": {}` would cause.
+   */
+  test('a preflight alone is not a profile', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { preflight: 'x.sh' } }));
+    expect(gatePreflight(dir)).toBe('x.sh');
+    expect(gateProfile(dir)).toBeNull();
+  });
+
+  test('no preflight is declared unless the key is there and non-empty', async () => {
+    expect(gatePreflight(dir)).toBeNull();
+
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { only: ['types'] } }));
+    expect(gatePreflight(dir)).toBeNull();
+
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { preflight: '' } }));
+    expect(gatePreflight(dir)).toBeNull();
   });
 });

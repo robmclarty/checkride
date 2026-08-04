@@ -154,9 +154,7 @@ harness's hook protocol rather than checkride's own. Under `--harness claude` it
 exits 2 while the pipeline is red (Claude Code blocks on 2 and ignores 1) and 0
 when green. Under `--harness cursor` it **always exits 0** and carries the
 verdict as `{"followup_message": …}` on stdout, because Cursor reads a non-zero
-stop hook as a broken hook and lets the turn end. A `gate` that could not run at
-all still blocks, in both harnesses: a gate that silently stops gating is the
-vacuous green this contract exists to prevent.
+stop hook as a broken hook and lets the turn end.
 
 **A launch that never happened is not a red.** A package manager can refuse to
 start the check script and exit non-zero for it — pnpm answers an `engines.node`
@@ -165,8 +163,44 @@ does. `gate` reports that as **could not run**, naming the cause, and `triage`
 reports it as `could-not-start`. The promise is what the two verdicts mean: a red
 says checks ran and some failed, and `.check/` describes this run; a could-not-run
 says **nothing ran and no artifact was written**, so no `.check/` file describes
-this turn and no code change will clear it. The exit codes do not change — it
-blocks either way — so a hook script that reads only the status is unaffected.
+this turn and no code change will clear it.
+
+**A could-not-run blocks only when blocking could lead to a fix.** Since 0.11.0
+the verdict splits by who can clear it. A refusal the *repo* can fix — no `check`
+script, no package.json — blocks exactly as a red does, because the agent holding
+the edit tools can fix it. A refusal only the *environment* can fix — an
+`engines` pin the hook's Node fails, a package manager corepack will not verify,
+a checkride that was never installed — **stands down**: `gate` exits 0 with no
+`decision`, and says so. Two things are promised about that path and neither may
+be weakened: it is never silent (Claude Code gets a `systemMessage`, Cursor
+stderr, both stating that nothing was verified), and it is never reported as
+green (`ran: true, green: false`). Blocking on a cause the turn cannot reach does
+not produce a fix; it re-asks the same agent every turn until someone removes the
+gate, which is a worse outcome than a loud stand-down.
+
+**The generated stop-hook scripts bound every could-not-run cause.** Claude
+Code's Stop payload carries `stop_hook_active` and Cursor's a `loop_count`. The
+generated gate reads whichever its harness sends, and on the second consecutive
+could-not-run it stands down rather than blocking again — including for causes
+this document does not enumerate. A **red** pipeline is never bounded this way:
+that loop is the gate working.
+
+**`gate.preflight` is the supported seam for wrapping the gate.** checkride owns
+the generated hook scripts and overwrites them on every refresh, so a repo with
+something to say before the gate needs somewhere that survives one. A
+`"preflight"` under `gate` in checkride.config.json names a repo-relative script
+the generated gate runs, from the repo root, *before* checkride is started —
+which is what lets it answer for a repo where checkride itself cannot start.
+
+What is promised is the exit-code reading, which is the gate's own: **0** runs
+the gate, **2** blocks the turn, and any other status stands the gate down. Both
+non-zero branches use the script's output as the message and never start
+checkride. A configured path that does not exist **blocks**, so a typo cannot
+silently disarm the gate. Because the path is re-read from config on every
+`hooks add`/`agent-setup`, a bare refresh restores the wiring rather than
+clobbering it — that is the whole reason this is a config key and not a flag. A
+preflight narrows nothing, so it never puts the "NOT the full check" clause on a
+verdict.
 
 **A gate profile narrows the gate, and the gate says so.** `checkride.config.json`
 may carry a `gate` key (`only`, `skip`, `changed`) that applies to the stop-gate

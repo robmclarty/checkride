@@ -917,6 +917,26 @@ async function maybeRatchet(
   }
 }
 
+/**
+ * How much of the selection actually ran, said only when it was not all of it.
+ *
+ * `✔ all checks passed` is a true sentence about the checks that ran and a
+ * misleading one about the repo, and the gap is invisible at exactly the moment
+ * it matters most: a repo that configures almost nothing reports the same
+ * confident green as one that configures everything. `--strict` does not catch
+ * this, and cannot — its floor is *zero* checks, which a slot like `links` that
+ * needs no tool keeps a repo off by itself.
+ *
+ * Only skipped slots are counted here. The per-slot `○ … skip <reason>` lines
+ * are already on screen above; this is the one line someone scrolled past them
+ * to read.
+ */
+function coverage(summary: Summary, checks: readonly SummaryCheck[]): string {
+  const skipped = checks.length - summary.checks_run;
+  if (skipped <= 0) return '';
+  return ` — only ${summary.checks_run} of ${checks.length} checks ran, ${skipped} skipped`;
+}
+
 /** Print the human run summary: the vacuous-green warning, the status line, and artifact paths. */
 function reportSummary(
   stderr: Out,
@@ -931,7 +951,8 @@ function reportSummary(
     summary.checks_run === 0
       ? '⚠ no checks ran'
       : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
-  writeLine(stderr, `${status} in ${summary.total_duration_ms}ms`);
+  const ran = summary.checks_run === 0 ? '' : coverage(summary, checks);
+  writeLine(stderr, `${status} in ${summary.total_duration_ms}ms${ran}`);
   writeLine(stderr, 'report: .check/summary.json');
   if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
   writeLine(stderr, '');

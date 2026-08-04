@@ -42,6 +42,10 @@
         "changed": {
           "type": "boolean",
           "description": "Affected-only mode for the gate, as --changed."
+        },
+        "preflight": {
+          "type": "string",
+          "description": "Repo-relative path to a script the generated stop-hook gate runs before checkride — the one supported seam for wrapping the gate, and the only one that survives a refresh (agent-setup rewrites the generated script and re-points the harness config, but re-reads this file). Exit 0 runs the gate; exit 2 blocks the turn; any other exit stands the gate down. Either non-zero branch uses the script's stdout as the message and never runs checkride."
         }
       }
     },
