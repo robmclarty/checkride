@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.11.0] - 2026-08-04
 
 ### Added
 
@@ -53,6 +53,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   updated deliberately; a hook script that reads only the exit status will now
   let a turn end on an environment refusal, which is the intended change.
 
+### Changed
+
+- **`init` now pins markdownlint-cli2 0.23.2 for the `docs` slot**, up from
+  0.23.1 — the version that resolves a vulnerable `js-yaml`
+  (GHSA-pm4m-ph32-ghv5) transitively into every repo it sets up. An existing
+  repo keeps whatever it installed; re-run `checkride init` or bump it yourself.
+
 ### Fixed
 
 - **An uninstalled repo no longer traps the agent in an unbreakable loop.** A
@@ -89,6 +96,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   script" was followed by an account of non-login shells and interpreter
   alignment. It is now attached to environment refusals only.
 
+- **A red run could be reported as "could not run" on Linux.** `isFresh` judged
+  the summary this run wrote by comparing its mtime against a `Date.now()`
+  reading taken just before the check spawned — and those are not the same
+  clock. Linux mtimes come from the kernel's coarse timer-tick clock, so a
+  summary written *after* `startedAt` routinely landed a few milliseconds behind
+  it: 934 of 2000 writes in a container, and 0 of 2000 on APFS. When it misfired
+  the gate read its own summary as a previous run's, believed an `engines`-pin
+  marker the check had merely printed, and blamed the environment for broken
+  code. `MTIME_TOLERANCE_MS` already guarded the same comparison in `triage/`;
+  the gate's own copy had dropped it. This is what turned the Linux CI legs red
+  on v0.10.2 and v0.10.3 while both macOS legs stayed green.
+
 - **A green run that skipped most of its slots says so.** `✔ all checks passed`
   is a true sentence about the checks that ran and a misleading one about the
   repo, and the gap was invisible exactly where it matters: a repo configuring
@@ -97,6 +116,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checks ran, 7 skipped` whenever any slot sat out. `--strict` is unchanged; its
   floor is *zero* checks, which an always-available slot like `links` keeps a
   repo off by itself.
+
+### Internal
+
+- CI dumps a failing slot's captured streams into collapsible log groups and
+  keeps `.check/` as an artifact. A red run logged `✘ test` and nothing else,
+  and on a hosted runner the directory holding the reason died with the
+  workspace — so the Linux-only gate failure above had to be reproduced in a
+  container before it could be read at all.
+
+- Dependency audit cleared and mostly retired. Two high advisories were open
+  (`fast-uri` GHSA-7p8r-x3mc-p8w7, `brace-expansion` GHSA-rgw5-rvv9-x895), both
+  already carrying an override whose range the advisory had since outgrown.
+  Re-resolving showed four of the five overrides were dead weight — the parents'
+  own ranges reach patched versions — so they were removed rather than widened,
+  leaving one. No runtime `dependencies` are declared, so none of this ever
+  reached the tarball.
 
 ## [0.10.3] - 2026-08-01
 
@@ -1597,6 +1632,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.11.0]: https://www.npmjs.com/package/checkride/v/0.11.0
 [0.10.3]: https://www.npmjs.com/package/checkride/v/0.10.3
 [0.10.2]: https://www.npmjs.com/package/checkride/v/0.10.2
 [0.10.1]: https://www.npmjs.com/package/checkride/v/0.10.1
