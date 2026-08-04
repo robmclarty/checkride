@@ -127,9 +127,7 @@ describe('gate verdicts', () => {
 
   /**
    * The counterpart promise: standing down is not passing. A caller reading
-   * `green` gets `false`, and both harnesses are told in the one channel that
-   * reaches a human. Cursor's is stderr, because its only stop-hook output field
-   * submits a new turn — using it here would rebuild the loop by hand.
+   * `green` gets `false`, and whoever can act on it is told.
    */
   test('a refusal only the environment can fix stands down, and says so', async () => {
     const stdout = capture();
@@ -142,16 +140,44 @@ describe('gate verdicts', () => {
     expect(body.decision).toBeUndefined();
     expect(body.systemMessage).toContain('could not run');
     expect(body.systemMessage).toContain('Nothing was verified');
+  });
 
-    const cursorOut = capture();
-    const cursorErr = capture();
-    const cursor = await runGate({
-      cwd: dir, harness: 'cursor', spawn: refusing, stdout: cursorOut, stderr: cursorErr, pinEnv: bare(),
-    });
-    expect(cursor.exitCode).toBe(0);
-    expect(cursor.green).toBe(false);
-    expect(cursorOut.text()).toBe('');
-    expect(cursorErr.text()).toContain('could not run');
+  /**
+   * Cursor's half of that promise, which 0.11.1 found was only half kept: the
+   * text went to stderr, and Cursor documents no channel that shows hook stderr
+   * to a user. So the party who can run the install saw nothing.
+   *
+   * `followup_message` is the field that reaches the chat, and it *submits a new
+   * turn* — unbounded, it is the loop the stand-down exists to avoid. The hook
+   * script reads the stop payload checkride never sees and exports the verdict,
+   * so the message is spent exactly once. **Absence is not `0`**: a script
+   * generated before that export keeps the older, quieter behavior, which is
+   * what stops a new binary looping under an old script.
+   */
+  test('a cursor stand-down spends its one user-visible channel, once', async () => {
+    const run = async (env: Record<string, string>) => {
+      const stdout = capture();
+      const stderr = capture();
+      const result = await runGate({
+        cwd: dir, harness: 'cursor', spawn: refusing, stdout, stderr, pinEnv: bare(), env,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.green).toBe(false);
+      // stderr carries it on every path, so a transcript always has the reason.
+      expect(stderr.text()).toContain('could not run');
+      return stdout.text();
+    };
+
+    // First turn: the one nudge, naming the fix where a user will read it.
+    const first = JSON.parse(await run({ CHECKRIDE_GATE_RETRY: '0' })) as { followup_message: string };
+    expect(first.followup_message).toContain('could not run');
+    expect(first.followup_message).toContain('Nothing was verified');
+
+    // A follow-up already went out this conversation: a second would be the loop.
+    expect(await run({ CHECKRIDE_GATE_RETRY: '1' })).toBe('');
+
+    // No signal at all — an unrefreshed hook script. Quiet, never looping.
+    expect(await run({})).toBe('');
   });
 
   /** Only a green run clears the marker, so a refused turn is re-gated on the next one. */

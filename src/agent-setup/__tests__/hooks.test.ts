@@ -107,6 +107,42 @@ describe('generated scripts', () => {
   });
 
   /**
+   * Cursor documents no channel that shows hook stderr to a user, so a
+   * stderr-only stand-down was invisible to the one party who can fix an
+   * environment. `followup_message` reaches the chat and also submits a new turn,
+   * so the same `retry` guard that stops `block` repeating itself rations this to
+   * a single message — one nudge naming the fix, then quiet.
+   */
+  test('a cursor stand-down nudges once through the channel a user reads', () => {
+    const script = gateScript('pnpm', { harness: 'cursor' });
+    expect(script).toMatch(/stand_down\(\) \{[\s\S]*?retry \|\| printf '\{"followup_message"/);
+    // stderr stays on every path, guarded or not, so a transcript keeps the reason.
+    expect(script).toMatch(/stand_down\(\) \{[\s\S]*?printf '%s\\n' "\$1" >&2/);
+    // Claude Code needs no rationing: `systemMessage` shows a user the text
+    // without submitting anything, so it is unconditional there.
+    expect(gateScript('pnpm', { harness: 'claude' })).not.toContain('retry || printf');
+  });
+
+  /**
+   * checkride's *own* stand-down (an `engines` pin, a corepack it cannot verify)
+   * needs the same one-shot bound and cannot compute it: the stop payload reaches
+   * the script, never the child process. So the script exports the verdict.
+   *
+   * Absence must not read as `0` on the checkride side — that is what keeps a new
+   * binary from looping under a hook script generated before this existed — so
+   * the script always exports one of the two values rather than only the unsafe
+   * one. Claude Code needs none of it; `systemMessage` submits nothing.
+   */
+  test('the cursor script hands checkride the retry verdict it cannot see', () => {
+    const script = gateScript('pnpm', { harness: 'cursor' });
+    expect(script).toContain('if retry; then CHECKRIDE_GATE_RETRY=1; else CHECKRIDE_GATE_RETRY=0; fi');
+    expect(script).toContain('export CHECKRIDE_GATE_RETRY');
+    // Exported before checkride is launched, or it would never be read.
+    expect(script.indexOf('export CHECKRIDE_GATE_RETRY')).toBeLessThan(script.indexOf('exec checkride gate'));
+    expect(gateScript('pnpm', { harness: 'claude' })).not.toContain('CHECKRIDE_GATE_RETRY');
+  });
+
+  /**
    * The bound on every could-not-run cause, named and unnamed alike. Claude Code
    * sends `stop_hook_active`, Cursor `loop_count`; either says the last turn
    * already ended on this verdict, so blocking has been tried.
@@ -241,9 +277,37 @@ describe('generated scripts', () => {
     expect(forward).toBeGreaterThan(guard);
   });
 
-  /** Cursor reads the hook's own stdout, so there is nothing for its script to capture. */
-  test('the cursor gate script lets its stdout stream straight through', () => {
-    expect(gateScript('pnpm', { harness: 'cursor' })).not.toContain('body=$(');
+  /**
+   * Cursor reads the hook's own stdout, so the body is forwarded rather than
+   * rewritten — but it is still *captured* first, because a failed launch writes
+   * to that same stdout and only a script that holds the output can withhold it.
+   */
+  test('the cursor gate script forwards checkride’s body on a status checkride wrote', () => {
+    const script = gateScript('pnpm', { harness: 'cursor' });
+    expect(script).toMatch(/body=\$\(.*checkride gate/);
+    expect(script).toMatch(/0\|2\)\n\s*\[ -n "\$body" \] && printf/);
+  });
+
+  /**
+   * The failure this whole shape exists for, asserted on both harnesses. On a
+   * missing install pnpm writes `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` to stdout —
+   * ahead of a stray `undefined` on pnpm 11 — so on any status but checkride's
+   * own two, `$body` holds the launcher's error and must never be printed.
+   * `block`/`stand_down` own stdout there instead.
+   */
+  test('neither gate script prints the captured body on a launch failure', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      const script = gateScript('pnpm', { harness });
+      // The capture is the only `body=`, and every *use* of it sits inside the
+      // `0|2)` arm — so nothing below `esac` can reach what the launcher wrote.
+      const answered = script.indexOf('case "$status" in');
+      const fallthrough = script.indexOf('esac', answered);
+      expect(answered).toBeGreaterThan(script.indexOf('body=$('));
+      for (const use of script.matchAll(/\$body/g)) {
+        expect(use.index).toBeGreaterThan(answered);
+        expect(use.index).toBeLessThan(fallthrough);
+      }
+    }
   });
 
   test('the dirty script creates the marker directory and always exits 0', () => {
