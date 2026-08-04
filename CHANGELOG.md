@@ -4,6 +4,46 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A Cursor stand-down now reaches the user, exactly once.** The promise since
+  0.11.0 was that a stand-down is never silent: Claude Code gets a
+  `systemMessage`, Cursor gets stderr. Those were never equivalent, and the
+  Cursor half does not hold — Cursor documents no channel that shows hook stderr
+  to a user, mentioning only a Hooks output panel under **Customize** that
+  someone has to go and open. So on the one verdict whose entire purpose is to
+  name a fix only a human can apply (`pnpm install`, an `engines` pin), the human
+  saw nothing.
+
+  `followup_message` is the field that reaches the chat, and the reason it was
+  avoided is real: it *submits a new turn*, so a stand-down spending it every
+  turn rebuilds the unbounded loop 0.11.0 removed. It is therefore rationed to
+  one. The generated hook script already reads `loop_count` to bound `block`, and
+  that same guard now bounds `stand_down` — one nudge naming the fix, silence
+  after. The guard errs toward quiet: Cursor's `loop_count` counts every
+  auto-follow-up in a conversation rather than the consecutive ones, so an
+  over-count costs a silent stand-down and never a loop.
+
+- **`CHECKRIDE_GATE_RETRY`, a new environment variable the generated gate script
+  sets.** checkride's own stand-down — a refusal it detects from inside, such as
+  an `engines` pin the hook's Node fails — needs the same one-shot bound and
+  cannot compute it, because the stop payload reaches the hook script and never
+  the child process. The script now exports `0` when the one message is unspent
+  and `1` when it is not, and `checkride gate --harness cursor` emits a followup
+  only on an explicit `0`.
+
+  **Absence is not `0`.** A hook script generated before this release exports
+  neither value and keeps the older stderr-only behavior. That asymmetry is the
+  point: it is what stops a refreshed checkride from looping under an
+  unrefreshed script, given the `loop_limit: null` the gate's own hook entry
+  asks for. Run `checkride agent-setup` to pick up the new script.
+
+  The variable is an internal contract between the two halves checkride
+  generates, not a knob — setting it by hand only suppresses or unlocks one
+  message.
+
 ## [0.11.1] - 2026-08-04
 
 ### Fixed

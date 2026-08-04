@@ -89,9 +89,26 @@ rather than the config bounding it. Cursor sends a `loop_count` on the stop
 payload; on the second consecutive **could not run** the script stands down
 instead of blocking again, and a cause nothing in the repo can fix (checkride
 never installed, an `engines` pin the hook's Node fails) stands down on the
-first. Neither is silent — the text goes to stderr, because Cursor's one stop
-hook output field, `followup_message`, submits a new turn and would rebuild the
-loop by hand.
+first.
+
+Neither is silent, and until 0.11.1 that claim rested on stderr — which Cursor
+does not document as reaching a user at all. Its only mention is a Hooks output
+channel under **Customize**, a panel someone has to go and open, so the party who
+could actually run `pnpm install` saw nothing. A stand-down now spends
+`followup_message` too, but **exactly once**: that field submits a new turn, so
+one sent every turn is the loop being stood down from. `loop_count` is what
+rations it, and the guard errs toward quiet — Cursor counts every auto-follow-up
+in the conversation rather than the consecutive ones, so an over-count costs a
+silent stand-down and never a loop.
+
+checkride's own stand-down needs the same bound and cannot compute it: the stop
+payload goes to the hook script, not to the child. So the script exports
+`CHECKRIDE_GATE_RETRY` — `0` when the message is still unspent, `1` when it is
+not — and checkride emits a followup only on an explicit `0`. **Absence is not
+`0`.** A script generated before 0.11.1 exports neither, and keeps the older
+stderr-only behavior; that asymmetry is deliberate, and it is what stops a
+refreshed checkride from looping under an unrefreshed script. `agent-setup`
+rewrites the script, so a refresh closes it.
 
 What stays uncapped is a **red** gate, which is the point of `loop_limit: null`:
 a gate that stops re-blocking after five turns is five nudges. The escape hatch

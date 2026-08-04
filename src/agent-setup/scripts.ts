@@ -16,7 +16,7 @@
  * branch neither config can carry (see {@link gateTail}).
  */
 
-import { DIRTY_MARKER, type HarnessName } from '../gate.js';
+import { DIRTY_MARKER, GATE_RETRY_ENV, type HarnessName } from '../gate.js';
 import { execCommand, type PackageManager, runScript } from '../pm/index.js';
 
 /**
@@ -103,9 +103,17 @@ const noRepo =
  * `block` consults `retry` first, which is what bounds *every* could-not-run
  * cause rather than only the ones enumerated here. Claude Code sends
  * `stop_hook_active` on the Stop payload and Cursor sends `loop_count`; either
- * one says the previous turn already ended on this verdict, and a second
- * identical block has been demonstrated not to help. A red pipeline never
+ * one says the harness has already auto-submitted a turn on this hook, and a
+ * second identical block has been demonstrated not to help. A red pipeline never
  * reaches this — that loop is the gate working, and is deliberately unbounded.
+ *
+ * Under Cursor `stand_down` consults it too, for a different reason. Blocking
+ * there is a `followup_message`, and so is the only way to reach a *user*, so
+ * the same guard has to serve both: it stops `block` repeating itself, and it
+ * rations `stand_down` to the single message that names the fix. `retry` is
+ * conservative in exactly the direction that keeps that safe — Cursor's
+ * `loop_count` counts every follow-up in the conversation rather than the
+ * consecutive ones, so an over-count costs a quiet stand-down, never a loop.
  */
 function gatePreamble(harness: HarnessName): string[] {
   const cursor = harness === 'cursor';
@@ -116,7 +124,7 @@ function gatePreamble(harness: HarnessName): string[] {
     "payload=''",
     '[ -t 0 ] || payload=$(cat)',
     '',
-    '# True once a previous turn already ended on a could-not-run verdict.',
+    '# True once the harness has already auto-submitted a turn on this hook.',
     'retry() {',
     '  printf %s "$payload" |',
     `    grep -Eq '"stop_hook_active"[[:space:]]*:[[:space:]]*true|"loop_count"[[:space:]]*:[[:space:]]*[1-9]'`,
@@ -127,9 +135,12 @@ function gatePreamble(harness: HarnessName): string[] {
     'stand_down() {',
     ...(cursor
       ? [
-          '  # Cursor has one stop-hook output field, `followup_message`, and it submits',
-          '  # a new turn — which is the loop being stood down from. So stderr is all',
-          '  # there is.',
+          '  # Cursor names no channel that shows hook stderr to a user — only a Hooks',
+          '  # output panel under Customize — so stderr alone would hide this from the',
+          '  # one party who can fix an environment. `followup_message` does reach the',
+          '  # chat, and it also *submits a new turn*, so it goes out exactly once:',
+          '  # `loop_count` says a follow-up already went, and a second is the loop.',
+          '  retry || printf \'{"followup_message":"%s"}\\n\' "$1"',
           '  printf \'%s\\n\' "$1" >&2',
         ]
       : [
@@ -154,6 +165,17 @@ function gatePreamble(harness: HarnessName): string[] {
         ]
       : ['  printf \'%s\\n\' "$1" >&2', '  exit 2']),
     '}',
+    ...(cursor
+      ? [
+          '',
+          '# checkride also stands *itself* down, for a refusal it detects from inside',
+          '# (an `engines` pin the hook Node fails, a corepack it cannot verify) — and',
+          '# it never sees the stop payload, so hand it the one fact that bounds that',
+          '# message to a single turn the same way. It sends a followup only on a 0.',
+          `if retry; then ${GATE_RETRY_ENV}=1; else ${GATE_RETRY_ENV}=0; fi`,
+          `export ${GATE_RETRY_ENV}`,
+        ]
+      : []),
   ];
 }
 

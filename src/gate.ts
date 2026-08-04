@@ -69,6 +69,26 @@ import {
  */
 export const DIRTY_MARKER = '.check/.dirty';
 
+/**
+ * Whether a follow-up has already been auto-submitted this conversation: `1` if
+ * so, `0` if not. The generated stop-hook script reads the harness's stop payload
+ * and exports it; the hook writers import the name from here to spell the export.
+ *
+ * It exists for exactly one decision. Under Cursor the only channel that reaches
+ * a *user* is `followup_message`, and that field **submits a new turn** — so a
+ * stand-down spending it on every turn is the unbounded loop a stand-down exists
+ * to avoid. `0` means the budget of one has not been spent yet. checkride cannot
+ * work this out alone: the stop payload goes to the hook script, never to this
+ * process. See {@link reportStandDown}.
+ *
+ * **Absence is not `0`.** A script generated before this variable existed exports
+ * neither value, and reading absence as "go ahead" would loop under precisely the
+ * pairing checkride cannot detect — a new binary, an old script, and the
+ * `loop_limit: null` the gate's own hook entry asks for. So absence keeps the
+ * older and quieter behavior, and only an explicit `0` unlocks the message.
+ */
+export const GATE_RETRY_ENV = 'CHECKRIDE_GATE_RETRY';
+
 /** Where the gate points a red agent when `--digest` wrote nothing. */
 const SUMMARY_PATH = '.check/summary.json';
 
@@ -592,12 +612,33 @@ type Verdict = {
  * The message goes to whoever can act on it. Under Claude Code that is
  * `systemMessage`, which the *user* sees — and the full text rides there rather
  * than the one-line status, because without a `decision: "block"` there is no
- * `reason` channel to carry the rest. Cursor gets stderr alone: its only stop
- * hook output field is `followup_message`, and that *submits a new turn*, which
- * is precisely the loop being stood down from.
+ * `reason` channel to carry the rest.
+ *
+ * Cursor has no equivalent. Its stop hook takes one output field,
+ * `followup_message`, and that *submits a new turn* — the loop being stood down
+ * from. This used to settle for stderr, on the reading that a stand-down nobody
+ * sees still beats a loop. That reading was wrong in its premise: Cursor does not
+ * document hook stderr as reaching the user at all, surfacing it only in a Hooks
+ * output panel under Customize, so "not silent" held on one harness and the
+ * party who can actually run an install saw nothing.
+ *
+ * So the message does go to `followup_message` — **once**. {@link GATE_RETRY_ENV}
+ * carries the one fact that makes that safe, since the `loop_count` deciding it
+ * reaches the hook script rather than this process. One nudge names the fix in
+ * the chat; the next turn is silent, and the loop is bounded at a single extra
+ * turn rather than at nothing.
  */
-function reportStandDown(harness: HarnessName, out: { stdout: Out; stderr: Out }, full: string): number {
-  if (harness !== 'cursor') out.stdout.write(`${JSON.stringify({ systemMessage: full })}\n`);
+function reportStandDown(
+  harness: HarnessName,
+  out: { stdout: Out; stderr: Out },
+  full: string,
+  env: Record<string, string | undefined>,
+): number {
+  if (harness === 'cursor') {
+    if (env[GATE_RETRY_ENV] === '0') out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
+  } else {
+    out.stdout.write(`${JSON.stringify({ systemMessage: full })}\n`);
+  }
   out.stderr.write(`${full}\n`);
   return 0;
 }
@@ -624,12 +665,17 @@ function reportStandDown(harness: HarnessName, out: { stdout: Out; stderr: Out }
  * (`loop_limit: null`), because a gate that stops replying after five turns is
  * not a gate.
  */
-function reportRed(harness: HarnessName, out: { stdout: Out; stderr: Out }, verdict: Verdict): number {
+function reportRed(
+  harness: HarnessName,
+  out: { stdout: Out; stderr: Out },
+  verdict: Verdict,
+  env: Record<string, string | undefined>,
+): number {
   // The agent is told what to open and what not to do; the user is told what
   // happened and how long it took. Handing the user the agent's marching orders
   // would bury the one line they are actually reading.
   const full = `${verdict.status}\n${verdict.instruction}`;
-  if (verdict.standDown) return reportStandDown(harness, out, full);
+  if (verdict.standDown) return reportStandDown(harness, out, full, env);
   if (harness === 'cursor') {
     out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
     return 0;
@@ -726,6 +772,6 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
     running: pinEnv.running(),
     profile,
   });
-  const exitCode = reportRed(harness, { stdout, stderr }, verdict);
+  const exitCode = reportRed(harness, { stdout, stderr }, verdict, env);
   return { exitCode, ran: true, green: false, refusal: verdict.refusal };
 }

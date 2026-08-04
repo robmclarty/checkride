@@ -172,9 +172,15 @@ the edit tools can fix it. A refusal only the *environment* can fix — an
 `engines` pin the hook's Node fails, a package manager corepack will not verify,
 a checkride that was never installed — **stands down**: `gate` exits 0 with no
 `decision`, and says so. Two things are promised about that path and neither may
-be weakened: it is never silent (Claude Code gets a `systemMessage`, Cursor
-stderr, both stating that nothing was verified), and it is never reported as
-green (`ran: true, green: false`). Blocking on a cause the turn cannot reach does
+be weakened: it is never silent (Claude Code gets a `systemMessage`, Cursor a
+single `followup_message`, both stating that nothing was verified — and both get
+stderr as well), and it is never reported as green (`ran: true, green: false`).
+Cursor's copy is rationed to one per conversation because that field submits a
+new turn; the generated hook script exports `CHECKRIDE_GATE_RETRY` (`0` or `1`)
+from the stop payload to say whether the one message has been spent, and
+checkride sends it only on an explicit `0`. A hook script that exports neither
+value gets stderr alone, which is what keeps an unrefreshed repo from looping.
+Blocking on a cause the turn cannot reach does
 not produce a fix; it re-asks the same agent every turn until someone removes the
 gate, which is a worse outcome than a loud stand-down.
 
