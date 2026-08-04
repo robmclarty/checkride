@@ -241,9 +241,37 @@ describe('generated scripts', () => {
     expect(forward).toBeGreaterThan(guard);
   });
 
-  /** Cursor reads the hook's own stdout, so there is nothing for its script to capture. */
-  test('the cursor gate script lets its stdout stream straight through', () => {
-    expect(gateScript('pnpm', { harness: 'cursor' })).not.toContain('body=$(');
+  /**
+   * Cursor reads the hook's own stdout, so the body is forwarded rather than
+   * rewritten — but it is still *captured* first, because a failed launch writes
+   * to that same stdout and only a script that holds the output can withhold it.
+   */
+  test('the cursor gate script forwards checkride’s body on a status checkride wrote', () => {
+    const script = gateScript('pnpm', { harness: 'cursor' });
+    expect(script).toMatch(/body=\$\(.*checkride gate/);
+    expect(script).toMatch(/0\|2\)\n\s*\[ -n "\$body" \] && printf/);
+  });
+
+  /**
+   * The failure this whole shape exists for, asserted on both harnesses. On a
+   * missing install pnpm writes `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` to stdout —
+   * ahead of a stray `undefined` on pnpm 11 — so on any status but checkride's
+   * own two, `$body` holds the launcher's error and must never be printed.
+   * `block`/`stand_down` own stdout there instead.
+   */
+  test('neither gate script prints the captured body on a launch failure', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      const script = gateScript('pnpm', { harness });
+      // The capture is the only `body=`, and every *use* of it sits inside the
+      // `0|2)` arm — so nothing below `esac` can reach what the launcher wrote.
+      const answered = script.indexOf('case "$status" in');
+      const fallthrough = script.indexOf('esac', answered);
+      expect(answered).toBeGreaterThan(script.indexOf('body=$('));
+      for (const use of script.matchAll(/\$body/g)) {
+        expect(use.index).toBeGreaterThan(answered);
+        expect(use.index).toBeLessThan(fallthrough);
+      }
+    }
   });
 
   test('the dirty script creates the marker directory and always exits 0', () => {

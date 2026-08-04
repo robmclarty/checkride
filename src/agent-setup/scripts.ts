@@ -164,18 +164,24 @@ function gatePreamble(harness: HarnessName): string[] {
  * hook body worth forwarding. Anything else means checkride never ran, and
  * whatever is on stdout then is the *launcher's* error — pnpm writes
  * `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL` there, ahead of a stray `undefined` on
- * pnpm 11. Forwarding that as a hook body puts unparseable text where Claude
- * Code expects JSON, so the status is checked first and the body is forwarded
- * only when checkride is the one that wrote it.
+ * pnpm 11. Forwarding that puts unparseable text on the one channel a harness
+ * reads as protocol, so the status is checked first and the body is forwarded
+ * only when checkride is the one that wrote it. That is why {@link invokeGate}
+ * captures under both harnesses: output already streamed past the script cannot
+ * be withheld by it.
  */
 function gateTail(harness: HarnessName, pm: PackageManager): string[] {
   const answered =
     harness === 'cursor'
       ? [
-          '# On 0 checkride has already written its JSON to stdout, which is what Cursor',
-          '# reads, and on 2 it has written the followup body. Either way it answered.',
+          '# On 0 checkride has already written its JSON body, and on 2 the followup',
+          '# body. Either way it answered, so hand back what it wrote, unchanged.',
+          '# A green that had nothing to do writes nothing, and that is a body too.',
           'case "$status" in',
-          '  0|2) exit 0 ;;',
+          '  0|2)',
+          '    [ -n "$body" ] && printf \'%s\\n\' "$body"',
+          '    exit 0',
+          '    ;;',
           'esac',
         ]
       : [
@@ -288,20 +294,21 @@ function enterRepo(): string[] {
 }
 
 /**
- * How the gate's stdout is taken.
+ * How the gate's stdout is taken: captured, under both harnesses.
  *
- * Cursor's script lets it stream straight through: Cursor reads the hook's own
- * stdout, and there is nothing for the script to decide. Claude Code's captures
- * it, because the script has to *choose an exit code based on whether a body
- * came back* — see {@link gateTail}. Capturing costs nothing that is visible:
- * the pipeline's human-readable progress is on stderr and streams live either
- * way; stdout carries only the one-line JSON verdict, written at the very end.
+ * Letting it stream through is tempting under Cursor, which reads the hook's own
+ * stdout and would need no forwarding — but a *failed launch* writes there too,
+ * and a script that never held that output cannot keep it off a channel with
+ * defined semantics. Capturing is what gives {@link gateTail} the choice, and
+ * `block`/`stand_down` sole ownership of stdout on the paths where checkride
+ * never answered.
+ *
+ * It costs nothing visible: the pipeline's human-readable progress is on stderr
+ * and streams live either way, and stdout carries only the one-line JSON
+ * verdict, written at the very end.
  */
-function invokeGate(pm: PackageManager, harness: HarnessName, args: readonly string[]): string[] {
-  const command = checkrideCommand(pm, args);
-  return harness === 'cursor'
-    ? [command, 'status=$?']
-    : [`body=$(${command})`, 'status=$?'];
+function invokeGate(pm: PackageManager, args: readonly string[]): string[] {
+  return [`body=$(${checkrideCommand(pm, args)})`, 'status=$?'];
 }
 
 /**
@@ -341,7 +348,7 @@ export function gateScript(
     ...enterRepo(),
     '',
     ...(opts.preflight === undefined ? [] : [...preflight(opts.preflight), '']),
-    ...invokeGate(pm, opts.harness, args),
+    ...invokeGate(pm, args),
     ...gateTail(opts.harness, pm),
     '',
   ].join('\n');
