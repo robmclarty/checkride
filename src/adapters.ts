@@ -350,7 +350,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'markdownlint-cli2'],
     outputFile: null,
     fixArgs: ['exec', 'markdownlint-cli2', '--fix'],
-    devDeps: { 'markdownlint-cli2': '0.23.1' },
+    devDeps: { 'markdownlint-cli2': '0.23.2' },
   },
   {
     name: 'links',

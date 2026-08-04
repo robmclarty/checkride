@@ -9,18 +9,22 @@ allowBuilds:
 # This package declares no runtime `dependencies` at all, so every entry here is
 # dev-only and none reach the shipped tarball. Each is scoped to its advisory's
 # vulnerable range so only the affected instances are rewritten, and capped to
-# the major the parent expects (fast-uri stays on 3.x, which is what ajv wants,
-# not the 4.x on latest) rather than jumping to a new major.
+# the major the parent expects rather than jumping to a new major.
 #
-# Re-check these on every dependency bump — an entry can go stale in either
-# direction. An advisory's range can widen past a pin that used to clear it
-# (brace-expansion did: <5.0.7 no longer covers it), and a parent bump can
-# retire an entry outright. Two retired here: markdown-it and the js-yaml 4.x
-# line, both because markdownlint-cli2 0.23.x now resolves patched versions on
-# its own. Removing an override and re-running `pnpm audit` is the check.
+# Re-check these on every dependency bump — an entry goes stale in either
+# direction, and both have bitten:
+#
+#   - An advisory's range widens past a pin that used to clear it. `<5.0.7` no
+#     longer covered brace-expansion, then `<5.0.8` did not either.
+#   - A parent catches up and the entry retires. An override whose replacement
+#     the parent's own range already permits fixes nothing; all it does is hold
+#     a stale lockfile entry in place, so `pnpm audit` keeps flagging a package
+#     that would resolve patched if simply re-resolved.
+#
+# The second is the one that reads as still-working, so the check is empirical:
+# delete the entry, re-resolve, re-run `pnpm audit`. Reading the ranges is not
+# enough. Retired that way so far: markdown-it and js-yaml (markdownlint-cli2
+# 0.23.2 resolves patched versions itself), fast-uri and brace-expansion (ajv's
+# and minimatch's own ranges reach 3.1.5 / 5.0.9), postcss (vite reaches 8.5.23).
 overrides:
-  'brace-expansion@>=3.0.0 <5.0.8': '^5.0.8' # GHSA-mh99-v99m-4gvg (widened past the old <5.0.7 pin), via minimatch
-  'fast-uri@>=3.0.0 <3.1.4': '^3.1.4' # GHSA-v2hh-gcrm-f6hx + GHSA-4c8g-83qw-93j6, via ajv
-  'js-yaml@>=5.0.0 <5.2.2': '^5.2.2' # GHSA-pm4m-ph32-ghv5, via markdownlint-cli2 (0.23.x moved to the 5.x line)
-  'postcss@<8.5.18': '^8.5.18' # GHSA-r28c-9q8g-f849, via vite
-  'qs@>=6.11.1 <6.15.2': '^6.15.2' # GHSA-q8mj-m7cp-5q26, via typed-rest-client
+  'qs@>=6.11.1 <6.15.2': '^6.15.2' # GHSA-q8mj-m7cp-5q26 (moderate), via typed-rest-client
