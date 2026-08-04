@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-08-04
+
+### Fixed
+
+- **The Cursor stop gate no longer writes package-manager noise to the channel
+  Cursor parses as protocol.** The two generated gate scripts were asymmetric,
+  and accidentally so: the Claude Code script captured the run, so a failed
+  launch wrote into a variable it could then decline to print, while the Cursor
+  script ran the launcher uncaptured in order to let checkride's own JSON pass
+  straight through. A *failed* launch writes to that same stdout, and nothing
+  filtered it — so in a repo whose dependencies were never installed, two lines
+  of pnpm resolution error landed on stdout while the correct stand-down
+  explanation went to stderr.
+
+  The turn still ended as intended, because Cursor does not parse that text as a
+  hook body. The reason to fix it anyway is what happens if it ever does: a
+  bare-text followup would submit a new turn on every stand-down, rebuilding the
+  unbounded loop 0.11.0 removed, and doing it on the one cause an agent can do
+  nothing about. It also muddies the gate's own diagnostic — a maintainer
+  reading a Cursor transcript sees a dependency-resolution error on the protocol
+  channel and a different, correct explanation beside it on stderr.
+
+  Both scripts now capture, and each re-prints that body only on the two exit
+  statuses checkride answers with by design. Anything else is the launcher's
+  error rather than a verdict, and `block`/`stand_down` own stdout there alone.
+
+### Internal
+
+- The marketing site under `site/` picks up Fathom analytics and Open Graph plus
+  Twitter Card metadata across all three pages. The published package is
+  unchanged.
+
 ## [0.11.0] - 2026-08-04
 
 ### Added
@@ -1632,6 +1664,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.11.1]: https://www.npmjs.com/package/checkride/v/0.11.1
 [0.11.0]: https://www.npmjs.com/package/checkride/v/0.11.0
 [0.10.3]: https://www.npmjs.com/package/checkride/v/0.10.3
 [0.10.2]: https://www.npmjs.com/package/checkride/v/0.10.2
