@@ -400,7 +400,7 @@ class Component extends DCLogic {
       ['checkride', 'Run the default checks. Exit 0 pass / 1 fail / 2 error.',
         "$ checkride [flags]\n\n  --only <a,b>   --skip <a,b>   --include <a,b>   --all\n  --changed      --bail         --concurrency <n>\n  --json         --digest       --strict\n\n# the daily gate\n$ pnpm check\n\n# tight iteration\n$ pnpm check --bail --only types,lint\n\n# anywhere checkride gates (CI, hooks)\n$ pnpm exec checkride --strict"],
       ['init', 'Set up a project — new or existing, auto-detected.',
-        "$ checkride init [flags]\n\n  --shape flat|monorepo|hybrid   --name <n>   --scope <@s>\n  --license <id>   --author <a>\n  --add <a,b>      scaffold blessed configs for named empty slots\n  --baseline       (existing) grandfather current debt\n  --force          (new) overwrite existing files\n  --no-hook        skip the Claude Code Stop hook\n  --dry-run        plan only; write nothing\n\n# existing repo, keep it green from day one\n$ pnpm add -D -E checkride && pnpm exec checkride init --baseline\n\n# brand-new project\n$ pnpm dlx checkride init --shape flat --name my-app"],
+        "$ checkride init [flags]\n\n  --shape flat|monorepo|hybrid   --name <n>   --scope <@s>\n  --license <id>   --author <a>\n  --add <a,b>          scaffold blessed configs for named empty slots\n  --baseline           (existing) grandfather current debt\n  --hook <a,b>         write only these hooks (gate | dirty | protect)\n  --no-hook            skip the agent hooks\n  --remove-hook <a,b>  tear installed hooks back out\n  --harness <a,b>      claude | cursor (default: detected)\n  --force              (new) overwrite files; (existing) refresh an edited stanza\n  --dry-run            plan only; write nothing\n\n# existing repo, keep it green from day one\n$ pnpm add -D -E checkride && pnpm exec checkride init --baseline\n\n# brand-new project\n$ pnpm dlx checkride init --shape flat --name my-app"],
       ['doctor', "Verify environment + every slot's status. Read-only, exit 0/1.",
         "$ checkride doctor\n\n# reports:\n#  - node / package manager / git versions\n#  - the detected package manager\n#  - per-slot status: installed, opt-in, disabled, or no tool detected\n# exit 0 = ready to run, 1 = environment has problems"],
       ['fix', "Run every active adapter's fix command.",
@@ -409,8 +409,16 @@ class Component extends DCLogic {
         "$ checkride baseline\n\n# writes checkride.baseline.json (commit it):\n#   per-slot fingerprints — file:rule:message keys that survive line moves\n# then every run is baseline-aware:\n#   old findings masked, new findings fail, fixed findings pruned\n# re-running re-records EVERYTHING failing — treat it as a reviewed change"],
       ['recover', 'Restore the committed baseline from git history after a merge clobbered it.',
         "$ checkride recover [flags]\n\n  --pick <n|sha|union>   apply a candidate (bare recover lists them)\n  --exact                write the snapshot verbatim, not the union\n  --dry-run              preview the per-slot delta; write nothing\n  --depth <n>            commits of file history to walk (default 25)\n\n# a merge dropped baseline entries: the run goes red and prints a hint\n# naming the commit they were grandfathered until — then:\n$ checkride recover                # list candidate states with deltas\n$ checkride recover --pick <sha>   # restore additively; review the diff\n\n# never git checkout — the restore is an ordinary working-tree edit;\n# stale resurrections are pruned by the ratchet on the next green run"],
-      ['agent-setup', 'Add the check alias, AGENTS.md stanza + Stop hook to a repo.',
-        "$ checkride agent-setup [--no-hook]\n\n# writes, idempotently:\n#   \"check\" script alias in package.json\n#   AGENTS.md stanza (exit 0 = done, how to read .check/, conventions)\n#   Claude Code Stop hook in .claude/settings.json (skip with --no-hook)\n# the hook uses your detected package manager: pnpm/npm/yarn/bun run check"],
+      ['agent-setup', 'Add the check alias, AGENTS.md stanza + agent hooks to a repo.',
+        "$ checkride agent-setup [flags]\n\n  --hook <a,b>         write only these hooks (gate | dirty | protect)\n  --no-hook            skip the hooks (write only the stanza + alias)\n  --remove-hook <a,b>  tear installed hooks back out (entry + script)\n  --harness <a,b>      claude | cursor (default: claude, + cursor when detected)\n  --force              refresh an AGENTS.md stanza that has local edits\n\n# writes, idempotently:\n#   \"check\" script alias in package.json\n#   AGENTS.md stanza (exit 0 = done, how to read .check/, conventions)\n#   gate    — the stop-hook script that runs the check as a hard gate\n#   dirty   — marks a turn that edited, so a clean turn can skip the gate\n#   protect — denies edits to checkride.baseline.json and .check/"],
+      ['hooks', 'Install or remove agent hooks on their own — never touches AGENTS.md.',
+        "$ checkride hooks add [a,b]\n$ checkride hooks remove <a,b>\n\n  --harness <a,b>   act on these harnesses (claude | cursor)\n  --dry-run         report what would change; write nothing\n\n# add defaults to every hook (gate, dirty, protect); remove requires an\n# explicit list — a bare command can never silently tear out the gate"],
+      ['gate', "Run the check script as a stop gate, answering a harness's hook protocol.",
+        "$ checkride gate [--harness claude|cursor] [--if-dirty]\n\n# invoked by the generated hook scripts — you rarely run it by hand\n# runs <pm> run check --strict --digest and answers three verdicts:\n#   green           the turn may end\n#   red             blocks, naming what to read (.check/summary.json)\n#   could not run   nothing ran; names the environment cause instead\n\n# --if-dirty skips the run when no edit happened this turn"],
+      ['triage', 'Triage a red gate: run it, then read .check/ as a bounded report.',
+        "$ checkride triage [repo-path]\n\n# runs the gate, then renders one bounded Markdown report on stdout:\n# the verdict, per-slot status, and excerpts of the failing slots.\n# exit 0 whenever a report was produced — the verdict is in the report,\n# so a red repo never looks like a broken reader"],
+      ['qa', 'Read the quality artifacts a previous run left.',
+        "$ checkride qa [repo-path]\n\n# renders mutation / dead / dupes / health artifacts from .check/ as one\n# Markdown report — measurements, not gates; it invents no thresholds"],
     ];
     const commands = cmdDef.map(([name, desc, example], i) => {
       const open = this.state.open === name;
@@ -439,7 +447,11 @@ class Component extends DCLogic {
       ['--author <a>', 'Package author.'],
       ['--add <a,b>', 'Scaffold config for the named empty slots.'],
       ['--baseline', '(existing repo) Grandfather current debt instead of disabling failing slots.'],
-      ['--no-hook', 'Skip writing the Claude Code Stop hook (also honored by agent-setup).'],
+      ['--hook <a,b>', 'Write only these hooks: gate, dirty, protect (also on agent-setup).'],
+      ['--no-hook', 'Skip writing the agent hooks entirely (also honored by agent-setup).'],
+      ['--remove-hook <a,b>', 'Remove installed hooks — config entry + generated script. With --no-hook, remove only.'],
+      ['--harness <a,b>', 'Write hooks for these harnesses: claude, cursor. Default: claude, plus cursor when .cursor/ exists.'],
+      ['--force', '(new mode) Overwrite existing files; (existing mode) refresh an AGENTS.md stanza carrying local edits.'],
       ['--dry-run', 'Print what would be written; change nothing.'],
     ].map(([flag, effect], i) => ({ flag, effect, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 

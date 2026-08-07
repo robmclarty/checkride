@@ -184,7 +184,7 @@
       <div style="flex:none; width:420px;">
         <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#D9A13B; margin-bottom:18px;">03 · THE AGENT CONTRACT</div>
         <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0; color:#E9F0EA;">The agent can't declare victory on a <span style="font-style:italic; color:#D45B4A;">red pipeline.</span></h2>
-        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#D9A13B;">checkride init</span> writes the contract into the repo: an AGENTS.md stanza stating the "exit 0 = done" rule, and a Claude Code <strong style="color:#E9F0EA;">Stop hook</strong> that fires when the agent tries to finish — exit 2 blocks the stop and sends the agent back to work until the pipeline is green.</p>
+        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#D9A13B;">checkride init</span> writes the contract into the repo: an AGENTS.md stanza stating the "exit 0 = done" rule, and a <strong style="color:#E9F0EA;">stop-gate hook</strong> for Claude Code and Cursor that fires when the agent tries to finish — a red pipeline blocks the stop and sends the agent back to work until it's green.</p>
         <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:18px 0 0;">When a check fails, the agent reads <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/summary.json</span>, then the failing slot's raw JSON. On a big red repo, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes a token-bounded excerpt so the agent starts from a capped index, not a wall of text.</p>
         <a href="docs.html" style="display:inline-block; margin-top:28px; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:14px; padding:13px 24px; border:3px solid #E9F0EA; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">Set up the harness →</a>
       </div>
@@ -212,7 +212,7 @@
         </div>
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:24px;">
           <div style="border-left:3px solid #1E7A4A; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">AGENTS.md stanza</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The rule, the conventions, and the narrow commands — loaded into context by Claude Code, Codex, Cursor, Amp.</div></div>
-          <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">Stop hook</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">Exit 2 blocks the agent from finishing while the pipeline is red. Guidance becomes enforcement.</div></div>
+          <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">Stop gate</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The generated hook runs <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">checkride gate</span> when the agent tries to finish — red blocks, under Claude Code and Cursor. Guidance becomes enforcement.</div></div>
           <div style="border-left:3px solid #D9A13B; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">CI backstop</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The hook helps the agent locally; a <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">--strict</span> run in CI protects the branch.</div></div>
         </div>
       </div>
@@ -282,7 +282,7 @@
     <div style="position:absolute; top:-40px; right:-30px; width:280px; height:280px; background-image:radial-gradient(#14231B 3px, transparent 3.5px); background-size:18px 18px; opacity:0.25; transform:rotate(-8deg);"></div>
     <div style="position:relative; max-width:760px; margin:0 auto;">
       <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:64px; line-height:1; margin:0; color:#E9F0EA;">Make exit 0 mean done.</h2>
-      <p style="font-size:19px; line-height:1.55; color:#DCEEDF; margin:22px 0 38px;">Install, run <span style="font-family:'JetBrains Mono',monospace; font-size:16px;">init</span>, and the gate is up — alias, agent stanza, Stop hook, all of it. Existing repos adopt with a baseline; new ones scaffold green out of the box.</p>
+      <p style="font-size:19px; line-height:1.55; color:#DCEEDF; margin:22px 0 38px;">Install, run <span style="font-family:'JetBrains Mono',monospace; font-size:16px;">init</span>, and the gate is up — alias, agent stanza, stop-gate hooks for Claude Code and Cursor, all of it. Existing repos adopt with a baseline; new ones scaffold green out of the box.</p>
       <div onClick="{{ copy }}" data-copy="pnpm dlx checkride init" style="display:inline-flex; align-items:center; gap:14px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:18px; background:#E9F0EA; border:2px dashed #14231B; padding:8px 24px;"><span style="color:#1E7A4A;">$</span> pnpm dlx checkride init <span data-icon="" style="margin-left:18px; color:#52675B; font-size:44px; line-height:1; position:relative; top:-5px;">⎘</span></div>
       <div style="margin-top:32px;">
         <a href="docs.html" style="display:inline-block; background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:15px 30px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Open the docs →</span></a>
@@ -322,6 +322,10 @@
             <span>baseline</span>
             <span>recover</span>
             <span>agent-setup</span>
+            <span>hooks</span>
+            <span>gate</span>
+            <span>triage</span>
+            <span>qa</span>
           </div>
         </div>
         <div>
@@ -388,7 +392,10 @@ class Component extends DCLogic {
       ['links',    'Relative markdown links resolve',        'built-in',          false, 'No tool to install — checkride ships this one.'],
       ['spell',    'Spelling',                               'cspell',            false, 'Fingerprinted for the baseline like lint and struct.'],
       ['mutation', 'Mutation testing',                       'stryker',           true,  'Opt-in. Ships uncapped (timeout: 0) and runs exclusive — stryker takes a while.'],
+      ['security', 'Dependency audit',                       'pnpm audit',        true,  'Opt-in. Fails on advisories at or above the configured severity.'],
       ['build',    "Runs the consumer's build script",       '<pm> run build',    true,  'Publish-ready bundle, wave 10 — fresh output for the wave-20 checks.'],
+      ['publint',  'Package publishing lint',                'publint',           true,  'Opt-in. Wave 20 — lints the publish surface of the fresh build.'],
+      ['attw',     'Type resolution across module systems',  'attw --pack',       true,  'Opt-in. "Are the types wrong?" from both CJS and ESM consumers.'],
       ['pack',     'Tarball ships the right files',          'built-in',          true,  'Fails if a required file is missing or src/, tests, or .ts sources leak in.'],
       ['smoke',    'Built package imports cleanly',          'built-in',          true,  'Loads every exports entry through real resolution; asserts exports are live.'],
       ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    true,  'Type-checks fenced examples tagged <!-- snippet: check --> in README + docs.'],
