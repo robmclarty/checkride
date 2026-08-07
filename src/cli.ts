@@ -2,7 +2,7 @@
 /**
  * CLI entry — arg parsing and command dispatch (the package `bin`).
  *
- * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`,
+ * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`, `recover`,
  * `agent-setup`, `gate`, `triage` and `qa`. The command is the first non-flag
  * token; everything after it is parsed against that command's options. The
  * module is import-safe: it only executes when invoked directly, so tests can
@@ -26,6 +26,7 @@ import { runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator.js';
 import { killLiveChecks, runChecks, runFix } from './orchestrator.js';
 import { qaExtract, renderQa } from './qa/index.js';
+import { runRecover } from './recover.js';
 import { realEnv, renderTriage, triage } from './triage/index.js';
 
 /** Injected process surface, so {@link runCli} is testable. */
@@ -70,6 +71,14 @@ const GATE_OPTIONS = {
   harness: { type: 'string' },
 } as const;
 
+const RECOVER_OPTIONS = {
+  pick: { type: 'string' },
+  exact: { type: 'boolean', default: false },
+  'dry-run': { type: 'boolean', default: false },
+  depth: { type: 'string' },
+  json: { type: 'boolean', default: false },
+} as const;
+
 const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
 
 Usage: checkride [command] [options]
@@ -83,6 +92,8 @@ Commands:
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
+  recover          Rebuild checkride.baseline.json candidates from git history
+                   and restore one (a merge that dropped entries fails closed).
   agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
                    (--hook <a,b> to select; --no-hook to skip them all;
                    --remove-hook <a,b> to tear installed ones back out;
@@ -208,11 +219,45 @@ Options:
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const RECOVER_HELP_TEXT = `checkride recover — restore checkride.baseline.json from git history
+
+Usage: checkride recover [--pick <n|sha|union>] [options]
+
+Reconstructs recent committed states of checkride.baseline.json (a merge can
+silently drop entries — missing entries fail closed, so grandfathered findings
+go red) and lets you restore one. Without --pick, lists a small candidate set
+with deltas. With --pick, writes the file directly — never \`git checkout\` —
+so the restore lands as an ordinary working-tree edit you review and commit.
+
+The default write is the UNION of the candidate and the current file: nothing
+is removed, and a stale resurrected key is pruned by the ratchet on the next
+full green run. This is also why \`checkride baseline\` is the wrong remedy for
+a clobbered file: a re-capture would grandfather genuinely-new findings too.
+
+Options:
+  --pick <p>       Apply a candidate: its listing number, its commit sha (the
+                   stable handle — prefer it in scripts), or \`union\` (every
+                   walked state folded together)
+  --exact          Write the picked snapshot verbatim instead of the union.
+                   Refused while checkride.baseline.json has uncommitted
+                   changes (commit or stash them first — exact discards them)
+  --dry-run        Show what --pick would change, per slot; write nothing
+  --depth <n>      Commits of file history to walk (default 25)
+  --json           Emit the listing / apply result as JSON on stdout
+  -h, --help       Show this help
+
+Exit codes: 0 listed or applied; 2 usage or environment error (git missing,
+not a git repository, unknown --pick). \`recover\` never exits 1.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
 const COMMAND_HELP: Record<string, string> = {
   init: INIT_HELP_TEXT,
   gate: GATE_HELP_TEXT,
   hooks: HOOKS_HELP_TEXT,
+  recover: RECOVER_HELP_TEXT,
 };
 
 function commandHelp(command: string): string {
@@ -270,19 +315,24 @@ function parseList(value: string | undefined, flag: string): string[] | null {
 }
 
 /**
- * Parse `--concurrency <n>` into a positive integer, or `undefined` when the flag
- * is absent (the orchestrator then picks its auto default). A non-integer or
- * `< 1` value is a usage error (surfaced as exit 2), never a silent clamp: a
- * gate that quietly ran everything at once when you asked for `1` would be the
- * kind of surprise this tool exists to prevent.
+ * Parse a flag's positive-integer value, or `undefined` when the flag is absent
+ * (the caller then applies its own default). A non-integer or `< 1` value is a
+ * usage error (surfaced as exit 2), never a silent clamp: a gate that quietly
+ * ran everything at once when you asked for `1` would be the kind of surprise
+ * this tool exists to prevent.
  */
-function parseConcurrency(value: string | undefined): number | undefined {
+function parsePositiveInt(value: string | undefined, invalid: string): number | undefined {
   if (value === undefined) return undefined;
   const n = Number(value);
   if (!Number.isInteger(n) || n < 1) {
-    throw new Error(`invalid --concurrency '${value}' (expected a positive integer)`);
+    throw new Error(`${invalid} '${value}' (expected a positive integer)`);
   }
   return n;
+}
+
+/** `--concurrency <n>`; absent → the orchestrator picks its auto default. */
+function parseConcurrency(value: string | undefined): number | undefined {
+  return parsePositiveInt(value, 'invalid --concurrency');
 }
 
 /** The command is the first non-flag token; the rest are its arguments. */
@@ -428,6 +478,29 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
   return result.exitCode;
 }
 
+/** `--depth <n>`; absent → the history walk uses its default. */
+export function parseDepth(value: string | undefined): number | undefined {
+  return parsePositiveInt(value, 'recover: invalid --depth');
+}
+
+async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
+  const { rest } = detectCommand(argv);
+  // No positionals: a stray token throws ERR_PARSE_ARGS_* → exit 2.
+  const { values } = parseArgs({ args: rest, options: RECOVER_OPTIONS });
+  const depth = parseDepth(values.depth);
+  const result = await runRecover({
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+    ...(values.pick !== undefined ? { pick: values.pick } : {}),
+    ...(values.exact ? { exact: true } : {}),
+    ...(values['dry-run'] ? { dryRun: true } : {}),
+    ...(depth !== undefined ? { depth } : {}),
+    ...(values.json ? { json: true } : {}),
+  });
+  return result.exitCode;
+}
+
 async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number> {
   const parsed = parseInitArgs(argv);
   const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
@@ -524,6 +597,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     doctor: dispatchDoctor,
     fix: dispatchFix,
     baseline: dispatchBaseline,
+    recover: dispatchRecover,
     'agent-setup': dispatchAgentSetup,
     hooks: dispatchHooks,
     gate: dispatchGate,

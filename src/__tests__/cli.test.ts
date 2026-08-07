@@ -213,6 +213,44 @@ describe('runCli baseline', () => {
   });
 });
 
+describe('runCli recover', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-recover-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('appears in --help, and recover --help prints its own text', async () => {
+    const out = sink();
+    await runCli(['--help'], { cwd: dir, stdout: out, stderr: sink() });
+    expect(out.text()).toContain('recover');
+    const own = sink();
+    const code = await runCli(['recover', '--help'], { cwd: dir, stdout: own, stderr: sink() });
+    expect(code).toBe(0);
+    expect(own.text()).toContain('restore checkride.baseline.json from git history');
+    expect(own.text()).toContain('--pick');
+  });
+
+  test('a non-repo directory exits 2 with the environment error', async () => {
+    const err = sink();
+    const code = await runCli(['recover'], { cwd: dir, stdout: sink(), stderr: err });
+    expect(code).toBe(2);
+    // "not inside a git repository", or "git is required" on a machine without git.
+    expect(err.text()).toContain('checkride: recover:');
+  });
+
+  test('usage errors exit 2: bad --depth, --exact without --pick, unknown flag', async () => {
+    for (const argv of [['recover', '--depth', '0'], ['recover', '--depth', 'x'], ['recover', '--exact'], ['recover', '--garbage']]) {
+      const err = sink();
+      const code = await runCli(argv, { cwd: dir, stdout: sink(), stderr: err });
+      expect(code, argv.join(' ')).toBe(2);
+    }
+  });
+
+  test('a stray positional is rejected (recover takes only flags)', async () => {
+    const code = await runCli(['recover', 'somewhere'], { cwd: dir, stdout: sink(), stderr: sink() });
+    expect(code).toBe(2);
+  });
+});
+
 describe('runCli init', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-cli-init-')); });

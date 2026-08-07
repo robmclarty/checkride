@@ -11,6 +11,7 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only).
 checkride fix          Run every active adapter's fix command (oxlint --fix, …).
 checkride baseline     Record current diagnostics as a committed baseline.
+checkride recover      Restore checkride.baseline.json from git history (--pick applies).
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
 checkride hooks        Install/remove agent hooks only — never touches AGENTS.md.
 checkride triage       Triage a red gate into one root cause (what /checkride:check runs).

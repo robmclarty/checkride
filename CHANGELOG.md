@@ -4,6 +4,58 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`checkride recover` — restore a clobbered baseline from git history.** The
+  motivating incident: checkride landed in a large monorepo, other open PRs
+  merged the trunk back, and `checkride.baseline.json` came out of the merges
+  with many entries silently deleted (an agent resolving a conflict by removing
+  the "problem" lines, most likely). Missing entries fail closed, so the team
+  hit a wall of red with no tooling to diagnose or undo it — the remedy was
+  manual git archaeology, and the tempting wrong move, re-running
+  `checkride baseline`, would have grandfathered every genuinely-new finding
+  introduced since the damage.
+
+  `checkride recover` does the dig instead: it walks the baseline file's recent
+  commits (`--depth`, default 25), dedupes them into at most five distinct
+  snapshots plus one synthesized union, and lists them with `+restored/−absent`
+  deltas against the current file. `--pick <n|sha|union>` applies one by writing
+  the file directly — never `git checkout` — so the restore is an ordinary
+  working-tree edit to review and commit. The default write is the union of the
+  candidate and the current file: nothing is removed, and a stale resurrected
+  key is pruned by the ratchet on the next full green run. `--exact` writes the
+  snapshot verbatim (refused while the file has uncommitted changes), `--dry-run`
+  previews the per-slot delta, `--json` emits the machine shape. Shallow clones
+  list with a truncation note; a repo with no committed baseline history says so
+  at exit 0.
+
+- **A mangled baseline now explains itself.** A committed
+  `checkride.baseline.json` that no longer parses (a botched merge, usually)
+  used to be indistinguishable from having no baseline: every grandfathered
+  finding reported red with no hint why. A run now prints one stderr line under
+  the summary naming the file as present-but-unparseable and pointing at
+  `checkride recover`; `checkride doctor` grows an advisory workspace row with
+  the same diagnosis (and the key count when the file is healthy).
+
+### Changed
+
+- **The baseline file is canonical on disk.** `writeBaseline` now sorts the
+  top-level slots (keys within a slot were already sorted), so two branches that
+  grandfather the same debt produce byte-identical files instead of
+  insertion-order diff churn — the README's "the file is canonical" claim is now
+  true on disk, not just in comparisons.
+
+### Contract
+
+- New command `checkride recover` with `--pick <n|sha|union>`, `--exact`,
+  `--dry-run`, `--depth <n>`, and `--json` (docs/contract.md §CLI). List mode is
+  a reader: Markdown on stdout, exit 0. Apply mode writes
+  `checkride.baseline.json` atomically and never mutates git state. Exit codes
+  are 0 and 2 only — never 1. Additive; every existing command and flag is
+  unchanged.
+
 ## [0.11.2] - 2026-08-04
 
 ### Changed

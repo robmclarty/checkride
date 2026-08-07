@@ -101,7 +101,7 @@ existence always means "this run had failures".
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
-`agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the run flags:
+`recover`, `agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the run flags:
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
@@ -117,6 +117,19 @@ generated script; same usage-error rule, and naming one hook in both `--hook`
 and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
 write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
 selects `claude` plus any harness the repo shows evidence of.
+
+**`recover` rebuilds the baseline from git history and never mutates git
+state.** `checkride recover` takes `--pick <n|sha|union>`, `--exact`,
+`--dry-run`, `--depth <n>`, and `--json`. Without `--pick` it is a reader: a
+Markdown listing of candidate states reconstructed from the baseline file's
+recent commits, on stdout, exit 0 (`--json` for the machine shape). With
+`--pick` it writes `checkride.baseline.json` atomically — the union of the
+candidate and the current file by default (nothing removed; the ratchet prunes
+stale resurrections on the next full green run), the snapshot verbatim under
+`--exact` — as an ordinary working-tree edit: no `git checkout`, no index
+writes, nothing committed on your behalf. Exit codes are 0 (listed or applied)
+and 2 (usage or environment error — git missing, not a repository, unknown
+pick); never 1, because nothing here is a check failure.
 
 **`hooks` manages hooks and touches nothing else.** `checkride hooks add [a,b]`
 and `checkride hooks remove <a,b>` write or tear out the harness config entries

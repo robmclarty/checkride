@@ -558,10 +558,11 @@ describe('runDoctor — the Node pin a hook would need', () => {
   });
 });
 
+const baselineRow = (checks: readonly { name: string }[]): { name: string } | undefined =>
+  checks.find((c) => c.name === 'baseline');
+
 describe('baseline workspace row', () => {
   const baseOpts = { cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, json: true };
-  const baselineRow = (checks: readonly { name: string }[]): { name: string } | undefined =>
-    checks.find((c) => c.name === 'baseline');
 
   test('a valid committed baseline reports its key count', async () => {
     const env = fakeEnv({ readText: () => '{"schema_version":1,"slots":{"lint":["a","b"],"spell":["x"]}}' });

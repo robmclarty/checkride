@@ -40,7 +40,7 @@ describe('CLI run flags', () => {
   });
 
   test('the promised commands are recognized', () => {
-    for (const command of ['run', 'init', 'doctor', 'fix', 'baseline', 'agent-setup', 'gate', 'triage', 'qa']) {
+    for (const command of ['run', 'init', 'doctor', 'fix', 'baseline', 'recover', 'agent-setup', 'gate', 'triage', 'qa']) {
       expect(parseCliArgs([command]).command).toBe(command);
     }
   });
@@ -317,5 +317,48 @@ describe('AGENTS.md stanza ownership (--force)', () => {
     expect(stderr.text()).toContain('name the hooks to remove');
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
     expect(await runCli(['hooks', 'sideways'], deps(capture()))).toBe(2);
+  });
+});
+
+/**
+ * Contract: `recover` and its flags (docs/contract.md §CLI). List mode is a
+ * reader; apply writes the baseline as a working-tree edit and never mutates
+ * git state. Exit codes are 0 and 2 only — environment failures (no git, not a
+ * repository) are 2 with a `recover:`-prefixed message, never a parse
+ * rejection, and nothing here is ever a check failure (1).
+ */
+describe('CLI recover flags', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-contract-recover-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const deps = (stderr: { write: (t: string) => boolean }): CliDeps => ({ cwd: dir, stdout: capture(), stderr });
+
+  test('every promised flag parses (a rejection would print the usage pointer)', async () => {
+    for (const argv of [
+      ['recover', '--json'],
+      ['recover', '--depth', '5'],
+      ['recover', '--pick', 'union', '--dry-run'],
+      ['recover', '--pick', 'abcd1234', '--exact', '--dry-run'],
+    ]) {
+      const stderr = capture();
+      // A bare temp dir: the run fails on environment (exit 2), not parsing.
+      // oxlint-disable-next-line no-await-in-loop -- shared cwd; sequential keeps the per-argv assertion messages attributable.
+      expect(await runCli(argv, deps(stderr)), argv.join(' ')).toBe(2);
+      expect(stderr.text(), argv.join(' ')).not.toContain('Run `checkride --help`');
+    }
+  });
+
+  test('usage errors are exit 2', async () => {
+    for (const argv of [
+      ['recover', '--garbage'],
+      ['recover', 'stray-positional'],
+      ['recover', '--depth', '0'],
+      ['recover', '--depth', 'x'],
+      ['recover', '--exact'],
+    ]) {
+      // oxlint-disable-next-line no-await-in-loop -- shared cwd; sequential keeps the per-argv assertion messages attributable.
+      expect(await runCli(argv, deps(capture())), argv.join(' ')).toBe(2);
+    }
   });
 });

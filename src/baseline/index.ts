@@ -8,6 +8,16 @@
 export type { Fingerprint } from './fingerprint.js';
 export { fingerprint, isFingerprintable } from './fingerprint.js';
 export { fallowVerdict } from './fallow.js';
+export type { BaselineDelta, Candidate, GitResult, GitRunner, HistoryScan } from './history.js';
+export {
+  baselineDirty,
+  collectCandidates,
+  DEFAULT_DEPTH,
+  diffBaselines,
+  gitFailureError,
+  realGit,
+  unionBaselines,
+} from './history.js';
 export type { Baseline, BaselineRead } from './store.js';
 export {
   applyBaseline,

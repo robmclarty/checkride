@@ -475,7 +475,11 @@ keys are sorted), so parallel branches usually merge cleanly; when they do
 conflict, resolve by keeping both sides' entries and running a full
 `checkride` — the ratchet prunes anything already fixed, so an over-generous
 union self-heals, while a dropped entry that still fails simply resurfaces as
-a red check. **Deliberate re-baseline:** `checkride baseline` re-records
+a red check. When a merge went badly anyway — entries deleted wholesale, or a
+file so mangled it no longer parses (a run says so on stderr and treats it as
+no baseline at all) — `checkride recover` rebuilds candidate states from the
+file's git history and restores one additively; see `checkride recover --help`.
+**Deliberate re-baseline:** `checkride baseline` re-records
 *everything* currently failing — including brand-new debt you might rather
 fix — so treat re-running it as a reviewed change: do it deliberately (say,
 after adopting a stricter rule set) and read the `checkride.baseline.json`
