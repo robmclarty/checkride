@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** 5 — docs(prose): document the prose slot and its division of labour with spell
+**Current step:** none (at the boundary)
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -27,7 +27,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 2. feat(prose): scaffold a hermetic vale config and house style
 - ☑ 3. feat(prose): fingerprint vale findings into the baseline
 - ☑ 4. chore(prose): enable the prose slot on checkride itself
-- ☐ 5. docs(prose): document the prose slot and its division of labour with spell
+- ☑ 5. docs(prose): document the prose slot and its division of labour with spell
 
 ## Park list
 
@@ -112,3 +112,4 @@ folder, so it rides the branch into the PR.)*
   one file grandfathers as two entries, not one.
 - 2026-08-07 — step 3 checkpointed · f415b3645 — feat(prose): fingerprint vale findings into the baseline (1 drift, 16m)
 - 2026-08-07 — step 4 checkpointed · 8b450a152 — chore(prose): enable the prose slot on checkride itself (1 drift, 22m)
+- 2026-08-07 — step 5 checkpointed · 1f8128b6f — docs(prose): document the prose slot and its division of labour with spell (33m)

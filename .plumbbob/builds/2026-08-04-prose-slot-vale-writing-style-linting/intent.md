@@ -106,7 +106,7 @@ checkride.config.json  "prose": { "use": "vale", "args": [...paths] }
    - seam: `.vale.ini`, `.vale/styles/Repo/`, `checkride.config.json`, `package.json`, `pnpm-workspace.yaml`, `cspell.json`, `test/dogfood-config.test.ts`
    - model: opus — tune the rules against Rob's actual voice first, then fix or baseline what survives; 373 findings from a naive rule set is the number to beat down, not to baseline wholesale
 
-5. [ ] docs(prose): document the prose slot and its division of labour with spell — **done when:** `pnpm check` is green and `docs/tools.md` covers the slot's row, why cspell stays (D1), the warning-severity green edge (D6), the no-gitignore path-scoping edge (D10), the npm bin-shim caveat (D13), the three-step enable recipe — pinned install, `allowBuilds` entry, config entry (D20), the `.vale/styles` divergence from vale's published convention (D18), and the `vale sync` upgrade path for third-party packages
+5. [x] docs(prose): document the prose slot and its division of labour with spell — **done when:** `pnpm check` is green and `docs/tools.md` covers the slot's row, why cspell stays (D1), the warning-severity green edge (D6), the no-gitignore path-scoping edge (D10), the npm bin-shim caveat (D13), the three-step enable recipe — pinned install, `allowBuilds` entry, config entry (D20), the `.vale/styles` divergence from vale's published convention (D18), and the `vale sync` upgrade path for third-party packages
    - seam: `docs/tools.md`, `README.md`, `docs/cheatsheet.md`, `schema/checkride.config.schema.json`
    - model: opus — the documentation prose is the deliverable, and it is the slot's own dogfood
 
