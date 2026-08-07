@@ -226,7 +226,7 @@
         <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">04 · THE BASELINE RATCHET</div>
         <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0;">Adopt in an afternoon — <span style="font-style:italic; color:#1E7A4A;">not after a cleanup project.</span></h2>
         <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride init --baseline</span> grandfathers the diagnostics a repo has <em>today</em>, so day-one runs pass — while any <em>new</em> diagnostic still fails. "Don't make it worse" becomes the definition of done for legacy code.</p>
-        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:18px 0 0;">The baseline is a <strong>ratchet</strong>: fixing a grandfathered finding prunes it from the committed file permanently — it only ever shrinks. Debt is paid down monotonically instead of being ignored, or blocking adoption.</p>
+        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:18px 0 0;">The baseline is a <strong>ratchet</strong>: fixing a grandfathered finding prunes it from the committed file permanently — it only ever shrinks. Debt is paid down monotonically instead of being ignored, or blocking adoption. And if a merge ever clobbers the file, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride recover</span> rebuilds it from git history.</p>
         <div style="margin-top:24px; font-family:'JetBrains Mono',monospace; font-size:15px; background:#14231B; color:#DCE9DF; padding:14px 18px; border:3px solid #14231B; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">old debt masked · new debt fails · fixed debt pruned</div>
       </div>
 
@@ -320,6 +320,7 @@
             <span>doctor</span>
             <span>fix</span>
             <span>baseline</span>
+            <span>recover</span>
             <span>agent-setup</span>
           </div>
         </div>
