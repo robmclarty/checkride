@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>checkride agents — the plugin, Claude Code, and Cursor</title>
+<meta name="description" content="The bundled Claude Code plugin (/checkride:check and /checkride:qa), how the stop gate differs under Claude Code and Cursor, and what to do when the gate says it could not run.">
+<link rel="canonical" href="https://robmclarty.github.io/checkride/agents.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="checkride">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://robmclarty.github.io/checkride/agents.html">
+<meta property="og:title" content="checkride agents — the plugin, Claude Code, and Cursor">
+<meta property="og:description" content="The bundled Claude Code plugin (/checkride:check and /checkride:qa), how the stop gate differs under Claude Code and Cursor, and what to do when the gate says it could not run.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="checkride agents — the plugin, Claude Code, and Cursor">
+<meta name="twitter:description" content="The bundled Claude Code plugin (/checkride:check and /checkride:qa), how the stop gate differs under Claude Code and Cursor, and what to do when the gate says it could not run.">
+<script src="https://cdn.usefathom.com/script.js" data-site="CXTTSEDC" defer></script>
+<script src="./support.js"></script>
+<script src="./stars.js" defer></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#E9F0EA;}
+  ::selection{background:#1E7A4A;color:#E9F0EA;}
+  a{color:inherit;text-decoration:none;}
+</style>
+</helmet>
+
+<div style="position:relative; min-height:100vh; background:#E9F0EA; color:#14231B; font-family:'Space Grotesk',sans-serif;">
+
+  <!-- grain overlay -->
+  <div style="position:fixed; inset:0; z-index:9999; pointer-events:none; opacity:0.06; mix-blend-mode:multiply; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ===================== NAV ===================== -->
+  <div style="position:sticky; top:0; z-index:100; display:flex; align-items:center; justify-content:space-between; padding:16px 32px; background:#E9F0EA; border-bottom:3px solid #14231B;">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <a href="index.html" style="display:flex; align-items:center; gap:12px;">
+        <div style="width:20px; height:20px; background:#1E7A4A; border:2px solid #14231B;"></div>
+        <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; letter-spacing:2px;">CHECKRIDE</div>
+      </a>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; color:#52675B; border:2px solid #52675B; padding:2px 8px;">AGENTS</div>
+    </div>
+    <div style="display:flex; gap:26px; align-items:center; font-size:14px; font-weight:500;">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Docs</a>
+      <a href="api.html">API</a>
+      <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
+    </div>
+  </div>
+
+  <!-- ===================== BODY ===================== -->
+  <div style="display:flex; align-items:flex-start; max-width:1280px; margin:0 auto;">
+
+    <!-- SIDEBAR -->
+    <div style="flex:none; width:268px; position:sticky; top:64px; align-self:flex-start; height:calc(100vh - 64px); overflow-y:auto; border-right:3px solid #14231B; padding:34px 26px 60px;">
+      <sc-for list="{{ nav }}" as="grp" hint-placeholder-count="2">
+        <div style="margin-bottom:30px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:#52675B; margin-bottom:14px;">{{ grp.title }}</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="2">
+              <div onClick="{{ it.onClick }}" style="cursor:pointer; font-size:15px; font-weight:{{ it.weight }}; color:{{ it.color }}; background:{{ it.bg }}; border-left:3px solid {{ it.bar }}; padding:7px 14px;">{{ it.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="border-top:2px dashed #52675B; padding-top:18px; font-size:13.5px; line-height:1.5; color:#48594F;">How the hooks get written in the first place is on the <a href="docs.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">docs page →</a></div>
+    </div>
+
+    <!-- CONTENT -->
+    <div style="flex:1; min-width:0; padding:48px 56px 120px; max-width:880px;">
+
+      <!-- ============ THE PLUGIN ============ -->
+      <sc-if value="{{ isPlugin }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">THE PLUGIN</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The two skills</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride ships a Claude Code plugin from the package root: <span style="font-family:'JetBrains Mono',monospace; font-size:15px; color:#1E7A4A;">/checkride:check</span> (triage a red gate to one root cause) and <span style="font-family:'JetBrains Mono',monospace; font-size:15px; color:#1E7A4A;">/checkride:qa</span> (read the quality artifacts — mutation, dead, dupes, health). <strong>Bundled, not published separately</strong>: same npm package, same version, one install — which is what keeps a reader and the format it reads from drifting apart.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">The plugin <strong>runs nothing new</strong>. No extra command, no flag, no config, no hook. Both skills read what a checkride run already wrote; the check skill additionally runs the repo's existing <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">check</span> script so there is something current to read.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Why not just read summary.json?</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Reading the summary by hand is the procedure the AGENTS.md stanza teaches, and it works — but it is wrong in two directions at once. <strong>It is unbounded</strong>: in checkride's own repo, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mutation.json</span> is 2.2&nbsp;MB — opening it spends the context you need for the fix. <strong>It is credulous</strong>: every run overwrites <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">summary.json</span>, so an <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">ok: true</span> on disk may describe three of seventeen slots from fourteen minutes ago. So each skill pairs a <strong>deterministic reader</strong> — measures artifacts instead of opening them, pins the schema, dates every file against the run that claims it — with <strong>model judgment</strong>: ranking simultaneous failures into one root cause, or deciding which surviving mutant deserves a test.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Install</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">Claude Code</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="/plugin marketplace add robmclarty/agent-tools
+/plugin install checkride@robmclarty" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px; line-height:1.85;"><span style="color:#1E7A4A;">&gt;</span> /plugin marketplace add robmclarty/agent-tools<br><span style="color:#1E7A4A;">&gt;</span> /plugin install checkride@robmclarty</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">There is no build step — the readers ship prebuilt in the package's <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">dist/</span> and import <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">node:</span> builtins only. And nothing about the plugin is required: the CLI, exit codes, and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span> contract are unchanged whether it is installed or not.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Without the plugin</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Both readers are first-class CLI commands, so any agent — or you — can run them directly. What you lose is the skill: the procedure and the judgment that turn a report into a diagnosis.</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="pnpm exec checkride triage
+pnpm exec checkride qa" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14.5px; line-height:1.85;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride triage   <span style="color:#5F7367;"># what /checkride:check runs</span><br><span style="color:#1E7A4A;">$</span> pnpm exec checkride qa       <span style="color:#5F7367;"># what /checkride:qa runs</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">What the skills deliberately do <em>not</em> do: fix anything (proposing the fix is the deliverable), normalize tool output (the raw file is the truth), gate (the readers report; the gate gates), or touch the baseline — when the run's own warnings say a merge clobbered <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride.baseline.json</span>, the skill names <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride recover</span> as the remedy, and running it stays the human's call.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ CLAUDE CODE VS CURSOR ============ -->
+      <sc-if value="{{ isHarnesses }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">HARNESSES</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Claude Code vs Cursor</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride wires both the same way — a stop gate, an edit marker, a baseline guard, and the two reader skills; <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">checkride agent-setup</span> writes all of it (Cursor is included when <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.cursor/</span> exists, or with <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--harness cursor</span>). The wiring is symmetric. The harnesses are not.</p>
+
+          <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">&nbsp;</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">CLAUDE CODE</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">CURSOR</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ harnessRows }}" as="r" hint-placeholder-count="6">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:11px 14px; font-weight:700; color:#2A3A31; width:190px;">{{ r.dim }}</td>
+                    <td style="padding:11px 14px; color:#2A3A31; line-height:1.5;">{{ r.claude }}</td>
+                    <td style="padding:11px 14px; color:#2A3A31; line-height:1.5;">{{ r.cursor }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:14px; line-height:1.6; color:#48594F; margin-top:14px;">The Cursor gate's config entry (<span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">timeout: 900</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">loop_limit: null</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">failClosed: true</span>) is checkride-owned — edits are restored on the next <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">agent-setup</span>. The supported off switch is <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">--remove-hook gate</span>, not waiting out a loop cap.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Cursor also runs your Claude Code hooks</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">With <strong>"Include third-party Plugins, Skills, and other configs"</strong> enabled — and it ships enabled by default — Cursor loads hooks from <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.claude/settings.json</span> too and runs <em>all matching hooks from every source</em>. A repo wired for both harnesses would fire two full pipelines for one turn, into one <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span>. checkride resolves it inside <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride gate</span>: when the Claude-protocol run detects a registered native Cursor gate, it stands down and lets the one gate that can speak Cursor's protocol answer. The check is deliberately narrow — it defers only when a Cursor gate is actually <em>registered</em>, so a stale environment variable costs a duplicate run, never a missing gate.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The skills, without a Cursor plugin</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Cursor has a plugin system; checkride deliberately doesn't use it — a Cursor plugin can't invoke a script it shipped itself, installs per user rather than per repo, and distributes from git rather than npm. So <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">agent-setup</span> writes the same two skills <em>into the repo</em> at <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.cursor/skills/</span>, from the same source files the plugin ships. Three differences follow: the names are prefixed (<span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">/checkride-check</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">/checkride-qa</span> — a repo-local skill named <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">check</span> would shadow the bare command everywhere); they are committed and reviewed with the repo, refreshed by the next <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">agent-setup</span> rather than a plugin update; and they invoke <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride triage</span> / <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride qa</span> directly — which is exactly why those commands exist.</p>
+        </div>
+      </sc-if>
+
+      <!-- ============ HOOK CONTEXT ============ -->
+      <sc-if value="{{ isHookContext }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">HARNESSES</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">When the gate says "could not run"</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The third verdict is the environment's, not the code's: nothing executed, so nothing in <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">.check/</span> describes the turn. The usual cause is <strong>the hook's Node</strong>.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Agent harnesses run hooks in a <strong>non-login shell</strong>. A version manager puts its shims on <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">PATH</span> from a shell rc file, so the hook never sees them — it gets the machine's default <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">node</span>, not your terminal's. With a repo pinning <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">engines.node</span> and the wrong Node arriving, the package manager refuses to run anything at all — while <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">doctor</span>, running in your terminal on the right Node, says everything is fine.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">checkride handles it in two halves. <strong>It aligns when it can:</strong> if <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.nvmrc</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.node-version</span> names an exact version the running Node fails, the gate prepends a matching <em>already-installed</em> interpreter's <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">bin</span> to the child's <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">PATH</span> (searched under nvm, fnm, nodenv, asdf, volta, n — nothing downloaded, never silently: every aligned run prints the line). <strong>It names the cause when it cannot:</strong> no matching install means a "could not run" verdict that says which Node arrived, what the pin wants, and what to do — never a misleading red.</p>
+          <div style="margin-top:24px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">what an aligned run prints</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">checkride: running the check on Node 22.22.3 from ~/.nvm/versions/node/v22.22.3/bin<br>(.nvmrc pins 22.22.3; this hook started on 24.9.0).</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Three practical levers: add a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.nvmrc</span> so there is an exact version to align to (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">engines.node</span> is a range — a compatibility declaration, not an instruction to switch interpreters); set <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">CHECKRIDE_NODE_BIN</span> to a bin directory to pick the interpreter yourself (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">off</span> disables alignment entirely); and run <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride doctor</span> — its <strong>node pin</strong> row answers the one question your shell can't: if a hook arrives on a different Node, can checkride put the pinned one back?</p>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+<template id="__bundler_thumbnail" data-bg-color="#E9F0EA">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#E9F0EA"/>
+    <rect x="518" y="286" width="164" height="164" fill="#1E7A4A" stroke="#14231B" stroke-width="12"/>
+    <text x="600" y="556" font-family="monospace" font-size="54" font-weight="700" fill="#14231B" text-anchor="middle" letter-spacing="8">CHECKRIDE</text>
+  </svg>
+</template></x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { section: 'plugin' };
+
+  go(s) { this.setState({ section: s }); try { window.scrollTo(0, 0); } catch (_) {} }
+
+  copy(e) {
+    const t = e.currentTarget;
+    const text = t.getAttribute('data-copy') || '';
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (_) {}
+    const orig = t.getAttribute('data-orig') || t.textContent;
+    t.setAttribute('data-orig', orig);
+    t.textContent = 'COPIED ✓';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.textContent = orig; }, 1300);
+  }
+
+  renderVals() {
+    const sec = this.state.section;
+    const navDef = [
+      { title: 'THE PLUGIN', items: [['plugin', 'The two skills']] },
+      { title: 'HARNESSES', items: [['harnesses', 'Claude Code vs Cursor'], ['hook-context', 'When the gate cannot run']] },
+    ];
+    const nav = navDef.map(g => ({
+      title: g.title,
+      items: g.items.map(([id, label]) => {
+        const active = sec === id;
+        return {
+          label,
+          onClick: () => this.go(id),
+          weight: active ? 700 : 500,
+          color: active ? '#14231B' : '#48594F',
+          bg: active ? '#DBE6DD' : 'transparent',
+          bar: active ? '#1E7A4A' : 'transparent',
+        };
+      }),
+    }));
+
+    // The asymmetries between the two harnesses. Facts mirror docs/cursor.md;
+    // change them there first.
+    const harnessRows = [
+      ['How a stop hook says "no"',
+       'Exit 2 blocks the stop; the verdict rides stderr straight to the agent.',
+       'Any non-zero exit reads as a broken hook, so the gate always exits 0 and the verdict rides {"followup_message"} on stdout — a reply, not a block.'],
+      ['Progress and the green verdict',
+       'A spinner statusMessage while the gate runs, a one-line systemMessage verdict when it finishes — green or red.',
+       'No display field exists: a red gate is visible in the follow-up it submits; a green gate says nothing at all.'],
+      ['Re-blocking a red gate',
+       'Re-blocks indefinitely until the pipeline is green.',
+       'The platform default caps a stop hook at five follow-ups; checkride sets loop_limit: null and bounds the gate inside the generated script instead.'],
+      ['A crashed or hung gate',
+       'A failed hook does not block the turn.',
+       'The default is fail-open; the gate opts into failClosed: true with timeout: 900, and the script stands down — once, visibly — on a cause the repo cannot fix.'],
+      ['The reader skills',
+       'The bundled plugin: /checkride:check and /checkride:qa, installed once, versioned with the package.',
+       'Written into the repo at .cursor/skills/ as /checkride-check and /checkride-qa — committed, reviewed, refreshed by the next agent-setup.'],
+      ['The protect guard',
+       'permissions.deny rules on checkride.baseline.json and .check/ — the harness enforces them.',
+       'A shell-command matcher, best-effort by nature; the fail-closed baseline and the ratchet back it up.'],
+    ].map(([dim, claude, cursor], i) => ({ dim, claude, cursor, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    return {
+      nav, harnessRows,
+      isPlugin: sec === 'plugin',
+      isHarnesses: sec === 'harnesses',
+      isHookContext: sec === 'hook-context',
+      copy: (e) => this.copy(e),
+    };
+  }
+}
+</script>
+</body>
+</html>

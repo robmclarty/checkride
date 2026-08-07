@@ -579,6 +579,23 @@ async function dispatchQa(argv: string[], deps: CliDeps): Promise<number> {
   return 0;
 }
 
+const DISPATCH: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
+  run: dispatchRun,
+  init: dispatchInit,
+  doctor: dispatchDoctor,
+  fix: dispatchFix,
+  baseline: dispatchBaseline,
+  recover: dispatchRecover,
+  'agent-setup': dispatchAgentSetup,
+  hooks: dispatchHooks,
+  gate: dispatchGate,
+  triage: dispatchTriage,
+  qa: dispatchQa,
+};
+
+/** Every command name in the dispatch table — the truth the site currency tests assert against. */
+export const CLI_COMMANDS: readonly string[] = Object.keys(DISPATCH);
+
 /** Dispatch a CLI invocation; returns the process exit code. */
 export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
   const { command } = detectCommand(argv);
@@ -591,20 +608,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
     return 0;
   }
 
-  const dispatch: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
-    run: dispatchRun,
-    init: dispatchInit,
-    doctor: dispatchDoctor,
-    fix: dispatchFix,
-    baseline: dispatchBaseline,
-    recover: dispatchRecover,
-    'agent-setup': dispatchAgentSetup,
-    hooks: dispatchHooks,
-    gate: dispatchGate,
-    triage: dispatchTriage,
-    qa: dispatchQa,
-  };
-  const handler = dispatch[command];
+  const handler = DISPATCH[command];
   if (!handler) {
     deps.stderr.write(`checkride: unknown command '${command}'.\nRun \`checkride --help\` for usage.\n`);
     return 2;

@@ -4,6 +4,7 @@
   "files": [
     "src/**/*.ts",
     "test/**/*.ts",
+    "site/**/*.html",
     "**/*.md"
   ],
   "ignorePaths": [
@@ -17,7 +18,9 @@
     "CHANGELOG.md"
   ],
   "ignoreRegExpList": [
-    "/v1[0-9a-f]{16}/g"
+    "/v1[0-9a-f]{16}/g",
+    "/data:image\\/svg\\+xml[^\"]*/g",
+    "/data-site=\"[A-Z]+\"/g"
   ],
   "words": [
     "Amp",

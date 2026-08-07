@@ -54,6 +54,7 @@
     </div>
     <div style="display:flex; gap:26px; align-items:center; font-size:14px; font-weight:500;">
       <a href="index.html">Home</a>
+      <a href="agents.html">Agents</a>
       <a href="api.html">API</a>
       <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
     </div>
@@ -242,6 +243,7 @@ pnpm check --changed         # affected-only (incremental types, changed tests)"
 
           <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Avoiding duplicate runs</h2>
           <p style="font-size:16px; line-height:1.6; color:#2A3A31;">The stanza and the hook both want <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pnpm check</span>, so a naive setup runs the pipeline twice. The generated stanza already applies the simplest fix: when a stop gate is configured, the hook owns the final full run — the agent iterates with the narrow commands and lets the hook run the authoritative pipeline once at the end. Two levers tune the cost further: the <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">dirty</span> hook plus <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">gate --if-dirty</span> skip the run entirely on turns that edited nothing, and a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">gate</span> key in <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride.config.json</span> narrows what the stop hook runs (<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">only</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">skip</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">changed</span>) — every verdict then says so, so a narrowed green is never reported as a full one. And don't delete the AGENTS.md block to dodge the duplicate — it also teaches the agent how to <em>fix</em> what the hook flags, and it's what non-Claude agents have.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Going deeper — the bundled <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">/checkride:check</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">/checkride:qa</span> skills, where Claude Code and Cursor genuinely differ, and what to do when the gate says "could not run" — has its own page: <a href="agents.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">the plugin &amp; harnesses →</a></p>
         </div>
       </sc-if>
 
@@ -444,6 +446,7 @@ class Component extends DCLogic {
       ['Slow inner loop', 'pnpm check --bail --only types,lint'],
       ['Red gate, want one root cause', 'checkride triage (or /checkride:check)'],
       ['Wall of "new, not in baseline" after a merge', 'checkride recover — restore dropped entries'],
+      ['Gate says "could not run", not red', 'checkride doctor — the hook Node, usually; see agents.html'],
       ['Want a hard gate for a coding agent', 'checkride agent-setup'],
     ].map(([symptom, fix], i) => ({ symptom, fix, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 
