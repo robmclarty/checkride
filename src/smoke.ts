@@ -9,7 +9,7 @@
  * for every literal subpath:
  *
  *   - the built entry `await import()`s without throwing, and (for a dual
- *     package, i.e. a subpath carrying an explicit `require` condition) also
+ *     package, that is, a subpath carrying an explicit `require` condition) also
  *     `require()`s cleanly — both through package **self-reference**
  *     (`import '<pkg>/<subpath>'`), exercising the real `exports`-map resolution
  *     a consumer would hit;

@@ -1,8 +1,9 @@
 # Single-package (flat) repo: no `packages:` globs, so this defines no workspace
-# members. It exists only to approve the native build scripts of the two tools
-# that ship platform binaries, which pnpm 11 blocks by default.
+# members. It exists only to approve the native build scripts of the tools that
+# ship platform binaries, which pnpm 11 blocks by default.
 allowBuilds:
   '@ast-grep/cli': true
+  '@vvago/vale': true
   fallow: true
 
 # Force patched versions of transitive dev dependencies flagged by `pnpm audit`.

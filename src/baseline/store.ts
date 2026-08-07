@@ -141,7 +141,7 @@ export function applyBaseline(
 }
 
 /**
- * Ratchet the baseline against a fully-observed run: for every slot observed this
+ * Ratchet the baseline against a fully observed run: for every slot observed this
  * run, keep only the grandfathered keys still present (a fixed diagnostic is
  * dropped); a slot absent from `observed` — disabled, without an extractor, or
  * not run — is preserved untouched. The result never grows: genuinely new findings

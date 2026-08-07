@@ -506,7 +506,7 @@ function refusalMessage(
  *
  * Never silent, by rule: which interpreter the whole pipeline runs on is not
  * something to change behind the reader's back, and the line is what turns a
- * mysteriously-different result into an explained one. It goes to stderr with
+ * mysteriously different result into an explained one. It goes to stderr with
  * the rest of the run's progress rather than into the one-line verdict, so it is
  * present on a red run too — which is exactly when it is worth knowing.
  *

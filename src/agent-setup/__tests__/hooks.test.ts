@@ -89,8 +89,8 @@ describe('generated scripts', () => {
   });
 
   /**
-   * The other half: checkride *is* installed and still did not answer. There is
-   * no remedy to name, so the gate stops and is looked at — it fails closed,
+   * The other half: checkride *is* installed and still did not answer. With no
+   * remedy to name, the gate stops and is looked at — it fails closed,
    * exactly as it always has.
    */
   test('an installed checkride that does not answer still blocks, per harness', () => {

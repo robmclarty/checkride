@@ -354,7 +354,7 @@ describe('config resolution', () => {
     expect(licenses?.order).toBe('any');
     const names = resolved.map((r) => r.slot);
     const at = names.indexOf('licenses');
-    // In the 'any' group: after the plain catalogue members (e.g. spell), but
+    // In the 'any' group: after the plain catalogue members (for example spell), but
     // ahead of the wave-20 artifact slots and the 'single' mutation.
     expect(at).toBeGreaterThan(names.indexOf('spell'));
     expect(at).toBeLessThan(names.indexOf('publint'));

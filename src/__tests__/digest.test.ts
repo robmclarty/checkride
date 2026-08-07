@@ -79,7 +79,7 @@ describe('buildDigest', () => {
       [check('lint', { ok: true, baselined: 1 }), check('spell')],
       { maxItemsPerSlot: 10, maxBytes: 100_000 },
     );
-    // Only the genuinely-failing `spell` slot is summarized; `lint` passed.
+    // Only the genuinely failing `spell` slot is summarized; `lint` passed.
     expect(digest).toContain('1 of 2 check(s) failed');
     expect(digest).not.toContain('## lint');
   });

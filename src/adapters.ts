@@ -28,7 +28,7 @@ export type Order = number | OrderString;
 
 /** A role in the pipeline. */
 export type Slot = {
-  /** Stable slot name, e.g. `'lint'`. Used by `--only`/`--skip` and the report. */
+  /** Stable slot name, for example `'lint'`. Used by `--only`/`--skip` and the report. */
   name: string;
   /**
    * Opt-in slots are excluded from the default run. Enable one with
@@ -45,9 +45,9 @@ export type Slot = {
 
 /** A concrete tool that can fill a slot. */
 export type Adapter = {
-  /** Adapter name, e.g. `'oxlint'`. Recorded as `adapter` in the report. */
+  /** Adapter name, for example `'oxlint'`. Recorded as `adapter` in the report. */
   name: string;
-  /** The slot this adapter fills, e.g. `'lint'`. */
+  /** The slot this adapter fills, for example `'lint'`. */
   slot: string;
   /** Human description for the report. */
   description: string;
@@ -78,7 +78,7 @@ export type Adapter = {
   fixArgs?: string[];
   /** Per-check timeout in seconds; `0` disables the cap. Falls back to the config-level `timeout`, then the built-in 600s default. */
   timeout?: number;
-  /** In-process check id (e.g. `'links'`); when set, the orchestrator runs it directly. */
+  /** In-process check id (for example `'links'`); when set, the orchestrator runs it directly. */
   builtin?: string;
   /**
    * Consumed by the `links` built-in only: extra directory names to skip while
@@ -399,7 +399,7 @@ export const ADAPTERS: readonly Adapter[] = [
     // `args` with explicit paths — the same way this one already does for lint.
     args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
     outputFile: 'prose.json',
-    devDeps: { '@vvago/vale': '3.17.1' },
+    devDeps: { '@vvago/vale': '3.17.0' },
   },
   {
     name: 'stryker',

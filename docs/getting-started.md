@@ -77,7 +77,7 @@ stderr warning, and a red run whose "new" findings were grandfathered until a
 recent commit prints a `hint:` line naming it. `checkride recover` then
 restores the entries from git history additively. Don't reach for
 `checkride baseline` to fix that — a re-capture would grandfather every
-genuinely-new finding along with the lost ones.
+genuinely new finding along with the lost ones.
 
 `init` also makes sure the `.check/` output directory is gitignored — it
 appends `.check/` to your `.gitignore`, or creates one. If you adopted with an
@@ -537,7 +537,7 @@ is:
 
 ## Uninstalling
 
-There is no lock-in to undo. checkride's whole footprint is: the `checkride`
+No lock-in needs undoing. checkride's whole footprint is: the `checkride`
 devDependency, `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if

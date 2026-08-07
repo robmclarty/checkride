@@ -57,7 +57,7 @@ const blob = (slots: Record<string, string[]>): string => JSON.stringify(base(sl
 
 describe('collectCandidates', () => {
   test('presents each distinct state once, newest sha first, plus the union', async () => {
-    // A A B B A — runs of identical states collapse to the newest sha; a state
+    // A, A, B, B, A — runs of identical states collapse to the newest sha; a state
     // already presented is never presented again (identical baselines carry
     // identical deltas, so a second row would say nothing new).
     const a = blob({ lint: ['x', 'y'] });

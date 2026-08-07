@@ -102,7 +102,7 @@ type HookSpec = {
 const run = (interpreter: string, file: string): string => `${interpreter} "\${CURSOR_PROJECT_DIR:-.}/${file}"`;
 
 /**
- * Cursor's file-mutating tool names. There is no separate `Edit` tool — `Write`
+ * Cursor's file-mutating tool names. Cursor has no separate `Edit` tool — `Write`
  * covers both creating and modifying — and `Delete` can remove an accounting
  * file just as effectively as a write can overwrite it.
  */

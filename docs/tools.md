@@ -6,7 +6,7 @@ spawns `<pm> exec <tool>` — where `<pm>` is your repo's package manager (see
 `devDependencies`, pinned and owned by your repository. "Installing a missing
 tool" therefore means adding an npm package — not a separate system binary.
 
-There are two layers:
+The tooling has two layers:
 
 1. **System prerequisites** — installed outside the project, once per machine.
 2. **Slot tools** — installed into the project with pnpm.
@@ -351,13 +351,13 @@ the entry to break that coupling:
 
 The slot keeps its configuration but stays out of the default run, reachable with
 `--all` or `--include attw`. The field is general: `"optIn": true` on a
-normally-default slot (or on a heavy custom check like an integration suite)
+normally default slot (or on a heavy custom check like an integration suite)
 demotes it to full-sweep-only, and `"optIn": false` forces an opt-in slot into
 the default run. `checkride doctor` reflects the result — a slot held back this
 way lists as **opt-in**, not **default**.
 
 The `profile` shortcut above is `attw`-specific: it appends `--profile <name>`
-(e.g. `esm-only` for an ESM-only package, `node16`) to the attw invocation so you
+(for example `esm-only` for an ESM-only package, `node16`) to the attw invocation so you
 don't retype the whole `args` array just to set one flag. It is ignored on any
 other slot.
 

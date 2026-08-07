@@ -102,7 +102,7 @@ future changes in detection order or registry contents.
 - **New mode is the gap**: `initNew` scaffolds the blessed tool configs but
   writes no `checkride.config.json` at all, leaving the run to detection.
   It now also writes one, enumerating the slots its scaffolding just enabled
-  (e.g. `types: "tsc"`, `lint: "oxlint"`, `struct: "ast-grep"`,
+  (for example `types: "tsc"`, `lint: "oxlint"`, `struct: "ast-grep"`,
   `dead: "fallow"`, `test: "vitest"`, plus the always-on `links: "links"` and
   whichever of `docs`/`spell` the shape scaffolds), with the `$schema` header
   `initExisting` already emits.

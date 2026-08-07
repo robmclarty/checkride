@@ -66,7 +66,7 @@ export const FENCE_CLOSE_RE = /^```\s*$/;
  * One `ts`/`typescript` fenced block extracted from a doc. `code` is the fence
  * body verbatim (no trailing newline — {@link checkSnippets} appends one on write); `startLine`
  * is the 1-based line of the opening fence; `checked` is true when a
- * {@link CHECK_MARKER_RE} marker sits on the immediately-preceding line.
+ * {@link CHECK_MARKER_RE} marker sits on the immediately preceding line.
  */
 export type Snippet = {
   code: string;

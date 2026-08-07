@@ -268,7 +268,7 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** The `code` property of an Error-like value (e.g. Node's `ERR_PARSE_ARGS_*`). */
+/** The `code` property of an Error-like value (for example Node's `ERR_PARSE_ARGS_*`). */
 function errorCode(err: unknown): string | undefined {
   if (err instanceof Error && 'code' in err && typeof err.code === 'string') {
     return err.code;
@@ -471,7 +471,7 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
 
 async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
   // `baseline` takes no options; parse against an empty set so a stray flag
-  // (e.g. a typo) throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2.
+  // (for example a typo) throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2.
   const { rest } = detectCommand(argv);
   parseArgs({ args: rest, allowPositionals: true, options: {} });
   const result = await runBaseline({ cwd: deps.cwd, stdout: deps.stdout, stderr: deps.stderr });

@@ -98,7 +98,7 @@ checkride.config.json  "prose": { "use": "vale", "args": [...paths] }
    - seam: `templates/shared/vale.ini`, `templates/shared/styles/Repo/`, `src/init.ts`, `src/__tests__/init.test.ts`, `cspell.json`
    - model: opus — the rule set is the product here, and D8 is a taste call
 
-3. [ ] feat(prose): fingerprint vale findings into the baseline — **done when:** `fingerprint('vale', raw)` returns `<file>:<Check>:<Message>` keys (built with the shared `key()` helper, message whitespace-collapsed) for a real vale JSON payload, fingerprints only error-severity alerts (a warnings-only payload yields the empty set — D19), returns `null` for any non-alert-report shape (pinned by an `E201` payload test — D16), and a red `prose` slot goes green after `checkride baseline` without masking a newly introduced finding
+3. [x] feat(prose): fingerprint vale findings into the baseline — **done when:** `fingerprint('vale', raw)` returns `<file>:<Check>:<Message>` keys (built with the shared `key()` helper, message whitespace-collapsed) for a real vale JSON payload, fingerprints only error-severity alerts (a warnings-only payload yields the empty set — D19), returns `null` for any non-alert-report shape (pinned by an `E201` payload test — D16), and a red `prose` slot goes green after `checkride baseline` without masking a newly introduced finding
    - seam: `src/baseline/fingerprint.ts`, `src/__tests__/baseline-fingerprint.test.ts`
    - model: sonnet — mirrors the existing oxlint/ast-grep extractors
 

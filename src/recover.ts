@@ -14,7 +14,7 @@
  * file: nothing is removed, and a resurrected key that is stale gets pruned by
  * the ratchet on the next full green run. That generosity is also why a bare
  * `checkride baseline` is the wrong remedy here — a re-capture would
- * grandfather genuinely-new debt introduced since the damage.
+ * grandfather genuinely new debt introduced since the damage.
  *
  * Exit codes: 0 listed or applied, 2 usage or environment error — never 1;
  * nothing here is a check failure. Stream discipline: the listing (Markdown or

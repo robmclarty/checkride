@@ -18,6 +18,13 @@
 
     "docs": { "use": "markdownlint-cli2", "order": 3 },
     "spell": { "use": "cspell", "order": 3 },
+    "prose": {
+      "use": "vale",
+      "args": ["exec", "vale", "--no-global", "--output=JSON", "README.md", "AGENTS.md", "CONTRIBUTING.md", "docs", "src"],
+      "description": "Vale: writing style (prose linting)",
+      "note": "Vale reads no .gitignore and skips no hidden directory, so the shipped default path `.` would sweep .plumbbob/, .claude/, dist/ and friends; these paths are this repo's linted prose surface. Pinned by test/dogfood-config.test.ts, which also asserts every tracked .md outside a known-excluded set is reachable from them.",
+      "order": 3
+    },
     "security": { "use": "pnpm-audit", "order": 3 },
     "typecheck-tests": {
       "command": "pnpm",

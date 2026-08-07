@@ -40,7 +40,7 @@ export type DigestBudget = {
 
 /**
  * Conservative defaults: ~10 findings a slot and an 8 KB ceiling keep even a
- * fully-red repo's digest to roughly two thousand tokens — small enough to read
+ * fully red repo's digest to roughly two thousand tokens — small enough to read
  * in one gulp, with the raw files a click away for the rest.
  */
 const DEFAULT_BUDGET: DigestBudget = { maxItemsPerSlot: 10, maxBytes: 8000 };

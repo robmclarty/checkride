@@ -7,7 +7,7 @@
  *      `{ use, ...overrides }` picks an adapter with overrides; `{ command, args }`
  *      is a custom check needing no adapter.
  *   2. otherwise detection — the first registry adapter for the slot whose
- *      `detect` files exist (or whose `detect` is empty, i.e. always available).
+ *      `detect` files exist (or whose `detect` is empty, that is, always available).
  *   3. otherwise the slot is skipped (skipped ≠ failed).
  */
 
@@ -81,7 +81,7 @@ export type UseConfig = Noted & {
   order?: Order;
   /**
    * Links built-in only: extra directory names to skip while walking for
-   * markdown, on top of the built-in exclude set (e.g. `docs`, `research`,
+   * markdown, on top of the built-in exclude set (for example `docs`, `research`,
    * `.ridgeline`). Ignored by every other slot.
    */
   exclude?: string[];
@@ -93,7 +93,7 @@ export type UseConfig = Noted & {
    */
   allowlist?: string[];
   /**
-   * `attw` slot only: append `--profile <name>` (e.g. `esm-only`) to the attw
+   * `attw` slot only: append `--profile <name>` (for example `esm-only`) to the attw
    * invocation — a shortcut for retyping the full `args`. Ignored by every other
    * slot. If `args` is also overridden, the flag is appended to those args.
    */
@@ -102,7 +102,7 @@ export type UseConfig = Noted & {
    * Override the slot's opt-in status. `true` configures the slot *without*
    * opting it into the default run — the escape hatch from "naming a slot opts
    * it in": run it only with `--all`/`--include <slot>`. Handy for a slot you
-   * want configured (e.g. `attw` with a profile) but reserved for the full
+   * want configured (for example `attw` with a profile) but reserved for the full
    * sweep. `false` forces the slot into the default run. Absent → the slot's
    * catalogue default (see {@link ResolvedCheck.explicit}).
    */
@@ -432,7 +432,7 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
  * can fill several slots under one name — `fallow` fills `dead`, `dupes`, and
  * `health` — so `"dupes": "fallow"` must resolve to the dupes adapter, not the
  * first `fallow` in the registry. Falls back to a name-only match so naming a
- * cross-slot adapter (e.g. reusing `oxlint` in a custom slot) still works.
+ * cross-slot adapter (for example reusing `oxlint` in a custom slot) still works.
  */
 function byName(name: string, adapters: readonly Adapter[], slot?: string): Adapter | null {
   return (
@@ -507,7 +507,7 @@ function detectAdapter(
 
 /**
  * Why nothing filled `slot` on the detection path. When the slot's adapter gates
- * on a package script (`detectScript`, e.g. `build`), name the missing script so
+ * on a package script (`detectScript`, for example `build`), name the missing script so
  * an opted-in-but-scriptless slot stands down with a clear reason; otherwise the
  * generic no-tool message.
  */
@@ -517,7 +517,7 @@ function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
 }
 
 /**
- * A slot whose adapter is gated on a package script (`detectScript`, e.g. `build`
+ * A slot whose adapter is gated on a package script (`detectScript`, for example `build`
  * → `scripts.build`) stands down as a skip — never a red check — when that script
  * is absent, however the adapter was selected. Detection already filters the
  * auto-detect path; this also covers an explicit config entry, so a shared preset
@@ -690,7 +690,7 @@ function resolveOne(
 
 /**
  * Resolve a config-only custom check (an object with `command`, keyed by a name
- * not in the catalogue — e.g. a project's `"licenses"` check), or `null` when
+ * not in the catalogue — for example a project's `"licenses"` check), or `null` when
  * `entry` is not such a check. Its effective order rides on the resolved check
  * (config `order` ?? `'any'`). A custom check with `detect` files stands down
  * (skipped, not failed) when none of them are present.

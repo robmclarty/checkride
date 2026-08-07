@@ -166,7 +166,7 @@ function segments(version: string): number[] {
  * Does `version` satisfy `pin`, reading the pin as a prefix?
  *
  * That is how every version manager reads these files: `.nvmrc` holding `22`
- * means "the newest 22 you have", not "22.0.0". A fully-spelled pin therefore
+ * means "the newest 22 you have", not "22.0.0". A fully spelled pin therefore
  * matches only itself, and a partial one matches its whole line.
  */
 export function satisfiesPin(pin: string, version: string): boolean {

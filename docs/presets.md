@@ -106,7 +106,7 @@ org-wide rule:
 2. Publish a new version of `@acme/checkride-preset`.
 3. Each repo picks the change up when it bumps the dependency.
 
-That's it. There is no per-repo edit, no fan-out of near-identical pull requests,
+That's it. No per-repo edit, no fan-out of near-identical pull requests,
 no chasing down the repos that were missed. One release propagates to everyone on
 the next bump. Retiring a rule is symmetric: delete it from the preset, publish,
 done.
@@ -122,7 +122,7 @@ tool never see it.
 Treat the preset's version as a policy contract, because that is what repos pin
 to.
 
-- **A new or stricter check can turn a previously-green repo red.** That is the
+- **A new or stricter check can turn a previously green repo red.** That is the
   point of the release, but it means "add a rule" is not a patch-level change in
   spirit — bump at least the minor version and say so in the preset's release
   notes, so a repo owner reading the bump knows new failures may be intentional.

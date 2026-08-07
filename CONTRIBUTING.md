@@ -107,6 +107,6 @@ and 5; step 4 is still by hand.
 
 If someone else needs to take this over, the required credentials are exactly
 two: npm publish rights on the `checkride` package and push rights on this
-repository. There is no other infrastructure — no external CI accounts, no
+repository. No other infrastructure exists — no external CI accounts, no
 servers. The build history lives in `.plumbbob/` and `CHANGELOG.md`; consumer
 expectations live in `docs/contract.md`.

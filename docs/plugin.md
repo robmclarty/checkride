@@ -47,7 +47,7 @@ you install as a dev dependency — and Claude Code reads
 release that carries that manifest; until then, and in any repo where you would
 rather not install a plugin at all, use the direct form below.
 
-**There is no build step.** The readers ship prebuilt in the package's `dist/`,
+**No build step.** The readers ship prebuilt in the package's `dist/`,
 so the install is a download: nothing to compile, no dependencies to fetch. They
 import `node:` builtins only.
 
@@ -187,7 +187,7 @@ finding list, and zero findings is a legitimate answer.
 the slots it selected. An unselected slot's artifact lingers with nothing in
 `summary.json` to contradict it — in checkride's own `.check/`, `mutation.json`
 and `security.json` routinely sit days older than everything else. Reading one
-as current is exactly the confidently-wrong answer these readers exist to
+as current is exactly the confidently wrong answer these readers exist to
 prevent.
 
 So both readers judge every file against a window, and the window opens at the

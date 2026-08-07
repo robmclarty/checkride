@@ -166,7 +166,7 @@ The check is deliberately narrow. It defers only when a Cursor gate is actually
 *registered*, not merely when Cursor appears to be running, so the failure mode
 of a stale environment variable is a duplicate run rather than no gate at all.
 
-There was a stretch where this did not bite — a Cursor bug silently skipped
+For a stretch this did not bite — a Cursor bug silently skipped
 `.claude/settings.json` hooks entirely, reported against 2.6.11 and fixed in
 April 2026. It is loading them again, so the stand-down is load-bearing, not
 belt-and-braces.

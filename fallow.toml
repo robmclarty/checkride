@@ -29,6 +29,7 @@ ignoreDependencies = [
   "@ast-grep/cli",
   "@stryker-mutator/vitest-runner",
   "@arethetypeswrong/cli",
+  "@vvago/vale",
   "publint",
 ]
 

@@ -58,7 +58,7 @@ export function translateExec(
 ): { command: string; args: string[] } {
   if (command !== 'pnpm') return { command, args: [...args] };
   if (pm === 'pnpm') return { command, args: quieted(args) };
-  // Drop 'exec'; keep <tool> and its arguments, e.g. `npx --no-install oxlint --type-aware`.
+  // Drop 'exec'; keep <tool> and its arguments, for example `npx --no-install oxlint --type-aware`.
   if (args[0] === 'exec') return { command: EXEC[pm].command, args: [...EXEC[pm].flags, ...args.slice(1)] };
   // `<pm> run <script>` is universal; only the launcher changes.
   if (args[0] === 'run') return { command: pm, args: [...args] };

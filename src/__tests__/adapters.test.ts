@@ -159,7 +159,7 @@ describe('registry invariants', () => {
     // The exit code is the verdict — vale exits 1 iff error-severity alerts
     // exist, so there is no JSON gate to read (D6).
     expect(vale?.gate).toBeUndefined();
-    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.1' });
+    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.0' });
   });
 
   test('the vale invocation pins --no-global, JSON output, and a trailing path (D9/D10)', () => {
@@ -184,7 +184,7 @@ describe('registry invariants', () => {
     // The snippets slot itself stays 'any' (D4) — snippets-dist's wave 20 is an
     // adapter-level override, not a slot default (D12).
     expect(orderOf('snippets')).toBeUndefined();
-    // Every other catalogue slot omits `order`, i.e. defers to the 'any' default.
+    // Every other catalogue slot omits `order`, that is, defers to the 'any' default.
     const carriesOrder = new Set(['mutation', 'build', 'publint', 'attw', 'pack', 'smoke']);
     for (const slot of SLOTS) {
       if (!carriesOrder.has(slot.name)) expect(slot.order).toBeUndefined();

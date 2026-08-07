@@ -12,7 +12,7 @@ Before declaring a task finished:
 
 1. Run `pnpm check`.
 2. If it fails, read `.check/summary.json` to find which check failed.
-3. Read the corresponding per-tool JSON (`.check/lint.json`, `.check/dead.json`, etc.) for structured diagnostics.
+3. Read the corresponding per-tool JSON (`.check/lint.json`, `.check/dead.json`, and so on) for structured diagnostics.
 4. Fix the root cause, not the symptom.
 5. Re-run `pnpm check`.
 

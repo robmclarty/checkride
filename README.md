@@ -184,8 +184,8 @@ default run leaves stdout empty.
 ## The pipeline: slots and adapters
 
 A **slot** is a role in the pipeline (order matters — cheapest first). An
-**adapter** is a concrete tool that fills a slot. There is one blessed default
-per slot; alternates are wired so checkride can run them, but `init` only
+**adapter** is a concrete tool that fills a slot. Each slot has one blessed
+default; alternates are wired so checkride can run them, but `init` only
 generates config for the blessed default.
 
 | Slot       | Role                                   | Blessed default     | Alternates       |
@@ -220,12 +220,12 @@ owns the pinned tool versions.
 default run so adopting checkride — or bumping its version — never turns a repo red on a
 check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming
 it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
-run. `checkride fix` then runs its write form (e.g. `prettier --write`) alongside the
+run. `checkride fix` then runs its write form (for example `prettier --write`) alongside the
 other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
 
 To **configure a slot without opting it in** — say, give `attw` a `--profile` but keep it
 in the full sweep only — add `"optIn": true` to its entry: it stays out of the default run
-and runs solely under `--all`/`--include <slot>`. The same field demotes a normally-default
+and runs solely under `--all`/`--include <slot>`. The same field demotes a normally default
 slot (or a heavy custom check like `test:integration`) to full-sweep-only; `"optIn": false`
 does the opposite, forcing a slot into the default run.
 
@@ -520,9 +520,9 @@ At runtime, checkride itself is workspace-agnostic: whatever the shape, it runs
 each tool **once, from the repo root** — one pipeline, one `.check/`. Workspace
 awareness comes from the tools' own configs, which is what the monorepo scaffold
 sets up: `tsc --build` follows the root tsconfig's project references, and
-vitest, oxlint, ast-grep, and the rest walk the whole tree. There is no
-per-package orchestration and no way to check a single package — narrow a run
-with `--only`/`--changed`, not per-directory.
+vitest, oxlint, ast-grep, and the rest walk the whole tree. checkride itself
+does no per-package orchestration and offers no way to check a single package —
+narrow a run with `--only`/`--changed`, not per-directory.
 
 ## Conventions
 

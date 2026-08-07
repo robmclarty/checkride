@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** 3 — feat(prose): fingerprint vale findings into the baseline
+**Current step:** 4 — chore(prose): enable the prose slot on checkride itself
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -25,7 +25,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(prose): add the prose slot and vale adapter to the registry
 - ☑ 2. feat(prose): scaffold a hermetic vale config and house style
-- ☐ 3. feat(prose): fingerprint vale findings into the baseline
+- ☑ 3. feat(prose): fingerprint vale findings into the baseline
 - ☐ 4. chore(prose): enable the prose slot on checkride itself
 - ☐ 5. docs(prose): document the prose slot and its division of labour with spell
 
@@ -109,3 +109,4 @@ folder, so it rides the branch into the PR.)*
   re-confirmed: vale's `%s` substitutes the *matched* casing, so `There is` and `there is` are two
   distinct messages and therefore two distinct baseline keys — the same rule firing on both casings in
   one file grandfathers as two entries, not one.
+- 2026-08-07 — step 3 checkpointed · f415b3645 — feat(prose): fingerprint vale findings into the baseline (1 drift, 16m)

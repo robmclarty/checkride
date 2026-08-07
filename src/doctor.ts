@@ -415,7 +415,7 @@ function offRow(
   if (config?.checks?.[r.slot] === false) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
   }
-  // Adapter is PM-specific and can't run here — e.g. `pnpm audit` off pnpm.
+  // Adapter is PM-specific and can't run here — for example `pnpm audit` off pnpm.
   if (adapter && !isAvailableUnder(adapter.command, adapter.args, pm)) {
     return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${adapter.command} ${adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
   }

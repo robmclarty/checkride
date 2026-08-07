@@ -169,7 +169,7 @@ a tool a cautious engineering manager is willing to bet a team's workflow on.
   Node than its manifest actually requires will burn the first adopter whose
   default is the older one — and that adopter never comes back. The supported
   floor is one number, stated the same everywhere.
-- **There's a CI recipe you can paste.** [Running in CI](./ci.md) is a
+- **The CI recipe is ready to paste.** [Running in CI](./ci.md) is a
   complete GitHub Actions job (with npm/yarn/bun variants), including the
   `--strict` note and the baseline note for legacy repos, so adoption is a copy
   rather than a research project.

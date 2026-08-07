@@ -5,15 +5,15 @@
  * The scores are stryker's own, computed the way stryker computes them, so the
  * numbers here match the ones its reporter printed: `Ignored` (and any error
  * status) leaves the denominator entirely, `Killed` and `Timeout` are detected,
- * `Survived` and `NoCoverage` are not. Inventing a differently-defined score
- * than the tool prints is the confidently-wrong answer this reader exists to
+ * `Survived` and `NoCoverage` are not. Inventing a differently defined score
+ * than the tool prints is the confidently wrong answer this reader exists to
  * prevent, so the arithmetic is pinned to the tool's.
  *
  * **The ranking is the judgment here.** 777 survivors is not a list anyone
  * reads, so files rank by *undetected* count (`Survived` + `NoCoverage`)
  * descending — that is what "where would tests buy the most" means — with the
- * per-file score shown beside it so a small badly-tested file is still legible
- * next to a large mostly-tested one. Ranking by score alone would put a
+ * per-file score shown beside it so a small badly tested file is still legible
+ * next to a large mostly tested one. Ranking by score alone would put a
  * two-mutant file at the top of a 4453-mutant report; ranking by count alone
  * would say nothing but "the big files are big". Ties break on the worse score,
  * then the path, so the same report always renders the same bytes.

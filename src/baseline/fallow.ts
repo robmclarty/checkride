@@ -214,9 +214,9 @@ function collectDeadKeys(j: Record<string, unknown>): { keys: string[]; unkeyed:
  * Extract dead-code findings and the authoritative issue count (`total_issues`).
  * Findings come from the top-level detail arrays (`unused_exports`,
  * `unused_dev_dependencies`, `circular_dependencies`, …) rather than the summary
- * keys: the summary aggregates a few categories under one name (e.g. dev and
+ * keys: the summary aggregates a few categories under one name (for example dev and
  * optional deps both count as `unused_dependencies`) whose items live in
- * separately-named arrays, so keying off the summary would miss them. Iterating
+ * separately named arrays, so keying off the summary would miss them. Iterating
  * every array except the {@link UNCOUNTED_ARRAYS} covers whatever categories
  * fallow reports — including ones added in a future minor — without a
  * hand-maintained list of the ones that do count. A category whose items carry

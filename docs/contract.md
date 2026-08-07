@@ -260,7 +260,7 @@ report was produced — the verdict is in the report, not the process status, so
 red repo never looks like a broken reader.
 
 **Selection is validated.** An unknown slot name in `--only`, `--skip`, or
-`--include` is a **usage error (exit 2)**, not a silently-empty selection — the
+`--include` is a **usage error (exit 2)**, not a silently empty selection — the
 error names the bad slot and the valid set (the catalogue slots plus any config
 custom-check names). A typo like `--only lints` must never quietly disable the
 gate.
@@ -303,7 +303,7 @@ the run goes fully sequential and stops at the first failure, and a one-line
 stderr note reports that `--concurrency` was ignored (the combination is safe,
 just slower — not a usage error). Concurrency never weakens the
 [timeout and interrupt](#timeouts-and-interrupts) promises: every
-concurrently-running check keeps its own timeout and has its whole process group
+concurrently running check keeps its own timeout and has its whole process group
 reaped independently.
 
 ## Programmatic surface
@@ -335,7 +335,7 @@ helpers — is not public API, even if technically importable.
   vacuous, never hung.
 - An interrupted run (SIGKILL, power loss) never tears an artifact (see
   crash-consistency above) and never prunes the baseline — the ratchet only
-  runs on a fully-observed run.
+  runs on a fully observed run.
 
 These promises live with their machinery rather than in `test/contract/`: the
 timeout kill and grandchild reaping in

@@ -473,7 +473,7 @@ async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcom
  * the previous run's output lingering as authoritative. Covers everything
  * `persistOutput` writes (`<slot>.stdout.txt`, `<slot>.stderr.txt`, the adapter's
  * JSON `outputFile`) plus the conventional `<slot>.json` a tool may write itself
- * (e.g. vitest's `--outputFile=.check/test.json`, where `outputFile` is null).
+ * (for example vitest's `--outputFile=.check/test.json`, where `outputFile` is null).
  * Runs *before* the check so this run's own tool-written artifacts survive.
  */
 async function clearSlotOutputs(cwd: string, adapter: Adapter): Promise<void> {
@@ -724,7 +724,7 @@ async function runOneCheck(
   if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
   // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner re-run
   // can't leave last run's output behind as authoritative — and so any artifact
-  // the tool writes during *this* run (e.g. `test.json`) survives.
+  // the tool writes during *this* run (for example `test.json`) survives.
   await clearSlotOutputs(ctx.cwd, adapter);
   const start = performance.now();
   const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
@@ -773,8 +773,8 @@ type CheckResult = {
  * so N of these can be in flight at once.
  */
 async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<CheckResult> {
-  // Skip when unresolved, or when the adapter can't run under this PM — e.g.
-  // `pnpm audit` (the `security` slot) is unavailable off pnpm.
+  // Skip when unresolved, or when the adapter can't run under this PM — for
+  // example `pnpm audit` (the `security` slot) is unavailable off pnpm.
   const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
   if (r.skip || !r.adapter || unavailable) {
     return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null, newKeys: [] };
@@ -923,7 +923,7 @@ function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean
   return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
 }
 
-/** On a fully-observed run, prune grandfathered diagnostics now fixed (shrink-only, atomic). */
+/** On a fully observed run, prune grandfathered diagnostics now fixed (shrink-only, atomic). */
 async function maybeRatchet(
   cwd: string,
   baseline: Baseline | null,
@@ -1141,7 +1141,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     const adapter = r.adapter;
     if (!adapter) continue;
     writeLine(stderr, `  ▸ fix ${r.slot.padEnd(width)} (${adapter.name})`);
-    // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (e.g. oxlint --fix and prettier --write) racing on the same files.
+    // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.
     const outcome = await fixRunner(adapter, { cwd, pm });
     ran.push(adapter.name);
     writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
