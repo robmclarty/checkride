@@ -49,10 +49,10 @@ function rejection(err: unknown): { code?: string; killed?: boolean; stderr?: st
 }
 
 /** The real runner: `git` under `cwd`, with a timeout so recovery can't hang. */
-export function realGit(cwd: string): GitRunner {
+export function realGit(cwd: string, timeoutMs = GIT_TIMEOUT_MS): GitRunner {
   return async (args) => {
     try {
-      const { stdout } = await execFileP('git', [...args], { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER });
+      const { stdout } = await execFileP('git', [...args], { cwd, timeout: timeoutMs, maxBuffer: GIT_MAX_BUFFER });
       return { ok: true, stdout };
     } catch (err) {
       const e = rejection(err);
@@ -200,6 +200,61 @@ export function unionBaselines(parts: readonly Baseline[]): Baseline {
   const slots: Record<string, string[]> = {};
   for (const slot of [...merged.keys()].toSorted()) slots[slot] = [...(merged.get(slot) ?? [])].toSorted();
   return { schema_version: BASELINE_SCHEMA_VERSION, slots };
+}
+
+/** What the red-run probe found: `matched` of `total` new keys were grandfathered at `shortSha`. */
+export type HistoricalHint = { matched: number; total: number; shortSha: string };
+
+/** The probe's whole budget — a hint must never make a red run noticeably slower. */
+const HINT_BUDGET_MS = 750;
+const HINT_LOG_DEPTH = 5;
+const HINT_SNAPSHOTS = 3;
+
+/** Resolves `null` when the budget expires; unref'd so it never holds the process open. */
+function budget(ms: number): Promise<null> {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(null), ms).unref();
+  });
+}
+
+async function probeHistory(git: GitRunner, newKeys: readonly string[]): Promise<HistoricalHint | null> {
+  const located = await locate(git);
+  const log = await git(['log', '-n', String(HINT_LOG_DEPTH), `--format=${LOG_FORMAT}`, '--', located.path]);
+  if (!log.ok) return null;
+  const keys = new Set(newKeys);
+  for (const rev of parseLog(log.stdout).slice(0, HINT_SNAPSHOTS)) {
+    // oxlint-disable-next-line no-await-in-loop -- at most three probes, and the newest match wins — later shows are only paid for when earlier ones miss.
+    const show = await git(['show', `${rev.sha}:${located.path}`]);
+    const baseline = show.ok ? parseBaseline(show.stdout) : null;
+    if (baseline === null) continue;
+    const grandfathered = new Set(Object.values(baseline.slots).flat());
+    const matched = [...keys].filter((k) => grandfathered.has(k)).length;
+    if (matched > 0) return { matched, total: newKeys.length, shortSha: rev.shortSha };
+  }
+  return null;
+}
+
+/**
+ * The red-run detection probe: were these "new" findings grandfathered in a
+ * recent committed baseline? The difference between "a wall of new debt" and
+ * "a merge dropped baseline entries" is a diagnosis the run output alone
+ * cannot make. Strictly best-effort: the whole probe races a
+ * {@link HINT_BUDGET_MS} budget, its git children carry the same short
+ * timeout, and any failure — git absent, not a repository, shallow miss,
+ * mangled blobs — resolves to `null`, never a thrown error or a slow run.
+ */
+export async function historicalHint(
+  cwd: string,
+  newKeys: readonly string[],
+  git?: GitRunner,
+  budgetMs = HINT_BUDGET_MS,
+): Promise<HistoricalHint | null> {
+  if (newKeys.length === 0) return null;
+  try {
+    return await Promise.race([probeHistory(git ?? realGit(cwd, budgetMs), newKeys), budget(budgetMs)]);
+  } catch {
+    return null;
+  }
 }
 
 /** What applying `to` over `from` changes, per slot: keys gained and keys lost. */

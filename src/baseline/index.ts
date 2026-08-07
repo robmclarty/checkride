@@ -15,6 +15,7 @@ export {
   DEFAULT_DEPTH,
   diffBaselines,
   gitFailureError,
+  historicalHint,
   realGit,
   unionBaselines,
 } from './history.js';

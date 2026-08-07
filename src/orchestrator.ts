@@ -24,6 +24,7 @@ import {
   countBaselineKeys,
   fallowVerdict,
   fingerprint,
+  historicalHint,
   ratchet,
   readBaselineStatus,
   writeBaseline,
@@ -760,6 +761,8 @@ type CheckResult = {
   run: CheckRun | null;
   /** Fingerprint to feed the ratchet, keyed by slot; null when nothing was observed. */
   observed: { slot: string; fp: Fingerprint } | null;
+  /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
+  newKeys: string[];
 };
 
 /**
@@ -774,11 +777,11 @@ async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<Chec
   // `pnpm audit` (the `security` slot) is unavailable off pnpm.
   const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
   if (r.skip || !r.adapter || unavailable) {
-    return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null };
+    return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null, newKeys: [] };
   }
   const { entry, run, mask } = await runOneCheck(r, r.adapter, ctx);
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
-  return { entry, run, observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null };
+  return { entry, run, observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null, newKeys: mask.newKeys };
 }
 
 /** The run accumulators every execution path fills. */
@@ -786,6 +789,7 @@ type Execution = {
   checks: SummaryCheck[];
   runs: CheckRun[];
   observed: Map<string, Fingerprint>;
+  newKeys: string[];
   brokeEarly: boolean;
 };
 
@@ -794,11 +798,12 @@ function collect(res: CheckResult, acc: Execution): void {
   acc.checks.push(res.entry);
   if (res.run) acc.runs.push(res.run);
   if (res.observed) acc.observed.set(res.observed.slot, res.observed.fp);
+  acc.newKeys.push(...res.newKeys);
 }
 
 /** A fresh, empty {@link Execution}. */
 function emptyExecution(brokeEarly = false): Execution {
-  return { checks: [], runs: [], observed: new Map(), brokeEarly };
+  return { checks: [], runs: [], observed: new Map(), newKeys: [], brokeEarly };
 }
 
 /**
@@ -990,6 +995,24 @@ function computeExitCode(summary: Summary, strict: boolean, json: boolean, stder
   return summary.ok ? 0 : 1;
 }
 
+/**
+ * On a red run, the best-effort recover hint: when the run's new-not-in-baseline
+ * findings were grandfathered in a recent committed baseline, one stderr line
+ * says so. The difference between "a wall of new debt" and "a merge dropped
+ * baseline entries" is a diagnosis the run output alone cannot make — and this
+ * is the moment someone is actually reading it. Strictly bounded and silent on
+ * any failure (see {@link historicalHint}); a hint must never slow or break a run.
+ */
+async function maybeRecoverHint(ctx: RunContext, ok: boolean, newKeys: readonly string[]): Promise<void> {
+  if (ok || newKeys.length === 0) return;
+  const hint = await historicalHint(ctx.cwd, newKeys);
+  if (hint === null) return;
+  writeLine(
+    ctx.stderr,
+    `hint: ${hint.matched} of ${hint.total} new finding(s) were grandfathered until ${hint.shortSha} — a merge may have dropped baseline entries; see \`checkride recover\`\n`,
+  );
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
   // Clear the interrupt latch. On the CLI path this is a no-op — the process
@@ -1023,7 +1046,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
-  const { checks, runs, observed, brokeEarly } = await executeChecks(selected, ctx);
+  const { checks, runs, observed, newKeys, brokeEarly } = await executeChecks(selected, ctx);
   const totalDurationMs = Math.round(performance.now() - startedAt);
 
   await maybeRatchet(ctx.cwd, ctx.baseline, observed, isPartialRun(options, ctx.changed, brokeEarly), ctx.json, ctx.stderr);
@@ -1047,6 +1070,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     if (ctx.baselineState === 'unparseable') {
       writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
     }
+    await maybeRecoverHint(ctx, summary.ok, newKeys);
   }
 
   const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);

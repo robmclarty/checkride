@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -908,6 +909,80 @@ describe('runChecks (baseline-aware)', () => {
       json: false, stdout: sink().out, stderr: std.out,
     });
     expect(std.lines.join('')).not.toContain('unparseable');
+  });
+});
+
+/** Is a real git usable here? The recover-hint suite skips without it. */
+const gitAvailable = ((): boolean => {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const gitIn = (cwd: string, ...args: string[]): void => {
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd, stdio: 'pipe' });
+};
+
+describe.skipIf(!gitAvailable)('runChecks red-run recover hint', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hint-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'lint' }];
+  const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' })];
+
+  /** The incident: a committed baseline grandfathering A and B, then B dropped. */
+  async function seedDroppedEntry(): Promise<void> {
+    gitIn(dir, 'init', '-q');
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: [KEY_A, KEY_B] } }));
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'baseline');
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: [KEY_A] } }));
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'entries dropped');
+  }
+
+  test('a red run whose new findings history grandfathered prints the hint', async () => {
+    await seedDroppedEntry();
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner([['a.ts', 'no-x', 'bad'], ['b.ts', 'no-y', 'worse']]),
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.ok).toBe(false);
+    const printed = std.lines.join('');
+    expect(printed).toContain('hint: 1 of 1 new finding(s) were grandfathered until');
+    expect(printed).toContain('checkride recover');
+  });
+
+  test('no hint on a green run, under --json, or when history never had the keys', async () => {
+    await seedDroppedEntry();
+    const green = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner([['a.ts', 'no-x', 'bad']]),
+      json: false, stdout: sink().out, stderr: green.out,
+    });
+    expect(green.lines.join('')).not.toContain('hint:');
+
+    const json = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner([['a.ts', 'no-x', 'bad'], ['b.ts', 'no-y', 'worse']]),
+      json: true, stdout: sink().out, stderr: json.out,
+    });
+    expect(json.lines.join('')).not.toContain('hint:');
+
+    const unknown = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner([['a.ts', 'no-x', 'bad'], ['z.ts', 'never-seen', 'brand new']]),
+      json: false, stdout: sink().out, stderr: unknown.out,
+    });
+    expect(unknown.lines.join('')).not.toContain('hint:');
   });
 });
 

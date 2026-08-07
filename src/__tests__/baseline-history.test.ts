@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Baseline, GitResult, GitRunner } from '../baseline/index.js';
-import { collectCandidates, diffBaselines, gitFailureError, unionBaselines } from '../baseline/index.js';
+import { collectCandidates, diffBaselines, gitFailureError, historicalHint, unionBaselines } from '../baseline/index.js';
 
 const base = (slots: Record<string, string[]>): Baseline => ({ schema_version: 1, slots });
 
@@ -194,5 +194,49 @@ describe('gitFailureError', () => {
     expect(gitFailureError({ error: 'missing', detail: '' }).message).toContain('not found on PATH');
     expect(gitFailureError({ error: 'not-a-repo', detail: '' }).message).toContain('not inside a git repository');
     expect(gitFailureError({ error: 'failed', detail: 'boom' }).message).toContain('boom');
+  });
+});
+
+/** A git that never answers — what a hung subprocess looks like to the probe. */
+const hungGit: GitRunner = () => new Promise(() => { /* never resolves */ });
+
+describe('historicalHint', () => {
+  const K1 = 'a.ts:r:one';
+  const K2 = 'b.ts:r:two';
+
+  test('counts the new keys a recent snapshot grandfathered — newest match wins', async () => {
+    const git = fakeGit({
+      log: [
+        { sha: 'n'.padEnd(40, '0'), blob: blob({ lint: [] }) }, // newest: no match, keep probing
+        { sha: 'm'.padEnd(40, '0'), blob: blob({ lint: [K1], spell: [K2] }) },
+      ],
+    });
+    const hint = await historicalHint('/repo', [K1, K2, 'c.ts:r:three'], git);
+    expect(hint).toEqual({ matched: 2, total: 3, shortSha: 'm000000' });
+  });
+
+  test('null when history never grandfathered them, and for an empty key set', async () => {
+    const git = fakeGit({ log: [{ sha: 'n'.padEnd(40, '0'), blob: blob({ lint: ['other'] }) }] });
+    expect(await historicalHint('/repo', [K1], git)).toBeNull();
+    expect(await historicalHint('/repo', [], git)).toBeNull();
+  });
+
+  test('null on any git failure — the probe never throws', async () => {
+    const notRepo = fakeGit({ fail: { 'rev-parse': { ok: false, error: 'not-a-repo', detail: 'fatal' } } });
+    expect(await historicalHint('/repo', [K1], notRepo)).toBeNull();
+    const noLog = fakeGit({ fail: { log: { ok: false, error: 'failed', detail: 'boom' } } });
+    expect(await historicalHint('/repo', [K1], noLog)).toBeNull();
+  });
+
+  test('null once the budget expires — a hung git never slows a red run', async () => {
+    expect(await historicalHint('/repo', [K1], hungGit, 25)).toBeNull();
+  });
+
+  test('probes a short log and at most three snapshots', async () => {
+    const log = Array.from({ length: 5 }, (_, i) => ({ sha: `${i}`.padEnd(40, 'b'), blob: blob({ lint: ['other'] }) }));
+    const git = fakeGit({ log });
+    await historicalHint('/repo', [K1], git);
+    expect(git.calls.find((c) => c[0] === 'log')?.slice(1, 3)).toEqual(['-n', '5']);
+    expect(git.calls.filter((c) => c[0] === 'show')).toHaveLength(3);
   });
 });
