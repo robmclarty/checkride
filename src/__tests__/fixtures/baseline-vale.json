@@ -1,0 +1,179 @@
+{
+  "docs/tools.md": [
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        1,
+        8
+      ],
+      "Check": "Repo.ThereIs",
+      "Description": "",
+      "Link": "",
+      "Message": "'There is' postpones the subject — name the thing that acts, then act.",
+      "Severity": "error",
+      "Match": "There is",
+      "Line": 1
+    },
+    {
+      "Action": {
+        "Name": "edit",
+        "Params": [
+          "truncate",
+          " "
+        ]
+      },
+      "Span": [
+        10,
+        12
+      ],
+      "Check": "Vale.Repetition",
+      "Description": "",
+      "Link": "",
+      "Message": "'a' is repeated!",
+      "Severity": "error",
+      "Match": "a a",
+      "Line": 1
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        37,
+        41
+      ],
+      "Check": "Repo.Latin",
+      "Description": "",
+      "Link": "",
+      "Message": "Use 'for example' instead of 'e.g. '.",
+      "Severity": "error",
+      "Match": "e.g. ",
+      "Line": 1
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        54,
+        66
+      ],
+      "Check": "Repo.LyHyphen",
+      "Description": "",
+      "Link": "",
+      "Message": "'newly-created': an adverb ending in '-ly' takes no hyphen.",
+      "Severity": "error",
+      "Match": "newly-created",
+      "Line": 1
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        1,
+        8
+      ],
+      "Check": "Repo.ThereIs",
+      "Description": "",
+      "Link": "",
+      "Message": "'There is' postpones the subject — name the thing that acts, then act.",
+      "Severity": "error",
+      "Match": "There is",
+      "Line": 3
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        13,
+        24
+      ],
+      "Check": "Repo.Hedge",
+      "Description": "",
+      "Link": "",
+      "Message": "'more or less' hedges — say the thing or cut it.",
+      "Severity": "warning",
+      "Match": "more or less",
+      "Line": 5
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        40,
+        46
+      ],
+      "Check": "Repo.Hedge",
+      "Description": "",
+      "Link": "",
+      "Message": "'sort of' hedges — say the thing or cut it.",
+      "Severity": "warning",
+      "Match": "sort of",
+      "Line": 5
+    }
+  ],
+  "src/runner.ts": [
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        4,
+        11
+      ],
+      "Check": "Repo.ThereIs",
+      "Description": "",
+      "Link": "",
+      "Message": "'There is' postpones the subject — name the thing that acts, then act.",
+      "Severity": "error",
+      "Match": "There is",
+      "Line": 2
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        8,
+        27
+      ],
+      "Check": "Repo.LyHyphen",
+      "Description": "",
+      "Link": "",
+      "Message": "'deliberately-wrapped': an adverb ending in '-ly' takes no hyphen.",
+      "Severity": "error",
+      "Match": "deliberately-wrapped",
+      "Line": 3
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        38,
+        42
+      ],
+      "Check": "Repo.Latin",
+      "Description": "",
+      "Link": "",
+      "Message": "Use 'that is' instead of 'i.e. '.",
+      "Severity": "error",
+      "Match": "i.e. ",
+      "Line": 3
+    }
+  ]
+}

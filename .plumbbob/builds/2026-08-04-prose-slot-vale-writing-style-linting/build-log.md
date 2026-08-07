@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** 2 — feat(prose): scaffold a hermetic vale config and house style
+**Current step:** 3 — feat(prose): fingerprint vale findings into the baseline
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -24,7 +24,7 @@ line above. Only ONE step is in flight; a step is done only after a checkpoint �
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(prose): add the prose slot and vale adapter to the registry
-- ☐ 2. feat(prose): scaffold a hermetic vale config and house style
+- ☑ 2. feat(prose): scaffold a hermetic vale config and house style
 - ☐ 3. feat(prose): fingerprint vale findings into the baseline
 - ☐ 4. chore(prose): enable the prose slot on checkride itself
 - ☐ 5. docs(prose): document the prose slot and its division of labour with spell
@@ -93,3 +93,19 @@ folder, so it rides the branch into the PR.)*
   verify against meant `npm install @vvago/vale@3.17.1` in a scratch dir, and `node_modules/.bin/vale`
   **did not exist** afterwards — the binary was only reachable at `node_modules/@vvago/vale/bin/vale`.
   D13's npm bin-shim caveat is not theoretical; it reproduced on the first try.
+- 2026-08-07 — step 2 checkpointed · 4c54b4fda — feat(prose): scaffold a hermetic vale config and house style (446m)
+- 2026-08-07 — **step 3 fixture provenance: all three vale payloads are real 3.17.1 output**, generated
+  against the shipped `templates/shared/vale.ini` + `styles/Repo/` in a scratch dir (the step-2 binary at
+  `/tmp/valestep2`), not hand-written. Three shapes confirmed, and they are what D16's guard reads:
+  an **alert report** `{ "<path>": [ {Action, Span, Check, Description, Link, Message, Severity, Match, Line} ] }`;
+  a **clean run**, which is exactly `{}` (so the empty object must read as an alert report with no alerts,
+  never as unreadable — the guard passes it vacuously); and a **runtime error**, a *flat* object
+  `{Line, Path, Text, Code, Span}` at exit **2** for both `E100` (no config file) and `E201` (bad
+  `StylesPath`). The two shapes never collide: every value of an alert report is an array, an error
+  report's are all scalars, which is what `isValeAlertReport` keys on rather than sniffing for `Code`.
+- 2026-08-07 — step 3 incidental, for step 4's rule authoring: **vale flattens a multi-line rule message
+  itself** — a YAML `message: |-` block came back as one space-joined line, so `key()`'s whitespace
+  collapse never fires on real vale output (it is pinned with a synthetic payload instead). Also
+  re-confirmed: vale's `%s` substitutes the *matched* casing, so `There is` and `there is` are two
+  distinct messages and therefore two distinct baseline keys — the same rule firing on both casings in
+  one file grandfathers as two entries, not one.

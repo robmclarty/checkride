@@ -1,0 +1,38 @@
+{
+  "docs/tools.md": [
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        13,
+        24
+      ],
+      "Check": "Repo.Hedge",
+      "Description": "",
+      "Link": "",
+      "Message": "'more or less' hedges — say the thing or cut it.",
+      "Severity": "warning",
+      "Match": "more or less",
+      "Line": 5
+    },
+    {
+      "Action": {
+        "Name": "",
+        "Params": null
+      },
+      "Span": [
+        40,
+        46
+      ],
+      "Check": "Repo.Hedge",
+      "Description": "",
+      "Link": "",
+      "Message": "'sort of' hedges — say the thing or cut it.",
+      "Severity": "warning",
+      "Match": "sort of",
+      "Line": 5
+    }
+  ]
+}

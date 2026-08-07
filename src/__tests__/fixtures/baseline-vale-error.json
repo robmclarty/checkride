@@ -1,0 +1,7 @@
+{
+  "Line": 0,
+  "Path": "/home/ci/repo/.vale.ini",
+  "Text": "The path '/home/ci/repo/.vale/styles' does not exist.",
+  "Code": "E201",
+  "Span": 1
+}

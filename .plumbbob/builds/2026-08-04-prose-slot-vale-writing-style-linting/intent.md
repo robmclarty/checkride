@@ -94,7 +94,7 @@ checkride.config.json  "prose": { "use": "vale", "args": [...paths] }
    - seam: `src/adapters.ts`, `src/__tests__/adapters.test.ts`, `test/e2e/defaults.e2e.test.ts`
    - model: sonnet — mechanical, fully specified by the done-when
 
-2. [ ] feat(prose): scaffold a hermetic vale config and house style — **done when:** `checkride init --add prose` into a temp dir writes `.vale.ini` plus `.vale/styles/Repo/*.yml`, running vale there against a fixture with a planted doubled word exits 1 while a clean fixture exits 0 (the weasel rule ships disabled — D15), and a scratch fixture with a real-directory `node_modules/` records in the build log whether bare `vale .` descends into it (a yes reopens D10's default `.`) (was Q11)
+2. [x] feat(prose): scaffold a hermetic vale config and house style — **done when:** `checkride init --add prose` into a temp dir writes `.vale.ini` plus `.vale/styles/Repo/*.yml`, running vale there against a fixture with a planted doubled word exits 1 while a clean fixture exits 0 (the weasel rule ships disabled — D15), and a scratch fixture with a real-directory `node_modules/` records in the build log whether bare `vale .` descends into it (a yes reopens D10's default `.`) (was Q11)
    - seam: `templates/shared/vale.ini`, `templates/shared/styles/Repo/`, `src/init.ts`, `src/__tests__/init.test.ts`, `cspell.json`
    - model: opus — the rule set is the product here, and D8 is a taste call
 

@@ -29,6 +29,8 @@ const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8'
 const OXLINT = read('baseline-oxlint.json');
 const AST_GREP = read('baseline-ast-grep.json');
 const CSPELL = read('baseline-cspell.txt');
+const VALE = read('baseline-vale.json');
+const VALE_ERROR = read('baseline-vale-error.json');
 
 function sink(): Out {
   return { write: () => true };
@@ -101,6 +103,47 @@ describe('runBaseline', () => {
     const written = await readBaseline();
     // Every fingerprintable slot that ran is present; each is empty since nothing failed.
     expect(written.slots).toEqual({ lint: [], struct: [], spell: [] });
+  });
+
+  test('a red prose slot is captured, and the capture masks it green', async () => {
+    const proseSlots = [{ name: 'lint' }, { name: 'prose' }];
+    const proseAdapters = [...adapters, fakeAdapter({ name: 'vale', slot: 'prose', outputFile: 'prose.json' })];
+    await runBaseline({
+      cwd: dir,
+      slots: proseSlots,
+      adapters: proseAdapters,
+      config: null,
+      runner: runnerFor({ lint: OXLINT, prose: VALE }),
+      stdout: sink(),
+      stderr: sink(),
+    });
+    const keys = (await readBaseline()).slots['prose'] ?? [];
+    const current = fingerprint('vale', VALE) ?? new Set<string>();
+
+    expect(new Set(keys)).toEqual(current);
+    expect(applyBaseline(current, keys, false)).toEqual({ ok: true, baselined: keys.length, newKeys: [] });
+  });
+
+  test('a prose run vale could not read is omitted, never captured as clean', async () => {
+    // An E201 report reads as an alert report with zero alerts unless the
+    // extractor is shape-aware; capturing `prose: []` from one would grandfather
+    // nothing and prune everything the next ratchet touched.
+    const proseSlots = [{ name: 'lint' }, { name: 'prose' }];
+    const proseAdapters = [...adapters, fakeAdapter({ name: 'vale', slot: 'prose', outputFile: 'prose.json' })];
+    await runBaseline({
+      cwd: dir,
+      slots: proseSlots,
+      adapters: proseAdapters,
+      config: null,
+      runner: runnerFor({ lint: OXLINT, prose: VALE_ERROR }),
+      stdout: sink(),
+      stderr: sink(),
+    });
+    const written = await readBaseline();
+
+    // `lint` proves the run happened; `prose` is absent rather than empty.
+    expect(written.slots['lint']?.length).toBeGreaterThan(0);
+    expect(written.slots).not.toHaveProperty('prose');
   });
 
   test('skipped slots contribute nothing (no adapter, no output)', async () => {
@@ -274,6 +317,7 @@ describe('isFingerprintable', () => {
     expect(isFingerprintable('ast-grep')).toBe(true);
     expect(isFingerprintable('cspell')).toBe(true);
     expect(isFingerprintable('fallow')).toBe(true);
+    expect(isFingerprintable('vale')).toBe(true);
     expect(isFingerprintable('tsc')).toBe(false);
     expect(isFingerprintable('knip')).toBe(false);
   });
