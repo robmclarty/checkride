@@ -254,4 +254,12 @@ fine when the lanes are genuinely independent; five means you re-ranked nothing.
   then exactly one file. If you find yourself opening a second artifact before
   naming a cause, that is exploration, not triage.
 - **It does not touch the baseline.** `checkride baseline` hides findings
-  permanently; that is the human's call, never a triage step.
+  permanently; that is the human's call, never a triage step. One exception in
+  what you *propose*: when the run's stderr carries a
+  `hint: N of M new finding(s) were grandfathered until <sha>` line — or a
+  `baseline: … present but unparseable` warning — the wall of red is a
+  clobbered baseline, not new debt. The remedy to name is `checkride recover`
+  (restores the dropped entries from git history, additively), never
+  `checkride baseline`, whose re-capture would grandfather genuinely-new
+  findings along with the lost ones. Proposing it is still the deliverable;
+  running it is still the human's call.

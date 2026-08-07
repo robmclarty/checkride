@@ -70,6 +70,16 @@ entries from the baseline. The prune edits the file in the CI workspace only —
 it won't be committed unless you add a step that does; locally the next full
 run performs the same prune and the developer commits it.
 
+One failure mode worth knowing: a merge — often an agent resolving a conflict
+by deleting the "problem" lines — can silently drop baseline entries, and the
+next CI run becomes a wall of "new, not in baseline" findings. The run
+diagnoses this when it can: a red run whose new findings were grandfathered
+until a recent commit prints a `hint:` line naming that commit, and
+`checkride recover` restores the entries from git history additively. Both
+need that history to exist in the clone — `actions/checkout` defaults to
+`fetch-depth: 1`, which sees only the merged state — so run the recovery
+locally (where full history lives), or give the checkout more depth.
+
 ## Other package managers
 
 Replace the pnpm steps; the checkride invocation is identical.

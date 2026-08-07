@@ -71,6 +71,14 @@ anything new, and prunes entries as you fix them — the debt only ratchets down
 disable.) See [README § Baseline](../README.md#baseline) for the full
 mechanics.
 
+If the baseline is ever clobbered — a merge that drops entries, a conflict
+resolution that mangles the JSON — the run says so: an unparseable file gets a
+stderr warning, and a red run whose "new" findings were grandfathered until a
+recent commit prints a `hint:` line naming it. `checkride recover` then
+restores the entries from git history additively. Don't reach for
+`checkride baseline` to fix that — a re-capture would grandfather every
+genuinely-new finding along with the lost ones.
+
 `init` also makes sure the `.check/` output directory is gitignored — it
 appends `.check/` to your `.gitignore`, or creates one. If you adopted with an
 older checkride and `.check/` is showing up in `git status`, add the line

@@ -222,7 +222,9 @@ mistake as trusting it.
   it stops being a measurement.
 - **No fixing, and no baseline.** Proposing `checkride fix` or a specific hand
   edit is the deliverable; applying it is the next request. `checkride baseline`
-  hides findings permanently and stays the human's call.
+  hides findings permanently and stays the human's call — as does
+  `checkride recover`, which `/checkride:check` names (instead of `baseline`)
+  when the run's own warnings say the baseline was clobbered by a merge.
 
 ## See also
 

@@ -155,6 +155,12 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
+checkride recover      Rebuild checkride.baseline.json candidates from git history
+                       and restore one (bare `recover` lists them with deltas).
+  --pick <n|sha|union> apply a candidate — additive union with the current file
+  --exact      write the picked snapshot verbatim instead of the union
+  --dry-run    preview the per-slot delta; write nothing
+  --depth <n>  commits of file history to walk (default 25)
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip the hooks (write only the stanza)
@@ -477,7 +483,9 @@ conflict, resolve by keeping both sides' entries and running a full
 union self-heals, while a dropped entry that still fails simply resurfaces as
 a red check. When a merge went badly anyway — entries deleted wholesale, or a
 file so mangled it no longer parses (a run says so on stderr and treats it as
-no baseline at all) — `checkride recover` rebuilds candidate states from the
+no baseline at all) — the run diagnoses what it can: a red run whose "new"
+findings were grandfathered until a recent commit prints a `hint:` line naming
+that commit. `checkride recover` then rebuilds candidate states from the
 file's git history and restores one additively; see `checkride recover --help`.
 **Deliberate re-baseline:** `checkride baseline` re-records
 *everything* currently failing — including brand-new debt you might rather

@@ -125,6 +125,8 @@ or the new complete version. This one is worth stating plainly: a half-written
 summary that a gate then misreads would be a correctness bug in *the
 consumer's* gate, caused by *checkride's* crash. Pushing that risk onto a
 consumer is exactly the kind of thing a foundation isn't allowed to do.
+`checkride recover`'s restore rides the same path — the baseline it rewrites
+is temp-and-renamed like every other artifact, never edited in place.
 
 **The interrupt story is tested, not asserted.** An end-to-end test kills a run
 in flight and checks that `.check/` is either previous-run-consistent or

@@ -68,6 +68,22 @@ rewrite your contract file.
 | `checkride hooks add [a,b]` | Install the named hooks (default: all). |
 | `checkride hooks remove <a,b>` | Tear out the named hooks — entry + generated script. An explicit list is required. |
 
+## `checkride recover`
+
+Restore `checkride.baseline.json` from git history after a merge dropped or
+mangled entries (missing entries fail closed — that's the wall of red). Bare
+`recover` lists up to five distinct committed states plus their union, with
+`+restored/−absent` deltas against the current file; picking one writes an
+ordinary working-tree edit to review and commit — never a `git checkout`.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--pick <n\|sha\|union>` | Apply a listed candidate — the additive union with the current file (the sha is the stable handle for scripts). |
+| `--exact` | Write the picked snapshot verbatim instead of the union. Refused while the file has uncommitted changes. |
+| `--dry-run` | Preview the per-slot delta; write nothing. |
+| `--depth <n>` | Commits of file history to walk (default 25). |
+| `--json` | Machine listing / apply result on stdout. |
+
 Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.
 
 ## npm-script aliases
@@ -152,6 +168,7 @@ output for structured diagnostics. On a big repo, `--digest` writes a capped
 | Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes the hooks (gate + edit marker + baseline guard) for Claude Code and Cursor |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
 | Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
+| Wall of "new, not in baseline" right after a merge (or a `hint:` line names a commit) | `checkride recover` lists restorable baseline states; `--pick <sha>` restores additively — not `checkride baseline`, which would grandfather new debt too |
 | Gate says "could not run", not red | Nothing ran; it is the environment, not the code. Usually the hook's Node: harnesses run hooks in a non-login shell. See [Node pins and hook context](./tools.md#node-pins-and-hook-context) |
 | The hook's Node is not the one your shell has | Add a `.nvmrc` and checkride aligns the gate to it, or set `CHECKRIDE_NODE_BIN=<bin dir>` (`off` disables) |
 | "Do the tests actually test anything?" | `checkride qa`, or `/checkride:qa` — same reader, reads the quality artifacts |
