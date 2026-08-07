@@ -1,6 +1,6 @@
 {
   "name": "checkride",
-  "version": "0.11.2",
+  "version": "0.12.0",
   "description": "An agent harness for code repositories: one command that is the definition of done, plus mechanically enforced module boundaries. TypeScript-first, not TypeScript-only.",
   "license": "Apache-2.0",
   "author": "Rob McLarty",

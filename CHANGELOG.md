@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-08-07
 
 ### Added
 
@@ -31,13 +31,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   list with a truncation note; a repo with no committed baseline history says so
   at exit 0.
 
-- **A mangled baseline now explains itself.** A committed
+- **A mangled or plundered baseline now explains itself.** A committed
   `checkride.baseline.json` that no longer parses (a botched merge, usually)
   used to be indistinguishable from having no baseline: every grandfathered
   finding reported red with no hint why. A run now prints one stderr line under
   the summary naming the file as present-but-unparseable and pointing at
   `checkride recover`; `checkride doctor` grows an advisory workspace row with
-  the same diagnosis (and the key count when the file is healthy).
+  the same diagnosis (and the key count when the file is healthy). And when the
+  file parses but a merge silently dropped entries, a red run probes git history
+  (best-effort, bounded at 750 ms, silent on any failure) and prints one hint —
+  `N of M new finding(s) were grandfathered until <sha>` — naming
+  `checkride recover` as the remedy, so a wall of red arrives with its diagnosis
+  attached.
 
 ### Changed
 
@@ -47,6 +52,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   insertion-order diff churn — the README's "the file is canonical" claim is now
   true on disk, not just in comparisons.
 
+- **`DoctorEnv` gained a required `readText` probe** (it feeds doctor's new
+  baseline row). The type sits outside the promised programmatic surface, but a
+  TypeScript consumer injecting a custom `env` into `runDoctor` adds one field
+  on upgrade.
+
 ### Contract
 
 - New command `checkride recover` with `--pick <n|sha|union>`, `--exact`,
@@ -55,6 +65,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checkride.baseline.json` atomically and never mutates git state. Exit codes
   are 0 and 2 only — never 1. Additive; every existing command and flag is
   unchanged.
+
+### Internal
+
+- The website caught up with the product and can no longer drift: a new
+  `agents.html` covers the bundled plugin, the Claude Code / Cursor
+  asymmetries, and the "could not run" verdict; the command reference gained
+  `recover`, `hooks`, `gate`, `triage`, and `qa`; and `test/site.test.ts` +
+  cspell now hold `site/` under `pnpm check` (inline scripts must parse, the
+  command and slot tables must track `CLI_COMMANDS` and `SLOTS`, internal links
+  must resolve). Every baseline-adjacent doc (README, getting-started, CI,
+  cheatsheet, plugin skill) now routes a clobbered baseline to `recover`.
 
 ## [0.11.2] - 2026-08-04
 
@@ -1756,6 +1777,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.0]: https://www.npmjs.com/package/checkride/v/0.12.0
 [0.11.2]: https://www.npmjs.com/package/checkride/v/0.11.2
 [0.11.1]: https://www.npmjs.com/package/checkride/v/0.11.1
 [0.11.0]: https://www.npmjs.com/package/checkride/v/0.11.0
