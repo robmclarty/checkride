@@ -546,6 +546,34 @@ describe('existing-project adoption (idempotent)', () => {
     }
   });
 
+  test('--add prose scaffolds a vale config that points at the style it also writes', async () => {
+    // The pair is the point: .vale.ini is nothing but a pointer at a
+    // StylesPath, and vale run against an empty one reports nothing at all —
+    // a green check that checked no prose. Assert the pointer resolves.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    const result = await runInit({ cwd: dir, add: ['prose'], probeFailures: noFailures });
+
+    const ini = await readFile(join(dir, '.vale.ini'), 'utf8');
+    const stylesPath = /^StylesPath\s*=\s*(\S+)$/m.exec(ini)?.[1];
+    expect(stylesPath).toBe('.vale/styles');
+    for (const rule of ['Latin.yml', 'LyHyphen.yml', 'ThereIs.yml', 'Weasel.yml']) {
+      expect(existsSync(join(dir, stylesPath ?? '', 'Repo', rule)), rule).toBe(true);
+    }
+    expect(result.written).toContain('.vale.ini');
+
+    // cspell owns spelling (D2) and the vocabulary file is the same wordlist
+    // through another door (D17); both stay off, or adopting `prose` hands the
+    // repo a second dictionary to maintain.
+    expect(ini).toMatch(/^Vale\.Spelling\s*=\s*NO$/m);
+    expect(ini).toMatch(/^Vale\.Terms\s*=\s*NO$/m);
+    // The subjective rule ships in the style but disabled in the config.
+    expect(ini).toMatch(/^Repo\.Weasel\s*=\s*NO$/m);
+
+    // prose is opt-in: scaffolding its config does not enable it in checks.
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    expect(cfg.checks['prose']).toBeUndefined();
+  });
+
   test('--add never clobbers a config that already exists', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, '.oxlintrc.json'), '{"sentinel":true}');

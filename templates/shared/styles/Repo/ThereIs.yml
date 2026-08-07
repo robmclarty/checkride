@@ -1,0 +1,10 @@
+# `There is a flag that controls X` spends its subject position on a word that
+# names nothing, then makes the reader wait for the real subject. Naming the
+# thing first is shorter every time: `A flag controls X`.
+extends: existence
+message: "'%s' postpones the subject — name the thing that acts, then act."
+level: error
+ignorecase: true
+tokens:
+  - 'there (is|are|was|were)'
+  - "there'?s"

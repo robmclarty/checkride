@@ -90,7 +90,7 @@ checkride.config.json  "prose": { "use": "vale", "args": [...paths] }
 
 ## Steps
 
-1. [ ] feat(prose): add the prose slot and vale adapter to the registry — **done when:** `pnpm check --bail --only types,lint,test` is green with `adapters.test.ts` asserting `prose` → `vale` as blessed default, `optIn: true`, `detect: ['.vale.ini', '_vale.ini']`, no `detectDeps` (D4), `outputFile: 'prose.json'`, and args carrying `--no-global` (D9), `--output=JSON`, and the trailing default path `.` (D10 — vale lints nothing without a path argument)
+1. [x] feat(prose): add the prose slot and vale adapter to the registry — **done when:** `pnpm check --bail --only types,lint,test` is green with `adapters.test.ts` asserting `prose` → `vale` as blessed default, `optIn: true`, `detect: ['.vale.ini', '_vale.ini']`, no `detectDeps` (D4), `outputFile: 'prose.json'`, and args carrying `--no-global` (D9), `--output=JSON`, and the trailing default path `.` (D10 — vale lints nothing without a path argument)
    - seam: `src/adapters.ts`, `src/__tests__/adapters.test.ts`, `test/e2e/defaults.e2e.test.ts`
    - model: sonnet — mechanical, fully specified by the done-when
 

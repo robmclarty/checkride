@@ -1014,6 +1014,21 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
   test: [['shared/vitest.config.ts.template', 'vitest.config.ts']],
   docs: [['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc']],
   spell: [['shared/cspell.json', 'cspell.json']],
+  // `prose` is the one slot whose config alone scaffolds nothing usable: vale's
+  // .vale.ini is a pointer at a StylesPath, and an empty StylesPath lints
+  // nothing. The rules are the deliverable, so they come with it. They are the
+  // repo's from the moment they land — plain YAML, no `vale sync`, no upstream
+  // to track — which is also why `struct`'s restraint does not apply here:
+  // ast-grep's extra rules assert what the repo's code already is, while these
+  // assert nothing about code at all, and a prose rule the author disagrees
+  // with is deleted in one line.
+  prose: [
+    ['shared/vale.ini', '.vale.ini'],
+    ['shared/styles/Repo/Latin.yml', '.vale/styles/Repo/Latin.yml'],
+    ['shared/styles/Repo/LyHyphen.yml', '.vale/styles/Repo/LyHyphen.yml'],
+    ['shared/styles/Repo/ThereIs.yml', '.vale/styles/Repo/ThereIs.yml'],
+    ['shared/styles/Repo/Weasel.yml', '.vale/styles/Repo/Weasel.yml'],
+  ],
 };
 
 /** `--add <slots>`: scaffold blessed-default configs for the named empty slots. */

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** 1 — feat(prose): add the prose slot and vale adapter to the registry
+**Current step:** 2 — feat(prose): scaffold a hermetic vale config and house style
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -23,7 +23,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 line above. Only ONE step is in flight; a step is done only after a checkpoint —
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
-- ☐ 1. feat(prose): add the prose slot and vale adapter to the registry
+- ☑ 1. feat(prose): add the prose slot and vale adapter to the registry
 - ☐ 2. feat(prose): scaffold a hermetic vale config and house style
 - ☐ 3. feat(prose): fingerprint vale findings into the baseline
 - ☐ 4. chore(prose): enable the prose slot on checkride itself
@@ -61,3 +61,35 @@ fills in as you go, not at the end. Add your own decision/event lines too: this 
 you point at to say "I did that — the LLM helped, but those were my calls."
 `/plumbbob:finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
+- 2026-08-07 — step 1 checkpointed · fc7ee5c55 — feat(prose): add the prose slot and vale adapter to the registry (1 drift, 5m)
+- 2026-08-07 — **step 2 finding (was Q11): bare `vale .` does NOT descend into `node_modules/`.**
+  Verified against the pinned `@vvago/vale` 3.17.1 binary in a scratch fixture with a *real*
+  directory `node_modules/some-pkg/` (real files, no symlinks — the symlink theory was the
+  reason to doubt the earlier pnpm-repo observation). Vale skipped it at the root **and**
+  nested at `pkgs/app/node_modules/dep/`, so the skip is by directory *name*, at any depth,
+  not by content. `.git/` is skipped the same way. A directory renamed `vendor_modules/`
+  **was** walked, confirming the name is the trigger; and an explicit path *into*
+  `node_modules/` is still linted, so the skip is a walk rule, not a file filter.
+  **D10's default `.` stands — not reopened.** The earlier finding is unchanged and still the
+  reason this repo overrides `args`: vale reads no `.gitignore` and walks `dist/`,
+  `.stryker-tmp/`, `.plumbbob/`, `.claude/`, and `research/` happily.
+- 2026-08-07 — step 2 verification, same 3.17.1 binary against the scaffold `--add prose` wrote:
+  clean fixture exit 0; planted doubled word exit 1 (`Vale.Repetition`), in `.md` **and** inside
+  a `.ts` doc comment (D5's `[formats] ts = js` re-confirmed at this version); all four enabled
+  rules fire on one line while `Repo.Weasel` stays silent on a planted `very` (D15). D6's
+  premise re-verified here too: a warning-severity rule produced three alerts and **exit 0**,
+  and they still appear in the JSON — which is why the scaffold pins `MinAlertLevel = suggestion`
+  rather than `error` (raising it hides the advisory half instead of silencing it).
+- 2026-08-07 — step 2 rule-set calibration (informational; step 4 owns the tuning). The shipped
+  default over this repo's `README.md AGENTS.md CONTRIBUTING.md docs src` finds **112** — down
+  from the naive prototype's 373 — split 36 markdown / 76 TS comments: ThereIs 61, Latin 28,
+  LyHyphen 21, Repetition 2. False-positive audit: **all 21 LyHyphen hits are true positives**
+  (`normally-default`, `fully-observed`, `silently-empty`, …) — vale's RE2 has no lookahead, so
+  the non-adverb `-ly` words are handled by an `exceptions:` list, verified to match on whole
+  words (`only` does not suppress `commonly-used`). The only false positives in the whole run
+  are Repetition's two, on `'A A'`/`'B B'` placeholder identifiers in a test fixture. A separate
+  edge fixture (URLs, inline code spans, fenced blocks, exception words) scored **zero** alerts.
+- 2026-08-07 — step 2 incidental, corroborates D13 (for step 5's docs): getting a 3.17.1 binary to
+  verify against meant `npm install @vvago/vale@3.17.1` in a scratch dir, and `node_modules/.bin/vale`
+  **did not exist** afterwards — the binary was only reachable at `node_modules/@vvago/vale/bin/vale`.
+  D13's npm bin-shim caveat is not theoretical; it reproduced on the first try.
