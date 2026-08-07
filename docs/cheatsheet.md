@@ -120,6 +120,8 @@ check between two later without shifting the others.
 | `lint` | Linting | `oxlint` | yes |
 | `struct` | Structural rules | `ast-grep` | yes |
 | `dead` | Dead code, deps, cycles, boundaries | `fallow` | yes |
+| `dupes` | Code duplication | `fallow` | opt-in |
+| `health` | Complexity / maintainability | `fallow` | opt-in |
 | `test` | Tests + coverage | `vitest` | yes |
 | `docs` | Markdown lint | `markdownlint-cli2` | yes |
 | `links` | Relative markdown links resolve | built-in | yes |

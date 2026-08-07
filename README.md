@@ -204,8 +204,12 @@ generates config for the blessed default.
 | `prose`    | Writing style (opt-in)                 | `vale`              | —                |
 | `mutation` | Mutation testing (opt-in)              | `stryker`           | —                |
 | `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |
+| `build`    | Runs the consumer's build script (opt-in) | `<pm> run build` | —                |
 | `publint`  | Package publishing lint (opt-in)       | `publint`           | —                |
 | `attw`     | Type resolution across module systems (opt-in) | `attw --pack`| —                |
+| `pack`     | Tarball ships the right files (opt-in) | built-in            | —                |
+| `smoke`    | Built package imports cleanly (opt-in) | built-in            | —                |
+| `snippets` | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
 
 Most of these tools you already know. The one unfamiliar name, `fallow`, is a
 Rust-native codebase-analysis tool covering dead code, duplication, and
@@ -217,7 +221,8 @@ exists, and skips slots with no detected tool. The core has **no runtime
 dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
 
-**Opt-in slots** (`format`, `prose`, `mutation`, `security`, `publint`, `attw`) stay out of the
+**Opt-in slots** (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `build`,
+`publint`, `attw`, `pack`, `smoke`, `snippets`) stay out of the
 default run so adopting checkride — or bumping its version — never turns a repo red on a
 check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming
 it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
