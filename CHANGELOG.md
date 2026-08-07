@@ -4,6 +4,50 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-08-07
+
+### Added
+
+- **A `prose` slot for writing-style linting**, powered by `vale`. Opt-in like
+  `format`, it checks markdown and TypeScript doc comments (via a JS format
+  mapping, so code and string literals stay untouched) for doubled words,
+  Latin abbreviations (`e.g.`/`i.e.`/`etc.`), hyphenated `-ly` adverbs,
+  sentence-initial "There is", weasel words (off by default — the one
+  subjective rule), and the lexical fingerprints of AI-generated prose:
+  overused vocabulary like `delve`/`tapestry`/`meticulous`, stock frames like
+  "it's not just X — it's Y", and the minted corporate dialect (`the ask`,
+  `learnings`, `leverage`/`utilize` as verbs). `init --add prose` scaffolds a
+  hermetic, repo-owned vale config and six house-style rule files under
+  `.vale/styles/Repo/` — no upstream package, no `vale sync` needed on the
+  default path. Findings ratchet through the shared baseline the same way
+  `lint`/`struct`/`spell` already do. `spell` keeps sole ownership of
+  spelling; the scaffold disables vale's own dictionary and vocabulary
+  checks to avoid a second, conflicting wordlist.
+- **An `exemplars` config key on the `prose` slot**, for anchoring voice
+  rather than just policing vocabulary. Point it at a directory of
+  hand-written prose and the generated AGENTS.md stanza tells writing
+  sessions to read and imitate it before touching markdown or doc comments —
+  and never to edit or add to it, since a generated "improvement" would
+  replace the human original with a copy of the model's own register. The
+  check itself fails if the named directory is missing or empty, so a stale
+  config can't stay green; checkride never scores prose against the
+  exemplars, since judging voice deliberately stays a human call.
+
+### Fixed
+
+- The README's slot table, its opt-in-slots sentence, the cheat sheet's
+  pipeline table, and the config schema's `checks` description had all
+  drifted out of sync with the slot registry over several releases (missing
+  the publish-ready bundle, missing `dupes`/`health`, undercounting opt-in
+  slots). Brought current and pinned by a new test that fails whenever a
+  slot is added without updating all four surfaces.
+
+### Internal
+
+- checkride now dogfoods its own `prose` slot: 112 initial findings fixed by
+  hand (11 subject-first rewrites, 28 Latin substitutions, 21 `-ly`-hyphen
+  drops), landing at zero findings with no baseline grandfathering needed.
+
 ## [0.12.0] - 2026-08-07
 
 ### Added
@@ -1777,6 +1821,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.1]: https://www.npmjs.com/package/checkride/v/0.12.1
 [0.12.0]: https://www.npmjs.com/package/checkride/v/0.12.0
 [0.11.2]: https://www.npmjs.com/package/checkride/v/0.11.2
 [0.11.1]: https://www.npmjs.com/package/checkride/v/0.11.1

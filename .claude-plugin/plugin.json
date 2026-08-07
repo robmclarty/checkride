@@ -1,7 +1,7 @@
 {
   "name": "checkride",
   "displayName": "checkride",
-  "version": "0.12.0",
+  "version": "0.12.1",
   "description": "Bounded, contract-aware readers for what checkride already writes: triage a red gate and read quality signal without loading megabytes of raw artifacts.",
   "author": { "name": "Rob McLarty", "email": "hello@robmclarty.com", "url": "https://robmclarty.com" },
   "homepage": "https://robmclarty.github.io/checkride/",
