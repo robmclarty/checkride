@@ -393,6 +393,7 @@ class Component extends DCLogic {
       ['docs',     'Markdown lint',                          'markdownlint-cli2', false, 'checkride fix runs markdownlint-cli2 --fix.'],
       ['links',    'Relative markdown links resolve',        'built-in',          false, 'No tool to install — checkride ships this one.'],
       ['spell',    'Spelling',                               'cspell',            false, 'Fingerprinted for the baseline like lint and struct.'],
+      ['prose',    'Writing style',                          'vale',              true,  'Opt-in. Style, not spelling — cspell keeps the word list.'],
       ['mutation', 'Mutation testing',                       'stryker',           true,  'Opt-in. Ships uncapped (timeout: 0) and runs exclusive — stryker takes a while.'],
       ['security', 'Dependency audit',                       'pnpm audit',        true,  'Opt-in. Fails on advisories at or above the configured severity.'],
       ['build',    "Runs the consumer's build script",       '<pm> run build',    true,  'Publish-ready bundle, wave 10 — fresh output for the wave-20 checks.'],

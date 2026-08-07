@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** none (at the boundary)
+**Current step:** 1 — feat(prose): add the prose slot and vale adapter to the registry
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -23,7 +23,11 @@ step boundaries. The antidote to "my plan got lost in the noise."
 line above. Only ONE step is in flight; a step is done only after a checkpoint —
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
-- ☐ 1. <step>
+- ☐ 1. feat(prose): add the prose slot and vale adapter to the registry
+- ☐ 2. feat(prose): scaffold a hermetic vale config and house style
+- ☐ 3. feat(prose): fingerprint vale findings into the baseline
+- ☐ 4. chore(prose): enable the prose slot on checkride itself
+- ☐ 5. docs(prose): document the prose slot and its division of labour with spell
 
 ## Park list
 

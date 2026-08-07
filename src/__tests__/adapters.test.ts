@@ -41,7 +41,8 @@ describe('registry invariants', () => {
     const blessed: Record<string, string> = {
       types: 'tsc', format: 'prettier', lint: 'oxlint', struct: 'ast-grep', dead: 'fallow',
       dupes: 'fallow', health: 'fallow', test: 'vitest',
-      docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', mutation: 'stryker', security: 'pnpm-audit',
+      docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', prose: 'vale',
+      mutation: 'stryker', security: 'pnpm-audit',
       build: 'build', publint: 'publint', attw: 'attw', pack: 'pack', smoke: 'smoke', snippets: 'snippets',
     };
     for (const slot of SLOTS) {
@@ -79,9 +80,9 @@ describe('registry invariants', () => {
     expect(names.indexOf('format')).toBeLessThan(names.indexOf('lint'));
   });
 
-  test('opt-in slots are format + fallow dupes/health + the trailing build/mutation/security/publint/attw/pack/smoke/snippets', () => {
+  test('opt-in slots are format + fallow dupes/health + prose + the trailing build/mutation/security/publint/attw/pack/smoke/snippets', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
-      'format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets',
+      'format', 'dupes', 'health', 'prose', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets',
     ]);
     expect(SLOTS.slice(-5).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke', 'snippets']);
   });
@@ -135,6 +136,42 @@ describe('registry invariants', () => {
     // The availability signature (`isAvailableUnder` reads command + args[0]).
     expect(pack?.command).toBe('pnpm');
     expect(pack?.args[0]).toBe('pack');
+  });
+
+  test('the prose slot is opt-in, filled by vale on its own config file alone (D3/D4)', () => {
+    const prose = SLOTS.find((s) => s.name === 'prose');
+    // Opt-in like format/dupes/health: adopting checkride never starts failing a
+    // repo on the writing style it never signed up for.
+    expect(prose?.optIn).toBe(true);
+    expect(prose?.order).toBeUndefined();
+    // Sits beside spell, its sibling: prose owns style, spell owns spelling.
+    const names = SLOTS.map((s) => s.name);
+    expect(names.indexOf('prose')).toBe(names.indexOf('spell') + 1);
+
+    const vale = ADAPTERS.find((a) => a.name === 'vale');
+    expect(vale?.slot).toBe('prose');
+    expect(adapterNames('prose')).toEqual(['vale']);
+    // Vale's own discovery names, and nothing else — no detectDeps, because vale
+    // hard-errors with no config file rather than running configless (D4).
+    expect(vale?.detect).toEqual(['.vale.ini', '_vale.ini']);
+    expect(vale?.detectDeps).toBeUndefined();
+    expect(vale?.outputFile).toBe('prose.json');
+    // The exit code is the verdict — vale exits 1 iff error-severity alerts
+    // exist, so there is no JSON gate to read (D6).
+    expect(vale?.gate).toBeUndefined();
+    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.1' });
+  });
+
+  test('the vale invocation pins --no-global, JSON output, and a trailing path (D9/D10)', () => {
+    const args = ADAPTERS.find((a) => a.name === 'vale')?.args ?? [];
+    // Without --no-global vale loads ~/.vale.ini and the verdict turns on the
+    // machine, which is what docs/reliability.md forbids of a gate (D9).
+    expect(args).toContain('--no-global');
+    expect(args).toContain('--output=JSON');
+    // The trailing `.` is not decoration: vale lints nothing without a path
+    // argument, and paths are how a repo scopes the walk (D10).
+    expect(args.at(-1)).toBe('.');
+    expect(args).toEqual(['exec', 'vale', '--no-global', '--output=JSON', '.']);
   });
 
   test('D4 wave defaults: mutation runs single, build wave 10, publint/attw/pack/smoke share wave 20, the rest default to any', () => {

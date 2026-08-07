@@ -129,6 +129,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'docs' },
   { name: 'links' },
   { name: 'spell' },
+  { name: 'prose', optIn: true },
   { name: 'mutation', optIn: true, order: 'single' },
   { name: 'security', optIn: true },
   { name: 'build', optIn: true, order: 10 },
@@ -380,6 +381,25 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
     outputFile: null,
     devDeps: { cspell: '10.0.1' },
+  },
+  {
+    name: 'vale',
+    slot: 'prose',
+    description: 'Vale: writing style (prose linting)',
+    // Vale's own config-discovery names, and the whole detection signal: no
+    // `detectDeps`, because vale hard-errors (E100, exit 2) with no config file
+    // — it is not configless-capable, so a repo that installed the tool but never
+    // wrote its config must not be opted in.
+    detect: ['.vale.ini', '_vale.ini'],
+    command: 'pnpm',
+    // `--no-global` keeps the verdict off ~/.vale.ini, so a check means the same
+    // thing on every machine. The trailing `.` is load-bearing: vale lints
+    // nothing at all without a path argument. It also reads no .gitignore and
+    // skips no hidden directory, so a repo narrows the walk by overriding
+    // `args` with explicit paths — the same way this one already does for lint.
+    args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
+    outputFile: 'prose.json',
+    devDeps: { '@vvago/vale': '3.17.1' },
   },
   {
     name: 'stryker',

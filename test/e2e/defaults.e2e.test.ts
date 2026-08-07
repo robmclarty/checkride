@@ -60,7 +60,7 @@ const DETECTED: { file: string; body: string; slot: string; adapter: string }[] 
 const ALWAYS: { slot: string; adapter: string }[] = [{ slot: 'links', adapter: 'links' }];
 
 /** Opt-in slots: configured or not, they stay out of the default run. */
-const OPT_IN = ['format', 'dupes', 'health', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets'];
+const OPT_IN = ['format', 'dupes', 'health', 'prose', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets'];
 
 async function doctor(dir: string): Promise<Report> {
   const { stdout } = await execFileP('node', [CLI, 'doctor', '--json'], { cwd: dir, ...BIG })
