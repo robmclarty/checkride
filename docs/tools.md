@@ -211,6 +211,7 @@ present (built-in checks always run). The default tool per slot:
 | `docs` | `markdownlint-cli2` | `pnpm add -D markdownlint-cli2` | `.markdownlint-cli2.jsonc` |
 | `links` | built-in | — (always available) | — |
 | `spell` | `cspell` | `pnpm add -D cspell` | `cspell.json` |
+| `prose` | `vale` (opt-in) | `pnpm add -D @vvago/vale` | `.vale.ini` |
 | `mutation` | `stryker` | `pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner` | `stryker.config.mjs` |
 | `security` | `pnpm audit` | — (built into pnpm) | — (opt-in) |
 | `publint` | `publint` | `pnpm add -D publint` | — (opt-in) |
@@ -221,8 +222,8 @@ present (built-in checks always run). The default tool per slot:
 | `snippets` | built-in (opt-in) | — (built-in) | tagged doc fences (README + `docs/*.md`) |
 
 Note the npm package names differ from the binary names: `ast-grep` ships in the
-`@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, and `attw`
-ships in `@arethetypeswrong/cli`.
+`@ast-grep/cli` package, `stryker` ships in `@stryker-mutator/core`, `attw`
+ships in `@arethetypeswrong/cli`, and `vale` ships in `@vvago/vale`.
 
 The `mutation` slot ships **uncapped** (`timeout: 0`) by default — the one
 catalogue slot that does. A real stryker run legitimately takes fifteen to twenty
@@ -471,6 +472,131 @@ those files:
   `import-linter` (Python), `depguard` (Go), `dependency-cruiser` (JS) —
   express it as a [custom check](#when-to-write-a-custom-check) that runs that
   tool, rather than forcing it into an ast-grep rule.
+
+## The `prose` slot: writing style
+
+`prose` gates the writing itself — doubled words, sentence-initial `There is`,
+Latin abbreviations, hyphenated `-ly` adverbs — across markdown **and
+TypeScript doc comments**. It runs `vale` against a house style your repo owns
+under `.vale/styles/`, detected on `.vale.ini` (or `_vale.ini`, vale's other
+discovery name). The slot is **opt-in**, like `format`: adopting checkride
+never starts failing a repo on writing style it never signed up for.
+
+### Enabling it
+
+`init --add prose` writes the config files only, like every `--add` — the tool
+is its own install, and under pnpm the package needs a build approval first,
+because `@vvago/vale` downloads its Go binary in a `postinstall` script that
+pnpm blocks by default. Three steps:
+
+```yaml
+# 1. pnpm-workspace.yaml — approve the postinstall
+allowBuilds:
+  '@vvago/vale': true
+```
+
+```bash
+# 2. scaffold the style, install the tool (pinned exact)
+pnpm exec checkride init --add prose   # writes .vale.ini + .vale/styles/Repo/
+pnpm add -D -E @vvago/vale
+```
+
+```jsonc
+// 3. checkride.config.json — opt the slot in
+"checks": {
+  "prose": { "use": "vale" }
+}
+```
+
+Skip step 3 to keep the slot out of the default run and reach it with
+`--include prose` or `--all` instead.
+
+### Why cspell stays
+
+vale does not supersede `spell`, and the scaffold makes sure the two never
+compete. vale reads only markup and code *comments* — never an identifier,
+never a string literal — so it cannot replace a spell checker that covers
+code. And its plain `en_US` dictionary flags the technical vocabulary
+(`tsconfig`, `oxlint`, `devDeps`) that cspell's programming dictionaries
+accept, so you would not want it to. The scaffolded `.vale.ini` sets
+`Vale.Spelling = NO` and `Vale.Terms = NO`: one wordlist, one owner per
+question — `spell` answers "is this a word?", `prose` answers "does this
+sentence stumble?".
+
+### The verdict, and the `warning` edge
+
+vale's exit code is honest — non-zero exactly when error-severity alerts
+exist — so checkride trusts it as the verdict, where the fallow slots get
+their JSON read instead. The edge worth knowing: demote a rule to `warning`
+and it keeps printing while losing the power to turn the slot red. That is a
+deliberate advisory tier, but it means severity is the on/off switch for
+gating — which is why the scaffold ships every enabled rule at `error`, and
+sets `MinAlertLevel = suggestion` so the advisory levels stay visible.
+Raising `MinAlertLevel` stops the reporting, not the rule.
+
+Findings land in the shared baseline: `checkride baseline` fingerprints each
+error-severity alert (file + rule + message) into `checkride.baseline.json`,
+grandfathering today's findings and ratcheting forward exactly as it does for
+`lint`/`struct`/`spell`. Warnings are never fingerprinted — an alert that
+cannot gate has no business in a gate's ledger.
+
+### Scoping: vale reads no `.gitignore`
+
+vale walks everything under the paths it is handed — no `.gitignore`, no
+hidden-directory skip — so a bare `vale .` descends into `dist/`, tool
+caches, and agent scratch directories. The default args end with `.` so a
+fresh repo works at all; scope a real one by overriding `args` with explicit
+paths, the same move this repo's `lint` entry makes:
+
+```jsonc
+"prose": {
+  "use": "vale",
+  "args": ["exec", "vale", "--no-global", "--output=JSON",
+           "README.md", "docs", "src"]
+}
+```
+
+Keep `--no-global` — it stops vale loading `~/.vale.ini`, which would hang the
+verdict on machine state — and keep `--output=JSON`, which is how findings
+reach `.check/prose.json`. The paths are the only scoping mechanism; the slot
+has no `exclude` key, so a second mechanism never has to be kept consistent
+with the first.
+
+TypeScript rides on the scaffolded `[formats] ts = js` mapping: vale has no
+native `.ts` format, and JavaScript mode lints doc comments while leaving code
+and string literals alone. For markdown only, drop the source directories from
+the path list.
+
+### Where the styles live — and `vale sync`
+
+The scaffold sets `StylesPath = .vale/styles` and writes the house rules to
+`.vale/styles/Repo/`. vale's published convention is a top-level `styles/`
+directory; checkride diverges on purpose, because a top-level `styles/`
+collides with what that name means in a frontend repo. Everything in vale's
+documentation still applies — only the path moved.
+
+The shipped rules are plain YAML committed to your repo: no download, no
+upstream, nothing to keep in sync. Each enabled rule is mechanical — a doubled
+word is a doubled word in anyone's voice — and the one taste rule,
+`Repo.Weasel`, ships disabled in `.vale.ini`, one edit from on, so the
+subjective half is opted into deliberately. Disagree with a rule? Edit or
+delete its file rather than suppressing findings line by line.
+
+To adopt a published third-party style — Google, Microsoft, `write-good` —
+add a `Packages` line to `.vale.ini` and run `pnpm exec vale sync` yourself:
+it downloads packages into `StylesPath`, so re-run it when you add or bump a
+package. It is a setup command, never part of a check — a check never touches
+the network — which is also why the scaffold's default path needs no sync at
+all.
+
+### Under npm
+
+`@vvago/vale` produces its binary in that `postinstall` script, and npm writes
+no bin shim for a binary that exists only after install scripts run — so under
+npm, `npx --no-install vale` has nothing to resolve and the slot fails at tool
+resolution, naming the tool. Run this slot under pnpm, or install vale by a
+route that leaves a runnable `node_modules/.bin/vale`. Like `security`, it is
+a manager-limited slot that says so rather than degrading quietly.
 
 ## Turning a slot off
 

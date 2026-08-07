@@ -201,6 +201,7 @@ generates config for the blessed default.
 | `docs`     | Markdown lint                          | `markdownlint-cli2` | —                |
 | `links`    | Relative markdown links resolve        | built-in            | —                |
 | `spell`    | Spelling                               | `cspell`            | —                |
+| `prose`    | Writing style (opt-in)                 | `vale`              | —                |
 | `mutation` | Mutation testing (opt-in)              | `stryker`           | —                |
 | `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |
 | `publint`  | Package publishing lint (opt-in)       | `publint`           | —                |
@@ -216,7 +217,7 @@ exists, and skips slots with no detected tool. The core has **no runtime
 dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
 
-**Opt-in slots** (`format`, `mutation`, `security`, `publint`, `attw`) stay out of the
+**Opt-in slots** (`format`, `prose`, `mutation`, `security`, `publint`, `attw`) stay out of the
 default run so adopting checkride — or bumping its version — never turns a repo red on a
 check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by **naming
 it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every

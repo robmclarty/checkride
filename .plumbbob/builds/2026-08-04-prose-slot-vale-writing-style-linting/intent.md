@@ -102,7 +102,7 @@ checkride.config.json  "prose": { "use": "vale", "args": [...paths] }
    - seam: `src/baseline/fingerprint.ts`, `src/__tests__/baseline-fingerprint.test.ts`
    - model: sonnet — mirrors the existing oxlint/ast-grep extractors
 
-4. [ ] chore(prose): enable the prose slot on checkride itself — **done when:** `pnpm check` exits 0 with `prose` green in `.check/summary.json`, having actually run over `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/`, and `src/`, with source-comment findings counted separately from markdown findings while tuning (D5 — `.ts` drops from the path list if the comment half is mostly directives and false positives), and `test/dogfood-config.test.ts` asserting every tracked `.md` outside a known-excluded set is reachable from the configured `prose` paths (D10)
+4. [x] chore(prose): enable the prose slot on checkride itself — **done when:** `pnpm check` exits 0 with `prose` green in `.check/summary.json`, having actually run over `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/`, and `src/`, with source-comment findings counted separately from markdown findings while tuning (D5 — `.ts` drops from the path list if the comment half is mostly directives and false positives), and `test/dogfood-config.test.ts` asserting every tracked `.md` outside a known-excluded set is reachable from the configured `prose` paths (D10)
    - seam: `.vale.ini`, `.vale/styles/Repo/`, `checkride.config.json`, `package.json`, `pnpm-workspace.yaml`, `cspell.json`, `test/dogfood-config.test.ts`
    - model: opus — tune the rules against Rob's actual voice first, then fix or baseline what survives; 373 findings from a naive rule set is the number to beat down, not to baseline wholesale
 

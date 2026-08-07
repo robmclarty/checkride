@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log — prose slot: vale writing-style linting
 
-**Current step:** 4 — chore(prose): enable the prose slot on checkride itself
+**Current step:** 5 — docs(prose): document the prose slot and its division of labour with spell
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -26,7 +26,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 1. feat(prose): add the prose slot and vale adapter to the registry
 - ☑ 2. feat(prose): scaffold a hermetic vale config and house style
 - ☑ 3. feat(prose): fingerprint vale findings into the baseline
-- ☐ 4. chore(prose): enable the prose slot on checkride itself
+- ☑ 4. chore(prose): enable the prose slot on checkride itself
 - ☐ 5. docs(prose): document the prose slot and its division of labour with spell
 
 ## Park list
@@ -34,6 +34,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > Mid-step, every new problem / idea / "ooh what if" lands HERE, untouched, and you
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
+- [ ] README opt-in list + schema checks description omit dupes/health and the publish bundle slots (build/pack/smoke/snippets)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -110,3 +111,4 @@ folder, so it rides the branch into the PR.)*
   distinct messages and therefore two distinct baseline keys — the same rule firing on both casings in
   one file grandfathers as two entries, not one.
 - 2026-08-07 — step 3 checkpointed · f415b3645 — feat(prose): fingerprint vale findings into the baseline (1 drift, 16m)
+- 2026-08-07 — step 4 checkpointed · 8b450a152 — chore(prose): enable the prose slot on checkride itself (1 drift, 22m)

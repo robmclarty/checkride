@@ -29,7 +29,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--concurrency <n>` | Max checks running at once within a wave (`1` = sequential; default is a conservative cap from the CPU count). |
 | `--only <a,b>` | Run only the named slots. |
 | `--skip <a,b>` | Run everything except the named slots. |
-| `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
+| `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--json` | Write machine-readable output to stdout. |
@@ -124,6 +124,7 @@ check between two later without shifting the others.
 | `docs` | Markdown lint | `markdownlint-cli2` | yes |
 | `links` | Relative markdown links resolve | built-in | yes |
 | `spell` | Spelling | `cspell` | yes |
+| `prose` | Writing style | `vale` | opt-in |
 | `mutation` | Mutation testing | `stryker` | opt-in |
 | `security` | Dependency audit | `pnpm audit` | opt-in |
 | `publint` | Package publishing lint | `publint` | opt-in |

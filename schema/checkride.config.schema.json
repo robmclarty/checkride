@@ -51,7 +51,7 @@
     },
     "checks": {
       "type": "object",
-      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, mutation, security, publint, attw) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, mutation, security, publint, attw) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
+      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, prose, mutation, security, publint, attw) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, prose, mutation, security, publint, attw) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
       "additionalProperties": {
         "$ref": "#/definitions/slotConfig"
       }
