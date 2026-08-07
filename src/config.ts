@@ -99,6 +99,14 @@ export type UseConfig = Noted & {
    */
   profile?: string;
   /**
+   * `prose` slot only: repo-relative directory of hand-written voice exemplars.
+   * Naming it does two things: the check fails when the directory is missing or
+   * empty (an anchor text the config points at must exist), and `agent-setup`
+   * adds a stanza section telling writing sessions to read and imitate the
+   * exemplars — never edit them. Ignored by every other slot.
+   */
+  exemplars?: string;
+  /**
    * Override the slot's opt-in status. `true` configures the slot *without*
    * opting it into the default run — the escape hatch from "naming a slot opts
    * it in": run it only with `--all`/`--include <slot>`. Handy for a slot you
@@ -562,6 +570,19 @@ function applyProfile(adapter: Adapter, profile: unknown, context: string): Adap
   return { ...adapter, args: [...adapter.args, '--profile', profile] };
 }
 
+/**
+ * Carry the `prose` slot's `exemplars` directory onto its adapter. A no-op on
+ * any other slot (the field is documented as prose-only). `exemplars` must be a
+ * string; `context` names the check in the error. Presence on disk is asserted
+ * at run time by the orchestrator, never here — see `missingExemplarsOutcome`.
+ */
+function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): Adapter {
+  if (exemplars === undefined) return adapter;
+  if (typeof exemplars !== 'string') invalidConfig(`'${context}' exemplars must be a string`);
+  if (adapter.slot !== 'prose') return adapter;
+  return { ...adapter, exemplars };
+}
+
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
   const merged: Adapter = {
     ...base,
@@ -572,7 +593,7 @@ function applyOverrides(base: Adapter, o: UseConfig): Adapter {
     ...carriedOverrides(o, base.slot),
     ...carriedLinksOptions(o, base.slot),
   };
-  return applyProfile(merged, o.profile, base.slot);
+  return applyExemplars(applyProfile(merged, o.profile, base.slot), o.exemplars, base.slot);
 }
 
 function customAdapter(slot: string, c: CustomCheck): Adapter {

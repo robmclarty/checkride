@@ -80,6 +80,18 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(body).not.toContain('sgconfig.yml');
   });
 
+  test('names the voice exemplars, read-and-imitate but never edit, when config carries them', () => {
+    // The exemplars are hand-written anchor texts — the human original the
+    // stanza tells sessions to copy. An agent "improving" one would replace
+    // that original with model output, so the instruction must run one way.
+    const voiced = buildStanza(['types', 'prose'], 'pnpm', 'docs/voice');
+    expect(voiced).toContain('### Prose voice');
+    expect(voiced).toContain('`docs/voice`');
+    expect(voiced).toContain('never edit, rewrite, or add to them');
+    // Without a configured directory the section has nothing to point at.
+    expect(buildStanza(['types', 'prose'])).not.toContain('### Prose voice');
+  });
+
   test('spells every command for the repo’s package manager, not pnpm’s', () => {
     // The stanza is a list of commands an agent is told to run. `pnpm check` in
     // an npm repo is an instruction that cannot succeed, so the agent either
@@ -556,7 +568,7 @@ describe('existing-project adoption (idempotent)', () => {
     const ini = await readFile(join(dir, '.vale.ini'), 'utf8');
     const stylesPath = /^StylesPath\s*=\s*(\S+)$/m.exec(ini)?.[1];
     expect(stylesPath).toBe('.vale/styles');
-    for (const rule of ['Latin.yml', 'LyHyphen.yml', 'ThereIs.yml', 'Weasel.yml']) {
+    for (const rule of ['Drift.yml', 'Latin.yml', 'LyHyphen.yml', 'Minted.yml', 'ThereIs.yml', 'Weasel.yml']) {
       expect(existsSync(join(dir, stylesPath ?? '', 'Repo', rule)), rule).toBe(true);
     }
     expect(result.written).toContain('.vale.ini');
@@ -743,6 +755,23 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(activeLine).toContain('types');
     // An opt-in slot the config does NOT name stays out of the reported gate.
     expect(activeLine).not.toContain('mutation');
+  });
+
+  test('threads the configured prose exemplars into the written stanza', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(
+      join(dir, 'checkride.config.json'),
+      JSON.stringify({ checks: { prose: { use: 'vale', exemplars: 'docs/voice' } } }),
+    );
+
+    await runAgentSetup({ cwd: dir, hook: false });
+    const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('### Prose voice');
+    expect(agents).toContain('`docs/voice`');
+
+    // Idempotent like every stanza write: same config, same stanza, no rewrite.
+    const second = await runAgentSetup({ cwd: dir, hook: false });
+    expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
   });
 
   test('refuses to overwrite a customized stanza, and writes nothing at all', async () => {

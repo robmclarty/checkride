@@ -309,6 +309,27 @@ describe('config resolution', () => {
     ).toThrow(/'attw' profile must be a string/);
   });
 
+  test('prose exemplars is carried onto the adapter', () => {
+    const r = resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars: 'docs/voice' } } }, never);
+    expect(r.adapter?.name).toBe('vale');
+    expect(r.adapter?.exemplars).toBe('docs/voice');
+  });
+
+  test('exemplars is a no-op on a non-prose slot', () => {
+    const r = resolveSlot(
+      'lint',
+      { checks: { lint: { use: 'oxlint', exemplars: 'docs/voice' } } },
+      present('.oxlintrc.json'),
+    );
+    expect(r.adapter?.exemplars).toBeUndefined();
+  });
+
+  test('a non-string exemplars is a friendly config error', () => {
+    expect(() =>
+      resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars: 7 } as unknown as UseConfig } }, never),
+    ).toThrow(/'prose' exemplars must be a string/);
+  });
+
   test('links exclude and allowlist are carried onto the adapter', () => {
     const r = resolveSlot(
       'links',

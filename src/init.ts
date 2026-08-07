@@ -239,6 +239,27 @@ function structSection(): string[] {
 }
 
 /**
+ * The `prose` slot's voice section, present only when the repo names an
+ * `exemplars` directory in its config. The instruction runs one way — read and
+ * imitate, never edit — because the exemplars are the repo's hand-written voice
+ * reference, the fresh human signal that keeps generated prose from converging
+ * on the model's own register. A generated "improvement" to one would replace
+ * the original with a copy, which is the drift the directory exists to prevent.
+ */
+function proseSection(exemplars: string): string[] {
+  return [
+    '### Prose voice',
+    '',
+    'Before writing or editing prose (markdown, doc comments), read the exemplars in',
+    `\`${exemplars}\` and imitate their voice — sentence rhythm, word choice, register.`,
+    'They are hand-written and human-owned: never edit, rewrite, or add to them, and',
+    'never generate new ones. When your draft and an exemplar disagree about how a',
+    'sentence should sound, the exemplar wins.',
+    '',
+  ];
+}
+
+/**
  * The agent-facing contract block, parameterized by the active checks and the
  * repo's package manager.
  *
@@ -255,7 +276,11 @@ function structSection(): string[] {
  * paragraph points at the gate's verdict instead, which is generated per run and
  * states the narrowing itself (see `gate.ts`'s `profileClause`).
  */
-export function buildStanza(activeSlots: readonly string[], pm: PackageManager = 'pnpm'): string {
+export function buildStanza(
+  activeSlots: readonly string[],
+  pm: PackageManager = 'pnpm',
+  proseExemplars: string | null = null,
+): string {
   const check = runScript(pm, 'check');
   const triage = execCommand(pm, ['checkride', 'triage']);
   return [
@@ -294,6 +319,7 @@ export function buildStanza(activeSlots: readonly string[], pm: PackageManager =
     'check pass; fix the finding.',
     '',
     ...(activeSlots.includes('struct') ? structSection() : []),
+    ...(proseExemplars !== null ? proseSection(proseExemplars) : []),
     `Active checks in this repo: ${activeSlots.join(', ')}.`,
   ].join('\n');
 }
@@ -922,6 +948,20 @@ function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonl
     .map((r) => r.slot);
 }
 
+/**
+ * The voice-exemplars directory the repo's config names on its `prose` entry,
+ * or `null`. Read fresh at every stanza build rather than threaded from a
+ * caller, so the stanza and the config it describes cannot drift apart within
+ * one run — `initExisting` writes config between its stanza guard and its
+ * stanza write.
+ */
+function proseExemplarsDir(cwd: string): string | null {
+  const entry = loadConfig(cwd)?.checks?.['prose'];
+  return entry && typeof entry === 'object' && 'use' in entry && typeof entry.exemplars === 'string'
+    ? entry.exemplars
+    : null;
+}
+
 const STANZA_REFUSALS: Record<'edited' | 'unstamped', string> = {
   edited: 'it has been edited since checkride wrote it',
   unstamped:
@@ -977,7 +1017,7 @@ async function writeAgentsStanza(
 ): Promise<void> {
   const agentsPath = join(cwd, 'AGENTS.md');
   const existing = await readIfExists(agentsPath);
-  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, pm));
+  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, pm, proseExemplarsDir(cwd)));
   if (nextAgents !== existing) {
     if (!w.dryRun) await writeFile(agentsPath, nextAgents);
     w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
@@ -1024,8 +1064,10 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
   // with is deleted in one line.
   prose: [
     ['shared/vale.ini', '.vale.ini'],
+    ['shared/styles/Repo/Drift.yml', '.vale/styles/Repo/Drift.yml'],
     ['shared/styles/Repo/Latin.yml', '.vale/styles/Repo/Latin.yml'],
     ['shared/styles/Repo/LyHyphen.yml', '.vale/styles/Repo/LyHyphen.yml'],
+    ['shared/styles/Repo/Minted.yml', '.vale/styles/Repo/Minted.yml'],
     ['shared/styles/Repo/ThereIs.yml', '.vale/styles/Repo/ThereIs.yml'],
     ['shared/styles/Repo/Weasel.yml', '.vale/styles/Repo/Weasel.yml'],
   ],
@@ -1216,7 +1258,11 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
-  await assertStanzaUnedited(cwd, buildStanza(activeCheckSlots(cwd, slots, adapters), pm), options);
+  await assertStanzaUnedited(
+    cwd,
+    buildStanza(activeCheckSlots(cwd, slots, adapters), pm, proseExemplarsDir(cwd)),
+    options,
+  );
 
   // Route --add: publish slots (and the library path) opt into the bundle; the
   // rest scaffold blessed configs before inventory, so they're detected this run.
@@ -1332,7 +1378,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
-  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots, pm), options);
+  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots, pm, proseExemplarsDir(cwd)), options);
 
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
   await addCheckAlias(w, skipped);

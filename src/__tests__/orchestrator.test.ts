@@ -15,6 +15,7 @@ import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
 import {
   defaultConcurrency,
   fixInvocation,
+  missingExemplarsOutcome,
   missingToolOutcome,
   runChecks,
   runFix,
@@ -1304,5 +1305,45 @@ describe('missingToolOutcome', () => {
       const adapter: Adapter = { ...absent, command, args };
       expect(missingToolOutcome('lint', adapter, args, { cwd: '/repo', pm: 'npm' })).toBeNull();
     }
+  });
+});
+
+/**
+ * The pre-flight that keeps the prose slot's voice anchor honest: a config
+ * naming an `exemplars` directory fails the check when that directory is
+ * missing or empty, instead of letting vale gate prose whose hand-written
+ * reference no longer exists.
+ */
+describe('missingExemplarsOutcome', () => {
+  const vale = fakeAdapter({ name: 'vale', slot: 'prose', exemplars: 'docs/voice' });
+
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-exemplars-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('is a no-op when no exemplars are configured', () => {
+    expect(missingExemplarsOutcome(fakeAdapter({ name: 'vale', slot: 'prose' }), dir)).toBeNull();
+  });
+
+  test('a missing directory fails the check and names the path', () => {
+    const outcome = missingExemplarsOutcome(vale, dir);
+    expect(outcome?.ok).toBe(false);
+    expect(outcome?.exit_code).toBe(1);
+    expect(outcome?.stderr).toContain('`docs/voice`');
+    expect(outcome?.stderr).toContain('does not exist');
+  });
+
+  test('dotfiles and subdirectories are not anchors: an otherwise empty directory still fails', async () => {
+    await mkdir(join(dir, 'docs', 'voice', 'drafts'), { recursive: true });
+    await writeFile(join(dir, 'docs', 'voice', '.gitkeep'), '');
+    const outcome = missingExemplarsOutcome(vale, dir);
+    expect(outcome?.ok).toBe(false);
+    expect(outcome?.stderr).toContain('has no files in it');
+  });
+
+  test('one real file stands the pre-flight down', async () => {
+    await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+    await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+    expect(missingExemplarsOutcome(vale, dir)).toBeNull();
   });
 });

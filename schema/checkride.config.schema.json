@@ -116,6 +116,10 @@
         "profile": {
           "type": "string",
           "description": "attw slot only: append --profile <name> (e.g. esm-only) to the attw invocation — a shortcut for retyping the full args."
+        },
+        "exemplars": {
+          "type": "string",
+          "description": "prose slot only: repo-relative directory of hand-written voice exemplars. The check fails when the directory is missing or empty, and agent-setup adds an AGENTS.md stanza section telling writing sessions to read and imitate the exemplars (never edit them)."
         }
       }
     },

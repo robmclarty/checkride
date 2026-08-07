@@ -8,6 +8,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { readdirSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
@@ -424,6 +425,45 @@ export function missingToolOutcome(
   return { ok: false, exit_code: 1, stdout: '', stderr };
 }
 
+/**
+ * Fail the `prose` check when its configured `exemplars` directory is missing
+ * or holds no files, rather than letting the tool pass while the anchor texts
+ * rot away.
+ *
+ * The exemplars are the repo's hand-written voice reference: the AGENTS.md
+ * stanza tells writing sessions to imitate them, so a config that names a
+ * directory that no longer exists (renamed, deleted, never created) would leave
+ * that instruction aimed at nothing while the check stayed green. Presence is
+ * the whole assertion — checkride never scores prose against the exemplars;
+ * that read belongs to a human. `null` means the check may spawn.
+ */
+export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOutcome | null {
+  const dir = adapter.exemplars;
+  if (dir === undefined) return null;
+  let files: string[] | null = null;
+  try {
+    files = readdirSync(join(cwd, dir), { withFileTypes: true })
+      .filter((e) => e.isFile() && !e.name.startsWith('.'))
+      .map((e) => e.name);
+  } catch {
+    // Missing, unreadable, or not a directory — every case reads as "no anchor".
+  }
+  if (files !== null && files.length > 0) return null;
+  const state = files === null ? 'does not exist' : 'has no files in it';
+  const stderr = [
+    `checkride: the \`prose\` slot names \`${dir}\` as its voice exemplars, and that directory ${state}.`,
+    '',
+    'Exemplars are hand-written prose the agent contract points writing sessions at',
+    'as the voice to imitate, so a config naming an empty directory aims that',
+    'instruction at nothing. Write a few short samples of prose in your own voice',
+    'there (or fix the `exemplars` path in checkride.config.json), then re-run.',
+    '',
+  ].join('\n');
+  // Exit 1 for the same reason as missingToolOutcome above: nothing spawned,
+  // but this is the finding the run exists to surface, not a harness problem.
+  return { ok: false, exit_code: 1, stdout: '', stderr };
+}
+
 const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
@@ -433,6 +473,8 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   const builtin = runBuiltin(adapter, ctx, timeout);
   if (builtin) return builtin;
+  const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
+  if (missingExemplars) return Promise.resolve(missingExemplars);
   const declared = runtimeArgs(adapter, ctx.changed);
   const missing = missingToolOutcome(resolved.slot, adapter, declared, ctx);
   if (missing) return Promise.resolve(missing);

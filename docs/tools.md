@@ -476,8 +476,8 @@ those files:
 ## The `prose` slot: writing style
 
 `prose` gates the writing itself — doubled words, sentence-initial `There is`,
-Latin abbreviations, hyphenated `-ly` adverbs — across markdown **and
-TypeScript doc comments**. It runs `vale` against a house style your repo owns
+Latin abbreviations, hyphenated `-ly` adverbs, the lexical fingerprints of
+model-generated prose — across markdown **and TypeScript doc comments**. It runs `vale` against a house style your repo owns
 under `.vale/styles/`, detected on `.vale.ini` (or `_vale.ini`, vale's other
 discovery name). The slot is **opt-in**, like `format`: adopting checkride
 never starts failing a repo on writing style it never signed up for.
@@ -582,12 +582,52 @@ word is a doubled word in anyone's voice — and the one taste rule,
 subjective half is opted into deliberately. Disagree with a rule? Edit or
 delete its file rather than suppressing findings line by line.
 
+Two of the shipped rules are drift control rather than grammar. `Repo.Drift`
+flags the documented fingerprints of model-generated text — vocabulary that
+runs at many times its human base rate (`delve`, `tapestry`, `meticulous`) and
+the stock `It's not just X — it's Y` frame — and `Repo.Minted` swaps the
+minted corporate dialect back to plain English (`the ask`, `learnings`, the
+verb `leverage`). The point is the loop, not the words: generated prose
+becomes the next session's context, so every fingerprint that lands is the
+example the next generation copies. Both lists are deliberately short and
+high-precision — a hit is close to proof of provenance — and both are meant to
+grow the tells your own repo accumulates.
+
 To adopt a published third-party style — Google, Microsoft, `write-good` —
 add a `Packages` line to `.vale.ini` and run `pnpm exec vale sync` yourself:
 it downloads packages into `StylesPath`, so re-run it when you add or bump a
 package. It is a setup command, never part of a check — a check never touches
 the network — which is also why the scaffold's default path needs no sync at
 all.
+
+### Voice exemplars
+
+The rules above catch the lexical half of style drift — the words and frames
+generated prose reaches for. The voice itself (rhythm, register, the sound of
+a sentence) has no mechanical check, and the reliable way to keep
+machine-written prose in your voice is to hand the model genuine samples of
+that voice while it writes: style-imitation studies find real exemplars beat
+bare instructions by an order of magnitude. The `exemplars` key names a
+directory of them:
+
+```jsonc
+"prose": { "use": "vale", "exemplars": "docs/voice" }
+```
+
+Naming it does two things. `agent-setup` (and `init`) add a section to the
+AGENTS.md stanza telling writing sessions to read the exemplars first and
+imitate them — and never to edit or add to them, because a generated
+"improvement" to an exemplar replaces the human original with a copy of the
+model's own register. And the `prose` check goes red when the directory is
+missing or empty: the exemplars are load-bearing anchor texts, and a config
+that points at nothing should fail rather than quietly gate nothing.
+
+Write the exemplars by hand — a few short passages in your own voice, in the
+register you want the repo's prose to hold. What checkride never does is score
+prose against them: no model judges voice at the gate, deliberately. A model
+grading style approves its own register, and a passing voice score would
+invite the one gate that works — a human reading the words — to stand down.
+Presence is checked; imitation is prompted; judgment stays with the reader.
 
 ### Under npm
 

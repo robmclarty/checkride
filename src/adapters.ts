@@ -93,6 +93,14 @@ export type Adapter = {
    */
   allowlist?: string[];
   /**
+   * Consumed by the `prose` slot only: repo-relative directory of hand-written
+   * voice exemplars, carried from a config entry's `exemplars`. The orchestrator
+   * fails the check when the directory is missing or holds no files — the
+   * exemplars are load-bearing anchor texts, and a config that points at nothing
+   * must not stay green. Ignored by every other adapter.
+   */
+  exemplars?: string;
+  /**
    * When set, checkride derives this adapter's pass/fail from its parsed JSON
    * output instead of its process exit code. Only `'fallow'` today: fallow's
    * exit code doesn't reliably gate (combined mode and `dupes` exit 0 even with
