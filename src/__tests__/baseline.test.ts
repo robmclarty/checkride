@@ -15,7 +15,9 @@ import {
   fingerprint,
   isFingerprintable,
   loadBaseline,
+  parseBaseline,
   ratchet,
+  readBaselineStatus,
   writeBaseline,
 } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
@@ -224,6 +226,45 @@ describe('loadBaseline / writeBaseline', () => {
     // The current version, and an older one, still load.
     await writeFile(path, JSON.stringify({ schema_version: BASELINE_SCHEMA_VERSION, slots: { lint: ['a'] } }));
     expect(loadBaseline(dir)?.slots['lint']).toEqual(['a']);
+  });
+
+  /**
+   * Canonical on disk: two branches that grandfather the same debt must produce
+   * byte-identical files, whatever order their runs discovered the slots in —
+   * otherwise insertion order alone manufactures merge conflicts.
+   */
+  test('writes canonically: sorted slots and keys, byte-stable across construction order', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { spell: ['z', 'a'], lint: ['b'] } });
+    const raw = await readFile(join(dir, 'checkride.baseline.json'), 'utf8');
+    const parsed = JSON.parse(raw) as Baseline;
+    expect(Object.keys(parsed.slots)).toEqual(['lint', 'spell']);
+    expect(parsed.slots['spell']).toEqual(['a', 'z']);
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['b'], spell: ['a', 'z'] } });
+    expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(raw);
+  });
+
+  test('parseBaseline applies the same tolerance to raw text (a git-show blob)', () => {
+    expect(parseBaseline('{ not json')).toBeNull();
+    expect(parseBaseline(JSON.stringify({ schema_version: 1, slots: { lint: ['a', 5] } }))?.slots['lint']).toEqual(['a']);
+  });
+});
+
+describe('readBaselineStatus', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-status-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /**
+   * Absent and unparseable both mask nothing, but they are different diagnoses:
+   * absent is a repo without a baseline, unparseable is a file somebody (often
+   * a merge) mangled. The run's warning hangs off this distinction.
+   */
+  test('distinguishes absent, ok, and unparseable', async () => {
+    expect(readBaselineStatus(dir)).toEqual({ baseline: null, state: 'absent' });
+    await writeFile(join(dir, 'checkride.baseline.json'), '<<<<<<< HEAD\n{ mangled\n');
+    expect(readBaselineStatus(dir)).toEqual({ baseline: null, state: 'unparseable' });
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['a'] } });
+    expect(readBaselineStatus(dir).state).toBe('ok');
   });
 });
 

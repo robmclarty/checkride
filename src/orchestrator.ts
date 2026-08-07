@@ -16,7 +16,7 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order, Slot } from './adapters.js';
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
 import { writeFileAtomic } from './atomic.js';
-import type { Baseline, Fingerprint } from './baseline/index.js';
+import type { Baseline, BaselineRead, Fingerprint } from './baseline/index.js';
 import {
   applyBaseline,
   BASELINE_FILE,
@@ -24,8 +24,8 @@ import {
   countBaselineKeys,
   fallowVerdict,
   fingerprint,
-  loadBaseline,
   ratchet,
+  readBaselineStatus,
   writeBaseline,
 } from './baseline/index.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
@@ -620,6 +620,11 @@ type RunContext = CommonContext & {
   timeout: number | undefined;
   pm: PackageManager;
   baseline: Baseline | null;
+  /**
+   * Why `baseline` is null when it is: `absent` is a repo without one,
+   * `unparseable` is a mangled committed file — the run warns on the latter.
+   */
+  baselineState: BaselineRead['state'];
   /** Effective wave pool width (see {@link defaultConcurrency}); unused under `bail`. */
   concurrency: number;
   /** Slot-name column width for this run's status lines (see {@link nameWidth}). */
@@ -631,8 +636,21 @@ type RunContext = CommonContext & {
  * baseline. `nameWidth` is a placeholder here — the selection it measures is
  * not known until after `selectChecks`, so `runChecks` narrows it then.
  */
+/**
+ * The baseline a run masks with: the option override, or the committed file.
+ * An injected baseline bypasses the file, so its state carries no file
+ * diagnosis — it is classified by presence alone.
+ */
+function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
+  if (options.baseline !== undefined) {
+    return { baseline: options.baseline, state: options.baseline === null ? 'absent' : 'ok' };
+  }
+  return readBaselineStatus(cwd);
+}
+
 function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
+  const read = resolveBaselineRead(options, common.cwd);
   return {
     ...common,
     nameWidth: 8,
@@ -642,7 +660,8 @@ function resolveRunContext(options: RunOptions): RunContext {
     changed: options.changed ?? false,
     timeout: common.config?.timeout,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
-    baseline: options.baseline !== undefined ? options.baseline : loadBaseline(common.cwd),
+    baseline: read.baseline,
+    baselineState: read.state,
     concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),
   };
 }
@@ -1022,6 +1041,12 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
     reportSummary(ctx.stderr, summary, checks, ctx.adapters, digestWritten);
+    // A mangled committed baseline (a botched merge, usually) masks nothing, so
+    // every grandfathered finding above reported red — say so where the person
+    // reading the wall of red will actually look, right under the summary.
+    if (ctx.baselineState === 'unparseable') {
+      writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
+    }
   }
 
   const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);

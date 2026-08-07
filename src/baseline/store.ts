@@ -40,12 +40,13 @@ export type BaselineAdjustment = {
 };
 
 /**
- * Read `checkride.baseline.json` from `cwd`; `null` when absent or unusable. The
- * baseline is a committed file a run reads on every invocation, so a malformed
- * one is coerced into a clean shape (or dropped) rather than thrown — a corrupt
- * baseline must never break `checkride`.
+ * Parse baseline file content; `null` when unusable. The baseline is a
+ * committed file a run reads on every invocation, so a malformed one is coerced
+ * into a clean shape (or dropped) rather than thrown — a corrupt baseline must
+ * never break `checkride`. Takes raw text rather than a path so historical
+ * copies (a `git show` blob during recovery) parse under the same tolerance.
  *
- * A file from a *newer* schema is dropped rather than read optimistically. The
+ * Content from a *newer* schema is dropped rather than read optimistically. The
  * fields it does not have yet are the ones that would say which findings are
  * masked and why, so guessing means either masking findings it never
  * grandfathered or claiming ones it did. Dropping it fails closed: the run
@@ -53,11 +54,9 @@ export type BaselineAdjustment = {
  * intended, never a green that was not earned. Same direction as
  * {@link applyBaseline}'s refusal to mask an unparseable run.
  */
-export function loadBaseline(cwd: string): Baseline | null {
-  const path = join(cwd, BASELINE_FILE);
-  if (!existsSync(path)) return null;
+export function parseBaseline(raw: string): Baseline | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed) || !isRecord(parsed['slots'])) return null;
     const version = parsed['schema_version'];
     if (typeof version === 'number' && version > BASELINE_SCHEMA_VERSION) return null;
@@ -71,9 +70,47 @@ export function loadBaseline(cwd: string): Baseline | null {
   }
 }
 
-/** Serialize and write the baseline to `cwd` (pretty-printed, trailing newline, atomic). */
+/** How reading `checkride.baseline.json` went — see {@link readBaselineStatus}. */
+export type BaselineRead = {
+  baseline: Baseline | null;
+  state: 'absent' | 'ok' | 'unparseable';
+};
+
+/**
+ * Read the baseline and say *why* it is missing when it is. Absent and
+ * unparseable both mask nothing, but they mean different things to the person
+ * staring at the resulting red: absent is a repo that never adopted a baseline,
+ * unparseable is a file somebody (often a merge) mangled — the run warns about
+ * the second so the damage is diagnosed at the moment it bites, not archaeology
+ * later.
+ */
+export function readBaselineStatus(cwd: string): BaselineRead {
+  const path = join(cwd, BASELINE_FILE);
+  if (!existsSync(path)) return { baseline: null, state: 'absent' };
+  let raw: string;
+  try {
+    raw = readFileSync(path, 'utf8');
+  } catch {
+    return { baseline: null, state: 'unparseable' };
+  }
+  const baseline = parseBaseline(raw);
+  return baseline === null ? { baseline: null, state: 'unparseable' } : { baseline, state: 'ok' };
+}
+
+/** Read `checkride.baseline.json` from `cwd`; `null` when absent or unusable. */
+export function loadBaseline(cwd: string): Baseline | null {
+  return readBaselineStatus(cwd).baseline;
+}
+
+/**
+ * Serialize and write the baseline to `cwd` (canonical, pretty-printed,
+ * trailing newline, atomic). Written canonical — sorted slots, sorted keys — so
+ * the committed file diffs deterministically: two branches that grandfather the
+ * same debt produce byte-identical files instead of a spurious merge conflict
+ * over insertion order.
+ */
 export async function writeBaseline(cwd: string, baseline: Baseline): Promise<void> {
-  await writeFileAtomic(join(cwd, BASELINE_FILE), `${JSON.stringify(baseline, null, 2)}\n`);
+  await writeFileAtomic(join(cwd, BASELINE_FILE), `${JSON.stringify(canonicalize(baseline), null, 2)}\n`);
 }
 
 /**
@@ -127,11 +164,16 @@ export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);
 }
 
-/** Canonical string form (sorted slots and keys) for order-independent compare. */
-function canonicalBaseline(base: Baseline): string {
+/** Sorted-slots, sorted-keys copy — the one shape the file is ever written in. */
+function canonicalize(base: Baseline): Baseline {
   const slots: Record<string, string[]> = {};
   for (const key of Object.keys(base.slots).toSorted()) slots[key] = [...(base.slots[key] ?? [])].toSorted();
-  return JSON.stringify({ schema_version: base.schema_version, slots });
+  return { schema_version: base.schema_version, slots };
+}
+
+/** Canonical string form (sorted slots and keys) for order-independent compare. */
+function canonicalBaseline(base: Baseline): string {
+  return JSON.stringify(canonicalize(base));
 }
 
 /** Order-independent structural equality, so an unchanged ratchet skips its write. */

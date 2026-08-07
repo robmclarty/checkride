@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
+import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
 import type { PinEnv } from './node-pin.js';
@@ -109,6 +110,8 @@ export type DoctorEnv = {
   /** `<pm> bin <tool>` — the tool's resolved path, `null` if it does not resolve, or {@link PROBE_TIMED_OUT}. */
   binPath: (pm: PackageManager, tool: string, cwd: string) => Promise<BinProbe>;
   exists: (path: string) => boolean;
+  /** Read a UTF-8 file; `null` when unreadable. */
+  readText: (path: string) => string | null;
   canWrite: (dir: string) => Promise<boolean>;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
   platform: () => { os: string; arch: string };
@@ -210,11 +213,20 @@ function readEnginesReal(cwd: string): { node?: string; pnpm?: string } {
   }
 }
 
+function readTextReal(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 const realEnv: DoctorEnv = {
   which: whichReal,
   version: versionReal,
   binPath: binPathReal,
   exists: existsSync,
+  readText: readTextReal,
   canWrite: canWriteReal,
   readEngines: readEnginesReal,
   platform: () => ({ os: osPlatform(), arch: osArch() }),
@@ -547,6 +559,31 @@ function unpinnedRow(base: { name: string; category: 'env'; required: false }, e
   };
 }
 
+/**
+ * The committed baseline's health. No row when the repo has none — an absent
+ * optional file is not a finding. Never required: a broken baseline degrades a
+ * run (grandfathered findings report red), it does not break checkride. The
+ * unparseable state is worth a row because the run-time warning only prints
+ * during a run — doctor is where someone checks the environment *between* runs.
+ */
+function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
+  const path = join(cwd, BASELINE_FILE);
+  if (!env.exists(path)) return null;
+  const raw = env.readText(path);
+  const baseline = raw === null ? null : parseBaseline(raw);
+  const base = { name: 'baseline', category: 'workspace' as const, required: false };
+  if (baseline === null) {
+    return {
+      ...base,
+      status: 'outdated',
+      found: `${BASELINE_FILE} present but unparseable`,
+      expected: 'valid baseline JSON',
+      hint: 'A merge likely mangled it; grandfathered findings report red until it is restored. Run `checkride recover` to rebuild it from git history.',
+    };
+  }
+  return { ...base, status: 'ok', found: `${countBaselineKeys(baseline)} grandfathered diagnostic(s)`, expected: null, hint: null };
+}
+
 async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
   const dir = join(cwd, '.check');
   const ok = await env.canWrite(dir);
@@ -683,6 +720,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   checks.push(...(await Promise.all(resolved.map((r) => classifySlot(r, defaultActive, adapters, config, cwd, env, pm)))));
 
   checks.push(await checkWritable(cwd, env));
+  const baselineRow = checkBaseline(cwd, env);
+  if (baselineRow !== null) checks.push(baselineRow);
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
   const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, checks };

@@ -870,6 +870,45 @@ describe('runChecks (baseline-aware)', () => {
     expect(result.ok).toBe(false); // the failure stands
     expect(result.summary.checks.find((c) => c.name === 'lint')?.baselined).toBeUndefined();
   });
+
+  /**
+   * A mangled committed baseline (a botched merge, usually) masks nothing, so
+   * everything grandfathered reports red — the run must say why, or the reader
+   * is left diagnosing a wall of red that the tool already understood.
+   */
+  test('a present-but-unparseable baseline file gets a stderr warning naming recover', async () => {
+    await writeFile(baselineFile(), '<<<<<<< HEAD\n{ mangled\n');
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.ok).toBe(false); // nothing was masked
+    const printed = std.lines.join('');
+    expect(printed).toContain('present but unparseable');
+    expect(printed).toContain('checkride recover');
+  });
+
+  test('the unparseable warning never reaches stdout, and --json stays silent', async () => {
+    await writeFile(baselineFile(), '{ mangled');
+    const std = sink();
+    const out = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      json: true, stdout: out.out, stderr: std.out,
+    });
+    expect(out.lines.join('')).not.toContain('unparseable');
+    expect(std.lines.join('')).not.toContain('unparseable');
+  });
+
+  test('an absent baseline warns nothing (absent is not a diagnosis)', async () => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(std.lines.join('')).not.toContain('unparseable');
+  });
 });
 
 describe('runFix', () => {

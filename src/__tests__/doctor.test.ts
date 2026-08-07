@@ -22,6 +22,7 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
     version: () => Promise.resolve('99.9.9'),
     binPath: (_pm: PackageManager, tool: string) => Promise.resolve(`/repo/.yarn/bin/${tool}`),
     exists: () => true,
+    readText: () => '{"schema_version":1,"slots":{}}',
     canWrite: () => Promise.resolve(true),
     readEngines: () => ({ node: '>=22.18.0', pnpm: '>=9.0.0' }),
     platform: () => ({ os: 'linux', arch: 'x64' }),
@@ -554,5 +555,41 @@ describe('runDoctor — the Node pin a hook would need', () => {
     expect(pinRow(result)?.required).toBe(false);
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
+  });
+});
+
+describe('baseline workspace row', () => {
+  const baseOpts = { cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, json: true };
+  const baselineRow = (checks: readonly { name: string }[]): { name: string } | undefined =>
+    checks.find((c) => c.name === 'baseline');
+
+  test('a valid committed baseline reports its key count', async () => {
+    const env = fakeEnv({ readText: () => '{"schema_version":1,"slots":{"lint":["a","b"],"spell":["x"]}}' });
+    const result = await runDoctor({ ...baseOpts, env, stdout: sink() });
+    expect(baselineRow(result.report.checks)).toMatchObject({
+      category: 'workspace', required: false, status: 'ok', found: '3 grandfathered diagnostic(s)',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  /**
+   * Advisory, never required: a broken baseline degrades a run (grandfathered
+   * findings report red), it does not break checkride — doctor points at the
+   * remedy instead of turning red itself.
+   */
+  test('an unparseable baseline warns and points at recover without failing doctor', async () => {
+    const env = fakeEnv({ readText: () => '<<<<<<< HEAD\n{ mangled' });
+    const result = await runDoctor({ ...baseOpts, env, stdout: sink() });
+    const row = result.report.checks.find((c) => c.name === 'baseline');
+    expect(row?.status).toBe('outdated');
+    expect(row?.hint).toContain('checkride recover');
+    expect(result.ok).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  test('no baseline file, no row', async () => {
+    const env = fakeEnv({ exists: (p: string) => !p.endsWith('checkride.baseline.json') });
+    const result = await runDoctor({ ...baseOpts, env, stdout: sink() });
+    expect(baselineRow(result.report.checks)).toBeUndefined();
   });
 });
