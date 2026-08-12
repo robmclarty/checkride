@@ -873,6 +873,39 @@ describe('runChecks (baseline-aware)', () => {
     expect(result.summary.checks.find((c) => c.name === 'lint')?.baselined).toBeUndefined();
   });
 
+  test('a slot whose output cannot be read is never masked, and its keys survive the ratchet', async () => {
+    // The run-level half of extractVale's `null` contract: vale's E100 report
+    // arrives on a red exit, fingerprints to "not observed", and so can neither
+    // mask the failure nor prune a grandfathered key — while the ratchet still
+    // works the slots this run *did* observe.
+    const PROSE_KEY = "docs/a.md:Repo.Drift:'delve' is a fingerprint of generated prose — say the plain thing instead.";
+    const valeError = '{"Code":"E100","Text":"no config file found","Path":"","Line":0,"Span":0}';
+    const runner: CheckRunner = (r) =>
+      Promise.resolve(
+        r.slot === 'lint'
+          ? { ok: false, exit_code: 1, stdout: oxlint(oneA), stderr: '' }
+          : { ok: false, exit_code: 2, stdout: valeError, stderr: '' },
+      );
+    const result = await runChecks({
+      cwd: dir,
+      slots: [{ name: 'lint' }, { name: 'prose' }],
+      adapters: [...adapters, fakeAdapter({ name: 'vale', slot: 'prose', outputFile: 'prose.json' })],
+      config: null, runner,
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B], prose: [PROSE_KEY] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: true, baselined: 1 });
+    expect(result.summary.checks.find((c) => c.name === 'prose')).toMatchObject({ ok: false });
+
+    // The ratchet ran — KEY_B is pruned from the observed lint slot — but the
+    // unobserved prose slot keeps its grandfathered key intact.
+    const written = await readWritten();
+    expect(written.slots['lint']).toEqual([KEY_A]);
+    expect(written.slots['prose']).toEqual([PROSE_KEY]);
+  });
+
   /**
    * A mangled committed baseline (a botched merge, usually) masks nothing, so
    * everything grandfathered reports red — the run must say why, or the reader
@@ -1345,5 +1378,34 @@ describe('missingExemplarsOutcome', () => {
     await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
     await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
     expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+  });
+
+  test('a file at the exemplars path is named for what it is, not reported missing', async () => {
+    // "does not exist" would send the reader hunting a typo that isn't there.
+    await mkdir(join(dir, 'docs'), { recursive: true });
+    await writeFile(join(dir, 'docs', 'voice'), 'a file where the directory should be\n');
+    const outcome = missingExemplarsOutcome(vale, dir);
+    expect(outcome?.ok).toBe(false);
+    expect(outcome?.stderr).toContain('is a file, not a directory');
+    expect(outcome?.stderr).not.toContain('does not exist');
+  });
+
+  test('the default runner runs the pre-flight, so the tool never spawns', async () => {
+    // The wiring, not the helper: no injected runner, so `runChecks` reaches the
+    // real `defaultRunner`. If the pre-flight ever stopped gating the spawn, the
+    // argv below would run, exit 0, and turn the slot green — a loud miss.
+    const adapter = fakeAdapter({
+      name: 'vale', slot: 'prose', exemplars: 'docs/voice', outputFile: 'prose.json',
+      args: ['-e', 'console.log("SPAWNED")'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'prose' }], adapters: [adapter], config: null,
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.summary.checks.find((c) => c.name === 'prose')).toMatchObject({ ok: false });
+    // The failure is persisted like any check output, so `triage` can read it.
+    const persisted = await readFile(join(dir, '.check', 'prose.stderr.txt'), 'utf8');
+    expect(persisted).toContain('voice exemplars');
   });
 });

@@ -440,18 +440,21 @@ export function missingToolOutcome(
 export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOutcome | null {
   const dir = adapter.exemplars;
   if (dir === undefined) return null;
-  let files: string[] | null = null;
+  let state: string | null = 'does not exist';
   try {
-    files = readdirSync(join(cwd, dir), { withFileTypes: true })
-      .filter((e) => e.isFile() && !e.name.startsWith('.'))
-      .map((e) => e.name);
-  } catch {
-    // Missing, unreadable, or not a directory — every case reads as "no anchor".
+    const files = readdirSync(join(cwd, dir), { withFileTypes: true }).filter(
+      (e) => e.isFile() && !e.name.startsWith('.'),
+    );
+    state = files.length > 0 ? null : 'has no files in it';
+  } catch (error) {
+    // Unreadable reads as missing. A file sitting at the path is named for what
+    // it is — "does not exist" would send the reader hunting a typo that isn't
+    // there.
+    if (error instanceof Error && 'code' in error && error.code === 'ENOTDIR') state = 'is a file, not a directory';
   }
-  if (files !== null && files.length > 0) return null;
-  const state = files === null ? 'does not exist' : 'has no files in it';
+  if (state === null) return null;
   const stderr = [
-    `checkride: the \`prose\` slot names \`${dir}\` as its voice exemplars, and that directory ${state}.`,
+    `checkride: the \`prose\` slot names \`${dir}\` as its voice exemplars, and that path ${state}.`,
     '',
     'Exemplars are hand-written prose the agent contract points writing sessions at',
     'as the voice to imitate, so a config naming an empty directory aims that',
