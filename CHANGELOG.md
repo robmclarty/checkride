@@ -4,6 +4,32 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-08-12
+
+### Added
+
+- **A `prose-voice` example** under `examples/`: the `prose` slot end to end —
+  a legacy doc grandfathered at eight findings, violations that trip
+  `Repo.Drift` in fresh markdown and `Repo.ThereIs`/`Repo.Latin` inside a
+  TypeScript doc comment, a ratchet scenario pruning the baseline, and the
+  `docs/voice` exemplars the AGENTS.md stanza points writing sessions at. The
+  e2e harness grows a `proseRules` violation field so an example asserts
+  *which* vale rule fired, not merely that `prose` went red.
+
+### Fixed
+
+- The `prose` exemplars pre-flight now says `is a file, not a directory` when
+  a file sits at the configured path, instead of the false `does not exist`.
+- Re-resolved `nanoid` to 3.3.18 for GHSA-2v37-7h3g-55p8 (high severity;
+  dev-only, via vitest → vite → postcss). No override entry — postcss's own
+  range already permits the patched line.
+
+### Internal
+
+- New tests pin the default runner's exemplars pre-flight wiring, and the rule
+  that a run whose vale output is unreadable masks nothing and prunes nothing
+  while the slots the run did observe still ratchet.
+
 ## [0.12.1] - 2026-08-07
 
 ### Added
@@ -1821,6 +1847,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.2]: https://www.npmjs.com/package/checkride/v/0.12.2
 [0.12.1]: https://www.npmjs.com/package/checkride/v/0.12.1
 [0.12.0]: https://www.npmjs.com/package/checkride/v/0.12.0
 [0.11.2]: https://www.npmjs.com/package/checkride/v/0.11.2
