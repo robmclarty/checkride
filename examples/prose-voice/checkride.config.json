@@ -1,0 +1,10 @@
+{
+  "checks": {
+    "prose": {
+      "use": "vale",
+      "exemplars": "docs/voice",
+      "args": ["exec", "vale", "--no-global", "--output=JSON", "docs", "src"],
+      "note": "Naming the opt-in slot enables it. The args swap the shipped trailing '.' for explicit paths — vale reads no .gitignore, so the path list is the scope. README.md sits outside it on purpose: it quotes the drift tells while documenting them."
+    }
+  }
+}

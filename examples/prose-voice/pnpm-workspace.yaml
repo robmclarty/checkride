@@ -1,0 +1,11 @@
+# This example is a standalone project, not a member of the checkride repo's
+# workspace. Without this file, pnpm would walk up to the repo root, find its
+# `pnpm-workspace.yaml`, and install *that* project instead — leaving this
+# directory with no `node_modules` and no obvious sign anything went wrong.
+#
+# It also carries the one piece of setup `@vvago/vale` needs under pnpm: the
+# package downloads its Go binary in a `postinstall` script, which pnpm blocks
+# until the build is approved here. Without this stanza the install "succeeds"
+# and leaves no runnable `vale` behind.
+allowBuilds:
+  '@vvago/vale': true

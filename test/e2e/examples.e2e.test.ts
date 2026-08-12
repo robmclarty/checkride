@@ -74,6 +74,7 @@ type Violation = {
   failing?: string[];
   deadSummary?: Record<string, number>;
   structRules?: string[];
+  proseRules?: string[];
 };
 type Expected = {
   args?: string[];
@@ -211,6 +212,22 @@ async function assertStructRules(dir: string, violation: Violation): Promise<voi
   }
 }
 
+/** Assert the vale rules a violation must trip, at error severity — the tier that gates. */
+async function assertProseRules(dir: string, violation: Violation): Promise<void> {
+  const report = await readJson<Record<string, { Check: string; Severity: string }[]>>(
+    join(dir, '.check', 'prose.json'),
+  );
+  const tripped = new Set(
+    Object.values(report)
+      .flat()
+      .filter((alert) => alert.Severity === 'error')
+      .map((alert) => alert.Check),
+  );
+  for (const rule of violation.proseRules ?? []) {
+    expect([...tripped], `${violation.name}: vale rules that fired`).toContain(rule);
+  }
+}
+
 /**
  * Every declared violation must actually break the build — and break it for the
  * stated reason. Each is applied to the working copy, run, then reverted, so
@@ -232,6 +249,7 @@ async function assertViolations(dir: string, args: readonly string[], violations
 
       if (violation.deadSummary) await assertDeadSummary(dir, violation);
       if (violation.structRules) await assertStructRules(dir, violation);
+      if (violation.proseRules) await assertProseRules(dir, violation);
     } finally {
       await revert();
     }

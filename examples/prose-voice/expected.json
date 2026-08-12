@@ -1,0 +1,63 @@
+{
+  "description": "Green while carrying eight grandfathered prose findings; red the moment new prose drifts — in markdown or a TypeScript doc comment.",
+  "args": [],
+  "exitCode": 0,
+  "checks": {
+    "prose": { "ok": true, "baselined": 8 },
+    "links": { "ok": true }
+  },
+  "violations": [
+    {
+      "name": "a fresh doc written in the model dialect",
+      "edits": [
+        {
+          "file": "docs/launch.md",
+          "contents": "# Launch notes\n\nWe delve into the tapestry of quota management.\n"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["prose"],
+      "proseRules": ["Repo.Drift"]
+    },
+    {
+      "name": "drift inside a TypeScript doc comment",
+      "edits": [
+        {
+          "file": "src/quota.ts",
+          "find": "Whether one more request fits the quota right now.",
+          "replace": "There is a check that runs here, i.e. the quota math."
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["prose"],
+      "proseRules": ["Repo.ThereIs", "Repo.Latin"]
+    },
+    {
+      "name": "a hyphenated -ly adverb and a doubled word",
+      "edits": [
+        {
+          "file": "docs/rollout.md",
+          "find": "the dashboard for the pilot",
+          "replace": "the newly-created dashboard for the the pilot"
+        }
+      ],
+      "exitCode": 1,
+      "failing": ["prose"],
+      "proseRules": ["Repo.LyHyphen", "Vale.Repetition"]
+    }
+  ],
+  "ratchet": {
+    "newFinding": {
+      "file": "docs/launch.md",
+      "contents": "# Launch notes\n\nIn today's fast-moving environment, launches are seamless.\n",
+      "exitCode": 1
+    },
+    "fix": {
+      "file": "docs/history.md",
+      "find": "\nThere is a dashboard that tracks adoption.\n",
+      "replace": "",
+      "exitCode": 0,
+      "baselineKeysAfter": 7
+    }
+  }
+}

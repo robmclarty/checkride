@@ -1,0 +1,14 @@
+{
+  "name": "checkride-example-prose-voice",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The prose slot: a house style over markdown and TypeScript doc comments, drift control for generated prose, voice exemplars, and a grandfathered legacy doc.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "@vvago/vale": "3.17.0",
+    "checkride": "link:../.."
+  }
+}

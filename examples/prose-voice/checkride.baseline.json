@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "slots": {
+    "prose": [
+      "docs/history.md:Repo.Drift:'In today's' is a fingerprint of generated prose — say the plain thing instead.",
+      "docs/history.md:Repo.Drift:'It's not just a rate limiter — it's' is a fingerprint of generated prose — say the plain thing instead.",
+      "docs/history.md:Repo.Drift:'ever-evolving' is a fingerprint of generated prose — say the plain thing instead.",
+      "docs/history.md:Repo.Drift:'seamless' is a fingerprint of generated prose — say the plain thing instead.",
+      "docs/history.md:Repo.Latin:Use 'for example' instead of 'e.g. '.",
+      "docs/history.md:Repo.Minted:Use 'lessons' instead of 'learnings'.",
+      "docs/history.md:Repo.Minted:Use 'used' instead of 'leveraged'.",
+      "docs/history.md:Repo.ThereIs:'There is' postpones the subject — name the thing that acts, then act."
+    ]
+  }
+}
