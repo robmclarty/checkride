@@ -124,13 +124,20 @@ forms and stop.
      directly above the existing top one at the bottom of the file:
      `[X.Y.Z]: https://www.npmjs.com/package/checkride/v/X.Y.Z`.
 
-9. **Verify before staging:** `pnpm check --only docs,links,spell,test --bail`.
-   A version-plus-changelog diff can only fail those four: the first three read
-   the new prose, and `test` is there for one assertion — the plugin-manifest
-   parity check on step 8's two version strings. If it exits 0, continue. If it
-   fails (commonly a word missing from `cspell.json`), roll back so the user can
-   fix and re-invoke — `git restore package.json .claude-plugin/plugin.json
-   CHANGELOG.md` — show the relevant `.check/*.txt` diagnostic, and stop.
+9. **Verify before staging:** `pnpm check` — the full gate, not a narrowed one.
+   The narrowing this step used to do (`--only docs,links,spell,test`) saved
+   about 2.7s of a 23s run, because `test` dominates the critical path and the
+   other slots finish in its shadow. That is not worth hand-maintaining a
+   blast-radius list against config that moves: `CHANGELOG.md` is excluded from
+   `docs` (`.markdownlint-cli2.jsonc`), `spell` (`cspell.json` `ignorePaths`)
+   and `prose` (the path args in `checkride.config.json`, pinned by
+   `test/dogfood-config.test.ts`), so three of those four could not fail on a
+   release diff at all. A red tag is the expensive failure here — it parks
+   Publish at its approval gate and leaves a stray GH Release, and the fix is
+   forward-only. Buy the coverage. If it exits 0, continue. If it fails, roll
+   back so the user can fix and re-invoke — `git restore package.json
+   .claude-plugin/plugin.json CHANGELOG.md` — show the relevant `.check/*.txt`
+   diagnostic, and stop.
 
 10. **Stage exactly those three files and commit.** The commit message is
     literally the tag, no body:
@@ -176,11 +183,16 @@ forms and stop.
   is summarized. The repo ships at `0.1.0` untagged; a first `/version patch`
   moves to `0.1.1` — if you instead want to tag the current `0.1.0`, do that by
   hand (`git tag -a v0.1.0`), this skill always bumps.
-- **`pnpm check` fails in step 9.** Almost always a new changelog word missing
-  from `cspell.json`'s `words`. The roll-back in step 9 leaves the tree clean; the
-  user adds the word and re-invokes. If instead the failure is
-  `test/plugin-manifest.test.ts`, step 8 moved only one of the two version
-  strings — fix that rather than editing the test.
+- **`pnpm check` fails in step 9.** Only two slots can fail on the diff itself,
+  so read them first. `test/plugin-manifest.test.ts` means step 8 moved
+  only one of the two version strings — fix that rather than editing the test.
+  `links` means a changelog bullet carries a relative link whose target is not
+  on disk (it walks every `*.md`, excluding directories only). Anything else is
+  a pre-existing red the narrowed gate used to hide. It is not the release's
+  fault, but it is the release's problem: tag over it and the recovery is
+  forward-only. Note `security` runs `pnpm audit` against
+  the network, so a newly-published advisory can turn a release red on its own.
+  The roll-back in step 9 leaves the tree clean; the user fixes and re-invokes.
 - **An `## [Unreleased]` section is present.** It is folded into the new release
   section, never kept beside it (steps 7 and 8). Where its bullets and the commit
   range disagree — a bullet describing work that was later reverted, say — the
