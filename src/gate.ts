@@ -353,18 +353,25 @@ function gateDetail(read: SummaryRead, fresh: boolean, green: boolean, profile: 
   const narrowing = profileClause(profile);
   if (!fresh || read.state !== 'ok') return narrowing;
   const ran = ranChecks(read.summary.checks);
-  if (green) {
-    const parts = [`${ran.length} check${ran.length === 1 ? '' : 's'}`];
-    if (narrowing !== null) parts.push(narrowing);
-    const slowest = ran.reduce<SummaryCheck | null>(
-      (worst, c) => (worst === null || c.duration_ms > worst.duration_ms ? c : worst),
-      null,
-    );
-    if (slowest !== null && slowest.duration_ms >= SLOWEST_FLOOR_MS) {
-      parts.push(`slowest: ${slowest.name} in ${formatDuration(slowest.duration_ms)}`);
-    }
-    return parts.join(', ');
+  return green ? greenDetail(ran, narrowing) : redDetail(ran, narrowing);
+}
+
+/** `15 checks, without test, slowest: spell in 1.8s` — what a green run is worth saying about itself. */
+function greenDetail(ran: readonly SummaryCheck[], narrowing: string | null): string {
+  const parts = [`${ran.length} check${ran.length === 1 ? '' : 's'}`];
+  if (narrowing !== null) parts.push(narrowing);
+  const slowest = ran.reduce<SummaryCheck | null>(
+    (worst, c) => (worst === null || c.duration_ms > worst.duration_ms ? c : worst),
+    null,
+  );
+  if (slowest !== null && slowest.duration_ms >= SLOWEST_FLOOR_MS) {
+    parts.push(`slowest: ${slowest.name} in ${formatDuration(slowest.duration_ms)}`);
   }
+  return parts.join(', ');
+}
+
+/** `2 of 15 failed: lint, test; without mutation` — what a red run says, with the narrowing after it. */
+function redDetail(ran: readonly SummaryCheck[], narrowing: string | null): string {
   const failed = ran.filter((c) => !c.ok).map((c) => c.name);
   // Red with nothing failing means the check script itself died (or --strict
   // caught a vacuous run); say the honest thing rather than name no slots.
