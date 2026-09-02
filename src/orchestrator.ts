@@ -570,6 +570,35 @@ function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
 }
 
 /**
+ * Summary entries for the slots an `--only`/`--skip` selection kept from
+ * running. Without them a narrowed run's summary just lists fewer checks, and
+ * a consumer reading `.check/summary.json` after a gate profile or an
+ * iteration loop cannot tell the subset from the whole — the summary must
+ * state its own narrowing. Each deselected slot rides as a skipped row naming
+ * the flag (or its own resolution reason, when it had one and would not have
+ * run anyway). Opt-in slots that simply sat out are not narrowing and stay
+ * absent, exactly as before.
+ */
+function narrowedEntries(
+  resolved: readonly ResolvedCheck[],
+  selected: readonly ResolvedCheck[],
+  flags: RunFlags,
+): SummaryCheck[] {
+  const only = flags.only ?? null;
+  const skipSet = new Set(flags.skip ?? []);
+  if (only === null && skipSet.size === 0) return [];
+  const ran = new Set(selected.map((r) => r.slot));
+  return selectChecks(resolved, { ...flags, only: null, skip: null })
+    .filter((r) => !ran.has(r.slot))
+    .map((r) =>
+      skippedEntry({
+        ...r,
+        skip: r.skip ?? (skipSet.has(r.slot) ? 'skipped by --skip' : 'not in --only'),
+      }),
+    );
+}
+
+/**
  * `total_duration_ms` is the wall-clock span of the whole execution phase,
  * not the sum of per-check durations — under concurrency those diverge, and
  * wall-clock is what the field honestly means. It equals the per-check sum
@@ -1096,7 +1125,11 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   await maybeRatchet(ctx.cwd, ctx.baseline, observed, isPartialRun(options, ctx.changed, brokeEarly), ctx.json, ctx.stderr);
 
-  const summary = buildSummary(checks, totalDurationMs);
+  // The summary carries the run's own narrowing: the slots `--only`/`--skip`
+  // deselected ride as skipped rows, so the artifact can say "without test"
+  // about itself.
+  const reported = [...checks, ...narrowedEntries(resolved, selected, options)];
+  const summary = buildSummary(reported, totalDurationMs);
   await writeFileAtomic(join(ctx.cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
@@ -1108,7 +1141,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   if (ctx.json) {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    reportSummary(ctx.stderr, summary, checks, ctx.adapters, digestWritten);
+    reportSummary(ctx.stderr, summary, reported, ctx.adapters, digestWritten);
     // A mangled committed baseline (a botched merge, usually) masks nothing, so
     // every grandfathered finding above reported red — say so where the person
     // reading the wall of red will actually look, right under the summary.

@@ -309,6 +309,30 @@ describe('runChecks (injected runner)', () => {
     expect(result.summary.checks[0]?.name).toBe('lint');
   });
 
+  /**
+   * A narrowed run's summary must state its own narrowing: a consumer reading
+   * `.check/summary.json` after a gate profile or an `--only` iteration loop
+   * has no other way to tell the subset from the whole.
+   */
+  test('slots deselected by --skip and --only ride the summary as skipped rows', async () => {
+    const skipped = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: okRunner, skip: ['types'], json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(skipped.summary.checks_run).toBe(1);
+    expect(skipped.summary.checks.find((c) => c.name === 'types')).toMatchObject({
+      skipped: true, ok: true, reason: 'skipped by --skip',
+    });
+    const only = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: okRunner, only: ['lint'], json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(only.summary.checks_run).toBe(1);
+    expect(only.summary.checks.find((c) => c.name === 'types')).toMatchObject({
+      skipped: true, reason: 'not in --only',
+    });
+  });
+
   test('records a disabled slot as skipped and prints human output', async () => {
     const std = sink();
     const result = await runChecks({
