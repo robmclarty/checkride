@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.4] - 2026-09-02
 
 ### Added
 
@@ -35,6 +35,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   previous text, so the verdict now carries its own two-newline lead. Only the
   user-facing channel is padded; the agent-facing `reason` and the stderr line
   are untouched.
+- Re-resolved `browserslist` to 4.28.8 for GHSA-c83g-rgw3-j3cx and
+  GHSA-73wf-gq98-2v4g (high severity; dev-only, via `@stryker-mutator/core` →
+  `@babel/core` → `@babel/helper-compilation-targets`). No override entry —
+  `helper-compilation-targets` already declares `^4.24.0`, so a plain
+  re-resolve takes the patched line.
+
+### Internal
+
+- `gateDetail` splits back into `greenDetail` and `redDetail` behind a thin
+  dispatcher, clearing fallow's health threshold after the earlier
+  consolidation pushed it to cyclomatic 10. Pure extraction — the verdict
+  strings are byte-identical.
 
 ## [0.12.2] - 2026-08-12
 
@@ -1879,6 +1891,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.4]: https://www.npmjs.com/package/checkride/v/0.12.4
 [0.12.2]: https://www.npmjs.com/package/checkride/v/0.12.2
 [0.12.1]: https://www.npmjs.com/package/checkride/v/0.12.1
 [0.12.0]: https://www.npmjs.com/package/checkride/v/0.12.0
