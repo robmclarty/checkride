@@ -96,7 +96,7 @@ describe('gate verdicts', () => {
     const { systemMessage, reason } = JSON.parse(stdout.text()) as { systemMessage: string; reason: string };
 
     expect(result.refusal).toBeNull();
-    expect(systemMessage).toContain('✘ red');
+    expect(systemMessage).toContain('checkride red');
     expect(reason).toContain('.check/summary.json');
   });
 
@@ -303,7 +303,7 @@ function message(out: { text: () => string }): string {
  * A profile trades coverage for speed, which is a legitimate trade only while
  * the reader knows they made it. A green that quietly covered three of eighteen
  * slots is the vacuous pass this contract exists to prevent, arrived at from the
- * comfortable direction — so the clause is part of the feature, not a nicety.
+ * comfortable direction — so the disclosure is part of the feature, not a nicety.
  */
 describe('gate profile disclosure', () => {
   let dir: string;
@@ -313,7 +313,7 @@ describe('gate profile disclosure', () => {
   test.each([
     ['green', 0],
     ['red', 1],
-  ])('a %s verdict under a profile states it was not the full check', async (_name, code) => {
+  ])('a %s verdict under a profile names its narrowing', async (_name, code) => {
     const stdout = capture();
     await runGate({
       cwd: dir,
@@ -323,8 +323,7 @@ describe('gate profile disclosure', () => {
       pinEnv: bare(),
       profile: { only: ['types'] },
     });
-    expect(message(stdout)).toContain('gate profile');
-    expect(message(stdout)).toContain('NOT the full check');
+    expect(message(stdout)).toContain('(only types)');
   });
 
   /** The inverse matters as much: the warning must not appear on a complete run. */

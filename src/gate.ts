@@ -313,12 +313,12 @@ export function gatePreflight(cwd: string, config: CheckrideConfig | null = load
 }
 
 /**
- * How a narrowed run must describe itself — appended to every verdict the gate
- * produces while a profile is active.
+ * How a narrowed run must describe itself — the narrowing words that ride
+ * inside every verdict's parenthetical while a profile is active.
  *
  * This is the price of the profile and it is not optional. A gate that runs two
- * of eighteen slots and reports a bare `✔ green` has told the reader the work is
- * done, which is exactly what it does not know. Naming the profile turns a
+ * of eighteen slots and reports a bare `green ✔` has told the reader the work is
+ * done, which is exactly what it does not know. Naming the narrowing turns a
  * silent partial pass into a stated one.
  */
 function profileClause(profile: GateProfile | null): string | null {
@@ -328,7 +328,7 @@ function profileClause(profile: GateProfile | null): string | null {
     profile.skip && profile.skip.length > 0 ? `without ${profile.skip.join(', ')}` : null,
     profile.changed === true ? 'affected-only' : null,
   ].filter((p): p is string => p !== null);
-  return `gate profile: ${parts.join(', ')} — NOT the full check`;
+  return parts.join(', ');
 }
 
 /**
@@ -342,15 +342,37 @@ function ranChecks(checks: readonly SummaryCheck[]): SummaryCheck[] {
   return checks.filter((c) => c.skipped !== true);
 }
 
-/** `15 checks, slowest test 21.4s` — what a green run is worth saying about itself. */
-function greenDetail(ran: readonly SummaryCheck[]): string {
-  const count = `${ran.length} check${ran.length === 1 ? '' : 's'}`;
-  const slowest = ran.reduce<SummaryCheck | null>(
-    (worst, c) => (worst === null || c.duration_ms > worst.duration_ms ? c : worst),
-    null,
-  );
-  if (slowest === null || slowest.duration_ms < SLOWEST_FLOOR_MS) return count;
-  return `${count}, slowest ${slowest.name} ${formatDuration(slowest.duration_ms)}`;
+/**
+ * The verdict's parenthetical: what the run says about itself, comma-joined
+ * into one clause — the check count, the profile's narrowing words when one is
+ * active, and the slowest check when naming it is insight rather than noise.
+ * Without a fresh summary the narrowing words stand alone, and with neither
+ * there is no parenthetical at all.
+ */
+function gateDetail(read: SummaryRead, fresh: boolean, green: boolean, profile: GateProfile | null): string | null {
+  const narrowing = profileClause(profile);
+  if (!fresh || read.state !== 'ok') return narrowing;
+  const ran = ranChecks(read.summary.checks);
+  if (green) {
+    const parts = [`${ran.length} check${ran.length === 1 ? '' : 's'}`];
+    if (narrowing !== null) parts.push(narrowing);
+    const slowest = ran.reduce<SummaryCheck | null>(
+      (worst, c) => (worst === null || c.duration_ms > worst.duration_ms ? c : worst),
+      null,
+    );
+    if (slowest !== null && slowest.duration_ms >= SLOWEST_FLOOR_MS) {
+      parts.push(`slowest: ${slowest.name} in ${formatDuration(slowest.duration_ms)}`);
+    }
+    return parts.join(', ');
+  }
+  const failed = ran.filter((c) => !c.ok).map((c) => c.name);
+  // Red with nothing failing means the check script itself died (or --strict
+  // caught a vacuous run); say the honest thing rather than name no slots.
+  const detail =
+    failed.length === 0
+      ? `${ran.length} checks ran, none failed; the check script itself failed`
+      : `${failed.length} of ${ran.length} failed: ${failed.join(', ')}`;
+  return narrowing === null ? detail : `${detail}; ${narrowing}`;
 }
 
 /**
@@ -383,38 +405,19 @@ function isFresh(read: SummaryRead, startedAt: number): boolean {
 }
 
 /**
- * What the run itself says, read back out of a summary already known to be this
- * run's, or `null` when there is none. The caller still has the elapsed time,
- * which is true regardless.
- */
-function runDetail(read: SummaryRead, green: boolean): string | null {
-  if (read.state !== 'ok') return null;
-  const ran = ranChecks(read.summary.checks);
-  if (green) return greenDetail(ran);
-  const failed = ran.filter((c) => !c.ok).map((c) => c.name);
-  // Red with nothing failing means the check script itself died (or --strict
-  // caught a vacuous run); say the honest thing rather than name no slots.
-  if (failed.length === 0) return `${ran.length} checks ran, none failed — the check script itself failed`;
-  return `${failed.length} of ${ran.length} failed: ${failed.join(', ')}`;
-}
-
-/**
  * The one line a human reads to know the gate ran, what it decided, and how long
- * they waited on it.
+ * they waited on it: `checkride green in 3.6s ✔ (10 checks, without test,
+ * slowest: spell in 1.8s)`. The glyph trails the clause it confirms and the
+ * detail rides one parenthetical, so a harness prefix ("Notice:") still leaves
+ * a line that reads as a sentence, with no colon or dash chain of its own.
  *
  * The elapsed time is the gate's own wall clock — package-manager startup,
  * incremental build and all — not the pipeline's `total_duration_ms`, because
  * the honest answer to "why did that pause" is the whole pause, not the part
  * checkride chooses to measure.
  */
-function headline(verdict: string, elapsedMs: number, detail: string | null): string {
-  return `checkride ${verdict} in ${formatDuration(elapsedMs)}${detail === null ? '' : ` — ${detail}`}`;
-}
-
-/** Join the run's own detail with the narrowing note, dropping whichever is absent. */
-function detailWith(detail: string | null, profile: GateProfile | null): string | null {
-  const parts = [detail, profileClause(profile)].filter((p): p is string => p !== null);
-  return parts.length === 0 ? null : parts.join(' — ');
+function headline(verdict: string, glyph: string, elapsedMs: number, detail: string | null): string {
+  return `checkride ${verdict} in ${formatDuration(elapsedMs)} ${glyph}${detail === null ? '' : ` (${detail})`}`;
 }
 
 /** The sentence a red gate hands the agent, naming what to open first. */
@@ -553,7 +556,7 @@ function failedVerdict(f: Failure): Verdict {
   const refusal = f.fresh ? null : launchRefusal(f.output);
   if (refusal === null) {
     return {
-      status: headline('✘ red', f.elapsedMs, detailWith(f.fresh ? runDetail(f.summary, false) : null, f.profile)),
+      status: headline('red', '✘', f.elapsedMs, gateDetail(f.summary, f.fresh, false, f.profile)),
       instruction: redMessage(f.cwd, f.pm, f.profile),
       refusal: null,
       standDown: false,
@@ -562,7 +565,7 @@ function failedVerdict(f: Failure): Verdict {
   // A launch refusal names no profile: nothing ran, so how much would have run
   // is beside the point.
   return {
-    status: headline('⚠ could not run', f.elapsedMs, refusal.cause),
+    status: headline('could not run', '⚠', f.elapsedMs, refusal.cause),
     instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, pm: f.pm }),
     refusal: refusal.cause,
     standDown: refusal.fixable === 'environment',
@@ -584,7 +587,20 @@ function failedVerdict(f: Failure): Verdict {
  */
 function reportGreen(harness: HarnessName, stdout: Out, status: string): void {
   if (harness === 'cursor') return;
-  stdout.write(`${JSON.stringify({ systemMessage: status })}\n`);
+  stdout.write(`${JSON.stringify({ systemMessage: noticePad(status) })}\n`);
+}
+
+/**
+ * Blank lines in front of the user-visible verdict.
+ *
+ * The harness prints a `systemMessage` right after the turn's last text and
+ * trims whatever trailing whitespace that text carried, so the verdict has to
+ * bring its own separation: without the pad it lands jammed against the
+ * previous sentence. Only the `systemMessage` channel gets it; the agent-facing
+ * `reason` and the stderr line are read by parsers and scrollback, not layout.
+ */
+function noticePad(message: string): string {
+  return `\n\n${message}`;
 }
 
 /** A non-green run, phrased — and whether blocking on it would accomplish anything. */
@@ -637,7 +653,7 @@ function reportStandDown(
   if (harness === 'cursor') {
     if (env[GATE_RETRY_ENV] === '0') out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
   } else {
-    out.stdout.write(`${JSON.stringify({ systemMessage: full })}\n`);
+    out.stdout.write(`${JSON.stringify({ systemMessage: noticePad(full) })}\n`);
   }
   out.stderr.write(`${full}\n`);
   return 0;
@@ -681,7 +697,7 @@ function reportRed(
     return 0;
   }
   out.stdout.write(
-    `${JSON.stringify({ decision: 'block', reason: full, systemMessage: verdict.status })}\n`,
+    `${JSON.stringify({ decision: 'block', reason: full, systemMessage: noticePad(verdict.status) })}\n`,
   );
   out.stderr.write(`${full}\n`);
   return 2;
@@ -756,8 +772,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
 
   if (green) {
     rmSync(marker, { force: true });
-    const detail = detailWith(fresh ? runDetail(summary, true) : null, profile);
-    reportGreen(harness, stdout, headline('✔ green', now() - startedAt, detail));
+    reportGreen(harness, stdout, headline('green', '✔', now() - startedAt, gateDetail(summary, fresh, true, profile)));
     return { exitCode: 0, ran: true, green: true, refusal: null };
   }
 

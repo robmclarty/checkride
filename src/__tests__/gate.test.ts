@@ -216,7 +216,7 @@ describe('runGate', () => {
     const body = JSON.parse(stdout.text()) as { decision: string; reason: string; systemMessage: string };
     expect(body.decision).toBe('block');
     expect(body.reason).toContain('the gate is red');
-    expect(body.systemMessage).toContain('checkride ✘ red');
+    expect(body.systemMessage).toContain('checkride red');
   });
 
   test('claude: green says so, so a silent minute is not mistaken for a hang', async () => {
@@ -231,7 +231,7 @@ describe('runGate', () => {
     });
     expect(result.green).toBe(true);
     const body = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
-    expect(body.systemMessage).toBe('checkride ✔ green in 4.2s');
+    expect(body.systemMessage).toBe('\n\ncheckride green in 4.2s ✔');
     // Nothing to block on: a green gate must not carry a decision.
     expect(body.decision).toBeUndefined();
   });
@@ -261,7 +261,7 @@ describe('runGate', () => {
     await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(61_000) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     // Skipped checks are not part of "3 checks" — nothing ran for them.
-    expect(systemMessage).toBe('checkride ✘ red in 1.0m — 2 of 3 failed: lint, test');
+    expect(systemMessage).toBe('\n\ncheckride red in 1.0m ✘ (2 of 3 failed: lint, test)');
   });
 
   test('a green report names the slowest check, the one worth knowing about', async () => {
@@ -275,7 +275,7 @@ describe('runGate', () => {
     const stdout = capture();
     await runGate({ cwd: dir, spawn: exits(0), stdout, stderr: capture(), now: fakeClock(30_000) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toBe('checkride ✔ green in 30.0s — 2 checks, slowest test 21.4s');
+    expect(systemMessage).toBe('\n\ncheckride green in 30.0s ✔ (2 checks, slowest: test in 21.4s)');
   });
 
   /**
@@ -287,7 +287,7 @@ describe('runGate', () => {
     const stdout = capture();
     await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(1500) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toBe('checkride ✘ red in 1.5s');
+    expect(systemMessage).toBe('\n\ncheckride red in 1.5s ✘');
   });
 
   /**
@@ -303,7 +303,7 @@ describe('runGate', () => {
     await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: () => after });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     expect(systemMessage).not.toContain('lint');
-    expect(systemMessage).toBe('checkride ✘ red in 0ms');
+    expect(systemMessage).toBe('\n\ncheckride red in 0ms ✘');
   });
 
   test('cursor: red exits 0 and carries the verdict as JSON on stdout', async () => {
@@ -387,7 +387,7 @@ describe('runGate — the package manager refused to start the check', () => {
       now: fakeClock(265),
     });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toContain('checkride ⚠ could not run in 265ms');
+    expect(systemMessage).toContain('checkride could not run in 265ms ⚠');
     expect(systemMessage).toContain('engines');
     expect(systemMessage).not.toContain('red');
     expect(result.refusal).not.toBeNull();
@@ -512,7 +512,7 @@ describe('runGate — the package manager refused to start the check', () => {
     const result = await runGate({ cwd: dir, spawn: ranAndFailed, stdout, stderr: capture(), pinEnv: pinEnv() });
     expect(result.refusal).toBeNull();
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toContain('✘ red');
+    expect(systemMessage).toContain('checkride red');
     expect(systemMessage).toContain('1 of 1 failed: test');
   });
 
@@ -553,7 +553,7 @@ describe('runGate — the package manager refused to start the check', () => {
     });
     expect(result.refusal).toBeNull();
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toContain('✘ red');
+    expect(systemMessage).toContain('checkride red');
   });
 
   test('a package manager that is not on PATH is a refusal, not an unexplained red', async () => {
@@ -762,10 +762,10 @@ describe('runGate — the gate profile', () => {
 
   /**
    * The point of the whole feature, and its price. A gate that ran two of
-   * eighteen slots and reported a bare `✔ green` has told the reader the work is
+   * eighteen slots and reported a bare `green ✔` has told the reader the work is
    * done, which is exactly what it does not know.
    */
-  test('a narrowed green says it is not the full check', async () => {
+  test('a narrowed green names its narrowing', async () => {
     const stdout = capture();
     await runGate({
       cwd: dir,
@@ -777,7 +777,7 @@ describe('runGate — the gate profile', () => {
       now: fakeClock(4100),
     });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
-    expect(systemMessage).toBe('checkride ✔ green in 4.1s — gate profile: only types, lint — NOT the full check');
+    expect(systemMessage).toBe('\n\ncheckride green in 4.1s ✔ (only types, lint)');
   });
 
   test('a narrowed red says the same, and points past itself', async () => {
@@ -791,7 +791,7 @@ describe('runGate — the gate profile', () => {
       pinEnv: pinEnv(),
       profile: { skip: ['test', 'mutation'] },
     });
-    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('NOT the full check');
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('without test, mutation');
     // Fixing what the profile found may not be enough; say where the rest is.
     expect(stderr.text()).toContain('ran a profile, not the full check');
   });
@@ -808,7 +808,7 @@ describe('runGate — the gate profile', () => {
       profile: null,
       now: fakeClock(4100),
     });
-    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toBe('checkride ✔ green in 4.1s');
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toBe('\n\ncheckride green in 4.1s ✔');
   });
 
   test('reads the profile from checkride.config.json when none is passed', async () => {
@@ -817,12 +817,12 @@ describe('runGate — the gate profile', () => {
     const stdout = capture();
     await runGate({ cwd: dir, spawn, stdout, stderr: capture(), pinEnv: pinEnv() });
     expect(args()).toContain('--only');
-    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('gate profile');
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('only types');
   });
 
   /**
-   * `"gate": {}` narrows nothing, so carrying it forward would put "NOT the full
-   * check" on a verdict that was the full check — a warning that means the
+   * `"gate": {}` narrows nothing, so carrying it forward would put narrowing
+   * words on a verdict that was the full check — a warning that means the
    * opposite of the truth.
    */
   test('an empty profile is no profile at all', async () => {
@@ -838,7 +838,7 @@ describe('runGate — the gate profile', () => {
   });
 
   /**
-   * A preflight narrows nothing, so it must not put "NOT the full check" on a
+   * A preflight narrows nothing, so it must not put narrowing words on a
    * verdict that was the full check — the same failure `"gate": {}` would cause.
    */
   test('a preflight alone is not a profile', async () => {

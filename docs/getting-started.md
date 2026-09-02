@@ -310,15 +310,15 @@ already carried.
 **The gate then says so, in every verdict it produces:**
 
 ```text
-checkride ✔ green in 4.1s — gate profile: only types, lint, struct — NOT the full check
+checkride green in 4.1s ✔ (only types, lint, struct, affected-only)
 ```
 
-That clause is the price of the feature and it is not optional. A gate that runs
-three of eighteen slots and reports a bare `✔ green` has told you the work is
-done, which is exactly what it does not know — the vacuous pass this whole tool
-exists to prevent, arrived at from the comfortable direction. A narrowed red
-likewise points past itself, because fixing what the profile found may not be
-enough.
+Naming the narrowing is the price of the feature and it is not optional. A gate
+that runs three of eighteen slots and reports a bare `green ✔` has told you the
+work is done, which is exactly what it does not know — the vacuous pass this
+whole tool exists to prevent, arrived at from the comfortable direction. A
+narrowed red likewise points past itself, because fixing what the profile found
+may not be enough.
 
 So a profile is a trade, not a free win: use one when something else still runs
 the full check before the work lands. If nothing does, leave it unset.
@@ -417,8 +417,8 @@ under Claude Code:
   guessed at:
 
   ```text
-  checkride ✔ green in 38.2s — 15 checks, slowest test 21.4s
-  checkride ✘ red in 41.7s — 2 of 15 failed: lint, test
+  checkride green in 38.2s ✔ (15 checks, slowest: test in 21.4s)
+  checkride red in 41.7s ✘ (2 of 15 failed: lint, test)
   ```
 
   The elapsed time is the gate's own wall clock — package-manager startup and

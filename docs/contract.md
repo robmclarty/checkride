@@ -218,18 +218,18 @@ checkride. A configured path that does not exist **blocks**, so a typo cannot
 silently disarm the gate. Because the path is re-read from config on every
 `hooks add`/`agent-setup`, a bare refresh restores the wiring rather than
 clobbering it — that is the whole reason this is a config key and not a flag. A
-preflight narrows nothing, so it never puts the "NOT the full check" clause on a
-verdict.
+preflight narrows nothing, so it never puts narrowing words on a verdict.
 
 **A gate profile narrows the gate, and the gate says so.** `checkride.config.json`
 may carry a `gate` key (`only`, `skip`, `changed`) that applies to the stop-gate
 run and nothing else; its flags are appended after the check script's own, so the
 profile wins. The promise is the disclosure: while a profile is active, every
-verdict the gate emits carries the profile and the words "NOT the full check". A
-narrowed green that read as a full green would be the vacuous pass this contract
-exists to prevent, so the clause is part of the feature rather than a nicety. A
-profile that narrows nothing (`"gate": {}`) is treated as no profile, and the
-verdict says nothing.
+verdict the gate emits names the narrowing in its parenthetical — `only types,
+lint`, `without test`, `affected-only` — so a narrowed green can never read as a
+full green. That would be the vacuous pass this contract exists to prevent, so
+the disclosure is part of the feature rather than a nicety. A profile that
+narrows nothing (`"gate": {}`) is treated as no profile, and the verdict says
+nothing.
 
 **checkride aligns the check run to the repo's Node pin.** When the repo names an
 exact interpreter (`.nvmrc` or `.node-version`), the running Node does not

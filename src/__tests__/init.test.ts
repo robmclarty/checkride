@@ -56,9 +56,9 @@ describe('AGENTS stanza (idempotency)', () => {
     // covers a subset. The stanza is written once and the config moves on
     // without it, so it must not name a profile or call any gate run
     // authoritative — it points at the verdict, which is generated per run and
-    // says "NOT the full check" when it was not.
-    expect(body).toContain('`NOT the full check`');
-    expect(body).toContain('run `pnpm check` in full before you');
+    // names its narrowing when there was one.
+    expect(body).toContain('names its narrowing');
+    expect(body).toContain('`pnpm check` in full before you claim');
     expect(body).not.toMatch(/authoritative|runs the full `pnpm check` as the final gate/);
   });
 
