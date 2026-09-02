@@ -4,6 +4,38 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-09-02
+
+### Added
+
+- **A narrowed run's summary now states its own narrowing.** Slots deselected
+  by `--only`/`--skip` ride `.check/summary.json` as skipped rows naming the
+  flag (`not in --only`, `skipped by --skip`), so a consumer reading the
+  artifact after a gate profile or an iteration loop can tell the subset from
+  the whole. Opt-in slots that simply sat out are not narrowing and stay
+  absent, as before. The human summary reports the same narrowed set.
+
+### Changed
+
+- **The gate verdict reads as one sentence.** The glyph now trails the clause
+  it confirms and every detail rides a single parenthetical — `checkride green
+  in 4.1s ✔ (10 checks, without test, slowest: spell in 1.8s)` — in place of
+  the old leading-glyph, dash-chained form. A gate profile names its narrowing
+  directly (`only types, lint`, `without test`, `affected-only`) rather than
+  the `gate profile: … — NOT the full check` boilerplate, so a narrowed green
+  still cannot read as a full green. This moves a frozen surface: anything
+  matching the old verdict string verbatim needs updating, and
+  `docs/contract.md` and its contract test move with it. The `AGENTS.md`
+  stanza that `checkride init` writes describes the new wording.
+
+### Fixed
+
+- The gate's user-visible verdict no longer lands glued to the turn's last
+  sentence. The harness prints a hook's `systemMessage` immediately after the
+  previous text, so the verdict now carries its own two-newline lead. Only the
+  user-facing channel is padded; the agent-facing `reason` and the stderr line
+  are untouched.
+
 ## [0.12.2] - 2026-08-12
 
 ### Added
@@ -1847,6 +1879,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.3]: https://www.npmjs.com/package/checkride/v/0.12.3
 [0.12.2]: https://www.npmjs.com/package/checkride/v/0.12.2
 [0.12.1]: https://www.npmjs.com/package/checkride/v/0.12.1
 [0.12.0]: https://www.npmjs.com/package/checkride/v/0.12.0
