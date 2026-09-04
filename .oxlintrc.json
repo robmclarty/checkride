@@ -25,7 +25,11 @@
     {
       "files": ["**/*.test.ts"],
       "rules": {
-        "typescript/no-unsafe-type-assertion": "off"
+        "typescript/no-unsafe-type-assertion": "off",
+        // These suites mutate one shared directory: read-then-write the same file,
+        // or apply an edit, run the CLI, assert, revert. Awaiting in the loop IS
+        // the correctness constraint, and a perf rule has no claim on test code.
+        "no-await-in-loop": "off"
       }
     }
   ],

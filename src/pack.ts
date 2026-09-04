@@ -158,9 +158,9 @@ const DENY: readonly { re: RegExp; label: string }[] = [
 ];
 
 /**
- * A `dist` declaration artifact — `dist/**​/*.d.{ts,mts,cts}` and their source
- * maps. These legitimately ship, so they are exempt from the deny list even
- * though `dist/index.d.ts` matches `\.ts$`.
+ * A `dist` declaration artifact — any `.d.ts`, `.d.mts` or `.d.cts` anywhere
+ * under `dist/`, and their source maps. These legitimately ship, so they are
+ * exempt from the deny list even though `dist/index.d.ts` matches `\.ts$`.
  */
 function isDistDeclaration(path: string): boolean {
   return /^dist\/.*\.d\.(ts|mts|cts)(\.map)?$/.test(path);

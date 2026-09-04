@@ -49,6 +49,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   parsers read survives the jump, including against a health report carrying a
   real finding, since a silent shape drift would read as zero findings and
   pass. No new findings on this repo; thresholds are unchanged.
+- `oxlint` 1.81.0 with `oxlint-tsgolint` 7.0.2001 — one bump, not two: oxlint
+  1.81 declares the tsgolint peer as `>=7.0.2001`, and tsgolint renumbered from
+  0.25.0 to track TypeScript 7. It brought two new rules. `no-irregular-
+  whitespace` caught a zero-width space in a `src/pack.ts` doc comment, wedged
+  there to stop a glob's `*/` closing the comment — reworded so no invisible
+  character is load-bearing. `no-await-in-loop` is off for `**/*.test.ts`:
+  those suites mutate one shared directory and awaiting in the loop is the
+  correctness constraint, not an oversight.
 
 ## [0.12.4] - 2026-09-02
 

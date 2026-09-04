@@ -211,7 +211,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'oxlint', '--type-aware', '--format=json'],
     outputFile: 'lint.json',
     fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
-    devDeps: { oxlint: '1.74.0', 'oxlint-tsgolint': '0.25.0' },
+    devDeps: { oxlint: '1.81.0', 'oxlint-tsgolint': '7.0.2001' },
   },
   {
     name: 'biome',

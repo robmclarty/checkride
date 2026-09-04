@@ -75,8 +75,8 @@
     "cspell": "10.0.1",
     "fallow": "3.22.0",
     "markdownlint-cli2": "0.23.2",
-    "oxlint": "1.74.0",
-    "oxlint-tsgolint": "0.25.0",
+    "oxlint": "1.81.0",
+    "oxlint-tsgolint": "7.0.2001",
     "publint": "0.3.24",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
