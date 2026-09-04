@@ -4,6 +4,37 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The `spell` slot reports common typos, not unknown words.** The cspell
+  config `checkride init` scaffolds — and this repo's own — now sets
+  `"unknownWords": "report-common-typos"`, so a red `spell` means a word from
+  cspell's common-misspellings list (`recieve`, `seperate`, `occured`), never a
+  tool name or a domain term the dictionary has not met. The scaffolded `words`
+  allowlist starts empty, and this repo's 87-entry list — one that 37 of its
+  247 commits had to touch — is gone. The trade is recall on a novel
+  misspelling of a real word, which is the recall the noise was already
+  costing. `language` widens to `en,en-GB`, so Canadian and British spellings
+  (`colour`, `behaviour`) pass without a second dictionary. Existing adopters
+  opt in by adding the two settings to their `cspell.json`; `cspell --report
+  typos --words-only --unique .` previews what a repo would still flag.
+
+### Fixed
+
+- **A `security` run against an unreachable advisory endpoint no longer sits
+  for four minutes and then says nothing.** The adapter passes
+  `--fetch-retries=1 --fetch-timeout=15000`, so pnpm gives up in about 40s
+  instead of its default ~250s. The failure is reported as `exit_code: -1` —
+  could not verify, the code the plugin's readers already name a harness
+  problem rather than a finding — with pnpm's own message printed under the
+  slot's status line. Any `exit_code: -1` slot now prints its reason there: a
+  built-in's `check-<slot>:` line, or the `timed out after Ns` note.
+- A slot's stderr is persisted as `.check/<slot>.stderr.txt` even when its
+  stdout won as a JSON artifact. The security evaluator's explanation used to
+  be dropped on that path, leaving `.check/security.json` as the only trace.
+
 ## [0.12.4] - 2026-09-02
 
 ### Added

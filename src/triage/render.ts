@@ -413,7 +413,7 @@ function staleCaveats(stale: readonly ArtifactFile[]): string[] {
 function spawnFailureCaveats(rows: readonly SlotRow[]): string[] {
   return rows
     .filter((r) => r.exitCode === -1)
-    .map((r) => `\`${r.slot}\` has \`exit_code: -1\` — it failed to spawn or timed out. That is a harness problem, not a finding.`);
+    .map((r) => `\`${r.slot}\` has \`exit_code: -1\` — it failed to spawn or timed out, or a built-in ran without reaching a verdict (\`security\` with the advisory endpoint unreachable). That is a harness problem, not a finding.`);
 }
 
 /**

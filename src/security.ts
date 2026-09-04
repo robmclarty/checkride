@@ -11,8 +11,10 @@
  *
  * "Could not run" (registry unreachable, malformed output) is distinguished
  * from "ran; everything below the level": the former fails with the error
- * surfaced, the latter is green. The raw audit JSON is passed through on
- * stdout, so the orchestrator persists `.check/security.json` as before.
+ * surfaced and `exit_code: -1` — the code the plugin's readers name a harness
+ * problem, not a finding — the latter is green. The raw audit JSON is passed
+ * through on stdout, so the orchestrator persists `.check/security.json` as
+ * before.
  */
 
 import { isRecord } from './json.js';
@@ -62,6 +64,42 @@ function fail(stdout: string, stderr: string): CheckOutcome {
 }
 
 /**
+ * pnpm's own error, when the audit ran but the advisory endpoint did not
+ * answer: `{"error":{"code":23,"message":"The operation was aborted due to
+ * timeout"}}` on stdout, nothing on stderr. Null for any other payload.
+ */
+function auditErrorMessage(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const error = value['error'];
+  if (!isRecord(error)) return null;
+  const message = error['message'];
+  return typeof message === 'string' && message.trim() ? message.trim() : null;
+}
+
+/**
+ * The outcome for an audit that reached no verdict — it did not run to
+ * completion (registry down, fetch timeout, bad flag). A failure to verify is
+ * never a pass, and it is not a finding either: -1 is the exit code a spawn
+ * failure or timeout carries, and the one `triage` and the check skill read
+ * as "harness problem", so the reader is sent to the network, not on a hunt
+ * for an advisory. The first stderr line is the reason the orchestrator prints
+ * under the slot; pnpm's own message rides it when the payload carried one.
+ */
+function noVerdict(command: string, outcome: CheckOutcome, json: ReturnType<typeof parseToolJson>): CheckOutcome {
+  const message = json ? auditErrorMessage(json.value) : null;
+  const headline = message
+    ? `${command} audit could not complete: ${message}`
+    : `${command} audit produced no readable JSON verdict`;
+  const detail = message ? '' : outcome.stderr.trim() || outcome.stdout.trim();
+  return {
+    ok: false,
+    exit_code: -1,
+    stdout: outcome.stdout,
+    stderr: `check-security: ${headline} (exit ${outcome.exit_code})${detail ? `\n${detail.slice(0, 500)}` : ''}\n`,
+  };
+}
+
+/**
  * Run the `security` check against `cwd`. `args` are the resolved adapter args
  * (`audit --audit-level=<l> …`, config overrides included); `--json` is
  * appended when an override dropped it, since the evaluator needs the payload.
@@ -82,15 +120,7 @@ export async function checkSecurity(opts: {
   const outcome = await spawn(command, args, cwd, timeoutSec);
   const json = parseToolJson(outcome.stdout);
   const counts = json ? severityCounts(json.value) : null;
-  if (!counts) {
-    // No parseable verdict — the audit didn't run (registry down, bad flag,
-    // timeout), which is a failure to verify, never a pass.
-    const detail = outcome.stderr.trim() || outcome.stdout.trim();
-    return fail(
-      outcome.stdout,
-      `check-security: ${command} audit produced no readable JSON verdict (exit ${outcome.exit_code})${detail ? `\n${detail.slice(0, 500)}` : ''}\n`,
-    );
-  }
+  if (!counts) return noVerdict(command, outcome, json);
 
   const gating = LEVELS.slice(LEVELS.indexOf(level));
   const above = gating.map((s) => [s, counts[s] ?? 0] as const).filter(([, n]) => n > 0);

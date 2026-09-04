@@ -48,8 +48,9 @@ describe('generated project passes its own spell check', () => {
     // cspell's startup alone can exceed the 5s default on slow-spawn machines.
     test(`${shape}: cspell finds no unknown words`, async () => {
       const { code, out } = await spellCheckGenerated(dir, shape);
-      // On failure `out` lists each flagged `file:line - Unknown word (…)`; add
-      // the word to templates/shared/cspell.json (not the offending prose).
+      // On failure `out` lists each flagged `file:line - Unknown word (…)`. The
+      // template runs cspell in `report-common-typos` mode, so a hit is a real
+      // misspelling in the generated prose — fix the prose, not the dictionary.
       expect(code, `cspell flagged unknown word(s) in the generated ${shape} project:\n${out}`).toBe(0);
     }, 30_000);
   }

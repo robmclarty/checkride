@@ -486,8 +486,11 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
 };
 
 /**
- * Persist raw output atomically: JSON to `.check/<outputFile>`, else
- * stdout/stderr text.
+ * Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout
+ * text — and stderr text on either path. A slot that produced a JSON artifact
+ * can still have explained itself on stderr (a built-in's `check-<slot>:` line,
+ * a launcher warning), and that explanation must not vanish because the JSON
+ * won: `security` against an unreachable registry used to lose its reason here.
  *
  * Returns the JSON file it wrote, or `null` when it fell through to text — the
  * summary's `output_file` is that return value, never the adapter's
@@ -498,6 +501,7 @@ const defaultRunner: CheckRunner = (resolved, ctx) => {
  */
 async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcome): Promise<string | null> {
   const dir = join(cwd, '.check');
+  if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
   if (adapter.outputFile && outcome.stdout.trim()) {
     // Tolerates a launcher preamble ahead of the JSON; writes the tool's own
     // bytes from the first JSON character on, so the artifact actually parses.
@@ -508,7 +512,6 @@ async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcom
     }
   }
   if (outcome.stdout.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stdout.txt`), outcome.stdout);
-  if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
   return null;
 }
 
@@ -751,6 +754,21 @@ type MaskResult = {
 };
 
 /**
+ * The one line a could-not-verify outcome (`exit_code: -1`) owes the terminal.
+ * A red slot otherwise prints only its status line — the tool's output is in
+ * `.check/` — but -1 means the tool never reached a verdict, and the reader's
+ * next move (fix the network, raise the timeout) depends on why. A built-in
+ * states its cause on a `check-<slot>:` line; `spawnCheck` appends its
+ * `timed out after Ns` / `Failed to spawn` note *last*, after whatever the tool
+ * managed to print. Any other outcome prints nothing extra.
+ */
+function couldNotVerifyReason(outcome: CheckOutcome): string | null {
+  if (outcome.ok || outcome.exit_code !== -1) return null;
+  const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
+}
+
+/**
  * Baseline-aware verdict for one slot's outcome. fallow slots derive pass/fail
  * from the parsed report (its exit code doesn't reliably gate); everything else
  * masks the adapter's fingerprint. `observed` is non-null only when the run's
@@ -764,9 +782,9 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
   const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
   if (baseline && current !== null) {
     const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
-    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: null, observed: current };
+    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
   }
-  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: null, observed: null };
+  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: couldNotVerifyReason(outcome), observed: null };
 }
 
 /** Build (and print) the skipped-entry row for a slot that won't run this pass. */

@@ -436,7 +436,11 @@ export const ADAPTERS: readonly Adapter[] = [
     // they are the audit invocation, and `--audit-level=<l>` doubles as the
     // gate threshold it enforces itself — pnpm's JSON-mode exit code ignores
     // the level, so trusting it gated at zero advisories of any severity.
-    args: ['audit', '--audit-level=high', '--json'],
+    // The fetch flags bound the wait when npm's advisory endpoint is down:
+    // pnpm's defaults (2 retries, 60s timeout, 10–60s backoff) sit ~250s
+    // before reporting; one retry at 15s measures ~40s. pnpm-only flags are
+    // safe here — the slot is unavailable under any other manager.
+    args: ['audit', '--audit-level=high', '--json', '--fetch-retries=1', '--fetch-timeout=15000'],
     outputFile: 'security.json',
     builtin: 'security',
     devDeps: {},

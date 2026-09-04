@@ -1432,4 +1432,31 @@ describe('missingExemplarsOutcome', () => {
     const persisted = await readFile(join(dir, '.check', 'prose.stderr.txt'), 'utf8');
     expect(persisted).toContain('voice exemplars');
   });
+
+  test('a built-in that reaches no verdict prints its reason and keeps it beside the JSON artifact', async () => {
+    // The real `security` path, fed the shape pnpm emits when the advisory
+    // endpoint times out: exit 1, its own JSON `error` on stdout, silence on
+    // stderr. A script file, not `-e`, so node never parses `--json` as its own.
+    const payload = JSON.stringify({ error: { code: 23, message: 'The operation was aborted due to timeout' } });
+    const fake = join(dir, 'fake-audit.mjs');
+    await writeFile(fake, `console.log(${JSON.stringify(payload)}); process.exit(1);\n`);
+    const adapter = fakeAdapter({
+      name: 'pnpm-audit', slot: 'security', builtin: 'security', outputFile: 'security.json',
+      command: process.execPath, args: [fake, '--json'],
+    });
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'security' }], adapters: [adapter], config: null,
+      json: false, stdout: std.out, stderr: std.out,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.summary.checks.find((c) => c.name === 'security')).toMatchObject({
+      ok: false, exit_code: -1, output_file: 'security.json',
+    });
+    // The terminal says why, not only that.
+    expect(std.lines.join('')).toContain('could not complete: The operation was aborted due to timeout');
+    // stdout won as the JSON artifact — and the stderr reason survives beside it.
+    expect(JSON.parse(await readFile(join(dir, '.check', 'security.json'), 'utf8'))).toMatchObject({ error: { code: 23 } });
+    expect(await readFile(join(dir, '.check', 'security.stderr.txt'), 'utf8')).toContain('check-security:');
+  });
 });

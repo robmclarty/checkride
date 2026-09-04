@@ -138,7 +138,7 @@ It covers the contract corners a plain summary read gets wrong:
 | narrow green | `ok: true` over a subset — the header states covered slots and the run's age before any finding |
 | `baselined: N` | that many findings are grandfathered, so the pass is not clean |
 | `skipped` + `reason` | that slot verified nothing this run |
-| `exit_code: -1` | a spawn failure or timeout — a harness problem wearing a failure's clothes, not a finding |
+| `exit_code: -1` | a spawn failure, a timeout, or a built-in that ran without reaching a verdict (`security` with the advisory endpoint down) — a harness problem wearing a failure's clothes, not a finding |
 | a bumped `schema_version` | the reader is pinned to 1 and stops loudly rather than guessing |
 | a stale artifact | anything older than the run's start is labelled with its age, never silently dropped |
 

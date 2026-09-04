@@ -1,6 +1,7 @@
 {
   "version": "0.2",
-  "language": "en",
+  "language": "en,en-GB",
+  "unknownWords": "report-common-typos",
   "files": ["**/src/**/*.ts", "**/test/**/*.ts", "**/*.md"],
   "ignorePaths": [
     "**/node_modules/**",
@@ -11,27 +12,5 @@
     "CHANGELOG.md"
   ],
   "ignoreRegExpList": ["/v1[0-9a-f]{16}/g"],
-  "words": [
-    "checkride",
-    "baselined",
-    "biome",
-    "cspell",
-    "devDeps",
-    "esbuild",
-    "eslint",
-    "fallow",
-    "knip",
-    "markdownlint",
-    "NodeNext",
-    "noemit",
-    "oxlint",
-    "oxlintrc",
-    "pnpm",
-    "sgconfig",
-    "stryker",
-    "tsbuildinfo",
-    "tsconfig",
-    "tsgolint",
-    "vitest"
-  ]
+  "words": []
 }

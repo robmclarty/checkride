@@ -35,6 +35,19 @@ const DEFAULT_ARGS = ['audit', '--audit-level=high', '--json'];
 const downSpawn: AuditSpawn = () =>
   Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'ERR_PNPM_AUDIT_ENDPOINT ECONNREFUSED' });
 
+/**
+ * The shape pnpm actually emits when the advisory endpoint times out: exit 1
+ * and its own JSON `error` on stdout, nothing on stderr (observed 2026-09-03,
+ * pnpm 11.1.2, after its default retry schedule had run ~250s).
+ */
+const endpointTimeoutSpawn: AuditSpawn = () =>
+  Promise.resolve({
+    ok: false,
+    exit_code: 1,
+    stdout: '{"error":{"code":23,"message":"The operation was aborted due to timeout"}}',
+    stderr: '',
+  });
+
 /** Parseable JSON that is not an audit payload at all. */
 const weirdSpawn: AuditSpawn = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: '{"unexpected": true}', stderr: '' });
@@ -93,13 +106,28 @@ describe('checkSecurity', () => {
   test('no readable JSON verdict (registry down, timeout) fails — never a silent pass', async () => {
     const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: downSpawn });
     expect(outcome.ok).toBe(false);
+    // -1, not 1: a failure to verify is the harness's problem, not a finding.
+    expect(outcome.exit_code).toBe(-1);
     expect(outcome.stderr).toContain('no readable JSON verdict');
     expect(outcome.stderr).toContain('ECONNREFUSED');
+  });
+
+  test("pnpm's own error JSON is could-not-verify, with its message as the first-line reason", async () => {
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: endpointTimeoutSpawn });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.exit_code).toBe(-1);
+    // One line the orchestrator can print under the status line, pnpm's words in it.
+    expect(outcome.stderr.split('\n')[0]).toBe(
+      'check-security: pnpm audit could not complete: The operation was aborted due to timeout (exit 1)',
+    );
+    // The raw JSON still rides stdout, so `.check/security.json` is written as before.
+    expect(JSON.parse(outcome.stdout)).toMatchObject({ error: { code: 23 } });
   });
 
   test('JSON without metadata.vulnerabilities is a failure to verify, not a pass', async () => {
     const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: weirdSpawn });
     expect(outcome.ok).toBe(false);
+    expect(outcome.exit_code).toBe(-1);
   });
 
   test('tolerates a launcher preamble ahead of the JSON', async () => {

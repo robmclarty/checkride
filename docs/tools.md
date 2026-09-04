@@ -91,8 +91,13 @@ and JSON shape don't port across managers, so on npm/yarn/bun the slot is
 reported **unavailable** until a per-manager audit adapter lands. checkride
 evaluates the audit JSON itself and gates at the `--audit-level` the adapter's
 args declare — pnpm's own JSON-mode exit code fails on *any* advisory
-regardless of level, so it is never trusted as the verdict. Every other slot
-runs identically regardless of manager.
+regardless of level, so it is never trusted as the verdict. The audit is a
+network call, so its wait is bounded: the adapter passes `--fetch-retries=1
+--fetch-timeout=15000`, and an advisory endpoint that never answers turns the
+slot red in about 40 seconds rather than pnpm's default four minutes. That red
+is reported as `exit_code: -1` — could not verify, not a finding — with pnpm's
+own message on the slot's reason line and in `.check/security.stderr.txt`.
+Every other slot runs identically regardless of manager.
 
 ### Launcher quirks checkride works around
 
@@ -313,6 +318,36 @@ otherwise false-positive, so you can retire a bespoke link-checker script:
   error (exit 2), not a crash mid-run.
 
 Both are ignored on any slot other than `links`.
+
+### The `spell` slot: common typos, not unknown words
+
+<!-- cspell:ignore recieve seperate occured -->
+
+The scaffolded `cspell.json` sets `"unknownWords": "report-common-typos"`, so
+`spell` flags a word only when cspell holds a preferred correction for it — the
+`recieve`, `seperate`, `occured` family of slips — and never a word it has not
+met. A tool name, a domain term, or an identifier is not a finding. A red
+`spell` is a misspelling to fix in place, not a word to allowlist, which is why
+the scaffolded `words` list ships empty and can stay that way.
+
+The trade is recall: a novel misspelling of an ordinary word, one no
+common-typos list records, passes. In dictionary mode that recall was paid for
+with an allowlist entry per piece of jargon; checkride's own ran to 87 words
+that 37 of its 247 commits had to touch before the mode changed.
+
+`language` is `en,en-GB`, so Canadian and British spellings (`colour`,
+`behaviour`, `organise`) pass beside American ones. For strict Canadian —
+`colour` but not `organise` — install `@cspell/dict-en-ca`, import it, and set
+`language` to `en-CA`.
+
+To flag every unknown word again, set `"unknownWords": "report-all"`; it is a
+config line, not a different tool. Before changing modes on an existing repo,
+preview what each would report:
+
+```bash
+cspell --report all   --words-only --unique .
+cspell --report typos --words-only --unique .
+```
 
 ## The publish-ready bundle
 
