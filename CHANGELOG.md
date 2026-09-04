@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.5] - 2026-09-04
 
 ### Changed
 
@@ -72,6 +72,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   still honoured, and the mode still filters (10 words under `report-all`
   against 5 under `report-common-typos`). 10.2.1 exists but sits inside the
   48-hour `minimumReleaseAge` cooldown.
+- The `/version` release gate widened from `--only docs,links,spell,test` to
+  the full `pnpm check`. Repo-local skill, not shipped.
 
 ## [0.12.4] - 2026-09-02
 
@@ -1960,6 +1962,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.12.5]: https://www.npmjs.com/package/checkride/v/0.12.5
 [0.12.4]: https://www.npmjs.com/package/checkride/v/0.12.4
 [0.12.2]: https://www.npmjs.com/package/checkride/v/0.12.2
 [0.12.1]: https://www.npmjs.com/package/checkride/v/0.12.1
