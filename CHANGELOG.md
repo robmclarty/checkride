@@ -34,6 +34,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A slot's stderr is persisted as `.check/<slot>.stderr.txt` even when its
   stdout won as a JSON artifact. The security evaluator's explanation used to
   be dropped on that path, leaving `.check/security.json` as the only trace.
+- Re-resolved `fast-uri` to 3.1.7 (four high advisories: GHSA-5jgf-p345-68v8,
+  GHSA-f65p-4m7j-42xc, GHSA-fph4-wmhf-6fwf, GHSA-jqff-g426-hqxp) and `qs` to
+  6.16.0 (GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx). Both dev-only and
+  transitive. `fast-uri` needed no override entry — ajv's own `^3.0.1` reaches
+  the patched line — while the `qs` entry was re-scoped from `>=6.11.1
+  <6.15.2` to `>=2.2.5 <6.16.0`, since the newer advisories left 6.15.3 exposed
+  inside the old range's blind spot. Removing that entry drops `qs` to 6.15.1
+  and three moderates return, so it stays.
 
 ### Internal
 

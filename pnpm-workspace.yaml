@@ -26,6 +26,12 @@ allowBuilds:
 # delete the entry, re-resolve, re-run `pnpm audit`. Reading the ranges is not
 # enough. Retired that way so far: markdown-it and js-yaml (markdownlint-cli2
 # 0.23.2 resolves patched versions itself), fast-uri and brace-expansion (ajv's
-# and minimatch's own ranges reach 3.1.5 / 5.0.9), postcss (vite reaches 8.5.23).
+# and minimatch's own ranges reach 3.1.7 / 5.0.9), postcss (vite reaches 8.5.23).
+# The fast-uri retirement still holds: four highs landed against 3.1.5 and a
+# plain re-resolve to 3.1.7 cleared them, no entry needed.
 overrides:
-  'qs@>=6.11.1 <6.15.2': '^6.15.2' # GHSA-q8mj-m7cp-5q26 (moderate), via typed-rest-client
+  # Re-scoped 2026-09-04: GHSA-q8mj-m7cp-5q26 was cleared by ^6.15.2, then two
+  # newer advisories moved the patched line to 6.16.0 and left 6.15.3 exposed —
+  # inside the old '<6.15.2' match range's blind spot. Removing the entry drops
+  # qs to 6.15.1 and three moderates return, so it is load-bearing, not stale.
+  'qs@>=2.2.5 <6.16.0': '^6.16.0' # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx (moderate), via typed-rest-client
