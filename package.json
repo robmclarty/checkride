@@ -65,20 +65,20 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@ast-grep/cli": "0.45.0",
+    "@ast-grep/cli": "0.45.3",
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@types/node": "22.20.1",
-    "@vitest/coverage-v8": "4.1.10",
-    "@vvago/vale": "3.17.0",
+    "@vitest/coverage-v8": "4.1.11",
+    "@vvago/vale": "3.17.1",
     "ajv": "8.20.0",
     "cspell": "10.0.1",
     "fallow": "3.9.1",
     "markdownlint-cli2": "0.23.2",
     "oxlint": "1.74.0",
     "oxlint-tsgolint": "0.25.0",
-    "publint": "0.3.22",
+    "publint": "0.3.24",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

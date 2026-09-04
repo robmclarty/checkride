@@ -159,7 +159,7 @@ describe('registry invariants', () => {
     // The exit code is the verdict — vale exits 1 iff error-severity alerts
     // exist, so there is no JSON gate to read (D6).
     expect(vale?.gate).toBeUndefined();
-    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.0' });
+    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.1' });
   });
 
   test('the vale invocation pins --no-global, JSON output, and a trailing path (D9/D10)', () => {

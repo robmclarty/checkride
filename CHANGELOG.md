@@ -35,6 +35,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stdout won as a JSON artifact. The security evaluator's explanation used to
   be dropped on that path, leaving `.check/security.json` as the only trace.
 
+### Internal
+
+- Dev-dependency patch bumps, mirrored into the adapter `devDeps` that
+  `checkride init` scaffolds and `doctor` recommends: `@vvago/vale` 3.17.1,
+  `@ast-grep/cli` 0.45.3, `publint` 0.3.24, and the `vitest` /
+  `@vitest/coverage-v8` pair 4.1.11 (their peer range pins them to the same
+  version). The vale repin closes the one left open when `minimumReleaseAge`
+  blocked 3.17.1 during the prose-slot build.
+
 ## [0.12.4] - 2026-09-02
 
 ### Added

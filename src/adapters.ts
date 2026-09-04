@@ -255,7 +255,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'ast-grep', 'scan', '--json=compact'],
     outputFile: 'struct.json',
-    devDeps: { '@ast-grep/cli': '0.45.0' },
+    devDeps: { '@ast-grep/cli': '0.45.3' },
   },
   {
     name: 'fallow',
@@ -325,7 +325,7 @@ export const ADAPTERS: readonly Adapter[] = [
     ],
     outputFile: null,
     changedArgs: ['--changed', 'origin/main'],
-    devDeps: { vitest: '4.1.10', '@vitest/coverage-v8': '4.1.10' },
+    devDeps: { vitest: '4.1.11', '@vitest/coverage-v8': '4.1.11' },
   },
   {
     name: 'jest',
@@ -407,7 +407,7 @@ export const ADAPTERS: readonly Adapter[] = [
     // `args` with explicit paths — the same way this one already does for lint.
     args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
     outputFile: 'prose.json',
-    devDeps: { '@vvago/vale': '3.17.0' },
+    devDeps: { '@vvago/vale': '3.17.1' },
   },
   {
     name: 'stryker',
@@ -470,7 +470,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'publint'],
     outputFile: null,
-    devDeps: { publint: '0.3.22' },
+    devDeps: { publint: '0.3.24' },
   },
   {
     name: 'attw',
