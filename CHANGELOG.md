@@ -43,6 +43,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `@vitest/coverage-v8` pair 4.1.11 (their peer range pins them to the same
   version). The vale repin closes the one left open when `minimumReleaseAge`
   blocked 3.17.1 during the prose-slot build.
+- `fallow` 3.9.1 -> 3.22.0. Its report schema moved (11 for health, 9 for
+  dead-code and dupes, from 7), which the parser accepts by design — the floor
+  is a minimum, not an exact match. Re-verified that every field the fallow
+  parsers read survives the jump, including against a health report carrying a
+  real finding, since a silent shape drift would read as zero findings and
+  pass. No new findings on this repo; thresholds are unchanged.
 
 ## [0.12.4] - 2026-09-02
 

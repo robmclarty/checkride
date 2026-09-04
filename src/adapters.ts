@@ -270,7 +270,7 @@ export const ADAPTERS: readonly Adapter[] = [
     outputFile: 'dead.json',
     gate: 'fallow',
     fixArgs: ['exec', 'fallow', 'fix'],
-    devDeps: { fallow: '3.9.1' },
+    devDeps: { fallow: '3.22.0' },
   },
   {
     name: 'knip',
@@ -296,7 +296,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
     outputFile: 'dupes.json',
     gate: 'fallow',
-    devDeps: { fallow: '3.9.1' },
+    devDeps: { fallow: '3.22.0' },
   },
   {
     name: 'fallow',
@@ -307,7 +307,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
     outputFile: 'health.json',
     gate: 'fallow',
-    devDeps: { fallow: '3.9.1' },
+    devDeps: { fallow: '3.22.0' },
   },
   {
     name: 'vitest',

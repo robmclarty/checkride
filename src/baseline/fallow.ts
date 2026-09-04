@@ -16,9 +16,10 @@
  * uniformly — and an *unrecognized* schema fails loudly rather than passing
  * silently (the count can't be trusted, so the slot can't be green).
  *
- * The JSON is fallow's `schema_version: 7` shape (fallow >= 3.5; fallow 2.x was
- * schema 4 with a different layout and is no longer supported). Each analysis
- * kind has its own layout, so parsing dispatches on the top-level `kind`.
+ * The JSON is fallow's `schema_version` >= 7 shape (fallow >= 3.5; fallow 2.x
+ * was schema 4 with a different layout and is no longer supported). Each
+ * analysis kind has its own layout, so parsing dispatches on the top-level
+ * `kind`.
  */
 
 import { parseToolJson } from '../tool-json.js';
@@ -26,11 +27,17 @@ import type { Fingerprint } from './fingerprint.js';
 import { applyBaseline } from './store.js';
 
 /**
- * Minimum fallow JSON schema version checkride understands. Every fallow from
- * 3.5.0 through 3.9.1 emits schema_version 7 (verified: dead-code, dupes, and
- * health all report 7, with identical top-level layouts); 2.x emitted 4 with an
- * incompatible layout. A report below this floor — or one whose kind/shape we
- * can't read — is a hard failure, never a silent pass.
+ * Minimum fallow JSON schema version checkride understands, and deliberately a
+ * floor rather than an exact match: fallow bumps the number for layout changes
+ * that leave the fields below untouched. 3.5.0 through 3.9.1 emitted 7 for all
+ * three kinds; 3.22.0 emits 11 for health and 9 for dead-code and dupes, and
+ * every field these parsers read (`findings[].path`/`.name`,
+ * `summary.total_issues`, `clone_groups[].fingerprint`) is unchanged across
+ * that span — re-verified against 3.22.0 output, including a health report
+ * carrying a real finding, since a shape drift here would read as zero
+ * findings and pass. 2.x emitted 4 with an incompatible layout. A report below
+ * this floor — or one whose kind/shape we can't read — is a hard failure,
+ * never a silent pass.
  */
 const FALLOW_SCHEMA_MIN = 7;
 
