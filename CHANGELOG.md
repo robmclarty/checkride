@@ -57,6 +57,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   character is load-bearing. `no-await-in-loop` is off for `**/*.test.ts`:
   those suites mutate one shared directory and awaiting in the loop is the
   correctness constraint, not an oversight.
+- `cspell` 10.2.0. Its word splitter changed (camelCase, symbols, numbers,
+  soft hyphens, opt-in Intl segmentation), so the `report-common-typos` mode
+  adopted a version earlier was re-verified rather than assumed: same five
+  typos flagged, jargon and Canadian spellings still clean, `cspell:ignore`
+  still honoured, and the mode still filters (10 words under `report-all`
+  against 5 under `report-common-typos`). 10.2.1 exists but sits inside the
+  48-hour `minimumReleaseAge` cooldown.
 
 ## [0.12.4] - 2026-09-02
 

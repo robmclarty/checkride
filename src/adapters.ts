@@ -388,7 +388,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
     outputFile: null,
-    devDeps: { cspell: '10.0.1' },
+    devDeps: { cspell: '10.2.0' },
   },
   {
     name: 'vale',
