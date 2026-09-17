@@ -47,7 +47,7 @@ import { loadConfig } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
-import type { Out, SummaryCheck } from './orchestrator.js';
+import type { Out, SummaryCheck } from './orchestrator/index.js';
 import {
   detectPackageManager,
   type LaunchRefusal,

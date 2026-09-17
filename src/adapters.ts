@@ -4,7 +4,7 @@
  * A `Slot` is a role in the pipeline (the catalogue; order matters, cheapest
  * first). An `Adapter` is a concrete tool that can fill a slot. The registry is
  * data only: no logic lives here. Resolution (config vs detection) lives in
- * `../config`, and execution lives in `../orchestrator`.
+ * `../config`, and execution lives in `../orchestrator/`.
  *
  * The catalogue covers the blessed defaults, the opt-in slots (format,
  * mutation, security, and the library-publishing checks), and alternate

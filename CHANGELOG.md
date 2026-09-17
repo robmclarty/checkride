@@ -23,6 +23,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exactly 1.7.0, so no range of its own reaches the patched line. cspell
   already carried 1.8.0, and the lockfile now holds that one copy.
 
+### Internal
+
+- `src/orchestrator.ts` is now the folder module `src/orchestrator/` behind a
+  barrel: the contract types, selection, spawning and the fatal-signal
+  registry, option resolution, terminal output, the per-check pipeline and
+  wave scheduler, `runChecks`, and `checkride fix` each in a named file. No
+  change to runtime behavior or the public API; the test moved with it to
+  `src/orchestrator/__tests__/`.
+
 ## [0.12.5] - 2026-09-04
 
 ### Changed

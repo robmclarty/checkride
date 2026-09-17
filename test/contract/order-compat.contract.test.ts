@@ -16,8 +16,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter, Order } from '../../src/adapters.js';
-import type { CheckRunner, Out } from '../../src/orchestrator.js';
-import { runChecks } from '../../src/orchestrator.js';
+import type { CheckRunner, Out } from '../../src/orchestrator/index.js';
+import { runChecks } from '../../src/orchestrator/index.js';
 
 function sink(): Out {
   return { write: () => true };

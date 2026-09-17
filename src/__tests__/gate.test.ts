@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { checkArgs, DIRTY_MARKER, type GateSpawn, gatePreflight, gateProfile, runGate } from '../gate.js';
 import type { PinEnv } from '../node-pin.js';
-import type { Out } from '../orchestrator.js';
+import type { Out } from '../orchestrator/index.js';
 
 /** A collecting `Out`, so the two streams can be asserted apart. */
 function capture(): Out & { text: () => string } {

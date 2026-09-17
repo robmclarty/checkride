@@ -8,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter } from '../adapters.js';
 import { buildDigest, DIGEST_FILE, writeDigest } from '../digest/index.js';
 import type { CheckOutcome } from '../links.js';
-import type { CheckRun, CheckRunner, Out, SummaryCheck } from '../orchestrator.js';
-import { runChecks } from '../orchestrator.js';
+import type { CheckRun, CheckRunner, Out, SummaryCheck } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 function fakeAdapter(over: Partial<Adapter> & { name: string; slot: string }): Adapter {
   return { description: over.name, detect: [], command: 'node', args: [], outputFile: null, devDeps: {}, ...over };

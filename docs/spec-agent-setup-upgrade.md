@@ -97,7 +97,7 @@ needs.
 Name the marker outside the slot-artifact namespace — `.check/.dirty`, not
 `.check/dirty` — because the orchestrator deletes `<slot>.stdout.txt`,
 `<slot>.stderr.txt`, and `<slot>.json` per slot before re-running it
-(`clearSlotOutputs`, src/orchestrator.ts:406-415); it never wipes the
+(`clearSlotOutputs`, src/orchestrator/execute.ts); it never wipes the
 directory, so a dot-named marker survives every run by construction.
 
 Known, accepted gap: file mutations made through Bash (sed, heredocs,
@@ -122,7 +122,7 @@ rules/.
 
 ## (6) FIX: the default concurrency collapses to 1 on a CI runner
 
-`defaultConcurrency()` (src/orchestrator.ts:199-200) is
+`defaultConcurrency()` (src/orchestrator/spawn.ts) is
 `Math.min(4, Math.max(1, cpus().length - 1))`, documented as reserving a core
 to keep the machine responsive. That reasoning is sound on a laptop and
 inapplicable on a hosted runner, where there is no human to keep responsive —

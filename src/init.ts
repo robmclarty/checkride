@@ -28,8 +28,8 @@ import type { HarnessName } from './gate.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
-import type { Out } from './orchestrator.js';
-import { runChecks, selectChecks } from './orchestrator.js';
+import type { Out } from './orchestrator/index.js';
+import { runChecks, selectChecks } from './orchestrator/index.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, execCommand, runScript } from './pm/index.js';
 

@@ -6,24 +6,17 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { ADAPTERS, SLOTS } from '../adapters.js';
-import type { Adapter, Order } from '../adapters.js';
-import type { Baseline } from '../baseline/index.js';
-import { resolveChecks } from '../config.js';
-import type { ResolvedCheck } from '../config.js';
-import type { CheckRunner, Out, RunFlags, Summary } from '../orchestrator.js';
-import {
-  defaultConcurrency,
-  fixInvocation,
-  missingExemplarsOutcome,
-  missingToolOutcome,
-  runChecks,
-  runFix,
-  runtimeArgs,
-  selectChecks,
-} from '../orchestrator.js';
-import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager } from '../pm/index.js';
+import { ADAPTERS, SLOTS } from '../../adapters.js';
+import type { Adapter, Order } from '../../adapters.js';
+import type { Baseline } from '../../baseline/index.js';
+import { resolveChecks } from '../../config.js';
+import type { ResolvedCheck } from '../../config.js';
+import type { PackageManager } from '../../pm/index.js';
+import { detectPackageManager } from '../../pm/index.js';
+import { fixInvocation } from '../fix.js';
+import type { CheckRunner, Out, RunFlags, Summary } from '../index.js';
+import { runChecks, runFix, selectChecks } from '../index.js';
+import { defaultConcurrency, missingExemplarsOutcome, missingToolOutcome, runtimeArgs } from '../spawn.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };
@@ -60,15 +53,17 @@ const toolWrites: CheckRunner = async (_r, ctx) => {
 };
 
 /**
- * A fresh orchestrator module per test. `runChecks` clears the module's
- * interrupt latch on entry, so a latched instance no longer poisons later
- * tests, but each signal test still wants its own `liveChecks` registry — an
- * in-flight check from another test would otherwise be reaped by this one's
- * `killLiveChecks`.
+ * A fresh orchestrator module graph per test. `runChecks` clears the interrupt
+ * latch on entry, so a latched instance no longer poisons later tests, but each
+ * signal test still wants its own `liveChecks` registry — an in-flight check
+ * from another test would otherwise be reaped by this one's `killLiveChecks`.
+ * Both live in `spawn.ts`; `vi.resetModules()` drops every cached module, so
+ * importing the barrel re-evaluates the whole `orchestrator/` graph and the
+ * returned `runChecks`/`killLiveChecks` share one new `spawn.ts` instance.
  */
-async function freshOrchestrator(): Promise<typeof import('../orchestrator.js')> {
+async function freshOrchestrator(): Promise<typeof import('../index.js')> {
   vi.resetModules();
-  return import('../orchestrator.js');
+  return import('../index.js');
 }
 
 /** Poll until `path` exists (the spawned check has started) or fail loudly. */

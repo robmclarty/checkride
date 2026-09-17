@@ -21,7 +21,7 @@ import {
   writeBaseline,
 } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
-import type { CheckRunner, Out } from '../orchestrator.js';
+import type { CheckRunner, Out } from '../orchestrator/index.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');

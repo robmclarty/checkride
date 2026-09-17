@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
 import { CHECK_DIR, configuredSlots, listArtifacts, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { DIGEST_FILE } from '../digest/index.js';
-import type { SummaryCheck } from '../orchestrator.js';
+import type { SummaryCheck } from '../orchestrator/index.js';
 import type { DoctorFold } from './doctor-fold.js';
 import { foldDoctor } from './doctor-fold.js';
 import type { TriageEnv } from './env.js';

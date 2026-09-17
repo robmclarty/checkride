@@ -70,7 +70,7 @@ Resolution already computes almost all of this; it just throws the detail away.
   `origin: 'detected', detectedBy: file`, or `origin: 'built-in'` when
   `detect` is empty. The custom-check arm in `resolveChecks` sets
   `origin: 'custom'`.
-- `formatStatusLine` (src/orchestrator.ts:241) appends the bracket suffix.
+- `formatStatusLine` (src/orchestrator/report.ts) appends the bracket suffix.
   Keep it last on the line and short — the line already carries mark, name,
   duration, and description.
 - `SummaryCheck` gains `origin` and `detected_by` (snake_case in JSON, like

@@ -39,7 +39,7 @@ Full `pnpm check` is for the final verification.
 - **Named exports only.** Enforced by `rules/no-default-export.yml`.
 - **File extensions:** import with `.js` from `.ts` files (NodeNext resolution). Enforced by `rules/require-js-extension.yml`.
 - **No logic in barrels.** `index.ts` only re-exports (`export { x } from './x.js'`); functions and classes live in named files. Enforced by `rules/no-logic-in-barrel.yml`.
-- **A single file does not need a folder.** Each module is a named file (`src/orchestrator.ts`), not a one-file folder.
+- **A single file does not need a folder.** Each module is a named file (`src/atomic.ts`), not a one-file folder.
 - **Tests:** colocated with the module they cover, always inside a `__tests__/` folder — `src/__tests__/foo.test.ts` for a root module, `src/<module>/__tests__/bar.test.ts` for a file inside a folder module. Never beside the source file. Enforced by `test/conventions.test.ts`.
 
 ## Repository layout
@@ -50,7 +50,6 @@ A single flat package. Named module files under `src/`, with `src/index.ts` as t
 src/
   index.ts          barrel: re-exports the public API (no logic)
   cli.ts            arg parsing, command dispatch (the bin)
-  orchestrator.ts   slot selection, spawning, .check/ writing
   adapters.ts       the registry (data-only)
   config.ts         checkride.config.json loading, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
@@ -69,6 +68,7 @@ src/
   artifacts/        the shared, bounded read of `.check/`
   baseline/         fingerprints, the committed baseline store, the ratchet
   digest/           token-bounded digest.md of the failing slots
+  orchestrator/     slot selection, spawning, .check/ writing, the summary
   pm/               package-manager detection, command translation, slot-tool resolution
   qa/               bundled-plugin reader: the quality artifacts
   triage/           bundled-plugin reader: preflight a red gate
@@ -80,8 +80,8 @@ rules/              ast-grep structural rules (dogfooded here)
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Seven modules (`agent-setup/`, `artifacts/`,
-`baseline/`, `digest/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
+siblings reach only the index. Eight modules (`agent-setup/`, `artifacts/`, `baseline/`,
+`digest/`, `orchestrator/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
 rest are single files. That list is checked against the tree by
 `test/conventions.test.ts`, so it cannot go stale silently. The same rules ship
 to consumer projects — see `templates/shared/rules/`.

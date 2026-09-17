@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Baseline, GitResult, GitRunner } from '../baseline/index.js';
-import type { Out } from '../orchestrator.js';
+import type { Out } from '../orchestrator/index.js';
 import { runRecover } from '../recover.js';
 
 function sink(): { out: Out; text: () => string } {

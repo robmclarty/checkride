@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
 import { fallowVerdict } from '../baseline/index.js';
-import type { CheckRunner, Out } from '../orchestrator.js';
-import { runChecks } from '../orchestrator.js';
+import type { CheckRunner, Out } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures: fallow v7 (schema_version 7) reports, built to shape.

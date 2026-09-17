@@ -17,7 +17,7 @@ import {
   SUPPORTED_SCHEMA_VERSION,
   tail,
 } from '../artifacts/index.js';
-import type { Summary } from '../orchestrator.js';
+import type { Summary } from '../orchestrator/index.js';
 
 const RUN_END_ISO = '2026-07-24T02:15:16.214Z';
 const RUN_DURATION_MS = 90_000;

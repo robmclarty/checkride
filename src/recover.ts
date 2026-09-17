@@ -36,7 +36,7 @@ import {
   unionBaselines,
   writeBaseline,
 } from './baseline/index.js';
-import type { Out } from './orchestrator.js';
+import type { Out } from './orchestrator/index.js';
 
 export type RecoverOptions = {
   cwd?: string;

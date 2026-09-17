@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters.js';
 import type { Adapter, Order } from '../adapters.js';
-import type { Out } from '../orchestrator.js';
-import { runChecks } from '../orchestrator.js';
+import type { Out } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 /** Discards output — the run's own stdout/stderr aren't under test here. */
 const sink = (): Out => ({ write: () => true });

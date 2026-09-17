@@ -4,7 +4,7 @@
  *
  * The window is `[timestamp - total_duration_ms, ∞)`: the run's *start*, not
  * its end, because `timestamp` is stamped once every check has finished (see
- * `buildSummary` in `../orchestrator.ts`) and every artifact the run just wrote
+ * `buildSummary` in `../orchestrator/report.ts`) and every artifact the run just wrote
  * is therefore older than it. Anything outside the window is labelled with its
  * age, never silently dropped.
  *
@@ -14,7 +14,7 @@
  * The `../artifacts` barrel is this module's only public surface.
  */
 
-import type { Summary } from '../orchestrator.js';
+import type { Summary } from '../orchestrator/index.js';
 
 /** An artifact's standing relative to the run that wrote the summary. */
 export type Freshness = {

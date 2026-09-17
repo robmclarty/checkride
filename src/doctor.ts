@@ -32,8 +32,8 @@ import type { CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
-import type { Out } from './orchestrator.js';
-import { resolveCommonOptions, selectChecks } from './orchestrator.js';
+import type { Out } from './orchestrator/index.js';
+import { resolveCommonOptions, selectChecks } from './orchestrator/index.js';
 import type { PackageManager } from './pm/index.js';
 import {
   detectPackageManager,

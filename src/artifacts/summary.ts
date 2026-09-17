@@ -27,7 +27,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Summary, SummaryCheck } from '../orchestrator.js';
+import type { Summary, SummaryCheck } from '../orchestrator/index.js';
 import type { JsonRecord } from './json.js';
 import { isRecord, parseJson } from './json.js';
 

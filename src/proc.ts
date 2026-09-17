@@ -9,7 +9,7 @@
  *
  * Both spawners need the same two-step escalation (SIGTERM, then SIGKILL after
  * a grace), so it lives here rather than in either of them: the orchestrator's
- * per-check timeout and fatal-signal reaping (`../orchestrator.ts`), and the
+ * per-check timeout and fatal-signal reaping (`../orchestrator/spawn.ts`), and the
  * triage reader's gate budget (`./triage/env.ts`).
  */
 

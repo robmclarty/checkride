@@ -25,7 +25,7 @@ import type { Adapter } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import { fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
-import type { CheckRun, SummaryCheck } from '../orchestrator.js';
+import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
 /** The digest file, beside `summary.json` under the gitignored `.check/`. */
 export const DIGEST_FILE = 'digest.md';
@@ -57,7 +57,7 @@ function isJson(raw: string): boolean {
 
 /**
  * The `.check/` path holding the bytes this section excerpts — matched to how
- * {@link import('../orchestrator.js')} persisted them: an adapter's JSON output
+ * `persistOutput` in `../orchestrator/execute.ts` persisted them: an adapter's JSON output
  * lands in `.check/<outputFile>`, everything else in `<slot>.stdout.txt` /
  * `<slot>.stderr.txt`. Points the agent at exactly what to read for the full
  * diagnostics.

@@ -339,7 +339,7 @@ helpers — is not public API, even if technically importable.
 
 These promises live with their machinery rather than in `test/contract/`: the
 timeout kill and grandchild reaping in
-[`src/__tests__/orchestrator.test.ts`](../src/__tests__/orchestrator.test.ts),
+[`src/orchestrator/__tests__/orchestrator.test.ts`](../src/orchestrator/__tests__/orchestrator.test.ts),
 crash consistency in
 [`src/__tests__/atomic.test.ts`](../src/__tests__/atomic.test.ts), and the
 ratchet's preserve-the-unobserved rule in
