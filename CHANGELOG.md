@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Overrode `smol-toml` to 1.8.0 for GHSA-7w5x-hrqm-74c2 (high severity;
+  dev-only, via `markdownlint-cli2`). An override entry rather than a
+  re-resolve: markdownlint-cli2 0.23.2 — its latest — pins `smol-toml` at
+  exactly 1.7.0, so no range of its own reaches the patched line. cspell
+  already carried 1.8.0, and the lockfile now holds that one copy.
+
 ## [0.12.5] - 2026-09-04
 
 ### Changed

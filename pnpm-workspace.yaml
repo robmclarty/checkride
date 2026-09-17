@@ -35,3 +35,7 @@ overrides:
   # inside the old '<6.15.2' match range's blind spot. Removing the entry drops
   # qs to 6.15.1 and three moderates return, so it is load-bearing, not stale.
   'qs@>=2.2.5 <6.16.0': '^6.16.0' # GHSA-4mjr-xmp4-gh2g, GHSA-x5fp-wj9c-mxmx (moderate), via typed-rest-client
+  # Added 2026-09-16: markdownlint-cli2 0.23.2 (its latest) pins smol-toml at
+  # exactly 1.7.0, so no re-resolve can reach the patched line on its own;
+  # cspell already carries 1.8.0, and this dedupes onto it.
+  'smol-toml@<1.7.1': '^1.7.1' # GHSA-7w5x-hrqm-74c2 (high), via markdownlint-cli2
