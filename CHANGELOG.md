@@ -6,6 +6,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Contract
+
+- **`Adapter` no longer carries slot-scoped fields at its top level.** The
+  four optional fields `exclude`, `allowlist`, `exemplars`, and `gate` are gone
+  from the `Adapter` type. The three the config file carries now travel under
+  one typed bag, `options`, keyed by the slot that reads it: `options.links`
+  (`{ exclude?, allowlist? }`, read by the built-in links check) and
+  `options.prose` (`{ exemplars }`, read by the prose pre-flight). `gate:
+  'fallow'` — which meant "derive pass/fail from the parsed report instead of
+  the exit code", and is unrelated to the Stop-hook `checkride gate` command —
+  has no replacement field: that verdict is now keyed on the adapter *name* in
+  the baseline module, beside the fingerprint extractors, so the three `fallow`
+  registry entries declare nothing and gate exactly as before. The config-file
+  surface is unchanged: `exclude`, `allowlist`, `exemplars`, and `profile` on a
+  `{ use }` entry keep their keys, validation, and error messages, and the JSON
+  schema is untouched. Affected: a TypeScript consumer that reads
+  `adapter.exclude`/`.allowlist`/`.exemplars`/`.gate` off `ADAPTERS` or a
+  `ResolvedCheck` — read `adapter.options?.links`/`.prose` instead — or that
+  builds an `Adapter` literal with those keys. Every value export is unchanged.
+
+### Changed
+
+- **`exclude` and `allowlist` on a non-`links` entry are no longer carried onto
+  the adapter.** They were always documented as links-only and ignored by every
+  other slot, but resolution copied them onto whatever adapter the entry named.
+  They are now validated wherever they appear (a bad regex is still a friendly
+  config error) and attached only when the slot is `links` — the rule
+  `exemplars` already followed for `prose`. No run's verdict changes.
+
 ### Fixed
 
 - **`no-deep-sibling-import` no longer flags a nested file climbing to its

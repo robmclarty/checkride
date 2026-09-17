@@ -274,7 +274,7 @@ export function missingToolOutcome(
  * that read belongs to a human. `null` means the check may spawn.
  */
 export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOutcome | null {
-  const dir = adapter.exemplars;
+  const dir = adapter.options?.prose?.exemplars;
   if (dir === undefined) return null;
   let state: string | null = 'does not exist';
   try {
@@ -312,9 +312,7 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
 export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
   if (!adapter) return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
-  if (adapter.builtin === 'links') {
-    return checkLinks(ctx.cwd, { exclude: adapter.exclude, allowlist: adapter.allowlist });
-  }
+  if (adapter.builtin === 'links') return checkLinks(ctx.cwd, adapter.options?.links);
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   const builtin = runBuiltin(adapter, ctx, timeout);
   if (builtin) return builtin;

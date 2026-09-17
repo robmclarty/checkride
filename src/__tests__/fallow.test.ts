@@ -314,7 +314,9 @@ describe('runChecks — the fallow (dead) slot gates on findings, not the exit c
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-fallow-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  const deadAdapter = fakeAdapter({ name: 'fallow', slot: 'dead', outputFile: 'dead.json', gate: 'fallow' });
+  // The name `fallow` is what routes the verdict to the parsed report; the entry
+  // declares nothing for it.
+  const deadAdapter = fakeAdapter({ name: 'fallow', slot: 'dead', outputFile: 'dead.json' });
 
   async function run(runner: CheckRunner, baseline?: Baseline | null) {
     return runChecks({
@@ -351,5 +353,15 @@ describe('runChecks — the fallow (dead) slot gates on findings, not the exit c
     const dead = result.summary.checks.find((c) => c.name === 'dead');
     expect(dead?.ok).toBe(true);
     expect(dead?.baselined).toBe(1);
+  });
+
+  test('the verdict is keyed by adapter name, not slot: the same report under `knip` is judged by exit code', async () => {
+    const knip = fakeAdapter({ name: 'knip', slot: 'dead', outputFile: 'dead.json' });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'dead' }], adapters: [knip], config: null,
+      runner: staticRunner({ ok: true, exit_code: 0, stdout: deadCode([['unused_files', 'src/a.ts']]) }),
+      baseline: null, json: true, stdout: sink(), stderr: sink(),
+    });
+    expect(result.summary.checks.find((c) => c.name === 'dead')?.ok).toBe(true);
   });
 });

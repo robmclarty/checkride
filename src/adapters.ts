@@ -43,6 +43,31 @@ export type Slot = {
   order?: Order;
 };
 
+/**
+ * Slot-scoped options a config entry carries onto its adapter, keyed by the
+ * one slot that reads each key. Config resolution attaches a key only when the
+ * adapter fills that slot (see `config.ts`), so `options.links` never lands on
+ * an oxlint adapter. Never authored in `ADAPTERS`: the registry ships no
+ * defaults for these. Adding a slot-scoped option adds a key here, not a field
+ * on `Adapter`.
+ */
+export type AdapterOptions = {
+  /**
+   * Read by the `links` built-in. `exclude`: extra directory names to skip
+   * while walking for markdown, on top of its built-in exclude set.
+   * `allowlist`: regex sources for link targets to treat as always valid
+   * (deliberately illustrative links); validated at config load.
+   */
+  links?: { exclude?: string[]; allowlist?: string[] };
+  /**
+   * Read by the `prose` slot's pre-flight: repo-relative directory of
+   * hand-written voice exemplars. The orchestrator fails the check when the
+   * directory is missing or holds no files — the exemplars are load-bearing
+   * anchor texts, and a config that points at nothing must not stay green.
+   */
+  prose?: { exemplars: string };
+};
+
 /** A concrete tool that can fill a slot. */
 export type Adapter = {
   /** Adapter name, for example `'oxlint'`. Recorded as `adapter` in the report. */
@@ -80,34 +105,8 @@ export type Adapter = {
   timeout?: number;
   /** In-process check id (for example `'links'`); when set, the orchestrator runs it directly. */
   builtin?: string;
-  /**
-   * Consumed by the `links` built-in only: extra directory names to skip while
-   * walking for markdown, on top of its built-in exclude set. Carried from a
-   * config entry's `exclude`; ignored by every other adapter.
-   */
-  exclude?: string[];
-  /**
-   * Consumed by the `links` built-in only: regex sources for link targets to
-   * treat as always-valid (deliberately illustrative links). Carried from a
-   * config entry's `allowlist` and validated at config load; ignored elsewhere.
-   */
-  allowlist?: string[];
-  /**
-   * Consumed by the `prose` slot only: repo-relative directory of hand-written
-   * voice exemplars, carried from a config entry's `exemplars`. The orchestrator
-   * fails the check when the directory is missing or holds no files — the
-   * exemplars are load-bearing anchor texts, and a config that points at nothing
-   * must not stay green. Ignored by every other adapter.
-   */
-  exemplars?: string;
-  /**
-   * When set, checkride derives this adapter's pass/fail from its parsed JSON
-   * output instead of its process exit code. Only `'fallow'` today: fallow's
-   * exit code doesn't reliably gate (combined mode and `dupes` exit 0 even with
-   * findings), so the verdict is read from the report's issue count — see
-   * `baseline/fallow.ts`. The exit code is still recorded in the report.
-   */
-  gate?: 'fallow';
+  /** Slot-scoped options carried from config; see {@link AdapterOptions}. */
+  options?: AdapterOptions;
   /**
    * Scheduling order override for this adapter, beating the slot's default (used
    * when one slot carries adapters that schedule differently). Omitted defers to
@@ -265,10 +264,11 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     // Per-analysis subcommand, not combined `fallow`: only the subcommands emit a
     // single-kind report, and checkride reads the issue count out of it to gate
-    // (fallow's own exit code is unreliable — see `gate` and `baseline/fallow.ts`).
+    // (fallow's own exit code is unreliable). That verdict is keyed on this
+    // adapter's *name* — see `REPORT_VERDICTS` in `baseline/fingerprint.ts`,
+    // computed by `baseline/fallow.ts` — so the entry declares nothing for it.
     args: ['exec', 'fallow', 'dead-code', '--format', 'json', '--quiet'],
     outputFile: 'dead.json',
-    gate: 'fallow',
     fixArgs: ['exec', 'fallow', 'fix'],
     devDeps: { fallow: '3.22.0' },
   },
@@ -295,7 +295,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
     outputFile: 'dupes.json',
-    gate: 'fallow',
+    // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
     devDeps: { fallow: '3.22.0' },
   },
   {
@@ -306,7 +306,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
     outputFile: 'health.json',
-    gate: 'fallow',
+    // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
     devDeps: { fallow: '3.22.0' },
   },
   {

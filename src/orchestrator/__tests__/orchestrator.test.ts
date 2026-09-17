@@ -1367,7 +1367,7 @@ describe('missingToolOutcome', () => {
  * reference no longer exists.
  */
 describe('missingExemplarsOutcome', () => {
-  const vale = fakeAdapter({ name: 'vale', slot: 'prose', exemplars: 'docs/voice' });
+  const vale = fakeAdapter({ name: 'vale', slot: 'prose', options: { prose: { exemplars: 'docs/voice' } } });
 
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-exemplars-')); });
@@ -1414,7 +1414,7 @@ describe('missingExemplarsOutcome', () => {
     // real `defaultRunner`. If the pre-flight ever stopped gating the spawn, the
     // argv below would run, exit 0, and turn the slot green — a loud miss.
     const adapter = fakeAdapter({
-      name: 'vale', slot: 'prose', exemplars: 'docs/voice', outputFile: 'prose.json',
+      name: 'vale', slot: 'prose', options: { prose: { exemplars: 'docs/voice' } }, outputFile: 'prose.json',
       args: ['-e', 'console.log("SPAWNED")'],
     });
     const result = await runChecks({

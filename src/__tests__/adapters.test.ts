@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SCHEMA_VERSION, SLOTS } from '../adapters.js';
 import type { Adapter, Order } from '../adapters.js';
+import { reportVerdict } from '../baseline/index.js';
 import type { Out } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
 
@@ -62,10 +63,16 @@ describe('registry invariants', () => {
     const fallow = ADAPTERS.filter((a) => a.name === 'fallow');
     expect(fallow.map((a) => a.slot)).toEqual(['dead', 'dupes', 'health']);
     for (const a of fallow) {
-      expect(a.gate).toBe('fallow');
+      // The report verdict is keyed by adapter name, not declared on the entry.
+      expect(reportVerdict(a.name)).not.toBeNull();
       expect(a.detect).toEqual(['fallow.toml']);
       expect(a.args).toContain('--format');
       expect(a.devDeps).toEqual({ fallow: '3.22.0' });
+    }
+    // ... and nothing else in the registry claims one: every other adapter's
+    // exit code is its verdict.
+    for (const a of ADAPTERS) {
+      if (a.name !== 'fallow') expect(reportVerdict(a.name)).toBeNull();
     }
     // dupes/health are opt-in so adopting checkride never fails a repo on
     // duplication/complexity it never signed up for.
@@ -157,8 +164,8 @@ describe('registry invariants', () => {
     expect(vale?.detectDeps).toBeUndefined();
     expect(vale?.outputFile).toBe('prose.json');
     // The exit code is the verdict — vale exits 1 iff error-severity alerts
-    // exist, so there is no JSON gate to read (D6).
-    expect(vale?.gate).toBeUndefined();
+    // exist, so no report verdict is registered for it (D6).
+    expect(reportVerdict('vale')).toBeNull();
     expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.1' });
   });
 

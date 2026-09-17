@@ -16,11 +16,17 @@
  * ship for the blessed lint/struct/spell/prose adapters (oxlint, ast-grep,
  * cspell, vale) and for fallow's three analyses (dead-code, dupes, health — see
  * `./fallow.ts`, which also owns fallow's gating verdict).
+ *
+ * The same registry style keys the *report verdicts* — the adapters whose
+ * pass/fail is read from the parsed report rather than the exit code — on
+ * adapter name, for the same reason: it is per-tool knowledge of one output
+ * format, and it belongs beside the parser, not on the registry row.
  */
 
 import { isRecord } from '../json.js';
 import { parseToolJson } from '../tool-json.js';
-import { fallowFindings } from './fallow.js';
+import type { FallowVerdict } from './fallow.js';
+import { fallowFindings, fallowVerdict } from './fallow.js';
 
 /** A stable, order-independent set of diagnostic keys for one adapter's output. */
 export type Fingerprint = ReadonlySet<string>;
@@ -159,6 +165,30 @@ const EXTRACTORS: Readonly<Record<string, Extractor>> = {
   // every slot. See `./fallow.ts`.
   fallow: fallowFindings,
 };
+
+/**
+ * Derives one slot's pass/fail (and its baseline bookkeeping) from the tool's
+ * raw report instead of its exit code. `baselineKeys === null` means no
+ * baseline is active — the same contract as {@link fallowVerdict}.
+ */
+type ReportVerdict = (raw: string, baselineKeys: readonly string[] | null) => FallowVerdict;
+
+/**
+ * Report verdicts keyed by adapter name (not slot), like `EXTRACTORS`: only
+ * fallow today, whose exit code does not reliably gate (combined mode and
+ * `dupes` exit 0 even with findings — see `./fallow.ts`). One registration
+ * serves dead/dupes/health; the verdict dispatches on the report's `kind`. A
+ * custom check that names itself `fallow` is gated this way too, exactly as it
+ * is fingerprinted this way. The exit code is still recorded in the summary.
+ */
+const REPORT_VERDICTS: Readonly<Record<string, ReportVerdict>> = {
+  fallow: fallowVerdict,
+};
+
+/** The report verdict registered for `adapter`, or `null` when its exit code is the verdict. */
+export function reportVerdict(adapter: string): ReportVerdict | null {
+  return REPORT_VERDICTS[adapter] ?? null;
+}
 
 /**
  * Fingerprint one adapter's raw output, or `null` when the adapter has no

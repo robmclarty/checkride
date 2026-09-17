@@ -14,7 +14,7 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
-import { applyBaseline, fallowVerdict, fingerprint } from '../baseline/index.js';
+import { applyBaseline, fingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { CheckOutcome } from '../links.js';
 import { isAvailableUnder } from '../pm/index.js';
@@ -98,14 +98,17 @@ function couldNotVerifyReason(outcome: CheckOutcome): string | null {
 }
 
 /**
- * Baseline-aware verdict for one slot's outcome. fallow slots derive pass/fail
- * from the parsed report (its exit code doesn't reliably gate); everything else
- * masks the adapter's fingerprint. `observed` is non-null only when the run's
- * findings could be read — the ratchet must never prune from an unreadable run.
+ * Baseline-aware verdict for one slot's outcome. An adapter with a registered
+ * report verdict (fallow — keyed on its name, see `reportVerdict`) derives
+ * pass/fail from the parsed report, since its exit code doesn't reliably gate;
+ * everything else masks the adapter's fingerprint. `observed` is non-null only
+ * when the run's findings could be read — the ratchet must never prune from an
+ * unreadable run.
  */
 function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string): MaskResult {
-  if (adapter.gate === 'fallow') {
-    const v = fallowVerdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
+  const verdict = reportVerdict(adapter.name);
+  if (verdict) {
+    const v = verdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
   const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;

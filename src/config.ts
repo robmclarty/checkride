@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative } from 'node:path';
 
-import type { Adapter, Order, Slot } from './adapters.js';
+import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
 import { isRecord } from './json.js';
 
 /**
@@ -315,19 +315,19 @@ function isRegexSource(src: string): boolean {
 }
 
 /**
- * Validate and carry the links built-in's `exclude`/`allowlist` options off a
- * config entry, each spread only when present. `exclude` must be a string array;
- * `allowlist` must be a string array of compilable regexes (a bad pattern is a
- * friendly config error, so the check never crashes on it). Meaningful only to
- * the `links` slot — other slots ignore the fields, and the JSON schema scopes
- * autocomplete — but validated wherever they appear so a typo surfaces as a
- * config error, not silence. `context` names the check in any error.
+ * Validate the links built-in's `exclude`/`allowlist` off a config entry.
+ * `exclude` must be a string array; `allowlist` a string array of compilable
+ * regexes (a bad pattern is a friendly config error, so the check never crashes
+ * on it). Validated wherever they appear so a typo surfaces as a config error,
+ * not silence; whether they *attach* is `applyLinksOptions`'s call. Returns
+ * `null` when the entry carries neither. `context` names the check in any error.
  */
-function carriedLinksOptions(
+function readLinksOptions(
   src: { exclude?: unknown; allowlist?: unknown },
   context: string,
-): { exclude?: string[]; allowlist?: string[] } {
-  const out: { exclude?: string[]; allowlist?: string[] } = {};
+): NonNullable<AdapterOptions['links']> | null {
+  if (src.exclude === undefined && src.allowlist === undefined) return null;
+  const out: NonNullable<AdapterOptions['links']> = {};
   if (src.exclude !== undefined) {
     if (!isStringArray(src.exclude)) invalidConfig(`'${context}' exclude must be an array of strings`);
     out.exclude = src.exclude;
@@ -341,6 +341,23 @@ function carriedLinksOptions(
     out.allowlist = src.allowlist;
   }
   return out;
+}
+
+/** Merge slot-scoped options onto an adapter, keeping any already set. */
+function withOptions(adapter: Adapter, patch: AdapterOptions): Adapter {
+  return { ...adapter, options: { ...adapter.options, ...patch } };
+}
+
+/**
+ * Attach a config entry's `exclude`/`allowlist` as `options.links`. A no-op on
+ * any other slot (the fields are documented as links-only) — they are still
+ * validated there, so a bad pattern on a mis-slotted entry is an error either
+ * way. `context` names the check in the error.
+ */
+function applyLinksOptions(adapter: Adapter, o: UseConfig, context: string): Adapter {
+  const links = readLinksOptions(o, context);
+  if (links === null || adapter.slot !== 'links') return adapter;
+  return withOptions(adapter, { links });
 }
 
 /**
@@ -571,16 +588,17 @@ function applyProfile(adapter: Adapter, profile: unknown, context: string): Adap
 }
 
 /**
- * Carry the `prose` slot's `exemplars` directory onto its adapter. A no-op on
- * any other slot (the field is documented as prose-only). `exemplars` must be a
- * string; `context` names the check in the error. Presence on disk is asserted
- * at run time by the orchestrator, never here — see `missingExemplarsOutcome`.
+ * Carry the `prose` slot's `exemplars` directory onto its adapter as
+ * `options.prose`. A no-op on any other slot (the field is documented as
+ * prose-only). `exemplars` must be a string; `context` names the check in the
+ * error. Presence on disk is asserted at run time by the orchestrator, never
+ * here — see `missingExemplarsOutcome`.
  */
 function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): Adapter {
   if (exemplars === undefined) return adapter;
   if (typeof exemplars !== 'string') invalidConfig(`'${context}' exemplars must be a string`);
   if (adapter.slot !== 'prose') return adapter;
-  return { ...adapter, exemplars };
+  return withOptions(adapter, { prose: { exemplars } });
 }
 
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
@@ -591,9 +609,13 @@ function applyOverrides(base: Adapter, o: UseConfig): Adapter {
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),
     ...(o.description !== undefined ? { description: o.description } : {}),
     ...carriedOverrides(o, base.slot),
-    ...carriedLinksOptions(o, base.slot),
   };
-  return applyExemplars(applyProfile(merged, o.profile, base.slot), o.exemplars, base.slot);
+  // Links validation runs first, preserving the error order of earlier releases.
+  return applyExemplars(
+    applyProfile(applyLinksOptions(merged, o, base.slot), o.profile, base.slot),
+    o.exemplars,
+    base.slot,
+  );
 }
 
 function customAdapter(slot: string, c: CustomCheck): Adapter {

@@ -312,7 +312,7 @@ describe('config resolution', () => {
   test('prose exemplars is carried onto the adapter', () => {
     const r = resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars: 'docs/voice' } } }, never);
     expect(r.adapter?.name).toBe('vale');
-    expect(r.adapter?.exemplars).toBe('docs/voice');
+    expect(r.adapter?.options?.prose?.exemplars).toBe('docs/voice');
   });
 
   test('exemplars is a no-op on a non-prose slot', () => {
@@ -321,7 +321,7 @@ describe('config resolution', () => {
       { checks: { lint: { use: 'oxlint', exemplars: 'docs/voice' } } },
       present('.oxlintrc.json'),
     );
-    expect(r.adapter?.exemplars).toBeUndefined();
+    expect(r.adapter?.options).toBeUndefined();
   });
 
   test('a non-string exemplars is a friendly config error', () => {
@@ -336,8 +336,19 @@ describe('config resolution', () => {
       { checks: { links: { use: 'links', exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] } } },
       never,
     );
-    expect(r.adapter?.exclude).toEqual(['docs', '.ridgeline']);
-    expect(r.adapter?.allowlist).toEqual(['^foo/']);
+    expect(r.adapter?.options).toEqual({ links: { exclude: ['docs', '.ridgeline'], allowlist: ['^foo/'] } });
+  });
+
+  test('links exclude and allowlist are validated but not carried on a non-links slot', () => {
+    const r = resolveSlot(
+      'lint',
+      { checks: { lint: { use: 'oxlint', exclude: ['docs'], allowlist: ['^foo/'] } } },
+      present('.oxlintrc.json'),
+    );
+    expect(r.adapter?.options).toBeUndefined();
+    expect(() =>
+      resolveSlot('lint', { checks: { lint: { use: 'oxlint', allowlist: ['('] } } }, present('.oxlintrc.json')),
+    ).toThrow(/'lint' allowlist entry "\(" is not a valid regular expression/);
   });
 
   test('a non-array links exclude is a friendly config error', () => {
