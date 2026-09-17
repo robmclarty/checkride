@@ -104,10 +104,12 @@ export function loadBaseline(cwd: string): Baseline | null {
 
 /**
  * Serialize and write the baseline to `cwd` (canonical, pretty-printed,
- * trailing newline, atomic). Written canonical — sorted slots, sorted keys — so
- * the committed file diffs deterministically: two branches that grandfather the
- * same debt produce byte-identical files instead of a spurious merge conflict
- * over insertion order.
+ * trailing newline, atomic). Written canonical — sorted slots, sorted unique
+ * keys — so the committed file diffs deterministically: two branches that
+ * grandfather the same debt produce byte-identical files instead of a spurious
+ * merge conflict over insertion order, and a merge that doubled a line is
+ * written back as the set it always was. The shape is a promised surface — see
+ * `docs/contract.md` §`checkride.baseline.json`.
  */
 export async function writeBaseline(cwd: string, baseline: Baseline): Promise<void> {
   await writeFileAtomic(join(cwd, BASELINE_FILE), `${JSON.stringify(canonicalize(baseline), null, 2)}\n`);
@@ -164,10 +166,10 @@ export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);
 }
 
-/** Sorted-slots, sorted-keys copy — the one shape the file is ever written in. */
+/** Sorted-slots, sorted-unique-keys copy — the one shape the file is ever written in. */
 function canonicalize(base: Baseline): Baseline {
   const slots: Record<string, string[]> = {};
-  for (const key of Object.keys(base.slots).toSorted()) slots[key] = [...(base.slots[key] ?? [])].toSorted();
+  for (const key of Object.keys(base.slots).toSorted()) slots[key] = [...new Set(base.slots[key] ?? [])].toSorted();
   return { schema_version: base.schema_version, slots };
 }
 

@@ -276,11 +276,12 @@ describe('loadBaseline / writeBaseline', () => {
    * byte-identical files, whatever order their runs discovered the slots in —
    * otherwise insertion order alone manufactures merge conflicts.
    */
-  test('writes canonically: sorted slots and keys, byte-stable across construction order', async () => {
-    await writeBaseline(dir, { schema_version: 1, slots: { spell: ['z', 'a'], lint: ['b'] } });
+  test('writes canonically: sorted slots and unique keys, byte-stable across construction order', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { spell: ['z', 'a', 'a'], lint: ['b'] } });
     const raw = await readFile(join(dir, 'checkride.baseline.json'), 'utf8');
     const parsed = JSON.parse(raw) as Baseline;
     expect(Object.keys(parsed.slots)).toEqual(['lint', 'spell']);
+    // Sorted, and the key a merge doubled is written once — slots are sets.
     expect(parsed.slots['spell']).toEqual(['a', 'z']);
     await writeBaseline(dir, { schema_version: 1, slots: { lint: ['b'], spell: ['a', 'z'] } });
     expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(raw);

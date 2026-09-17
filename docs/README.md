@@ -31,8 +31,8 @@ Start here:
   before/after on a real repo showing what the `order` surface buys: a legible
   schedule, an uncontended heavy check, and a method for tiering your own gate.
 - **[The contract](./contract.md)** — the surfaces consumers may rely on: the
-  exit-code taxonomy, the `summary.json` schema discipline, the CLI flag set,
-  the programmatic exports, and the pin policy.
+  exit-code taxonomy, the `summary.json` schema discipline, the baseline file
+  format, the CLI flag set, the programmatic exports, and the pin policy.
 - **[The Claude Code plugin](./plugin.md)** — the two skills bundled in the
   package, `/checkride:check` and `/checkride:qa`: how to install them, what
   each one reads and what it deliberately does not do. Read this if a coding

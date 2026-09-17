@@ -111,8 +111,8 @@ Task-focused guides live in [docs/](./docs/README.md):
 - [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (and
   npm/yarn/bun variants), and why gates should pass `--strict`.
 - [The contract](./docs/contract.md) — the surfaces consumers may rely on:
-  exit codes, the `summary.json` schema discipline, flags, exports, and the
-  pin policy.
+  exit codes, the `summary.json` schema discipline, the baseline file format,
+  flags, exports, and the pin policy.
 - [The Claude Code plugin](./docs/plugin.md) — the bundled `/checkride:check`
   and `/checkride:qa` skills: install, what each one reads, and what they
   deliberately do not do.
@@ -462,7 +462,7 @@ raw output:
 {
   "schema_version": 1,
   "slots": {
-    "lint":  ["src/legacy.ts:no-explicit-any:Unexpected any"],
+    "lint":  ["src/legacy.ts:eslint(no-explicit-any):Unexpected any"],
     "spell": ["docs/old.md::teh"]
   }
 }
@@ -500,10 +500,12 @@ after adopting a stricter rule set) and read the `checkride.baseline.json`
 diff in the PR like code.
 
 Only slots whose tool has a fingerprint extractor participate (currently `lint` via
-oxlint, `struct` via ast-grep, `spell` via cspell, and the fallow slots `dead`/`dupes`/
-`health`); other slots (`types`, `test`, …) never appear in the baseline. A crash or
-empty output is never masked — a slot only goes green when there are findings and all
-of them are grandfathered.
+oxlint, `struct` via ast-grep, `spell` via cspell, `prose` via vale — error-severity
+alerts only — and the fallow slots `dead`/`dupes`/`health`); other slots (`types`,
+`test`, …) never appear in the baseline. The file's shape is a promised surface — see
+[the contract](./docs/contract.md#checkridebaselinejson). A crash or empty output is
+never masked — a slot only goes green when there are findings and all of them are
+grandfathered.
 
 To adopt on an existing repo, `checkride init --baseline` grandfathers today's
 failing (fingerprintable) slots into the baseline and keeps them enabled, instead of

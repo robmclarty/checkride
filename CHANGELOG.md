@@ -25,6 +25,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `adapter.exclude`/`.allowlist`/`.exemplars`/`.gate` off `ADAPTERS` or a
   `ResolvedCheck` — read `adapter.options?.links`/`.prose` instead — or that
   builds an `Adapter` literal with those keys. Every value export is unchanged.
+- **`checkride.baseline.json` is a promised surface** (docs/contract.md
+  §`checkride.baseline.json`). Its shape is versioned by its own
+  `schema_version` (`1`) and published as `schema/checkride.baseline.schema.json`,
+  shipped in the package; under version 1 the field set is `schema_version` +
+  `slots` and grows only additively, in lockstep with the schema. Promised:
+  keys carry no line or column for the oxlint/ast-grep/cspell/vale extractors
+  (fallow keys on category and symbol, with a position only for a finding
+  that has no symbol); every writer emits the canonical form (sorted slots,
+  sorted unique keys, two-space indent, trailing newline) atomically; the
+  reader ignores unknown fields, drops malformed entries, defaults a missing
+  version to 1, and rejects a newer version whole. Not promised: the message
+  text inside a key, which is the tool's — a tool or extractor change that
+  re-keys findings is named in these notes and needs a recapture, as 0.6.0
+  and 0.9.4 did. Locked by `test/contract/baseline.contract.test.ts`.
+  Additive: no file any 0.x release wrote changes shape.
 
 ### Changed
 
@@ -51,6 +66,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   re-resolve: markdownlint-cli2 0.23.2 — its latest — pins `smol-toml` at
   exactly 1.7.0, so no range of its own reaches the patched line. cspell
   already carried 1.8.0, and the lockfile now holds that one copy.
+- `writeBaseline` deduplicates keys within a slot, so a merge that doubled a
+  line is written back as the set it always was.
+- The README's list of baseline-capable slots omitted `prose` (vale), present
+  since 0.12.1, and its illustrative oxlint key lacked the `eslint(…)` rule
+  prefix that oxlint's `code` field carries.
 
 ### Internal
 

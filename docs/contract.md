@@ -98,6 +98,81 @@ them without guarding against torn JSON.
 when a check failed; a green `--digest` run removes any stale digest. Its
 existence always means "this run had failures".
 
+## `checkride.baseline.json`
+
+The committed baseline: the file `checkride baseline` writes at the repo root,
+beside `checkride.config.json`, and every run reads to subtract grandfathered
+findings. Its shape is versioned by its own `schema_version` (currently `1`,
+independent of the summary's) and published as a JSON Schema at
+[`schema/checkride.baseline.schema.json`](../schema/checkride.baseline.schema.json),
+which ships in the npm package. [The README](../README.md#baseline) explains
+what the file is for; this section names what a consumer may rely on.
+
+```jsonc
+{
+  "schema_version": 1,
+  "slots": {
+    "lint": ["src/legacy.ts:eslint(no-unused-vars):Variable 'legacy' is declared but never used."],
+    "spell": ["docs/old.md::teh"]
+  }
+}
+```
+
+**The same additive-only discipline as the summary.** Under schema version 1
+the file has two top-level fields and no others: `schema_version`, the integer
+`1`, and `slots`, an object from slot name to an array of key strings. A slot
+whose adapter can be fingerprinted and had nothing to grandfather is present
+with an empty array; a slot whose adapter has no extractor is absent. Fields
+are added in lockstep with the published schema, never renamed, removed, or
+retyped; a non-additive change bumps `schema_version` and is a breaking
+release. The schema describes what checkride **writes**. What it accepts on
+read is wider — see the tolerance promise below.
+
+**A key names a finding by what it is, not where it sits.** Every key is a
+string the slot's extractor built; a consumer may compare keys, count them, and
+diff them, never parse them. For the four diagnostic extractors — oxlint
+(`lint`), ast-grep (`struct`), cspell (`spell`), vale (`prose`) — the key is
+`<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
+cspell (`<file>::<message>`), and only vale's error-severity alerts keyed, since
+only those decide the slot. Line and column are never part of these keys, so a
+finding keeps its key when unrelated edits move it — the property the ratchet
+and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
+key on category and symbol instead, in the forms the extractor documents, and
+add a position only for a finding with no symbol to name.
+
+**The message inside a key belongs to the tool.** A key carries the tool's own
+wording. A tool upgrade that rewords a message, renames a rule, or restructures
+its report re-keys those findings, and they report as new until
+`checkride baseline` recaptures them; a change to one of checkride's own
+extractors does the same (0.6.0 and 0.9.4 were two), and the release notes say
+so under that release. What is promised is the notice, never the wording.
+
+**Written canonical, written atomically.** Every writer — `checkride baseline`
+(including `init --baseline`), the ratchet, `recover --pick` — writes one shape:
+slot names sorted, keys within each slot sorted and unique, two-space
+indentation, a trailing newline, through the temp-file-then-rename write of the
+crash-consistency promise above. Two branches that grandfather the same debt
+produce byte-identical files, and a write that would change nothing is skipped.
+A hunk in `git diff` of this file is a change to the debt set, never to its
+formatting.
+
+**Read is tolerant, and fails closed on the future.** A malformed baseline
+never breaks a run. A file that does not parse, or whose `slots` is not an
+object, masks nothing, and the run says so on stderr; `doctor` flags the same
+file between runs. Inside a file that does parse, an unknown top-level field is
+ignored, a slot whose value is not an array is dropped, a non-string key is
+dropped, and a missing `schema_version` reads as `1`. A `schema_version` above
+the one this release writes is dropped whole: the run reports every finding
+that is there rather than guess which ones a newer file meant to mask. The
+reader takes text, not a path, so a historical copy from `git show` parses
+under the same rules — which is what `recover` is built on.
+
+**Who writes to it.** Keys are added only by `checkride baseline` and
+`recover --pick`; a normal run only removes them, and only on a fully observed
+run — the ratchet rule in [Timeouts and interrupts](#timeouts-and-interrupts).
+`recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
+an agent's edits to the file, so a change to it arrives as a reviewed diff.
+
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,

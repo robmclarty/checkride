@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/robmclarty/checkride/main/schema/checkride.baseline.schema.json",
+  "title": "checkride baseline",
+  "description": "Schema for checkride.baseline.json — the committed, per-slot set of grandfathered finding keys that `checkride baseline` writes and every run reads. Describes what checkride WRITES: fields are additive under schema_version 1, added in lockstep with this schema, never renamed, removed, or retyped without a version bump. The reader is more tolerant — unknown fields ignored, malformed entries dropped, a newer schema_version rejected whole. See docs/contract.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "slots"],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "Version of this file's shape, independent of the summary's schema_version. Bumped only for a breaking (non-additive) change; a reader drops a file from a newer version rather than half-reading it."
+    },
+    "slots": {
+      "type": "object",
+      "description": "Slot name (lint, struct, spell, prose, dead, dupes, health, or a config custom-check key) to the sorted set of grandfathered finding keys. A fingerprintable slot with nothing to grandfather is present with an empty array; a slot whose adapter has no extractor is absent.",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An opaque finding key built by the slot's extractor: `<file>:<rule>:<message>` for oxlint/ast-grep/cspell/vale (no line or column), category-and-symbol for fallow. Compare and count keys; never parse them."
+        }
+      }
+    }
+  }
+}
