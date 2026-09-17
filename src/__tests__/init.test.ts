@@ -10,6 +10,12 @@ import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
+/** A capturing stdout for the few tests that read init's summary lines. */
+function sink(): { write: (text: string) => boolean; text: () => string } {
+  const chunks: string[] = [];
+  return { write: (text) => { chunks.push(text); return true; }, text: () => chunks.join('') };
+}
+
 describe('AGENTS stanza (idempotency)', () => {
   const body = buildStanza(['types', 'lint', 'spell']);
 
@@ -390,6 +396,16 @@ describe('existing-project adoption (idempotent)', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-existing-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  test('announces the detected package manager as the first line under the headline', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'package-lock.json'), '{}');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, stdout: out });
+    const lines = out.text().split('\n');
+    expect(lines[0]).toMatch(/^checkride init: adopted \d+ slot\(s\); wrote \d+ file\(s\)\.$/);
+    expect(lines[1]).toBe('  package manager: npm (detected)');
+  });
+
   test('adopts detected tools and refreshes idempotently', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'tsconfig.json'), '{}');
@@ -703,6 +719,16 @@ describe('runAgentSetup (existing repo, no full init)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-agent-setup-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('announces the detected package manager under the headline', async () => {
+    // The `packageManager` field path this time, so both detection branches are covered.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', packageManager: 'yarn@4.9.1' }));
+    const out = sink();
+    await runAgentSetup({ cwd: dir, stdout: out });
+    const lines = out.text().split('\n');
+    expect(lines[0]).toMatch(/^checkride agent-setup: wrote \d+ file\(s\)\.$/);
+    expect(lines[1]).toBe('  package manager: yarn (detected)');
+  });
 
   test('writes the check alias, AGENTS stanza, and Stop hook; second run is a no-op', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));

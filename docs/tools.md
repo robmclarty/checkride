@@ -86,9 +86,11 @@ the tool is absent, and "install it" would be the wrong advice.
 Detection is gated on yarn, so a `.pnp.cjs` left behind by a migration *off*
 Yarn will not reroute an npm or pnpm repo.
 
-The one manager-specific slot is `security`: it runs `pnpm audit`, whose flags
+Two slots are manager-specific. `security` runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is
-reported **unavailable** until a per-manager audit adapter lands. checkride
+reported **unavailable** until a per-manager audit adapter lands (`pack` is
+the other: its built-in speaks pnpm's and npm's `pack --dry-run --json`, and
+reports itself unavailable under yarn or bun the same way). checkride
 evaluates the audit JSON itself and gates at the `--audit-level` the adapter's
 args declare — pnpm's own JSON-mode exit code fails on *any* advisory
 regardless of level, so it is never trusted as the verdict. The audit is a

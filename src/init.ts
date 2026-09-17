@@ -771,8 +771,10 @@ async function assertNoCollisions(scaffold: NewScaffold, cwd: string, force: boo
 function reportNew(stdout: Out, shape: Shape, w: Writer, cwd: string): void {
   stdout.write(`checkride init: generated a ${shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
   // A fresh project has no lockfile/field yet, so this resolves to `pnpm`,
-  // matching the generated scripts.
+  // matching the generated scripts. Announced anyway, in the same line the
+  // existing-repo path and `agent-setup` print, so every path reads alike.
   const pm = detectPackageManager({ cwd });
+  stdout.write(`  package manager: ${pm} (detected)\n`);
   stdout.write(`  next: ${pm} install && ${pm} run check\n`);
 }
 
@@ -1200,9 +1202,14 @@ async function writeClaudePointer(w: Writer, cwd: string, skipped: string[]): Pr
   await put(w, 'CLAUDE.md', claudeMd());
 }
 
-/** Print the existing-repo adoption summary (adopted count + grandfathered/disabled slots). */
+/**
+ * Print the existing-repo adoption summary: the adopted count, the package
+ * manager the alias/stanza/hooks were spelled for (`doctor`'s wording, so one
+ * string to pin), and the grandfathered/disabled slots.
+ */
 function reportExisting(
   stdout: Out,
+  pm: PackageManager,
   adopted: readonly InventoryEntry[],
   w: Writer,
   grandfathered: readonly string[],
@@ -1211,6 +1218,7 @@ function reportExisting(
   stdout.write(
     `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
   );
+  stdout.write(`  package manager: ${pm} (detected)\n`);
   if (grandfathered.length > 0) {
     stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
   }
@@ -1296,7 +1304,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await writeSkills(w, options, skipped);
 
   if (options.stdout) {
-    reportExisting(options.stdout, adopted, w, grandfathered, disabled);
+    reportExisting(options.stdout, pm, adopted, w, grandfathered, disabled);
     reportInitBundle(options.stdout, bundle);
   }
   return {
@@ -1394,6 +1402,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
     options.stdout.write(
       `checkride agent-setup: wrote ${w.written.length} file(s)${removed}${w.dryRun ? ' [dry run]' : ''}.\n`,
     );
+    options.stdout.write(`  package manager: ${pm} (detected)\n`);
   }
   return { written: w.written, removed: w.removed, skipped, exitCode: 0 };
 }

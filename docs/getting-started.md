@@ -46,7 +46,7 @@ by looking for a `package.json`.
 ### An existing repository
 
 ```bash
-pnpm add -D checkride
+pnpm add -D -E checkride
 pnpm exec checkride init
 ```
 

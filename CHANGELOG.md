@@ -49,6 +49,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   They are now validated wherever they appear (a bad regex is still a friendly
   config error) and attached only when the slot is `links` — the rule
   `exemplars` already followed for `prose`. No run's verdict changes.
+- **`init` and `agent-setup` say which package manager they wrote for.** Both
+  print `  package manager: <pm> (detected)` as the first line under their
+  headline — `doctor`'s wording — so a run in an npm, yarn, or bun repo shows
+  up front which manager the `check` alias, the AGENTS.md stanza, and the
+  hooks were spelled for. New-project `init` prints it too (pnpm, which the
+  scaffold assumes), ahead of its `next:` line.
 
 ### Fixed
 
@@ -71,6 +77,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The README's list of baseline-capable slots omitted `prose` (vale), present
   since 0.12.1, and its illustrative oxlint key lacked the `eslint(…)` rule
   prefix that oxlint's `code` field carries.
+- **The README install section no longer reads as pnpm-only.** The
+  existing-repository path lists the npm, yarn, and bun forms (exact-pinned
+  under each), the new-project path says what it always was — a pnpm
+  scaffold — and points other managers at the existing-repository path, and
+  the Package managers subsection now matches the code: `packageManager`
+  beats the lockfile, the lockfile precedence is `pnpm-lock.yaml` →
+  `bun.lock` → `bun.lockb` → `yarn.lock` → `package-lock.json`, and `pack`
+  joins `security` as a manager-specific slot (pnpm or npm). `docs/tools.md`
+  holds the one canonical table; the README links it instead of restating it.
 
 ### Internal
 

@@ -279,6 +279,9 @@ describe('runCli init', () => {
     const code = await runCli(['init', '--shape', 'flat', '--name', 'demo'], { cwd: dir, stdout: out, stderr: sink() });
     expect(code).toBe(0);
     expect(out.text()).toContain('next: pnpm install && pnpm run check');
+    // The detected manager is announced ahead of the next-steps line.
+    expect(out.text()).toContain('package manager: pnpm (detected)');
+    expect(out.text().indexOf('package manager:')).toBeLessThan(out.text().indexOf('next:'));
   });
 
   test('rejects an invalid shape with exit 2', async () => {

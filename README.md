@@ -49,12 +49,22 @@ traditional run-all-my-tools wrappers expensive to extend.
 ## Install
 
 For an **existing repository**, install checkride (exact-pinned — see the
-[pin policy](./docs/contract.md)) and let `init` adopt the tools you already
-have:
+[pin policy](./docs/contract.md#versioning-and-pin-policy)) and let `init`
+adopt the tools you already have:
 
 ```bash
 pnpm add -D -E checkride
 pnpm exec checkride init
+```
+
+The same two steps under another package manager — `init` detects it and
+spells the alias, stanza, and hooks for it (see
+[Package managers](#package-managers)):
+
+```bash
+npm install -D -E checkride && npx checkride init
+yarn add -D -E checkride && yarn checkride init
+bun add -d -E checkride && bunx checkride init
 ```
 
 For a **new project**, run `init` in an empty directory — no install first;
@@ -66,8 +76,16 @@ pnpm install
 pnpm check
 ```
 
+The generated project is a pnpm project: its `engines` field and
+`pnpm-workspace.yaml` assume it, and the monorepo and hybrid shapes are pnpm
+workspaces. To start under npm, yarn, or bun, create the `package.json` first
+(`npm init -y`, or your manager's equivalent), then take the
+existing-repository path above — `init --add <slots>` scaffolds the tool
+configs a bare repository lacks (`init --add struct,dead`, for example).
+
 Both paths end in the same place — `init` auto-detects which case it is in.
 It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
+(`npm run check`, `yarn run check`, or `bun run check` under the others)
 regardless of the tool's name. It also writes the agent contract: an AGENTS.md
 stanza stating the "exit 0 = done" rule, and **hooks** in your agent harness's
 config — `.claude/settings.json` for Claude Code, `.cursor/hooks.json` for
@@ -244,14 +262,20 @@ them.
 
 ### Package managers
 
-checkride is package-manager-agnostic. It detects the repo's package manager
-from the `packageManager` field or the lockfile (`pnpm-lock.yaml`,
-`package-lock.json`, `yarn.lock`, `bun.lock`), defaulting to **pnpm**, and
-translates each adapter's canonical `pnpm exec <tool>` into that manager's form
-(`npx`, `yarn`, or `bunx`). The default pnpm run is unchanged; `doctor` reports
-the detected manager. One exception: the opt-in `security` slot is `pnpm audit`,
-whose flags and JSON shape are pnpm-specific, so it is **unavailable on a
-non-pnpm manager** until a per-manager audit adapter lands.
+checkride is package-manager-agnostic. It resolves the repo's manager from the
+`packageManager` field in `package.json` first, then from the lockfile —
+`pnpm-lock.yaml`, `bun.lock`, `bun.lockb`, `yarn.lock`, `package-lock.json`,
+first match wins — and falls back to **pnpm** when neither exists. Every
+command checkride generates is spelled for that manager: the `check` alias the
+hooks run, the AGENTS.md stanza, and each adapter's canonical `pnpm exec <tool>`
+(which becomes `npx --no-install`, `yarn`, or `bunx --no-install`). `doctor`
+reports the detected manager on its first line; `init` and `agent-setup` report
+it under their headline. Two slots are manager-specific: the opt-in `security`
+slot is `pnpm audit` (pnpm only), and the `pack` slot's dry-run speaks pnpm's
+and npm's `pack --json` (pnpm or npm); each reports itself **unavailable**
+elsewhere rather than failing. The lockfile-to-exec table and the "a check
+never fetches a tool" rule live in
+[Tools § Package managers](./docs/tools.md#package-managers).
 
 ## The `.check/` contract
 
