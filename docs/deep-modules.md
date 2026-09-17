@@ -105,7 +105,9 @@ The ast-grep rules live in your repo under `rules/` and run through the `struct`
 slot:
 
 - `rules/no-deep-sibling-import.yml` — flags any import of the form
-  `'../<sibling>/<not-index>.js'`.
+  `'../<sibling>/<not-index>.js'`, at any depth. Climbing first is fine: from a
+  nested `__tests__/`, `'../../config.js'` and `'../../auth/index.js'` are the
+  parent level's interface and pass.
 - `rules/no-logic-in-barrel.yml` — keeps `index.ts` a pure re-export surface.
 - `rules/require-js-extension.yml` — enforces the NodeNext extension.
 - `rules/no-default-export.yml`, `rules/no-class.yml` — named exports and a

@@ -8,6 +8,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`no-deep-sibling-import` no longer flags a nested file climbing to its
+  parent level.** The rule's regex read the second `..` of `'../../config.js'`
+  as a sibling module's name, so a test inside a folder module
+  (`src/<module>/__tests__/`) could not import anything outside its own folder.
+  `'../../config.js'` and `'../../baseline/index.js'` are the parent level's
+  interface and now pass, at any depth; a genuine reach past a sibling's index
+  (`'../orchestrator/spawn.js'`, `'../../baseline/store.js'`) is still an
+  error. Consumer projects pick up the fix by re-copying the rule from
+  `templates/shared/rules/`.
 - Overrode `smol-toml` to 1.8.0 for GHSA-7w5x-hrqm-74c2 (high severity;
   dev-only, via `markdownlint-cli2`). An override entry rather than a
   re-resolve: markdownlint-cli2 0.23.2 — its latest — pins `smol-toml` at

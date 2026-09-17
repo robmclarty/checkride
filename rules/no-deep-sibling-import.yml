@@ -10,6 +10,6 @@ files:
 rule:
   all:
     - kind: import_statement
-    - regex: "from\\s+['\"]\\.\\./[^/]+/[^'\"]+['\"]"
+    - regex: "from\\s+['\"](\\.\\./)+[^./][^/]*/[^'\"]+['\"]"
     - not:
-        regex: "from\\s+['\"]\\.\\./[^/]+/index\\.js['\"]"
+        regex: "from\\s+['\"](\\.\\./)+[^./][^/]*/index\\.js['\"]"
