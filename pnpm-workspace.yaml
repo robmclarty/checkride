@@ -62,14 +62,17 @@ overrides:
 #
 # @vvago/vale 3.24.0's postinstall downloads vale through GitHub's REST API
 # (api.github.com/.../releases/assets/<id>) with no token and no way to pass
-# one. GitHub allows 60 anonymous API requests an hour per IP, and hosted CI
-# runners share IPs, so `pnpm install` can fail with "Download failed with
-# status code: 403", and a re-run inside the hour fails the same way. CI's
-# macOS / Node 26 job failed its install twice like that on 2026-10-08, while
-# the same request from a Mac on the same Node succeeded. The patch swaps the
-# six 3.24.0 URLs for the release's github.com download links: the same files,
-# outside the API's limit, still checked against the pinned sha256. Not yet
-# reported upstream (zeropaper/vale).
+# one, so it draws on the API's anonymous limit: 60 requests an hour per IP,
+# which hosted CI runners share between jobs. On 2026-10-08, CI's macOS /
+# Node 26 job failed its install with "Download failed with status code: 403"
+# three times running, the last more than an hour after the first two, while
+# the macOS jobs on Node 22 and 24 fetched the same file, as did a Mac on the
+# same Node 26. Why the API refused only that job is unknown. The patch swaps
+# the six 3.24.0 URLs for the release's github.com download links: the same
+# files, outside the API's limit, still checked against the pinned sha256.
+# Patched, that job installed cleanly while an unpatched re-run 25 minutes
+# later still got the 403, and both paths end at the same file host, which
+# points the refusal at the API. Not yet reported upstream (zeropaper/vale).
 #
 # Retire it when a release stops downloading through api.github.com: after a
 # bump, grep the new dist/index.cjs for it. If it's still there, re-create the
