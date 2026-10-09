@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-10-09
 
 ### Changed
 
@@ -13,6 +13,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   10.3.6, vale 3.24.0 and publint 0.3.25, the versions checkride itself now
   runs. An existing repo keeps whatever it installed; re-run `checkride init` or
   bump it yourself.
+- **oxlint 1.87 checks function scoping inside tests.** It now applies
+  `unicorn/consistent-function-scoping` inside test callbacks, so a project
+  moving to the new pin can see it fire on helpers defined in a test. The
+  template doesn't exempt tests from it; checkride moved its own 11 flagged
+  helpers to the outermost scope their captures allow instead.
 - **New projects start on TypeScript 7, vitest 5 and stryker 10.** `init` now
   pins typescript 7.0.2 with @types/node 22.20.5, vitest and
   @vitest/coverage-v8 5.0.3, and @stryker-mutator/core and vitest-runner
@@ -26,6 +31,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   survives with no error (stryker-js #6210; checkride carries the unreleased
   fix as a pnpm patch). typescript-eslint and ts-jest still keep a project on
   TypeScript 6.
+- **Tested on Node 26.** CI now runs on Node 26 beside 22.18.0 and 24, on macOS
+  and Linux, ahead of 26 becoming LTS on 2026-10-28, and the README's tested
+  envelope and the install tables name it. Nothing requires it: the floor stays
+  at 22.18.0.
 
 ### Fixed
 
@@ -38,6 +47,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CLAUDE_CODE_ENTRYPOINT` is `cli` or unset, which is how Claude Code names the
   terminal. Every other host gets the bare verdict, and already shows it apart
   from the transcript.
+
+### Internal
+
+- `@vvago/vale` 3.24.0 carries a pnpm patch that downloads vale from the
+  release's github.com links instead of GitHub's REST API, which allows
+  anonymous callers 60 requests an hour per IP. CI's macOS / Node 26 job failed
+  its install three times with a 403 on that download; patched, it installs
+  cleanly, and every download is still checked against the pinned sha256.
+  `docs/tools.md` shows prose-slot users how to carry the same patch.
+- A mutation canary (`test/e2e/mutation-canary.e2e.test.ts`) runs the repo's
+  real `stryker.config.mjs` against a three-test project in seconds and fails
+  when no mutant is killed. stryker broke twice this cycle without saying so
+  (stryker-js #6210 under vitest 5, a tsconfig-rewrite crash under TypeScript
+  7), and both times only a 25-minute mutation run showed it. AGENTS.md gains a
+  "Patched dependencies" section: when to run the canary and how to retire a
+  patch.
+- The dependency audit (`security`) is opt-in in this repo's own config, so
+  `pnpm check`, CI, the plumbbob build gate and `/version` skip it; run it with
+  `pnpm check --include security`. `pnpm audit` answers to the day's advisory
+  feed rather than the change under test, and braces 3.0.3 has a high advisory
+  with no patched release yet. brace-expansion, fast-uri and source-map-js
+  cleared with a plain re-resolve, the `smol-toml` override is re-scoped to
+  `<1.8.1`, and the `qs` override is still load-bearing. None of it reaches the
+  published package, which has no runtime dependencies.
+- fallow 3.31.0 moves the dupes report to schema 10. Every field the baseline
+  parsers read is unchanged, checked on a probe project carrying a real finding
+  of each kind.
+- `docs/spec-polyglot.md` plans the next build in 14 phases: polyglot targets
+  and language packs, the `schema` slot, a standalone binary, and what the
+  PR-review agent behind #6 and #7 needs from `.check/`. It supersedes the
+  polyglot and slot-provenance drafts, and builds the test-layout spec, which
+  lands with it, as Phase 4. Its mutation floor now cites
+  `stryker.config.mjs`'s break threshold (68) instead of a carried-over 55.
 
 ## [0.13.0] - 2026-09-17
 
@@ -2089,6 +2131,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.14.0]: https://www.npmjs.com/package/checkride/v/0.14.0
 [0.13.0]: https://www.npmjs.com/package/checkride/v/0.13.0
 [0.12.5]: https://www.npmjs.com/package/checkride/v/0.12.5
 [0.12.4]: https://www.npmjs.com/package/checkride/v/0.12.4
