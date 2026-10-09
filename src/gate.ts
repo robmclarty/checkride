@@ -592,22 +592,42 @@ function failedVerdict(f: Failure): Verdict {
  * announce a pass would put the agent back to work every time it succeeded. No
  * other channel is documented for the event; see docs/cursor.md.
  */
-function reportGreen(harness: HarnessName, stdout: Out, status: string): void {
+function reportGreen(
+  harness: HarnessName,
+  stdout: Out,
+  status: string,
+  env: Record<string, string | undefined>,
+): void {
   if (harness === 'cursor') return;
-  stdout.write(`${JSON.stringify({ systemMessage: noticePad(status) })}\n`);
+  stdout.write(`${JSON.stringify({ systemMessage: noticePad(status, env) })}\n`);
 }
 
 /**
- * Blank lines in front of the user-visible verdict.
+ * The variable Claude Code names its host in, which a hook inherits: `cli` for
+ * the terminal, and `sdk-ts`, `sdk-py`, `claude-desktop`, `claude-vscode` and
+ * the like for the hosts that run it through its SDK. Claude Code reads an unset
+ * one as the terminal.
+ */
+const ENTRYPOINT_ENV = 'CLAUDE_CODE_ENTRYPOINT';
+
+/**
+ * Blank lines in front of the user-visible verdict, in the terminal only.
  *
  * The harness prints a `systemMessage` right after the turn's last text and
  * trims whatever trailing whitespace that text carried, so the verdict has to
  * bring its own separation: without the pad it lands jammed against the
  * previous sentence. Only the `systemMessage` channel gets it; the agent-facing
  * `reason` and the stderr line are read by parsers and scrollback, not layout.
+ *
+ * Every other host (Zed and the other ACP clients, the desktop app, the IDE
+ * extensions) runs Claude Code through its SDK, which writes `<hook> says: ` in
+ * front of *every* line of a `systemMessage`, so there the pad renders as bare
+ * `Stop says:` lines. Those hosts already set the message apart (Zed shows it as
+ * a session notice), so they get the bare verdict.
  */
-function noticePad(message: string): string {
-  return `\n\n${message}`;
+function noticePad(message: string, env: Record<string, string | undefined>): string {
+  const host = env[ENTRYPOINT_ENV];
+  return host === undefined || host === 'cli' ? `\n\n${message}` : message;
 }
 
 /** A non-green run, phrased — and whether blocking on it would accomplish anything. */
@@ -660,7 +680,7 @@ function reportStandDown(
   if (harness === 'cursor') {
     if (env[GATE_RETRY_ENV] === '0') out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
   } else {
-    out.stdout.write(`${JSON.stringify({ systemMessage: noticePad(full) })}\n`);
+    out.stdout.write(`${JSON.stringify({ systemMessage: noticePad(full, env) })}\n`);
   }
   out.stderr.write(`${full}\n`);
   return 0;
@@ -704,7 +724,7 @@ function reportRed(
     return 0;
   }
   out.stdout.write(
-    `${JSON.stringify({ decision: 'block', reason: full, systemMessage: noticePad(verdict.status) })}\n`,
+    `${JSON.stringify({ decision: 'block', reason: full, systemMessage: noticePad(verdict.status, env) })}\n`,
   );
   out.stderr.write(`${full}\n`);
   return 2;
@@ -779,7 +799,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
 
   if (green) {
     rmSync(marker, { force: true });
-    reportGreen(harness, stdout, headline('green', '✔', now() - startedAt, gateDetail(summary, fresh, true, profile)));
+    reportGreen(harness, stdout, headline('green', '✔', now() - startedAt, gateDetail(summary, fresh, true, profile)), env);
     return { exitCode: 0, ran: true, green: true, refusal: null };
   }
 

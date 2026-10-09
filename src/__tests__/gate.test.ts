@@ -109,6 +109,13 @@ function fakeClock(elapsedMs: number): () => number {
   return () => (calls++ === 0 ? 0 : elapsedMs);
 }
 
+/**
+ * The terminal, the one host whose verdict carries its own blank lines. Named
+ * outright, because a run that inherits `process.env` reads whatever host the
+ * test runner was started from.
+ */
+const terminal = { CLAUDE_CODE_ENTRYPOINT: 'cli' };
+
 describe('checkArgs', () => {
   test('runs the gate strictly and writes a digest', () => {
     expect(checkArgs('pnpm')).toEqual(['run', 'check', '--strict', '--digest']);
@@ -227,6 +234,7 @@ describe('runGate', () => {
       spawn: exits(0),
       stdout,
       stderr: capture(),
+      env: terminal,
       now: fakeClock(4200),
     });
     expect(result.green).toBe(true);
@@ -234,6 +242,49 @@ describe('runGate', () => {
     expect(body.systemMessage).toBe('\n\ncheckride green in 4.2s ✔');
     // Nothing to block on: a green gate must not carry a decision.
     expect(body.decision).toBeUndefined();
+  });
+
+  /**
+   * Under Claude Code's SDK (Zed and the other ACP clients, the desktop app, the
+   * IDE extensions) every line of a `systemMessage` is shown as
+   * `Stop says: <line>`, so the blank lines that separate the verdict in the
+   * terminal would render as bare `Stop says:` lines. Those hosts set the
+   * message apart themselves.
+   */
+  test('claude: an SDK host gets a green verdict without the blank lines', async () => {
+    const stdout = capture();
+    await runGate({
+      cwd: dir,
+      spawn: exits(0),
+      stdout,
+      stderr: capture(),
+      env: { CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' },
+      now: fakeClock(4200),
+    });
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toBe('checkride green in 4.2s ✔');
+  });
+
+  test('claude: an SDK host gets a red verdict without the blank lines, and still blocks', async () => {
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      spawn: exits(1),
+      stdout,
+      stderr: capture(),
+      env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' },
+      now: fakeClock(1500),
+    });
+    expect(result.exitCode).toBe(2);
+    const body = JSON.parse(stdout.text()) as { decision: string; systemMessage: string };
+    expect(body.decision).toBe('block');
+    expect(body.systemMessage).toBe('checkride red in 1.5s ✘');
+  });
+
+  /** Claude Code reads an unset entrypoint as the terminal, and so does the gate. */
+  test('claude: an unset entrypoint is the terminal, and keeps the blank lines', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: exits(0), stdout, stderr: capture(), env: {}, now: fakeClock(4200) });
+    expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toBe('\n\ncheckride green in 4.2s ✔');
   });
 
   /**
@@ -258,7 +309,7 @@ describe('runGate', () => {
       ],
     });
     const stdout = capture();
-    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(61_000) });
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), env: terminal, now: fakeClock(61_000) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     // Skipped checks are not part of "3 checks" — nothing ran for them.
     expect(systemMessage).toBe('\n\ncheckride red in 1.0m ✘ (2 of 3 failed: lint, test)');
@@ -273,7 +324,7 @@ describe('runGate', () => {
       ],
     });
     const stdout = capture();
-    await runGate({ cwd: dir, spawn: exits(0), stdout, stderr: capture(), now: fakeClock(30_000) });
+    await runGate({ cwd: dir, spawn: exits(0), stdout, stderr: capture(), env: terminal, now: fakeClock(30_000) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     expect(systemMessage).toBe('\n\ncheckride green in 30.0s ✔ (2 checks, slowest: test in 21.4s)');
   });
@@ -285,7 +336,7 @@ describe('runGate', () => {
    */
   test('no readable summary reports the time and claims nothing else', async () => {
     const stdout = capture();
-    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: fakeClock(1500) });
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), env: terminal, now: fakeClock(1500) });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     expect(systemMessage).toBe('\n\ncheckride red in 1.5s ✘');
   });
@@ -300,7 +351,7 @@ describe('runGate', () => {
     const stdout = capture();
     // A start time after the summary was written: nothing on disk can belong to it.
     const after = Date.now() + 60_000;
-    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), now: () => after });
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture(), env: terminal, now: () => after });
     const { systemMessage } = JSON.parse(stdout.text()) as { systemMessage: string };
     expect(systemMessage).not.toContain('lint');
     expect(systemMessage).toBe('\n\ncheckride red in 0ms ✘');
@@ -772,6 +823,7 @@ describe('runGate — the gate profile', () => {
       spawn: exits(0),
       stdout,
       stderr: capture(),
+      env: terminal,
       pinEnv: pinEnv(),
       profile: { only: ['types', 'lint'] },
       now: fakeClock(4100),
@@ -804,6 +856,7 @@ describe('runGate — the gate profile', () => {
       spawn: exits(0),
       stdout,
       stderr: capture(),
+      env: terminal,
       pinEnv: pinEnv(),
       profile: null,
       now: fakeClock(4100),

@@ -27,6 +27,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fix as a pnpm patch). typescript-eslint and ts-jest still keep a project on
   TypeScript 6.
 
+### Fixed
+
+- **The gate's verdict no longer shows as bare `Stop says:` lines outside the
+  terminal.** Claude Code's SDK, which Zed and the other ACP clients, the
+  desktop app and the IDE extensions run it through, writes `<hook> says: ` in
+  front of every line of a hook's `systemMessage`. The two blank lines that set
+  the verdict apart in the terminal rendered there as empty `Stop says:` lines.
+  `gate --harness claude` now pads the verdict only when
+  `CLAUDE_CODE_ENTRYPOINT` is `cli` or unset, which is how Claude Code names the
+  terminal. Every other host gets the bare verdict, and already shows it apart
+  from the transcript.
+
 ## [0.13.0] - 2026-09-17
 
 ### Contract
