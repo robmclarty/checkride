@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`init` now pins newer tools.** New scaffolds get oxlint 1.87.0 (with
+  oxlint-tsgolint 7.0.2003), fallow 3.31.0, markdownlint-cli2 0.23.3, cspell
+  10.3.6, vale 3.24.0 and publint 0.3.25, the versions checkride itself now
+  runs. An existing repo keeps whatever it installed; re-run `checkride init` or
+  bump it yourself.
+- **The scaffolded `.oxlintrc.json` turns off
+  `unicorn/consistent-function-scoping` for test files.** oxlint 1.87 started
+  applying the rule inside test callbacks, where a helper that one test uses
+  belongs beside that test.
+
 ## [0.13.0] - 2026-09-17
 
 ### Contract

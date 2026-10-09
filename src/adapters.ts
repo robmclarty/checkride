@@ -210,7 +210,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'oxlint', '--type-aware', '--format=json'],
     outputFile: 'lint.json',
     fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
-    devDeps: { oxlint: '1.81.0', 'oxlint-tsgolint': '7.0.2001' },
+    devDeps: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003' },
   },
   {
     name: 'biome',
@@ -270,7 +270,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'dead-code', '--format', 'json', '--quiet'],
     outputFile: 'dead.json',
     fixArgs: ['exec', 'fallow', 'fix'],
-    devDeps: { fallow: '3.22.0' },
+    devDeps: { fallow: '3.31.0' },
   },
   {
     name: 'knip',
@@ -296,7 +296,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'dupes', '--format', 'json', '--quiet'],
     outputFile: 'dupes.json',
     // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
-    devDeps: { fallow: '3.22.0' },
+    devDeps: { fallow: '3.31.0' },
   },
   {
     name: 'fallow',
@@ -307,7 +307,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'fallow', 'health', '--format', 'json', '--quiet'],
     outputFile: 'health.json',
     // Report-gated by name, like `dead` above: see `REPORT_VERDICTS`.
-    devDeps: { fallow: '3.22.0' },
+    devDeps: { fallow: '3.31.0' },
   },
   {
     name: 'vitest',
@@ -359,7 +359,7 @@ export const ADAPTERS: readonly Adapter[] = [
     args: ['exec', 'markdownlint-cli2'],
     outputFile: null,
     fixArgs: ['exec', 'markdownlint-cli2', '--fix'],
-    devDeps: { 'markdownlint-cli2': '0.23.2' },
+    devDeps: { 'markdownlint-cli2': '0.23.3' },
   },
   {
     name: 'links',
@@ -388,7 +388,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
     outputFile: null,
-    devDeps: { cspell: '10.2.0' },
+    devDeps: { cspell: '10.3.6' },
   },
   {
     name: 'vale',
@@ -407,7 +407,7 @@ export const ADAPTERS: readonly Adapter[] = [
     // `args` with explicit paths — the same way this one already does for lint.
     args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
     outputFile: 'prose.json',
-    devDeps: { '@vvago/vale': '3.17.1' },
+    devDeps: { '@vvago/vale': '3.24.0' },
   },
   {
     name: 'stryker',
@@ -470,7 +470,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'publint'],
     outputFile: null,
-    devDeps: { publint: '0.3.24' },
+    devDeps: { publint: '0.3.25' },
   },
   {
     name: 'attw',

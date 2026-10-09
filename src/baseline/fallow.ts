@@ -30,12 +30,13 @@ import { applyBaseline } from './store.js';
  * Minimum fallow JSON schema version checkride understands, and deliberately a
  * floor rather than an exact match: fallow bumps the number for layout changes
  * that leave the fields below untouched. 3.5.0 through 3.9.1 emitted 7 for all
- * three kinds; 3.22.0 emits 11 for health and 9 for dead-code and dupes, and
- * every field these parsers read (`findings[].path`/`.name`,
- * `summary.total_issues`, `clone_groups[].fingerprint`) is unchanged across
- * that span — re-verified against 3.22.0 output, including a health report
- * carrying a real finding, since a shape drift here would read as zero
- * findings and pass. 2.x emitted 4 with an incompatible layout. A report below
+ * three kinds; 3.22.0 emitted 11 for health and 9 for dead-code and dupes; and
+ * 3.31.0 emits 11 for health, 9 for dead-code and 10 for dupes. Every field
+ * these parsers read (`findings[].path`/`.name`, `summary.total_issues`,
+ * `clone_groups[].fingerprint`) is unchanged across that span — re-verified
+ * against 3.31.0 output carrying a real finding of each kind, since a shape
+ * drift here would read as zero findings and pass. 2.x emitted 4 with an
+ * incompatible layout. A report below
  * this floor — or one whose kind/shape we can't read — is a hard failure,
  * never a silent pass.
  */

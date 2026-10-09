@@ -67,7 +67,7 @@ describe('registry invariants', () => {
       expect(reportVerdict(a.name)).not.toBeNull();
       expect(a.detect).toEqual(['fallow.toml']);
       expect(a.args).toContain('--format');
-      expect(a.devDeps).toEqual({ fallow: '3.22.0' });
+      expect(a.devDeps).toEqual({ fallow: '3.31.0' });
     }
     // ... and nothing else in the registry claims one: every other adapter's
     // exit code is its verdict.
@@ -166,7 +166,7 @@ describe('registry invariants', () => {
     // The exit code is the verdict — vale exits 1 iff error-severity alerts
     // exist, so no report verdict is registered for it (D6).
     expect(reportVerdict('vale')).toBeNull();
-    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.17.1' });
+    expect(vale?.devDeps).toEqual({ '@vvago/vale': '3.24.0' });
   });
 
   test('the vale invocation pins --no-global, JSON output, and a trailing path (D9/D10)', () => {
