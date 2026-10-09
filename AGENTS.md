@@ -86,6 +86,27 @@ rest are single files. That list is checked against the tree by
 `test/conventions.test.ts`, so it cannot go stale silently. The same rules ship
 to consumer projects — see `templates/shared/rules/`.
 
+## Patched dependencies
+
+`pnpm-workspace.yaml` carries `patchedDependencies`: upstream fixes that exist
+but haven't been released, with the diffs under `patches/`. Each entry's comment
+names its upstream issue and how to retire it. Today that's one fix to
+`@stryker-mutator/vitest-runner` for vitest 5 (stryker-js #6210), and
+`test/e2e/mutation-canary.e2e.test.ts` fails if mutation testing stops killing
+mutants.
+
+- **When a patched package moves,** `pnpm install` stops with
+  `ERR_PNPM_UNUSED_PATCH`. Don't silence it: delete the entry and its patch
+  file, re-install, and run `pnpm test:e2e`. If the canary passes, the release
+  fixed it and the patch is retired. If it fails, re-create the patch for the
+  new version with `pnpm patch`.
+- **When vitest, stryker or TypeScript moves,** run `pnpm test:e2e` before
+  trusting the result. A mutation run that kills nothing passes every other
+  check.
+- **If the canary still fails after a patch is restored,** pnpm's repeat-install
+  cache may have skipped applying it. Delete
+  `node_modules/.pnpm-workspace-state-v1.json` and re-install.
+
 ## What NOT to do
 
 - Do not disable a lint rule to pass the check. Use a scoped inline suppression with a reason, or discuss first.
