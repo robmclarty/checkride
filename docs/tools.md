@@ -573,6 +573,16 @@ pnpm add -D -E @vvago/vale
 Skip step 3 to keep the slot out of the default run and reach it with
 `--include prose` or `--all` instead.
 
+In CI, installing `@vvago/vale` can fail with `Download failed with status code:
+403`. Its postinstall fetches vale through GitHub's REST API without a token,
+GitHub allows 60 of those requests an hour per IP, and hosted runners share
+IPs, so a re-run inside the hour fails the same way. checkride carries a pnpm
+patch that fetches the same files from the release's github.com download links
+instead, which that limit doesn't count, and keeps the pinned sha256 check:
+[`patches/@vvago__vale@3.24.0.patch`](../patches/@vvago__vale@3.24.0.patch).
+A project on vale 3.24.0 can carry the same patch (copy the file and its
+`patchedDependencies` entry in `pnpm-workspace.yaml`).
+
 ### Why cspell stays
 
 vale does not supersede `spell`, and the scaffold makes sure the two never

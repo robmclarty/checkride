@@ -10,6 +10,7 @@ overrides:
 
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': 890316bd6edb446e7b450b23c08fe314a14cbba08ae7adedb1ce5614d07913e0
+  '@vvago/vale@3.24.0': 678870ad574085490e38f9e31bf857036b4c36839972df2369f16300f08090bc
 
 importers:
 
@@ -35,7 +36,7 @@ importers:
         version: 5.0.3(vitest@5.0.3)
       '@vvago/vale':
         specifier: 3.24.0
-        version: 3.24.0
+        version: 3.24.0(patch_hash=678870ad574085490e38f9e31bf857036b4c36839972df2369f16300f08090bc)
       ajv:
         specifier: 8.20.0
         version: 8.20.0
@@ -3623,7 +3624,7 @@ snapshots:
 
   '@vitest/spy@5.0.3': {}
 
-  '@vvago/vale@3.24.0':
+  '@vvago/vale@3.24.0(patch_hash=678870ad574085490e38f9e31bf857036b4c36839972df2369f16300f08090bc)':
     dependencies:
       fs-extra: 11.4.1
       tar: 7.5.22

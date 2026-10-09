@@ -88,18 +88,25 @@ to consumer projects — see `templates/shared/rules/`.
 
 ## Patched dependencies
 
-`pnpm-workspace.yaml` carries `patchedDependencies`: upstream fixes that exist
-but haven't been released, with the diffs under `patches/`. Each entry's comment
-names its upstream issue and how to retire it. Today that's one fix to
+`pnpm-workspace.yaml` carries `patchedDependencies`: fixes upstream hasn't
+shipped yet, with the diffs under `patches/`. Each entry's comment names its
+issue and how to retire it. Today there are two. One fixes
 `@stryker-mutator/vitest-runner` for vitest 5 (stryker-js #6210), and
 `test/e2e/mutation-canary.e2e.test.ts` fails if mutation testing stops killing
-mutants.
+mutants. The other points `@vvago/vale`'s postinstall at the release's
+github.com download links instead of GitHub's API, whose anonymous limit (60
+requests an hour per IP, shared on hosted CI runners) fails the install with a
+403.
 
 - **When a patched package moves,** `pnpm install` stops with
   `ERR_PNPM_UNUSED_PATCH`. Don't silence it: delete the entry and its patch
   file, re-install, and run `pnpm test:e2e`. If the canary passes, the release
   fixed it and the patch is retired. If it fails, re-create the patch for the
   new version with `pnpm patch`.
+- **`@vvago/vale` has no canary,** and it releases often. When it moves, grep
+  the new version's `dist/index.cjs` for `api.github.com`. If it's gone, the
+  patch is retired. If not, re-create the patch with the new version's links;
+  its `pnpm-workspace.yaml` comment says where to find them.
 - **When vitest, stryker or TypeScript moves,** run `pnpm test:e2e` before
   trusting the result. A mutation run that kills nothing passes every other
   check.
