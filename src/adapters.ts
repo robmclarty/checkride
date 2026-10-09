@@ -325,7 +325,7 @@ export const ADAPTERS: readonly Adapter[] = [
     ],
     outputFile: null,
     changedArgs: ['--changed', 'origin/main'],
-    devDeps: { vitest: '4.1.11', '@vitest/coverage-v8': '4.1.11' },
+    devDeps: { vitest: '5.0.3', '@vitest/coverage-v8': '5.0.3' },
   },
   {
     name: 'jest',
