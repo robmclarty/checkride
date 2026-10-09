@@ -239,6 +239,26 @@ minutes, past the ten-minute cap every other slot runs under, and because
 protects, letting it run to completion costs the gate nothing. It also runs
 `single` (exclusive, nothing else in flight) because stryker saturates every core.
 
+New projects start on TypeScript 7, the native compiler, and every default tool
+above runs on it. checkride itself runs whatever TypeScript a project installs, so
+a project on 5 or 6 keeps checking with its own compiler. TypeScript 7 no longer
+ships the JavaScript compiler API, and two kinds of tools still need it:
+
+- **stryker** rewrites tsconfig files in its sandbox through that API and crashes
+  under TypeScript 7 (`ts.parseConfigFileTextToJson is not a function`). Point
+  `tsconfigFile` in `stryker.config.mjs` at a file that doesn't exist, as this
+  repo's config does: stryker then skips the rewrite, which the vitest runner
+  doesn't need.
+- **typescript-eslint** supports TypeScript only up to 6.0, and **ts-jest** only
+  up to 6. A project that relies on either stays on TypeScript 6 until they
+  catch up.
+
+Mutation testing also needs vitest 4. Under vitest 5, stryker's vitest runner
+can't switch mutants on: the tests pass, every mutant survives, and the score
+collapses with no error to say why. checkride pins vitest 4.1.11 for that reason,
+and a project that adds `mutation` should stay on vitest 4 until the runner
+supports 5.
+
 And `fallow`, the one unfamiliar name in the table: a Rust-native
 codebase-intelligence tool (unused code, duplication, circular dependencies,
 complexity hotspots, architecture drift). checkride splits it across three slots

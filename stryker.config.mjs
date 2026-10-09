@@ -37,6 +37,15 @@ export default {
   // that content are expected survivors, so they are excluded from the metric.
   mutator: { excludedMutations: ['StringLiteral'] },
   coverageAnalysis: 'perTest',
+  // No such file, on purpose. Stryker rewrites the tsconfig chain in its sandbox
+  // through TypeScript's JavaScript API, which TypeScript 7 no longer ships, so
+  // the rewrite crashes the run (`ts.parseConfigFileTextToJson is not a
+  // function`). The vitest runner never reads those tsconfigs, and Stryker skips
+  // the rewrite when it can't find the file.
+  tsconfigFile: 'tsconfig.stryker-skip.json',
+  // Only the mutated sources. Stryker 10's default scan also reaches
+  // site/index.html, fails to parse it, and warns on every run.
+  disableTypeChecks: 'src/**/*.ts',
   incremental: true,
   incrementalFile: 'stryker.incremental.json',
   // `break` is the gate; `high`/`low` only colour the report. The measured

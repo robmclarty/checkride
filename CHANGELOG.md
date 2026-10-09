@@ -17,6 +17,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `unicorn/consistent-function-scoping` for test files.** oxlint 1.87 started
   applying the rule inside test callbacks, where a helper that one test uses
   belongs beside that test.
+- **New projects start on TypeScript 7 and stryker 10.** `init` now pins
+  typescript 7.0.2 with @types/node 22.20.5, and @stryker-mutator/core and
+  vitest-runner 10.0.0, and checkride builds and tests itself on them.
+  checkride runs each project's own TypeScript, so an existing project on 5 or
+  6 is unaffected, and the published package doesn't change: its JavaScript is
+  byte-identical to a TypeScript 6 build. TypeScript 7 drops the JavaScript
+  compiler API that stryker's tsconfig rewrite still calls; `docs/tools.md`
+  gives the one-line `stryker.config.mjs` fix and names the tools
+  (typescript-eslint, ts-jest) that keep a project on TypeScript 6. vitest
+  stays on 4: under vitest 5, stryker's vitest runner can't switch mutants on,
+  so every mutant survives and no error says why.
 
 ## [0.13.0] - 2026-09-17
 

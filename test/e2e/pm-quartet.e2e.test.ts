@@ -23,10 +23,10 @@ const ENV = { env: { ...process.env, COREPACK_ENABLE_DOWNLOAD_PROMPT: '0' } };
  * machine skips its case; CI installs all four.
  */
 const QUARTET: { pm: string; add: string[] }[] = [
-  { pm: 'pnpm', add: ['add', '-D', 'typescript@6.0.3'] },
-  { pm: 'npm', add: ['install', '--save-dev', 'typescript@6.0.3'] },
-  { pm: 'yarn', add: ['add', '-D', 'typescript@6.0.3'] },
-  { pm: 'bun', add: ['add', '-d', 'typescript@6.0.3'] },
+  { pm: 'pnpm', add: ['add', '-D', 'typescript@7.0.2'] },
+  { pm: 'npm', add: ['install', '--save-dev', 'typescript@7.0.2'] },
+  { pm: 'yarn', add: ['add', '-D', 'typescript@7.0.2'] },
+  { pm: 'bun', add: ['add', '-d', 'typescript@7.0.2'] },
 ];
 
 async function available(pm: string): Promise<boolean> {

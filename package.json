@@ -66,9 +66,9 @@
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
     "@ast-grep/cli": "0.45.3",
-    "@stryker-mutator/core": "9.6.1",
-    "@stryker-mutator/vitest-runner": "9.6.1",
-    "@types/node": "22.20.1",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/vitest-runner": "10.0.0",
+    "@types/node": "22.20.5",
     "@vitest/coverage-v8": "4.1.11",
     "@vvago/vale": "3.24.0",
     "ajv": "8.20.0",
@@ -78,7 +78,7 @@
     "oxlint": "1.87.0",
     "oxlint-tsgolint": "7.0.2003",
     "publint": "0.3.25",
-    "typescript": "6.0.3",
+    "typescript": "7.0.2",
     "vitest": "4.1.11"
   }
 }

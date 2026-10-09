@@ -161,7 +161,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'tsc', '--build'],
     outputFile: null,
-    devDeps: { typescript: '6.0.3', '@types/node': '22.20.1' },
+    devDeps: { typescript: '7.0.2', '@types/node': '22.20.5' },
   },
   {
     name: 'prettier',
@@ -422,8 +422,8 @@ export const ADAPTERS: readonly Adapter[] = [
     timeout: 0,
     outputFile: null,
     devDeps: {
-      '@stryker-mutator/core': '9.6.1',
-      '@stryker-mutator/vitest-runner': '9.6.1',
+      '@stryker-mutator/core': '10.0.0',
+      '@stryker-mutator/vitest-runner': '10.0.0',
     },
   },
   {
