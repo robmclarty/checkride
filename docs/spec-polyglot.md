@@ -365,8 +365,10 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 - <a id="c11"></a>**C11 (docs-in-step)**: a step that adds or changes a surface updates its doc and
   `CHANGELOG.md` in the same commit, and the docs-currency tests learn the pack tables and the
   slot scope column.
-- <a id="c12"></a>**C12 (quality-floors)**: the mutation score stays at or above 55, and line
-  coverage at or above 70%, with the new modules included.
+- <a id="c12"></a>**C12 (quality-floors)**: the mutation score stays at or above
+  `stryker.config.mjs`'s break threshold (68 today), and line coverage at or above 70%, with the
+  new modules included. The mutation canary (`test/e2e/mutation-canary.e2e.test.ts`) stays green,
+  so a score is never read off a run that killed nothing.
 
 ## Phases
 
