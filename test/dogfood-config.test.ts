@@ -83,17 +83,22 @@ describe("this repo's checkride.config.json", () => {
     'CLAUDE.md', // a pointer at AGENTS.md, not standalone prose
   ];
 
+  /** The file sits under one of the configured prose paths. */
+  function reachable(file: string): boolean {
+    return prosePaths.some((p) => file === p || file.startsWith(`${p}/`));
+  }
+
+  /** The file is in the known-excluded set, as a folder prefix or an exact name. */
+  function excluded(file: string): boolean {
+    return PROSE_EXCLUDED.some((e) => (e.endsWith('/') ? file.startsWith(e) : file === e));
+  }
+
   test('every tracked .md outside the known-excluded set is reachable from the prose paths', () => {
     const tracked = execFileSync('git', ['ls-files', '-z', '--', '*.md'], { cwd: ROOT })
       .toString('utf8')
       .split('\0')
       .filter(Boolean);
     expect(tracked.length).toBeGreaterThan(0);
-
-    const reachable = (file: string): boolean =>
-      prosePaths.some((p) => file === p || file.startsWith(`${p}/`));
-    const excluded = (file: string): boolean =>
-      PROSE_EXCLUDED.some((e) => (e.endsWith('/') ? file.startsWith(e) : file === e));
 
     expect(tracked.filter((file) => !reachable(file) && !excluded(file))).toEqual([]);
   });

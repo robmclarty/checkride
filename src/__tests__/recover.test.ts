@@ -224,24 +224,24 @@ const gitAvailable = ((): boolean => {
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
 
+/** The incident, in miniature: a rich committed baseline, then a mutilating commit. */
+async function seedIncident(cwd: string): Promise<string> {
+  git(cwd, 'init', '-q');
+  const keys = Array.from({ length: 12 }, (_, i) => `src/a.ts:rule-${i}:message ${i}`);
+  await writeFile(join(cwd, 'checkride.baseline.json'), `${JSON.stringify(base({ lint: keys, spell: ['s1'] }), null, 2)}\n`);
+  git(cwd, 'add', '.');
+  git(cwd, 'commit', '-q', '-m', 'adopt checkride with a baseline');
+  const richSha = git(cwd, 'rev-parse', 'HEAD').trim();
+  await writeFile(join(cwd, 'checkride.baseline.json'), `${JSON.stringify(base({ lint: ['src/a.ts:rule-0:message 0'] }), null, 2)}\n`);
+  git(cwd, 'add', '.');
+  git(cwd, 'commit', '-q', '-m', 'merge develop (entries silently dropped)');
+  return richSha;
+}
+
 describe.skipIf(!gitAvailable)('runRecover (integration, real git)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-recover-git-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
-
-  /** The incident, in miniature: a rich committed baseline, then a mutilating commit. */
-  async function seedIncident(cwd: string): Promise<string> {
-    git(cwd, 'init', '-q');
-    const keys = Array.from({ length: 12 }, (_, i) => `src/a.ts:rule-${i}:message ${i}`);
-    await writeFile(join(cwd, 'checkride.baseline.json'), `${JSON.stringify(base({ lint: keys, spell: ['s1'] }), null, 2)}\n`);
-    git(cwd, 'add', '.');
-    git(cwd, 'commit', '-q', '-m', 'adopt checkride with a baseline');
-    const richSha = git(cwd, 'rev-parse', 'HEAD').trim();
-    await writeFile(join(cwd, 'checkride.baseline.json'), `${JSON.stringify(base({ lint: ['src/a.ts:rule-0:message 0'] }), null, 2)}\n`);
-    git(cwd, 'add', '.');
-    git(cwd, 'commit', '-q', '-m', 'merge develop (entries silently dropped)');
-    return richSha;
-  }
 
   test('lists the pre-damage state and restores it additively', async () => {
     const richSha = await seedIncident(dir);

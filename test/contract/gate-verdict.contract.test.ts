@@ -78,6 +78,20 @@ describe('gate verdicts', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-gate-contract-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  /** Run a Cursor gate whose check can't start, under `env`, and return its stdout. */
+  async function cursorStandDown(env: Record<string, string>): Promise<string> {
+    const stdout = capture();
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir, harness: 'cursor', spawn: refusing, stdout, stderr, pinEnv: bare(), env,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.green).toBe(false);
+    // stderr carries it on every path, so a transcript always has the reason.
+    expect(stderr.text()).toContain('could not run');
+    return stdout.text();
+  }
+
   test('a launch refusal is not a red, and does not name an artifact', async () => {
     const stdout = capture();
     const result = await runGate({ cwd: dir, spawn: refusing, stdout, stderr: capture(), pinEnv: bare() });
@@ -155,29 +169,16 @@ describe('gate verdicts', () => {
    * what stops a new binary looping under an old script.
    */
   test('a cursor stand-down spends its one user-visible channel, once', async () => {
-    const run = async (env: Record<string, string>) => {
-      const stdout = capture();
-      const stderr = capture();
-      const result = await runGate({
-        cwd: dir, harness: 'cursor', spawn: refusing, stdout, stderr, pinEnv: bare(), env,
-      });
-      expect(result.exitCode).toBe(0);
-      expect(result.green).toBe(false);
-      // stderr carries it on every path, so a transcript always has the reason.
-      expect(stderr.text()).toContain('could not run');
-      return stdout.text();
-    };
-
     // First turn: the one nudge, naming the fix where a user will read it.
-    const first = JSON.parse(await run({ CHECKRIDE_GATE_RETRY: '0' })) as { followup_message: string };
+    const first = JSON.parse(await cursorStandDown({ CHECKRIDE_GATE_RETRY: '0' })) as { followup_message: string };
     expect(first.followup_message).toContain('could not run');
     expect(first.followup_message).toContain('Nothing was verified');
 
     // A follow-up already went out this conversation: a second would be the loop.
-    expect(await run({ CHECKRIDE_GATE_RETRY: '1' })).toBe('');
+    expect(await cursorStandDown({ CHECKRIDE_GATE_RETRY: '1' })).toBe('');
 
     // No signal at all — an unrefreshed hook script. Quiet, never looping.
-    expect(await run({})).toBe('');
+    expect(await cursorStandDown({})).toBe('');
   });
 
   /** Only a green run clears the marker, so a refused turn is re-gated on the next one. */

@@ -80,6 +80,11 @@ describe('the default catalogue, with no checkride.config.json', () => {
   });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  /** The slots doctor reports with enablement `e`, sorted. */
+  function byEnablement(e: string): string[] {
+    return tools.filter((c) => c.enablement === e).map((c) => c.slot).toSorted();
+  }
+
   test('detection picks the blessed adapter for every slot with a config file', () => {
     for (const { slot, adapter, file } of DETECTED) {
       const row = tools.find((c) => c.slot === slot);
@@ -95,9 +100,6 @@ describe('the default catalogue, with no checkride.config.json', () => {
   });
 
   test('the default run is exactly the non-opt-in slots that resolved', () => {
-    const byEnablement = (e: string): string[] =>
-      tools.filter((c) => c.enablement === e).map((c) => c.slot).toSorted();
-
     expect(byEnablement('default')).toEqual(
       [...DETECTED.map((d) => d.slot), ...ALWAYS.map((a) => a.slot)].toSorted(),
     );

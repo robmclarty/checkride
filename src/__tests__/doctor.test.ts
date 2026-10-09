@@ -38,6 +38,23 @@ function toolAdapter(name: string, slot: string): Adapter {
 const oneSlot = [{ name: 'lint' }];
 const oneAdapter = [toolAdapter('oxlint', 'lint')];
 
+/** A PnP tree: lockfile and `.pnp.cjs`, and deliberately no node_modules. */
+function pnpEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
+  return fakeEnv({
+    packageManager: () => 'yarn',
+    exists: (p: string) => p.includes('.pnp.cjs') || p.includes('yarn.lock') || p.includes('.check'),
+    ...over,
+  });
+}
+
+/** Run doctor on the one-slot fixture with `pin` as its Node pin and `engines` as package.json's. */
+function doctorWith(pin: PinEnv, engines: { node?: string } = { node: '>=22 <23' }) {
+  return runDoctor({
+    cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+    env: fakeEnv({ readEngines: () => engines }), pinEnv: pin, stdout: sink(), json: true,
+  });
+}
+
 describe('runDoctor (injected env)', () => {
   test('everything present -> ok, exit 0', async () => {
     const result = await runDoctor({
@@ -92,14 +109,6 @@ describe('runDoctor (injected env)', () => {
    * commands contradicted each other.
    */
   describe('Yarn PnP (no node_modules)', () => {
-    /** A PnP tree: lockfile and `.pnp.cjs`, and deliberately no node_modules. */
-    const pnpEnv = (over: Partial<DoctorEnv> = {}) =>
-      fakeEnv({
-        packageManager: () => 'yarn',
-        exists: (p: string) => p.includes('.pnp.cjs') || p.includes('yarn.lock') || p.includes('.check'),
-        ...over,
-      });
-
     test('install is ok on .pnp.cjs + lockfile, with no node_modules', async () => {
       const result = await runDoctor({
         cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
@@ -509,13 +518,6 @@ describe('runDoctor — the Node pin a hook would need', () => {
       read: (p) => (p.endsWith('.nvmrc') ? '22.22.3\n' : null),
       list: (d) => (installed && d === root ? ['v22.22.3'] : []),
       exists: (p) => installed && p.startsWith(join(root, 'v22.22.3')),
-    });
-  }
-
-  function doctorWith(pin: PinEnv, engines: { node?: string } = { node: '>=22 <23' }) {
-    return runDoctor({
-      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
-      env: fakeEnv({ readEngines: () => engines }), pinEnv: pin, stdout: sink(), json: true,
     });
   }
 

@@ -52,6 +52,11 @@ const endpointTimeoutSpawn: AuditSpawn = () =>
 const weirdSpawn: AuditSpawn = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: '{"unexpected": true}', stderr: '' });
 
+/** Run the security check over a canned audit `payload`, recording the argv it spawned. */
+function runAudit(payload: string, args: readonly string[] = DEFAULT_ARGS, record?: string[][]): Promise<CheckOutcome> {
+  return checkSecurity({ cwd: '/tmp', command: 'pnpm', args, spawn: pnpmLikeSpawn(payload, record) });
+}
+
 describe('auditLevelFromArgs', () => {
   test('reads the declared level, defaulting to low (the tool default) when absent or bad', () => {
     expect(auditLevelFromArgs(DEFAULT_ARGS)).toBe('high');
@@ -62,20 +67,17 @@ describe('auditLevelFromArgs', () => {
 });
 
 describe('checkSecurity', () => {
-  const run = (payload: string, args: readonly string[] = DEFAULT_ARGS, record?: string[][]): Promise<CheckOutcome> =>
-    checkSecurity({ cwd: '/tmp', command: 'pnpm', args, spawn: pnpmLikeSpawn(payload, record) });
-
   test('advisories below the level are green even though pnpm exited 1 (the reported bug)', async () => {
     // The consumer case: one moderate advisory, --audit-level=high. pnpm's
     // JSON mode exits 1 anyway; the slot must not gate at zero advisories.
-    const outcome = await run(auditJson({ moderate: 1 }));
+    const outcome = await runAudit(auditJson({ moderate: 1 }));
     expect(outcome.ok).toBe(true);
     expect(outcome.exit_code).toBe(0);
     expect(outcome.stderr).toContain('below --audit-level=high');
   });
 
   test('advisories at or above the level fail, named by severity', async () => {
-    const outcome = await run(auditJson({ moderate: 4, high: 2, critical: 1 }));
+    const outcome = await runAudit(auditJson({ moderate: 4, high: 2, critical: 1 }));
     expect(outcome.ok).toBe(false);
     expect(outcome.stderr).toContain('--audit-level=high');
     expect(outcome.stderr).toContain('2 high');
@@ -85,21 +87,21 @@ describe('checkSecurity', () => {
 
   test('a consumer level override keeps meaning what it says', async () => {
     const high = auditJson({ high: 1 });
-    expect((await run(high, ['audit', '--audit-level=critical', '--json'])).ok).toBe(true);
+    expect((await runAudit(high, ['audit', '--audit-level=critical', '--json'])).ok).toBe(true);
     const moderate = auditJson({ moderate: 1 });
-    expect((await run(moderate, ['audit', '--json'])).ok).toBe(false); // absent level = low
+    expect((await runAudit(moderate, ['audit', '--json'])).ok).toBe(false); // absent level = low
   });
 
   test('zero advisories is green, and the audit JSON passes through for .check/security.json', async () => {
     const payload = auditJson({});
-    const outcome = await run(payload);
+    const outcome = await runAudit(payload);
     expect(outcome.ok).toBe(true);
     expect(outcome.stdout).toBe(payload);
   });
 
   test('appends --json when a consumer override dropped it', async () => {
     const record: string[][] = [];
-    await run(auditJson({}), ['audit', '--audit-level=high'], record);
+    await runAudit(auditJson({}), ['audit', '--audit-level=high'], record);
     expect(record[0]).toContain('--json');
   });
 

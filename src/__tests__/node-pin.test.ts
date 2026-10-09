@@ -47,6 +47,14 @@ function installed(root: string[], bin: string[], versions: string[]): Partial<P
   };
 }
 
+/** A repo whose `.nvmrc` pins `version`, with `versions` installed under nvm. */
+function pinned(version: string, versions: string[]): PinEnv {
+  return pinEnv({
+    read: (p) => (p.endsWith('.nvmrc') ? version : null),
+    ...installed(['.nvm', 'versions', 'node'], ['bin'], versions),
+  });
+}
+
 describe('readNodePin', () => {
   test('reads .nvmrc, tolerating the `v` prefix and trailing newline', () => {
     const env = pinEnv({ read: (p) => (p.endsWith('.nvmrc') ? 'v22.22.3\n' : null) });
@@ -142,12 +150,6 @@ describe('findPinnedNode', () => {
 });
 
 describe('alignNode', () => {
-  const pinned = (version: string, versions: string[]): PinEnv =>
-    pinEnv({
-      read: (p) => (p.endsWith('.nvmrc') ? version : null),
-      ...installed(['.nvm', 'versions', 'node'], ['bin'], versions),
-    });
-
   test('nothing to do when the running Node already satisfies the pin', () => {
     expect(alignNode('/repo', pinned('24', ['v24.9.0']))).toBeNull();
   });

@@ -13,10 +13,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   10.3.6, vale 3.24.0 and publint 0.3.25, the versions checkride itself now
   runs. An existing repo keeps whatever it installed; re-run `checkride init` or
   bump it yourself.
-- **The scaffolded `.oxlintrc.json` turns off
-  `unicorn/consistent-function-scoping` for test files.** oxlint 1.87 started
-  applying the rule inside test callbacks, where a helper that one test uses
-  belongs beside that test.
 - **New projects start on TypeScript 7, vitest 5 and stryker 10.** `init` now
   pins typescript 7.0.2 with @types/node 22.20.5, vitest and
   @vitest/coverage-v8 5.0.3, and @stryker-mutator/core and vitest-runner

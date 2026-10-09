@@ -358,20 +358,20 @@ describe('runChecks (injected runner)', () => {
   });
 });
 
+/** Slots + matching fake adapters from `[name, order]` pairs (order optional). */
+function waveFixture(specs: [string, Order?][]): { slots: { name: string; order?: Order }[]; adapters: Adapter[] } {
+  const slots = specs.map(([name, order]) => (order === undefined ? { name } : { name, order }));
+  const adapters = specs.map(([name]) => fakeAdapter({ name, slot: name }));
+  return { slots, adapters };
+}
+
 describe('runChecks (wave scheduler)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-wave-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  /** Slots + matching fake adapters from `[name, order]` pairs (order optional). */
-  function fixture(specs: [string, Order?][]): { slots: { name: string; order?: Order }[]; adapters: Adapter[] } {
-    const slots = specs.map(([name, order]) => (order === undefined ? { name } : { name, order }));
-    const adapters = specs.map(([name]) => fakeAdapter({ name, slot: name }));
-    return { slots, adapters };
-  }
-
   test('equal-order checks in one wave overlap (intra-group concurrency)', async () => {
-    const { slots, adapters } = fixture([['a'], ['b']]); // both default 'any' → one wave
+    const { slots, adapters } = waveFixture([['a'], ['b']]); // both default 'any' → one wave
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 2, runner: rec.runner, json: true,
@@ -381,7 +381,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('concurrency: 1 serializes an otherwise-concurrent wave', async () => {
-    const { slots, adapters } = fixture([['a'], ['b']]);
+    const { slots, adapters } = waveFixture([['a'], ['b']]);
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 1, runner: rec.runner, json: true,
@@ -392,7 +392,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('a barrier sits between distinct numeric values', async () => {
-    const { slots, adapters } = fixture([['a', 1], ['b', 2]]);
+    const { slots, adapters } = waveFixture([['a', 1], ['b', 2]]);
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
@@ -404,7 +404,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('decimal steps within a wave run sequentially (1 → 1.1 → 1.2)', async () => {
-    const { slots, adapters } = fixture([['c', 1.2], ['a', 1], ['b', 1.1]]); // deliberately unsorted
+    const { slots, adapters } = waveFixture([['c', 1.2], ['a', 1], ['b', 1.1]]); // deliberately unsorted
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
@@ -415,7 +415,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test("a 'single' runs with nothing else in flight, after the numeric line", async () => {
-    const { slots, adapters } = fixture([['a'], ['b'], ['m', 'single']]);
+    const { slots, adapters } = waveFixture([['a'], ['b'], ['m', 'single']]);
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
@@ -428,7 +428,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('two singles run one at a time, in catalogue order', async () => {
-    const { slots, adapters } = fixture([['m1', 'single'], ['m2', 'single']]);
+    const { slots, adapters } = waveFixture([['m1', 'single'], ['m2', 'single']]);
     const rec = schedulingRunner();
     await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
@@ -439,7 +439,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('summary array order is deterministic under randomized completion', async () => {
-    const { slots, adapters } = fixture([['a'], ['b'], ['c'], ['d']]); // one 'any' wave
+    const { slots, adapters } = waveFixture([['a'], ['b'], ['c'], ['d']]); // one 'any' wave
     // Completion order is the reverse of selection order (d finishes first).
     const rec = delayedRunner({ a: 40, b: 30, c: 20, d: 10 });
     const result = await runChecks({
@@ -451,7 +451,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('--bail runs fail-fast and sequential, stopping at the first failure', async () => {
-    const { slots, adapters } = fixture([['a'], ['b'], ['c']]); // all 'any'
+    const { slots, adapters } = waveFixture([['a'], ['b'], ['c']]); // all 'any'
     const rec = schedulingRunner({ fail: ['b'] });
     const result = await runChecks({
       cwd: dir, slots, adapters, config: null, bail: true, concurrency: 4, runner: rec.runner, json: true,
@@ -463,7 +463,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('--bail with --concurrency > 1 notes that concurrency was ignored', async () => {
-    const { slots, adapters } = fixture([['a']]);
+    const { slots, adapters } = waveFixture([['a']]);
     const std = sink();
     await runChecks({
       cwd: dir, slots, adapters, config: null, bail: true, concurrency: 4, runner: okRunner, json: false,
@@ -473,7 +473,7 @@ describe('runChecks (wave scheduler)', () => {
   });
 
   test('firsts precede, and lasts follow, the numeric line', async () => {
-    const { slots, adapters } = fixture([['n', 10], ['z', 'last'], ['a', 'first']]);
+    const { slots, adapters } = waveFixture([['n', 10], ['z', 'last'], ['a', 'first']]);
     const rec = schedulingRunner();
     const result = await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,

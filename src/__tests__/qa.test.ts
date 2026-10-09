@@ -651,61 +651,61 @@ describe('the dupes fold', () => {
 
 /* -------------------------------------------------------------- the render */
 
-describe('rendering stays bounded', () => {
-  /** A repo whose every artifact is as big as its extractor will allow. */
-  async function worstCase(): Promise<string> {
-    const mutants = Object.fromEntries(
-      Array.from({ length: 40 }, (_, i) => [
-        `src/very/deeply/nested/module-number-${i}.ts`,
-        repeat('Survived', 40 - i, { replacement: 'x'.repeat(200) }),
-      ]),
-    );
-    const findings = Array.from({ length: 60 }, (_, i) => ({
-      path: `src/some/long/path/file-${i}.ts`,
-      name: `functionNumber${i}`,
-      line: i,
-      exceeded: 'cyclomatic',
-      severity: 'high',
-      cyclomatic: 30,
-      cognitive: 30,
-      line_count: 90,
-    }));
-    return makeRepo({
-      configured: ['dead', 'dupes', 'health', 'mutation'],
-      ran: ['dead', 'dupes', 'health', 'mutation'],
-      artifacts: {
-        'mutation.json': { json: mutationOf(mutants) },
-        'health.json': {
-          json: {
-            health_score: { score: 12.1, grade: 'F', formula_version: 2, penalties: { hotspots: 40, unit_size: 30 } },
-            summary: { files_analyzed: 400, max_cyclomatic_threshold: 15 },
-            findings,
-            hotspots: Array.from({ length: 30 }, (_, i) => ({ path: `src/hot-${i}.ts`, score: 90 - i, commits: 40, trend: 'accelerating' })),
-          },
-        },
-        'dead.json': {
-          json: {
-            total_issues: 400,
-            summary: { total_issues: 400 },
-            unused_exports: Array.from({ length: 200 }, (_, i) => ({ path: `src/file-${i}.ts`, export_name: `symbol${i}` })),
-            circular_dependencies: [{ cycle: ['a.ts', 'b.ts'] }],
-          },
-        },
-        'dupes.json': {
-          json: {
-            clone_groups: Array.from({ length: 50 }, (_, i) => ({ fingerprint: `dup:${i}` })),
-            clone_families: Array.from({ length: 20 }, (_, i) => ({
-              files: Array.from({ length: 9 }, (unused, f) => `src/family-${i}/member-${f}.ts`),
-              groups: [],
-              total_duplicated_lines: 100 - i,
-            })),
-            stats: { duplication_percentage: 31.2, duplicated_lines: 900, total_lines: 2900, total_files: 60 },
-          },
+/** A repo whose every artifact is as big as its extractor will allow. */
+async function worstCase(): Promise<string> {
+  const mutants = Object.fromEntries(
+    Array.from({ length: 40 }, (_, i) => [
+      `src/very/deeply/nested/module-number-${i}.ts`,
+      repeat('Survived', 40 - i, { replacement: 'x'.repeat(200) }),
+    ]),
+  );
+  const findings = Array.from({ length: 60 }, (_, i) => ({
+    path: `src/some/long/path/file-${i}.ts`,
+    name: `functionNumber${i}`,
+    line: i,
+    exceeded: 'cyclomatic',
+    severity: 'high',
+    cyclomatic: 30,
+    cognitive: 30,
+    line_count: 90,
+  }));
+  return makeRepo({
+    configured: ['dead', 'dupes', 'health', 'mutation'],
+    ran: ['dead', 'dupes', 'health', 'mutation'],
+    artifacts: {
+      'mutation.json': { json: mutationOf(mutants) },
+      'health.json': {
+        json: {
+          health_score: { score: 12.1, grade: 'F', formula_version: 2, penalties: { hotspots: 40, unit_size: 30 } },
+          summary: { files_analyzed: 400, max_cyclomatic_threshold: 15 },
+          findings,
+          hotspots: Array.from({ length: 30 }, (_, i) => ({ path: `src/hot-${i}.ts`, score: 90 - i, commits: 40, trend: 'accelerating' })),
         },
       },
-    });
-  }
+      'dead.json': {
+        json: {
+          total_issues: 400,
+          summary: { total_issues: 400 },
+          unused_exports: Array.from({ length: 200 }, (_, i) => ({ path: `src/file-${i}.ts`, export_name: `symbol${i}` })),
+          circular_dependencies: [{ cycle: ['a.ts', 'b.ts'] }],
+        },
+      },
+      'dupes.json': {
+        json: {
+          clone_groups: Array.from({ length: 50 }, (_, i) => ({ fingerprint: `dup:${i}` })),
+          clone_families: Array.from({ length: 20 }, (_, i) => ({
+            files: Array.from({ length: 9 }, (unused, f) => `src/family-${i}/member-${f}.ts`),
+            groups: [],
+            total_duplicated_lines: 100 - i,
+          })),
+          stats: { duplication_percentage: 31.2, duplicated_lines: 900, total_lines: 2900, total_files: 60 },
+        },
+      },
+    },
+  });
+}
 
+describe('rendering stays bounded', () => {
   test('a fully-pathological repo still renders under the 8 KB ceiling', async () => {
     const report = await qaExtract(await worstCase(), NOW);
     const text = renderQa(report);
