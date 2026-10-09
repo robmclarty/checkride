@@ -592,7 +592,7 @@ checkride ships an opinionated default; it does not lock you to it.
 
 Every push runs the full suite — unit, contract, and end-to-end (generated
 projects, installed and checked for real) — on **macOS and Linux**, at **Node
-22.18.0 (the exact supported floor) and Node 24**, and the e2e suite exercises
+22.18.0 (the exact supported floor), Node 24 and Node 26**, and the e2e suite exercises
 the full package-manager quartet: **pnpm, npm, yarn, and bun**. Windows is not
 tested and not claimed; it waits for a real consumer who needs it.
 

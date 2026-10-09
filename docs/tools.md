@@ -15,7 +15,7 @@ The tooling has two layers:
 
 | Tool | Minimum | Install |
 | ---- | ------- | ------- |
-| Node | `>=22.18` | <https://nodejs.org> or `nvm install 22 && nvm use 22` (24 works too) |
+| Node | `>=22.18` | <https://nodejs.org> or `nvm install 22 && nvm use 22` (24 and 26 work too) |
 | a package manager | pnpm `>=9` (default) / npm / yarn / bun | pnpm: `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
 
