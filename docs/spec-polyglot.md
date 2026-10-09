@@ -350,10 +350,10 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   else joins `dependencies`.
 - <a id="c7"></a>**C7 (house-style)**: TypeScript strict, ESM and NodeNext; functional and
   procedural, with no `class`, `this` or `extends`; named exports; unit tests in `__tests__/`; the
-  deep-module layout; and `pnpm check` green at every step (AGENTS.md). For this build only,
-  plumbbob's gate runs `pnpm check --skip security`, because `pnpm audit` answers to the day's
-  advisory feed rather than to the step's code. CI and `/version` still run the full check, and
-  step 74 restores the gate.
+  deep-module layout; and `pnpm check` green at every step (AGENTS.md). The `security` slot is
+  opt-in in this repo's config for now, because `pnpm audit` answers to the day's advisory feed
+  rather than to the step's code, so `pnpm check`, CI and plumbbob skip it; run it explicitly with
+  `pnpm check --include security`.
 - <a id="c8"></a>**C8 (platforms)**: macOS and Linux; Node 22.18 or later; Go 1.24 or later;
   stable Rust 1.85 or later; Terraform 1.5 or OpenTofu 1.6 or later; and a uv-managed environment
   for Python projects.
@@ -387,7 +387,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 11. Terraform | 62 to 65 | the terraform pack |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
 | 13. The standalone binary | 69 to 72 | the SEA binary and its release pipeline (draft M4) |
-| 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, restoring the full gate |
+| 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
 
 Every phase ends at a release point. Cutting a release is the maintainer's `/version` call, never
 a step.
@@ -936,12 +936,12 @@ reference rules and porting trap apply as written there.
     - seam: `docs/packs.md`, `docs/targets.md`, `docs/contract.md`, `README.md`,
       `test/docs-currency.test.ts`
     - model: sonnet
-74. [ ] chore: retire the drafts and restore the full gate, **done when:** the slot provenance
+74. [ ] chore: retire the drafts and run the opt-in audit, **done when:** the slot provenance
     draft's status line points here as superseded; this spec's status reads implemented;
-    `.plumbbob/settings.json` runs the full `pnpm check` again, and it's green; the build report
-    lists each request in #6 and #7 beside the step that shipped it, ready to paste as a closing
-    comment
-    - seam: `docs/spec-slot-provenance.md`, `docs/spec-polyglot.md`, `.plumbbob/settings.json`
+    `pnpm check --include security` has run and the build report records its result; the build
+    report lists each request in #6 and #7 beside the step that shipped it, ready to paste as a
+    closing comment
+    - seam: `docs/spec-slot-provenance.md`, `docs/spec-polyglot.md`
     - model: sonnet
 
 <!-- markdownlint-enable MD029 -->
@@ -961,8 +961,8 @@ reference rules and porting trap apply as written there.
 ## Before the build
 
 - Start from a clean tree: plumbbob's finish step can commit stray untracked files.
-- plumbbob's `check` runs `pnpm check --skip security` for this build
-  ([C7 (house-style)](#c7)), and step 74 restores the full check.
+- `security` is opt-in in this repo for now ([C7 (house-style)](#c7)): `pnpm check`, CI and
+  plumbbob skip it, and `pnpm check --include security` runs it.
 - Install mise (`brew install mise`). Step 24 runs `mise install`, which needs the network once.
 - E2e setup downloads Go modules, Python wheels and Terraform providers. Checks never do
   ([C4 (no-network)](#c4)).

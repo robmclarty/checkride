@@ -1,4 +1,4 @@
 {
   "auto": false,
-  "check": "pnpm check --skip security"
+  "check": "pnpm check"
 }
