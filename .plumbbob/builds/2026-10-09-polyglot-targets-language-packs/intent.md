@@ -487,7 +487,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
      `src/__tests__/baseline.test.ts`, `test/contract/baseline.contract.test.ts`,
      `docs/contract.md`, `docs/tools.md`, `CHANGELOG.md`
    - model: sonnet (wiring of existing pieces)
-4. [ ] fix(baseline): key only the oxlint and ast-grep findings that can fail, **done when:** the oxlint extractor keys `error` diagnostics only unless argv carries `--deny-warnings` or `--max-warnings`, and ast-grep keys `error` matches only unless argv carries `--error`; tests mirror vale's "a new warning does not block masking" for both (F31) and prove `--deny-warnings` still keys warnings (F32); a test shows the next full run ratchets old warning keys away
+4. [x] fix(baseline): key only the oxlint and ast-grep findings that can fail, **done when:** the oxlint extractor keys `error` diagnostics only unless argv carries `--deny-warnings` or `--max-warnings`, and ast-grep keys `error` matches only unless argv carries `--error`; tests mirror vale's "a new warning does not block masking" for both (F31) and prove `--deny-warnings` still keys warnings (F32); a test shows the next full run ratchets old warning keys away
    - seam: `src/baseline/fingerprint.ts`, `src/baseline-command.ts`, `src/orchestrator/run.ts`,
      `src/__tests__/baseline-fingerprint.test.ts`, `src/__tests__/fixtures/`, `CHANGELOG.md`
    - model: opus (gating depends on argv, and the false-green direction must stay closed)

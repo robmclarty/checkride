@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 4 — fix(baseline): key only the oxlint and ast-grep findings that can fail
+**Current step:** 5 — docs(contract): list every summary field and hold the list with a test
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -26,7 +26,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 1. feat(config): let a custom check report a skip through its exit code
 - ☑ 2. feat(cli): read the config from a path with --config
 - ☑ 3. feat(baseline): add baseline diff against a git ref
-- ☐ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
+- ☑ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
 - ☐ 5. docs(contract): list every summary field and hold the list with a test
 - ☐ 6. feat(report): record why each check runs as origin and detected_by
 - ☐ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
@@ -327,3 +327,56 @@ folder, so it rides the branch into the PR.)*
   **5.** One file sits outside the seam, and one doc tangent is parked.
 
   `src/baseline/index.ts` gained the `readBaselineAt` export, because the barrel is the module's only public surface. `baseline-command.ts` now imports through it, replacing its direct `fingerprint.js` and `store.js` imports. Listing `baseline diff` in `docs/cheatsheet.md` and the README command table is parked. This step documents it in `docs/contract.md`, `docs/tools.md` (a shallow-clone note under the git prerequisite) and `--help`.
+
+- 2026-10-10 — step 4 checkpointed · 8c364ea51 — fix(baseline): key only the oxlint and ast-grep findings that can fail (1 drift, 13m)
+
+  **Summary**: The baseline now keys an oxlint or ast-grep finding only when it can fail the check under the argv that ran, so a new warning no longer keeps a slot red that is red only from grandfathered errors, while `--deny-warnings`, `--max-warnings` and `--error` still key warnings.
+
+  1. Gating reads the argv the check actually ran with
+  2. A wrapper hides the flags, so it keys everything
+  3. Two real captures back the tests
+  4. The ratchet test runs a full run, and the seam row will flag strays
+  5. C1 is bent on purpose
+
+  **Readout**: Step 4 - fix(baseline): key only the oxlint and ast-grep findings that can fail
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  bent: C1 (additive-contract)
+               → the keyed set narrows, as D27 decides; doc, test, CHANGELOG move together
+  seam         strayed: 6 paths outside the seam
+               - README.md
+               - docs/contract.md
+               - src/digest/digest.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/execute.ts
+               - test/contract/baseline.contract.test.ts
+  diff         +569 -20 across 12 files
+  spent        13 min · 1 turn · 26s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve and checkpoint. The false-green direction is closed for every argv shape that hides flags, the narrowing is documented where the contract promised the old behavior, and the strays are the call sites and docs the step can't skip.
+
+  **1.** Gating reads the argv the check actually ran with
+
+  `fingerprint()` takes an optional third argument, the check's command then its args. oxlint skips `warning` and `advice` diagnostics unless argv carries `--deny-warnings`, `--max-warnings` or `--max-warnings=N`. ast-grep skips `warning`, `info` and `hint` matches unless argv carries a bare `--error` (or `--error=` with no id), or `--error=<id>[,<id>]` naming the match's rule. A missing or unrecognized severity is keyed. The masking call in `src/orchestrator/execute.ts` passes `[command, ...runtimeArgs(adapter, changed)]`, so a `changedArgs` override that adds `--deny-warnings` under `--changed` is seen. `checkride baseline` and the digest pass the declared args; a capture is never `--changed`, and the digest only renders.
+
+  **2.** A wrapper hides the flags, so it keys everything
+
+  This is the false-green guard, and it goes past the literal done-when. If no argv element is the tool's name (or a path ending in it), the flags can't be read, so every finding is keyed. Without that rule, a custom check named `oxlint` that runs `pnpm run lint` (where the script passes `--deny-warnings`) would key errors only, and a new warning that failed the run would be masked green. Leaving argv out entirely (tests, any future caller) keys everything too, which is 0.13's behavior. The cost is a false red for wrappers, which is the side D27 picks. `npx oxlint@1.2.3` also falls on that side, since `oxlint@1.2.3` isn't a bare tool name.
+
+  **3.** Two real captures back the tests
+
+  `baseline-oxlint-deny-warnings.json` is real oxlint 1.87.0 output from a run under `--deny-warnings` that exited 1, and its warnings still read `severity: "warning"`, the fact the whole design rests on. `baseline-ast-grep-severities.json` is real ast-grep 0.45.3 output over one error, one warning and one hint rule. Checking by hand showed ast-grep already reports a rule raised by `--error` as `severity: "error"`, so the argv rule for ast-grep is a guard, not load-bearing. The F31 tests mirror vale's: they append a warning to a real report and show `applyBaseline` stays `{ ok: true, baselined: 1, newKeys: [] }` on a raw-red run. The F32 test shows the same warning is keyed and keeps the slot red under `--deny-warnings`.
+
+  **4.** The ratchet test runs a full run, and the seam row will flag strays
+
+  The ratchet test lives in `src/orchestrator/__tests__/orchestrator.test.ts` because it drives `runChecks`. It loads a baseline holding 0.13's three oxlint keys, runs the real oxlint fixture red, and shows the slot masked with `baselined: 1` and the file pruned to the one error key. Files outside the declared seam: `execute.ts` and `digest.ts` (the seam missed them, but they hold two of the three `fingerprint` calls), and `docs/contract.md`, `README.md` and `test/contract/baseline.contract.test.ts`, because the contract said only vale was severity-filtered (C11 (docs-in-step)). `src/orchestrator/run.ts` needed no change. The invariance golden's e2e half and the baseline example's e2e both pass.
+
+  **5.** C1 is bent on purpose
+
+  C1 (additive-contract) asks every contract change to be additive. This one narrows which findings are keyed, though key strings, the file shape and `schema_version` don't change. It ships as D27 and the step-48 golden ("step 4's deliberate change") expect: older baselines keep masking because the same findings now give a subset of their keys, and the next full run prunes the warning keys. CHANGELOG lists it under Fixed, and under Contract as "Narrowed", with the one-time baseline diff called out.

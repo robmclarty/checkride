@@ -61,8 +61,40 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0). Optional per-check fields (`skipped`, `reason`, `baselined`) are
-present only when meaningful — absence is part of the shape.
+(0.3.0).
+
+The two tables below name every field the schema allows, each with the rule
+for when it's present. A field whose rule isn't "always" is left out
+otherwise, never written as `null` or `false`, so absence is part of the
+shape. [`summary.contract.test.ts`](../test/contract/summary.contract.test.ts)
+holds both lists equal to the schema's properties, and the "always" rows equal
+to its required ones, so a field can't reach the schema without a row here.
+
+**Top-level fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `schema_version` | integer, `1` | always |
+| `timestamp` | string, ISO 8601 | always: the time the report was written |
+| `ok` | boolean | always: true when every check passed after baseline masking; a skipped check counts as passed, so read it with `checks_run` |
+| `checks_run` | integer, 0 or more | always: the checks that executed, skipped entries left out |
+| `total_duration_ms` | number, 0 or more | always: the run's wall-clock span |
+| `checks` | array of per-check entries | always: one per selected check, skipped ones included, plus a skipped entry for each check `--only` or `--skip` left out, in the order below |
+
+**Per-check fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `name` | string | always: the slot name (`lint`), or the custom check's config key |
+| `adapter` | string or `null` | always: the adapter that ran or would have run (`oxlint`, or `custom:<key>` for a custom check with no `name`); `null` when the slot resolved to nothing |
+| `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
+| `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
+| `skipped` | `true` | the check didn't execute |
+| `reason` | string | with `skipped`: why the check sat out |
+| `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
+| `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
+| `output_file` | string or `null` | always: the JSON file the run wrote under `.check/`, or `null` when it wrote none |
+| `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
 
 **A custom check can skip itself.** One that exits its declared
 `skipExitCode` records the same entry as a slot with no tool: `skipped: true`,

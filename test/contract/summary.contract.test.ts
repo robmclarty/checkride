@@ -7,6 +7,11 @@
  * fails this build. That is the additive-only discipline made mechanical:
  * fields are added in lockstep with the schema, never renamed, removed, or
  * retyped without a `schema_version` bump.
+ *
+ * The contract doc's two field tables are held to the same schema: each must
+ * name exactly the schema's properties, and say "always" for exactly its
+ * required ones. A field added to the schema without a row in the doc, or a
+ * row left behind for a field the schema dropped, fails here.
  */
 
 import { readFileSync } from 'node:fs';
@@ -23,18 +28,63 @@ import { runCli } from '../../src/cli.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaPath = join(here, '..', '..', 'schema', 'checkride.summary.schema.json');
+const contractPath = join(here, '..', '..', 'docs', 'contract.md');
+
+type ObjectSchema = { properties: Record<string, unknown>; required: string[] };
+const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as ObjectSchema & {
+  definitions: { check: ObjectSchema };
+};
 
 const ajv = new Ajv({ allErrors: true });
-const validate = ajv.compile(JSON.parse(readFileSync(schemaPath, 'utf8')) as object);
+const validate = ajv.compile(schema);
 
 function sink(): { write: (text: string) => boolean } {
   return { write: () => true };
+}
+
+/**
+ * The rows of the contract doc's field table that follows `lead`: every
+ * backticked name in a row's first cell, with that row's last cell (the
+ * presence rule).
+ */
+function fieldTable(lead: string): { name: string; presence: string }[] {
+  const doc = readFileSync(contractPath, 'utf8');
+  const at = doc.indexOf(lead);
+  expect(at, `no "${lead}" table in docs/contract.md`).toBeGreaterThan(-1);
+  const lines = doc.slice(at).split('\n');
+  const header = lines.findIndex((l) => l.startsWith('|'));
+  const end = lines.findIndex((l, i) => i > header && !l.startsWith('|'));
+  // Skip the header row and its `| --- |` separator.
+  return lines.slice(header + 2, end === -1 ? undefined : end).flatMap((row) => {
+    const cells = row.split('|').slice(1, -1).map((c) => c.trim());
+    const presence = cells.at(-1) ?? '';
+    return [...(cells[0] ?? '').matchAll(/`([^`]+)`/g)].map((m) => ({ name: m[1] ?? '', presence }));
+  });
 }
 
 /** A custom check that does nothing for `ms`, on the given wave. */
 function sleeper(ms: number, order = 1): Record<string, unknown> {
   return { command: 'node', args: ['-e', `setTimeout(() => {}, ${ms})`], order };
 }
+
+describe('docs/contract.md lists every summary field', () => {
+  const tables = [
+    ['top-level', '**Top-level fields.**', schema],
+    ['per-check', '**Per-check fields.**', schema.definitions.check],
+  ] as const;
+
+  for (const [label, lead, object] of tables) {
+    test(`the ${label} table names exactly the schema's properties`, () => {
+      const documented = fieldTable(lead).map((f) => f.name);
+      expect(documented.toSorted()).toEqual(Object.keys(object.properties).toSorted());
+    });
+
+    test(`the ${label} table says "always" for exactly the schema's required fields`, () => {
+      const always = fieldTable(lead).filter((f) => f.presence.startsWith('always')).map((f) => f.name);
+      expect(always.toSorted()).toEqual(object.required.toSorted());
+    });
+  }
+});
 
 describe('summary.json shape', () => {
   let dir: string;
