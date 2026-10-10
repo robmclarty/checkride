@@ -677,6 +677,56 @@ describe('note (internal documentation)', () => {
   });
 });
 
+/** Resolve one config-only custom check named `licenses` from a raw (possibly invalid) entry. */
+function resolveCustom(entry: unknown) {
+  return resolveChecks({
+    slots: [],
+    adapters: ADAPTERS,
+    config: { checks: { licenses: entry } } as unknown as CheckrideConfig,
+    fileExists: never,
+  })[0];
+}
+
+describe('skipExitCode (a custom check skipping itself)', () => {
+  test('a config-only custom check carries its skipExitCode onto the resolved check', () => {
+    expect(resolveCustom({ command: 'node', skipExitCode: 77 })?.skipExitCode).toBe(77);
+  });
+
+  test('a custom check filling a catalogue slot carries it too', () => {
+    expect(resolveSlot('test', { checks: { test: { command: 'node', skipExitCode: 77 } } }, never).skipExitCode).toBe(77);
+  });
+
+  test('absent stays absent, on custom checks and adapter-backed slots alike', () => {
+    expect(resolveCustom({ command: 'node' })).not.toHaveProperty('skipExitCode');
+    expect(resolveSlot('lint', null, present('.oxlintrc.json'))).not.toHaveProperty('skipExitCode');
+  });
+
+  test('accepts the ends of the range', () => {
+    expect(resolveCustom({ command: 'node', skipExitCode: 1 })?.skipExitCode).toBe(1);
+    expect(resolveCustom({ command: 'node', skipExitCode: 255 })?.skipExitCode).toBe(255);
+  });
+
+  test('rejects 0, out-of-range values and non-integers with a friendly error naming the check', () => {
+    for (const bad of [0, 256, -1, 1.5, '77', null]) {
+      expect(() => resolveCustom({ command: 'node', skipExitCode: bad })).toThrow(
+        /invalid checkride\.config\.json: 'licenses' skipExitCode must be an integer from 1 to 255/,
+      );
+    }
+  });
+
+  test('a bad value surfaces even when the check stands down for a missing detect file', () => {
+    expect(() => resolveCustom({ command: 'node', detect: ['absent.json'], skipExitCode: 0 })).toThrow(
+      /'licenses' skipExitCode must be an integer/,
+    );
+  });
+
+  test('a { use } entry rejects it: only a custom check can skip itself', () => {
+    expect(() =>
+      resolveSlot('test', { checks: { test: { use: 'vitest', skipExitCode: 77 } } }, never),
+    ).toThrow(/'test' skipExitCode applies only to a custom check/);
+  });
+});
+
 describe('published JSON Schema', () => {
   const schemaPath = join(
     dirname(fileURLToPath(import.meta.url)),
@@ -777,6 +827,22 @@ describe('published JSON Schema', () => {
 
   test('rejects an unknown order keyword', () => {
     expect(validate({ checks: { a: { command: 'node', order: 'sideways' } } })).toBe(false);
+  });
+
+  test('accepts a custom check skipExitCode from 1 to 255', () => {
+    for (const code of [1, 77, 255]) {
+      expect(validate({ checks: { a: { command: 'node', skipExitCode: code } } })).toBe(true);
+    }
+  });
+
+  test('rejects a skipExitCode of 0, out of range, or not an integer', () => {
+    for (const code of [0, 256, -1, 1.5, '77']) {
+      expect(validate({ checks: { a: { command: 'node', skipExitCode: code } } })).toBe(false);
+    }
+  });
+
+  test('rejects skipExitCode on a { use } override', () => {
+    expect(validate({ checks: { test: { use: 'vitest', skipExitCode: 77 } } })).toBe(false);
   });
 
   test('accepts extends as a string and as an array of strings', () => {

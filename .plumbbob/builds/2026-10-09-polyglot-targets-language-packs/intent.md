@@ -571,7 +571,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 5: pack groundwork, no behavior change
 
-20. [ ] test(invariance): pin 0.13's resolved checks, argv and summaries, **done when:** built first ([D51 (golden-placement)](#d51)), a contract golden records, for every example and each `init` shape, the resolved checks, their order, names, argv and output file names, computed with a fake spawner and no installs, and an e2e golden records each one's summary, with its volatile fields masked, and its exit code; both pass on the session's baseline tree, and the e2e golden names the additive fields R8 allows (S1)
+20. [x] test(invariance): pin 0.13's resolved checks, argv and summaries, **done when:** built first ([D51 (golden-placement)](#d51)), a contract golden records, for every example and each `init` shape, the resolved checks, their order, names, argv and output file names, computed with a fake spawner and no installs, and an e2e golden records each one's summary, with its volatile fields masked, and its exit code; both pass on the session's baseline tree, and the e2e golden names the additive fields R8 allows (S1)
     - seam: `test/contract/invariance.contract.test.ts`, `test/fixtures/invariance/`,
       `test/e2e/invariance.e2e.test.ts`
     - model: opus (what the golden masks decides what it can catch)

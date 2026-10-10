@@ -37,6 +37,10 @@ distinguishable by every consumer:
 - `--strict` turns a zero-run into **exit 2**. Anything that gates on
   checkride (CI, commit hooks, plumbbob) should run with `--strict`; a human
   exploring a fresh repo isn't punished by default.
+- A custom check that exits its declared `skipExitCode` is **skipped**, not
+  passed: it records the skipped shape below and stays out of `checks_run`, so
+  a run where every check skipped itself is a zero-run, and `--strict` exits 2
+  on it.
 - An active slot whose tool is not installed **fails** (exit 1); it does not
   skip. A skip would let the slot's absence read as coverage. Under
   `npx`/`bunx` the tool is resolved in the local tree rather than trusted to a
@@ -59,6 +63,12 @@ breaking release.
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0). Optional per-check fields (`skipped`, `reason`, `baselined`) are
 present only when meaningful — absence is part of the shape.
+
+**A custom check can skip itself.** One that exits its declared
+`skipExitCode` records the same entry as a slot with no tool: `skipped: true`,
+`ok: true`, `exit_code: null`, `duration_ms: 0` and `output_file: null`. Its
+`reason` is its last stderr line followed by `(exit N)`, and it writes no
+artifact.
 
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,

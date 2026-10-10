@@ -6,7 +6,7 @@
 import { spawn } from 'node:child_process';
 
 import type { Adapter, Slot } from '../adapters.js';
-import type { CheckrideConfig } from '../config.js';
+import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
 import type { PackageManager } from '../pm/index.js';
 import { detectPackageManager, translateExec } from '../pm/index.js';
@@ -57,6 +57,20 @@ const defaultFixRunner: FixRunner = (adapter, ctx) => {
   return spawnInherit(command, args, ctx.cwd);
 };
 
+/**
+ * Print one fix command's result and classify it. A custom check whose fix
+ * exits its `skipExitCode` reports as skipped, as the run path records it, and
+ * neither fails the fix nor counts as one that ran.
+ */
+function reportFix(stderr: Out, r: ResolvedCheck, outcome: FixOutcome): 'ok' | 'skipped' | 'failed' {
+  if (outcome.exit_code === r.skipExitCode) {
+    writeLine(stderr, `  ○ ${r.slot} skipped (exit ${outcome.exit_code})`);
+    return 'skipped';
+  }
+  writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
+  return outcome.ok ? 'ok' : 'failed';
+}
+
 /** Run every active adapter's `fixArgs` (`checkride fix`). */
 export async function runFix(options: FixOptions): Promise<FixResult> {
   const { cwd, slots, adapters, config, stderr } = resolveCommonOptions(options);
@@ -81,9 +95,9 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     writeLine(stderr, `  ▸ fix ${r.slot.padEnd(width)} (${adapter.name})`);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.
     const outcome = await fixRunner(adapter, { cwd, pm });
-    ran.push(adapter.name);
-    writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
-    if (!outcome.ok) ok = false;
+    const result = reportFix(stderr, r, outcome);
+    if (result !== 'skipped') ran.push(adapter.name);
+    if (result === 'failed') ok = false;
   }
 
   return { ok, exitCode: ok ? 0 : 1, ran };

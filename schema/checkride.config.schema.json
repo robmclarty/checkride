@@ -160,6 +160,12 @@
         "optIn": {
           "type": "boolean",
           "description": "true holds this custom check out of the default run — it runs only under --all/--include <name>. Absent runs it by default."
+        },
+        "skipExitCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255,
+          "description": "The exit code that means \"could not run here\". A check that exits with it records as skipped (not failed), with its last stderr line as the reason, and is left out of checks_run; fix reports it as skipped too. Pick a code the check never uses for a real failure; 77 is the usual one."
         }
       }
     }

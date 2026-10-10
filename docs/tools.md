@@ -464,6 +464,35 @@ repo's manifest, layout, or conventions. When the rule is one many packages
 share — "the tarball is clean", "the built package imports" — prefer a slot, so
 the whole ecosystem gets it once rather than re-implementing it per repo.
 
+### A custom check that can't run everywhere
+
+A custom check that wraps a tool can land on a machine where it can't run: the
+tool isn't installed there, a service it needs is down, the platform is wrong.
+Exiting 0 then claims a pass that verified nothing, and exiting 1 reports a
+failure that isn't a finding. Declare a `skipExitCode` and exit with it instead:
+
+```jsonc
+"licenses": {
+  "command": "node",
+  "args": ["scripts/check-licenses.mjs"],
+  "skipExitCode": 77   // "could not run here"
+}
+```
+
+A run that sees exit 77 records the check as skipped, the same shape as a slot
+with no tool: `ok: true`, `skipped: true`, `exit_code: null`, `duration_ms: 0`
+and no artifact. Its `reason` is the check's last stderr line followed by
+`(exit 77)`, so print why before exiting. A skipped check doesn't count toward
+`checks_run`, so a run where every check skipped itself is still a
+[vacuous green](contract.md#vacuous-green), and `--strict` exits 2 on it.
+`checkride fix` reports the check's fix command as skipped when it exits the
+same code.
+
+The value is an integer from 1 to 255, and it belongs only on a `command`
+entry. Pick one the check never uses for a real failure: with `1`, every
+ordinary failure would read as a skip. 77 is the usual choice, the code
+automake's test harness reads as "skipped".
+
 ## When `doctor` reports a missing tool
 
 `doctor` prints a row per slot. A slot whose tool is not installed shows `not

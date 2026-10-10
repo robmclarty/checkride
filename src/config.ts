@@ -65,6 +65,14 @@ export type CustomCheck = Noted & {
    * default like any custom check. See {@link UseConfig.optIn}.
    */
   optIn?: boolean;
+  /**
+   * The exit code that means "could not run here" (an integer from 1 to 255).
+   * A check that exits with it records as skipped, not failed, with its last
+   * stderr line as the reason; `fix` reports it the same way. Without it, a
+   * wrapper that can't run in this environment has to choose between a red
+   * that isn't a finding and an exit 0 that claims a pass it never verified.
+   */
+  skipExitCode?: number;
 };
 
 /** Pick an adapter by name, with optional field overrides. */
@@ -223,6 +231,11 @@ export type ResolvedCheck = {
    * (`detectDeps`). Surfaced by `doctor`; absent on config-selected or skipped checks.
    */
   detectedVia?: string;
+  /**
+   * A custom check's declared {@link CustomCheck.skipExitCode}, validated.
+   * Absent on every adapter-backed check and on custom checks that declare none.
+   */
+  skipExitCode?: number;
 };
 
 const CONFIG_FILE = 'checkride.config.json';
@@ -285,6 +298,26 @@ function readOptIn(entry: { optIn?: unknown }, context: string): boolean | undef
     invalidConfig(`'${context}' optIn must be a boolean (got ${JSON.stringify(entry.optIn)})`);
   }
   return entry.optIn;
+}
+
+/**
+ * Read (and validate) a custom check's `skipExitCode`. Returns `undefined` when
+ * absent; throws the friendly error on anything but an integer from 1 to 255:
+ * 0 already means a pass, and no process exits above 255. `context` names the
+ * offending check.
+ */
+function readSkipExitCode(entry: { skipExitCode?: unknown }, context: string): number | undefined {
+  const code = entry.skipExitCode;
+  if (code === undefined) return undefined;
+  if (typeof code !== 'number' || !Number.isInteger(code) || code < 1 || code > 255) {
+    invalidConfig(`'${context}' skipExitCode must be an integer from 1 to 255 (got ${JSON.stringify(code)})`);
+  }
+  return code;
+}
+
+/** Carry a validated `skipExitCode` onto a resolved custom check, when it declared one. */
+function withSkipExitCode(check: ResolvedCheck, skipExitCode: number | undefined): ResolvedCheck {
+  return skipExitCode === undefined ? check : { ...check, skipExitCode };
 }
 
 /**
@@ -673,13 +706,16 @@ function resolveObjectEntry(
 ): ResolvedCheck | null {
   checkNote(entry, slot.name);
   if ('use' in entry) {
+    if ('skipExitCode' in entry) {
+      invalidConfig(`'${slot.name}' skipExitCode applies only to a custom check ({ command }), not a { use } entry`);
+    }
     const base = byName(entry.use, adapters, slot.name);
     return base
       ? active(slot, applyOverrides(base, entry), explicit)
       : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);
   }
   if ('command' in entry) {
-    return active(slot, customAdapter(slot.name, entry), explicit);
+    return withSkipExitCode(active(slot, customAdapter(slot.name, entry), explicit), readSkipExitCode(entry, slot.name));
   }
   return null;
 }
@@ -745,6 +781,8 @@ function customCheckEntry(
 ): ResolvedCheck | null {
   if (!(entry && typeof entry === 'object' && !('use' in entry) && 'command' in entry)) return null;
   checkNote(entry, name);
+  // Read before the detect gate, so a bad value surfaces even where the check stands down.
+  const skipExitCode = readSkipExitCode(entry, name);
   const detect = entry.detect ?? [];
   if (detect.length > 0 && !detect.some((f) => fileExists(f))) {
     // No adapter carries the order on a skip, so pin it on the synthetic slot.
@@ -752,7 +790,7 @@ function customCheckEntry(
     return skipped(order !== undefined ? { name, order } : { name }, 'no detect file present');
   }
   // A custom check with `optIn: true` is held out of the default run (full-sweep only).
-  return applyOptIn(active({ name }, customAdapter(name, entry)), entry, name);
+  return applyOptIn(withSkipExitCode(active({ name }, customAdapter(name, entry)), skipExitCode), entry, name);
 }
 
 /**

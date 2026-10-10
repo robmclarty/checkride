@@ -119,6 +119,18 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
   return { ok: outcome.ok, baselined: 0, newKeys: [], reason: couldNotVerifyReason(outcome), observed: null };
 }
 
+/**
+ * The skip reason for a custom check that exited its declared `skipExitCode`:
+ * the check's own last stderr line, then `(exit N)`. `null` when the check
+ * declares none or exited with anything else, including the `-1` of a spawn
+ * failure or timeout, which the 1 to 255 range can never match.
+ */
+function selfSkipReason(r: ResolvedCheck, outcome: CheckOutcome): string | null {
+  if (outcome.exit_code !== r.skipExitCode) return null;
+  const last = outcome.stderr.split('\n').map((l) => l.trim()).findLast(Boolean) ?? 'skipped itself';
+  return `${last} (exit ${outcome.exit_code})`;
+}
+
 /** Build (and print) the skipped-entry row for a slot that won't run this pass. */
 function handleSkip(r: ResolvedCheck, unavailable: boolean, ctx: RunContext): SummaryCheck {
   const entry = skippedEntry(
@@ -139,39 +151,6 @@ function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, ma
   }
 }
 
-/** Run one active check: clear stale output, run it, persist, and mask against the baseline. */
-async function runOneCheck(
-  r: ResolvedCheck,
-  adapter: Adapter,
-  ctx: RunContext,
-): Promise<{ entry: SummaryCheck; run: CheckRun; mask: MaskResult }> {
-  if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
-  // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner re-run
-  // can't leave last run's output behind as authoritative — and so any artifact
-  // the tool writes during *this* run (for example `test.json`) survives.
-  await clearSlotOutputs(ctx.cwd, adapter);
-  const start = performance.now();
-  const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
-  const duration_ms = Math.round(performance.now() - start);
-  const outputFile = await persistOutput(ctx.cwd, adapter, outcome);
-
-  // Masking is always on (even under a partial run); only the ratchet is gated.
-  // The raw `.check/<slot>.json` is persisted untouched — masking changes the
-  // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot);
-  const entry: SummaryCheck = {
-    name: r.slot,
-    adapter: adapter.name,
-    description: adapter.description,
-    ok: mask.ok,
-    exit_code: outcome.exit_code,
-    duration_ms,
-    output_file: outputFile,
-    ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
-  };
-  return { entry, run: { slot: r.slot, adapter, outcome }, mask };
-}
-
 /**
  * One selected check's result, decoupled from where it lands in the report. The
  * scheduler runs checks concurrently, so a check can't push itself onto shared
@@ -190,6 +169,50 @@ type CheckResult = {
 };
 
 /**
+ * Run one active check: clear stale output, run it, persist, and mask against
+ * the baseline. A custom check that exits its `skipExitCode` stops after the
+ * run instead: it records the contract's skipped shape, writes no artifact and
+ * feeds nothing to the ratchet, so the baseline keeps its keys for that slot.
+ */
+async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext): Promise<CheckResult> {
+  if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
+  // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner re-run
+  // can't leave last run's output behind as authoritative — and so any artifact
+  // the tool writes during *this* run (for example `test.json`) survives.
+  await clearSlotOutputs(ctx.cwd, adapter);
+  const start = performance.now();
+  const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
+  const duration_ms = Math.round(performance.now() - start);
+  const skipReason = selfSkipReason(r, outcome);
+  if (skipReason !== null) {
+    return { entry: handleSkip({ ...r, skip: skipReason }, false, ctx), run: null, observed: null, newKeys: [] };
+  }
+  const outputFile = await persistOutput(ctx.cwd, adapter, outcome);
+
+  // Masking is always on (even under a partial run); only the ratchet is gated.
+  // The raw `.check/<slot>.json` is persisted untouched — masking changes the
+  // pass/fail verdict, never the authoritative output.
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot);
+  const entry: SummaryCheck = {
+    name: r.slot,
+    adapter: adapter.name,
+    description: adapter.description,
+    ok: mask.ok,
+    exit_code: outcome.exit_code,
+    duration_ms,
+    output_file: outputFile,
+    ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
+  };
+  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
+  return {
+    entry,
+    run: { slot: r.slot, adapter, outcome },
+    observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null,
+    newKeys: mask.newKeys,
+  };
+}
+
+/**
  * Run one selected check to a {@link CheckResult} — the concurrency-safe core
  * shared by the sequential (`--bail`) and wave paths. A skipped/unavailable slot
  * records a skip row and runs nothing; an active one runs, prints its status
@@ -203,9 +226,7 @@ async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<Chec
   if (r.skip || !r.adapter || unavailable) {
     return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null, newKeys: [] };
   }
-  const { entry, run, mask } = await runOneCheck(r, r.adapter, ctx);
-  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
-  return { entry, run, observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null, newKeys: mask.newKeys };
+  return runOneCheck(r, r.adapter, ctx);
 }
 
 /** The run accumulators every execution path fills. */

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 20 — test(invariance): pin 0.13's resolved checks, argv and summaries
+**Current step:** 1 — feat(config): let a custom check report a skip through its exit code
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -42,7 +42,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☐ 17. chore(test): adopt the test layout in this repo
 - ☐ 18. feat(init): write a config naming every scaffolded slot in new mode
 - ☐ 19. feat(init): type-check scaffolded tests outside src
-- ☐ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
+- ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
 - ☐ 21. refactor(packs): split the adapter registry into ts and repo packs
 - ☐ 22. refactor(launch): resolve tool argv through a pin-source launcher
 - ☐ 23. refactor(resources): read bundled files through one module
@@ -104,6 +104,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
 
+- [ ] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
+
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
 Classify each parked item as exactly ONE. Naming it before acting is what keeps you
@@ -135,3 +137,49 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-10 — plan committed · 87cffc7a3
 
   **Recommendation**: Approve it. The first read found three holes and `/plumbbob:refine` found seven more. All ten were settled on their leans as D45 to D54, and a second read over the amended plan found nothing left to sharpen. All 74 steps still parse with plumbbob's own parser (seam, title and done-when), and no seam uses a glob. Each amendment cites its Decision, every Decision carries a *because*, and no question is open. Step 20 builds first, and D22, D47 and R13.5 now agree. The unanchored `.check/` rule in both `.gitignore` and the init template already covers D48's per-target scratch directories. `links` and `spell` pass on the amended intent.md.
+
+- 2026-10-10 — step 20 checkpointed · d98f99329 — test(invariance): pin 0.13's resolved checks, argv and summaries (18m)
+
+  **Summary**: Two goldens now pin the baseline tree's behavior for all nine examples and the three `init` shapes. The contract half records each check's resolution, order, argv and output file on every `pnpm check` with nothing installed. The e2e half records each masked summary and exit code. Both pass on the baseline tree, and the e2e half was run twice in compare mode before this pause.
+
+  1. A faked spawn records every check's argv without installing anything
+  2. The contract half records `--all` and `--changed` as well as the canonical run
+  3. The summary golden lets through only the R8 fields a legacy run can gain
+  4. A missing or stale golden fails everywhere, and re-recording needs an explicit variable
+  5. The next mutation run will be slower
+
+  **Readout**: Step 20 - test(invariance): pin 0.13's resolved checks, argv and summaries
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         held: 3 of 3 declared, no strays
+  diff         +1463 -0 across 4 files
+  spent        18 min · 3 turns · 25s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (1 commit outside the ledger)
+
+  **Recommendation**: Approve and land step 20 as built. Every later step in this build checks itself against this golden, and both halves pass on the baseline tree with only the R8 fields allowed through.
+
+  **1.** A faked spawn records every check's argv without installing anything
+
+  The contract test drives the real CLI in-process (`runCli`) and fakes only `spawn` from `node:child_process`. The fake child exits 0. It prints `{}` on stdout, so any check with a declared JSON output file writes it and the summary names it, and it prints the argv it got on a marked stderr line. checkride saves that line to `.check/<name>.stderr.txt`, and the test reads it back to tie each argv to its check. I chose this over wrapping `defaultRunner` or calling `translateExec` directly. Both would tie the golden to the internals that steps 10 and 22 rewrite, and step 22's done-when says the golden passes unchanged. Built-ins record no argv, matching step 9's rule for the summary. Copies leave out every gitignored artifact (lockfile, `tsconfig.tsbuildinfo`, `.fallow`), so the golden sees the same tree CI checks out. `shared-preset` gets its `link:./preset` symlinked into `node_modules`, which is all pnpm would do for it. As a probe, I added `--verbose` to `tsc`'s args, and ten subjects went red; I reverted it.
+
+  **2.** The contract half records `--all` and `--changed` as well as the canonical run
+
+  The done-when names only the resolved checks. I also recorded each subject with `--all`, which covers the argv of every opt-in adapter the repo detects (fallow dupes and health, `build`, the publishing slots). I also recorded it with `--changed` inside a throwaway git repo where `origin/main` resolves. That is the case where step 7 promises vitest's `--changed origin/main` stays byte-identical once `{base}` arrives. All three runs together take about 4.5 seconds in `pnpm check`. If you'd rather pin only the canonical run, deleting two entries from `PASSES` and re-recording undoes it.
+
+  **3.** The summary golden lets through only the R8 fields a legacy run can gain
+
+  Before comparing, the e2e half strips only `run` and `git` at the top level, and `origin`, `detected_by`, `pin_source`, `tool_version` and `argv` on each check. R8's other fields (`targets`, `target`, `slot`, `pack`, `cwd`, `narrowed`) only appear in multi-target mode, with a non-`ts` implicit pack, under a target root, or with Go narrowing. So if one shows up here, the test fails, which is the point. The test masks `timestamp`, `total_duration_ms` and a check's `duration_ms` only when the field is present, so a field that disappears still fails. A skipped check's `duration_ms` stays compared, because it's always 0.
+
+  **4.** A missing or stale golden fails everywhere, and re-recording needs an explicit variable
+
+  I skipped vitest's file snapshots because `vitest run` quietly writes a missing snapshot on a laptop. Here, re-recording takes `CHECKRIDE_UPDATE_INVARIANCE=1`, and each test file's docblock gives the exact command. The goldens print one check per line (601 and 266 lines), so the Phase 4 steps get one-line diffs per changed check. The subject list is fixed to the 0.13 set: a later example isn't a legacy repo. The contract half also checks that both goldens list the same subjects, so the two halves can't drift apart.
+
+  **5.** The next mutation run will be slower
+
+  Stryker uses the default vitest config, which includes `test/contract/`. With `perTest` coverage, every mutant this golden covers (most of `config.ts` and the orchestrator) now also runs one or more 300 ms subject tests. That should kill more mutants (C12 (quality-floors) only gains), but the first mutation run after this lands re-runs those mutants from scratch.

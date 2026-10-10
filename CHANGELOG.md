@@ -4,6 +4,28 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A custom check can say it couldn't run here.** Give it a `skipExitCode`
+  (an integer from 1 to 255) and exit with that code, and the run records it
+  as skipped instead of failed: `ok: true`, `skipped: true`, `exit_code: null`,
+  `duration_ms: 0`, no artifact, and a `reason` made of its last stderr line
+  followed by `(exit N)`. It stays out of `checks_run`, so a run where every
+  check skipped itself is a vacuous green, and `--strict` exits 2 on it.
+  `checkride fix` reports the check's fix command as skipped the same way.
+  Until now a wrapper that couldn't run had to choose between a red that
+  wasn't a finding and an exit 0 that verified nothing (#6). See
+  `docs/tools.md`.
+
+### Contract
+
+- Additive: the config schema's custom check entry gains `skipExitCode`
+  (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
+  `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A
+  self-skip writes the existing skipped entry, with a new kind of `reason`.
+
 ## [0.14.0] - 2026-10-09
 
 ### Changed

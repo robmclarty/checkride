@@ -803,6 +803,105 @@ describe('runChecks (vacuous green)', () => {
   });
 });
 
+/** A runner whose custom checks exit with whatever code `codes` names for them (0 otherwise). */
+function exitRunner(codes: Record<string, number>, stderr = ''): CheckRunner {
+  return (r) => {
+    const exit_code = codes[r.slot] ?? 0;
+    return Promise.resolve({ ok: exit_code === 0, exit_code, stdout: 'partial output', stderr });
+  };
+}
+
+describe('runChecks (a custom check skipping itself)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-selfskip-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'lint' }];
+  const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint' })];
+  const config = { checks: { licenses: { command: 'node', skipExitCode: 77 } } };
+
+  // F23
+  test('exiting its skipExitCode records the skipped shape, with its last stderr line as the reason', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config, runner: exitRunner({ licenses: 77 }, 'warming up\nno docker daemon here\n'),
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'licenses')).toEqual({
+      name: 'licenses',
+      adapter: 'custom:licenses',
+      description: 'Custom licenses check',
+      ok: true,
+      skipped: true,
+      reason: 'no docker daemon here (exit 77)',
+      exit_code: null,
+      duration_ms: 0,
+      output_file: null,
+    });
+    expect(result.summary.checks_run).toBe(1);
+    expect(result).toMatchObject({ ok: true, exitCode: 0 });
+    // Nothing to fingerprint or digest, and no artifact: the partial stdout is not the check's verdict.
+    expect(result.runs.map((r) => r.slot)).toEqual(['lint']);
+    expect(existsSync(join(dir, '.check', 'licenses.stdout.txt'))).toBe(false);
+    expect(existsSync(join(dir, '.check', 'licenses.stderr.txt'))).toBe(false);
+    expect(std.lines.join('')).toMatch(/○ licenses\s+skip {2}no docker daemon here \(exit 77\)/);
+  });
+
+  test('with nothing on stderr, the reason still names the exit code', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config, runner: exitRunner({ licenses: 77 }),
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'licenses')?.reason).toBe('skipped itself (exit 77)');
+  });
+
+  test('any other non-zero exit still fails the check', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config, runner: exitRunner({ licenses: 1 }, 'a real finding\n'),
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'licenses')).toMatchObject({ ok: false, exit_code: 1 });
+    expect(result.exitCode).toBe(1);
+  });
+
+  test('a check that declares no skipExitCode fails on that same code', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: { checks: { licenses: { command: 'node' } } },
+      runner: exitRunner({ licenses: 77 }), json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'licenses')).toMatchObject({ ok: false, exit_code: 77 });
+  });
+
+  // F24
+  test('--strict exits 2 when every check skipped itself', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [], adapters: [],
+      config: { checks: { licenses: { command: 'node', skipExitCode: 77 }, deps: { command: 'node', skipExitCode: 3 } } },
+      runner: exitRunner({ licenses: 77, deps: 3 }), strict: true, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary).toMatchObject({ ok: true, checks_run: 0 });
+    expect(result.summary.checks.every((c) => c.skipped === true)).toBe(true);
+    expect(result.exitCode).toBe(2);
+  });
+
+  test('the real spawn path carries the exit code and stderr through', async () => {
+    const result = await runChecks({
+      cwd: dir, slots: [], adapters: [],
+      config: {
+        checks: {
+          probe: {
+            command: process.execPath,
+            args: ['-e', "process.stderr.write('needs a GPU\\n'); process.exit(77)"],
+            skipExitCode: 77,
+          },
+        },
+      },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ skipped: true, ok: true, reason: 'needs a GPU (exit 77)' });
+  });
+});
+
 describe('runChecks (baseline-aware)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-base-')); });
@@ -1117,6 +1216,18 @@ describe('runFix', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test('reports a custom check whose fix exits its skipExitCode as skipped, not failed', async () => {
+    const std = sink();
+    const result = await runFix({
+      cwd: '/tmp', slots: [], adapters: [], stderr: std.out,
+      config: { checks: { licenses: { command: 'node', fixArgs: ['scripts/fix-licenses.mjs'], skipExitCode: 77 } } },
+      fixRunner: () => Promise.resolve({ ok: false, exit_code: 77 }),
+    });
+    expect(result).toEqual({ ok: true, exitCode: 0, ran: [] });
+    expect(std.lines.join('')).toContain('○ licenses skipped (exit 77)');
+    expect(std.lines.join('')).not.toContain('✘');
   });
 
   test('no-ops when nothing is fixable', async () => {
