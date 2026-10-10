@@ -524,8 +524,8 @@ after adopting a stricter rule set) and read the `checkride.baseline.json`
 diff in the PR like code.
 
 Only slots whose tool has a fingerprint extractor participate (currently `lint` via
-oxlint, `struct` via ast-grep, `spell` via cspell, `prose` via vale — error-severity
-alerts only — and the fallow slots `dead`/`dupes`/`health`); other slots (`types`,
+oxlint, `struct` via ast-grep, `spell` via cspell, `prose` via vale — keying only the
+findings that can fail the slot — and the fallow slots `dead`/`dupes`/`health`); other slots (`types`,
 `test`, …) never appear in the baseline. The file's shape is a promised surface — see
 [the contract](./docs/contract.md#checkridebaselinejson). A crash or empty output is
 never masked — a slot only goes green when there are findings and all of them are

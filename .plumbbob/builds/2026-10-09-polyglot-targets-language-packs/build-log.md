@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 3 — feat(baseline): add baseline diff against a git ref
+**Current step:** 4 — fix(baseline): key only the oxlint and ast-grep findings that can fail
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -25,7 +25,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(config): let a custom check report a skip through its exit code
 - ☑ 2. feat(cli): read the config from a path with --config
-- ☐ 3. feat(baseline): add baseline diff against a git ref
+- ☑ 3. feat(baseline): add baseline diff against a git ref
 - ☐ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
 - ☐ 5. docs(contract): list every summary field and hold the list with a test
 - ☐ 6. feat(report): record why each check runs as origin and detected_by
@@ -105,7 +105,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
 
 - [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
-- [ ] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
+- [x] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -124,6 +124,7 @@ from sprawling across branches.
 Harvest results this boundary:
 
 - After step 2: "summary schema's skipped description says 'did not execute'..." → **tangent**, deferred to step 5 (reword `schema/checkride.summary.schema.json:48` there; the schema file sits outside step 5's seam, so add it via `/plumbbob:step 5` or accept a one-file stray).
+- After step 3: "list `baseline diff` in docs/cheatsheet.md and the README command table..." → **tangent**, deferred to step 73 (README is in its seam; `docs/cheatsheet.md` is not, so add it via `/plumbbob:step 73` or accept a one-file stray).
 
 ## Log
 
@@ -279,3 +280,50 @@ folder, so it rides the branch into the PR.)*
   **5.** Two judgment calls: what "the repo" means, and quiet stderr under --json
 
   "Inside the repo" is measured against the working directory, the directory every other checkride path (`.check/`, the baseline) is relative to, and the contract doc says so in those words. A config in the git toplevel but above `cwd` therefore counts as outside, which errs toward writing nothing. The "not ratcheted" note follows the existing ratchet note and stays silent under `--json`, where checkride keeps stderr quiet. R13.5 asks for the note without naming `--json`, so if you want it printed there too, that's a one-word change.
+
+- 2026-10-10 — step 3 checkpointed · df795b68d — feat(baseline): add baseline diff against a git ref (1 drift, 33m)
+
+  **Summary**: `checkride baseline diff [<ref>] [--json]` now reports which baseline keys the working tree adds and removes compared with the copy committed at a ref (default `HEAD`). It writes nothing, exits 0 whenever it ran, and exits 2 for a bad ref, a missing git, or a file it can't parse. The JSON shape is pinned by a real-git contract test.
+
+  1. The diff reads the committed copy through git and reuses `diffBaselines` for the comparison.
+  2. The JSON's `sha` is the full 40-character sha, where R7.3's example shows seven.
+  3. `checkride baseline` now rejects a stray argument instead of silently ignoring it.
+  4. Tests cover the edges with an injected git and the contract with a real one.
+  5. One file sits outside the seam, and one doc tangent is parked.
+
+  **Readout**: Step 3 - feat(baseline): add baseline diff against a git ref
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → src/baseline/index.ts
+  diff         +536 -18 across 9 files
+  spent        33 min · 1 turn · 26s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land it. The done-when is met on a green full gate, and the one open call (a full sha over R7.3's short example) is the form a machine consumer can compare directly; say now if you'd rather match the spec literally, since the contract test pins it.
+
+  **1.** The diff reads the committed copy through git and reuses `diffBaselines` for the comparison.
+
+  `readBaselineAt` in `src/baseline/history.ts` resolves the ref with `rev-parse --verify --quiet <ref>^{commit}`, then lists the tree with `ls-tree --full-tree --name-only` to tell "this commit has no baseline file" (reads as empty, F30) apart from "this ref names no commit" (exit 2). It never parses `git show`'s error wording, which varies by git version and locale. Only when the file is listed does it `git show` and `parseBaseline` the blob. It reuses recover's `locate()`, so a checkride root in a monorepo subdirectory reads the right path. A blob that doesn't parse, or comes from a newer schema, exits 2 instead of being read as empty, because empty would report every key as added and make a mangled file look like a clean history. A ref starting with `-` is refused before git sees it. `gitFailureError` gained a `command` prefix argument, defaulting to `recover`, so recover's messages are byte-identical. `runBaselineDiff` in `src/baseline-command.ts` maps `diffBaselines(committed, current)` onto R7.3's fields: restored becomes added, absent becomes removed.
+
+  **2.** The JSON's `sha` is the full 40-character sha, where R7.3's example shows seven.
+
+  This is a judgment call against the spec's illustration. A review agent compares this field with `$BASE_SHA`, which is a full sha, and recover's JSON already uses `sha` for the full value (with a separate `short_sha`). Step 8's `git.base { ref, sha }` should then match. The human report still shows seven characters. If you want the spec's literal short form, it is a one-line change, plus the contract doc's example and one assertion in `baseline.contract.test.ts`.
+
+  **3.** `checkride baseline` now rejects a stray argument instead of silently ignoring it.
+
+  The capture's `parseArgs` used to allow positionals and drop them. With `diff` introduced, that meant `checkride baseline --config x diff` would have run the capture and rewritten `checkride.baseline.json`, when the user meant to read it. Now `diff` must come straight after `baseline`, any other positional on the capture is exit 2 ("Unexpected argument 'diff'"), and `baseline diff --config` is an unknown option. The CHANGELOG and contract doc both say so. `baseline --help` (and `baseline diff --help`) now prints its own page covering both forms, and the global help gains two lines under `baseline`.
+
+  **4.** Tests cover the edges with an injected git and the contract with a real one.
+
+  `src/__tests__/baseline.test.ts` adds a unit suite with a scripted git: per-check Markdown rendering, `--json` output, F30 on both sides, the unchanged case, monorepo paths in the exact argv, and seven error cases (no such commit, dash ref, not a repo, no git, unparseable blob, newer schema, a git show timeout). It also checks that an unparseable working-tree file fails before git is asked anything. A real-git CLI suite covers exit codes, F30 through a tag from before the baseline, two refs, `--config` on diff, the stray-argument refusal leaving the file untouched, and the help page. `test/contract/baseline.contract.test.ts` pins the six fields in order, the full sha, the empty-sides default, and exit 2 on a bad ref. It runs real git with no `skipIf`, since `docs/tools.md` lists git as a prerequisite and a contract that silently skips would be weaker.
+
+  **5.** One file sits outside the seam, and one doc tangent is parked.
+
+  `src/baseline/index.ts` gained the `readBaselineAt` export, because the barrel is the module's only public surface. `baseline-command.ts` now imports through it, replacing its direct `fingerprint.js` and `store.js` imports. Listing `baseline diff` in `docs/cheatsheet.md` and the README command table is parked. This step documents it in `docs/contract.md`, `docs/tools.md` (a shallow-clone note under the git prerequisite) and `--help`.

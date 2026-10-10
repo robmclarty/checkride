@@ -1,0 +1,186 @@
+[
+  {
+    "text": "class Config {}",
+    "range": {
+      "byteOffset": {
+        "start": 7,
+        "end": 22
+      },
+      "start": {
+        "line": 0,
+        "column": 7
+      },
+      "end": {
+        "line": 0,
+        "column": 22
+      }
+    },
+    "file": "src/config.ts",
+    "lines": "export class Config {}",
+    "charCount": {
+      "leading": 7,
+      "trailing": 0
+    },
+    "language": "TypeScript",
+    "ruleId": "no-class",
+    "severity": "error",
+    "note": null,
+    "message": "no classes",
+    "labels": [
+      {
+        "text": "class Config {}",
+        "range": {
+          "byteOffset": {
+            "start": 7,
+            "end": 22
+          },
+          "start": {
+            "line": 0,
+            "column": 7
+          },
+          "end": {
+            "line": 0,
+            "column": 22
+          }
+        },
+        "style": "primary"
+      }
+    ]
+  },
+  {
+    "text": "var verbose = false;",
+    "range": {
+      "byteOffset": {
+        "start": 0,
+        "end": 20
+      },
+      "start": {
+        "line": 0,
+        "column": 0
+      },
+      "end": {
+        "line": 0,
+        "column": 20
+      }
+    },
+    "file": "src/cli.ts",
+    "lines": "var verbose = false;",
+    "charCount": {
+      "leading": 0,
+      "trailing": 0
+    },
+    "language": "TypeScript",
+    "metaVariables": {
+      "single": {
+        "B": {
+          "text": "false",
+          "range": {
+            "byteOffset": {
+              "start": 14,
+              "end": 19
+            },
+            "start": {
+              "line": 0,
+              "column": 14
+            },
+            "end": {
+              "line": 0,
+              "column": 19
+            }
+          }
+        },
+        "A": {
+          "text": "verbose",
+          "range": {
+            "byteOffset": {
+              "start": 4,
+              "end": 11
+            },
+            "start": {
+              "line": 0,
+              "column": 4
+            },
+            "end": {
+              "line": 0,
+              "column": 11
+            }
+          }
+        }
+      },
+      "multi": {},
+      "transformed": {}
+    },
+    "ruleId": "no-var",
+    "severity": "warning",
+    "note": null,
+    "message": "prefer const or let",
+    "labels": [
+      {
+        "text": "var verbose = false;",
+        "range": {
+          "byteOffset": {
+            "start": 0,
+            "end": 20
+          },
+          "start": {
+            "line": 0,
+            "column": 0
+          },
+          "end": {
+            "line": 0,
+            "column": 20
+          }
+        },
+        "style": "primary"
+      }
+    ]
+  },
+  {
+    "text": "console.log(verbose)",
+    "range": {
+      "byteOffset": {
+        "start": 21,
+        "end": 41
+      },
+      "start": {
+        "line": 1,
+        "column": 0
+      },
+      "end": {
+        "line": 1,
+        "column": 20
+      }
+    },
+    "file": "src/cli.ts",
+    "lines": "console.log(verbose);",
+    "charCount": {
+      "leading": 0,
+      "trailing": 1
+    },
+    "language": "TypeScript",
+    "ruleId": "no-console",
+    "severity": "hint",
+    "note": null,
+    "message": "route output through the reporter",
+    "labels": [
+      {
+        "text": "console.log(verbose)",
+        "range": {
+          "byteOffset": {
+            "start": 21,
+            "end": 41
+          },
+          "start": {
+            "line": 1,
+            "column": 0
+          },
+          "end": {
+            "line": 1,
+            "column": 20
+          }
+        },
+        "style": "primary"
+      }
+    ]
+  }
+]

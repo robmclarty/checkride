@@ -143,8 +143,12 @@ string the slot's extractor built; a consumer may compare keys, count them, and
 diff them, never parse them. For the four diagnostic extractors — oxlint
 (`lint`), ast-grep (`struct`), cspell (`spell`), vale (`prose`) — the key is
 `<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
-cspell (`<file>::<message>`), and only vale's error-severity alerts keyed, since
-only those decide the slot. Line and column are never part of these keys, so a
+cspell (`<file>::<message>`). Only a finding that can fail the slot is keyed:
+vale's error-severity alerts, and oxlint's and ast-grep's error-severity
+findings, unless the check's argv lets a warning fail too (oxlint's
+`--deny-warnings` or `--max-warnings`, ast-grep's `--error`, or an argv that
+runs the tool through a wrapper and so hides its flags), in which case every
+finding is keyed. Line and column are never part of these keys, so a
 finding keeps its key when unrelated edits move it — the property the ratchet
 and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the extractor documents, and

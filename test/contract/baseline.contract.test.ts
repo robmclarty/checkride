@@ -141,6 +141,30 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('tsc', 'anything')).toBeNull();
   });
 
+  test('oxlint and ast-grep key a warning only when argv lets it fail', () => {
+    const oxlint = JSON.stringify({
+      diagnostics: [
+        { filename: 'src/a.ts', code: 'eslint(no-debugger)', severity: 'error', message: 'No debugger.' },
+        { filename: 'src/a.ts', code: 'eslint(eqeqeq)', severity: 'warning', message: 'Use ===.' },
+      ],
+    });
+    const oxlintArgv = ['pnpm', 'exec', 'oxlint', '--format=json'];
+    expect(fingerprint('oxlint', oxlint, oxlintArgv)).toEqual(new Set(['src/a.ts:eslint(no-debugger):No debugger.']));
+    expect(fingerprint('oxlint', oxlint, [...oxlintArgv, '--deny-warnings'])?.size).toBe(2);
+    expect(fingerprint('oxlint', oxlint, [...oxlintArgv, '--max-warnings=0'])?.size).toBe(2);
+    // A wrapper hides the tool's flags, so every finding is keyed.
+    expect(fingerprint('oxlint', oxlint, ['pnpm', 'run', 'lint'])?.size).toBe(2);
+
+    const astGrep = JSON.stringify([
+      { file: 'src/a.ts', ruleId: 'no-class', severity: 'error', message: 'no classes' },
+      { file: 'src/a.ts', ruleId: 'no-var', severity: 'warning', message: 'prefer const' },
+    ]);
+    const astGrepArgv = ['pnpm', 'exec', 'ast-grep', 'scan', '--json=compact'];
+    expect(fingerprint('ast-grep', astGrep, astGrepArgv)).toEqual(new Set(['src/a.ts:no-class:no classes']));
+    expect(fingerprint('ast-grep', astGrep, [...astGrepArgv, '--error'])?.size).toBe(2);
+    expect(fingerprint('ast-grep', astGrep, [...astGrepArgv, '--error=no-var'])?.size).toBe(2);
+  });
+
   test('vale keys only error-severity alerts and refuses a runtime-error report', () => {
     expect(fingerprint('vale', VALE_ALERTS)).toEqual(new Set(["docs/a.md:Repo.Latin:Use 'for example' instead of 'e.g.'."]));
     // A report that is not an alert report is "not observed" (null), never "clean" (empty).

@@ -37,6 +37,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now rejects a stray argument instead of ignoring it, so a misplaced `diff`
   can't rewrite the file (#6).
 
+### Fixed
+
+- **A new lint or struct warning no longer keeps a baselined slot red.**
+  The baseline now keys only the oxlint and ast-grep findings that can fail
+  their check, as it already did for vale: `error` severity, plus warnings
+  when the check's argv lets them fail (oxlint's `--deny-warnings` or
+  `--max-warnings`, ast-grep's `--error`). Before, a slot red only from
+  grandfathered errors stayed red the moment a new warning appeared, though
+  the warning couldn't fail the slot itself. When the argv hides the tool's
+  flags, for example a package script or `sh -c`, every finding is still
+  keyed. Existing baselines keep masking, and the next full run prunes the
+  warning keys they hold, so expect one `checkride.baseline.json` diff after
+  upgrading.
+
 ### Contract
 
 - Additive: the config schema's custom check entry gains `skipExitCode`
@@ -50,6 +64,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Additive: the subcommand `baseline diff [<ref>] [--json]`, whose JSON
   carries `ref`, `sha` (the full sha), `added`, `removed`, `added_count` and
   `removed_count`, held by `baseline.contract.test.ts`.
+- Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
+  fail the check under its argv, and `docs/contract.md` and
+  `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
+  written before keeps masking, since the same findings now produce a subset
+  of its keys, and the next full run ratchets its warning keys away.
 
 ## [0.14.0] - 2026-10-09
 

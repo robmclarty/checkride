@@ -85,7 +85,7 @@ function renderSection(run: CheckRun, maxItems: number): string {
   const raw = rawPointer(adapter, outcome);
   const heading = `## ${slot} — ${adapter.name}`;
 
-  const keys = fingerprint(adapter.name, outcome.stdout);
+  const keys = fingerprint(adapter.name, outcome.stdout, [adapter.command, ...adapter.args]);
   if (keys && keys.size > 0) {
     const all = [...keys];
     const shown = all.slice(0, maxItems);

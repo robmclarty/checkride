@@ -1,0 +1,81 @@
+{
+  "diagnostics": [
+    {
+      "message": "Expected === and instead saw ==",
+      "code": "eslint(eqeqeq)",
+      "severity": "warning",
+      "url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/eqeqeq.html",
+      "help": "Prefer === operator",
+      "filename": "src/report.ts",
+      "labels": [
+        {
+          "span": {
+            "offset": 65,
+            "length": 2,
+            "line": 2,
+            "column": 12
+          }
+        }
+      ]
+    },
+    {
+      "message": "Variable 'retries' is declared but never used. Unused variables should start with a '_'.",
+      "code": "eslint(no-unused-vars)",
+      "severity": "warning",
+      "url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-unused-vars.html",
+      "help": "Consider removing this declaration.",
+      "filename": "src/runner.ts",
+      "labels": [
+        {
+          "label": "'retries' is declared here",
+          "span": {
+            "offset": 6,
+            "length": 7,
+            "line": 1,
+            "column": 7
+          }
+        }
+      ]
+    },
+    {
+      "message": "`debugger` statement is not allowed",
+      "code": "eslint(no-debugger)",
+      "severity": "error",
+      "url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/no-debugger.html",
+      "help": "Remove the debugger statement",
+      "filename": "src/runner.ts",
+      "labels": [
+        {
+          "span": {
+            "offset": 66,
+            "length": 9,
+            "line": 3,
+            "column": 3
+          }
+        }
+      ]
+    },
+    {
+      "message": "Expected === and instead saw ==",
+      "code": "eslint(eqeqeq)",
+      "severity": "warning",
+      "url": "https://oxc.rs/docs/guide/usage/linter/rules/eslint/eqeqeq.html",
+      "help": "Prefer === operator",
+      "filename": "src/runner.ts",
+      "labels": [
+        {
+          "span": {
+            "offset": 90,
+            "length": 2,
+            "line": 4,
+            "column": 15
+          }
+        }
+      ]
+    }
+  ],
+  "number_of_files": 2,
+  "number_of_rules": 97,
+  "threads_count": 8,
+  "start_time": 0.033195375
+}

@@ -954,6 +954,27 @@ describe('runChecks (baseline-aware)', () => {
     expect((await readWritten()).slots['lint']).toEqual([KEY_A]);
   });
 
+  test('the next full run ratchets away the oxlint warning keys an older release captured (D27)', async () => {
+    // Before gating keys, `checkride baseline` keyed oxlint's warnings too. With
+    // no --deny-warnings in argv they can't fail the slot, so no run observes
+    // them again: the error stays grandfathered and the warnings are pruned.
+    const report = await readFile(new URL('../../__tests__/fixtures/baseline-oxlint.json', import.meta.url), 'utf8');
+    const errorKey = 'src/config.ts:typescript(no-unused-vars):Variable is assigned a value but never used.';
+    const warningKeys = [
+      'src/doctor.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.',
+      'src/init.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.',
+    ];
+    const oxlintRow = fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json', command: 'pnpm', args: ['exec', 'oxlint', '--format=json'] });
+    const result = await runChecks({
+      cwd: dir, slots, adapters: [oxlintRow], config: null,
+      runner: () => Promise.resolve({ ok: false, exit_code: 1, stdout: report, stderr: '' }),
+      baseline: { schema_version: 1, slots: { lint: [errorKey, ...warningKeys].toSorted() } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: true, baselined: 1 });
+    expect((await readWritten()).slots['lint']).toEqual([errorKey]);
+  });
+
   test('a partial --only run never prunes the baseline', async () => {
     await runChecks({
       cwd: dir, slots, adapters, config: null,

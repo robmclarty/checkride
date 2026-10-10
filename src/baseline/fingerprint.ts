@@ -15,7 +15,9 @@
  * per-adapter against real fixtures, not from an up-front list. Extractors
  * ship for the blessed lint/struct/spell/prose adapters (oxlint, ast-grep,
  * cspell, vale) and for fallow's three analyses (dead-code, dupes, health — see
- * `./fallow.ts`, which also owns fallow's gating verdict).
+ * `./fallow.ts`, which also owns fallow's gating verdict). Each keys only the
+ * findings that can fail its check, so a finding that can only advise never
+ * blocks masking.
  *
  * The same registry style keys the *report verdicts* — the adapters whose
  * pass/fail is read from the parsed report rather than the exit code — on
@@ -32,6 +34,14 @@ import { fallowFindings, fallowVerdict } from './fallow.js';
 export type Fingerprint = ReadonlySet<string>;
 
 /**
+ * The command a check spawned, then its args. Some tools take a flag that lets
+ * a warning fail the run without changing the warning's reported severity, so
+ * only the argv can say which findings gate. `undefined` means the caller
+ * can't say, and an extractor that needs it keys every finding.
+ */
+type Argv = readonly string[] | undefined;
+
+/**
  * Turns one adapter's raw output (JSON or text) into a fingerprint. Most
  * extractors always return a set — an unreadable payload is indistinguishable
  * from a clean one in their formats, so "nothing found" is the honest answer.
@@ -39,7 +49,7 @@ export type Fingerprint = ReadonlySet<string>;
  * unreadable case instead, which propagates through {@link fingerprint} as "not
  * observed" and stands the ratchet down (see {@link extractVale}).
  */
-type Extractor = (raw: string) => Fingerprint | null;
+type Extractor = (raw: string, argv: Argv) => Fingerprint | null;
 
 /**
  * Build a finding's key from its identity. Line and column are intentionally
@@ -71,13 +81,47 @@ function asArray(value: unknown): readonly unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** oxlint `--format=json`: `{ diagnostics: [{ filename, code, message }] }`. */
-const extractOxlint: Extractor = (raw) => {
+/**
+ * Whether `argv` runs one of `tools` itself: an element is the tool's name, or
+ * a path ending in it. A wrapper (`sh -c "…"`, a package script, a shell
+ * script) hides the tool's flags, so whether a warning gates can't be read
+ * off its argv.
+ */
+function runsTool(argv: readonly string[], tools: readonly string[]): boolean {
+  return argv.some((arg) => tools.some((tool) => arg === tool || arg.endsWith(`/${tool}`)));
+}
+
+/** oxlint severities that never fail a run on their own; any other value keys. */
+const OXLINT_ADVISORY: ReadonlySet<string> = new Set(['warning', 'advice']);
+
+/**
+ * Whether every oxlint diagnostic can fail the run, not only `error` ones.
+ * `--deny-warnings` and `--max-warnings` make warnings gate while each still
+ * reports `severity: "warning"`, so only the argv shows them. An argv that
+ * hides oxlint's flags, or none at all, counts as gating everything: keying a
+ * warning that can't fail costs a false red, while skipping one that can
+ * would mask a red run green.
+ */
+function oxlintWarningsGate(argv: Argv): boolean {
+  if (argv === undefined || !runsTool(argv, ['oxlint'])) return true;
+  return argv.some((arg) => arg === '--deny-warnings' || arg === '--max-warnings' || arg.startsWith('--max-warnings='));
+}
+
+/**
+ * oxlint `--format=json`: `{ diagnostics: [{ filename, code, message, severity }] }`.
+ *
+ * Only diagnostics that can fail the run are keyed, as with vale: an advisory
+ * warning's key would block masking when it first appears on an otherwise
+ * grandfathered red run, though it could never fail the check itself.
+ */
+const extractOxlint: Extractor = (raw, argv) => {
   const keys = new Set<string>();
+  const all = oxlintWarningsGate(argv);
   const payload = parseJson(raw);
   const diagnostics = isRecord(payload) ? asArray(payload['diagnostics']) : [];
   for (const d of diagnostics) {
     if (!isRecord(d)) continue;
+    if (!all && OXLINT_ADVISORY.has(str(d['severity']))) continue;
     const file = str(d['filename']);
     const message = str(d['message']);
     if (file && message) keys.add(key(file, str(d['code']), message));
@@ -85,14 +129,44 @@ const extractOxlint: Extractor = (raw) => {
   return keys;
 };
 
-/** ast-grep `--json=compact`: an array of `{ file, ruleId, message }`. */
-const extractAstGrep: Extractor = (raw) => {
+/** ast-grep severities that never fail a scan on their own; any other value keys. */
+const AST_GREP_ADVISORY: ReadonlySet<string> = new Set(['warning', 'info', 'hint']);
+
+/**
+ * The rules an ast-grep argv raises to `error`: `'all'` for a bare `--error`,
+ * else the ids each `--error=<id>[,<id>]` names. ast-grep already reports a
+ * raised rule as `severity: "error"`, so this guards a version that doesn't.
+ * An argv that hides ast-grep's flags, or none at all, raises every rule, for
+ * the reason {@link oxlintWarningsGate} gives.
+ */
+function astGrepRaised(argv: Argv): ReadonlySet<string> | 'all' {
+  if (argv === undefined || !runsTool(argv, ['ast-grep', 'sg'])) return 'all';
+  const rules = new Set<string>();
+  for (const arg of argv) {
+    if (arg === '--error') return 'all';
+    if (!arg.startsWith('--error=')) continue;
+    const ids = arg.slice('--error='.length).split(',').filter(Boolean);
+    if (ids.length === 0) return 'all';
+    for (const id of ids) rules.add(id);
+  }
+  return rules;
+}
+
+/**
+ * ast-grep `--json=compact`: an array of `{ file, ruleId, message, severity }`.
+ * Only matches that can fail the scan are keyed, for the reason
+ * {@link extractOxlint} gives.
+ */
+const extractAstGrep: Extractor = (raw, argv) => {
   const keys = new Set<string>();
+  const raised = astGrepRaised(argv);
   for (const m of asArray(parseJson(raw))) {
     if (!isRecord(m)) continue;
+    const rule = str(m['ruleId']);
+    if (raised !== 'all' && !raised.has(rule) && AST_GREP_ADVISORY.has(str(m['severity']))) continue;
     const file = str(m['file']);
     const message = str(m['message']);
-    if (file && message) keys.add(key(file, str(m['ruleId']), message));
+    if (file && message) keys.add(key(file, rule, message));
   }
   return keys;
 };
@@ -205,10 +279,14 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * report being the one case a format can say that about (see
  * {@link extractVale}). Either way the run contributes nothing to the baseline
  * and prunes nothing from it.
+ *
+ * `argv` is the check's command and then its args, as declared for the run
+ * (`changedArgs` included under `--changed`). Only findings that can fail the
+ * check under it are keyed; without it, oxlint and ast-grep key every finding.
  */
-export function fingerprint(adapter: string, raw: string): Fingerprint | null {
+export function fingerprint(adapter: string, raw: string, argv?: readonly string[]): Fingerprint | null {
   const extractor = EXTRACTORS[adapter];
-  return extractor ? extractor(raw) : null;
+  return extractor ? extractor(raw, argv) : null;
 }
 
 /**

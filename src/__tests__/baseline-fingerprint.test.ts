@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
+import { ADAPTERS } from '../adapters.js';
 import { applyBaseline, fingerprint } from '../baseline/index.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -18,6 +19,20 @@ const FALLOW_HEALTH = read('baseline-fallow-health.json');
 const VALE = read('baseline-vale.json');
 const VALE_WARNINGS = read('baseline-vale-warnings.json');
 const VALE_ERROR = read('baseline-vale-error.json');
+// Real captures: oxlint 1.87.0 run with `--deny-warnings` (it exited 1), and
+// ast-grep 0.45.3 over one error, one warning and one hint rule (no `--error`).
+const OXLINT_DENY = read('baseline-oxlint-deny-warnings.json');
+const AST_GREP_SEVERITIES = read('baseline-ast-grep-severities.json');
+
+/** A registry adapter's argv, as it spawns with no config override: command, then args. */
+function registryArgv(name: string): string[] {
+  const adapter = ADAPTERS.find((a) => a.name === name);
+  if (!adapter) throw new Error(`no registry adapter named ${name}`);
+  return [adapter.command, ...adapter.args];
+}
+
+const OXLINT_ARGV = registryArgv('oxlint');
+const AST_GREP_ARGV = registryArgv('ast-grep');
 
 /** Reverse a JSON array, or a named array field of a JSON object, in place. */
 function reversedJson(raw: string, field?: string): string {
@@ -43,8 +58,21 @@ function withAlert(raw: string, file: string, check: string, message: string): s
   return JSON.stringify(parsed);
 }
 
+/** Add one oxlint diagnostic to a report, as a fresh finding would appear on a later run. */
+function withOxlint(raw: string, severity: string): string {
+  const parsed = JSON.parse(raw) as { diagnostics: unknown[] };
+  parsed.diagnostics.push({ message: 'Expected === and instead saw ==', code: 'eslint(eqeqeq)', severity, filename: 'src/cli.ts' });
+  return JSON.stringify(parsed);
+}
+
+/** Add one ast-grep match to a report, as a fresh finding would appear on a later run. */
+function withAstGrep(raw: string, severity: string): string {
+  const parsed = JSON.parse(raw) as unknown[];
+  return JSON.stringify([...parsed, { file: 'src/init.ts', ruleId: 'no-var', severity, message: 'prefer const or let' }]);
+}
+
 describe('fingerprint — extraction', () => {
-  test('oxlint keys on file + rule (code) + message', () => {
+  test('oxlint keys on file + rule (code) + message (no argv, so every diagnostic)', () => {
     expect(fingerprint('oxlint', OXLINT)).toEqual(
       new Set([
         'src/doctor.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.',
@@ -179,6 +207,111 @@ describe('fingerprint — stability', () => {
       }
     }
     expect(fingerprint('oxlint', JSON.stringify(shifted))).toEqual(fingerprint('oxlint', OXLINT));
+  });
+});
+
+describe('fingerprint — oxlint and ast-grep key only what can fail (D27)', () => {
+  const OXLINT_ERROR = 'src/config.ts:typescript(no-unused-vars):Variable is assigned a value but never used.';
+  const DENY_ERROR = 'src/runner.ts:eslint(no-debugger):`debugger` statement is not allowed';
+
+  test('oxlint under its registry args keys error diagnostics only', () => {
+    expect(fingerprint('oxlint', OXLINT, OXLINT_ARGV)).toEqual(new Set([OXLINT_ERROR]));
+  });
+
+  test('a real --deny-warnings run still reports its warnings as warnings, so only argv says they gate (F32)', () => {
+    // The capture's warnings gated that run, yet each still reads `severity:
+    // "warning"`: the flag, not the field, is what says they can fail.
+    expect(fingerprint('oxlint', OXLINT_DENY, OXLINT_ARGV)).toEqual(new Set([DENY_ERROR]));
+    expect(fingerprint('oxlint', OXLINT_DENY, [...OXLINT_ARGV, '--deny-warnings'])).toEqual(
+      new Set([
+        DENY_ERROR,
+        'src/report.ts:eslint(eqeqeq):Expected === and instead saw ==',
+        'src/runner.ts:eslint(eqeqeq):Expected === and instead saw ==',
+        "src/runner.ts:eslint(no-unused-vars):Variable 'retries' is declared but never used. Unused variables should start with a '_'.",
+      ]),
+    );
+  });
+
+  test('--max-warnings keys warnings in either spelling', () => {
+    expect(fingerprint('oxlint', OXLINT, [...OXLINT_ARGV, '--max-warnings=0'])?.size).toBe(3);
+    expect(fingerprint('oxlint', OXLINT, [...OXLINT_ARGV, '--max-warnings', '5'])?.size).toBe(3);
+  });
+
+  test('an oxlint named by path is still read for its flags', () => {
+    expect(fingerprint('oxlint', OXLINT, ['node_modules/.bin/oxlint', '--format=json'])).toEqual(new Set([OXLINT_ERROR]));
+  });
+
+  test('an argv that hides oxlint, or none at all, keys every diagnostic', () => {
+    // A package script or `sh -c` may pass --deny-warnings where argv can't see
+    // it; keying a warning that can't fail is a false red, never a false green.
+    for (const argv of [['pnpm', 'run', 'lint'], ['sh', '-c', 'oxlint --format=json --deny-warnings'], undefined]) {
+      expect(fingerprint('oxlint', OXLINT, argv)?.size).toBe(3);
+    }
+  });
+
+  test('an oxlint diagnostic with no severity is keyed', () => {
+    const bare = JSON.stringify({ diagnostics: [{ filename: 'a.ts', code: 'eslint(x)', message: 'm' }] });
+    expect(fingerprint('oxlint', bare, OXLINT_ARGV)).toEqual(new Set(['a.ts:eslint(x):m']));
+  });
+
+  test('ast-grep under its registry args keys error matches only', () => {
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, AST_GREP_ARGV)).toEqual(new Set(['src/config.ts:no-class:no classes']));
+  });
+
+  test('a bare --error, or one naming no rule, keys every match', () => {
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, [...AST_GREP_ARGV, '--error'])?.size).toBe(3);
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, [...AST_GREP_ARGV, '--error='])?.size).toBe(3);
+  });
+
+  test('--error=<rule> keys the rules it names, and no others', () => {
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, [...AST_GREP_ARGV, '--error=no-var'])).toEqual(
+      new Set(['src/config.ts:no-class:no classes', 'src/cli.ts:no-var:prefer const or let']),
+    );
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, [...AST_GREP_ARGV, '--error=no-var,no-console'])?.size).toBe(3);
+    expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, [...AST_GREP_ARGV, '--error=no-var', '--error=no-console'])?.size).toBe(3);
+  });
+
+  test('an argv that hides ast-grep, or none at all, keys every match', () => {
+    for (const argv of [['pnpm', 'run', 'struct'], ['sh', '-c', 'ast-grep scan --json=compact'], undefined]) {
+      expect(fingerprint('ast-grep', AST_GREP_SEVERITIES, argv)?.size).toBe(3);
+    }
+  });
+});
+
+describe('fingerprint — a new warning does not block masking (F31)', () => {
+  test('an oxlint slot red only from grandfathered errors stays masked when a warning lands', () => {
+    // oxlint exits 1 on the grandfathered error (rawOk false); the new warning
+    // can't fail the slot, so it must not be the key that keeps it red.
+    const captured = [...(fingerprint('oxlint', OXLINT, OXLINT_ARGV) ?? [])];
+    const later = fingerprint('oxlint', withOxlint(OXLINT, 'warning'), OXLINT_ARGV) ?? new Set();
+    expect(applyBaseline(later, captured, false)).toEqual({ ok: true, baselined: 1, newKeys: [] });
+  });
+
+  test('under --deny-warnings the same new warning is keyed and keeps the slot red (F32)', () => {
+    const argv = [...OXLINT_ARGV, '--deny-warnings'];
+    const captured = [...(fingerprint('oxlint', OXLINT, argv) ?? [])];
+    const later = fingerprint('oxlint', withOxlint(OXLINT, 'warning'), argv) ?? new Set();
+    expect(applyBaseline(later, captured, false)).toEqual({
+      ok: false,
+      baselined: 3,
+      newKeys: ['src/cli.ts:eslint(eqeqeq):Expected === and instead saw =='],
+    });
+  });
+
+  test('an ast-grep slot red only from grandfathered errors stays masked when a warning lands', () => {
+    const captured = [...(fingerprint('ast-grep', AST_GREP_SEVERITIES, AST_GREP_ARGV) ?? [])];
+    const later = fingerprint('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'warning'), AST_GREP_ARGV) ?? new Set();
+    expect(applyBaseline(later, captured, false)).toEqual({ ok: true, baselined: 1, newKeys: [] });
+  });
+
+  test('a new ast-grep error still blocks masking', () => {
+    const captured = [...(fingerprint('ast-grep', AST_GREP_SEVERITIES, AST_GREP_ARGV) ?? [])];
+    const later = fingerprint('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'error'), AST_GREP_ARGV) ?? new Set();
+    expect(applyBaseline(later, captured, false)).toEqual({
+      ok: false,
+      baselined: 1,
+      newKeys: ['src/init.ts:no-var:prefer const or let'],
+    });
   });
 });
 

@@ -21,6 +21,7 @@ import { isAvailableUnder } from '../pm/index.js';
 import { parseToolJson } from '../tool-json.js';
 import type { RunContext } from './context.js';
 import { formatStatusLine, skippedEntry, writeLine } from './report.js';
+import { runtimeArgs } from './spawn.js';
 import type { CheckRun, SummaryCheck } from './types.js';
 
 /**
@@ -101,17 +102,18 @@ function couldNotVerifyReason(outcome: CheckOutcome): string | null {
  * Baseline-aware verdict for one slot's outcome. An adapter with a registered
  * report verdict (fallow — keyed on its name, see `reportVerdict`) derives
  * pass/fail from the parsed report, since its exit code doesn't reliably gate;
- * everything else masks the adapter's fingerprint. `observed` is non-null only
+ * everything else masks the adapter's fingerprint, keyed under the argv the
+ * check ran with (`changed` adds its `changedArgs`). `observed` is non-null only
  * when the run's findings could be read — the ratchet must never prune from an
  * unreadable run.
  */
-function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string): MaskResult {
+function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, changed: boolean): MaskResult {
   const verdict = reportVerdict(adapter.name);
   if (verdict) {
     const v = verdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
-  const current = baseline ? fingerprint(adapter.name, outcome.stdout) : null;
+  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, changed)]) : null;
   if (baseline && current !== null) {
     const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
@@ -192,7 +194,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `.check/<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot);
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, ctx.changed);
   const entry: SummaryCheck = {
     name: r.slot,
     adapter: adapter.name,

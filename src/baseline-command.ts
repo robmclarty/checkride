@@ -77,9 +77,10 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   };
   const result = await runChecks(runOptions);
 
+  // A capture run is never `--changed`, so each check ran its declared args.
   const slots: Record<string, string[]> = {};
   for (const run of result.runs) {
-    const keys = fingerprint(run.adapter.name, run.outcome.stdout);
+    const keys = fingerprint(run.adapter.name, run.outcome.stdout, [run.adapter.command, ...run.adapter.args]);
     if (keys === null) continue;
     slots[run.slot] = [...keys].toSorted();
   }

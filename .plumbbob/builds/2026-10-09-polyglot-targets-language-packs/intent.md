@@ -482,7 +482,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
      `src/__tests__/cli.test.ts`, `test/contract/flags.contract.test.ts`, `docs/contract.md`,
      `docs/cheatsheet.md`, `CHANGELOG.md`
    - model: sonnet (a small flag with precise rules)
-3. [ ] feat(baseline): add baseline diff against a git ref, **done when:** `checkride baseline diff [<ref>] [--json]` reads `<ref>:checkride.baseline.json` through git (default `HEAD`), diffs it against the working-tree file with `diffBaselines`, and prints added and removed keys per check, or R7.3's JSON; a missing file on either side reads as empty (F30); a bad ref exits 2; `baseline.contract.test.ts` pins the JSON shape
+3. [x] feat(baseline): add baseline diff against a git ref, **done when:** `checkride baseline diff [<ref>] [--json]` reads `<ref>:checkride.baseline.json` through git (default `HEAD`), diffs it against the working-tree file with `diffBaselines`, and prints added and removed keys per check, or R7.3's JSON; a missing file on either side reads as empty (F30); a bad ref exits 2; `baseline.contract.test.ts` pins the JSON shape
    - seam: `src/baseline-command.ts`, `src/baseline/history.ts`, `src/cli.ts`,
      `src/__tests__/baseline.test.ts`, `test/contract/baseline.contract.test.ts`,
      `docs/contract.md`, `docs/tools.md`, `CHANGELOG.md`
