@@ -50,6 +50,8 @@
         "exit_code": { "type": ["integer", "null"], "description": "The tool's exit code; -1 for spawn failure or timeout; null when skipped." },
         "duration_ms": { "type": "number", "description": "Wall-clock duration in milliseconds (0 when skipped)." },
         "output_file": { "type": ["string", "null"], "description": "The .check/ file holding the tool's raw JSON output, when it emits JSON on stdout." },
+        "origin": { "enum": ["config", "detected", "built-in", "custom"], "description": "Present exactly when adapter is not null: why the check is in the run. config when checkride.config.json (presets included) names the slot, detected when a detection signal chose the adapter, built-in when detection chose an adapter that needs no signal, custom for a config-only custom check." },
+        "detected_by": { "type": "string", "description": "Present when origin is detected: the signal that chose the adapter, as the matched detect file, package.json: <dep> or package.json: scripts.<name>." },
         "baselined": { "type": "integer", "minimum": 1, "description": "Present only when a committed baseline masked diagnostics: how many current findings are grandfathered." }
       }
     }

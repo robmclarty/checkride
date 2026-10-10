@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 5 — docs(contract): list every summary field and hold the list with a test
+**Current step:** 6 — feat(report): record why each check runs as origin and detected_by
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -27,7 +27,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 2. feat(cli): read the config from a path with --config
 - ☑ 3. feat(baseline): add baseline diff against a git ref
 - ☑ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
-- ☐ 5. docs(contract): list every summary field and hold the list with a test
+- ☑ 5. docs(contract): list every summary field and hold the list with a test
 - ☐ 6. feat(report): record why each check runs as origin and detected_by
 - ☐ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
 - ☐ 8. feat(summary): record the run's selection and git state
@@ -380,3 +380,44 @@ folder, so it rides the branch into the PR.)*
   **5.** C1 is bent on purpose
 
   C1 (additive-contract) asks every contract change to be additive. This one narrows which findings are keyed, though key strings, the file shape and `schema_version` don't change. It ships as D27 and the step-48 golden ("step 4's deliberate change") expect: older baselines keep masking because the same findings now give a subset of their keys, and the next full run prunes the warning keys. CHANGELOG lists it under Fixed, and under Contract as "Narrowed", with the one-time baseline diff called out.
+
+- 2026-10-10 — step 5 checkpointed · 2a1110466 — docs(contract): list every summary field and hold the list with a test (7m)
+
+  **Summary**: `docs/contract.md` now lists all six top-level and ten per-check fields of `summary.json`, each with its type and when it's present. The summary contract test fails if either list stops matching the schema's properties, or if the "always" rows stop matching the schema's required fields. `pnpm check` and the whole `pnpm test:e2e` (50 tests) are green.
+
+  1. Two field tables replace the doc's one-line nod to optional fields
+  2. The test reads the doc's tables and checks them against the schema both ways
+  3. Both directions were proven red before going green
+  4. No CHANGELOG line, as the seam planned
+
+  **Readout**: Step 5 - docs(contract): list every summary field and hold the list with a test
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         held: 2 of 2 declared, no strays
+  diff         +85 -3 across 2 files
+  spent        7 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ● Plumb
+
+  **Recommendation**: Approve and checkpoint as planned. The diff is a doc table plus a doc-vs-schema check that's been proven red in both directions, and it closes Phase 1 with `pnpm test:e2e` green per D52 (e2e-cadence).
+
+  **1.** Two field tables replace the doc's one-line nod to optional fields
+
+  The `.check/summary.json` section gains a **Top-level fields** and a **Per-check fields** table, laid out like R8.1 and R8.2 (Field, Type, Present when), so steps 6, 8 and 9 can add their rows in the same format. They sit as bold lead-ins, not `###` headings, so the bold paragraphs after them (self-skip, array order, raw output) stay in the flat section they were in. Every presence rule comes from the code, not the schema's descriptions: `reason` appears only with `skipped` (`skippedEntry` is the only writer; a could-not-verify reason goes to stderr, never the summary), `skipped` is only ever `true`, `adapter` is `null` only when nothing resolved (a skip under `--skip` or an unavailable PM still names its adapter), and a custom check with no `name` reports `custom:<key>`. `adapter`, the field #7's follow-up comment found missing, now has a row. The old "Optional per-check fields ... absence is part of the shape" line became the lead-in paragraph, which says a field that isn't "always" is left out, never written as `null` or `false`.
+
+  **2.** The test reads the doc's tables and checks them against the schema both ways
+
+  `fieldTable(lead)` finds the table after `**Top-level fields.**` or `**Per-check fields.**` and takes every backticked name in each row's first cell, plus that row's last cell. That way a multi-name row like R8.1's `run.only`, `run.skip`, `run.include` parses when step 8 adds it. Two assertions per table: the names equal `Object.keys(properties)` (duplicates fail too, since the sorted arrays won't match), and the rows starting with `always` equal `required`. The second assertion goes a little past the done-when's wording. I added it because "with its presence rule" is half the done-when, and a row claiming "always" for an optional field is exactly the kind of misreading D19 exists to stop. The schema is now parsed once and fed to both ajv and the tables.
+
+  **3.** Both directions were proven red before going green
+
+  I deleted the `baselined` row: the per-check names test failed with `- "baselined"`. I prefixed `skipped`'s rule with "always": the per-check presence test failed with `+ "skipped"`. Then I restored the doc from a copy. The diff contains only the intended edits.
+
+  **4.** No CHANGELOG line, as the seam planned
+
+  No field, flag or behavior changed, so C11 (docs-in-step) and C1 (additive-contract) ask for nothing under **Contract**. The doc and its test still moved together. #7's reporter might like a line under **Unreleased** saying the field list exists. That would go outside the seam, so I left it for you to decide.

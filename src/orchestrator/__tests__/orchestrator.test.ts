@@ -14,8 +14,9 @@ import type { ResolvedCheck } from '../../config.js';
 import type { PackageManager } from '../../pm/index.js';
 import { detectPackageManager } from '../../pm/index.js';
 import { fixInvocation } from '../fix.js';
-import type { CheckRunner, Out, RunFlags, Summary } from '../index.js';
+import type { CheckRunner, Out, RunFlags, Summary, SummaryCheck } from '../index.js';
 import { runChecks, runFix, selectChecks } from '../index.js';
+import { formatStatusLine } from '../report.js';
 import { defaultConcurrency, missingExemplarsOutcome, missingToolOutcome, runtimeArgs } from '../spawn.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
@@ -837,6 +838,7 @@ describe('runChecks (a custom check skipping itself)', () => {
       exit_code: null,
       duration_ms: 0,
       output_file: null,
+      origin: 'custom',
     });
     expect(result.summary.checks_run).toBe(1);
     expect(result).toMatchObject({ ok: true, exitCode: 0 });
@@ -899,6 +901,73 @@ describe('runChecks (a custom check skipping itself)', () => {
       json: true, stdout: sink().out, stderr: sink().out,
     });
     expect(result.summary.checks[0]).toMatchObject({ skipped: true, ok: true, reason: 'needs a GPU (exit 77)' });
+  });
+});
+
+describe('provenance in the report (S21)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-provenance-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('the status line ends with the tag for each origin, and no tag without one', () => {
+    const entry: SummaryCheck = {
+      name: 'lint', adapter: 'oxlint', description: 'Lint', ok: true, exit_code: 0, duration_ms: 12, output_file: null,
+    };
+    const variants: SummaryCheck[] = [
+      { ...entry, origin: 'config' },
+      { ...entry, origin: 'detected', detected_by: '.oxlintrc.json' },
+      { ...entry, origin: 'detected', detected_by: 'package.json: oxlint' },
+      { ...entry, origin: 'detected', detected_by: 'package.json: scripts.build' },
+      { ...entry, origin: 'built-in' },
+      { ...entry, origin: 'custom', ok: false },
+      entry,
+    ];
+    expect(variants.map((c) => formatStatusLine(c, 8))).toEqual([
+      '  ✔ lint         12ms  Lint  [config]',
+      '  ✔ lint         12ms  Lint  [detected: .oxlintrc.json]',
+      '  ✔ lint         12ms  Lint  [detected: package.json: oxlint]',
+      '  ✔ lint         12ms  Lint  [detected: package.json: scripts.build]',
+      '  ✔ lint         12ms  Lint  [built-in]',
+      '  ✘ lint         12ms  Lint  [custom]',
+      '  ✔ lint         12ms  Lint',
+    ]);
+  });
+
+  test('a run records origin on every check with an adapter, ran or sat out, and none on an unresolved one', async () => {
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir,
+      slots: [{ name: 'types' }, { name: 'lint' }, { name: 'docs' }, { name: 'links' }],
+      adapters: [
+        fakeAdapter({ name: 'tsc', slot: 'types', detect: ['tsconfig.json'] }),
+        fakeAdapter({ name: 'oxlint', slot: 'lint', detect: ['.oxlintrc.json'] }),
+        fakeAdapter({ name: 'markdownlint-cli2', slot: 'docs', detect: ['.markdownlint.json'] }),
+        fakeAdapter({ name: 'links', slot: 'links' }),
+      ],
+      config: { checks: { lint: 'oxlint', licenses: { command: 'node', skipExitCode: 77 }, probe: { command: 'node' } } },
+      runner: exitRunner({ licenses: 77 }, 'no docker daemon here\n'),
+      skip: ['types'],
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    const provenance = Object.fromEntries(
+      result.summary.checks.map((c) => [c.name, { origin: c.origin, detected_by: c.detected_by }]),
+    );
+    expect(provenance).toEqual({
+      // Narrowed away by --skip, it still says what would have run it.
+      types: { origin: 'detected', detected_by: 'tsconfig.json' },
+      lint: { origin: 'config', detected_by: undefined },
+      docs: { origin: undefined, detected_by: undefined },
+      links: { origin: 'built-in', detected_by: undefined },
+      licenses: { origin: 'custom', detected_by: undefined },
+      probe: { origin: 'custom', detected_by: undefined },
+    });
+    const lines = std.lines.join('').split('\n');
+    expect(lines.find((l) => l.includes('✔ lint'))).toMatch(/ {2}\[config\]$/);
+    expect(lines.find((l) => l.includes('✔ links'))).toMatch(/ {2}\[built-in\]$/);
+    expect(lines.find((l) => l.includes('✔ probe'))).toMatch(/ {2}\[custom\]$/);
+    // A skip line explains itself already and gets no tag.
+    expect(lines.filter((l) => l.includes('○ ')).every((l) => !l.includes('['))).toBe(true);
   });
 });
 

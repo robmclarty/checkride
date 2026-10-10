@@ -205,6 +205,14 @@ export function configSchemaUrl(version: string): string {
   return `https://raw.githubusercontent.com/robmclarty/checkride/v${version}/schema/checkride.config.schema.json`;
 }
 
+/**
+ * Why a check is in the run: `config` when `checks` names its slot (presets
+ * folded in by `extends` included), `detected` when a detection signal chose
+ * its adapter, `built-in` when detection chose an adapter that needs no signal,
+ * and `custom` for a config-only custom check keyed by a non-catalogue name.
+ */
+export type CheckOrigin = 'config' | 'detected' | 'built-in' | 'custom';
+
 /** A slot resolved to a concrete adapter, or marked skipped with a reason. */
 export type ResolvedCheck = {
   slot: string;
@@ -226,9 +234,19 @@ export type ResolvedCheck = {
    */
   explicit?: boolean;
   /**
-   * When detection (not config) chose the adapter, the signal that matched — a
-   * `detect` file, `scripts.<name>` (`detectScript`), or `dependency '<pkg>'`
-   * (`detectDeps`). Surfaced by `doctor`; absent on config-selected or skipped checks.
+   * Why the check is in the run. Set on every check resolution gave an adapter,
+   * and absent on a skipped one (and on hand-built resolved checks).
+   */
+  origin?: CheckOrigin;
+  /**
+   * With `origin: 'detected'`, the signal that matched, in the form the summary
+   * records as `detected_by`: the `detect` file, `package.json: scripts.<name>`
+   * (`detectScript`) or `package.json: <pkg>` (`detectDeps`).
+   */
+  detectedBy?: string;
+  /**
+   * The same signal as {@link detectedBy}, in its older form: a `detect` file,
+   * `scripts.<name>` or `dependency '<pkg>'`. Kept for callers that read it.
    */
   detectedVia?: string;
   /**
@@ -545,25 +563,35 @@ function hasAnySignal(a: Adapter): boolean {
   return a.detect.length > 0 || a.detectScript !== undefined || (a.detectDeps?.length ?? 0) > 0;
 }
 
-/** The `detectDeps` package that appears in the manifest, as a named signal, or `null`. */
-function depSignal(a: Adapter, manifest: Manifest): string | null {
+/**
+ * What made an adapter's detection fire: a named signal, given in the summary's
+ * form (`by`) and the older {@link ResolvedCheck.detectedVia} form (`via`), or
+ * `null` for an adapter that declares no signal and so is always available.
+ */
+type Signal = { by: string; via: string } | null;
+
+/** The `detectDeps` package that appears in the manifest, as a named signal, or `undefined`. */
+function depSignal(a: Adapter, manifest: Manifest): Signal | undefined {
   const dep = a.detectDeps?.find((d) => manifest.deps.has(d));
-  return dep !== undefined ? `dependency '${dep}'` : null;
+  return dep !== undefined ? { by: `package.json: ${dep}`, via: `dependency '${dep}'` } : undefined;
 }
 
 /**
- * Which of an adapter's detection signals fires — named for the doctor report —
- * or `null` when none does. Precedence: a present `detect` file, then
- * `detectScript` (`scripts.<name>`), then a `detectDeps` package in
- * dependencies/devDependencies. An adapter with no signals at all (empty
- * `detect`, no `detectScript`/`detectDeps` — a built-in, `publint`, `attw`,
- * `pnpm audit`) is always available.
+ * Which of an adapter's detection signals fires, or `undefined` when none does.
+ * Precedence: a present `detect` file, then `detectScript` (`scripts.<name>`),
+ * then a `detectDeps` package in dependencies/devDependencies. An adapter with
+ * no signals at all (empty `detect`, no `detectScript`/`detectDeps`: `links`,
+ * `pnpm audit` and the publish built-ins) is always available, which is the
+ * `null` signal.
  */
-function detectionSignal(a: Adapter, fileExists: (f: string) => boolean, manifest: Manifest): string | null {
+function detectionSignal(a: Adapter, fileExists: (f: string) => boolean, manifest: Manifest): Signal | undefined {
   const file = a.detect.find((f) => fileExists(f));
-  if (file !== undefined) return file;
-  if (a.detectScript !== undefined && manifest.scripts.has(a.detectScript)) return `scripts.${a.detectScript}`;
-  return depSignal(a, manifest) ?? (hasAnySignal(a) ? null : 'always available');
+  if (file !== undefined) return { by: file, via: file };
+  const script = a.detectScript;
+  if (script !== undefined && manifest.scripts.has(script)) {
+    return { by: `package.json: scripts.${script}`, via: `scripts.${script}` };
+  }
+  return depSignal(a, manifest) ?? (hasAnySignal(a) ? undefined : null);
 }
 
 /** First adapter for `slot` whose detection fires, plus the signal that matched (for the report). */
@@ -572,11 +600,11 @@ function detectAdapter(
   adapters: readonly Adapter[],
   fileExists: (file: string) => boolean,
   manifest: Manifest,
-): { adapter: Adapter; via: string } | null {
+): { adapter: Adapter; signal: Signal } | null {
   for (const a of adapters) {
     if (a.slot !== slot) continue;
-    const via = detectionSignal(a, fileExists, manifest);
-    if (via !== null) return { adapter: a, via };
+    const signal = detectionSignal(a, fileExists, manifest);
+    if (signal !== undefined) return { adapter: a, signal };
   }
   return null;
 }
@@ -601,10 +629,10 @@ function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
  */
 function standDownIfScriptless(check: ResolvedCheck, manifest: Manifest): ResolvedCheck {
   const script = check.adapter?.detectScript;
-  if (script !== undefined && !manifest.scripts.has(script)) {
-    return { ...check, adapter: null, skip: `no '${script}' script in package.json` };
-  }
-  return check;
+  if (script === undefined || manifest.scripts.has(script)) return check;
+  // A check with no adapter isn't in the run, so it says nothing about why it would be.
+  const { origin: _origin, detectedBy: _by, detectedVia: _via, ...rest } = check;
+  return { ...rest, adapter: null, skip: `no '${script}' script in package.json` };
 }
 
 /** The optional adapter fields a config entry may carry onto its adapter. */
@@ -688,7 +716,19 @@ function effectiveOrder(slot: Slot, adapter: Adapter | null): Order {
   return adapter?.order ?? slot.order ?? 'any';
 }
 
-function active(slot: Slot, adapter: Adapter, explicit = false, detectedVia?: string): ResolvedCheck {
+/** Why resolution picked an adapter: the origin, and with `detected` the signal that matched. */
+type Provenance = Pick<ResolvedCheck, 'origin' | 'detectedBy' | 'detectedVia'>;
+
+const FROM_CONFIG: Provenance = { origin: 'config' };
+
+/** The provenance of a detected adapter: the signal that fired, or `built-in` when it needs none. */
+function fromDetection(signal: Signal): Provenance {
+  return signal === null
+    ? { origin: 'built-in' }
+    : { origin: 'detected', detectedBy: signal.by, detectedVia: signal.via };
+}
+
+function active(slot: Slot, adapter: Adapter, provenance: Provenance, explicit = false): ResolvedCheck {
   return {
     slot: slot.name,
     optIn: slot.optIn ?? false,
@@ -696,7 +736,7 @@ function active(slot: Slot, adapter: Adapter, explicit = false, detectedVia?: st
     skip: null,
     order: effectiveOrder(slot, adapter),
     explicit,
-    ...(detectedVia !== undefined ? { detectedVia } : {}),
+    ...provenance,
   };
 }
 
@@ -729,11 +769,12 @@ function resolveObjectEntry(
     }
     const base = byName(entry.use, adapters, slot.name);
     return base
-      ? active(slot, applyOverrides(base, entry), explicit)
+      ? active(slot, applyOverrides(base, entry), FROM_CONFIG, explicit)
       : skipped(slot, `configured adapter '${entry.use}' is not in the registry`, explicit);
   }
   if ('command' in entry) {
-    return withSkipExitCode(active(slot, customAdapter(slot.name, entry), explicit), readSkipExitCode(entry, slot.name));
+    const check = active(slot, customAdapter(slot.name, entry), FROM_CONFIG, explicit);
+    return withSkipExitCode(check, readSkipExitCode(entry, slot.name));
   }
   return null;
 }
@@ -749,7 +790,7 @@ function resolveConfigOrDetect(
   if (typeof entry === 'string') {
     const adapter = byName(entry, adapters, slot.name);
     return adapter
-      ? active(slot, adapter, explicit)
+      ? active(slot, adapter, FROM_CONFIG, explicit)
       : skipped(slot, `configured adapter '${entry}' is not in the registry`, explicit);
   }
   if (entry && typeof entry === 'object') {
@@ -758,10 +799,7 @@ function resolveConfigOrDetect(
   }
   const detected = detectAdapter(slot.name, adapters, fileExists, manifest);
   if (!detected) return skipped(slot, undetectedReason(slot.name, adapters), explicit);
-  // Record only a concrete signal (file/script/dep); an always-available adapter
-  // matched nothing in particular, so it carries no detection provenance.
-  const via = detected.via === 'always available' ? undefined : detected.via;
-  return active(slot, detected.adapter, false, via);
+  return active(slot, detected.adapter, fromDetection(detected.signal));
 }
 
 function resolveOne(
@@ -807,8 +845,9 @@ function customCheckEntry(
     const order = readOrder(entry, name);
     return skipped(order !== undefined ? { name, order } : { name }, 'no detect file present');
   }
+  const check = active({ name }, customAdapter(name, entry), { origin: 'custom' });
   // A custom check with `optIn: true` is held out of the default run (full-sweep only).
-  return applyOptIn(withSkipExitCode(active({ name }, customAdapter(name, entry)), skipExitCode), entry, name);
+  return applyOptIn(withSkipExitCode(check, skipExitCode), entry, name);
 }
 
 /**

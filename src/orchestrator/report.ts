@@ -7,7 +7,7 @@
 
 import type { Adapter } from '../adapters.js';
 import { SCHEMA_VERSION } from '../adapters.js';
-import type { ResolvedCheck } from '../config.js';
+import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { selectChecks } from './select.js';
 import type { Out, RunFlags, Summary, SummaryCheck } from './types.js';
 
@@ -25,11 +25,31 @@ export function nameWidth(selected: readonly ResolvedCheck[]): number {
   return selected.reduce((n, r) => Math.max(n, r.slot.length), 8);
 }
 
+/**
+ * Why a check is in the run, as the bracket tag its status line ends with:
+ * `[config]`, `[detected: <signal>]`, `[built-in]` or `[custom]`, and `''` for a
+ * check with no origin. `doctor` renders its rows with the same rule.
+ */
+export function provenanceTag(origin: CheckOrigin | undefined, detectedBy: string | undefined): string {
+  if (origin === undefined) return '';
+  const signal = origin === 'detected' && detectedBy !== undefined ? `: ${detectedBy}` : '';
+  return `[${origin}${signal}]`;
+}
+
+/** A resolved check's provenance as the summary records it, with nothing for a check that has none. */
+export function provenanceFields(resolved: ResolvedCheck): Pick<SummaryCheck, 'origin' | 'detected_by'> {
+  return {
+    ...(resolved.origin !== undefined ? { origin: resolved.origin } : {}),
+    ...(resolved.detectedBy !== undefined ? { detected_by: resolved.detectedBy } : {}),
+  };
+}
+
 export function formatStatusLine(check: SummaryCheck, width: number): string {
   const mark = check.ok ? '✔' : '✘';
   const name = check.name.padEnd(width);
   const duration = `${check.duration_ms}ms`.padStart(8);
-  return `  ${mark} ${name} ${duration}  ${check.description}`;
+  const tag = provenanceTag(check.origin, check.detected_by);
+  return `  ${mark} ${name} ${duration}  ${check.description}${tag ? `  ${tag}` : ''}`;
 }
 
 export function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
@@ -45,6 +65,9 @@ export function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
     // A skipped check ran nothing and wrote nothing; naming its adapter's
     // declared output file would point at whatever an earlier run left there.
     output_file: null,
+    // An adapter that sat out this run (narrowed away, unavailable, or a
+    // self-skip) still says why it would have run.
+    ...provenanceFields(resolved),
   };
 }
 

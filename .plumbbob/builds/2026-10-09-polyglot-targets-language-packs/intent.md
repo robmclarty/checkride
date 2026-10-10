@@ -491,7 +491,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
    - seam: `src/baseline/fingerprint.ts`, `src/baseline-command.ts`, `src/orchestrator/run.ts`,
      `src/__tests__/baseline-fingerprint.test.ts`, `src/__tests__/fixtures/`, `CHANGELOG.md`
    - model: opus (gating depends on argv, and the false-green direction must stay closed)
-5. [ ] docs(contract): list every summary field and hold the list with a test, **done when:** `docs/contract.md` names every top-level and per-check field of `summary.json` with its presence rule, and `summary.contract.test.ts` fails when that list and the JSON Schema's properties differ; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+5. [x] docs(contract): list every summary field and hold the list with a test, **done when:** `docs/contract.md` names every top-level and per-check field of `summary.json` with its presence rule, and `summary.contract.test.ts` fails when that list and the JSON Schema's properties differ; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
    - seam: `docs/contract.md`, `test/contract/summary.contract.test.ts`
    - model: sonnet (a doc plus one assertion)
 

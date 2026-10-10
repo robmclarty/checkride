@@ -46,6 +46,15 @@ describe('stream discipline', () => {
     expect(stderr.text()).toContain('all checks passed');
   });
 
+  test('the status line on stderr ends with why the check runs; stdout stays empty', async () => {
+    await configWithExit(0);
+    const stdout = capture();
+    const stderr = capture();
+    await runCli([], { cwd: dir, stdout, stderr });
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toMatch(/✔ probe .* {2}\[custom\]\n/);
+  });
+
   test('a default failing run still keeps stdout empty', async () => {
     await configWithExit(1);
     const stdout = capture();

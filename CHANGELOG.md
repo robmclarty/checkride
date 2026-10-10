@@ -36,6 +36,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   missing git, or a file it can't parse exits 2. `checkride baseline` itself
   now rejects a stray argument instead of ignoring it, so a misplaced `diff`
   can't rewrite the file (#6).
+- **Every check says why it runs.** Each status line now ends with a tag:
+  `[config]` when `checkride.config.json` (or a preset it extends) names the
+  slot, `[detected: <file>]` when detection picked the tool, `[built-in]` for
+  a check that needs no tool, like `links`, and `[custom]` for a custom check.
+  The summary records the same fact as `origin`, with `detected_by` naming the
+  signal: the detect file, `package.json: <dep>` or
+  `package.json: scripts.<name>`. `checkride doctor` ends its slot rows with
+  the same tag, which replaces the "Detected via" clause in its hints. A
+  repo that runs eight checks while its config names three can now see where
+  the other five came from (#6).
 
 ### Fixed
 
@@ -64,6 +74,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Additive: the subcommand `baseline diff [<ref>] [--json]`, whose JSON
   carries `ref`, `sha` (the full sha), `added`, `removed`, `added_count` and
   `removed_count`, held by `baseline.contract.test.ts`.
+- Additive: per-check summary fields `origin` (`config`, `detected`,
+  `built-in` or `custom`, present exactly when `adapter` isn't `null`) and
+  `detected_by` (present when `origin` is `detected`), in the JSON Schema and
+  the contract doc's field table. The exported `ResolvedCheck` type gains
+  optional `origin` and `detectedBy`, `SummaryCheck` gains `origin` and
+  `detected_by`, and `DoctorCheck` gains `origin` and `detectedBy`.
+  `ResolvedCheck.detectedVia` keeps its values.
 - Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
   fail the check under its argv, and `docs/contract.md` and
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline

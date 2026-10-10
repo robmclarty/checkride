@@ -13,6 +13,7 @@
 
 export { resolveCommonOptions } from './context.js';
 export { runFix } from './fix.js';
+export { provenanceTag } from './report.js';
 export { runChecks } from './run.js';
 export { selectChecks } from './select.js';
 export { DEFAULT_TIMEOUT_SECONDS, killLiveChecks } from './spawn.js';

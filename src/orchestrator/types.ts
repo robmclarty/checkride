@@ -6,7 +6,7 @@
 
 import type { Adapter, Slot } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
-import type { CheckrideConfig, ResolvedCheck } from '../config.js';
+import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from '../config.js';
 import type { CheckOutcome } from '../links.js';
 import type { PackageManager } from '../pm/index.js';
 
@@ -51,6 +51,16 @@ export type SummaryCheck = {
   exit_code: number | null;
   duration_ms: number;
   output_file: string | null;
+  /**
+   * Why the check is in the run (see {@link CheckOrigin}). Present exactly when
+   * `adapter` isn't null. Additive field; `schema_version` holds.
+   */
+  origin?: CheckOrigin;
+  /**
+   * With `origin: 'detected'`, the signal that chose the adapter: the detect
+   * file, `package.json: <dep>` or `package.json: scripts.<name>`.
+   */
+  detected_by?: string;
   /**
    * Present only when a baseline masked one or more of this slot's diagnostics:
    * the count of current findings grandfathered by `checkride.baseline.json`.

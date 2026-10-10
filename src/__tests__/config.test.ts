@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { Adapter } from '../adapters.js';
-import type { CheckrideConfig, CustomCheck, SlotConfig, UseConfig } from '../config.js';
+import type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from '../config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 
 const never = (): boolean => false;
@@ -134,6 +134,81 @@ describe('detection widening (detectScript / detectDeps — D18)', () => {
     expect(r.adapter?.name).toBe('links');
     // "always available" is not surfaced as a detection signal.
     expect(r.detectedVia).toBeUndefined();
+  });
+});
+
+/** The provenance fields of one resolved check. */
+function provenance(r: ResolvedCheck): { origin: ResolvedCheck['origin']; detectedBy: string | undefined } {
+  return { origin: r.origin, detectedBy: r.detectedBy };
+}
+
+describe('provenance (origin and detectedBy per resolution arm, S21)', () => {
+  test('a detect file names itself', () => {
+    const r = resolveSlot('lint', null, present('.oxlintrc.json'), manifest({ deps: ['oxlint'] }));
+    expect(provenance(r)).toEqual({ origin: 'detected', detectedBy: '.oxlintrc.json' });
+  });
+
+  test('a dependency signal names package.json and the dep', () => {
+    const r = resolveSlot('lint', null, never, manifest({ deps: ['oxlint'] }));
+    expect(provenance(r)).toEqual({ origin: 'detected', detectedBy: 'package.json: oxlint' });
+  });
+
+  test('a script signal names package.json and the script', () => {
+    const r = resolveSlot('build', null, never, manifest({ scripts: ['build'] }));
+    expect(provenance(r)).toEqual({ origin: 'detected', detectedBy: 'package.json: scripts.build' });
+  });
+
+  test('a signal-free adapter is built-in, with no signal to name', () => {
+    const r = resolveSlot('links', null, never);
+    expect(provenance(r)).toEqual({ origin: 'built-in', detectedBy: undefined });
+  });
+
+  test('every config arm is config: a name, a { use } entry, a { command } entry and an opt-in-only entry', () => {
+    const entries: Record<string, SlotConfig> = {
+      name: 'oxlint',
+      use: { use: 'oxlint', args: ['lint'] },
+      command: { command: 'node', args: ['lint.js'] },
+      configuredNotOptedIn: { use: 'oxlint', optIn: true },
+    };
+    for (const [arm, entry] of Object.entries(entries)) {
+      // A detect file is present too, so config has to beat detection to read `config`.
+      const r = resolveSlot('lint', { checks: { lint: entry } }, present('.oxlintrc.json'));
+      expect(provenance(r), arm).toEqual({ origin: 'config', detectedBy: undefined });
+    }
+  });
+
+  test('a config-only custom check is custom', () => {
+    const resolved = resolveChecks({
+      slots: [],
+      adapters: ADAPTERS,
+      config: { checks: { licenses: { command: 'node', args: ['licenses.js'] } } },
+      fileExists: never,
+    });
+    expect(resolved.map((r) => [r.slot, r.origin])).toEqual([['licenses', 'custom']]);
+  });
+
+  test('a check that resolved to no adapter carries no provenance', () => {
+    const skips = [
+      resolveSlot('lint', null, never),
+      resolveSlot('lint', { checks: { lint: false } }, present('.oxlintrc.json')),
+      resolveSlot('lint', { checks: { lint: 'nope' } }, never),
+      // Named in config, then stood down for want of its script.
+      resolveSlot('build', { checks: { build: 'build' } }, never, manifest({ scripts: [] })),
+    ];
+    for (const r of skips) {
+      expect(r.adapter).toBeNull();
+      expect(r).not.toHaveProperty('origin');
+      expect(r).not.toHaveProperty('detectedBy');
+      expect(r).not.toHaveProperty('detectedVia');
+    }
+    const [custom] = resolveChecks({
+      slots: [],
+      adapters: ADAPTERS,
+      config: { checks: { gated: { command: 'node', detect: ['gated.json'] } } },
+      fileExists: never,
+    });
+    expect(custom?.skip).toBe('no detect file present');
+    expect(custom).not.toHaveProperty('origin');
   });
 });
 

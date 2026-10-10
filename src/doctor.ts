@@ -28,12 +28,12 @@ import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
-import type { CheckrideConfig, ResolvedCheck } from './config.js';
+import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator/index.js';
-import { resolveCommonOptions, selectChecks } from './orchestrator/index.js';
+import { provenanceTag, resolveCommonOptions, selectChecks } from './orchestrator/index.js';
 import type { PackageManager } from './pm/index.js';
 import {
   detectPackageManager,
@@ -63,6 +63,10 @@ export type DoctorCheck = {
   adapter?: string | null;
   /** Slot enablement (category `'tool'` rows only). */
   enablement?: SlotEnablement;
+  /** Why the slot would run, as the run's summary records it (rows whose adapter can run only). */
+  origin?: CheckOrigin;
+  /** With `origin: 'detected'`, the signal that chose the adapter (the summary's `detected_by`). */
+  detectedBy?: string;
 };
 
 export type DoctorReport = {
@@ -422,11 +426,6 @@ function offRow(
   return null;
 }
 
-/** The detection-provenance clause for a tool row — concrete signals only (not "always available"). */
-function detectedClause(r: ResolvedCheck): string {
-  return r.detectedVia && r.detectedVia !== 'always available' ? ` Detected via ${r.detectedVia}.` : '';
-}
-
 /**
  * What each publish built-in slot inspects — surfaced as a doctor note so an
  * always-available opt-in slot explains what it would check.
@@ -458,9 +457,13 @@ function toolRow(
   const lead = isDefault
     ? probe.hint
     : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
-  const body = `${lead ?? ''}${detectedClause(r)}${inspectsClause(r.slot)}`.trim();
+  const body = `${lead ?? ''}${inspectsClause(r.slot)}`.trim();
   const hint = body.length > 0 ? body : null;
-  return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint };
+  const provenance = {
+    ...(r.origin !== undefined ? { origin: r.origin } : {}),
+    ...(r.detectedBy !== undefined ? { detectedBy: r.detectedBy } : {}),
+  };
+  return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint, ...provenance };
 }
 
 /**
@@ -623,7 +626,7 @@ const GROUPS: { key: DoctorCheck['category']; label: string }[] = [
 ];
 
 /** The padding widths for a tool table, measured from the rows it will hold. */
-type ToolWidths = { slot: number; adapter: number; enablement: number };
+type ToolWidths = { slot: number; adapter: number; enablement: number; note: number };
 
 /**
  * Size each column to its widest row, never below the historical minimum.
@@ -640,14 +643,18 @@ function toolWidths(items: readonly DoctorCheck[]): ToolWidths {
     slot: widest((c) => c.slot ?? c.name, 10),
     adapter: widest((c) => c.adapter ?? '—', 18),
     enablement: widest((c) => c.enablement ?? '', 12),
+    note: widest(slotNote, 0),
   };
 }
 
+/** One slot row, ending with the provenance tag a run prints for the same check. */
 function renderToolRow(c: DoctorCheck, w: ToolWidths, out: Out): void {
   const slot = (c.slot ?? c.name).padEnd(w.slot);
   const adapter = (c.adapter ?? '—').padEnd(w.adapter);
   const enablement = (c.enablement ?? '').padEnd(w.enablement);
-  out.write(`  ${slotMark(c)} ${slot} ${adapter} ${enablement} ${slotNote(c)}\n`);
+  const tag = provenanceTag(c.origin, c.detectedBy);
+  const note = tag ? `${slotNote(c).padEnd(w.note)}  ${tag}` : slotNote(c);
+  out.write(`  ${slotMark(c)} ${slot} ${adapter} ${enablement} ${note}\n`);
   if (c.hint) out.write(`      -> ${c.hint}\n`);
 }
 

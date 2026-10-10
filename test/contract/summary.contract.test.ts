@@ -126,6 +126,34 @@ describe('summary.json shape', () => {
     expect(summary['ok']).toBe(false);
   });
 
+  /**
+   * Contract: `origin` is present exactly when `adapter` isn't null, and
+   * `detected_by` exactly when `origin` is `detected` (S21).
+   */
+  test('each check records why it runs, and a check with no adapter records nothing', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, '.markdownlint-cli2.jsonc'), '{}');
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        struct: { command: 'node', args: ['-e', 'process.exit(0)'] },
+        probe: { command: 'node', args: ['-e', 'process.exit(0)'] },
+      },
+    }));
+    // Every slot but these sits out unresolved; docs is detected and left out by
+    // --skip, so it never needs its tool installed.
+    const summary = await runAndValidate(['--skip', 'docs']);
+    const checks = summary['checks'] as { name: string; adapter: string | null; origin?: string; detected_by?: string }[];
+    const byName = new Map(checks.map((c) => [c.name, c]));
+    expect(byName.get('struct')).toMatchObject({ origin: 'config' });
+    expect(byName.get('probe')).toMatchObject({ origin: 'custom' });
+    expect(byName.get('links')).toMatchObject({ origin: 'built-in' });
+    expect(byName.get('docs')).toMatchObject({ skipped: true, origin: 'detected', detected_by: '.markdownlint-cli2.jsonc' });
+    for (const c of checks) {
+      expect(c.origin !== undefined, c.name).toBe(c.adapter !== null);
+      expect(c.detected_by !== undefined, c.name).toBe(c.origin === 'detected');
+    }
+  });
+
   test('a vacuous (zero-run) summary validates and says so', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false } }));

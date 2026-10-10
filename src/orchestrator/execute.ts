@@ -20,7 +20,7 @@ import type { CheckOutcome } from '../links.js';
 import { isAvailableUnder } from '../pm/index.js';
 import { parseToolJson } from '../tool-json.js';
 import type { RunContext } from './context.js';
-import { formatStatusLine, skippedEntry, writeLine } from './report.js';
+import { formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
 import type { CheckRun, SummaryCheck } from './types.js';
 
@@ -203,6 +203,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
     exit_code: outcome.exit_code,
     duration_ms,
     output_file: outputFile,
+    ...provenanceFields(r),
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);

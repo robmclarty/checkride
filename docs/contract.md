@@ -61,7 +61,7 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0).
+(0.3.0), per-check `origin` and `detected_by` (0.15.0).
 
 The two tables below name every field the schema allows, each with the rule
 for when it's present. A field whose rule isn't "always" is left out
@@ -94,7 +94,21 @@ to its required ones, so a field can't reach the schema without a row here.
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON file the run wrote under `.check/`, or `null` when it wrote none |
+| `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
+| `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
+
+**Every check says why it's in the run.** `origin` is `config` when
+`checkride.config.json` names the slot, presets it `extends` included, since
+the two can't be told apart once folded. It's `detected` when no entry named
+the slot and a detection signal chose the adapter, `built-in` when detection
+chose an adapter that needs no signal (`links`, for one), and `custom` for a
+custom check keyed by a name outside the catalogue. A check that sat out
+keeps the `origin` of the adapter that would have run, so a slot `--only` left
+out, or a custom check that skipped itself, still says why it was selected.
+The status line each executed check prints on stderr ends with the same fact
+as a tag: `[config]`, `[detected: <detected_by>]`, `[built-in]` or `[custom]`,
+and `checkride doctor` ends its slot rows the same way.
 
 **A custom check can skip itself.** One that exits its declared
 `skipExitCode` records the same entry as a slot with no tool: `skipped: true`,

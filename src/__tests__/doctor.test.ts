@@ -408,8 +408,33 @@ describe('runDoctor (build detection — D18)', () => {
     });
     const slot = result.report.checks.find((c) => c.slot === 'build');
     expect(slot?.enablement).toBe('opt-in');
-    expect(slot?.hint).toContain('scripts.build');
+    expect(slot).toMatchObject({ origin: 'detected', detectedBy: 'package.json: scripts.build' });
     expect(result.ok).toBe(true);
+  });
+
+  test('a slot row ends with the tag a run prints for the same check (S21)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc --build' } }));
+    const links: Adapter = {
+      name: 'links', slot: 'links', description: 'Relative markdown links', detect: [], command: 'node', args: [],
+      outputFile: null, builtin: 'links', devDeps: {},
+    };
+    const std = sink();
+    const result = await runDoctor({
+      cwd: dir,
+      slots: [...buildSlot, { name: 'links' }, { name: 'docs' }],
+      adapters: [buildAdapter, links],
+      config: { checks: { docs: false, licenses: { command: 'node' } } },
+      env: fakeEnv(),
+      stdout: std,
+      json: false,
+    });
+    const rows = std.text().split('\n');
+    expect(rows.find((l) => l.includes(' build '))).toMatch(/ {2}\[detected: package\.json: scripts\.build\]$/);
+    expect(rows.find((l) => l.includes(' links '))).toMatch(/ {2}\[built-in\]$/);
+    expect(rows.find((l) => l.includes(' licenses '))).toMatch(/ {2}\[custom\]$/);
+    // A slot that won't run says why in its note instead, and carries no origin.
+    expect(rows.find((l) => l.includes(' docs '))).not.toContain('[');
+    expect(result.report.checks.find((c) => c.slot === 'docs')).not.toHaveProperty('origin');
   });
 
   test('an opted-in build with no build script stands down as unavailable, never failing', async () => {
@@ -443,7 +468,7 @@ describe('runDoctor (publish bundle slots — step 9)', () => {
     const bySlot = new Map(result.report.checks.filter((c) => c.category === 'tool').map((c) => [c.slot, c]));
 
     for (const slot of PUB) expect(bySlot.get(slot)?.enablement, slot).toBe('opt-in');
-    expect(bySlot.get('build')?.hint).toContain('scripts.build');
+    expect(bySlot.get('build')?.detectedBy).toBe('package.json: scripts.build');
     expect(bySlot.get('pack')?.hint).toContain('exports');
     expect(bySlot.get('smoke')?.hint).toContain('exports');
     expect(bySlot.get('snippets')?.hint).toContain('<!-- snippet: check -->');
