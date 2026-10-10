@@ -241,6 +241,13 @@ export type ResolvedCheck = {
 const CONFIG_FILE = 'checkride.config.json';
 
 /**
+ * The variable that names a config file in place of `<cwd>/checkride.config.json`,
+ * the way `--config` does (the flag wins). The CLI reads it and the gate strips
+ * it from the check it spawns; {@link loadConfig} never consults it.
+ */
+export const CONFIG_ENV = 'CHECKRIDE_CONFIG';
+
+/**
  * Recursive deep-merge with local-wins semantics: plain objects merge key by
  * key; arrays, scalars, and type mismatches from `over` replace `base` (arrays
  * are never concatenated).
@@ -483,6 +490,17 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
   return resolveConfigFile(path, [], CONFIG_FILE);
+}
+
+/**
+ * Read and resolve the config file at an explicit absolute `path` (`--config`,
+ * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
+ * relative `extends` resolve against that file, while paths inside its values
+ * stay relative to the repo being checked. The caller has already confirmed the
+ * file exists, since a named file that is missing is a usage error, not "no config".
+ */
+export function loadConfigFile(path: string): CheckrideConfig {
+  return resolveConfigFile(path, [], path);
 }
 
 /**

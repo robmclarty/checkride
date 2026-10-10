@@ -43,7 +43,7 @@ import { join } from 'node:path';
 
 import { formatDuration, readSummary, type SummaryRead } from './artifacts/index.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
-import { loadConfig } from './config.js';
+import { CONFIG_ENV, loadConfig } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
@@ -537,6 +537,18 @@ function announceAlignment(
   return withNodeBin(env, bin);
 }
 
+/**
+ * The variables a consumer uses to shape a run from outside the repo. The gate
+ * is the repo's own verdict, so the check it spawns must read the repo's config
+ * whatever a consumer left exported in the hook's environment.
+ */
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV]);
+
+/** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
+function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !CONSUMER_VARS.has(name)));
+}
+
 /** Everything a failed run needs to say what failed, and whether anything ran at all. */
 type Failure = {
   cwd: string;
@@ -789,7 +801,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   const pm = options.pm ?? detectPackageManager({ cwd });
   const profile = options.profile !== undefined ? options.profile : gateProfile(cwd);
   const alignment = alignNode(cwd, pinEnv);
-  const childEnv = announceAlignment(alignment, env, stderr);
+  const childEnv = announceAlignment(alignment, withoutConsumerVars(env), stderr);
   const startedAt = now();
   const output = recording(stderr);
   const code = await run(pm, checkArgs(pm, profile), { cwd, stderr: output, env: childEnv });

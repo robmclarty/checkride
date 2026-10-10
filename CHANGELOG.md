@@ -18,6 +18,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Until now a wrapper that couldn't run had to choose between a red that
   wasn't a finding and an exit 0 that verified nothing (#6). See
   `docs/tools.md`.
+- **Point a run at another config with `--config <path>`.** Run, `doctor`,
+  `fix` and `baseline` read the named file instead of
+  `./checkride.config.json`, and `CHECKRIDE_CONFIG` does the same when the
+  flag is absent. The file's relative `extends` resolve against the file, so a
+  base branch checked out beside the PR keeps its own presets. A named file
+  that's missing exits 2. A run whose config sits outside the repo never
+  ratchets `checkride.baseline.json`, since it doesn't speak for the repo; a
+  config inside the repo, and `checkride baseline`, write as they always have.
+  The stop gate strips `CHECKRIDE_CONFIG` from the check it runs (#7).
 
 ### Contract
 
@@ -25,6 +34,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A
   self-skip writes the existing skipped entry, with a new kind of `reason`.
+- Additive: the run flag `--config <path>` and the variable
+  `CHECKRIDE_CONFIG`, accepted by run, `doctor`, `fix` and `baseline`. The
+  exported `RunOptions` type gains an optional `configPath`, which only
+  decides whether the run may ratchet; the caller still passes `config`.
 
 ## [0.14.0] - 2026-10-09
 

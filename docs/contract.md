@@ -190,7 +190,7 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
---bail  --json  --digest  --strict  --concurrency <n>
+--bail  --json  --digest  --strict  --concurrency <n>  --config <path>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -202,6 +202,21 @@ generated script; same usage-error rule, and naming one hook in both `--hook`
 and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
 write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
 selects `claude` plus any harness the repo shows evidence of.
+
+**`--config <path>` and `CHECKRIDE_CONFIG` name the config file.** Run,
+`doctor`, `fix` and `baseline` read that file in place of
+`<cwd>/checkride.config.json`. The flag beats the variable, and an empty
+variable counts as unset. A relative path resolves against the working
+directory; the file's own relative `extends` resolve against the file, while
+paths inside its values stay relative to the repo being checked. A named file
+that doesn't exist is exit 2, never a fall back to the repo's config. A run
+whose file sits outside the repo (the directory checkride runs in) never
+ratchets and never writes `checkride.baseline.json`, because it doesn't speak
+for the repo's own gate; stderr says so when a ratchet would have pruned keys.
+A file inside the repo, and the `baseline` command wherever its file sits,
+behave as they do without the flag. `gate` takes neither: it strips
+`CHECKRIDE_CONFIG` from the check it spawns, which always reads the repo's own
+config.
 
 **`recover` rebuilds the baseline from git history and never mutates git
 state.** `checkride recover` takes `--pick <n|sha|union>`, `--exact`,

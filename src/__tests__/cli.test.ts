@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,6 +12,10 @@ function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
   return { write: (text: string) => { lines.push(text); return true; }, text: () => lines.join('') };
 }
+
+/** A config whose one custom check, `probe`, exits with `code`. */
+const probeConfig = (code: number): string =>
+  JSON.stringify({ checks: { probe: { command: process.execPath, args: ['-e', `process.exit(${code})`] } } });
 
 describe('parseCliArgs', () => {
   test('defaults to the run command with empty flags', () => {
@@ -385,4 +389,104 @@ describe('runCli fix', () => {
     expect(await runCli(['fix', '--only', 'lints'], { cwd: dir, stdout: sink(), stderr: err })).toBe(2);
     expect(err.text()).toContain("'lints'");
   });
+});
+
+describe('runCli --config and CHECKRIDE_CONFIG', () => {
+  let dir: string;
+  let outside: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-cli-config-'));
+    outside = await mkdtemp(join(tmpdir(), 'checkride-cli-config-outside-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  function deps(env: Record<string, string> = {}, stderr = sink(), stdout = sink()): CliDeps {
+    return { cwd: dir, stdout, stderr, env };
+  }
+
+  test('--config reads that file instead of the repo’s', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), probeConfig(1));
+    await writeFile(join(outside, 'ci.json'), probeConfig(0));
+    expect(await runCli(['--only', 'probe'], deps())).toBe(1);
+    expect(await runCli(['--config', join(outside, 'ci.json'), '--only', 'probe'], deps())).toBe(0);
+  });
+
+  test('the selection is validated against the named config', async () => {
+    // `probe` exists only in the named file, so without the flag it is an unknown slot.
+    await writeFile(join(outside, 'ci.json'), probeConfig(0));
+    expect(await runCli(['--only', 'probe'], deps())).toBe(2);
+    expect(await runCli(['--config', join(outside, 'ci.json'), '--only', 'probe'], deps())).toBe(0);
+  });
+
+  test('CHECKRIDE_CONFIG does the same, and the flag beats it', async () => {
+    await writeFile(join(outside, 'pass.json'), probeConfig(0));
+    await writeFile(join(outside, 'fail.json'), probeConfig(1));
+    const env = { CHECKRIDE_CONFIG: join(outside, 'pass.json') };
+    expect(await runCli(['--only', 'probe'], deps(env))).toBe(0);
+    expect(await runCli(['--config', join(outside, 'fail.json'), '--only', 'probe'], deps(env))).toBe(1);
+  });
+
+  test('a relative path resolves against the working directory', async () => {
+    await mkdir(join(dir, 'configs'));
+    await writeFile(join(dir, 'configs', 'ci.json'), probeConfig(0));
+    expect(await runCli(['--config', 'configs/ci.json', '--only', 'probe'], deps())).toBe(0);
+    expect(await runCli(['--only', 'probe'], deps({ CHECKRIDE_CONFIG: 'configs/ci.json' }))).toBe(0);
+  });
+
+  test('a relative extends resolves against the named file, not the working directory', async () => {
+    await writeFile(join(outside, 'base.json'), probeConfig(0));
+    await writeFile(join(outside, 'ci.json'), JSON.stringify({ extends: './base.json' }));
+    expect(await runCli(['--config', join(outside, 'ci.json'), '--only', 'probe'], deps())).toBe(0);
+  });
+
+  test('a missing file exits 2, names its source, and writes nothing', async () => {
+    const missing = join(outside, 'nope.json');
+    const flagErr = sink();
+    expect(await runCli(['--config', missing], deps({}, flagErr))).toBe(2);
+    expect(flagErr.text()).toContain(`--config names a missing file: ${missing}`);
+    const varErr = sink();
+    expect(await runCli([], deps({ CHECKRIDE_CONFIG: missing }, varErr))).toBe(2);
+    expect(varErr.text()).toContain(`CHECKRIDE_CONFIG names a missing file: ${missing}`);
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('--config with an empty path is a usage error; an empty variable counts as unset', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), probeConfig(1));
+    expect(await runCli(['--config', '', '--only', 'probe'], deps())).toBe(2);
+    expect(await runCli(['--only', 'probe'], deps({ CHECKRIDE_CONFIG: '' }))).toBe(1);
+  });
+
+  test('baseline --config writes the baseline at the repo root', async () => {
+    await writeFile(join(outside, 'ci.json'), JSON.stringify({ checks: { links: false } }));
+    expect(await runCli(['baseline', '--config', join(outside, 'ci.json')], deps())).toBe(0);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(true);
+    expect(existsSync(join(outside, 'checkride.baseline.json'))).toBe(false);
+  });
+
+  test('baseline with a missing --config exits 2 and writes no baseline', async () => {
+    expect(await runCli(['baseline', '--config', join(outside, 'nope.json')], deps())).toBe(2);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
+  });
+
+  test('fix runs the named config’s fix commands', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixable' }));
+    await writeFile(join(outside, 'ci.json'), JSON.stringify({
+      checks: { links: false, tidy: { command: process.execPath, args: ['-e', ''], fixArgs: ['-e', ''] } },
+    }));
+    const err = sink();
+    expect(await runCli(['fix', '--config', join(outside, 'ci.json')], deps({}, err))).toBe(0);
+    expect(err.text()).toContain('✔ tidy');
+  });
+
+  test('doctor reports the named config’s slots', async () => {
+    await writeFile(join(outside, 'ci.json'), JSON.stringify({ checks: { links: false } }));
+    const out = sink();
+    await runCli(['doctor', '--json', '--config', join(outside, 'ci.json')], deps({}, sink(), out));
+    const report = JSON.parse(out.text()) as { checks: { name: string; enablement?: string }[] };
+    expect(report.checks.find((c) => c.name === 'links')?.enablement).toBe('disabled');
+    expect(await runCli(['doctor', '--config', join(outside, 'nope.json')], deps())).toBe(2);
+  }, 30_000);
 });

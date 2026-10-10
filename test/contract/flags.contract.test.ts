@@ -26,6 +26,10 @@ function capture(): { write: (t: string) => boolean; text: () => string } {
   return { write: (t) => { buf += t; return true; }, text: () => buf };
 }
 
+/** A config whose one custom check, `probe`, exits with `code`. */
+const probeConfig = (code: number): string =>
+  JSON.stringify({ checks: { probe: { command: process.execPath, args: ['-e', `process.exit(${code})`] } } });
+
 describe('CLI run flags', () => {
   test('every promised boolean flag parses', () => {
     for (const flag of BOOLEAN_FLAGS) {
@@ -69,6 +73,56 @@ describe('CLI run flags', () => {
 
   test('an unknown run flag is rejected (usage error, exit 2 at the CLI)', () => {
     expect(() => parseCliArgs(['--no-such-flag'])).toThrow();
+  });
+});
+
+/**
+ * Contract: `--config <path>` and `CHECKRIDE_CONFIG` name the config file that
+ * run, `doctor`, `fix` and `baseline` read in place of
+ * `<cwd>/checkride.config.json`, and the flag beats the variable. A named file
+ * that is missing is a usage error (exit 2), never a silent fall back to the
+ * repo's own config.
+ */
+describe('CLI config path (--config / CHECKRIDE_CONFIG)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-config-flag-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const COMMANDS = [[], ['doctor'], ['fix'], ['baseline']] as const;
+
+  function deps(stderr: CliDeps['stderr'], env: Record<string, string> = {}): CliDeps {
+    return { cwd: dir, stdout: capture(), stderr, env };
+  }
+
+  test('--config <path> parses to its raw value', () => {
+    expect(parseCliArgs(['--config', 'ci.json']).config).toBe('ci.json');
+    expect(parseCliArgs([]).config).toBeUndefined();
+  });
+
+  for (const command of COMMANDS) {
+    const label = command[0] ?? 'run';
+    test(`${label}: a missing --config file exits 2, naming the flag`, async () => {
+      const stderr = capture();
+      expect(await runCli([...command, '--config', 'nope.json'], deps(stderr))).toBe(2);
+      expect(stderr.text()).toContain('--config names a missing file');
+    });
+
+    test(`${label}: a missing CHECKRIDE_CONFIG file exits 2, naming the variable`, async () => {
+      const stderr = capture();
+      expect(await runCli([...command], deps(stderr, { CHECKRIDE_CONFIG: 'nope.json' }))).toBe(2);
+      expect(stderr.text()).toContain('CHECKRIDE_CONFIG names a missing file');
+    });
+  }
+
+  test('the named file replaces the repo’s config, and the flag beats the variable', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), probeConfig(1));
+    await writeFile(join(dir, 'pass.json'), probeConfig(0));
+    await writeFile(join(dir, 'fail.json'), probeConfig(1));
+    expect(await runCli(['--only', 'probe', '--config', 'pass.json'], deps(capture()))).toBe(0);
+    expect(await runCli(['--only', 'probe'], deps(capture(), { CHECKRIDE_CONFIG: 'pass.json' }))).toBe(0);
+    expect(
+      await runCli(['--only', 'probe', '--config', 'fail.json'], deps(capture(), { CHECKRIDE_CONFIG: 'pass.json' })),
+    ).toBe(1);
   });
 });
 

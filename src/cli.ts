@@ -13,12 +13,15 @@
  * rather than checkride's own split (see `./gate.ts`).
  */
 
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
 import { runBaseline } from './baseline-command.js';
+import type { CheckrideConfig } from './config.js';
+import { CONFIG_ENV, loadConfigFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
@@ -29,8 +32,12 @@ import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import { realEnv, renderTriage, triage } from './triage/index.js';
 
-/** Injected process surface, so {@link runCli} is testable. */
-export type CliDeps = { cwd: string; stdout: Out; stderr: Out };
+/**
+ * Injected process surface, so {@link runCli} is testable. `env` defaults to
+ * `process.env`; a test passes its own so a variable exported in the shell
+ * that started the suite can't reach the run.
+ */
+export type CliDeps = { cwd: string; stdout: Out; stderr: Out; env?: Record<string, string | undefined> };
 
 const RUN_OPTIONS = {
   bail: { type: 'boolean', default: false },
@@ -43,6 +50,12 @@ const RUN_OPTIONS = {
   digest: { type: 'boolean', default: false },
   strict: { type: 'boolean', default: false },
   concurrency: { type: 'string' },
+  config: { type: 'string' },
+} as const;
+
+/** `baseline` takes only `--config`; anything else is a usage error. */
+const BASELINE_OPTIONS = {
+  config: { type: 'string' },
 } as const;
 
 const INIT_OPTIONS = {
@@ -119,6 +132,9 @@ Run options:
   --json           Emit the summary as JSON on stdout
   --digest         Write a capped failure excerpt to .check/digest.md
   --strict         Zero checks actually running is an error (exit 2), not a pass
+  --config <path>  Read this config file instead of ./checkride.config.json
+                   (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).
+                   A file outside the repo never ratchets the baseline.
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -181,6 +197,8 @@ Config:
 Environment:
   CHECKRIDE_NODE_BIN   A bin directory to put in front of the check run's PATH,
                        or \`off\` to disable checkride's Node-pin alignment.
+  CHECKRIDE_CONFIG     Ignored: the gate strips it from the check it runs, which
+                       always reads the repo's own checkride.config.json.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -344,8 +362,11 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
   return { command: 'run', rest: argv };
 }
 
-/** Parse argv into a command name and the run flags. */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags } {
+/**
+ * Parse argv into a command name, the run flags, and the raw `--config` value
+ * (absent when not passed; {@link namedConfig} resolves it against the variable).
+ */
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -363,7 +384,29 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     // optional types: an explicit `undefined` is not the same as absent).
     ...(concurrency !== undefined ? { concurrency } : {}),
   };
-  return { command, flags };
+  return { command, flags, ...(values.config !== undefined ? { config: values.config } : {}) };
+}
+
+/** A config file named on the command line or in the environment, read and resolved. */
+type NamedConfig = { path: string; config: CheckrideConfig };
+
+/**
+ * The config a command reads in place of `<cwd>/checkride.config.json`:
+ * `--config`, else `CHECKRIDE_CONFIG` (an empty variable counts as unset),
+ * resolved against `cwd`. `null` when neither names one, so the command reads
+ * the repo's own file. A named file that is missing is a usage error (exit 2):
+ * falling back to the repo's config would check against rules nobody asked for.
+ */
+function namedConfig(flag: string | undefined, deps: CliDeps): NamedConfig | null {
+  if (flag === '') throw new Error('--config was passed with no path');
+  const variable = (deps.env ?? process.env)[CONFIG_ENV];
+  const named = flag ?? (variable === '' ? undefined : variable);
+  if (named === undefined) return null;
+  const path = resolve(deps.cwd, named);
+  if (!existsSync(path)) {
+    throw new Error(`${flag === undefined ? CONFIG_ENV : '--config'} names a missing file: ${path}`);
+  }
+  return { path, config: loadConfigFile(path) };
 }
 
 function asShape(value: string | undefined): Shape | undefined {
@@ -447,8 +490,15 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
 }
 
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags } = parseCliArgs(argv);
-  const result = await runChecks({ ...flags, cwd: deps.cwd, stdout: deps.stdout, stderr: deps.stderr });
+  const { flags, config } = parseCliArgs(argv);
+  const named = namedConfig(config, deps);
+  const result = await runChecks({
+    ...flags,
+    ...(named ? { config: named.config, configPath: named.path } : {}),
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+  });
   return result.exitCode;
 }
 
@@ -458,23 +508,37 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags } = parseCliArgs(argv);
-  const result = await runDoctor({ json: flags.json ?? false, cwd: deps.cwd, stdout: deps.stdout });
+  const { flags, config } = parseCliArgs(argv);
+  const named = namedConfig(config, deps);
+  const result = await runDoctor({
+    json: flags.json ?? false,
+    ...(named ? { config: named.config } : {}),
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+  });
   return result.exitCode;
 }
 
 async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags } = parseCliArgs(argv);
-  const result = await runFix({ ...flags, cwd: deps.cwd, stderr: deps.stderr });
+  const { flags, config } = parseCliArgs(argv);
+  const named = namedConfig(config, deps);
+  const result = await runFix({ ...flags, ...(named ? { config: named.config } : {}), cwd: deps.cwd, stderr: deps.stderr });
   return result.exitCode;
 }
 
 async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
-  // `baseline` takes no options; parse against an empty set so a stray flag
-  // (for example a typo) throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2.
+  // `baseline` takes only `--config`, so a stray flag (for example a typo)
+  // throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2. It is the
+  // repo's explicit write, so it writes the baseline wherever the config lives.
   const { rest } = detectCommand(argv);
-  parseArgs({ args: rest, allowPositionals: true, options: {} });
-  const result = await runBaseline({ cwd: deps.cwd, stdout: deps.stdout, stderr: deps.stderr });
+  const { values } = parseArgs({ args: rest, allowPositionals: true, options: BASELINE_OPTIONS });
+  const named = namedConfig(values.config, deps);
+  const result = await runBaseline({
+    ...(named ? { config: named.config } : {}),
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+  });
   return result.exitCode;
 }
 
@@ -679,6 +743,7 @@ if (isEntryPoint()) {
     cwd: process.cwd(),
     stdout: process.stdout,
     stderr: process.stderr,
+    env: process.env,
   });
   process.exit(code);
 }

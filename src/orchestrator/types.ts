@@ -85,6 +85,13 @@ export type RunOptions = RunFlags & {
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
   config?: CheckrideConfig | null;
+  /**
+   * The absolute path `config` was read from when it isn't
+   * `<cwd>/checkride.config.json` (`--config`, `CHECKRIDE_CONFIG`). It loads
+   * nothing; the caller passes the loaded `config` too. A file outside `cwd`
+   * makes this a consumer run, which never ratchets the baseline.
+   */
+  configPath?: string;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

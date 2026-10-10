@@ -471,7 +471,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
 
 ### Phase 1: fixes that need no packs
 
-1. [ ] feat(config): let a custom check report a skip through its exit code, **done when:** a custom check exiting its `skipExitCode` records `skipped: true`, `ok: true`, `exit_code: null`, `duration_ms: 0` and a reason taken from its last stderr line followed by `(exit N)`; it's left out of `checks_run`; `--strict` exits 2 when every check skipped itself; the config schema accepts 1 to 255 and rejects 0 and non-integers; `fix` reports a match as skipped; unit tests cover each case (F23, F24)
+1. [x] feat(config): let a custom check report a skip through its exit code, **done when:** a custom check exiting its `skipExitCode` records `skipped: true`, `ok: true`, `exit_code: null`, `duration_ms: 0` and a reason taken from its last stderr line followed by `(exit N)`; it's left out of `checks_run`; `--strict` exits 2 when every check skipped itself; the config schema accepts 1 to 255 and rejects 0 and non-integers; `fix` reports a match as skipped; unit tests cover each case (F23, F24)
    - seam: `src/config.ts`, `src/orchestrator/execute.ts`, `src/orchestrator/fix.ts`,
      `schema/checkride.config.schema.json`, `src/__tests__/config.test.ts`,
      `src/orchestrator/__tests__/orchestrator.test.ts`, `docs/tools.md`, `docs/contract.md`,

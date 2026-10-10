@@ -973,6 +973,36 @@ describe('runChecks (baseline-aware)', () => {
     expect(existsSync(baselineFile())).toBe(false);
   });
 
+  test('a run reading a config outside the repo never prunes the baseline, and says so', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-base-outside-'));
+    try {
+      await writeFile(join(outside, 'ci.json'), '{}');
+      const std = sink();
+      await runChecks({
+        cwd: dir, slots, adapters, config: {}, configPath: join(outside, 'ci.json'),
+        runner: lintRunner(oneA), // KEY_B looks "fixed", but a consumer run never writes
+        baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+        json: false, stdout: sink().out, stderr: std.out,
+      });
+      expect(existsSync(baselineFile())).toBe(false);
+      expect(std.lines.join('')).toContain('not ratcheted, because a run with --config outside the repo');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a run reading a config inside the repo ratchets as if no flag were passed', async () => {
+    await mkdir(join(dir, 'configs'));
+    await writeFile(join(dir, 'configs', 'ci.json'), '{}');
+    await runChecks({
+      cwd: dir, slots, adapters, config: {}, configPath: join(dir, 'configs', 'ci.json'),
+      runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect((await readWritten()).slots['lint']).toEqual([KEY_A]);
+  });
+
   test('an unchanged full run does not rewrite the baseline', async () => {
     await runChecks({
       cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),

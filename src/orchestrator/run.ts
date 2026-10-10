@@ -5,12 +5,13 @@
  * live here because only the whole run can decide them.
  */
 
+import { realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { writeFileAtomic } from '../atomic.js';
-import type { Baseline, Fingerprint } from '../baseline/index.js';
+import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import { resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
@@ -20,7 +21,7 @@ import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
 import { resetInterrupt } from './spawn.js';
-import type { Out, RunOptions, RunResult } from './types.js';
+import type { RunOptions, RunResult } from './types.js';
 
 /**
  * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
@@ -31,21 +32,57 @@ function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean
   return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
 }
 
-/** On a fully observed run, prune grandfathered diagnostics now fixed (shrink-only, atomic). */
+/** The real path of `path`, or its plain resolution when it can't be read. */
+function realPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+/**
+ * True when `path` sits inside `root`. Real paths are compared, so a symlinked
+ * prefix (macOS's `/var` is `/private/var`) can't put a file on the wrong side.
+ */
+function isInside(root: string, path: string): boolean {
+  const rel = relative(realPath(root), realPath(path));
+  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+/**
+ * Why this run is a consumer run, shaped from outside the repo, or `null` when
+ * it is the repo's own. A consumer run doesn't represent the repo's gate, so it
+ * never rewrites `checkride.baseline.json`. A `--config` inside the repo is the
+ * repo speaking for itself, and ratchets as if no flag had been passed.
+ */
+function consumerCause(options: RunOptions, cwd: string): string | null {
+  if (options.configPath !== undefined && !isInside(cwd, options.configPath)) return '--config outside the repo';
+  return null;
+}
+
+/**
+ * On a fully observed run, prune grandfathered diagnostics now fixed
+ * (shrink-only, atomic). A consumer run prunes nothing and says once why not,
+ * and only when there was something to prune.
+ */
 async function maybeRatchet(
-  cwd: string,
-  baseline: Baseline | null,
+  ctx: RunContext,
   observed: ReadonlyMap<string, Fingerprint>,
   restricted: boolean,
-  json: boolean,
-  stderr: Out,
+  consumer: string | null,
 ): Promise<void> {
+  const { baseline } = ctx;
   if (!baseline || restricted) return;
   const pruned = ratchet(baseline, observed);
   if (baselinesEqual(baseline, pruned)) return;
-  await writeBaseline(cwd, pruned);
-  if (!json) {
-    writeLine(stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
+  if (consumer !== null) {
+    if (!ctx.json) writeLine(ctx.stderr, `\nbaseline: not ratcheted, because a run with ${consumer} never writes ${BASELINE_FILE}`);
+    return;
+  }
+  await writeBaseline(ctx.cwd, pruned);
+  if (!ctx.json) {
+    writeLine(ctx.stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
   }
 }
 
@@ -98,7 +135,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const { checks, runs, observed, newKeys, brokeEarly } = await executeChecks(selected, ctx);
   const totalDurationMs = Math.round(performance.now() - startedAt);
 
-  await maybeRatchet(ctx.cwd, ctx.baseline, observed, isPartialRun(options, ctx.changed, brokeEarly), ctx.json, ctx.stderr);
+  await maybeRatchet(ctx, observed, isPartialRun(options, ctx.changed, brokeEarly), consumerCause(options, ctx.cwd));
 
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"
