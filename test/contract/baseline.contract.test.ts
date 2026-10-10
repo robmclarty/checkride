@@ -8,8 +8,10 @@
  * version. Several of these are also covered as unit tests in
  * `src/__tests__/baseline.test.ts`; this file re-asserts the promised subset
  * on purpose, because a break here is a version decision, not a test edit.
+ * The last suite holds `baseline diff --json` (docs/contract.md §CLI).
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -23,6 +25,7 @@ import type { Adapter, Slot } from '../../src/adapters.js';
 import type { Baseline } from '../../src/baseline/index.js';
 import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, parseBaseline, writeBaseline } from '../../src/baseline/index.js';
 import { runBaseline } from '../../src/baseline-command.js';
+import { runCli } from '../../src/cli.js';
 import type { CheckRunner, Out } from '../../src/orchestrator/index.js';
 import { runChecks } from '../../src/orchestrator/index.js';
 
@@ -185,5 +188,59 @@ describe('checkride.baseline.json', () => {
     expect(lint?.ok).toBe(false);
     expect(lint?.baselined).toBeUndefined();
     expect(stderr.text()).toMatch(/unparseable/);
+  });
+});
+
+const git = (cwd: string, ...args: string[]): string =>
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+
+/**
+ * `baseline diff --json` (docs/contract.md §CLI). A review agent counts what a
+ * PR grandfathers from this object, so its six fields, their types, and the
+ * exit codes are the promise. Real git, because the ref is resolved through it.
+ */
+describe('checkride baseline diff --json', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-baseline-diff-contract-'));
+    git(dir, 'init', '-q');
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept', 'src/a.ts:rule:fixed'], struct: ['src/b.ts:no-class:no classes'] } });
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'adopt a baseline');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  async function diffJson(argv: string[]): Promise<{ code: number; json: Record<string, unknown> }> {
+    const out = sink();
+    const code = await runCli(['baseline', 'diff', ...argv, '--json'], { cwd: dir, stdout: out.out, stderr: sink().out });
+    return { code, json: JSON.parse(out.text()) as Record<string, unknown> };
+  }
+
+  test('prints exactly ref, sha, added, removed, added_count and removed_count', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept', "src/c.ts:no-unused-vars:'x' is never used"] } });
+    const { code, json } = await diffJson(['HEAD']);
+    expect(code).toBe(0);
+    expect(Object.keys(json)).toEqual(['ref', 'sha', 'added', 'removed', 'added_count', 'removed_count']);
+    expect(json).toEqual({
+      ref: 'HEAD',
+      sha: git(dir, 'rev-parse', 'HEAD').trim(),
+      added: { lint: ["src/c.ts:no-unused-vars:'x' is never used"] },
+      removed: { lint: ['src/a.ts:rule:fixed'], struct: ['src/b.ts:no-class:no classes'] },
+      added_count: 1,
+      removed_count: 2,
+    });
+    expect(json['sha']).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  test('an unchanged file is exit 0 with empty sides, and the ref defaults to HEAD', async () => {
+    const { code, json } = await diffJson([]);
+    expect(code).toBe(0);
+    expect(json).toMatchObject({ ref: 'HEAD', added: {}, removed: {}, added_count: 0, removed_count: 0 });
+  });
+
+  test('a ref that names no commit is exit 2 with nothing on stdout', async () => {
+    const out = sink();
+    expect(await runCli(['baseline', 'diff', 'no-such-ref', '--json'], { cwd: dir, stdout: out.out, stderr: sink().out })).toBe(2);
+    expect(out.text()).toBe('');
   });
 });

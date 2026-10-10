@@ -17,12 +17,24 @@
  * the resolved package manager and capturing raw
  * output is delegated to {@link runChecks}, so baseline fingerprints precisely
  * the bytes a normal run would.
+ *
+ * `checkride baseline diff [<ref>]` is the read-only side: what the
+ * working-tree file grandfathers that `<ref>`'s committed copy didn't, and what
+ * it dropped ({@link runBaselineDiff}).
  */
 
 import type { Adapter, Slot } from './adapters.js';
-import { fingerprint } from './baseline/fingerprint.js';
-import type { Baseline } from './baseline/store.js';
-import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, writeBaseline } from './baseline/store.js';
+import type { Baseline, GitRunner } from './baseline/index.js';
+import {
+  BASELINE_FILE,
+  BASELINE_SCHEMA_VERSION,
+  diffBaselines,
+  fingerprint,
+  readBaselineAt,
+  readBaselineStatus,
+  realGit,
+  writeBaseline,
+} from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
 import type { CheckRunner, Out, RunOptions } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
@@ -81,4 +93,82 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${total} diagnostic(s) across ${where}\n`);
 
   return { ok: true, exitCode: 0, baseline };
+}
+
+export type BaselineDiffOptions = {
+  cwd?: string;
+  /** The ref to diff against; `HEAD` when omitted. */
+  ref?: string;
+  /** Print {@link BaselineDiff} as JSON instead of the Markdown report. */
+  json?: boolean;
+  stdout?: Out;
+  /** Injectable for tests. */
+  git?: GitRunner;
+};
+
+/** What `baseline diff --json` prints; the shape `docs/contract.md` promises. */
+export type BaselineDiff = {
+  ref: string;
+  /** The full sha `ref` resolved to. */
+  sha: string;
+  /** Per check, the keys the working-tree file has and `ref`'s copy lacks. */
+  added: Record<string, string[]>;
+  /** Per check, the keys `ref`'s copy has and the working-tree file lacks. */
+  removed: Record<string, string[]>;
+  added_count: number;
+  removed_count: number;
+};
+
+export type BaselineDiffResult = { ok: boolean; exitCode: number; diff: BaselineDiff };
+
+const EMPTY_BASELINE: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots: {} };
+
+/**
+ * Diff the working-tree baseline against the copy committed at `ref`. A file
+ * missing on either side reads as empty, so a ref from before the baseline
+ * existed reports every current key as added. It exits 0 whenever it ran,
+ * keys added or not: the diff is evidence for a reviewer, not a verdict. A ref
+ * that names no commit, a missing git, or a file that can't be parsed on
+ * either side throws, which `runCli` renders as exit 2.
+ */
+export async function runBaselineDiff(options: BaselineDiffOptions): Promise<BaselineDiffResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const stdout = options.stdout ?? process.stdout;
+  const ref = options.ref ?? 'HEAD';
+  const current = readBaselineStatus(cwd);
+  if (current.state === 'unparseable') {
+    throw new Error(`baseline diff: ${BASELINE_FILE} in the working tree can't be parsed, or comes from a newer checkride`);
+  }
+  const committed = await readBaselineAt(options.git ?? realGit(cwd), ref);
+  const delta = diffBaselines(committed.baseline, current.baseline ?? EMPTY_BASELINE);
+  const diff: BaselineDiff = {
+    ref,
+    sha: committed.sha,
+    added: delta.restored,
+    removed: delta.absent,
+    added_count: delta.restoredCount,
+    removed_count: delta.absentCount,
+  };
+  stdout.write(options.json ? `${JSON.stringify(diff, null, 2)}\n` : renderDiff(diff));
+  return { ok: true, exitCode: 0, diff };
+}
+
+/** The Markdown report: one section per check that changed, `+` for added keys and `-` for removed. */
+function renderDiff(diff: BaselineDiff): string {
+  const lines = [`# checkride baseline diff: ${diff.ref} (${diff.sha.slice(0, 7)}) to the working tree`, ''];
+  if (diff.added_count === 0 && diff.removed_count === 0) {
+    lines.push(`No keys added or removed since ${diff.ref}.`, '');
+    return lines.join('\n');
+  }
+  lines.push(`${diff.added_count} key(s) added, ${diff.removed_count} removed.`, '');
+  const checks = new Set([...Object.keys(diff.added), ...Object.keys(diff.removed)]);
+  for (const check of [...checks].toSorted()) {
+    const added = diff.added[check] ?? [];
+    const removed = diff.removed[check] ?? [];
+    lines.push(`## ${check}: ${added.length} added, ${removed.length} removed`, '');
+    for (const key of added) lines.push(`+ ${key}`);
+    for (const key of removed) lines.push(`- ${key}`);
+    lines.push('');
+  }
+  return lines.join('\n');
 }

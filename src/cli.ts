@@ -19,7 +19,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
-import { runBaseline } from './baseline-command.js';
+import { runBaseline, runBaselineDiff } from './baseline-command.js';
 import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, loadConfigFile } from './config.js';
 import { runDoctor } from './doctor.js';
@@ -56,6 +56,11 @@ const RUN_OPTIONS = {
 /** `baseline` takes only `--config`; anything else is a usage error. */
 const BASELINE_OPTIONS = {
   config: { type: 'string' },
+} as const;
+
+/** `baseline diff` takes an optional ref and `--json`; anything else is a usage error. */
+const BASELINE_DIFF_OPTIONS = {
+  json: { type: 'boolean', default: false },
 } as const;
 
 const INIT_OPTIONS = {
@@ -105,6 +110,8 @@ Commands:
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command.
   baseline         Record current diagnostics as a committed baseline.
+                   \`baseline diff [<ref>]\` lists the keys added and removed
+                   since <ref> (default HEAD).
   recover          Rebuild checkride.baseline.json candidates from git history
                    and restore one (a merge that dropped entries fails closed).
   agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
@@ -270,11 +277,40 @@ not a git repository, unknown --pick). \`recover\` never exits 1.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings, or diff them against git
+
+Usage: checkride baseline [--config <path>]
+       checkride baseline diff [<ref>] [--json]
+
+\`baseline\` runs the checks and writes their current findings, per check, to
+checkride.baseline.json at the repo root. Commit the file: a later run fails
+only on findings it doesn't list, and a full run prunes the ones fixed since.
+
+\`baseline diff\` writes nothing. It reads <ref>'s committed copy of the file
+through git (default HEAD), compares it with the working-tree file, and prints
+the keys added and removed per check. A file missing on either side reads as
+empty, so a ref from before the baseline existed lists every key as added.
+
+Options:
+  --config <path>  Read this config file instead of ./checkride.config.json
+                   (baseline only; or set CHECKRIDE_CONFIG)
+  --json           Print the diff as JSON: ref, sha, added, removed,
+                   added_count, removed_count (baseline diff only)
+  -h, --help       Show this help
+
+Exit codes: \`baseline\` exits 0 once the file is written. \`baseline diff\`
+exits 0 whenever it ran, keys added or not, and 2 when the ref names no
+commit, git is missing, or either copy can't be parsed.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
 const COMMAND_HELP: Record<string, string> = {
   init: INIT_HELP_TEXT,
   gate: GATE_HELP_TEXT,
   hooks: HOOKS_HELP_TEXT,
+  baseline: BASELINE_HELP_TEXT,
   recover: RECOVER_HELP_TEXT,
 };
 
@@ -527,17 +563,33 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
-  // `baseline` takes only `--config`, so a stray flag (for example a typo)
-  // throws ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2. It is the
-  // repo's explicit write, so it writes the baseline wherever the config lives.
   const { rest } = detectCommand(argv);
-  const { values } = parseArgs({ args: rest, allowPositionals: true, options: BASELINE_OPTIONS });
+  if (rest[0] === 'diff') return dispatchBaselineDiff(rest.slice(1), deps);
+  // `baseline` takes only `--config` and no positionals, so a stray flag (for
+  // example a typo) or a `diff` that isn't first throws ERR_PARSE_ARGS_* →
+  // runCli's catch maps it to exit 2, rather than rewriting the file. It is the
+  // repo's explicit write, so it writes the baseline wherever the config lives.
+  const { values } = parseArgs({ args: rest, options: BASELINE_OPTIONS });
   const named = namedConfig(values.config, deps);
   const result = await runBaseline({
     ...(named ? { config: named.config } : {}),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
+  });
+  return result.exitCode;
+}
+
+/** `baseline diff [<ref>] [--json]`: at most one positional, the ref. */
+async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<number> {
+  const { values, positionals } = parseArgs({ args, allowPositionals: true, options: BASELINE_DIFF_OPTIONS });
+  if (positionals.length > 1) throw new Error(`baseline diff takes one ref, got ${positionals.length}: ${positionals.join(' ')}`);
+  const [ref] = positionals;
+  const result = await runBaselineDiff({
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    json: values.json,
+    ...(ref !== undefined ? { ref } : {}),
   });
   return result.exitCode;
 }

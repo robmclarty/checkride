@@ -4,7 +4,8 @@
  * resolving a conflict by deleting the "problem" lines) can be restored without
  * manual archaeology. Everything here is read-only toward git — recovery writes
  * the file through `writeBaseline`, never `git checkout`, so a restore lands as
- * an ordinary reviewable working-tree edit.
+ * an ordinary reviewable working-tree edit. `baseline diff` reads one committed
+ * state through the same plumbing ({@link readBaselineAt}).
  *
  * `git log --follow` is deliberately not used: the baseline's name and location
  * are constants ({@link BASELINE_FILE}), so history beyond a rename boundary
@@ -65,11 +66,14 @@ export function realGit(cwd: string, timeoutMs = GIT_TIMEOUT_MS): GitRunner {
   };
 }
 
-/** The user-facing error for a failed git invocation; `runCli` renders it as exit 2. */
-export function gitFailureError(result: { error: GitFailure; detail: string }): Error {
-  if (result.error === 'missing') return new Error('recover: git is required but was not found on PATH');
-  if (result.error === 'not-a-repo') return new Error('recover: not inside a git repository');
-  return new Error(`recover: ${result.detail}`);
+/**
+ * The user-facing error for a failed git invocation; `runCli` renders it as
+ * exit 2. `command` prefixes the message so it names the command that ran.
+ */
+export function gitFailureError(result: { error: GitFailure; detail: string }, command = 'recover'): Error {
+  if (result.error === 'missing') return new Error(`${command}: git is required but was not found on PATH`);
+  if (result.error === 'not-a-repo') return new Error(`${command}: not inside a git repository`);
+  return new Error(`${command}: ${result.detail}`);
 }
 
 /** One commit that touched the baseline file. */
@@ -113,9 +117,9 @@ function parseLog(stdout: string): BaselineRevision[] {
  * checkride root is often a subdirectory, and `git show <sha>:<path>` resolves
  * `<path>` from the repository root, not from cwd.
  */
-async function locate(git: GitRunner): Promise<{ path: string; shallow: boolean }> {
+async function locate(git: GitRunner, command?: string): Promise<{ path: string; shallow: boolean }> {
   const result = await git(['rev-parse', '--show-toplevel', '--show-prefix', '--is-shallow-repository']);
-  if (!result.ok) throw gitFailureError(result);
+  if (!result.ok) throw gitFailureError(result, command);
   const [, prefix = '', shallowWord = ''] = result.stdout.split('\n');
   return { path: `${prefix}${BASELINE_FILE}`, shallow: shallowWord.trim() === 'true' };
 }
@@ -125,6 +129,37 @@ export async function baselineDirty(git: GitRunner): Promise<boolean> {
   const result = await git(['status', '--porcelain', '--', BASELINE_FILE]);
   if (!result.ok) throw gitFailureError(result);
   return result.stdout.trim().length > 0;
+}
+
+/** The baseline as committed at a ref: the commit it named, and the file (`null` when that commit has none). */
+export type BaselineAtRef = { sha: string; baseline: Baseline | null };
+
+const DIFF_COMMAND = 'baseline diff';
+
+/**
+ * Read the baseline as committed at `ref`, for `baseline diff`. A ref that
+ * names no commit is an error, while a commit without the file is not (it
+ * reads as `null`, which the diff counts as empty), so the two are told apart
+ * by listing the tree rather than by matching `git show`'s wording. A blob that
+ * doesn't parse is an error too: diffing against it as empty would report
+ * every current key as added and pass a mangled file off as a clean history.
+ */
+export async function readBaselineAt(git: GitRunner, ref: string): Promise<BaselineAtRef> {
+  // A leading dash would reach git as an option, never as a ref.
+  if (ref.startsWith('-')) throw new Error(`${DIFF_COMMAND}: '${ref}' is not a ref`);
+  const located = await locate(git, DIFF_COMMAND);
+  const resolved = await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+  if (!resolved.ok && resolved.error !== 'failed') throw gitFailureError(resolved, DIFF_COMMAND);
+  if (!resolved.ok) throw new Error(`${DIFF_COMMAND}: '${ref}' does not name a commit`);
+  const sha = resolved.stdout.trim();
+  const listed = await git(['ls-tree', '--full-tree', '--name-only', sha, '--', located.path]);
+  if (!listed.ok) throw gitFailureError(listed, DIFF_COMMAND);
+  if (listed.stdout.trim().length === 0) return { sha, baseline: null };
+  const show = await git(['show', `${sha}:${located.path}`]);
+  if (!show.ok) throw gitFailureError(show, DIFF_COMMAND);
+  const baseline = parseBaseline(show.stdout);
+  if (baseline === null) throw new Error(`${DIFF_COMMAND}: ${BASELINE_FILE} at ${ref} can't be parsed, or comes from a newer checkride`);
+  return { sha, baseline };
 }
 
 /**

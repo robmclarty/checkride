@@ -16,6 +16,7 @@ export {
   diffBaselines,
   gitFailureError,
   historicalHint,
+  readBaselineAt,
   realGit,
   unionBaselines,
 } from './history.js';

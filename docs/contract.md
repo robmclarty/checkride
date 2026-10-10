@@ -218,6 +218,33 @@ behave as they do without the flag. `gate` takes neither: it strips
 `CHECKRIDE_CONFIG` from the check it spawns, which always reads the repo's own
 config.
 
+**`baseline diff` says what the working tree grandfathers, and writes
+nothing.** `checkride baseline diff [<ref>] [--json]` reads `<ref>`'s committed
+`checkride.baseline.json` through git (default `HEAD`), compares it with the
+working-tree file, and prints the keys added and removed per check. A file
+missing on either side reads as empty, so a ref from before the baseline
+existed reports every current key as added. `--json` prints one object:
+
+```json
+{
+  "ref": "origin/main",
+  "sha": "4f2c1e0b9d8a7c6b5a4f3e2d1c0b9a8f7e6d5c4b",
+  "added": { "lint": ["src/a.ts:eslint(no-unused-vars):Variable 'x' is declared but never used."] },
+  "removed": { "struct": ["src/b.ts:no-class:no classes"] },
+  "added_count": 1,
+  "removed_count": 1
+}
+```
+
+`ref` is the ref as given, `sha` the full sha it resolved to, and `added` and
+`removed` map each check that changed to its sorted keys, leaving out checks
+that didn't. Fields are added, never renamed or removed. It exits 0 whenever
+it ran, keys added or not, because the diff is evidence rather than a verdict,
+and 2 when the ref names no commit, git is missing, or either copy can't be
+parsed (a file from a newer checkride included). `--config` belongs to the
+capture: `baseline diff` rejects it, and `baseline` rejects a stray argument,
+so a misplaced `diff` never rewrites the file.
+
 **`recover` rebuilds the baseline from git history and never mutates git
 state.** `checkride recover` takes `--pick <n|sha|union>`, `--exact`,
 `--dry-run`, `--depth <n>`, and `--json`. Without `--pick` it is a reader: a

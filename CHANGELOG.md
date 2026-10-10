@@ -27,6 +27,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ratchets `checkride.baseline.json`, since it doesn't speak for the repo; a
   config inside the repo, and `checkride baseline`, write as they always have.
   The stop gate strips `CHECKRIDE_CONFIG` from the check it runs (#7).
+- **See what a change grandfathers with `checkride baseline diff [<ref>]`.**
+  It compares the working-tree `checkride.baseline.json` with the copy
+  committed at `<ref>` (default `HEAD`) and prints the keys added and removed
+  per check, or one JSON object under `--json`. A file missing on either side
+  reads as empty, so a ref from before the baseline lists every key as added.
+  It writes nothing and exits 0 whenever it ran; a ref that names no commit, a
+  missing git, or a file it can't parse exits 2. `checkride baseline` itself
+  now rejects a stray argument instead of ignoring it, so a misplaced `diff`
+  can't rewrite the file (#6).
 
 ### Contract
 
@@ -38,6 +47,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CHECKRIDE_CONFIG`, accepted by run, `doctor`, `fix` and `baseline`. The
   exported `RunOptions` type gains an optional `configPath`, which only
   decides whether the run may ratchet; the caller still passes `config`.
+- Additive: the subcommand `baseline diff [<ref>] [--json]`, whose JSON
+  carries `ref`, `sha` (the full sha), `added`, `removed`, `added_count` and
+  `removed_count`, held by `baseline.contract.test.ts`.
 
 ## [0.14.0] - 2026-10-09
 

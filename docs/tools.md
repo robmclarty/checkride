@@ -19,6 +19,11 @@ The tooling has two layers:
 | a package manager | pnpm `>=9` (default) / npm / yarn / bun | pnpm: `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
 
+`--changed`, `recover` and `baseline diff` read history through git.
+`checkride baseline diff <ref>` resolves `<ref>` in the local repository, so
+in a shallow clone (CI's `fetch-depth: 1`, a sandbox checkout) fetch the ref
+first, or the command exits 2 naming it.
+
 The commands in this doc use pnpm's forms; on another manager, substitute yours
 per the [Package managers](#package-managers) table below.
 

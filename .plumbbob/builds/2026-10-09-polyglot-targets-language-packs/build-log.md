@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 2 — feat(cli): read the config from a path with --config
+**Current step:** 3 — feat(baseline): add baseline diff against a git ref
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -24,7 +24,7 @@ line above. Only ONE step is in flight; a step is done only after a checkpoint:
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(config): let a custom check report a skip through its exit code
-- ☐ 2. feat(cli): read the config from a path with --config
+- ☑ 2. feat(cli): read the config from a path with --config
 - ☐ 3. feat(baseline): add baseline diff against a git ref
 - ☐ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
 - ☐ 5. docs(contract): list every summary field and hold the list with a test
@@ -104,7 +104,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
 
-- [ ] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
+- [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
+- [ ] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -122,7 +123,7 @@ from sprawling across branches.
 
 Harvest results this boundary:
 
-- (none yet)
+- After step 2: "summary schema's skipped description says 'did not execute'..." → **tangent**, deferred to step 5 (reword `schema/checkride.summary.schema.json:48` there; the schema file sits outside step 5's seam, so add it via `/plumbbob:step 5` or accept a one-file stray).
 
 ## Log
 
@@ -229,3 +230,52 @@ folder, so it rides the branch into the PR.)*
   **5.** Parked: the summary schema still says a skipped check "did not execute"
 
   `schema/checkride.summary.schema.json` describes `skipped` as "Present (true) when the check did not execute", and a self-skip did execute. The file is outside this step's seam and the summary shape itself didn't change, so the wording went to the park list. Step 5 rewrites that part of the contract and can reword it there. `docs/contract.md` already gains a "Vacuous green" bullet and a "A custom check can skip itself" paragraph for the new use of `reason`.
+
+- 2026-10-10 — step 2 checkpointed · cd1821f15 — feat(cli): read the config from a path with --config (1 drift, 19m)
+
+  **Summary**: Run, `doctor`, `fix` and `baseline` now read the file named by `--config` or `CHECKRIDE_CONFIG` in place of `./checkride.config.json`. A missing file exits 2, and a run whose config sits outside the repo leaves `checkride.baseline.json` alone. The gate strips the variable from the check it runs.
+
+  1. The CLI resolves the path, loads it, and hands the loaded config to all four commands
+  2. A run whose config sits outside the repo never ratchets, and says so once
+  3. The gate strips CHECKRIDE_CONFIG from the check it spawns
+  4. Three files outside the seam carry the change
+  5. Two judgment calls: what "the repo" means, and quiet stderr under --json
+
+  **Readout**: Step 2 - feat(cli): read the config from a path with --config
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 3 paths outside the seam
+               - src/__tests__/gate.test.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/types.ts
+  diff         +401 -32 across 12 files
+  spent        19 min · 1 turn · 24s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve it. Every clause of the done-when has a test, the full gate is green, and the three strays are the obvious homes for the type and its tests.
+
+  **1.** The CLI resolves the path, loads it, and hands the loaded config to all four commands
+
+  `namedConfig` in `src/cli.ts` takes `--config`, or else `CHECKRIDE_CONFIG`, and resolves it against the working directory. An empty variable counts as unset, and `--config ''` is a usage error. A named file that doesn't exist throws `--config names a missing file: <abs>` (or `CHECKRIDE_CONFIG names ...`), which `runCli` turns into exit 2 before any `.check/` side effect. Otherwise `loadConfigFile` (new in `src/config.ts`) reads it through the same `resolveConfigFile` the repo's own config uses. Because `extends` already resolves through `createRequire(absPath)`, relative `extends` land against the named file with no extra code, and a test pins that. All four commands already accepted an injected `config`, so no command module changed: `baseline` gained a one-flag option set, and `doctor` and `fix` pick the flag up from the run option set. `CliDeps` gained an optional `env` (default `process.env`), so tests can't pick up a variable exported in the shell. The help text and the gate's help text both mention it.
+
+  **2.** A run whose config sits outside the repo never ratchets, and says so once
+
+  `runChecks` also receives `configPath` (an optional field on `RunOptions`) and `consumerCause` in `src/orchestrator/run.ts` tests whether the path sits inside `cwd`, comparing real paths so macOS's `/var` symlink can't flip the answer. When it's outside, `maybeRatchet` still computes the prune but writes nothing, printing `baseline: not ratcheted, because a run with --config outside the repo never writes checkride.baseline.json` only when there was something to prune. A config inside the repo ratchets exactly as before (D47 (consumer-trigger)), and `checkride baseline --config` writes the baseline at the repo root wherever its file sits. `consumerCause` returns a cause string so steps 11 and 53 to 56 can add their triggers in one place. `maybeRatchet` now takes the run context instead of six loose parameters.
+
+  **3.** The gate strips CHECKRIDE_CONFIG from the check it spawns
+
+  `src/gate.ts` gains a `CONSUMER_VARS` set, holding only `CHECKRIDE_CONFIG` for now, and filters it out of the environment before Node-pin alignment builds the child's `PATH`. The gate's own config read (`gateProfile`) already went through `loadConfig(cwd)`, which never looks at the variable. A gate test asserts that the child sees `{ PATH }` and nothing else.
+
+  **4.** Three files outside the seam carry the change
+
+  `src/orchestrator/types.ts` holds the new `configPath` field, so it had to move. The ratchet tests went into `src/orchestrator/__tests__/orchestrator.test.ts`, beside the existing partial-run and `--changed` ratchet tests, because only an injected runner can produce fingerprints without a real linter. The variable-stripping test went into `src/__tests__/gate.test.ts` beside the other child-environment tests. Each is the natural home, and none widens the step.
+
+  **5.** Two judgment calls: what "the repo" means, and quiet stderr under --json
+
+  "Inside the repo" is measured against the working directory, the directory every other checkride path (`.check/`, the baseline) is relative to, and the contract doc says so in those words. A config in the git toplevel but above `cwd` therefore counts as outside, which errs toward writing nothing. The "not ratcheted" note follows the existing ratchet note and stays silent under `--json`, where checkride keeps stderr quiet. R13.5 asks for the note without naming `--json`, so if you want it printed there too, that's a one-word change.
