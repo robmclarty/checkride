@@ -1,0 +1,601 @@
+{
+  "example:agent-loop": {
+    "args": ["--digest"],
+    "runs": {
+      "checkride --digest": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --digest --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --digest --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ]
+    }
+  },
+  "example:custom-checks": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"openapi","adapter":"custom:openapi","argv":["node","scripts/validate-openapi.mjs"],"output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"licenses","adapter":"custom:licenses","argv":["node","scripts/check-licenses.mjs"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"openapi","adapter":"custom:openapi","argv":["node","scripts/validate-openapi.mjs"],"output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"licenses","adapter":"custom:licenses","argv":["node","scripts/check-licenses.mjs"],"output_file":null},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"openapi","adapter":"custom:openapi","argv":["node","scripts/validate-openapi.mjs"],"output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"licenses","adapter":"custom:licenses","argv":["node","scripts/check-licenses.mjs"],"output_file":null}
+      ]
+    }
+  },
+  "example:dal-boundaries": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"table-ownership","adapter":"custom:table-ownership","argv":["node","scripts/check-table-ownership.mjs"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"table-ownership","adapter":"custom:table-ownership","argv":["node","scripts/check-table-ownership.mjs"],"output_file":null},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"table-ownership","adapter":"custom:table-ownership","argv":["node","scripts/check-table-ownership.mjs"],"output_file":null}
+      ]
+    }
+  },
+  "example:dal-boundaries-declarative": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ]
+    }
+  },
+  "example:existing-repo-baseline": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ]
+    }
+  },
+  "example:module-boundaries": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ]
+    }
+  },
+  "example:polyglot": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"py-syntax","adapter":"custom:py-syntax","argv":["python3","-m","compileall","-q","src","tests"],"output_file":null},
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"py-test","adapter":"custom:py-test","argv":["python3","-m","unittest","discover","-s","tests","-q"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"py-syntax","adapter":"custom:py-syntax","argv":["python3","-m","compileall","-q","src","tests"],"output_file":null},
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"py-test","adapter":"custom:py-test","argv":["python3","-m","unittest","discover","-s","tests","-q"],"output_file":null},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"py-syntax","adapter":"custom:py-syntax","argv":["python3","-m","compileall","-q","src","tests"],"output_file":null},
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"py-test","adapter":"custom:py-test","argv":["python3","-m","unittest","discover","-s","tests","-q"],"output_file":null}
+      ]
+    }
+  },
+  "example:prose-voice": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":"vale","argv":["pnpm","--config.verify-deps-before-run=false","exec","vale","--no-global","--output=JSON","docs","src"],"output_file":"prose.json"}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":"vale","argv":["pnpm","--config.verify-deps-before-run=false","exec","vale","--no-global","--output=JSON","docs","src"],"output_file":"prose.json"},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":"vale","argv":["pnpm","--config.verify-deps-before-run=false","exec","vale","--no-global","--output=JSON","docs","src"],"output_file":"prose.json"}
+      ]
+    }
+  },
+  "example:shared-preset": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"no-todos","adapter":"custom:no-todos","argv":["node","node_modules/@acme/checkride-preset/scripts/no-todo-comments.mjs"],"output_file":null},
+        {"name":"python-format","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"license-headers","adapter":"custom:license-headers","argv":["node","node_modules/@acme/checkride-preset/scripts/require-license-header.mjs"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"health","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"no-todos","adapter":"custom:no-todos","argv":["node","node_modules/@acme/checkride-preset/scripts/no-todo-comments.mjs"],"output_file":null},
+        {"name":"python-format","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"license-headers","adapter":"custom:license-headers","argv":["node","node_modules/@acme/checkride-preset/scripts/require-license-header.mjs"],"output_file":null},
+        {"name":"build","adapter":null,"skipped":true,"reason":"no 'build' script in package.json","output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"docs","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"no-todos","adapter":"custom:no-todos","argv":["node","node_modules/@acme/checkride-preset/scripts/no-todo-comments.mjs"],"output_file":null},
+        {"name":"python-format","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"terraform-fmt","adapter":null,"skipped":true,"reason":"no detect file present","output_file":null},
+        {"name":"license-headers","adapter":"custom:license-headers","argv":["node","node_modules/@acme/checkride-preset/scripts/require-license-header.mjs"],"output_file":null}
+      ]
+    }
+  },
+  "init:flat": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ]
+    }
+  },
+  "init:monorepo": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ]
+    }
+  },
+  "init:hybrid": {
+    "args": [],
+    "runs": {
+      "checkride": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ],
+      "checkride --all": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
+        {"name":"health","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","health","--format","json","--quiet"],"output_file":"health.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
+        {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
+        {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
+        {"name":"pack","adapter":"pack","output_file":"pack.json"},
+        {"name":"smoke","adapter":"smoke","output_file":"smoke.json"},
+        {"name":"mutation","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null}
+      ],
+      "checkride --changed": [
+        {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
+        {"name":"links","adapter":"links","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+      ]
+    }
+  }
+}

@@ -1,0 +1,266 @@
+{
+  "example:agent-loop": {
+    "args": ["--digest"],
+    "exit_code": 1,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": false,
+      "checks_run": 3,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":false,"exit_code":1,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":false,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null}
+      ]
+    }
+  },
+  "example:custom-checks": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 6,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"tidy","adapter":"custom:tidy","description":"Normalize the JSON fixtures before anything else reads them","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"openapi","adapter":"custom:openapi","description":"The OpenAPI document parses and declares every route the app serves","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"terraform-fmt","adapter":null,"description":"terraform-fmt","ok":true,"skipped":true,"reason":"no detect file present","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"licenses","adapter":"custom:licenses","description":"Every installed dependency carries an allowed license","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "example:dal-boundaries": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 4,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":null,"description":"lint","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"table-ownership","adapter":"custom:table-ownership","description":"Each domain has one writer, and it writes only its own tables","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "example:dal-boundaries-declarative": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 4,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":null,"description":"lint","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null}
+      ]
+    }
+  },
+  "example:existing-repo-baseline": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 3,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json","baselined":3},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null}
+      ]
+    }
+  },
+  "example:module-boundaries": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 5,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null}
+      ]
+    }
+  },
+  "example:polyglot": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 4,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"py-syntax","adapter":"custom:py-syntax","description":"Every Python source compiles","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"types","adapter":null,"description":"types","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"lint","adapter":null,"description":"lint","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"py-test","adapter":"custom:py-test","description":"The unittest suite passes","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "example:prose-voice": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 2,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":null,"description":"types","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"lint","adapter":null,"description":"lint","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"prose","adapter":"vale","description":"Vale: writing style (prose linting)","ok":true,"exit_code":1,"duration_ms":"<volatile>","output_file":"prose.json","baselined":8}
+      ]
+    }
+  },
+  "example:shared-preset": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 5,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"docs","adapter":null,"description":"docs","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":null,"description":"spell","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"no-todos","adapter":"custom:no-todos","description":"org policy: no TODO comments (waived for src/legacy until Q3)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"python-format","adapter":null,"description":"python-format","ok":true,"skipped":true,"reason":"no detect file present","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"terraform-fmt","adapter":null,"description":"terraform-fmt","ok":true,"skipped":true,"reason":"no detect file present","exit_code":null,"duration_ms":0,"output_file":null},
+        {"name":"license-headers","adapter":"custom:license-headers","description":"org policy (strict tier): every source file carries a license header","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "init:flat": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 8,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "init:monorepo": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 8,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  },
+  "init:hybrid": {
+    "args": [],
+    "exit_code": 0,
+    "summary": {
+      "schema_version": 1,
+      "timestamp": "<volatile>",
+      "ok": true,
+      "checks_run": 8,
+      "total_duration_ms": "<volatile>",
+      "checks": [
+        {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
+        {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
+        {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+      ]
+    }
+  }
+}
