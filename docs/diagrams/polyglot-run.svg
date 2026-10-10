@@ -1,0 +1,295 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1836" viewBox="0 0 1100 1836" role="img" aria-labelledby="title desc">
+  <title id="title">How a checkride run works once a repo has targets</title>
+  <desc id="desc">A repo's toolchain markers become targets, each a language pack at a root, plus repo-wide checks. Every check then resolves an adapter, is selected, scheduled, launched through its pack's pin chain and captured, and the baseline decides the verdict. The run writes a summary and raw output per target, which the findings API, triage, the gate and a PR-review agent read.</desc>
+  <defs>
+    <style>
+      .s { font-family: 'Space Grotesk', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .c, .c12, .c13 { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+      .f { font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif; }
+      .c { font-size: 0.93em; }
+      .c12 { font-size: 12px; }
+      .c13 { font-size: 13px; }
+      .s12 { font-size: 12px; } .s13 { font-size: 13px; } .s135 { font-size: 13.5px; }
+      .s145 { font-size: 14.5px; }
+      .ink { fill: #14231B; } .mut { fill: #52675B; } .amb { fill: #8A5A0B; }
+      .red { fill: #C0392B; } .grn { fill: #1E7A4A; } .blu { fill: #2456A6; }
+      .wht { fill: #FFFFFF; } .hint { fill: #CFE3D6; }
+      .bold { font-weight: 700; }
+      .spaced { letter-spacing: 2.5px; } .label { letter-spacing: 1.5px; }
+      .ls { letter-spacing: 0.6px; } .c { letter-spacing: 0.4px; }
+    </style>
+    <marker id="ah-ink" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#14231B"/></marker>
+    <marker id="ah-soft" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7E9187"/></marker>
+    <marker id="ah-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#D9A13B"/></marker>
+    <marker id="ah-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2456A6"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1100" height="1836" rx="0" fill="#E9F0EA"/>
+  <rect x="0" y="0" width="1100" height="6" rx="0" fill="#1E7A4A"/>
+  <!-- Header -->
+  <text x="40" y="50" class="c12 bold grn" letter-spacing="3">CHECKRIDE · POLYGLOT TARGETS</text>
+  <text x="40" y="90" class="f ink" font-size="31">How a run works once a repo has targets</text>
+  <text x="40" y="118" class="s s145 mut">Same engine as 0.13: spawn each tool, keep its raw output, gate on its exit code.</text>
+  <text x="40" y="138" class="s s145 mut">What's new is around it: targets, language packs, pin chains, and runs shaped from outside the repo.</text>
+  <rect x="40" y="162" width="16" height="16" rx="4" fill="#1E7A4A"/>
+  <text x="64" y="175" class="s s13 ink">pipeline stage</text>
+  <rect x="190" y="161" width="34" height="18" rx="9" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="232" y="175" class="s s13 ink">run flag</text>
+  <rect x="330" y="161" width="34" height="18" rx="9" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="372" y="175" class="s s13 ink">shapes a run from outside the repo</text>
+  <line x1="660" y1="170" x2="694" y2="170" stroke="#2456A6" stroke-width="2" marker-end="url(#ah-blue)"/>
+  <text x="702" y="175" class="s s13 ink">read by</text>
+  <line x1="40" y1="196" x2="1060" y2="196" stroke="#B7C8BC" stroke-width="1"/>
+
+  <!-- 1 · A repo becomes targets -->
+  <circle cx="51" cy="226" r="11" fill="#1E7A4A"/>
+  <text x="51" y="230.5" class="c13 bold wht" text-anchor="middle">1</text>
+  <text x="70" y="231" class="c13 bold ink spaced">A REPO BECOMES TARGETS</text>
+  <line x1="313" y1="226" x2="1060" y2="226" stroke="#B7C8BC" stroke-width="1"/>
+  <text x="486" y="270" class="c12 mut label" style="font-size:10.5px">TARGET</text>
+  <text x="562" y="270" class="c12 mut label" style="font-size:10.5px">PACK</text>
+  <text x="662" y="270" class="c12 mut label" style="font-size:10.5px">ROOT</text>
+  <text x="774" y="270" class="c12 mut label" style="font-size:10.5px">SLOTS IT RUNS</text>
+  <rect x="40" y="250" width="370" height="296" rx="12" fill="#F8FBF8" stroke="#14231B" stroke-width="1.5"/>
+  <text x="58" y="274" class="c13 bold ink">repo/</text>
+  <line x1="66" y1="282" x2="66" y2="528" stroke="#7E9187" stroke-width="1.3"/>
+  <line x1="66" y1="304" x2="80" y2="304" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="308.5" class="c13 ink">frontend/</text>
+  <text x="222" y="308.5" class="c13 bold grn">package.json</text>
+  <line x1="66" y1="348" x2="80" y2="348" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="352.5" class="c13 ink">services/api/</text>
+  <text x="222" y="352.5" class="c13 bold grn">go.work</text>
+  <line x1="66" y1="392" x2="80" y2="392" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="396.5" class="c13 ink">scripts/</text>
+  <text x="222" y="396.5" class="c13 bold grn">deploy.sh</text>
+  <line x1="66" y1="436" x2="80" y2="436" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="440.5" class="c13 ink">infra/prod/</text>
+  <text x="222" y="440.5" class="c13 bold grn">.terraform.lock.hcl</text>
+  <line x1="66" y1="488" x2="80" y2="488" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="492.5" class="c13 ink">docs/</text>
+  <text x="222" y="492.5" class="c13 bold grn">*.md</text>
+  <line x1="66" y1="528" x2="80" y2="528" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="532.5" class="c13 ink">tools/gen/</text>
+  <text x="222" y="532.5" class="c13 bold red">go.mod</text>
+  <rect x="470" y="286" width="590" height="36" rx="8" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="486" y="308.5" class="c13 bold ink">web</text>
+  <rect x="560" y="293.0" width="88" height="22" rx="11" fill="#DCE9DF" stroke="#1E7A4A" stroke-width="1.2"/>
+  <text x="604" y="308.2" class="c12 bold grn" text-anchor="middle">ts</text>
+  <text x="662" y="308.5" class="c12 mut" style="font-size:12.5px">frontend/</text>
+  <text x="774" y="308.5" class="c12 ink">types · lint · dead · test · build</text>
+  <line x1="410" y1="304.0" x2="466" y2="304.0" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="470" y="330" width="590" height="36" rx="8" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="486" y="352.5" class="c13 bold ink">api</text>
+  <rect x="560" y="337.0" width="88" height="22" rx="11" fill="#DCE9DF" stroke="#1E7A4A" stroke-width="1.2"/>
+  <text x="604" y="352.2" class="c12 bold grn" text-anchor="middle">go</text>
+  <text x="662" y="352.5" class="c12 mut" style="font-size:12.5px">services/api/</text>
+  <text x="774" y="352.5" class="c12 ink">types · lint · dead · test</text>
+  <line x1="410" y1="348.0" x2="466" y2="348.0" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="470" y="374" width="590" height="36" rx="8" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="486" y="396.5" class="c13 bold ink">scripts</text>
+  <rect x="560" y="381.0" width="88" height="22" rx="11" fill="#DCE9DF" stroke="#1E7A4A" stroke-width="1.2"/>
+  <text x="604" y="396.2" class="c12 bold grn" text-anchor="middle">bash</text>
+  <text x="662" y="396.5" class="c12 mut" style="font-size:12.5px">scripts/</text>
+  <text x="774" y="396.5" class="c12 ink">lint</text>
+  <line x1="410" y1="392.0" x2="466" y2="392.0" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="470" y="418" width="590" height="36" rx="8" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="486" y="440.5" class="c13 bold ink">infra</text>
+  <rect x="560" y="425.0" width="88" height="22" rx="11" fill="#DCE9DF" stroke="#1E7A4A" stroke-width="1.2"/>
+  <text x="604" y="440.2" class="c12 bold grn" text-anchor="middle">terraform</text>
+  <text x="662" y="440.5" class="c12 mut" style="font-size:12.5px">infra/prod/</text>
+  <text x="774" y="440.5" class="c12 ink">lint · types</text>
+  <line x1="410" y1="436.0" x2="466" y2="436.0" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="470" y="462" width="590" height="52" rx="8" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="486" y="492.5" class="c13 bold mut">(repo)</text>
+  <rect x="560" y="477.0" width="88" height="22" rx="11" fill="#DCE9DF" stroke="#1E7A4A" stroke-width="1.2"/>
+  <text x="604" y="492.2" class="c12 bold grn" text-anchor="middle">repo</text>
+  <text x="662" y="492.5" class="c12 mut" style="font-size:12.5px">.</text>
+  <text x="774" y="484.5" class="c12 ink">struct · docs · links · spell</text>
+  <text x="774" y="501.5" class="c12 ink">prose · schema† · unclaimed</text>
+  <line x1="410" y1="488.0" x2="466" y2="488.0" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <line x1="410" y1="528" x2="458" y2="528" stroke="#C0392B" stroke-width="1.3" stroke-dasharray="4 3"/>
+  <text x="470" y="532.5" class="s s13 red bold">× no target claims tools/gen/, so <tspan class="c">unclaimed</tspan> fails</text>
+  <text x="40" y="578" class="s s13 ink">Targets come from <tspan class="c">targets</tspan> in config, <tspan class="c">checkride target add</tspan>, or <tspan class="amb c">--discover</tspan> at run time (in memory, nothing written).</text>
+  <text x="40" y="598" class="s s13 ink">Every pack shares the slot names and brings its own tools: <tspan class="c">types</tspan> runs tsc, <tspan class="c">go build</tspan>, <tspan class="c">cargo check</tspan>, mypy or <tspan class="c">terraform validate</tspan>.</text>
+  <text x="40" y="618" class="s s13 ink">Target checks are named <tspan class="c">api:lint</tspan> and write under <tspan class="c">&lt;out&gt;/api/</tspan>; repo-wide checks keep bare names.</text>
+  <rect x="40" y="636" width="1020" height="58" rx="10" fill="#F4F8F4" stroke="#B7C8BC" stroke-width="1.2"/>
+  <rect x="40" y="636" width="6" height="58" rx="3" fill="#1E7A4A"/>
+  <text x="60" y="659" class="s s135 bold ink">No <tspan class="c">targets</tspan> and no <tspan class="c">--discover</tspan>: implicit mode, which is 0.13 exactly.</text>
+  <text x="60" y="681" class="s s13 ink">One unnamed target at the root, its pack picked by the first marker found there: ts, go, rust, python or terraform.</text>
+
+  <!-- 2 · Every check resolves, then runs -->
+  <circle cx="51" cy="740" r="11" fill="#1E7A4A"/>
+  <text x="51" y="744.5" class="c13 bold wht" text-anchor="middle">2</text>
+  <text x="70" y="745" class="c13 bold ink spaced">EVERY CHECK RESOLVES, THEN RUNS</text>
+  <line x1="406" y1="740" x2="826" y2="740" stroke="#B7C8BC" stroke-width="1"/>
+  <text x="842" y="744.5" class="c12 bold mut label" style="font-size:11px">FLAGS</text>
+  <rect x="40" y="760" width="130" height="74" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="782" r="11" fill="#E9F0EA"/>
+  <text x="60" y="786.5" class="c13 bold grn" text-anchor="middle">1</text>
+  <text x="78" y="786.5" class="c12 bold wht label">RESOLVE</text>
+  <text x="50" y="810" class="s s12 hint">which tool</text>
+  <rect x="180" y="760" width="630" height="74" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <line x1="105" y1="836" x2="105" y2="846" stroke="#14231B" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="848" width="130" height="104" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="870" r="11" fill="#E9F0EA"/>
+  <text x="60" y="874.5" class="c13 bold grn" text-anchor="middle">2</text>
+  <text x="78" y="874.5" class="c12 bold wht label">SELECT</text>
+  <text x="50" y="898" class="s s12 hint">which checks</text>
+  <rect x="180" y="848" width="630" height="104" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <line x1="105" y1="954" x2="105" y2="964" stroke="#14231B" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="966" width="130" height="64" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="988" r="11" fill="#E9F0EA"/>
+  <text x="60" y="992.5" class="c13 bold grn" text-anchor="middle">3</text>
+  <text x="78" y="992.5" class="c12 bold wht label">SCHEDULE</text>
+  <text x="50" y="1016" class="s s12 hint">when</text>
+  <rect x="180" y="966" width="630" height="64" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <line x1="105" y1="1032" x2="105" y2="1042" stroke="#14231B" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="1044" width="130" height="108" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="1066" r="11" fill="#E9F0EA"/>
+  <text x="60" y="1070.5" class="c13 bold grn" text-anchor="middle">4</text>
+  <text x="78" y="1070.5" class="c12 bold wht label">LAUNCH</text>
+  <text x="50" y="1094" class="s s12 hint">which copy</text>
+  <rect x="180" y="1044" width="630" height="108" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <line x1="105" y1="1154" x2="105" y2="1164" stroke="#14231B" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="1166" width="130" height="104" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="1188" r="11" fill="#E9F0EA"/>
+  <text x="60" y="1192.5" class="c13 bold grn" text-anchor="middle">5</text>
+  <text x="78" y="1192.5" class="c12 bold wht label">CAPTURE</text>
+  <text x="50" y="1216" class="s s12 hint">what's kept</text>
+  <rect x="180" y="1166" width="630" height="104" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <line x1="105" y1="1272" x2="105" y2="1282" stroke="#14231B" stroke-width="1.5" marker-end="url(#ah-ink)"/>
+  <rect x="40" y="1284" width="130" height="86" rx="10" fill="#1E7A4A"/>
+  <circle cx="60" cy="1306" r="11" fill="#E9F0EA"/>
+  <text x="60" y="1310.5" class="c13 bold grn" text-anchor="middle">6</text>
+  <text x="78" y="1310.5" class="c12 bold wht label">VERDICT</text>
+  <text x="50" y="1334" class="s s12 hint">pass or fail</text>
+  <rect x="180" y="1284" width="630" height="86" rx="10" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <rect x="198" y="774" width="101.8" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="248.9" y="789.2" class="c12 ink ls" text-anchor="middle">targets.&lt;t&gt;</text>
+  <line x1="302.8" y1="785" x2="316.8" y2="785" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="321.8" y="774" width="86.2" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="364.9" y="789.2" class="c12 ink ls" text-anchor="middle">packs.&lt;p&gt;</text>
+  <line x1="411.0" y1="785" x2="425.0" y2="785" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="430.0" y="774" width="62.8" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="461.4" y="789.2" class="c12 ink ls" text-anchor="middle">checks</text>
+  <line x1="495.8" y1="785" x2="509.8" y2="785" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="514.8" y="774" width="78.4" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="554.0" y="789.2" class="c12 ink ls" text-anchor="middle">detected</text>
+  <line x1="596.1999999999999" y1="785" x2="610.1999999999999" y2="785" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="615.1999999999999" y="774" width="94.0" height="22" rx="6" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.2"/>
+  <text x="662.2" y="789.2" class="c12 amb ls" text-anchor="middle">--defaults</text>
+  <line x1="712.1999999999999" y1="785" x2="726.1999999999999" y2="785" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="731.1999999999999" y="774" width="47.2" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="754.8" y="789.2" class="c12 ink ls" text-anchor="middle">skip</text>
+  <text x="198" y="818" class="s s13 ink">The first source that names an adapter wins; the check records it as <tspan class="c">origin</tspan>.</text>
+  <rect x="842" y="770" width="141.0" height="24" rx="12" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="854" y="786.2" class="c12 amb ls">--config &lt;file&gt;</text>
+  <line x1="838" y1="782" x2="816" y2="782" stroke="#D9A13B" stroke-width="1.6" marker-end="url(#ah-amber)"/>
+  <rect x="842" y="800" width="156.6" height="24" rx="12" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="854" y="816.2" class="c12 amb ls">--defaults &lt;file&gt;</text>
+  <line x1="838" y1="812" x2="816" y2="812" stroke="#D9A13B" stroke-width="1.6" marker-end="url(#ah-amber)"/>
+  <text x="198" y="872" class="s s13 ink">Tokens: <tspan class="c">lint</tspan> (every target), <tspan class="c">api</tspan> (one target), <tspan class="c">api:lint</tspan> (one check).</text>
+  <text x="198" y="893" class="s s13 ink"><tspan class="c">--changed</tspan> diffs from the merge base of <tspan class="c">--base</tspan>; untouched targets skip,</text>
+  <text x="198" y="914" class="s s13 ink">and Go narrows <tspan class="c">go build</tspan> and <tspan class="c">go test</tspan> to the affected modules.</text>
+  <text x="198" y="935" class="s s13 ink"><tspan class="c">--static-only</tspan> keeps only checks that read the repo as data, with no install.</text>
+  <rect x="842" y="856" width="203.4" height="24" rx="12" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="854" y="872.2" class="c12 ink ls">--only --skip --include</text>
+  <line x1="838" y1="868" x2="816" y2="868" stroke="#7E9187" stroke-width="1.4" marker-end="url(#ah-soft)"/>
+  <rect x="842" y="886" width="195.6" height="24" rx="12" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="854" y="902.2" class="c12 ink ls">--changed --base &lt;ref&gt;</text>
+  <line x1="838" y1="898" x2="816" y2="898" stroke="#7E9187" stroke-width="1.4" marker-end="url(#ah-soft)"/>
+  <rect x="842" y="919" width="125.4" height="24" rx="12" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="854" y="935.2" class="c12 amb ls">--static-only</text>
+  <line x1="838" y1="931" x2="816" y2="931" stroke="#D9A13B" stroke-width="1.6" marker-end="url(#ah-amber)"/>
+  <text x="198" y="993" class="s s13 ink">Waves by <tspan class="c">order</tspan>, as in 0.13. Checks that share a lock key never overlap,</text>
+  <text x="198" y="1014" class="s s13 ink">such as <tspan class="c">cargo:&lt;root&gt;</tspan>; waiting for a lock doesn't count toward the timeout.</text>
+  <rect x="198" y="1058" width="62.8" height="22" rx="6" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.2"/>
+  <text x="229.4" y="1073.2" class="c12 amb ls" text-anchor="middle">--pins</text>
+  <line x1="263.8" y1="1069" x2="277.8" y2="1069" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="282.8" y="1058" width="62.8" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="314.2" y="1073.2" class="c12 ink ls" text-anchor="middle">native</text>
+  <line x1="348.6" y1="1069" x2="362.6" y2="1069" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="367.6" y="1058" width="47.2" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="391.2" y="1073.2" class="c12 ink ls" text-anchor="middle">mise</text>
+  <line x1="417.8" y1="1069" x2="431.8" y2="1069" stroke="#7E9187" stroke-width="1.3" marker-end="url(#ah-soft)"/>
+  <rect x="436.8" y="1058" width="47.2" height="22" rx="6" fill="#FFFFFF" stroke="#14231B" stroke-width="1.2"/>
+  <text x="460.4" y="1073.2" class="c12 ink ls" text-anchor="middle">PATH</text>
+  <text x="502" y="1073.5" class="s s12 mut">records <tspan class="c">pin_source</tspan>, <tspan class="c">tool_version</tspan>, <tspan class="c">argv</tspan></text>
+  <text x="198" y="1100" class="s s12 mut">native = package.json · go.mod tool · rust-toolchain · uv.lock · .terraform-version</text>
+  <text x="198" y="1122" class="s s13 ink">The first declaring source wins, with no fall-through to another copy.</text>
+  <text x="198" y="1142" class="s s13 ink">Runs from the target root with downloads off (<tspan class="c">GOPROXY=off</tspan>, <tspan class="c">UV_OFFLINE</tspan>, …).</text>
+  <rect x="842" y="1057" width="164.4" height="24" rx="12" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="854" y="1073.2" class="c12 amb ls">--pins &lt;mise.toml&gt;</text>
+  <line x1="838" y1="1069" x2="816" y2="1069" stroke="#D9A13B" stroke-width="1.6" marker-end="url(#ah-amber)"/>
+  <text x="198" y="1191" class="s s13 ink">A declared <tspan class="c">outputFile</tspan> keeps JSON as <tspan class="c">.json</tspan> and JSON lines as <tspan class="c">.jsonl</tspan>;</text>
+  <text x="198" y="1212" class="s s13 ink">everything else stays byte for byte in <tspan class="c">.stdout.txt</tspan> and <tspan class="c">.stderr.txt</tspan>.</text>
+  <text x="198" y="1233" class="s s13 ink"><tspan class="c">failOnOutput</tspan> fails a tool that exits 0 but still prints findings, and a</text>
+  <text x="198" y="1254" class="s s13 ink">custom check's <tspan class="c">skipExitCode</tspan> records a skip instead of a red or a false green.</text>
+  <rect x="842" y="1179" width="109.8" height="24" rx="12" fill="#FBF0D9" stroke="#D9A13B" stroke-width="1.5"/>
+  <text x="854" y="1195.2" class="c12 amb ls">--out &lt;dir&gt;</text>
+  <line x1="838" y1="1191" x2="816" y2="1191" stroke="#D9A13B" stroke-width="1.6" marker-end="url(#ah-amber)"/>
+  <text x="198" y="1310" class="s s13 ink">The baseline subtracts grandfathered findings, keyed on gating findings only</text>
+  <text x="198" y="1331" class="s s13 ink">and repo-relative paths. Exit <tspan class="grn bold">0</tspan> green, <tspan class="red bold">1</tspan> red, <tspan class="amb bold">2</tspan> when the harness itself broke.</text>
+  <text x="198" y="1352" class="s s13 ink">Only the repo's own full run ratchets the baseline; outside runs write nothing.</text>
+
+  <!-- 3 · What a run writes, and who reads it -->
+  <circle cx="51" cy="1412" r="11" fill="#1E7A4A"/>
+  <text x="51" y="1416.5" class="c13 bold wht" text-anchor="middle">3</text>
+  <text x="70" y="1417" class="c13 bold ink spaced">WHAT A RUN WRITES, AND WHO READS IT</text>
+  <line x1="448" y1="1412" x2="1060" y2="1412" stroke="#B7C8BC" stroke-width="1"/>
+  <rect x="40" y="1432" width="590" height="192" rx="12" fill="#F8FBF8" stroke="#14231B" stroke-width="1.5"/>
+  <text x="58" y="1458" class="c13 bold ink">&lt;out&gt;/</text>
+  <text x="118" y="1458" class="s s12 mut" style="font-size:12.5px"><tspan class="c">.check/</tspan> unless <tspan class="amb c">--out</tspan> moves it</text>
+  <line x1="66" y1="1466" x2="66" y2="1604" stroke="#7E9187" stroke-width="1.3"/>
+  <line x1="66" y1="1484" x2="80" y2="1484" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1488.5" class="c12 ink" style="font-size:12.5px">summary.json</text>
+  <text x="246" y="1488.5" class="s s12 mut">run, git, targets; per check origin, pin_source, argv</text>
+  <line x1="66" y1="1508" x2="80" y2="1508" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1512.5" class="c12 ink" style="font-size:12.5px">digest.md</text>
+  <text x="246" y="1512.5" class="s s12 mut">with <tspan class="c">--digest</tspan>, when something failed</text>
+  <line x1="66" y1="1532" x2="80" y2="1532" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1536.5" class="c12 ink" style="font-size:12.5px">unclaimed.json</text>
+  <text x="246" y="1536.5" class="s s12 mut">markers no target claims, with a suggested target</text>
+  <line x1="66" y1="1556" x2="80" y2="1556" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1560.5" class="c12 ink" style="font-size:12.5px">docs.stderr.txt</text>
+  <text x="246" y="1560.5" class="s s12 mut">repo-wide raw output, one file per slot</text>
+  <line x1="66" y1="1580" x2="80" y2="1580" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1584.5" class="c12 ink" style="font-size:12.5px">web/</text>
+  <text x="246" y="1584.5" class="s s12 mut">one folder per target: lint.json, test.json, …</text>
+  <line x1="66" y1="1604" x2="80" y2="1604" stroke="#7E9187" stroke-width="1.3"/>
+  <text x="86" y="1608.5" class="c12 ink" style="font-size:12.5px">api/</text>
+  <text x="246" y="1608.5" class="s s12 mut">types.jsonl, lint.json, test.jsonl, …</text>
+  <rect x="40" y="1636" width="590" height="78" rx="12" fill="#F8FBF8" stroke="#B7C8BC" stroke-width="1.2"/>
+  <text x="58" y="1658" class="c13 bold mut">&lt;repo&gt;/</text>
+  <text x="58" y="1684.5" class="c12 ink" style="font-size:12.5px">checkride.baseline.json</text>
+  <text x="262" y="1684.5" class="s s12 mut">ratcheted only by the repo's own full run</text>
+  <text x="58" y="1704.5" class="c12 ink" style="font-size:12.5px">.check/.dirty</text>
+  <text x="262" y="1704.5" class="s s12 mut">the gate's marker, always here</text>
+  <rect x="670" y="1432" width="390" height="72" rx="10" fill="#FFFFFF" stroke="#2456A6" stroke-width="1.3"/>
+  <text x="686" y="1455" class="c13 bold grn">checkride/findings</text>
+  <text x="686" y="1476" class="s s12 ink" style="font-size:12.5px"><tspan class="c">findingsFor(check, runDir)</tspan> parses raw output:</text>
+  <text x="686" y="1494" class="s s12 ink" style="font-size:12.5px">file, line, rule, severity, and whether it <tspan class="c">gates</tspan>.</text>
+  <rect x="670" y="1516" width="390" height="56" rx="10" fill="#FFFFFF" stroke="#2456A6" stroke-width="1.3"/>
+  <text x="686" y="1539" class="c13 bold ink">checkride triage · qa</text>
+  <text x="686" y="1560" class="s s12 ink" style="font-size:12.5px">Read <tspan class="c">&lt;out&gt;/</tspan>, target folders and <tspan class="c">.jsonl</tspan> too.</text>
+  <rect x="670" y="1584" width="390" height="72" rx="10" fill="#FFFFFF" stroke="#2456A6" stroke-width="1.3"/>
+  <text x="686" y="1607" class="s s135 bold ink">the gate (Stop hook)</text>
+  <text x="686" y="1628" class="s s12 ink" style="font-size:12.5px">Runs the repo's own check into <tspan class="c">&lt;repo&gt;/.check/</tspan>,</text>
+  <text x="686" y="1646" class="s s12 ink" style="font-size:12.5px">with every consumer variable stripped.</text>
+  <rect x="670" y="1668" width="390" height="72" rx="10" fill="#FFFFFF" stroke="#2456A6" stroke-width="1.3"/>
+  <text x="686" y="1691" class="s s135 bold ink">a PR-review agent</text>
+  <text x="686" y="1712" class="s s12 ink" style="font-size:12.5px">A <tspan class="c">--static-only</tspan> pass before its sandbox, then a</text>
+  <text x="686" y="1730" class="s s12 ink" style="font-size:12.5px">full pass inside it, each with its own <tspan class="c">--out</tspan>.</text>
+  <line x1="632" y1="1528" x2="656" y2="1528" stroke="#2456A6" stroke-width="2"/>
+  <line x1="656" y1="1468.0" x2="656" y2="1704.0" stroke="#2456A6" stroke-width="2"/>
+  <line x1="656" y1="1468.0" x2="667" y2="1468.0" stroke="#2456A6" stroke-width="2" marker-end="url(#ah-blue)"/>
+  <line x1="656" y1="1544.0" x2="667" y2="1544.0" stroke="#2456A6" stroke-width="2" marker-end="url(#ah-blue)"/>
+  <line x1="656" y1="1620.0" x2="667" y2="1620.0" stroke="#2456A6" stroke-width="2" marker-end="url(#ah-blue)"/>
+  <line x1="656" y1="1704.0" x2="667" y2="1704.0" stroke="#2456A6" stroke-width="2" marker-end="url(#ah-blue)"/>
+
+  <!-- Footer -->
+  <line x1="40" y1="1766" x2="1060" y2="1766" stroke="#B7C8BC" stroke-width="1"/>
+  <text x="40" y="1790" class="s s12 mut">† <tspan class="c">schema</tspan> arrives in Phase 12. It and the standalone binary (Phase 13) stay last; whether to build them is decided after Phase 11.</text>
+  <text x="40" y="1810" class="s s12 mut">Drawn from docs/spec-polyglot.md and the build plan settled on 2026-10-09 (decisions D1 to D54).</text>
+</svg>
