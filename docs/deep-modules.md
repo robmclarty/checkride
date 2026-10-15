@@ -90,6 +90,41 @@ The explicit `.js` is required because NodeNext ESM resolution does not
 synthesize extensions or directory indexes; it's enforced separately so the two
 failure modes give targeted messages.
 
+## Where tests live
+
+Tests follow the same idea. A unit test belongs to the module it covers, so it
+sits beside that module's code. A test that spans modules belongs to no single
+module, so it lives outside `src/` altogether.
+
+```text
+src/
+├── config.ts
+├── __tests__/
+│   └── config.test.ts     ← unit test for a root module
+└── auth/
+    ├── index.ts
+    ├── login.ts
+    └── __tests__/
+        └── login.test.ts  ← unit test inside a folder module
+test/
+├── integration/           ← tests that span modules
+├── e2e/                   ← end-to-end tests
+├── contract/              ← tests that hold a published surface in place
+├── helpers/               ← shared test code
+└── fixtures/              ← test data, which no tool lints or runs
+```
+
+- A unit test goes in a `__tests__/` folder beside the code it covers, never
+  loose beside the source file. `__tests__/` folders exist only under `src/`.
+- `test/` holds those five folders and nothing else. Fixtures are data, helpers
+  are code.
+- Tests take one suffix, `.test.ts`.
+- Shipped code never imports from `test/`, so fixtures and helpers can't leak
+  into the published package.
+
+In the monorepo and hybrid shapes each package has its own `src/` and `test/`,
+laid out the same way.
+
 ## How it's enforced
 
 Two tools, covering different scopes. Everything runs as part of `pnpm check`.
@@ -98,20 +133,59 @@ Two tools, covering different scopes. Everything runs as part of `pnpm check`.
 | --------- | -------- | ------------------------------------------------------- |
 | Symbol    | `tsc`    | Only what a module exports is reachable at all          |
 | Module    | ast-grep | Siblings are reachable only through their `index.js`    |
+| Barrel    | ast-grep | `index.ts` re-exports and defines nothing               |
 | Extension | ast-grep | Relative imports carry an explicit `.js` / `.mjs`       |
+| Tests     | ast-grep | Each test file sits where the layout above puts it      |
 | Package   | `fallow` | In a monorepo, `libs/*` may not import from `apps/*`    |
 
 The ast-grep rules live in your repo under `rules/` and run through the `struct`
-slot:
+slot. A new project gets ten. Module boundaries:
 
 - `rules/no-deep-sibling-import.yml` — flags any import of the form
   `'../<sibling>/<not-index>.js'`, at any depth. Climbing first is fine: from a
   nested `__tests__/`, `'../../config.js'` and `'../../auth/index.js'` are the
   parent level's interface and pass.
-- `rules/no-logic-in-barrel.yml` — keeps `index.ts` a pure re-export surface.
-- `rules/require-js-extension.yml` — enforces the NodeNext extension.
+- `rules/no-logic-in-barrel.yml` — keeps `index.ts` a pure re-export surface:
+  no function, no class, and no top-level `const`, exported or not.
+- `rules/require-js-extension.yml` — enforces the NodeNext extension, in `src/`
+  and `test/` alike.
+
+Style:
+
 - `rules/no-default-export.yml`, `rules/no-class.yml` — named exports and a
   functional style, so the interface is a set of stable, discoverable names.
+
+Test layout:
+
+- `rules/colocate-unit-tests.yml` — a `.test.ts` file under `src/` sits inside
+  a `__tests__/` folder.
+- `rules/tests-dir-is-src-only.yml` — a `__tests__/` folder outside `src/` is
+  an error.
+- `rules/test-dir-layout.yml` — a `.ts` file under `test/` sits in one of its
+  five folders.
+- `rules/no-spec-suffix.yml` — a `.spec.ts` file is an error; rename it to
+  `.test.ts`.
+- `rules/src-never-imports-test.yml` — code under `src/` never imports from
+  `test/`, whether by `import`, a re-export, or `import()`. Unit tests in
+  `__tests__/` are exempt, since they don't ship.
+
+The rules match `**/src/**` and `**/test/**`, so one copy at the root covers
+every package in a monorepo or hybrid. Every rule skips `test/fixtures/`, and so
+does every other tool `init` configures (oxlint, markdownlint, cspell, fallow,
+vitest and the `links` check), because a fixture is often broken on purpose.
+
+The four location rules (`colocate-unit-tests`, `tests-dir-is-src-only`,
+`test-dir-layout` and `no-spec-suffix`) match every file, so their `files` and
+`ignores` globs alone decide what fires. `ast-grep test` runs snippets with no
+path, so it can't exercise them. To check a change to one, scan a real tree with
+a misplaced file in it. `tests-dir-is-src-only` also skips `dist/`, where `tsc`
+emits each test's declarations, because ast-grep reads `.gitignore` only inside
+a git repo.
+
+An existing repo adopting the `struct` check with `init --add struct` gets
+`no-deep-sibling-import.yml` alone. The other nine are style and layout
+decisions the repo has already made its own way. Copy in any you agree with from
+`node_modules/checkride/templates/shared/rules/`.
 
 The cross-package boundary is fallow's, not ast-grep's, and it only applies to
 the **monorepo** shape: fallow's `boundary-violation` rule enforces that

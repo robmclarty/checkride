@@ -1,5 +1,6 @@
 /**
- * Guards on the slot catalogues the docs publish.
+ * Guards on the catalogues the docs publish: the slots, and the rules and test
+ * layout a new project is scaffolded with.
  *
  * Four places outside `src/` enumerate the slots: the README's slot table and
  * its opt-in sentence, the cheat sheet's pipeline table, and the config
@@ -15,12 +16,17 @@
  * both directions: a missing name understates the catalogue and a stale one
  * names a slot that no longer exists, so those are exact-set assertions.
  *
+ * The rule pack is enumerated the same way. `init` copies every file in
+ * `templates/shared/rules/` into a new project, and `docs/deep-modules.md`
+ * names each by its `rules/` path, so that list is exact too. Both guides draw
+ * the `test/` tree, held to the folders `test-dir-layout.yml` allows.
+ *
  * Sibling guards: `./conventions.test.ts` (AGENTS.md's claims about the tree),
  * `./dogfood-config.test.ts` (this repo's config still matches the registry),
  * `./site.test.ts` (the same currency rule for `site/*.html`).
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -34,6 +40,15 @@ const read = (...parts: string[]): string => readFileSync(join(ROOT, ...parts), 
 const README = read('README.md');
 const CHEATSHEET = read('docs', 'cheatsheet.md');
 const SCHEMA = read('schema', 'checkride.config.schema.json');
+const DEEP_MODULES = read('docs', 'deep-modules.md');
+const GETTING_STARTED = read('docs', 'getting-started.md');
+
+const RULES = join('templates', 'shared', 'rules');
+const shippedRules = readdirSync(join(ROOT, RULES)).filter((f) => f.endsWith('.yml'));
+/** The folders `test-dir-layout.yml` sanctions under `test/`, from its `ignores`. */
+const testDirs = [...read(RULES, 'test-dir-layout.yml').matchAll(/'\*\*\/test\/([\w-]+)\/\*\*'/g)].map(
+  (m) => m[1] ?? '',
+);
 
 const slotNames = SLOTS.map((s) => s.name);
 const optInNames = SLOTS.filter((s) => s.optIn).map((s) => s.name);
@@ -58,6 +73,14 @@ function enumeratedAfter(text: string, lead: string): string[] {
     .split(',')
     .map((s) => s.replaceAll('`', '').trim())
     .filter(Boolean);
+}
+
+/** The folders in the tree drawn under a line that reads exactly `test/`. */
+function testTree(md: string): string[] {
+  const at = md.search(/^test\/$/m);
+  expect(at, 'no test/ tree found').toBeGreaterThan(-1);
+  const block = md.slice(at, md.indexOf('```', at));
+  return [...block.matchAll(/^[├└]── ([\w-]+)\//gm)].map((m) => m[1] ?? '');
 }
 
 describe('slot tables list every catalogue slot', () => {
@@ -91,5 +114,20 @@ describe('opt-in enumerations match the registry exactly', () => {
   test('the cheat sheet --include row names every opt-in slot', () => {
     const listed = enumeratedAfter(CHEATSHEET, 'Add opt-in slots');
     expect(listed.toSorted()).toEqual(optInNames.toSorted());
+  });
+});
+
+describe('the scaffold docs match the templates', () => {
+  test('docs/deep-modules.md names every shipped rule, and only those', () => {
+    const named = new Set([...DEEP_MODULES.matchAll(/\brules\/([\w-]+\.yml)/g)].map((m) => m[1] ?? ''));
+    expect([...named].toSorted()).toEqual(shippedRules.toSorted());
+  });
+
+  test.each([
+    ['docs/deep-modules.md', DEEP_MODULES],
+    ['docs/getting-started.md', GETTING_STARTED],
+  ])('%s draws the test/ folders test-dir-layout.yml allows', (_label, md) => {
+    expect(testDirs).toHaveLength(5);
+    expect(testTree(md).toSorted()).toEqual(testDirs.toSorted());
   });
 });

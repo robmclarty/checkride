@@ -97,10 +97,11 @@ pnpm add -D @ast-grep/cli fallow
 `pnpm add -D` installs the tools themselves.
 
 `--add struct` scaffolds the boundary rule only. checkride's other house rules —
-no classes, named exports, NodeNext `.js` extensions — are style decisions your
-repo has already made, so adopting a check does not hand you three of them to
-argue with. They are listed in [deep modules](./deep-modules.md) if you want
-them; copy in the ones you agree with.
+no classes, named exports, NodeNext `.js` extensions, logic-free barrels, and
+where tests live — are decisions your repo has already made, so adopting a check
+does not hand you nine of them to argue with. They are listed in
+[deep modules](./deep-modules.md#how-its-enforced) if you want them; copy in the
+ones you agree with.
 
 ### A new project
 
@@ -119,6 +120,37 @@ pnpm check
 - **hybrid** — a root app in `src/` plus internal `packages/*`.
 
 Preview without writing anything using `--dry-run`.
+
+Every shape writes its code in one layout, the one
+[deep modules](./deep-modules.md) describes. The flat `my-app` above starts as:
+
+```text
+my-app/
+├── src/
+│   ├── index.ts             ← the barrel: re-exports, no logic
+│   ├── my-app.ts            ← the starter module
+│   └── __tests__/
+│       └── my-app.test.ts   ← unit tests sit beside the code they cover
+└── rules/                   ← the ten ast-grep rules that hold the layout
+```
+
+Tests that span modules go under `test/`, which `init` leaves for you to create
+when you need it. It holds five folders and nothing else:
+
+```text
+test/
+├── integration/   ← tests that span modules
+├── e2e/           ← end-to-end tests
+├── contract/      ← tests that hold a published surface in place
+├── helpers/       ← shared test code
+└── fixtures/      ← test data
+```
+
+In the monorepo and hybrid shapes, each package under `apps/`, `libs/` or
+`packages/` has its own `src/` and `test/`, laid out the same way. The `struct`
+check holds the layout, so a test in the wrong place fails the run. Every tool
+`init` configures skips `test/fixtures/`, so a fixture that is broken on purpose
+can't fail it.
 
 ## The daily loop
 

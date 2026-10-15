@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 15 — test(init): verify the location rules by scanning a real tree
+**Current step:** 16 — docs(init): describe the shipped layout and rules
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -37,7 +37,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 12. feat(init): ship the six layout and barrel rules in new-project mode
 - ☑ 13. feat(init): make the starter files obey the rules they ship
 - ☑ 14. feat(init): carve test/fixtures out of every scaffolded tool
-- ☐ 15. test(init): verify the location rules by scanning a real tree
+- ☑ 15. test(init): verify the location rules by scanning a real tree
 - ☐ 16. docs(init): describe the shipped layout and rules
 - ☐ 17. chore(test): adopt the test layout in this repo
 - ☐ 18. feat(init): write a config naming every scaffolded slot in new mode
@@ -112,7 +112,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
 - [x] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
 - [x] a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold: oxlint's nested config voids the root ignorePatterns, and the scaffolded lint argv lacks --disable-nested-config (this repo's own config has it)
-- [ ] shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/, but no-deep-sibling-import (no __tests__ ignore) fires on that same import; decide which rule yields
+- [x] shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/, but no-deep-sibling-import (no __tests__ ignore) fires on that same import; decide which rule yields
+- [ ] orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes under full-suite coverage load: its 10ms-spaced timers finished b/c swapped once in step 16's gate; widen the spacing or assert only the summary order
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -138,6 +139,7 @@ Harvest results this boundary:
 - After step 10: "step 21: the snippets adapters' scratch arg..." → **tangent**, deferred to step 21 (the `struct` check turns red when the adapters move, so it can't slip; a scratch constant, or dropping the path from an availability-only signature, is that step's call).
 - After step 11: "qa --out can't find mutation.json..." → **tangent**, deferred to step 38 (the file's path is the repo's own stryker `jsonReporter.fileName`, not checkride's argv, and mutation is opt-in; step 38 already revisits where `qa` finds artifacts, so it decides between documenting the limit and routing the file through the adapter).
 - After step 14: "a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold..." → **tangent**, deferred to step 18 (it writes a config entry for every scaffolded slot, so its `lint` entry can carry `--disable-nested-config` as this repo's does, and the step 14 probe can gain a nested `.oxlintrc.json` to prove it; the flag moves the init shapes' lint argv in the invariance golden, which D51 (golden-placement) expects Phase 4 to update on purpose, though `test/contract/invariance.contract.test.ts` sits outside step 18's seam, and it also stops a monorepo package's own `.oxlintrc.json` from applying, which step 18 weighs).
+- After step 15: "shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/..." → **tangent**, deferred to step 17 (no planned step trips it, since neither a scaffold nor this repo's `src/` imports from `test/`, but Phase 4 shouldn't release the contradiction; step 17 copies `src-never-imports-test` into this repo's `rules/` beside the same gap, so it fixes both copies, leaning toward a `not: regex` that leaves imports into `test/` to `src-never-imports-test` over a blanket `__tests__` ignore; `templates/shared/rules/no-deep-sibling-import.yml` and `test/e2e/layout-rules.e2e.test.ts` sit outside step 17's seam, so add them via `/plumbbob:step 17` or accept a two-file stray; keyframes' copy has the same gap).
 
 ## Log
 
@@ -958,3 +960,49 @@ folder, so it rides the branch into the PR.)*
   `src/__tests__/links.test.ts` gains a test that a `fixtures/` directory at any depth is never walked. Only the e2e covered it otherwise, and stryker runs unit tests only, so the new array entry would have been a surviving mutant. `CHANGELOG.md` gains a Changed entry, per C11 (docs-in-step), because the `links` default changes behavior for every repo, not only new scaffolds. Step 16 can fold the scaffold half into its init entry.
 
   Parked: a fixture repo carrying its own `.oxlintrc.json` re-lints itself, because oxlint's nested config voids the root `ignorePatterns` for that subtree, and the scaffolded lint argv lacks the `--disable-nested-config` this repo's own config uses. I confirmed it in the scratch scaffold.
+
+- 2026-10-15 — step 15 checkpointed · 515dd7261 — test(init): verify the location rules by scanning a real tree (9m)
+
+  **Summary**: A new e2e file builds a temp tree from `templates/shared/`'s sgconfig and rules, plants 22 paths at the root (flat) and again under `libs/core/` (monorepo), scans once with ast-grep, and holds every file to exactly the rules that must fire on it. It's green, and it goes red when a rule's ignore is removed.
+
+  1. Each location rule fires on a misplaced path and stays quiet on every sanctioned and fixture path, in both shapes.
+  2. The set of location rules comes from the templates, not a list typed into the test.
+  3. I also ported keyframes' `src-never-imports-test` case and expanded it to cover all three branches.
+  4. To make sure the test can fail, I removed three ignores from the templates and ran it again.
+  5. I parked a conflict between two shipped rules that the scan turned up.
+
+  **Readout**: Step 15 - test(init): verify the location rules by scanning a real tree
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         held: 1 of 1 declared, no strays
+  diff         +125 -0 across 1 file
+  spent        9 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ● Plumb
+
+  **Recommendation**: Approve and checkpoint as planned. The done-when is met in both shapes, the test fails when a rule loses an ignore, and the one real problem it found is parked for its own decision, not folded into this step.
+
+  **1.** Each location rule fires on a misplaced path and stays quiet on every sanctioned and fixture path, in both shapes.
+
+  The test is a port of keyframes' `test/integration/layout-rules.test.ts`, rebased onto `templates/shared/` and planted under two homes taken from `shapes.e2e.test.ts`: `''` for flat and `libs/core/` for monorepo. Misplaced paths: a loose `src/**/*.test.ts`, `*.spec.ts` in `src/` and in `test/e2e/`, loose files in `test/` and `test/unit/`, `__tests__/` at the home root and inside `test/`. Sanctioned paths: `src/**/__tests__/`, the five `test/` subfolders, and `dist/__tests__/*.d.ts`, the tsc output that `tests-dir-is-src-only` ignores on purpose. Each misplaced file from that list is also planted under `test/fixtures/` and must stay silent there. Every file asserts its exact rule set, so a rule that fires where it shouldn't fails too, not only one that misses.
+
+  **2.** The set of location rules comes from the templates, not a list typed into the test.
+
+  `LOCATION_RULES` is every file in `templates/shared/rules/` whose rule is `kind: program`. A guard test pins it to the four rules covered today, and each shape asserts that every one of them fires at least once and never fires under `test/fixtures/`. So a fifth location rule can't ship without a case here.
+
+  **3.** I also ported keyframes' `src-never-imports-test` case and expanded it to cover all three branches.
+
+  That rule isn't a location rule, so the done-when doesn't require it. But the porting trap in the spec is about its `any:` branches, and `ast-grep test` can't put a file under `src/`. So a static import, a re-export and a dynamic `import()` from `src/` into `test/helpers/` each assert it fires, and a static import also fires `no-deep-sibling-import`, the same as in keyframes. A copy under `test/fixtures/` stays silent. These cases stay inside the seam. If you want the file held to the done-when alone, I can drop them.
+
+  **4.** To make sure the test can fail, I removed three ignores from the templates and ran it again.
+
+  I removed `colocate-unit-tests`' fixtures ignore, `test-dir-layout`'s helpers ignore and `tests-dir-is-src-only`'s dist ignore from the templates, then reran the file: 8 of 47 failed, each named by path in both shapes. Then `git checkout` restored the templates, so they're unchanged in the diff.
+
+  **5.** I parked a conflict between two shipped rules that the scan turned up.
+
+  `src-never-imports-test` says unit tests in `__tests__/` may import from `test/`. But `no-deep-sibling-import` has no `__tests__` ignore, so `src/plan/__tests__/parse.test.ts` importing `../../../test/helpers/make.js` fails `struct` in any scaffolded repo. I confirmed that with a scratch scan. Fixing it means editing a template rule, which is outside this seam, so it's parked. Step 17 will run into it when this repo adopts the layout.

@@ -94,15 +94,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **New projects start with a test layout, and the rules that hold it.**
+  `init` in an empty directory now writes ten ast-grep rules instead of four.
+  Five say where a test lives: unit tests in a `__tests__/` folder under
+  `src/`, every other test file in `test/integration/`, `test/e2e/`,
+  `test/contract/` or `test/helpers/`, test data in `test/fixtures/`, one
+  `.test.ts` suffix, and no import from `test/` in shipped code. The sixth,
+  `no-logic-in-barrel`, keeps `index.ts` a pure re-export, which
+  `docs/deep-modules.md` already promised and `init` never shipped. The
+  starter files now obey them: the value moves to `src/<name>.ts`, `index.ts`
+  only re-exports it, and the smoke test moves from `src/index.test.ts` to
+  `src/__tests__/<name>.test.ts`, in every package of every shape. The configs
+  `init` writes, `--add` included, skip `test/fixtures/`: oxlint,
+  markdownlint, cspell, fallow, vitest and every shipped ast-grep rule leave
+  it alone, so a deliberately broken fixture no longer fails a scaffolded
+  repo's gate. An existing repo's writes are unchanged, and `--add struct`
+  still writes the one boundary rule. `docs/deep-modules.md` and
+  `docs/getting-started.md` describe the layout and name every rule.
 - **The `links` check skips every directory named `fixtures`.** Markdown
   there is test data, and a broken link in it is usually deliberate, so
   `fixtures` joins `node_modules`, `dist` and the tool caches in the built-in
   exclude set. `checks.links.exclude` only adds to that set, so a repo can't
   opt a `fixtures/` directory back in; keep docs you want checked elsewhere.
-  The configs `init` writes skip `test/fixtures/` the same way: oxlint,
-  markdownlint, cspell, fallow, vitest and every shipped ast-grep rule leave
-  it alone, so a deliberately broken fixture no longer fails a scaffolded
-  repo's gate.
 
 ### Fixed
 
