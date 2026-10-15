@@ -5,7 +5,7 @@
       "use": "oxlint",
       "args": ["exec", "oxlint", "--type-aware", "--format=json", "--disable-nested-config"],
       "description": "Oxlint",
-      "note": "Nested-config discovery is off: an .oxlintrc.json under examples/ would otherwise govern its own subtree and void the root ignorePatterns, linting the deliberately broken example sources. Pinned by test/dogfood-config.test.ts.",
+      "note": "Nested-config discovery is off: an .oxlintrc.json under examples/ would otherwise govern its own subtree and void the root ignorePatterns, linting the deliberately broken example sources. Pinned by test/integration/dogfood-config.test.ts.",
       "order": 1
     },
     "struct": { "use": "ast-grep", "order": 1 },
@@ -22,7 +22,7 @@
       "use": "vale",
       "args": ["exec", "vale", "--no-global", "--output=JSON", "README.md", "AGENTS.md", "CONTRIBUTING.md", "docs", "src"],
       "description": "Vale: writing style (prose linting)",
-      "note": "Vale reads no .gitignore and skips no hidden directory, so the shipped default path `.` would sweep .plumbbob/, .claude/, dist/ and friends; these paths are this repo's linted prose surface. Pinned by test/dogfood-config.test.ts, which also asserts every tracked .md outside a known-excluded set is reachable from them.",
+      "note": "Vale reads no .gitignore and skips no hidden directory, so the shipped default path `.` would sweep .plumbbob/, .claude/, dist/ and friends; these paths are this repo's linted prose surface. Pinned by test/integration/dogfood-config.test.ts, which also asserts every tracked .md outside a known-excluded set is reachable from them.",
       "order": 3
     },
     "security": {

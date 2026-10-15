@@ -119,7 +119,7 @@ flip side of the same mechanism: an `.oxlintrc.json` under `examples/` governs
 its own subtree when the root run reaches it, which voids the root
 `ignorePatterns` there and lints the deliberately broken sources. So this repo's
 `checkride.config.json` overrides the `lint` argv to add
-`--disable-nested-config`, and [`test/dogfood-config.test.ts`](../test/dogfood-config.test.ts)
+`--disable-nested-config`, and [`test/integration/dogfood-config.test.ts`](../test/integration/dogfood-config.test.ts)
 keeps that override in step with the shipped adapter.
 
 Examples are otherwise excluded from the root pipeline's `lint` and `dead`

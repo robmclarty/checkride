@@ -3,11 +3,11 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-import { ADAPTERS, SLOTS } from '../src/adapters.js';
-import { resolveChecks } from '../src/config.js';
+import { ADAPTERS, SLOTS } from '../../src/adapters.js';
+import { resolveChecks } from '../../src/config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixtures = join(here, 'fixtures');
+const fixtures = join(here, '..', 'fixtures');
 
 function resolveSlotAt(slotName: string, cwd: string) {
   const slots = SLOTS.filter((s) => s.name === slotName);

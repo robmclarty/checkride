@@ -16,9 +16,9 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-import { ADAPTERS } from '../src/adapters.js';
+import { ADAPTERS } from '../../src/adapters.js';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 type CheckEntry = { use?: string; args?: readonly string[] };
 const config = JSON.parse(readFileSync(join(ROOT, 'checkride.config.json'), 'utf8')) as {

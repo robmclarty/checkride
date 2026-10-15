@@ -13,3 +13,7 @@ rule:
     - regex: "from\\s+['\"](\\.\\./)+[^./][^/]*/[^'\"]+['\"]"
     - not:
         regex: "from\\s+['\"](\\.\\./)+[^./][^/]*/index\\.js['\"]"
+    # test/ isn't a sibling module. src-never-imports-test decides whether
+    # code may import from it.
+    - not:
+        regex: "from\\s+['\"](\\.\\./)+test/"

@@ -51,8 +51,11 @@ function casesUnder(home: string): Case[] {
     [`${home}test/__tests__/stray.test.ts`, EXPORT, ['test-dir-layout', 'tests-dir-is-src-only']],
     // tsc emits each colocated test's declaration here.
     [`${home}dist/__tests__/parse.test.d.ts`, DECLARE, []],
-    // Reaching into test/ statically is also a deep import, so both rules agree.
-    [`${home}src/report/leak.ts`, `import { value } from '${HELPER}';\nexport { value };\n`, ['no-deep-sibling-import', 'src-never-imports-test']],
+    // test/ is no sibling module, so only src-never-imports-test judges an import into it.
+    [`${home}src/report/leak.ts`, `import { value } from '${HELPER}';\nexport { value };\n`, ['src-never-imports-test']],
+    [`${home}src/plan/__tests__/helped.test.ts`, `import { value } from '../${HELPER}';\nexport { value };\n`, []],
+    // The exemption covers test/, not __tests__/: a unit test still can't reach past a sibling's index.
+    [`${home}src/plan/__tests__/deep.test.ts`, `import { value } from '../../report/leak.js';\nexport { value };\n`, ['no-deep-sibling-import']],
     [`${home}src/report/reexport.ts`, `export { value } from '${HELPER}';\n`, ['src-never-imports-test']],
     [`${home}src/report/lazy.ts`, `export const load = () => import('${HELPER}');\n`, ['src-never-imports-test']],
     // Fixtures are data: every misplaced file above, planted under test/fixtures/, stays silent.

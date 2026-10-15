@@ -1,0 +1,20 @@
+id: test-dir-layout
+message: |
+  `test/` holds five things: `integration/`, `e2e/` and `contract/` tests,
+  `helpers/` (shared test code) and `fixtures/` (data that is never run). Move
+  this file into one of them.
+note: |
+  A location rule, like `colocate-unit-tests`: `files` and `ignores` alone
+  decide what fires.
+severity: error
+language: typescript
+files:
+  - '**/test/**/*.ts'
+ignores:
+  - '**/test/integration/**'
+  - '**/test/e2e/**'
+  - '**/test/contract/**'
+  - '**/test/helpers/**'
+  - '**/test/fixtures/**'
+rule:
+  kind: program

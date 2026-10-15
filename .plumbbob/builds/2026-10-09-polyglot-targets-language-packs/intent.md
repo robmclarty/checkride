@@ -573,12 +573,12 @@ reference rules and porting trap apply as written there.
 15. [x] test(init): verify the location rules by scanning a real tree, **done when:** for flat and monorepo paths, each location rule fires on a misplaced file and stays silent on sanctioned and fixture paths, in a scan of a temp tree built from `templates/shared/rules/`
     - seam: `test/e2e/layout-rules.e2e.test.ts`
     - model: sonnet (port keyframes' `test/integration/layout-rules.test.ts`)
-16. [ ] docs(init): describe the shipped layout and rules, **done when:** a test fails if a file in `templates/shared/rules/` goes unnamed in `docs/deep-modules.md`, and `getting-started.md` shows the test layout
+16. [x] docs(init): describe the shipped layout and rules, **done when:** a test fails if a file in `templates/shared/rules/` goes unnamed in `docs/deep-modules.md`, and `getting-started.md` shows the test layout
     - seam: `docs/deep-modules.md`, `docs/getting-started.md`, `test/docs-currency.test.ts`,
       `CHANGELOG.md`
     - model: sonnet (docs plus one currency assertion)
-17. [ ] chore(test): adopt the test layout in this repo, **done when:** this repo's `rules/` carries the layout rules, its six loose `test/*.test.ts` files have moved to `test/contract/` and `test/integration/`, `no-deep-sibling-import` skips imports into `test/` in both `rules/` and `templates/shared/rules/`, so `layout-rules.e2e.test.ts` passes a `src/**/__tests__/` file importing `test/helpers/` with no findings and flags `src/report/leak.ts` with `src-never-imports-test` alone, and `pnpm check` is green
-    - seam: `rules/`, `test/`, `templates/shared/rules/no-deep-sibling-import.yml`, `docs/deep-modules.md`, `CHANGELOG.md`
+17. [ ] chore(test): adopt the test layout in this repo, **done when:** this repo's `rules/` carries the layout rules, its six loose `test/*.test.ts` files have moved to `test/integration/` (none locks a consumer surface, which is what `test/contract/` means here), no path outside `.plumbbob/`, `CHANGELOG.md` and the `docs/spec-*.md` drafts still cites their old location, `no-deep-sibling-import` skips imports into `test/` in both `rules/` and `templates/shared/rules/`, so `layout-rules.e2e.test.ts` passes a `src/**/__tests__/` file importing `test/helpers/` with no findings and flags `src/report/leak.ts` with `src-never-imports-test` alone, and `pnpm check` is green
+    - seam: `rules/`, `test/`, `templates/shared/rules/no-deep-sibling-import.yml`, `docs/deep-modules.md`, `CHANGELOG.md`, `AGENTS.md`, `checkride.config.json`, `examples/README.md`, `.claude/skills/version/SKILL.md`
     - model: sonnet (moves plus import-path fixes, and a one-line rule exemption)
 18. [ ] feat(init): write a config naming every scaffolded slot in new mode, **done when:** `initNew` writes `checkride.config.json` with the `$schema` header and one entry per slot its scaffold enables; the follow-up run in `shapes.e2e.test.ts` shows `[config]` on every check line; existing mode is unchanged
     - seam: `src/init.ts`, `src/__tests__/init.test.ts`, `test/e2e/shapes.e2e.test.ts`,

@@ -111,6 +111,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repo's gate. An existing repo's writes are unchanged, and `--add struct`
   still writes the one boundary rule. `docs/deep-modules.md` and
   `docs/getting-started.md` describe the layout and name every rule.
+- **`no-deep-sibling-import` leaves imports into `test/` alone.** `test/`
+  isn't a sibling module, so the rule no longer flags an import like
+  `'../../test/helpers/make.js'`. `src-never-imports-test` judges those
+  imports instead: it flags them in shipped code and allows them in
+  `__tests__/`, so a unit test can share code from `test/helpers/`. A repo
+  that takes the rule alone with `--add struct` gets the exemption without
+  `src-never-imports-test`, so copy that rule from
+  `node_modules/checkride/templates/shared/rules/` too if `src/` must never
+  import `test/`.
 - **The `links` check skips every directory named `fixtures`.** Markdown
   there is test data, and a broken link in it is usually deliberate, so
   `fixtures` joins `node_modules`, `dist` and the tool caches in the built-in
@@ -187,6 +196,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
   written before keeps masking, since the same findings now produce a subset
   of its keys, and the next full run ratchets its warning keys away.
+
+### Internal
+
+- This repo now keeps the test layout `init` scaffolds. Its `rules/` carries
+  the five test-layout rules, copied unchanged from `templates/shared/rules/`,
+  so its own `struct` check runs them on every `pnpm check`. The six test
+  files that sat loose in `test/` moved to `test/integration/`. Five keep the
+  repo's docs, config, plugin manifest and site from drifting, and one
+  resolves checks against a fixture repo. None locks a surface consumers rely
+  on, which is what `test/contract/` holds.
 
 ## [0.14.0] - 2026-10-09
 

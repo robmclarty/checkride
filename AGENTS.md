@@ -40,7 +40,8 @@ Full `pnpm check` is for the final verification.
 - **File extensions:** import with `.js` from `.ts` files (NodeNext resolution). Enforced by `rules/require-js-extension.yml`.
 - **No logic in barrels.** `index.ts` only re-exports (`export { x } from './x.js'`); functions and classes live in named files. Enforced by `rules/no-logic-in-barrel.yml`.
 - **A single file does not need a folder.** Each module is a named file (`src/atomic.ts`), not a one-file folder.
-- **Tests:** colocated with the module they cover, always inside a `__tests__/` folder — `src/__tests__/foo.test.ts` for a root module, `src/<module>/__tests__/bar.test.ts` for a file inside a folder module. Never beside the source file. Enforced by `test/conventions.test.ts`.
+- **Tests:** colocated with the module they cover, always inside a `__tests__/` folder — `src/__tests__/foo.test.ts` for a root module, `src/<module>/__tests__/bar.test.ts` for a file inside a folder module. Never beside the source file. Enforced by `rules/colocate-unit-tests.yml` and `test/integration/conventions.test.ts`.
+- **Tests outside `src/`** go in `test/integration/` when they span modules, `test/contract/` when they lock a surface consumers rely on (`docs/contract.md`), or `test/e2e/` for the slow suite. Shared test code goes in `test/helpers/` and test data in `test/fixtures/`. One suffix, `.test.ts`. Enforced by `rules/test-dir-layout.yml`, `rules/tests-dir-is-src-only.yml` and `rules/no-spec-suffix.yml`; `rules/src-never-imports-test.yml` keeps shipped code from importing any of it.
 
 ## Repository layout
 
@@ -74,7 +75,11 @@ src/
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
 templates/          shape preset files + shared config templates + rules (shipped)
-test/               cross-cutting fixture tests + the slow e2e suite
+test/
+  integration/      tests that span modules (run by `pnpm check`)
+  contract/         locks on the surfaces in docs/contract.md (run by `pnpm check`)
+  e2e/              the slow suite (`pnpm test:e2e`)
+  fixtures/         test data
 rules/              ast-grep structural rules (dogfooded here)
 ```
 
@@ -83,8 +88,8 @@ folder with a barrel `index.ts` when it grows internals worth hiding, and then
 siblings reach only the index. Eight modules (`agent-setup/`, `artifacts/`, `baseline/`,
 `digest/`, `orchestrator/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
 rest are single files. That list is checked against the tree by
-`test/conventions.test.ts`, so it cannot go stale silently. The same rules ship
-to consumer projects — see `templates/shared/rules/`.
+`test/integration/conventions.test.ts`, so it cannot go stale silently. The
+same rules ship to consumer projects — see `templates/shared/rules/`.
 
 ## Patched dependencies
 

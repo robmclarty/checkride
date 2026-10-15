@@ -15,10 +15,10 @@ import { Script } from 'node:vm';
 
 import { describe, expect, test } from 'vitest';
 
-import { SLOTS } from '../src/adapters.js';
-import { CLI_COMMANDS } from '../src/cli.js';
+import { SLOTS } from '../../src/adapters.js';
+import { CLI_COMMANDS } from '../../src/cli.js';
 
-const SITE = join(dirname(fileURLToPath(import.meta.url)), '..', 'site');
+const SITE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'site');
 const pages = readdirSync(SITE).filter((f) => f.endsWith('.html')).toSorted();
 const page = (name: string): string => readFileSync(join(SITE, name), 'utf8');
 

@@ -15,9 +15,9 @@ root `package.json` `version` is the source of truth, the changelog lives at
 
 The package root is also the root of the bundled Claude Code plugin, so
 `.claude-plugin/plugin.json` carries a second copy of the version. It is not
-independent: `test/plugin-manifest.test.ts` asserts the two are equal, so a bump
-that moves only `package.json` turns `pnpm test` red mid-release. This skill
-moves both, in the same commit.
+independent: `test/integration/plugin-manifest.test.ts` asserts the two are
+equal, so a bump that moves only `package.json` turns `pnpm test` red
+mid-release. This skill moves both, in the same commit.
 
 The deterministic work — clean-tree check, semver math, the version rewrite — is
 done with `node` one-liners and `git`, never by hand. The model's job is to
@@ -131,13 +131,13 @@ forms and stop.
    blast-radius list against config that moves: `CHANGELOG.md` is excluded from
    `docs` (`.markdownlint-cli2.jsonc`), `spell` (`cspell.json` `ignorePaths`)
    and `prose` (the path args in `checkride.config.json`, pinned by
-   `test/dogfood-config.test.ts`), so three of those four could not fail on a
-   release diff at all. A red tag is the expensive failure here — it parks
-   Publish at its approval gate and leaves a stray GH Release, and the fix is
-   forward-only. Buy the coverage. If it exits 0, continue. If it fails, roll
-   back so the user can fix and re-invoke — `git restore package.json
-   .claude-plugin/plugin.json CHANGELOG.md` — show the relevant `.check/*.txt`
-   diagnostic, and stop.
+   `test/integration/dogfood-config.test.ts`), so three of those four could
+   not fail on a release diff at all. A red tag is the expensive failure
+   here — it parks Publish at its approval gate and leaves a stray GH
+   Release, and the fix is forward-only. Buy the coverage. If it exits 0,
+   continue. If it fails, roll back so the user can fix and re-invoke —
+   `git restore package.json .claude-plugin/plugin.json CHANGELOG.md` — show
+   the relevant `.check/*.txt` diagnostic, and stop.
 
 10. **Stage exactly those three files and commit.** The commit message is
     literally the tag, no body:
@@ -184,8 +184,9 @@ forms and stop.
   moves to `0.1.1` — if you instead want to tag the current `0.1.0`, do that by
   hand (`git tag -a v0.1.0`), this skill always bumps.
 - **`pnpm check` fails in step 9.** Only two slots can fail on the diff itself,
-  so read them first. `test/plugin-manifest.test.ts` means step 8 moved
-  only one of the two version strings — fix that rather than editing the test.
+  so read them first. `test/integration/plugin-manifest.test.ts` means step 8
+  moved only one of the two version strings — fix that rather than editing the
+  test.
   `links` means a changelog bullet carries a relative link whose target is not
   on disk (it walks every `*.md`, excluding directories only). Anything else is
   a pre-existing red the narrowed gate used to hide. It is not the release's

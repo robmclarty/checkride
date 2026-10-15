@@ -144,7 +144,8 @@ slot. A new project gets ten. Module boundaries:
 - `rules/no-deep-sibling-import.yml` — flags any import of the form
   `'../<sibling>/<not-index>.js'`, at any depth. Climbing first is fine: from a
   nested `__tests__/`, `'../../config.js'` and `'../../auth/index.js'` are the
-  parent level's interface and pass.
+  parent level's interface and pass. `test/` isn't a sibling module, so the
+  rule leaves an import into it to `src-never-imports-test`.
 - `rules/no-logic-in-barrel.yml` — keeps `index.ts` a pure re-export surface:
   no function, no class, and no top-level `const`, exported or not.
 - `rules/require-js-extension.yml` — enforces the NodeNext extension, in `src/`
@@ -167,7 +168,8 @@ Test layout:
   `.test.ts`.
 - `rules/src-never-imports-test.yml` — code under `src/` never imports from
   `test/`, whether by `import`, a re-export, or `import()`. Unit tests in
-  `__tests__/` are exempt, since they don't ship.
+  `__tests__/` are exempt, since they don't ship, so they can share code from
+  `test/helpers/`.
 
 The rules match `**/src/**` and `**/test/**`, so one copy at the root covers
 every package in a monorepo or hybrid. Every rule skips `test/fixtures/`, and so

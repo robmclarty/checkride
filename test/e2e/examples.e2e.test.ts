@@ -300,7 +300,7 @@ describe('examples', () => {
 
       // An example that runs oxlint needs its own config for isolation, not
       // style: without one it inherits the repo root's through ancestor
-      // discovery and stops being standalone. See test/dogfood-config.test.ts
+      // discovery and stops being standalone. See test/integration/dogfood-config.test.ts
       // for the matching half of this constraint. An example that doesn't
       // install oxlint never runs it, so it needs nothing.
       if (pkg.devDependencies?.['oxlint'] !== undefined) {
