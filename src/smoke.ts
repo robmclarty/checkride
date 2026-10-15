@@ -30,10 +30,11 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { prepareScratch, scratchDir } from './artifacts/index.js';
 import type { CheckOutcome } from './links.js';
 
 /** The smoke probe spawner — same signature as the orchestrator's `spawnCheck`. */
@@ -343,7 +344,8 @@ async function planTarget(cwd: string, target: SmokeTarget): Promise<ProbeEntry>
  * targets, verifies the built artifacts exist (a miss is reported with a "did
  * build run?" hint before anything is spawned), then writes and runs the probe
  * through the injected `spawn`. Never throws: every setup failure resolves to a
- * failing outcome.
+ * failing outcome, apart from a `.check/` it can't write the probe into, which
+ * resolves to a skip with the scratch reason.
  */
 export async function checkSmoke(opts: {
   cwd: string;
@@ -378,8 +380,11 @@ export async function checkSmoke(opts: {
 
   const plan = await Promise.all(targets.map((t) => planTarget(cwd, t)));
 
-  await mkdir(join(cwd, '.check'), { recursive: true });
-  const probePath = join(cwd, '.check', 'smoke-probe.mjs');
+  // The probe imports the package by its own name, so it has to sit inside
+  // the repo whatever `--out` says; a read-only checkout skips the check.
+  const unwritable = await prepareScratch(cwd);
+  if (unwritable !== null) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: unwritable };
+  const probePath = join(scratchDir(cwd), 'smoke-probe.mjs');
   await writeFile(probePath, `const TARGETS = ${JSON.stringify(plan)};\n${PROBE_BODY}`);
 
   const outcome = await spawn('node', [probePath], cwd, timeoutSec);

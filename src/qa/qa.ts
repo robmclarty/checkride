@@ -25,7 +25,7 @@
  */
 
 import type { ArtifactFile, SummaryRead } from '../artifacts/index.js';
-import { configuredSlots, outDir, readSummary, runWindowStart } from '../artifacts/index.js';
+import { configuredSlots, outDir, outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
 import type { DeadExtract } from './dead.js';
 import { extractDead } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -43,7 +43,7 @@ export type LedgerProblem = 'absent' | 'too-large' | 'unreadable' | 'unrecognize
 /** One artifact's standing — the honest four-state answer D14 asks for. */
 export type LedgerEntry = {
   slot: string;
-  /** File name within `.check/`. */
+  /** File name within the output directory. */
   artifact: string;
   /** Named in `checkride.config.json`; `null` when the repo has no config. */
   optedIn: boolean | null;
@@ -60,6 +60,11 @@ export type LedgerEntry = {
 
 export type QaReport = {
   cwd: string;
+  /**
+   * The output directory as the report names it: relative to {@link cwd} when
+   * it sits inside it (`.check` by default), absolute otherwise.
+   */
+  outLabel: string;
   summary: SummaryRead;
   windowStart: number | null;
   /** Age of the run that wrote the summary, measured from its end. */
@@ -172,12 +177,14 @@ function summaryAge(summary: SummaryRead, now: number): number | null {
 }
 
 /**
- * Read `.check/`'s four quality artifacts and fold each to a short list.
- * Never throws and never runs anything: every failure is a ledger state.
+ * Read the output directory's four quality artifacts and fold each to a short
+ * list. `out` is the directory `--out` or `CHECKRIDE_OUT` named, or `null`
+ * for `<cwd>/.check`. Never throws and never runs anything: every failure is a
+ * ledger state.
  */
-export async function qaExtract(cwd: string, now: () => number = Date.now): Promise<QaReport> {
-  const checkDir = outDir(cwd);
-  const summary = await readSummary(cwd);
+export async function qaExtract(cwd: string, now: () => number = Date.now, out: string | null = null): Promise<QaReport> {
+  const checkDir = out ?? outDir(cwd);
+  const summary = await readSummary(checkDir);
   const windowStart = summary.state === 'ok' ? runWindowStart(summary.summary) : null;
   const { covered, skipped } = coverage(summary);
   const context: SlotContext = { configured: configuredSlots(cwd), ran: new Set(covered) };
@@ -213,6 +220,7 @@ export async function qaExtract(cwd: string, now: () => number = Date.now): Prom
 
   return {
     cwd,
+    outLabel: outLabel(cwd, checkDir),
     summary,
     windowStart,
     summaryAgeMs: summaryAge(summary, now()),

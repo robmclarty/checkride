@@ -30,6 +30,12 @@ export type CheckOutcome = {
   exit_code: number;
   stdout: string;
   stderr: string;
+  /**
+   * Set when a built-in declined to run here, as `snippets` and `smoke` do
+   * when their scratch directory can't be written: the run records the check
+   * as skipped, with this as its reason, and persists nothing.
+   */
+  skip?: string;
 };
 
 type LinkMiss = {

@@ -23,7 +23,7 @@ export type RunFlags = {
   only?: string[] | null;
   skip?: string[] | null;
   include?: string[] | null;
-  /** Write a capped failure excerpt to `.check/digest.md`. */
+  /** Write a capped failure excerpt to `digest.md` in the output directory. */
   digest?: boolean;
   /**
    * Treat zero checks actually executing as an error (exit 2), not a vacuous
@@ -81,8 +81,8 @@ export type SummaryCheck = {
 /**
  * What a run selected (R8.1): `partial`, plus each selection or mode flag the
  * run was given and nothing for one it wasn't. `static_only`, `discover`,
- * `defaults`, `pins` and `out` belong to flags checkride doesn't have yet, so
- * no run writes them. Paths are absolute.
+ * `defaults` and `pins` belong to flags checkride doesn't have yet, so no run
+ * writes them. Paths are absolute.
  */
 export type SummaryRun = {
   /**
@@ -143,8 +143,13 @@ export type RunnerOutcome = CheckOutcome & { argv?: string[] };
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
   resolved: ResolvedCheck,
-  /** `base` is the ref a `--changed` run measures from, present exactly when `changed` is. */
-  ctx: { cwd: string; changed: boolean; base?: string; pm: PackageManager; timeout?: number },
+  /**
+   * `base` is the ref a `--changed` run measures from, present exactly when
+   * `changed` is. `out` is what `{out}` expands to: the absolute output
+   * directory when `--out` or `CHECKRIDE_OUT` named one, and `.check` when
+   * omitted.
+   */
+  ctx: { cwd: string; changed: boolean; base?: string; out?: string; pm: PackageManager; timeout?: number },
 ) => Promise<RunnerOutcome>;
 
 export type RunOptions = RunFlags & {
@@ -166,6 +171,14 @@ export type RunOptions = RunFlags & {
    * it, else `origin/main` when it resolves, else `HEAD`. Unused off `--changed`.
    */
   base?: NamedBase;
+  /**
+   * The output directory `--out` or `CHECKRIDE_OUT` named, in place of
+   * `<cwd>/.check`; a relative path resolves against `cwd`. The summary, the
+   * raw files and the digest land there, and `{out}` expands to it as an
+   * absolute path. A directory outside `cwd` makes this a consumer run, which
+   * never ratchets the baseline.
+   */
+  out?: string;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

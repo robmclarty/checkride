@@ -405,6 +405,13 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   to the `partial` row, *because* the contract is then written once and consistently, and a flag
   shipped without its field would leave a narrowed or redirected run silent in its summary while
   the doc still said the flag didn't exist (settled at step 8 and its harvest).
+- <a id="d56"></a>**D56 (out-labels)**: every line that names an artifact (the run's `report:` and
+  `digest:` lines, the digest's raw pointers, and the `triage` and `qa` reports) names the run's
+  actual output directory: relative to the working directory when it sits inside it, so `.check/`
+  by default, and absolute when it sits outside. `src/artifacts/` derives that label from the
+  directory, *because* step 10 routed that text through `CHECK_DIR`, and under `--out` it would
+  still send a reader, the review agent of #6 among them, to `.check/` files that aren't there
+  (settled at step 10's harvest).
 
 ## Constraints
 
@@ -533,16 +540,18 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
 
 ### Phase 3: an output directory
 
-10. [ ] refactor(artifacts): route every artifact path through one output dir, **done when:** one module under `src/artifacts/` owns the output directory, and the engine, digest, triage, qa and doctor read it from there; adapters say `{out}` where they said `.check` (`--outputFile={out}/test.json`); rule A5 forbids a `.check` literal in the engine modules; every test and example passes unchanged
+10. [x] refactor(artifacts): route every artifact path through one output dir, **done when:** one module under `src/artifacts/` owns the output directory, and the engine, digest, triage, qa and doctor read it from there; adapters say `{out}` where they said `.check` (`--outputFile={out}/test.json`); rule A5 forbids a `.check` literal in the engine modules; every test and example passes unchanged
     - seam: `src/artifacts/`, `src/orchestrator/run.ts`, `src/orchestrator/execute.ts`,
       `src/orchestrator/spawn.ts`, `src/adapters.ts`, `src/digest/digest.ts`, `src/doctor.ts`,
       `rules/`
     - model: sonnet (mechanical, and held by the existing suite)
-11. [ ] feat(cli): write artifacts to another directory with --out, **done when:** `--out <dir>` and `CHECKRIDE_OUT` move `summary.json`, the raw files and `digest.md` (R9); the summary records the directory as `run.out`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); `triage` and `qa` take `--out`; `doctor` probes that directory; `snippets` and `smoke` keep scratch under `<repo>/.check/` and skip with a reason when it isn't writable (F29); an output directory outside the repo suppresses the ratchet (F27), though `baseline --out` still writes `checkride.baseline.json` ([D47 (consumer-trigger)](#d47)); the gate strips `CHECKRIDE_OUT` (F47); an e2e case runs two checks at once with different `--out` values in one fixture and finds both artifact sets intact (F28); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+11. [ ] feat(cli): write artifacts to another directory with --out, **done when:** `--out <dir>` and `CHECKRIDE_OUT` move `summary.json`, the raw files and `digest.md` (R9); the summary records the directory as `run.out`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); `triage` and `qa` take `--out`; `doctor` probes that directory; every line that names an artifact names that directory ([D56 (out-labels)](#d56)); `snippets` and `smoke` keep scratch under `<repo>/.check/` and skip with a reason when it isn't writable (F29); an output directory outside the repo suppresses the ratchet (F27), though `baseline --out` still writes `checkride.baseline.json` ([D47 (consumer-trigger)](#d47)); the gate strips `CHECKRIDE_OUT` (F47); an e2e case runs two checks at once with different `--out` values in one fixture and finds both artifact sets intact (F28); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/cli.ts`, `src/artifacts/`, `src/triage/cli.ts`, `src/qa/cli.ts`,
       `src/snippets.ts`, `src/smoke.ts`, `src/gate.ts`, `src/doctor.ts`,
       `test/contract/flags.contract.test.ts`, `test/e2e/`, `docs/contract.md`, `docs/ci.md`,
-      `src/baseline-command.ts`, `src/orchestrator/run.ts`, `CHANGELOG.md`
+      `src/baseline-command.ts`, `src/orchestrator/run.ts`, `CHANGELOG.md`,
+      `src/orchestrator/report.ts`, `src/digest/digest.ts`, `src/triage/render.ts`,
+      `src/qa/render.ts`
     - model: opus (several readers, the scratch carve-out and a concurrency test)
 
 ### Phase 4: init writes the test layout and a config

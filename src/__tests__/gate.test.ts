@@ -718,6 +718,36 @@ describe('runGate — aligning to the repo’s Node pin', () => {
     expect(seen).toEqual({ PATH: '/usr/bin' });
   });
 
+  // F47
+  test('strips CHECKRIDE_OUT, so the check writes .check/ and the verdict reads what it wrote', async () => {
+    let seen: Record<string, string | undefined> = {};
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      spawn: async (_command, _args, opts) => {
+        seen = opts.env;
+        await mkdir(join(dir, '.check'), { recursive: true });
+        await writeFile(join(dir, '.check', 'summary.json'), JSON.stringify({
+          schema_version: 1,
+          timestamp: new Date().toISOString(),
+          ok: false,
+          checks_run: 1,
+          total_duration_ms: 10,
+          checks: [{ adapter: 'oxlint', name: 'lint', description: 'lint', ok: false, exit_code: 1, duration_ms: 10, output_file: null }],
+        }));
+        return 1;
+      },
+      stdout,
+      stderr: capture(),
+      env: { PATH: '/usr/bin', CHECKRIDE_OUT: '/agent/out' },
+      pinEnv: pinEnv(),
+    });
+    expect(seen).toEqual({ PATH: '/usr/bin' });
+    // A red the gate read from `.check/` blocks with that run's failures.
+    expect(result.exitCode).toBe(2);
+    expect(stdout.text()).toContain('1 of 1 failed: lint');
+  });
+
   test('CHECKRIDE_NODE_BIN=<dir> is used verbatim, whatever the layouts hold', async () => {
     const { spawn, path } = capturingSpawn();
     await runGate({

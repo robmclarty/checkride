@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -288,6 +288,10 @@ describe('runtimeArgs', () => {
     const withOut = fakeAdapter({ name: 'vitest', slot: 'test', args: ['run', '--outputFile={out}/test.json'], changedArgs: ['--cache={out}/{base}'] });
     expect(runtimeArgs(withOut, null)).toEqual(['run', '--outputFile=.check/test.json']);
     expect(runtimeArgs(withOut, 'main')).toEqual(['run', '--outputFile=.check/test.json', '--cache=.check/main']);
+  });
+  test('expands {out} to the directory a run passes, which a run given --out makes absolute', () => {
+    const withOut = fakeAdapter({ name: 'vitest', slot: 'test', args: ['run', '--outputFile={out}/test.json'] });
+    expect(runtimeArgs(withOut, null, '/tmp/agent-out')).toEqual(['run', '--outputFile=/tmp/agent-out/test.json']);
   });
   test('the vitest and jest rows write their report through {out}', () => {
     for (const name of ['vitest', 'jest']) {
@@ -1046,6 +1050,132 @@ describe('provenance in the report (S21)', () => {
   });
 });
 
+/** lint emits JSON and fails; types prints text and passes. */
+const mixedRunner: CheckRunner = (r) =>
+  Promise.resolve(r.slot === 'lint'
+    ? { ok: false, exit_code: 1, stdout: oxlint([['a.ts', 'no-x', 'bad']]), stderr: 'lint warned\n' }
+    : { ok: true, exit_code: 0, stdout: 'types ok', stderr: '' });
+
+/** lint declines to run with the scratch reason, as a built-in without writable scratch does; types passes. */
+const decliningRunner: CheckRunner = (r) =>
+  Promise.resolve(r.slot === 'lint'
+    ? { ok: true, exit_code: 0, stdout: 'partial', stderr: 'partial', skip: 'needs a writable ./.check for scratch files' }
+    : { ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+describe('runChecks (--out)', () => {
+  let dir: string;
+  let outside: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-out-'));
+    outside = await mkdtemp(join(tmpdir(), 'checkride-out-outside-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  const slots = [{ name: 'lint' }, { name: 'types' }];
+  const adapters = [
+    fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' }),
+    fakeAdapter({ name: 'tsc', slot: 'types' }),
+  ];
+
+  test('the summary, the raw files and the digest land in --out, and .check/ is never made', async () => {
+    const out = join(outside, 'artifacts');
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: mixedRunner, out, digest: true,
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.exitCode).toBe(1);
+    for (const file of ['summary.json', 'lint.json', 'lint.stderr.txt', 'types.stdout.txt', 'digest.md']) {
+      expect(existsSync(join(out, file)), file).toBe(true);
+    }
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+    const written = JSON.parse(await readFile(join(out, 'summary.json'), 'utf8')) as Summary;
+    expect(written.run).toEqual({ partial: false, out });
+    expect(written.checks.find((c) => c.name === 'lint')?.output_file).toBe('lint.json');
+  });
+
+  test('an outside directory is named absolute in the report and the digest, so no line points at .check/', async () => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: mixedRunner, out: outside, digest: true,
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    const printed = std.lines.join('');
+    expect(printed).toContain(`report: ${outside}/summary.json`);
+    expect(printed).toContain(`digest: ${outside}/digest.md`);
+    expect(printed).not.toContain('.check/');
+    const digest = await readFile(join(outside, 'digest.md'), 'utf8');
+    expect(digest).toContain(`Raw: \`${outside}/lint.json\``);
+    expect(digest).not.toContain('.check/');
+  });
+
+  test('a directory inside the repo is named relative to it, and a relative --out resolves against cwd', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: mixedRunner, out: join('build', 'check'), digest: true,
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.summary.run.out).toBe(join(dir, 'build', 'check'));
+    expect(existsSync(join(dir, 'build', 'check', 'summary.json'))).toBe(true);
+    expect(std.lines.join('')).toContain('report: build/check/summary.json');
+    expect(await readFile(join(dir, 'build', 'check', 'digest.md'), 'utf8')).toContain('Raw: `build/check/lint.json`');
+  });
+
+  test('without --out, the summary carries no run.out and the lines say .check', async () => {
+    const std = sink();
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: mixedRunner, json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(result.summary.run).toEqual({ partial: false });
+    expect(std.lines.join('')).toContain('report: .check/summary.json');
+  });
+
+  test('{out} reaches the runner as .check by default, and as the absolute directory under --out', async () => {
+    const seen: (string | undefined)[] = [];
+    const runner: CheckRunner = (_r, ctx) => { seen.push(ctx.out); return okRunner(_r, ctx); };
+    await runChecks({ cwd: dir, slots: [{ name: 'lint' }], adapters, config: null, runner, json: true, stdout: sink().out, stderr: sink().out });
+    await runChecks({ cwd: dir, slots: [{ name: 'lint' }], adapters, config: null, runner, out: 'elsewhere', json: true, stdout: sink().out, stderr: sink().out });
+    expect(seen).toEqual(['.check', join(dir, 'elsewhere')]);
+  });
+
+  test('a check whose runner declines with a skip records the skipped shape and writes nothing', async () => {
+    const result = await runChecks({ cwd: dir, slots, adapters, config: null, runner: decliningRunner, out: outside, json: true, stdout: sink().out, stderr: sink().out });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({
+      ok: true, skipped: true, reason: 'needs a writable ./.check for scratch files', exit_code: null, duration_ms: 0, output_file: null,
+    });
+    expect(result.summary.checks_run).toBe(1);
+    expect(existsSync(join(outside, 'lint.stdout.txt'))).toBe(false);
+    expect(result.runs.map((r) => r.slot)).toEqual(['types']);
+  });
+
+  // F29
+  test.skipIf(process.getuid?.() === 0)('a read-only .check/ under --out skips smoke with the scratch reason, and the rest runs', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({
+      name: 'smoke-out', version: '1.0.0', type: 'module', exports: { '.': { import: './dist/index.js' } },
+    }));
+    await mkdir(join(dir, 'dist'));
+    await writeFile(join(dir, 'dist', 'index.js'), 'export const foo = 1;\n');
+    await mkdir(join(dir, '.check'), { mode: 0o555 });
+    try {
+      const result = await runChecks({
+        cwd: dir, slots: [{ name: 'smoke' }, { name: 'types' }],
+        adapters: [fakeAdapter({ name: 'smoke', slot: 'smoke', builtin: 'smoke' }), fakeAdapter({ name: 'tsc', slot: 'types', command: process.execPath, args: ['-e', ''] })],
+        config: null, out: outside, json: true, stdout: sink().out, stderr: sink().out,
+      });
+      expect(result.summary.checks.find((c) => c.name === 'smoke')).toMatchObject({
+        skipped: true, ok: true, reason: 'needs a writable ./.check for scratch files',
+      });
+      expect(result.summary.checks.find((c) => c.name === 'types')).toMatchObject({ ok: true, exit_code: 0 });
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(join(outside, 'summary.json'))).toBe(true);
+    } finally {
+      await chmod(join(dir, '.check'), 0o755);
+    }
+  });
+});
+
 describe('runChecks (baseline-aware)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-base-')); });
@@ -1154,6 +1284,34 @@ describe('runChecks (baseline-aware)', () => {
     } finally {
       await rm(outside, { recursive: true, force: true });
     }
+  });
+
+  // F27
+  test('a run writing to an --out outside the repo never prunes the baseline, and says so', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-base-out-'));
+    try {
+      const std = sink();
+      await runChecks({
+        cwd: dir, slots, adapters, config: null, out: outside,
+        runner: lintRunner(oneA), // KEY_B looks "fixed", but a consumer run never writes
+        baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+        json: false, stdout: sink().out, stderr: std.out,
+      });
+      expect(existsSync(baselineFile())).toBe(false);
+      expect(std.lines.join('')).toContain('not ratcheted, because a run with --out outside the repo');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('a run writing to an --out inside the repo ratchets as if no flag were passed', async () => {
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, out: join(dir, 'build', 'check'),
+      runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect((await readWritten()).slots['lint']).toEqual([KEY_A]);
   });
 
   test('a run reading a config inside the repo ratchets as if no flag were passed', async () => {

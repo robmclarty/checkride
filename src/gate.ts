@@ -41,7 +41,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { formatDuration, readSummary, type SummaryRead } from './artifacts/index.js';
+import { formatDuration, OUT_ENV, outDir, readSummary, type SummaryRead } from './artifacts/index.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
 import { CONFIG_ENV, loadConfig } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
@@ -543,7 +543,7 @@ function announceAlignment(
  * is the repo's own verdict, so the check it spawns must read the repo's config
  * whatever a consumer left exported in the hook's environment.
  */
-const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV]);
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV]);
 
 /** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
 function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {
@@ -807,7 +807,8 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   const output = recording(stderr);
   const code = await run(pm, checkArgs(pm, profile), { cwd, stderr: output, env: childEnv });
   const green = code === 0;
-  const summary = await readSummary(cwd);
+  // The run wrote `<cwd>/.check`, since CHECKRIDE_OUT was stripped above.
+  const summary = await readSummary(outDir(cwd));
   const fresh = isFresh(summary, startedAt);
 
   if (green) {

@@ -4,13 +4,15 @@
  * skill invokes:
  *
  * ```
- * node <plugin-root>/dist/triage/cli.js [cwd]
+ * node <plugin-root>/dist/triage/cli.js [cwd] [--out <dir>]
  * ```
  *
  * It ships in the package's existing `dist/`, so both the published tarball and
  * an installed plugin cache already carry it and no consumer build step exists.
- * It adds no CLI command, flag or config to checkride itself: `dist/cli.js`
- * knows nothing about this file.
+ * `dist/cli.js` knows nothing about this file; `checkride triage` is the same
+ * reader behind the CLI. `--out` (else `CHECKRIDE_OUT`) points it at another
+ * output directory, resolved against the working directory, and the gate run
+ * it starts writes there.
  *
  * Exit code 0 means *a report was rendered*, however the gate came back — the
  * gate's verdict is in the Markdown, not in this process's status, so a red repo
@@ -18,10 +20,14 @@
  * report at all exits non-zero.
  */
 
+import { parseArgs } from 'node:util';
+
+import { namedOut } from '../artifacts/index.js';
 import { realEnv } from './env.js';
 import { renderTriage } from './render.js';
 import { triage } from './triage.js';
 
-const [, , cwdArg] = process.argv;
-const report = await triage(cwdArg ?? process.cwd(), realEnv);
+const { values, positionals } = parseArgs({ allowPositionals: true, options: { out: { type: 'string' } } });
+const out = namedOut(process.cwd(), values.out, process.env);
+const report = await triage(positionals[0] ?? process.cwd(), realEnv, out);
 process.stdout.write(`${renderTriage(report)}\n`);

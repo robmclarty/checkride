@@ -19,7 +19,7 @@
  * 2.3 MB file.
  */
 
-import { CHECK_DIR, formatBytes, formatDuration } from '../artifacts/index.js';
+import { formatBytes, formatDuration } from '../artifacts/index.js';
 import type { SummaryRead } from '../artifacts/index.js';
 import type { DeadExtract } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -30,14 +30,17 @@ import type { LedgerEntry, QaReport } from './qa.js';
 /** Matches `--digest`'s ceiling: a report that reads in one gulp. */
 export const QA_MAX_BYTES = 8000;
 
-const NOT_READ_NOTE =
-  `Not read: the full contents of any \`${CHECK_DIR}/\` artifact. Every list above is capped and every ` +
-  'count is from a full pass, so a short list is a *ranked* list, never a complete one — open the ' +
-  'named artifact when a specific finding is the one you are working on.';
-
-const NOTHING_RUN_NOTE =
-  `This reader ran nothing. Every number above is whatever the last run left in \`${CHECK_DIR}/\`, which ` +
-  'may be a narrow run — check `covered` above before treating a clean artifact as a clean repo.';
+/** The closing notes, naming the output directory `out` as the report does throughout. */
+function readingThis(out: string): string {
+  const nothingRun =
+    `This reader ran nothing. Every number above is whatever the last run left in \`${out}/\`, which ` +
+    'may be a narrow run — check `covered` above before treating a clean artifact as a clean repo.';
+  const notRead =
+    `Not read: the full contents of any \`${out}/\` artifact. Every list above is capped and every ` +
+    'count is from a full pass, so a short list is a *ranked* list, never a complete one — open the ' +
+    'named artifact when a specific finding is the one you are working on.';
+  return `\n## reading this\n\n${bullets([nothingRun, notRead])}\n`;
+}
 
 function bullets(items: readonly string[]): string {
   return items.map((item) => `- ${item}`).join('\n');
@@ -111,7 +114,7 @@ function headlineFor(report: QaReport, slot: string): string {
 
 function ledgerRow(report: QaReport, entry: LedgerEntry): string {
   const size = entry.file === null ? '—' : formatBytes(entry.file.bytes);
-  return `| \`${CHECK_DIR}/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry.slot)} |`;
+  return `| \`${report.outLabel}/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry.slot)} |`;
 }
 
 /** Where this artifact came from, when that is not "the run described above". */
@@ -190,7 +193,7 @@ function summaryProblem(summary: SummaryRead): string {
 /** Provenance first: what wrote these artifacts, when, and over which slots. */
 function renderHead(report: QaReport): string {
   const { summary } = report;
-  const at = `\`${CHECK_DIR}/summary.json\``;
+  const at = `\`${report.outLabel}/summary.json\``;
   const provenance =
     summary.state === 'ok'
       ? `${at} — \`schema_version\` 1, ${ageClause(report.summaryAgeMs)}, ${formatDuration(summary.summary.total_duration_ms)}`
@@ -305,7 +308,10 @@ function renderHealth(report: QaReport): string {
 
 type Section = { title: string; body: string };
 
-function assemble(head: string, all: readonly Section[], kept: readonly Section[], maxBytes: number): string {
+/** The fixed frame every fitting keeps whole: the ledger head and the closing notes. */
+type Frame = { head: string; footer: string };
+
+function assemble(frame: Frame, all: readonly Section[], kept: readonly Section[], maxBytes: number): string {
   const keeping = new Set(kept);
   const dropped = all.filter((section) => !keeping.has(section)).map((section) => section.title);
   const body = kept.map((section) => `\n## ${section.title}\n\n${section.body}\n`).join('');
@@ -314,7 +320,7 @@ function assemble(head: string, all: readonly Section[], kept: readonly Section[
       ? ''
       : `\n_Trimmed to fit ${maxBytes} bytes; section(s) omitted: ${dropped.join(', ')}. ` +
         'Their headline numbers are in the ledger above; read the named artifact for the rest._\n';
-  return `${head}${body}${note}\n## reading this\n\n${bullets([NOTHING_RUN_NOTE, NOT_READ_NOTE])}\n`;
+  return `${frame.head}${body}${note}${frame.footer}`;
 }
 
 /**
@@ -327,15 +333,15 @@ function assemble(head: string, all: readonly Section[], kept: readonly Section[
  * keeping, and then overshoots the budget by half. Skipping only what does not
  * fit keeps the most important section *and* whatever small ones fit around it.
  *
- * The ledger in `head` is never at risk, so every headline number survives any
+ * The ledger in the frame's head is never at risk, so every headline number survives any
  * amount of trimming. The second pass exists because the "omitted" note is
  * itself bytes: a section admitted before the note existed can stop fitting
  * once it does, and dropping from the end there converges (the note stops
  * growing once everything is dropped).
  */
-function fit(head: string, sections: readonly Section[], maxBytes: number): string {
+function fit(frame: Frame, sections: readonly Section[], maxBytes: number): string {
   const over = (kept: readonly Section[]): boolean =>
-    Buffer.byteLength(assemble(head, sections, kept, maxBytes), 'utf8') > maxBytes;
+    Buffer.byteLength(assemble(frame, sections, kept, maxBytes), 'utf8') > maxBytes;
 
   const kept: Section[] = [];
   for (const section of sections) {
@@ -343,7 +349,7 @@ function fit(head: string, sections: readonly Section[], maxBytes: number): stri
     if (over(kept)) kept.pop();
   }
   while (kept.length > 0 && over(kept)) kept.pop();
-  return assemble(head, sections, kept, maxBytes);
+  return assemble(frame, sections, kept, maxBytes);
 }
 
 /** Render the whole report. Deterministic: same report in, same bytes out. */
@@ -354,5 +360,5 @@ export function renderQa(report: QaReport, maxBytes: number = QA_MAX_BYTES): str
     { title: 'dupes', body: renderDupes(report) },
     { title: 'health', body: renderHealth(report) },
   ].filter((section) => section.body !== '');
-  return fit(renderHead(report), sections, maxBytes);
+  return fit({ head: renderHead(report), footer: readingThis(report.outLabel) }, sections, maxBytes);
 }

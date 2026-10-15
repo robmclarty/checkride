@@ -621,3 +621,37 @@ describe('baseline workspace row', () => {
     expect(baselineRow(result.report.checks)).toBeUndefined();
   });
 });
+
+/** The directories doctor asked to write, and an env that answers `writable` for `ok`. */
+function probing(ok: boolean): { env: DoctorEnv; probed: string[] } {
+  const probed: string[] = [];
+  return { probed, env: fakeEnv({ canWrite: (dir) => { probed.push(dir); return Promise.resolve(ok); } }) };
+}
+
+describe('output directory workspace row', () => {
+  const baseOpts = { cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, json: true };
+
+  test('probes <cwd>/.check by default, and names the row .check', async () => {
+    const { env, probed } = probing(true);
+    const result = await runDoctor({ ...baseOpts, env, stdout: sink() });
+    expect(probed).toEqual(['/repo/.check']);
+    expect(result.report.checks.find((c) => c.category === 'workspace' && c.name === '.check')?.status).toBe('ok');
+  });
+
+  test('probes the directory --out named, named the way a run names it', async () => {
+    const { env, probed } = probing(false);
+    const result = await runDoctor({ ...baseOpts, out: '/agent/out', env, stdout: sink() });
+    expect(probed).toEqual(['/agent/out']);
+    expect(result.report.checks.find((c) => c.name === '/agent/out')).toMatchObject({
+      category: 'workspace', required: true, status: 'missing', hint: 'Ensure /agent/out is writable.',
+    });
+    expect(result.exitCode).toBe(1);
+  });
+
+  test('a relative --out resolves against cwd and keeps its relative name', async () => {
+    const { env, probed } = probing(true);
+    const result = await runDoctor({ ...baseOpts, out: 'build/check', env, stdout: sink() });
+    expect(probed).toEqual(['/repo/build/check']);
+    expect(result.report.checks.some((c) => c.name === 'build/check')).toBe(true);
+  });
+});

@@ -34,6 +34,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
 | `--base <ref>` | The ref `--changed` measures from (or set `CHECKRIDE_BASE`, or `changedBase` in the config; the flag wins). Default `origin/main`, else `HEAD` with a warning. A named ref that doesn't resolve exits 2. |
 | `--config <path>` | Read this config file instead of `./checkride.config.json` (or set `CHECKRIDE_CONFIG`; the flag wins). Also on `doctor`, `fix` and `baseline`. A file outside the repo never ratchets the baseline. |
+| `--out <dir>` | Write the summary, raw output and digest to `<dir>` instead of `./.check` (or set `CHECKRIDE_OUT`; the flag wins). Also on `baseline`, `triage` and `qa`; `doctor` probes it. A directory outside the repo never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |

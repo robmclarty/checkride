@@ -34,13 +34,14 @@ const OUT_PLACEHOLDER = '{out}';
 /**
  * The args a check runs with: its `args`, plus its `changedArgs` under
  * `--changed`, with `{base}` in each expanded to `base`, the ref the run
- * measures changes from, and `{out}` in all of them to the output directory.
- * `base` is `null` off `--changed`. `{out}` is the relative `CHECK_DIR`, so
- * vitest's `--outputFile={out}/test.json` spawns the argv 0.13 did.
+ * measures changes from, and `{out}` in all of them to `out`, the output
+ * directory. `base` is `null` off `--changed`. `out` defaults to the relative
+ * `CHECK_DIR`, so vitest's `--outputFile={out}/test.json` spawns the argv 0.13
+ * did; a run given `--out` passes the absolute directory instead.
  */
-export function runtimeArgs(adapter: Adapter, base: string | null): string[] {
+export function runtimeArgs(adapter: Adapter, base: string | null, out: string = CHECK_DIR): string[] {
   const changed = base === null || !adapter.changedArgs ? [] : adapter.changedArgs.map((arg) => arg.replaceAll(BASE_PLACEHOLDER, base));
-  return [...adapter.args, ...changed].map((arg) => arg.replaceAll(OUT_PLACEHOLDER, CHECK_DIR));
+  return [...adapter.args, ...changed].map((arg) => arg.replaceAll(OUT_PLACEHOLDER, out));
 }
 
 /**
@@ -235,7 +236,7 @@ async function spawnTool(command: string, args: string[], cwd: string, timeoutSe
  */
 function runBuiltin(
   adapter: Adapter,
-  ctx: { cwd: string; changed: boolean; base?: string; pm: PackageManager },
+  ctx: { cwd: string; changed: boolean; base?: string; out?: string; pm: PackageManager },
   timeout: number,
 ): Promise<CheckOutcome> | null {
   const base = { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout };
@@ -245,7 +246,7 @@ function runBuiltin(
     case 'smoke':
       return checkSmoke(base);
     case 'security':
-      return checkSecurity({ ...base, command: adapter.command, args: runtimeArgs(adapter, changedRef(ctx)) });
+      return checkSecurity({ ...base, command: adapter.command, args: runtimeArgs(adapter, changedRef(ctx), ctx.out) });
     case 'snippets':
       return checkSnippets({ ...base, mode: 'src', pm: ctx.pm });
     case 'snippets-dist':
@@ -358,7 +359,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (builtin) return builtin;
   const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
-  const declared = runtimeArgs(adapter, changedRef(ctx));
+  const declared = runtimeArgs(adapter, changedRef(ctx), ctx.out);
   const missing = missingToolOutcome(resolved.slot, adapter, declared, ctx);
   if (missing) return Promise.resolve(missing);
   const { command, args } = translateExec(adapter.command, declared, ctx.pm);

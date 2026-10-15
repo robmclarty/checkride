@@ -41,6 +41,10 @@ distinguishable by every consumer:
   passed: it records the skipped shape below and stays out of `checks_run`, so
   a run where every check skipped itself is a zero-run, and `--strict` exits 2
   on it.
+- `snippets` and `smoke` are **skipped**, not failed, when the scratch
+  directory they generate files in, `<repo>/.check/`, can't be written, as in
+  a read-only checkout that `--out` sent the artifacts away from. Their
+  `reason` is `needs a writable ./.check for scratch files`.
 - An active slot whose tool is not installed **fails** (exit 1); it does not
   skip. A skip would let the slot's absence read as coverage. Under
   `npx`/`bunx` the tool is resolved in the local tree rather than trusted to a
@@ -100,7 +104,7 @@ required ones, so a field can't reach the schema without a row here.
 | `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
 | `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` was given; checkride has no such flag yet |
 | `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` was given; checkride has no such flag yet |
-| `out` | string, an absolute path | `--out` or `CHECKRIDE_OUT` was given; checkride has no such flag yet |
+| `out` | string, an absolute path | `--out` or `CHECKRIDE_OUT` named the output directory |
 
 **`git` fields.**
 
@@ -129,7 +133,7 @@ required ones, so a field can't reach the schema without a row here.
 | `reason` | string | with `skipped`: why the check sat out |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
-| `output_file` | string or `null` | always: the JSON file the run wrote under `.check/`, or `null` when it wrote none |
+| `output_file` | string or `null` | always: the JSON file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
@@ -309,6 +313,7 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
+--out <dir>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -348,6 +353,31 @@ narrowing from some other base would check a different change. A defaulted
 back to `HEAD` with a warning on stderr. Outside `--changed` the base is never
 resolved, and `gate` strips `CHECKRIDE_BASE` from the check it spawns, as it does
 `CHECKRIDE_CONFIG`.
+
+**`--out <dir>` and `CHECKRIDE_OUT` move a run's artifacts.** The summary, the
+raw files and `digest.md` are written to that directory instead of
+`<cwd>/.check`, and `output_file` stays relative to it. The flag beats the
+variable, an empty variable counts as unset, a relative path resolves against
+the working directory, and the flag with no directory is exit 2. `baseline`
+takes it for its capture run, `triage` reads from it and passes it to the run it
+starts as `CHECKRIDE_OUT`, `qa` reads from it, and `doctor` probes that
+directory instead of `.check`. Every line that names an artifact names the
+directory the run used: the `report:` and `digest:` lines, the digest's raw
+pointers, and the `triage` and `qa` reports. It's written relative to the
+working directory when it sits inside it, so `.check/` by default, and absolute
+when it sits outside. `{out}` in a check's `args` or `changedArgs`, a custom
+check's included, expands to the same directory: `.check` with no flag or
+variable, so 0.13's argv holds, and the absolute path when one names it.
+Scratch isn't output. `snippets` and `smoke` generate files that have to
+resolve the repo's own modules, so they write under `<repo>/.check/` whatever
+`--out` says, and skip when it can't be written. A run whose directory sits
+outside the repo never ratchets and never writes `checkride.baseline.json`,
+like a `--config` outside it, while `baseline --out` still writes the file at
+the repo root. `gate` strips `CHECKRIDE_OUT` from the check it spawns and reads
+`<repo>/.check/`, and the hooks never pass it. Separate `--out` values keep two
+runs' artifacts apart; they don't keep the tools apart, since build info, test
+caches and `.fallow/` are shared, so concurrent runs that write those belong in
+separate worktrees.
 
 **`baseline diff` says what the working tree grandfathers, and writes
 nothing.** `checkride baseline diff [<ref>] [--json]` reads `<ref>`'s committed

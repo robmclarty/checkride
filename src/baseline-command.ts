@@ -51,11 +51,20 @@ export type BaselineOptions = {
   runner?: CheckRunner;
   /** Package manager to run under; detected from `cwd` when omitted. */
   pm?: PackageManager;
+  /**
+   * The output directory the capture run writes its artifacts to (`--out`,
+   * `CHECKRIDE_OUT`). The baseline itself still lands at `cwd`'s root.
+   */
+  out?: string;
 };
 
 export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline };
 
-/** Run the pipeline and write the per-adapter fingerprint baseline to `cwd`. */
+/**
+ * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
+ * The repo's explicit write: it writes the file at the root whatever config
+ * or output directory the run was given.
+ */
 export async function runBaseline(options: BaselineOptions): Promise<BaselineResult> {
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
@@ -74,6 +83,7 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
     ...(options.config !== undefined ? { config: options.config } : {}),
     ...(options.runner !== undefined ? { runner: options.runner } : {}),
     ...(options.pm !== undefined ? { pm: options.pm } : {}),
+    ...(options.out !== undefined ? { out: options.out } : {}),
     ...(options.stdout !== undefined ? { stdout: options.stdout } : {}),
   };
   const result = await runChecks(runOptions);

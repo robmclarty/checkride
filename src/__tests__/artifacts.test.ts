@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,7 +9,11 @@ import {
   classifyFreshness,
   formatBytes,
   formatDuration,
+  isInside,
+  namedOut,
+  outLabel,
   parseSummary,
+  prepareScratch,
   readSummary,
   resolveRawOutput,
   runWindowStart,
@@ -131,14 +135,14 @@ describe('readSummary', () => {
   test('an absent summary is reported, not thrown', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'checkride-artifacts-'));
     dirs.push(dir);
-    const read = await readSummary(dir);
+    const read = await readSummary(join(dir, '.check'));
     expect(read.state).toBe('missing');
     expect(read.path).toContain(join('.check', 'summary.json'));
   });
 
   test('reads from disk with the file mtime attached', async () => {
-    const { root } = await fixture({ 'summary.json': summaryJson() }, WINDOW_START + 2000);
-    const read = await readSummary(root);
+    const { check } = await fixture({ 'summary.json': summaryJson() }, WINDOW_START + 2000);
+    const read = await readSummary(check);
     expect(read.state).toBe('ok');
     if (read.state !== 'ok') return;
     expect(read.mtimeMs).toBeCloseTo(WINDOW_START + 2000, -1);
@@ -289,5 +293,63 @@ describe('formatting', () => {
 
   test('tail of nothing is nothing', () => {
     expect(tail('   \n\n', 10, 100).text).toBe('');
+  });
+});
+
+describe('the output directory', () => {
+  test('namedOut takes --out, then CHECKRIDE_OUT, resolved against the working directory', () => {
+    expect(namedOut('/repo', 'out-a', {})).toBe('/repo/out-a');
+    expect(namedOut('/repo', undefined, { CHECKRIDE_OUT: '/tmp/b' })).toBe('/tmp/b');
+    expect(namedOut('/repo', 'out-a', { CHECKRIDE_OUT: '/tmp/b' })).toBe('/repo/out-a');
+  });
+
+  test('namedOut is null when neither names one, and an empty variable counts as unset', () => {
+    expect(namedOut('/repo', undefined, {})).toBeNull();
+    expect(namedOut('/repo', undefined, { CHECKRIDE_OUT: '' })).toBeNull();
+  });
+
+  test('--out with no directory is a usage error, never the default', () => {
+    expect(() => namedOut('/repo', '', {})).toThrow('--out was passed with no directory');
+  });
+
+  test('outLabel is relative inside the working directory and absolute outside it', () => {
+    expect(outLabel('/repo', '/repo/.check')).toBe('.check');
+    expect(outLabel('/repo', '/repo/build/artifacts')).toBe(join('build', 'artifacts'));
+    expect(outLabel('/repo', '/repo')).toBe('.');
+    expect(outLabel('/repo', '/elsewhere/out')).toBe('/elsewhere/out');
+    expect(outLabel('/repo', '/repo-two/out')).toBe('/repo-two/out');
+  });
+
+  test('isInside compares real paths, so a symlinked root and a missing child still agree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'checkride-out-'));
+    dirs.push(root);
+    await mkdir(join(root, 'repo'));
+    await symlink(join(root, 'repo'), join(root, 'link'));
+    expect(isInside(join(root, 'link'), join(root, 'repo', 'not-yet', 'out'))).toBe(true);
+    expect(isInside(join(root, 'link'), join(root, 'other'))).toBe(false);
+    expect(outLabel(join(root, 'link'), join(root, 'repo', 'out'))).toBe('out');
+  });
+});
+
+/** A root user writes through any mode bits, so read-only fixtures prove nothing there. */
+const asRoot = process.getuid?.() === 0;
+
+describe('prepareScratch', () => {
+  test('creates <root>/.check and reports nothing to stop on', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'checkride-scratch-'));
+    dirs.push(root);
+    expect(await prepareScratch(root)).toBeNull();
+    expect(await prepareScratch(root)).toBeNull();
+  });
+
+  test.skipIf(asRoot)('a read-only .check is the scratch skip reason (F29)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'checkride-scratch-'));
+    dirs.push(root);
+    await mkdir(join(root, '.check'), { mode: 0o555 });
+    try {
+      expect(await prepareScratch(root)).toBe('needs a writable ./.check for scratch files');
+    } finally {
+      await chmod(join(root, '.check'), 0o755);
+    }
   });
 });

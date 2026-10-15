@@ -23,7 +23,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { readSummary } from '../artifacts/index.js';
+import { outDir, readSummary } from '../artifacts/index.js';
 import type { PackageManager } from '../pm/index.js';
 import { detectPackageManager, launchRefusal } from '../pm/index.js';
 import type { SpawnOutcome, TriageEnv } from './env.js';
@@ -87,8 +87,8 @@ const MTIME_TOLERANCE_MS = 1000;
  * output happens to contain — the guard that keeps a check which merely
  * *printed* a package-manager error code from being read as a refusal to launch.
  */
-async function wroteSummary(cwd: string, startedMs: number): Promise<boolean> {
-  const read = await readSummary(cwd);
+async function wroteSummary(dir: string, startedMs: number): Promise<boolean> {
+  const read = await readSummary(dir);
   return read.state === 'ok' && read.mtimeMs >= startedMs - MTIME_TOLERANCE_MS;
 }
 
@@ -97,8 +97,8 @@ async function wroteSummary(cwd: string, startedMs: number): Promise<boolean> {
  * started one. Only exit 1 is examined — 0 and 2 are checkride's own answers and
  * mean the pipeline ran, and everything else is already `off-contract`.
  */
-async function refusalFor(outcome: SpawnOutcome, cwd: string, startedMs: number): Promise<string | null> {
-  if (outcome.code !== 1 || (await wroteSummary(cwd, startedMs))) return null;
+async function refusalFor(outcome: SpawnOutcome, dir: string, startedMs: number): Promise<string | null> {
+  if (outcome.code !== 1 || (await wroteSummary(dir, startedMs))) return null;
   return launchRefusal(`${outcome.stdout}${outcome.stderr}`)?.cause ?? null;
 }
 
@@ -111,9 +111,16 @@ function verdictFor(outcome: SpawnOutcome, refusal: string | null): GateVerdict 
 /**
  * Run `<pm> run check` in `cwd` and classify the result. Never throws: a repo
  * with no `check` script, a missing package manager and a gate that fails are
- * all outcomes, because each is something the report has to say.
+ * all outcomes, because each is something the report has to say. `out.vars`
+ * are set in the run's environment, where a triage given `--out` puts
+ * `CHECKRIDE_OUT`, since a variable reaches checkride whatever the package
+ * manager does with arguments; `out.dir` is where the run writes its summary.
  */
-export async function runGate(cwd: string, env: TriageEnv): Promise<GateOutcome> {
+export async function runGate(
+  cwd: string,
+  env: TriageEnv,
+  out: { dir: string; vars: Readonly<Record<string, string>> } = { dir: outDir(cwd), vars: {} },
+): Promise<GateOutcome> {
   const pm = detectPackageManager({ cwd });
   const script = readCheckScript(cwd);
   const base = {
@@ -126,8 +133,8 @@ export async function runGate(cwd: string, env: TriageEnv): Promise<GateOutcome>
   if (script === null) {
     return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null, refusal: null };
   }
-  const outcome = await env.spawn(pm, ['run', CHECK_SCRIPT], { cwd, timeoutMs: env.timeoutMs });
-  const refusal = await refusalFor(outcome, cwd, base.startedMs);
+  const outcome = await env.spawn(pm, ['run', CHECK_SCRIPT], { cwd, timeoutMs: env.timeoutMs, env: out.vars });
+  const refusal = await refusalFor(outcome, out.dir, base.startedMs);
   return {
     ...base,
     verdict: verdictFor(outcome, refusal),

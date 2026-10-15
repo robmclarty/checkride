@@ -127,6 +127,86 @@ describe('CLI config path (--config / CHECKRIDE_CONFIG)', () => {
   });
 });
 
+/** The summary a run wrote into the output directory `out`. */
+async function summaryIn(out: string): Promise<Record<string, unknown>> {
+  return JSON.parse(await readFile(join(out, 'summary.json'), 'utf8')) as Record<string, unknown>;
+}
+
+/**
+ * Contract: `--out <dir>` and `CHECKRIDE_OUT` move a run's artifacts (the
+ * summary, the raw files and the digest) out of `<cwd>/.check`, and the flag
+ * beats the variable. `baseline` takes the flag too and still writes
+ * `checkride.baseline.json` at the repo root; `triage` and `qa` read from it;
+ * `doctor` probes it. A flag passed with no directory is a usage error.
+ */
+describe('CLI output directory (--out / CHECKRIDE_OUT)', () => {
+  let dir: string;
+  let outside: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-out-flag-'));
+    outside = await mkdtemp(join(tmpdir(), 'checkride-out-flag-outside-'));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { probe: { command: process.execPath, args: ['-e', "console.log('probe ran'); process.exit(1)"] } },
+    }));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  function deps(env: Record<string, string> = {}, stdout = capture()): CliDeps {
+    return { cwd: dir, stdout, stderr: capture(), env };
+  }
+
+  test('--out <dir> parses to its raw value', () => {
+    expect(parseCliArgs(['--out', 'artifacts']).out).toBe('artifacts');
+    expect(parseCliArgs([]).out).toBeUndefined();
+  });
+
+  test('the summary, raw output and digest land in --out, which run.out records, and .check/ stays empty', async () => {
+    const out = join(outside, 'a');
+    expect(await runCli(['--only', 'probe', '--digest', '--out', out], deps())).toBe(1);
+    for (const file of ['summary.json', 'probe.stdout.txt', 'digest.md']) expect(existsSync(join(out, file)), file).toBe(true);
+    expect((await summaryIn(out))['run']).toEqual({ partial: true, only: ['probe'], out });
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('CHECKRIDE_OUT does the same, a relative path resolves against the working directory, and the flag beats it', async () => {
+    expect(await runCli(['--only', 'probe'], deps({ CHECKRIDE_OUT: 'from-var' }))).toBe(1);
+    expect((await summaryIn(join(dir, 'from-var')))['run']).toMatchObject({ out: join(dir, 'from-var') });
+    expect(await runCli(['--only', 'probe', '--out', 'from-flag'], deps({ CHECKRIDE_OUT: 'from-var-2' }))).toBe(1);
+    expect(existsSync(join(dir, 'from-flag', 'summary.json'))).toBe(true);
+    expect(existsSync(join(dir, 'from-var-2'))).toBe(false);
+  });
+
+  test('--out with no directory is a usage error; an empty variable counts as unset', async () => {
+    expect(await runCli(['--only', 'probe', '--out', ''], deps())).toBe(2);
+    expect(await runCli(['--only', 'probe'], deps({ CHECKRIDE_OUT: '' }))).toBe(1);
+    expect(existsSync(join(dir, '.check', 'summary.json'))).toBe(true);
+  });
+
+  test('baseline --out writes its artifacts there and checkride.baseline.json at the repo root', async () => {
+    expect(await runCli(['baseline', '--out', outside], deps())).toBe(0);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(true);
+    expect(existsSync(join(outside, 'summary.json'))).toBe(true);
+    expect(existsSync(join(outside, 'checkride.baseline.json'))).toBe(false);
+  });
+
+  test('triage and qa take --out and name that directory; doctor takes it and probes it', async () => {
+    expect(await runCli(['--only', 'probe', '--out', outside], deps())).toBe(1);
+    const qa = capture();
+    expect(await runCli(['qa', '--out', outside], deps({}, qa))).toBe(0);
+    expect(qa.text()).toContain(`\`${outside}/summary.json\``);
+    const triaged = capture();
+    expect(await runCli(['triage', '--out', outside], deps({}, triaged))).toBe(0);
+    expect(triaged.text()).toContain(`${outside}/`);
+    const doctor = capture();
+    await runCli(['doctor', '--json', '--out', outside], deps({}, doctor));
+    const report = JSON.parse(doctor.text()) as { checks: { name: string; status: string }[] };
+    expect(report.checks.find((c) => c.name === outside)).toMatchObject({ status: 'ok' });
+  }, 30_000);
+});
+
 /**
  * A custom check that passes only when its one `changedArgs` argument, `{base}`
  * expanded, is the ref it expects.

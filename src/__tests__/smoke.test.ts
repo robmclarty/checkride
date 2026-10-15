@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -216,6 +216,26 @@ describe('checkSmoke (real subprocess)', () => {
     );
     const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn });
     expect(outcome.ok).toBe(true);
+  });
+
+  test.skipIf(process.getuid?.() === 0)('skips with the scratch reason when .check/ is read-only, and never spawns (F29)', async () => {
+    await fixture(
+      { name: 'smoke-read-only', exports: healthyExports },
+      { 'dist/index.js': 'export const foo = 1;\n', 'dist/index.d.ts': 'export declare const foo: number;\n' },
+    );
+    await mkdir(join(dir, '.check'), { mode: 0o555 });
+    let spawned = false;
+    const spy: SmokeSpawn = (...args) => {
+      spawned = true;
+      return realSpawn(...args);
+    };
+    try {
+      const outcome = await checkSmoke({ cwd: dir, spawn: spy });
+      expect(spawned).toBe(false);
+      expect(outcome.skip).toBe('needs a writable ./.check for scratch files');
+    } finally {
+      await chmod(join(dir, '.check'), 0o755);
+    }
   });
 
   test('fails with a "did build run?" hint when the dist artifact is absent (never spawns)', async () => {

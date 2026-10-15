@@ -101,17 +101,17 @@ function couldNotVerifyReason(outcome: CheckOutcome): string | null {
  * report verdict (fallow — keyed on its name, see `reportVerdict`) derives
  * pass/fail from the parsed report, since its exit code doesn't reliably gate;
  * everything else masks the adapter's fingerprint, keyed under the argv the
- * check ran with (under `--changed`, `base` adds its `changedArgs`). `observed`
- * is non-null only when the run's findings could be read — the ratchet must
- * never prune from an unreadable run.
+ * check ran with (`expand` fills its placeholders, and under `--changed` its
+ * `base` adds the `changedArgs`). `observed` is non-null only when the run's
+ * findings could be read — the ratchet must never prune from an unreadable run.
  */
-function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, base: string | null): MaskResult {
+function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, expand: { base: string | null; out: string }): MaskResult {
   const verdict = reportVerdict(adapter.name);
   if (verdict) {
     const v = verdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
-  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, base)]) : null;
+  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, expand.base, expand.out)]) : null;
   if (baseline && current !== null) {
     const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
@@ -179,6 +179,7 @@ function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
     cwd: ctx.cwd,
     changed: ctx.changed,
     ...(ctx.changedBase !== null ? { base: ctx.changedBase.ref } : {}),
+    out: ctx.outArg,
     pm: ctx.pm,
     ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
   };
@@ -186,9 +187,11 @@ function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
 
 /**
  * Run one active check: clear stale output, run it, persist, and mask against
- * the baseline. A custom check that exits its `skipExitCode` stops after the
- * run instead: it records the contract's skipped shape, writes no artifact and
- * feeds nothing to the ratchet, so the baseline keeps its keys for that slot.
+ * the baseline. A custom check that exits its `skipExitCode`, or a built-in
+ * that declined to run (`snippets` and `smoke` without writable scratch),
+ * stops after the run instead: it records the contract's skipped shape,
+ * writes no artifact and feeds nothing to the ratchet, so the baseline keeps
+ * its keys for that slot.
  */
 async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext): Promise<CheckResult> {
   if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
@@ -199,7 +202,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   const start = performance.now();
   const outcome = await ctx.runner(r, runnerContext(ctx));
   const duration_ms = Math.round(performance.now() - start);
-  const skipReason = selfSkipReason(r, outcome);
+  const skipReason = outcome.skip ?? selfSkipReason(r, outcome);
   if (skipReason !== null) {
     return { entry: handleSkip({ ...r, skip: skipReason }, false, ctx), run: null, observed: null, newKeys: [] };
   }
@@ -208,7 +211,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, ctx.changedBase?.ref ?? null);
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, { base: ctx.changedBase?.ref ?? null, out: ctx.outArg });
   const entry: SummaryCheck = {
     name: r.slot,
     adapter: adapter.name,

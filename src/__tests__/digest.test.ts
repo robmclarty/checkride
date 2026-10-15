@@ -134,7 +134,7 @@ describe('writeDigest (filesystem)', () => {
 
     const oxlintAdapter = fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' });
     const wrote = await writeDigest(
-      dir,
+      { dir: join(dir, '.check'), label: '.check' },
       [run(oxlintAdapter, outcome({ stdout: raw }))],
       [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })],
     );
@@ -147,7 +147,7 @@ describe('writeDigest (filesystem)', () => {
   test('a green run removes a stale digest so the file always means "failed"', async () => {
     const digestPath = join(dir, '.check', DIGEST_FILE);
     await writeFile(digestPath, '# stale digest from a prior red run\n');
-    const wrote = await writeDigest(dir, [], [check('lint', { ok: true })]);
+    const wrote = await writeDigest({ dir: join(dir, '.check'), label: '.check' }, [], [check('lint', { ok: true })]);
     expect(wrote).toBe(false);
     expect(existsSync(digestPath)).toBe(false);
   });

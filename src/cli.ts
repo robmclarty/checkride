@@ -19,6 +19,7 @@ import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
+import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff } from './baseline-command.js';
 import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, loadConfigFile } from './config.js';
@@ -54,11 +55,18 @@ const RUN_OPTIONS = {
   concurrency: { type: 'string' },
   config: { type: 'string' },
   base: { type: 'string' },
+  out: { type: 'string' },
 } as const;
 
-/** `baseline` takes only `--config`; anything else is a usage error. */
+/** `baseline` takes only `--config` and `--out`; anything else is a usage error. */
 const BASELINE_OPTIONS = {
   config: { type: 'string' },
+  out: { type: 'string' },
+} as const;
+
+/** `triage` and `qa` take an optional repo path and `--out`. */
+const READER_OPTIONS = {
+  out: { type: 'string' },
 } as const;
 
 /** `baseline diff` takes an optional ref and `--json`; anything else is a usage error. */
@@ -127,9 +135,9 @@ Commands:
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
   triage           Triage a red gate: run it, then read .check/ as a bounded
-                   report. Takes an optional repo path.
+                   report. Takes an optional repo path, and --out.
   qa               Read the quality artifacts (mutation, dead, dupes, health)
-                   a previous run left. Takes an optional repo path.
+                   a previous run left. Takes an optional repo path, and --out.
 
 Run options:
   --only <a,b>     Run only these slots
@@ -143,15 +151,19 @@ Run options:
   --bail           Stop at the first failure (sequential; overrides --concurrency)
   --concurrency <n>  Max checks running at once within a wave (default auto; 1 = sequential)
   --json           Emit the summary as JSON on stdout
-  --digest         Write a capped failure excerpt to .check/digest.md
+  --digest         Write a capped failure excerpt to digest.md beside the summary
   --strict         Zero checks actually running is an error (exit 2), not a pass
   --config <path>  Read this config file instead of ./checkride.config.json
                    (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).
                    A file outside the repo never ratchets the baseline.
+  --out <dir>      Write the summary, raw output and digest to <dir> instead of
+                   ./.check (or set CHECKRIDE_OUT; also on baseline, triage and
+                   qa, and doctor probes it). A directory outside the repo never
+                   ratchets the baseline.
   -h, --help       Show this help
   -V, --version    Show the version
 
-Every run writes a report to .check/summary.json.
+Every run writes a report to .check/summary.json, or to <dir> under --out.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
@@ -214,6 +226,8 @@ Environment:
                        always reads the repo's own checkride.config.json.
   CHECKRIDE_BASE       Ignored the same way, so a profile's \`changed\` measures
                        from the repo's own base.
+  CHECKRIDE_OUT        Ignored the same way: the gate's run always writes
+                       .check/, where the gate reads its verdict.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -287,7 +301,7 @@ Docs: https://github.com/robmclarty/checkride#readme
 
 const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings, or diff them against git
 
-Usage: checkride baseline [--config <path>]
+Usage: checkride baseline [--config <path>] [--out <dir>]
        checkride baseline diff [<ref>] [--json]
 
 \`baseline\` runs the checks and writes their current findings, per check, to
@@ -302,6 +316,9 @@ empty, so a ref from before the baseline existed lists every key as added.
 Options:
   --config <path>  Read this config file instead of ./checkride.config.json
                    (baseline only; or set CHECKRIDE_CONFIG)
+  --out <dir>      Write the capture run's artifacts to <dir> instead of
+                   ./.check (baseline only; or set CHECKRIDE_OUT). The baseline
+                   itself is still written at the repo root.
   --json           Print the diff as JSON: ref, sha, added, removed,
                    added_count, removed_count (baseline diff only)
   -h, --help       Show this help
@@ -407,11 +424,11 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 }
 
 /**
- * Parse argv into a command name, the run flags, and the raw `--config` and
- * `--base` values (each absent when not passed; {@link namedConfig} and
- * {@link namedBase} resolve them against their variables).
+ * Parse argv into a command name, the run flags, and the raw `--config`,
+ * `--base` and `--out` values (each absent when not passed; {@link namedConfig},
+ * {@link namedBase} and `namedOut` resolve them against their variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -434,6 +451,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     flags,
     ...(values.config !== undefined ? { config: values.config } : {}),
     ...(values.base !== undefined ? { base: values.base } : {}),
+    ...(values.out !== undefined ? { out: values.out } : {}),
   };
 }
 
@@ -552,14 +570,21 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   return opts;
 }
 
+/** The output directory `--out` or `CHECKRIDE_OUT` named, as the option a command takes, or nothing. */
+function outOption(flag: string | undefined, deps: CliDeps): { out?: string } {
+  const out = namedOut(deps.cwd, flag, deps.env ?? process.env);
+  return out === null ? {} : { out };
+}
+
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base } = parseCliArgs(argv);
+  const { flags, config, base, out } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
   const changedBase = namedBase(base, deps);
   const result = await runChecks({
     ...flags,
     ...(named ? { config: named.config, configPath: named.path } : {}),
     ...(changedBase ? { base: changedBase } : {}),
+    ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
@@ -573,11 +598,12 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config } = parseCliArgs(argv);
+  const { flags, config, out } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
     ...(named ? { config: named.config } : {}),
+    ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
   });
@@ -594,14 +620,16 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
 async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
   const { rest } = detectCommand(argv);
   if (rest[0] === 'diff') return dispatchBaselineDiff(rest.slice(1), deps);
-  // `baseline` takes only `--config` and no positionals, so a stray flag (for
-  // example a typo) or a `diff` that isn't first throws ERR_PARSE_ARGS_* →
-  // runCli's catch maps it to exit 2, rather than rewriting the file. It is the
-  // repo's explicit write, so it writes the baseline wherever the config lives.
+  // `baseline` takes only `--config` and `--out` and no positionals, so a
+  // stray flag (for example a typo) or a `diff` that isn't first throws
+  // ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2, rather than rewriting
+  // the file. It is the repo's explicit write, so it writes the baseline at the
+  // repo root wherever the config lives and wherever the artifacts go.
   const { values } = parseArgs({ args: rest, options: BASELINE_OPTIONS });
   const named = namedConfig(values.config, deps);
   const result = await runBaseline({
     ...(named ? { config: named.config } : {}),
+    ...outOption(values.out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
@@ -705,21 +733,27 @@ async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
-/** The optional repo-path positional the reader commands take. */
-function readerCwd(argv: string[], deps: CliDeps): string {
+/**
+ * The reader commands' arguments: the optional repo-path positional, and the
+ * output directory `--out` or `CHECKRIDE_OUT` named, resolved against the
+ * working directory (`null` for the repo's own `.check/`).
+ */
+function readerArgs(argv: string[], deps: CliDeps): { cwd: string; out: string | null } {
   const { rest } = detectCommand(argv);
-  const { positionals } = parseArgs({ args: rest, allowPositionals: true, options: {} });
-  return positionals[0] ?? deps.cwd;
+  const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: READER_OPTIONS });
+  return { cwd: positionals[0] ?? deps.cwd, out: namedOut(deps.cwd, values.out, deps.env ?? process.env) };
 }
 
 async function dispatchTriage(argv: string[], deps: CliDeps): Promise<number> {
-  const report = await triage(readerCwd(argv, deps), realEnv);
+  const { cwd, out } = readerArgs(argv, deps);
+  const report = await triage(cwd, realEnv, out);
   deps.stdout.write(`${renderTriage(report)}\n`);
   return 0;
 }
 
 async function dispatchQa(argv: string[], deps: CliDeps): Promise<number> {
-  const report = await qaExtract(readerCwd(argv, deps));
+  const { cwd, out } = readerArgs(argv, deps);
+  const report = await qaExtract(cwd, Date.now, out);
   deps.stdout.write(`${renderQa(report)}\n`);
   return 0;
 }

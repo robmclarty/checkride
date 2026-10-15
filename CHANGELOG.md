@@ -75,6 +75,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and a `--changed` run sees its base already in place. A tool that failed to
   start or timed out keeps the argv it was given. Built-ins, which checkride
   runs itself, and skipped checks record none (#6).
+- **Send a run's artifacts somewhere else with `--out <dir>`.** The summary,
+  the raw output and the digest land in `<dir>` instead of `.check/`, and
+  `CHECKRIDE_OUT` does the same when the flag is absent. The summary records
+  the directory as `run.out`, and every line that points at an artifact (the
+  `report:` and `digest:` lines, the digest's raw pointers, and the `triage`
+  and `qa` reports) names it: relative when it sits inside the repo, absolute
+  when it sits outside. `baseline`, `triage` and `qa` take the flag too, and
+  `doctor` probes that directory. `{out}` in a check's args, a custom check's
+  included, expands to it. Two runs over one checkout with different `--out`
+  values keep their artifacts apart, so a reviewer can run the base branch's
+  config and the PR's at once. A directory outside the repo never ratchets
+  `checkride.baseline.json`, though `checkride baseline --out` still writes
+  it. `snippets` and `smoke` keep their scratch files in the repo's `.check/`,
+  where generated files can resolve the repo's own modules, and skip instead
+  of failing the run when it can't be written. The stop gate strips
+  `CHECKRIDE_OUT` from the check it runs (#6).
 
 ### Fixed
 
@@ -120,8 +136,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `git` (`head`, `dirty`, and `base` as `{ ref, sha }` under `--changed`),
   in the JSON Schema, the contract doc's field tables and
   `summary.contract.test.ts`. The schema and the doc also define
-  `run.static_only`, `run.discover`, `run.defaults`, `run.pins` and `run.out`
-  for flags checkride doesn't have yet, so no run writes them. The exported
+  `run.static_only`, `run.discover`, `run.defaults` and `run.pins` for flags
+  checkride doesn't have yet, so no run writes them. The exported
   `Summary` type gains a required `run` and an optional `git`. A run whose
   checks finish before git answers waits for it, and `total_duration_ms`
   counts the wait, so `timestamp - total_duration_ms` stays the run's start.
@@ -130,6 +146,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contract doc's field table and `summary.contract.test.ts`. The exported
   `SummaryCheck` type gains an optional `argv`, and a `CheckRunner` may
   resolve an optional `argv` with its outcome, which the summary records.
+- Additive: the run flag `--out <dir>` and the variable `CHECKRIDE_OUT`,
+  accepted by run, `baseline`, `doctor`, `triage` and `qa`, and the summary's
+  `run.out`. `{out}` in any check's `args` or `changedArgs`, a custom check's
+  included, expands to the output directory: `.check` by default, so existing
+  argv is unchanged, and the absolute directory under `--out`. `snippets` and
+  `smoke` record a skipped entry with the reason
+  `needs a writable ./.check for scratch files` when that scratch directory
+  can't be written. The exported `RunOptions` type gains an optional `out`,
+  the `CheckRunner` context an optional `out` (what `{out}` expands to), and
+  a `CheckRunner` may resolve an optional `skip` reason, which records the
+  check as skipped.
 - Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
   fail the check under its argv, and `docs/contract.md` and
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline

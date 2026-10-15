@@ -61,6 +61,26 @@ Notes:
   CI, which collapsed a 2-core runner's pool to 1 and silently serialized
   every wave.)
 
+## Writing artifacts somewhere else
+
+`--out <dir>` (or `CHECKRIDE_OUT`) writes the summary, the raw output and the
+digest to `<dir>` instead of `.check/`, and every line that points at an
+artifact names `<dir>`. Use it when one job runs checkride more than once over
+the same checkout, say once with the base branch's config and once with the
+PR's, so each run keeps its own artifacts:
+
+```bash
+pnpm exec checkride --strict --config base.json --out "$RUNNER_TEMP/base"
+pnpm exec checkride --strict --out "$RUNNER_TEMP/pr"
+```
+
+A directory outside the repo makes the run a consumer run: it never ratchets
+`checkride.baseline.json`. `snippets` and `smoke` still generate their scratch
+files under the repo's `.check/`, and skip when it can't be written. Separate
+`--out` values keep artifacts apart but not the tools' own caches (tsc build
+info, test caches, `.fallow/`), so runs that would fight over those belong in
+separate worktrees. Archive `<dir>` on failure in place of `.check/`.
+
 ## Legacy repos with a baseline
 
 If the repo adopted checkride with `checkride baseline`, commit

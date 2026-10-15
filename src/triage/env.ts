@@ -28,11 +28,15 @@ export type SpawnOutcome = {
   error: string | null;
 };
 
-/** Run a command and capture it. The one process touch the reader makes. */
+/**
+ * Run a command and capture it. The one process touch the reader makes. `env`
+ * holds variables to set over the reader's own environment, such as the
+ * `CHECKRIDE_OUT` that sends a run's artifacts where `--out` pointed.
+ */
 export type Spawner = (
   command: string,
   args: readonly string[],
-  opts: { cwd: string; timeoutMs: number },
+  opts: { cwd: string; timeoutMs: number; env?: Readonly<Record<string, string>> },
 ) => Promise<SpawnOutcome>;
 
 /** Everything the reader needs from the outside world. */
@@ -75,14 +79,14 @@ function appendCapped(buffer: string, chunk: string): string {
 export function spawnCapture(
   command: string,
   args: readonly string[],
-  opts: { cwd: string; timeoutMs: number },
+  opts: { cwd: string; timeoutMs: number; env?: Readonly<Record<string, string>> },
 ): Promise<SpawnOutcome> {
   return new Promise((resolve) => {
     const proc = spawn(command, [...args], {
       cwd: opts.cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      env: { ...process.env, ...opts.env, FORCE_COLOR: '0', NO_COLOR: '1' },
     });
     let stdout = '';
     let stderr = '';

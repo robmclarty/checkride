@@ -1,5 +1,5 @@
 /**
- * The `.check/summary.json` read — the one place either reader parses it.
+ * The `summary.json` read — the one place either reader parses it.
  *
  * The summary is checkride's promised index: `schema_version`-ed, additive-only,
  * deterministically ordered and crash-consistent. This module turns it into a
@@ -30,7 +30,7 @@ import { join } from 'node:path';
 import type { Summary, SummaryCheck } from '../orchestrator/index.js';
 import type { JsonRecord } from './json.js';
 import { isRecord, parseJson } from './json.js';
-import { outDir, SUMMARY_FILE } from './out.js';
+import { SUMMARY_FILE } from './out.js';
 
 /**
  * The only `schema_version` these readers understand.
@@ -114,9 +114,9 @@ export function parseSummary(raw: string, path: string, mtimeMs: number): Summar
   return { state: 'ok', path, mtimeMs, summary: value };
 }
 
-/** Read and classify the summary in `cwd`'s output directory. Never throws. */
-export async function readSummary(cwd: string): Promise<SummaryRead> {
-  const path = join(outDir(cwd), SUMMARY_FILE);
+/** Read and classify the summary in the output directory `dir`. Never throws. */
+export async function readSummary(dir: string): Promise<SummaryRead> {
+  const path = join(dir, SUMMARY_FILE);
   try {
     const [stats, raw] = await Promise.all([stat(path), readFile(path, 'utf8')]);
     return parseSummary(raw, path, stats.mtimeMs);

@@ -763,3 +763,75 @@ describe('the rendered report', () => {
     expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(8000);
   });
 });
+
+/** A repo whose `.check/` is empty, and an outside directory holding a red run's artifacts. */
+async function outFixture(): Promise<{ dir: string; out: string }> {
+  const dir = await makeRepo({ installCheckride: true });
+  const out = await mkdtemp(join(tmpdir(), 'checkride-triage-out-'));
+  dirs.push(out);
+  const files: Record<string, string> = {
+    'summary.json': JSON.stringify(summaryOf([check('lint', { ok: false, exit_code: 1 })])),
+    'lint.stdout.txt': 'a.ts:1 bad\n',
+    'digest.md': '# digest\n',
+  };
+  await Promise.all(
+    Object.entries(files).map(async ([file, text]) => {
+      await writeFile(join(out, file), text);
+      await stamp(join(out, file), FRESH_MTIME);
+    }),
+  );
+  return { dir, out };
+}
+
+describe('an output directory named by --out', () => {
+  type Seen = { args: readonly string[]; env: Readonly<Record<string, string>> | undefined };
+
+  /** A process surface that records each spawn's args and extra variables. */
+  function recordingEnv(gateCode: number, seen: Seen[]): TriageEnv {
+    return {
+      now: () => GATE_STARTED,
+      timeoutMs: 1000,
+      spawn: (_command, args, opts) => {
+        seen.push({ args, env: opts.env });
+        const doctor = args.includes('doctor');
+        return Promise.resolve({ ...CLEAN_SPAWN, code: doctor ? 0 : gateCode, stdout: doctor ? '{"ok":true,"checks":[]}' : '' });
+      },
+    };
+  }
+
+  test('reads the named directory and names it, absolute, on every line that points at an artifact', async () => {
+    const { dir, out } = await outFixture();
+    const report = await triage(dir, recordingEnv(1, []), out);
+    const text = renderTriage(report);
+    expect(report.outLabel).toBe(out);
+    expect(report.failing.map((r) => r.slot)).toEqual(['lint']);
+    expect(text).toContain(`\`${out}/summary.json\``);
+    expect(text).toContain(`read \`${out}/lint.stdout.txt\``);
+    expect(text).toContain(`\`${out}/digest.md\``);
+    expect(text).not.toContain('.check/');
+  });
+
+  test('hands the gate run CHECKRIDE_OUT, so it writes where the reader reads', async () => {
+    const { dir, out } = await outFixture();
+    const seen: Seen[] = [];
+    await triage(dir, recordingEnv(1, seen), out);
+    expect(seen).toEqual([{ args: ['run', 'check'], env: { CHECKRIDE_OUT: out } }]);
+  });
+
+  test('on a broken harness, doctor gets CHECKRIDE_OUT too, so it probes that directory', async () => {
+    const { dir, out } = await outFixture();
+    const seen: Seen[] = [];
+    const report = await triage(dir, recordingEnv(2, seen), out);
+    expect(report.doctor?.state).toBe('ran');
+    expect(seen.map((s) => s.env)).toEqual([{ CHECKRIDE_OUT: out }, { CHECKRIDE_OUT: out }]);
+  });
+
+  test('without --out, nothing extra reaches the run and every line says .check', async () => {
+    const seen: Seen[] = [];
+    const dir = await makeRepo({ summary: summaryOf([check('lint')]) });
+    const report = await triage(dir, recordingEnv(0, seen));
+    expect(report.outLabel).toBe('.check');
+    expect(seen).toEqual([{ args: ['run', 'check'], env: {} }]);
+    expect(renderTriage(report)).toContain('`.check/summary.json`');
+  });
+});

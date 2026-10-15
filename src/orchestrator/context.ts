@@ -4,9 +4,11 @@
  * builds on top of them — runner, flags, package manager, baseline, pool width.
  */
 
+import { resolve } from 'node:path';
+
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
-import { outDir } from '../artifacts/index.js';
+import { CHECK_DIR, outDir, outLabel } from '../artifacts/index.js';
 import type { Baseline, BaselineRead } from '../baseline/index.js';
 import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
@@ -56,8 +58,16 @@ export function resolveCommonOptions(options: CommonOptions): CommonContext {
 
 /** The resolved run environment: {@link CommonContext} plus the run-only options. */
 export type RunContext = CommonContext & {
-  /** The absolute output directory the run writes its artifacts into (see `outDir`). */
+  /** The absolute output directory the run writes its artifacts into: `--out`'s, else `<cwd>/.check`. */
   out: string;
+  /** How the run's own lines name {@link out} (see `outLabel`): `.check` by default. */
+  outLabel: string;
+  /**
+   * What `{out}` in an adapter's args expands to: the relative `.check` by
+   * default, so 0.13's argv holds, and the absolute {@link out} when a flag or
+   * variable named it.
+   */
+  outArg: string;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -95,18 +105,22 @@ function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
 }
 
 /**
- * Apply every run default: the common options plus the output directory,
- * runner, flags, PM, and baseline. `nameWidth` is a placeholder here — the
- * selection it measures is not known until after `selectChecks`, so
- * `runChecks` narrows it then — and so is `changedBase`, which `runChecks`
- * resolves through git.
+ * Apply every run default: the common options plus the output directory (and
+ * how to name and pass it), runner, flags, PM, and baseline. `nameWidth` is a
+ * placeholder here — the selection it measures is not known until after
+ * `selectChecks`, so `runChecks` narrows it then — and so is `changedBase`,
+ * which `runChecks` resolves through git.
  */
 export function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
   const read = resolveBaselineRead(options, common.cwd);
+  const named = options.out === undefined ? null : resolve(common.cwd, options.out);
+  const out = named ?? outDir(common.cwd);
   return {
     ...common,
-    out: outDir(common.cwd),
+    out,
+    outLabel: outLabel(common.cwd, out),
+    outArg: named ?? CHECK_DIR,
     nameWidth: 8,
     runner: options.runner ?? defaultRunner,
     json: options.json ?? false,

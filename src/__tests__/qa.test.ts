@@ -17,7 +17,7 @@
  * (the freshness window). Only the clock is injected.
  */
 
-import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -761,5 +761,30 @@ describe('rendering stays bounded', () => {
     const { text } = await run({ ran: ['dead'] });
     expect(text).toContain('This reader ran nothing');
     expect(text).toContain('Not read: the full contents of any `.check/` artifact');
+  });
+});
+
+describe('an output directory named by --out', () => {
+  test('reads the named directory and names it, absolute, in the ledger, the head and the notes', async () => {
+    const dir = await makeRepo({ configured: ['dead'], ran: ['dead'], artifacts: { 'dead.json': { json: CLEAN_DEAD } } });
+    const parent = await mkdtemp(join(tmpdir(), 'checkride-qa-out-'));
+    dirs.push(parent);
+    const out = join(parent, 'artifacts');
+    await rename(join(dir, '.check'), out);
+    const report = await qaExtract(dir, NOW, out);
+    const text = renderQa(report);
+    expect(report.outLabel).toBe(out);
+    expect(report.summary.state).toBe('ok');
+    expect(report.ledger.find((e) => e.slot === 'dead')?.file).not.toBeNull();
+    expect(text).toContain(`\`${out}/summary.json\``);
+    expect(text).toContain(`| \`${out}/dead.json\` |`);
+    expect(text).toContain(`last run left in \`${out}/\``);
+    expect(text).not.toContain('.check/');
+  });
+
+  test('without --out, every line says .check', async () => {
+    const { report, text } = await run({ ran: ['dead'], artifacts: { 'dead.json': { json: CLEAN_DEAD } } });
+    expect(report.outLabel).toBe('.check');
+    expect(text).toContain('`.check/dead.json`');
   });
 });

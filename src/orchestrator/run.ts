@@ -6,12 +6,11 @@
  * whole run can decide them.
  */
 
-import { realpathSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { SUMMARY_FILE } from '../artifacts/index.js';
+import { isInside, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
@@ -50,6 +49,7 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
     ...(options.all === true ? { all: true } : {}),
     ...(options.changed === true ? { changed: true } : {}),
     ...(options.configPath !== undefined ? { config: resolve(cwd, options.configPath) } : {}),
+    ...(options.out !== undefined ? { out: resolve(cwd, options.out) } : {}),
   };
 }
 
@@ -63,32 +63,16 @@ function gitRecord(state: GitState | null, base: ChangedBase | null): SummaryGit
   return base?.sha ? { ...state, base: { ref: base.ref, sha: base.sha } } : state;
 }
 
-/** The real path of `path`, or its plain resolution when it can't be read. */
-function realPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-}
-
-/**
- * True when `path` sits inside `root`. Real paths are compared, so a symlinked
- * prefix (macOS's `/var` is `/private/var`) can't put a file on the wrong side.
- */
-function isInside(root: string, path: string): boolean {
-  const rel = relative(realPath(root), realPath(path));
-  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-}
-
 /**
  * Why this run is a consumer run, shaped from outside the repo, or `null` when
  * it is the repo's own. A consumer run doesn't represent the repo's gate, so it
- * never rewrites `checkride.baseline.json`. A `--config` inside the repo is the
- * repo speaking for itself, and ratchets as if no flag had been passed.
+ * never rewrites `checkride.baseline.json`. A `--config` or `--out` inside the
+ * repo is the repo speaking for itself, and ratchets as if no flag had been
+ * passed.
  */
 function consumerCause(options: RunOptions, cwd: string): string | null {
-  if (options.configPath !== undefined && !isInside(cwd, options.configPath)) return '--config outside the repo';
+  if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
+  if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;
 }
 
@@ -206,12 +190,12 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file beside summary.json, never a stdout stream, so the machine-output
   // split holds. Raw `<slot>.json` files are already persisted and
   // untouched — the digest only reads them.
-  const digestWritten = (options.digest ?? false) ? await writeDigest(ctx.cwd, runs, checks) : false;
+  const digestWritten = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel }, runs, checks) : false;
 
   if (ctx.json) {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    reportSummary(ctx.stderr, summary, reported, ctx.adapters, digestWritten);
+    reportSummary(ctx.stderr, summary, reported, ctx.adapters, { label: ctx.outLabel, digest: digestWritten });
     // A mangled committed baseline (a botched merge, usually) masks nothing, so
     // every grandfathered finding above reported red — say so where the person
     // reading the wall of red will actually look, right under the summary.

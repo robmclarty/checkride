@@ -7,7 +7,7 @@
 
 import type { Adapter } from '../adapters.js';
 import { SCHEMA_VERSION } from '../adapters.js';
-import { CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
+import { SUMMARY_FILE } from '../artifacts/index.js';
 import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import { selectChecks } from './select.js';
@@ -182,13 +182,18 @@ function coverage(summary: Summary, checks: readonly SummaryCheck[]): string {
   return ` — only ${summary.checks_run} of ${checks.length} checks ran, ${skipped} skipped`;
 }
 
-/** Print the human run summary: the vacuous-green warning, the status line, and artifact paths. */
+/**
+ * Print the human run summary: the vacuous-green warning, the status line, and
+ * artifact paths. `artifacts.label` names the output directory as the run's
+ * lines do (`.check` by default), and `artifacts.digest` says whether a digest
+ * now sits there.
+ */
 export function reportSummary(
   stderr: Out,
   summary: Summary,
   checks: readonly SummaryCheck[],
   adapters: readonly Adapter[],
-  digestWritten: boolean,
+  artifacts: { label: string; digest: boolean },
 ): void {
   if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
   writeLine(stderr, '');
@@ -198,8 +203,8 @@ export function reportSummary(
       : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
   const ran = summary.checks_run === 0 ? '' : coverage(summary, checks);
   writeLine(stderr, `${status} in ${summary.total_duration_ms}ms${ran}`);
-  writeLine(stderr, `report: ${CHECK_DIR}/${SUMMARY_FILE}`);
-  if (digestWritten) writeLine(stderr, `digest: ${CHECK_DIR}/${DIGEST_FILE}`);
+  writeLine(stderr, `report: ${artifacts.label}/${SUMMARY_FILE}`);
+  if (artifacts.digest) writeLine(stderr, `digest: ${artifacts.label}/${DIGEST_FILE}`);
   writeLine(stderr, '');
 }
 

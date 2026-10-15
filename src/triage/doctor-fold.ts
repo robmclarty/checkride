@@ -88,13 +88,15 @@ function readFindings(stdout: string): DoctorFinding[] | null {
  * Run the repo's `checkride doctor --json` and extract what is broken. Never
  * throws; an absent or unparseable doctor is reported as such so the report can
  * say "the harness broke and I could not ask why" instead of inventing a cause.
+ * `vars` are set in doctor's environment, so a triage given `--out` has doctor
+ * probe that directory.
  */
-export async function foldDoctor(cwd: string, env: TriageEnv): Promise<DoctorFold> {
+export async function foldDoctor(cwd: string, env: TriageEnv, vars: Readonly<Record<string, string>> = {}): Promise<DoctorFold> {
   const cli = resolveCheckrideCli(cwd);
   if (cli === null) {
     return { state: 'unavailable', reason: 'checkride is not installed in this repo (no node_modules/checkride)' };
   }
-  const outcome = await env.spawn(process.execPath, [cli, 'doctor', '--json'], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS });
+  const outcome = await env.spawn(process.execPath, [cli, 'doctor', '--json'], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS, env: vars });
   if (outcome.error !== null) return { state: 'unreadable', reason: `could not run doctor: ${outcome.error}` };
   const findings = readFindings(outcome.stdout);
   if (findings === null) return { state: 'unreadable', reason: 'doctor --json did not produce a readable report' };

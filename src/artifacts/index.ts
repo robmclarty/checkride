@@ -21,7 +21,7 @@ export type { Freshness } from './freshness.js';
 
 export { asNumberOrNull, asRecord, asRecordArray, asStringOrNull, isRecord, parseJson } from './json.js';
 
-export { CHECK_DIR, outDir, SUMMARY_FILE } from './out.js';
+export { CHECK_DIR, isInside, namedOut, OUT_ENV, outDir, outLabel, prepareScratch, scratchDir, SUMMARY_FILE } from './out.js';
 
 export { listArtifacts, resolveRawOutput, statArtifact } from './raw.js';
 export type { ArtifactFile, RawOutput } from './raw.js';

@@ -15,7 +15,17 @@
  */
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import { configuredSlots, listArtifacts, outDir, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
+import {
+  configuredSlots,
+  listArtifacts,
+  OUT_ENV,
+  outDir,
+  outLabel,
+  readSummary,
+  resolveRawOutput,
+  runWindowStart,
+  statArtifact,
+} from '../artifacts/index.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
 import type { DoctorFold } from './doctor-fold.js';
@@ -56,6 +66,11 @@ export type Coverage = {
 
 export type TriageReport = {
   cwd: string;
+  /**
+   * The output directory as the report names it: relative to {@link cwd} when
+   * it sits inside it (`.check` by default), absolute otherwise.
+   */
+  outLabel: string;
   gate: GateOutcome;
   /** Present only on the broken-harness branch, where it is the diagnosis. */
   doctor: DoctorFold | null;
@@ -71,12 +86,12 @@ export type TriageReport = {
   coverage: Coverage;
   /** `ok: true` with `checks_run: 0` — nothing was verified. */
   vacuous: boolean;
-  /** `.check/digest.md`; its existence means the run that wrote it had failures. */
+  /** `digest.md` in the output directory; its existence means the run that wrote it had failures. */
   digest: ArtifactFile | null;
   /** Every measured file older than this run's start, deduped by path. */
   stale: ArtifactFile[];
   /**
-   * Every file in `.check/`, measured — populated only when the summary could
+   * Every file in the output directory, measured — populated only when the summary could
    * not be parsed, because there {@link rows} is empty for want of an index
    * rather than for want of artifacts, and this listing is the only inventory
    * left. `null` whenever the summary *was* parsed: the rows are the index then,
@@ -152,8 +167,8 @@ type Artifacts = {
 };
 
 /**
- * When the summary is gone, an anchor for judging what in `.check/` is a
- * leftover. The contract window comes from the summary's own `timestamp`, so an
+ * When the summary is gone, an anchor for judging what in the output
+ * directory is a leftover. The contract window comes from the summary's own `timestamp`, so an
  * unparseable summary leaves none — but the reader *ran the gate* and knows
  * when it started, which is a strictly better anchor than giving up and
  * labelling every file `?`. Not applied to the parsed path, where the
@@ -163,10 +178,9 @@ function gateAnchor(gate: GateOutcome): number | null {
   return gate.verdict === 'not-run' ? null : gate.startedMs - MTIME_TOLERANCE_MS;
 }
 
-/** Read everything the run left behind, measuring and never opening. */
-async function readArtifacts(cwd: string, gate: GateOutcome): Promise<Artifacts> {
-  const checkDir = outDir(cwd);
-  const summary = await readSummary(cwd);
+/** Read everything the run left in `checkDir`, measuring and never opening. */
+async function readArtifacts(checkDir: string, gate: GateOutcome): Promise<Artifacts> {
+  const summary = await readSummary(checkDir);
   const parsed = summary.state === 'ok';
   const windowStart = parsed ? runWindowStart(summary.summary) : null;
   const anchor = parsed ? windowStart : gateAnchor(gate);
@@ -186,14 +200,20 @@ function isVacuous(summary: SummaryRead): boolean {
 /**
  * Run the gate, then read what it wrote. On the broken-harness branch `doctor`
  * is folded in first, because there the environment is the finding and the
- * slot table is not evidence of anything.
+ * slot table is not evidence of anything. `out` is the output directory
+ * `--out` or `CHECKRIDE_OUT` named, or `null` for `<cwd>/.check`; a named one
+ * reaches the gate's run and doctor as `CHECKRIDE_OUT`, so the run writes
+ * where this reader reads.
  */
-export async function triage(cwd: string, env: TriageEnv): Promise<TriageReport> {
-  const gate = await runGate(cwd, env);
-  const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env) : null;
-  const { summary, windowStart, rows, digest, checkDir } = await readArtifacts(cwd, gate);
+export async function triage(cwd: string, env: TriageEnv, out: string | null = null): Promise<TriageReport> {
+  const dir = out ?? outDir(cwd);
+  const vars: Record<string, string> = out === null ? {} : { [OUT_ENV]: out };
+  const gate = await runGate(cwd, env, { dir, vars });
+  const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env, vars) : null;
+  const { summary, windowStart, rows, digest, checkDir } = await readArtifacts(dir, gate);
   return {
     cwd,
+    outLabel: outLabel(cwd, dir),
     gate,
     doctor,
     summary,

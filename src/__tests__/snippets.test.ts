@@ -1,5 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -359,6 +359,24 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
     expect(outcome.stderr).toContain('snippet -> source map:');
     expect(outcome.stderr).toContain('README_md__1.ts  <-  README.md:4');
   }, 15000);
+
+  test.skipIf(process.getuid?.() === 0)('skips with the scratch reason when .check/ is read-only, and never spawns tsc (F29)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixture-pkg', version: '1.0.0' }));
+    await writeFile(join(dir, 'README.md'), ['<!-- snippet: check -->', '```ts', 'const x = 1;', '```', ''].join('\n'));
+    await mkdir(join(dir, '.check'), { mode: 0o555 });
+    let spawned = false;
+    const spy: SnippetSpawn = (...args) => {
+      spawned = true;
+      return realSpawn(...args);
+    };
+    try {
+      const outcome = await checkSnippets({ cwd: dir, mode: 'dist', pm: 'pnpm', spawn: spy });
+      expect(spawned).toBe(false);
+      expect(outcome.skip).toBe('needs a writable ./.check for scratch files');
+    } finally {
+      await chmod(join(dir, '.check'), 0o755);
+    }
+  });
 
   test('zero tagged snippets is a hard error and never spawns tsc', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixture-pkg', version: '1.0.0' }));

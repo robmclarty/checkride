@@ -23,11 +23,11 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { arch as osArch, platform as osPlatform } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
-import { CHECK_DIR, outDir } from './artifacts/index.js';
+import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
@@ -133,6 +133,8 @@ export type DoctorOptions = {
   env?: DoctorEnv;
   /** The Node-pin surface; injectable so the hook-context row is testable. */
   pinEnv?: PinEnv;
+  /** The output directory `--out` or `CHECKRIDE_OUT` named, which the workspace row probes instead of `<cwd>/.check`. */
+  out?: string;
 };
 
 type Semver = { major: number; minor: number; patch: number; raw: string };
@@ -588,12 +590,18 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
   return { ...base, status: 'ok', found: `${countBaselineKeys(baseline)} grandfathered diagnostic(s)`, expected: null, hint: null };
 }
 
-async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
-  const dir = outDir(cwd);
+/**
+ * Whether the output directory can be written: `<cwd>/.check`, or the one
+ * `--out` named. The row is named the way a run's `report:` line names the
+ * directory, so `.check` by default.
+ */
+async function checkWritable(cwd: string, out: string | undefined, env: DoctorEnv): Promise<DoctorCheck> {
+  const dir = out === undefined ? outDir(cwd) : resolve(cwd, out);
+  const name = outLabel(cwd, dir);
   const ok = await env.canWrite(dir);
   return ok
-    ? { name: CHECK_DIR, category: 'workspace', required: true, status: 'ok', found: 'writable', expected: 'writable', hint: null }
-    : { name: CHECK_DIR, category: 'workspace', required: true, status: 'missing', found: 'not writable', expected: 'writable', hint: `Ensure ${dir} is writable.` };
+    ? { name, category: 'workspace', required: true, status: 'ok', found: 'writable', expected: 'writable', hint: null }
+    : { name, category: 'workspace', required: true, status: 'missing', found: 'not writable', expected: 'writable', hint: `Ensure ${dir} is writable.` };
 }
 
 function statusMark(status: DoctorStatus): string {
@@ -727,7 +735,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   // Independent per-slot probes: run them concurrently, `map` preserves order.
   checks.push(...(await Promise.all(resolved.map((r) => classifySlot(r, defaultActive, adapters, config, cwd, env, pm)))));
 
-  checks.push(await checkWritable(cwd, env));
+  checks.push(await checkWritable(cwd, options.out, env));
   const baselineRow = checkBaseline(cwd, env);
   if (baselineRow !== null) checks.push(baselineRow);
 

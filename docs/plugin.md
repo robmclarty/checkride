@@ -66,8 +66,10 @@ pnpm exec checkride triage   # what /checkride:check runs
 pnpm exec checkride qa       # what /checkride:qa runs
 ```
 
-Each takes one optional argument: a repo path, defaulting to the current
-directory. Each writes Markdown to stdout and exits 0 whenever a report was
+Each takes one optional argument, a repo path that defaults to the current
+directory, and `--out <dir>` (or `CHECKRIDE_OUT`) for a run that wrote its
+artifacts somewhere other than `.check/`; `triage` hands that directory to the
+run it starts. Each writes Markdown to stdout and exits 0 whenever a report was
 produced. What you lose is the skill — the procedure and the judgment that turn
 a report into a diagnosis.
 

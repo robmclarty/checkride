@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 10 — refactor(artifacts): route every artifact path through one output dir
+**Current step:** 11 — feat(cli): write artifacts to another directory with --out
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -32,7 +32,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
 - ☑ 8. feat(summary): record the run's selection and git state
 - ☑ 9. feat(summary): record the argv each check spawned
-- ☐ 10. refactor(artifacts): route every artifact path through one output dir
+- ☑ 10. refactor(artifacts): route every artifact path through one output dir
 - ☐ 11. feat(cli): write artifacts to another directory with --out
 - ☐ 12. feat(init): ship the six layout and barrel rules in new-project mode
 - ☐ 13. feat(init): make the starter files obey the rules they ship
@@ -107,9 +107,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
 - [x] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
 - [x] Steps 11 and 53-56 must write their run.<flag> field in runRecord (src/orchestrator/run.ts) and drop its 'no such flag yet' note in docs/contract.md; step 56 also adds --static-only to isPartialRun and the partial row
-- [ ] step 11: {out} now expands in custom checks' args too (step 10); document it in docs/contract.md and CHANGELOG beside --out
-- [ ] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
-- [ ] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
+- [x] step 11: {out} now expands in custom checks' args too (step 10); document it in docs/contract.md and CHANGELOG beside --out
+- [x] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
+- [x] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
+- [ ] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -130,6 +131,9 @@ Harvest results this boundary:
 - After step 2: "summary schema's skipped description says 'did not execute'..." → **tangent**, deferred to step 5 (reword `schema/checkride.summary.schema.json:48` there; the schema file sits outside step 5's seam, so add it via `/plumbbob:step 5` or accept a one-file stray).
 - After step 3: "list `baseline diff` in docs/cheatsheet.md and the README command table..." → **tangent**, deferred to step 73 (README is in its seam; `docs/cheatsheet.md` is not, so add it via `/plumbbob:step 73` or accept a one-file stray).
 - After step 8: "Steps 11 and 53-56 must write their run.<flag> field..." → **blocker**, handled now: folded into `intent.md` as D55 (run-fields-ahead). Steps 11, 53, 54, 55 and 56 each name their `run` field and the doc note it drops in their done-whens, with the same wording; step 56 also names the `isPartialRun` change. `src/orchestrator/run.ts` joined all five seams, and `docs/contract.md` joined 54's and 55's.
+- After step 10: "step 11: {out} now expands in custom checks' args too..." → **tangent**, deferred to step 11 (its seam already holds `docs/contract.md` and `CHANGELOG.md`, and C11 (docs-in-step) obliges the doc).
+- After step 10: "step 11: report, digest, triage and qa text name the dir through CHECK_DIR..." → **blocker**, handled now: folded into `intent.md` as D56 (out-labels). Step 11's done-when names it, and `src/orchestrator/report.ts`, `src/digest/digest.ts`, `src/triage/render.ts` and `src/qa/render.ts` joined its seam.
+- After step 10: "step 21: the snippets adapters' scratch arg..." → **tangent**, deferred to step 21 (the `struct` check turns red when the adapters move, so it can't slip; a scratch constant, or dropping the path from an availability-only signature, is that step's call).
 
 ## Log
 
@@ -671,3 +675,52 @@ folder, so it rides the branch into the PR.)*
   - `test/contract/invariance.contract.test.ts`: the cross-check in highlight 3.
 
   The README's summary example is unchanged: its check entry doesn't show `origin` either, and `argv` is optional.
+
+- 2026-10-15 — step 10 checkpointed · 27013d390 — refactor(artifacts): route every artifact path through one output dir (1 drift, 13m)
+
+  **Summary**: Every place that wrote or read `.check/` now gets the directory from one new module, `src/artifacts/out.ts`, and a new ast-grep rule stops anyone spelling `.check` in the engine again. The argv, summaries and exit codes are byte-identical to 0.13: the full gate is green, and the examples, invariance, plugin-readers and shapes e2e suites pass (33 tests).
+
+  1. One module now owns the output directory
+  2. Adapters write through `{out}`, and it still spawns 0.13's argv
+  3. Rule A5 is `rules/no-check-dir-literal.yml`
+  4. Three follow-ups parked for steps 11 and 21
+
+  **Readout**: Step 10 - refactor(artifacts): route every artifact path through one output dir
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 8 paths outside the seam
+               - AGENTS.md
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/context.ts
+               - src/orchestrator/report.ts
+               - src/qa/qa.ts
+               - src/qa/render.ts
+               - src/triage/render.ts
+               - src/triage/triage.ts
+  diff         +174 -97 across 18 files
+  spent        13 min · 2 turns · 47s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 10. The refactor changes no behavior, the suites that pin 0.13 pass unchanged, and the three parks carry the remaining `--out` work to the steps that own it.
+
+  **1.** One module now owns the output directory
+
+  `src/artifacts/out.ts` exports `CHECK_DIR`, `SUMMARY_FILE` and `outDir(cwd)`, and the artifacts barrel re-exports them; `CHECK_DIR` moved there from `summary.ts`. The run context resolves `out` once with `outDir(cwd)`, and `run.ts` (mkdir, summary write) and `execute.ts` (clear and persist each slot's artifacts) take `ctx.out` instead of joining `.check` themselves. The digest's `writeDigest`, the `triage` and `qa` readers, `readSummary` and doctor's writable probe all call `outDir(cwd)`. Exported functions that tests call with a `cwd` (`writeDigest`, `readSummary`) kept that signature, so no test changed; step 11 can switch them to take the directory when `--out` needs it.
+
+  **2.** Adapters write through `{out}`, and it still spawns 0.13's argv
+
+  vitest and jest now declare `--outputFile={out}/test.json`. `runtimeArgs` in `spawn.ts` expands `{out}` to the relative `CHECK_DIR` in every arg (args and changedArgs alike), beside the existing `{base}` expansion, so the spawned argv is still `--outputFile=.check/test.json`. A direct `--only test` run's summary confirms it, and so does the invariance golden. Two new unit tests cover the expansion, and the existing `runtimeArgs` tests are untouched. The snippets adapters' `.check/doc-snippets/tsconfig.json` stays as it was: per D21 (out-dir) that path is scratch, not output, so it doesn't follow `--out`.
+
+  **3.** Rule A5 is `rules/no-check-dir-literal.yml`
+
+  It matches any string fragment that holds `.check` as a path segment (template-literal fragments included) under `src/orchestrator/`, `src/packs/`, `src/launch/`, `src/digest/`, `src/triage/` and `src/qa/`, and it skips `__tests__`. Its first scan found 37 hits. The 6 filesystem paths now go through `ctx.out` or `outDir`. The 31 display strings (the report lines, digest pointers, and triage and qa prose) now spell the name through `CHECK_DIR`, so their text is byte-identical.
+
+  **4.** Three follow-ups parked for steps 11 and 21
+
+  The display text still says `.check/` even after `--out` moves the files, so step 11 has to make those labels follow the flag. `{out}` already expands in custom checks' args, and that surface goes undocumented until step 11 writes up `--out`; that's a small bend of C11 (docs-in-step), deferred on purpose rather than documenting a token that can only mean `.check` today. Step 21 moves the snippets scratch arg into `src/packs/`, where A5 will reject it. All three are in the build log as park lines. Outside the seam, I also touched `AGENTS.md`'s layout line for `artifacts/` and `src/orchestrator/context.ts`.

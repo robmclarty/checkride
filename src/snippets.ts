@@ -46,6 +46,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { prepareScratch } from './artifacts/index.js';
 import type { CheckOutcome } from './links.js';
 import type { PackageManager } from './pm/index.js';
 import { translateExec } from './pm/index.js';
@@ -408,7 +409,8 @@ function runTsc(
  * tsconfig under `.check/doc-snippets/`, and typechecks them through the
  * injected `spawn`. A compile failure's `stderr` carries tsc's raw output plus
  * the `snippet -> source map:` legend mapping each generated file back to
- * `<doc>:<line>`.
+ * `<doc>:<line>`. When `.check/` can't be written the outcome is a skip, with
+ * the scratch reason.
  */
 export async function checkSnippets(opts: {
   cwd: string;
@@ -440,6 +442,11 @@ export async function checkSnippets(opts: {
     }
     paths = derived;
   }
+
+  // Scratch stays under the repo whatever `--out` says, so a read-only
+  // checkout skips the check rather than failing the run on a write.
+  const unwritable = await prepareScratch(cwd);
+  if (unwritable !== null) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: unwritable };
 
   const outDir = join(cwd, OUT_DIR_REL);
   await rm(outDir, { recursive: true, force: true });
