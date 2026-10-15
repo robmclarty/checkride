@@ -22,7 +22,7 @@
  * prose on stderr.
  */
 
-import type { Baseline, BaselineDelta, BaselineRead, Candidate, GitRunner, HistoryScan } from './baseline/index.js';
+import type { Baseline, BaselineDelta, BaselineRead, Candidate, HistoryScan } from './baseline/index.js';
 import {
   BASELINE_FILE,
   baselineDirty,
@@ -32,10 +32,11 @@ import {
   DEFAULT_DEPTH,
   diffBaselines,
   readBaselineStatus,
-  realGit,
   unionBaselines,
   writeBaseline,
 } from './baseline/index.js';
+import type { GitRunner } from './git.js';
+import { realGit } from './git.js';
 import type { Out } from './orchestrator/index.js';
 
 export type RecoverOptions = {

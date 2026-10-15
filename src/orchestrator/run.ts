@@ -13,8 +13,10 @@ import { performance } from 'node:perf_hooks';
 import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
-import { resolveChecks } from '../config.js';
+import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
+import type { ChangedBase } from '../git.js';
+import { realGit, resolveChangedBase } from '../git.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -104,6 +106,22 @@ async function maybeRecoverHint(ctx: RunContext, ok: boolean, newKeys: readonly 
   );
 }
 
+/**
+ * The base a `--changed` run measures from, or `null` off `--changed`: the one
+ * the caller named (`--base`, `CHECKRIDE_BASE`), else the config's
+ * `changedBase`, else `origin/main` when it resolves, else `HEAD` with a warning
+ * on stderr. A named base that doesn't resolve throws, a usage error raised
+ * before the run writes anything. The config's value is validated either way.
+ */
+async function changedBaseFor(options: RunOptions, ctx: RunContext): Promise<ChangedBase | null> {
+  const configured = configChangedBase(ctx.config);
+  if (!ctx.changed) return null;
+  const named = options.base ?? (configured !== null ? { ref: configured, from: 'config changedBase' } : null);
+  const { base, warning } = await resolveChangedBase(realGit(ctx.cwd), named);
+  if (warning !== null) writeLine(ctx.stderr, warning);
+  return base;
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
@@ -112,13 +130,14 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, cwd: base.cwd });
   // A usage error before any side effect: no `.check/` dir, no run, exit 2.
   validateSelection(resolved, options);
+  const changedBase = await changedBaseFor(options, base);
 
   await mkdir(join(base.cwd, '.check'), { recursive: true });
 
   const selected = selectChecks(resolved, options);
   // The status-line column is sized once the selection is known, so a long
   // custom-check name widens the column instead of overflowing it.
-  const ctx: RunContext = { ...base, nameWidth: nameWidth(selected) };
+  const ctx: RunContext = { ...base, nameWidth: nameWidth(selected), changedBase };
   if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
 
   // `--bail` is fail-fast sequential; a `--concurrency > 1` passed alongside

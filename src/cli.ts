@@ -24,6 +24,8 @@ import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, loadConfigFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
+import type { NamedBase } from './git.js';
+import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
 import { runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator/index.js';
@@ -51,6 +53,7 @@ const RUN_OPTIONS = {
   strict: { type: 'boolean', default: false },
   concurrency: { type: 'string' },
   config: { type: 'string' },
+  base: { type: 'string' },
 } as const;
 
 /** `baseline` takes only `--config`; anything else is a usage error. */
@@ -134,6 +137,9 @@ Run options:
   --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
+  --base <ref>     The ref --changed measures from (or set CHECKRIDE_BASE, or
+                   changedBase in the config; default origin/main, else HEAD).
+                   A named ref that doesn't resolve is exit 2.
   --bail           Stop at the first failure (sequential; overrides --concurrency)
   --concurrency <n>  Max checks running at once within a wave (default auto; 1 = sequential)
   --json           Emit the summary as JSON on stdout
@@ -206,6 +212,8 @@ Environment:
                        or \`off\` to disable checkride's Node-pin alignment.
   CHECKRIDE_CONFIG     Ignored: the gate strips it from the check it runs, which
                        always reads the repo's own checkride.config.json.
+  CHECKRIDE_BASE       Ignored the same way, so a profile's \`changed\` measures
+                       from the repo's own base.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -399,10 +407,11 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 }
 
 /**
- * Parse argv into a command name, the run flags, and the raw `--config` value
- * (absent when not passed; {@link namedConfig} resolves it against the variable).
+ * Parse argv into a command name, the run flags, and the raw `--config` and
+ * `--base` values (each absent when not passed; {@link namedConfig} and
+ * {@link namedBase} resolve them against their variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -420,7 +429,12 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     // optional types: an explicit `undefined` is not the same as absent).
     ...(concurrency !== undefined ? { concurrency } : {}),
   };
-  return { command, flags, ...(values.config !== undefined ? { config: values.config } : {}) };
+  return {
+    command,
+    flags,
+    ...(values.config !== undefined ? { config: values.config } : {}),
+    ...(values.base !== undefined ? { base: values.base } : {}),
+  };
 }
 
 /** A config file named on the command line or in the environment, read and resolved. */
@@ -443,6 +457,19 @@ function namedConfig(flag: string | undefined, deps: CliDeps): NamedConfig | nul
     throw new Error(`${flag === undefined ? CONFIG_ENV : '--config'} names a missing file: ${path}`);
   }
   return { path, config: loadConfigFile(path) };
+}
+
+/**
+ * The base a `--changed` run measures from, when one is named: `--base`, else
+ * `CHECKRIDE_BASE` (an empty variable counts as unset). `null` when neither
+ * names one, so the run falls back to the config's `changedBase`, then
+ * `origin/main`, then `HEAD`. Whether the ref resolves is the run's to check.
+ */
+function namedBase(flag: string | undefined, deps: CliDeps): NamedBase | null {
+  if (flag === '') throw new Error('--base was passed with no ref');
+  if (flag !== undefined) return { ref: flag, from: '--base' };
+  const variable = (deps.env ?? process.env)[BASE_ENV];
+  return variable === undefined || variable === '' ? null : { ref: variable, from: BASE_ENV };
 }
 
 function asShape(value: string | undefined): Shape | undefined {
@@ -526,11 +553,13 @@ export function parseInitArgs(argv: string[]): Partial<InitOptions> {
 }
 
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config } = parseCliArgs(argv);
+  const { flags, config, base } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
+  const changedBase = namedBase(base, deps);
   const result = await runChecks({
     ...flags,
     ...(named ? { config: named.config, configPath: named.path } : {}),
+    ...(changedBase ? { base: changedBase } : {}),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,

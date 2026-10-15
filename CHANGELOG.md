@@ -46,6 +46,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the same tag, which replaces the "Detected via" clause in its hints. A
   repo that runs eight checks while its config names three can now see where
   the other five came from (#6).
+- **Choose what `--changed` measures from.** `--base <ref>`, then the
+  `CHECKRIDE_BASE` variable, then a `changedBase` key in
+  `checkride.config.json` name the base; with none of them it stays
+  `origin/main`, the base vitest and jest had hardcoded. A check's
+  `changedArgs` say `{base}` where the ref goes, and the vitest and jest
+  adapters now do, so a repo that names no base spawns the same argv as
+  before. A named base that doesn't name a commit exits 2. When `origin/main`
+  itself doesn't resolve, as in a sandbox clone without that remote, the run
+  measures from `HEAD` and warns on stderr instead of handing the tools a ref
+  they can't read. The stop gate strips `CHECKRIDE_BASE` from the check it
+  runs.
 
 ### Fixed
 
@@ -81,6 +92,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   optional `origin` and `detectedBy`, `SummaryCheck` gains `origin` and
   `detected_by`, and `DoctorCheck` gains `origin` and `detectedBy`.
   `ResolvedCheck.detectedVia` keeps its values.
+- Additive: the run flag `--base <ref>`, the variable `CHECKRIDE_BASE`, the
+  config key `changedBase` and the `{base}` placeholder in `changedArgs`. The
+  vitest and jest rows of `ADAPTERS` carry `{base}` in place of
+  `origin/main`. The exported `RunOptions` type gains an optional `base`
+  (`{ ref, from }`), and the `CheckRunner` context an optional `base`, present
+  under `--changed`.
 - Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
   fail the check under its argv, and `docs/contract.md` and
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline

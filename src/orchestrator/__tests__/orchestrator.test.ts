@@ -258,16 +258,25 @@ describe('library-publishing slots (publint, attw)', () => {
 
 describe('runtimeArgs', () => {
   const withChanged = fakeAdapter({ name: 'vitest', slot: 'test', args: ['run'], changedArgs: ['--changed', 'main'] });
+  const withBase = fakeAdapter({ name: 'vitest', slot: 'test', args: ['run'], changedArgs: ['--changed', '{base}', '--since={base}'] });
   const noChanged = fakeAdapter({ name: 'tsc', slot: 'types', args: ['--build'] });
 
   test('appends changedArgs under --changed', () => {
-    expect(runtimeArgs(withChanged, true)).toEqual(['run', '--changed', 'main']);
+    expect(runtimeArgs(withChanged, 'origin/main')).toEqual(['run', '--changed', 'main']);
+  });
+  test('expands {base} in every changedArg, inside one too', () => {
+    expect(runtimeArgs(withBase, 'origin/develop')).toEqual(['run', '--changed', 'origin/develop', '--since=origin/develop']);
   });
   test('leaves args untouched without --changed', () => {
-    expect(runtimeArgs(withChanged, false)).toEqual(['run']);
+    expect(runtimeArgs(withChanged, null)).toEqual(['run']);
+    expect(runtimeArgs(withBase, null)).toEqual(['run']);
   });
   test('adapters with no changedArgs are unaffected', () => {
-    expect(runtimeArgs(noChanged, true)).toEqual(['--build']);
+    expect(runtimeArgs(noChanged, 'origin/main')).toEqual(['--build']);
+  });
+  test('the vitest and jest rows say {base} where 0.13 said origin/main', () => {
+    expect(ADAPTERS.find((a) => a.name === 'vitest')?.changedArgs).toEqual(['--changed', '{base}']);
+    expect(ADAPTERS.find((a) => a.name === 'jest')?.changedArgs).toEqual(['--changedSince', '{base}']);
   });
 });
 
@@ -1684,5 +1693,76 @@ describe('missingExemplarsOutcome', () => {
     // stdout won as the JSON artifact — and the stderr reason survives beside it.
     expect(JSON.parse(await readFile(join(dir, '.check', 'security.json'), 'utf8'))).toMatchObject({ error: { code: 23 } });
     expect(await readFile(join(dir, '.check', 'security.stderr.txt'), 'utf8')).toContain('check-security:');
+  });
+});
+
+/** A runner that records the `base` each check was handed. */
+function baseRecorder(): { runner: CheckRunner; seen: (string | undefined)[] } {
+  const seen: (string | undefined)[] = [];
+  const runner: CheckRunner = (_r, ctx) => {
+    seen.push(ctx.base);
+    return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+  };
+  return { runner, seen };
+}
+
+describe.skipIf(!gitAvailable)('runChecks --changed base', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-base-'));
+    gitIn(dir, 'init', '-q', '-b', 'main');
+    await writeFile(join(dir, 'a.txt'), 'a\n');
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'one');
+    gitIn(dir, 'branch', 'develop');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'test' }];
+  const adapters = [fakeAdapter({ name: 'vitest', slot: 'test', changedArgs: ['--changed', '{base}'] })];
+
+  test('the runner gets the named base, then the config’s, then origin/main', async () => {
+    gitIn(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const run = async (extra: { base?: { ref: string; from: string }; config?: { changedBase: string } }): Promise<(string | undefined)[]> => {
+      const { runner, seen } = baseRecorder();
+      await runChecks({ cwd: dir, slots, adapters, config: extra.config ?? null, runner, changed: true, json: true, stdout: sink().out, stderr: sink().out, ...(extra.base ? { base: extra.base } : {}) });
+      return seen;
+    };
+    expect(await run({ base: { ref: 'develop', from: '--base' }, config: { changedBase: 'main' } })).toEqual(['develop']);
+    expect(await run({ config: { changedBase: 'main' } })).toEqual(['main']);
+    expect(await run({})).toEqual(['origin/main']);
+  });
+
+  test('off --changed, the runner gets no base', async () => {
+    const { runner, seen } = baseRecorder();
+    await runChecks({ cwd: dir, slots, adapters, config: { changedBase: 'develop' }, runner, json: true, stdout: sink().out, stderr: sink().out });
+    expect(seen).toEqual([undefined]);
+  });
+
+  test('a defaulted origin/main that doesn’t resolve falls back to HEAD, with a warning (F26)', async () => {
+    const { runner, seen } = baseRecorder();
+    const err = sink();
+    const result = await runChecks({ cwd: dir, slots, adapters, config: null, runner, changed: true, json: true, stdout: sink().out, stderr: err.out });
+    expect(seen).toEqual(['HEAD']);
+    expect(result.exitCode).toBe(0);
+    expect(err.lines.join('')).toContain("--changed: origin/main doesn't resolve, so changes are measured from HEAD");
+  });
+
+  test('a configured base that doesn’t resolve throws before the run writes anything (F26)', async () => {
+    const { runner, seen } = baseRecorder();
+    await expect(
+      runChecks({ cwd: dir, slots, adapters, config: { changedBase: 'nope' }, runner, changed: true, json: true, stdout: sink().out, stderr: sink().out }),
+    ).rejects.toThrow("config changedBase 'nope' doesn't name a commit");
+    expect(seen).toEqual([]);
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('a changedBase that isn’t a non-empty string is a config error, --changed or not', async () => {
+    for (const changedBase of ['', 7]) {
+      // oxlint-disable-next-line no-await-in-loop -- shared cwd; sequential keeps each rejection attributable.
+      await expect(
+        runChecks({ cwd: dir, slots, adapters, config: { changedBase } as never, runner: baseRecorder().runner, json: true, stdout: sink().out, stderr: sink().out }),
+      ).rejects.toThrow('changedBase must be a non-empty string');
+    }
   });
 });

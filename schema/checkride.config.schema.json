@@ -23,6 +23,11 @@
       "minimum": 0,
       "description": "Default per-check timeout in seconds. Unset, checks fall back to the built-in 600s cap; 0 here or on a check disables the cap."
     },
+    "changedBase": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The git ref --changed measures from, and {base} in changedArgs expands to, when neither --base nor CHECKRIDE_BASE names one. Unset, it's origin/main when that resolves, else HEAD with a warning. A ref named here that doesn't resolve to a commit exits 2."
+    },
     "gate": {
       "type": "object",
       "additionalProperties": false,
@@ -95,7 +100,11 @@
         },
         "note": { "$ref": "#/definitions/note" },
         "outputFile": { "type": ["string", "null"] },
-        "changedArgs": { "type": "array", "items": { "type": "string" } },
+        "changedArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Arguments appended under --changed. {base} in any of them expands to the base ref the run measures changes from (see changedBase)."
+        },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
         "timeout": { "type": "number", "minimum": 0 },
         "order": { "$ref": "#/definitions/order" },
@@ -147,7 +156,11 @@
         },
         "note": { "$ref": "#/definitions/note" },
         "outputFile": { "type": ["string", "null"] },
-        "changedArgs": { "type": "array", "items": { "type": "string" } },
+        "changedArgs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Arguments appended under --changed. {base} in any of them expands to the base ref the run measures changes from (see changedBase)."
+        },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
         "timeout": { "type": "number", "minimum": 0 },
         "name": { "type": "string" },

@@ -371,11 +371,12 @@ prints the same report. Full details in [docs/plugin.md](./docs/plugin.md).
   "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.4.0/schema/checkride.config.schema.json",
   "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
   "timeout": 1200,          // global per-check timeout in seconds (default: 600)
+  "changedBase": "origin/develop", // what --changed measures from (default: origin/main, else HEAD)
   "checks": {
     "format": "prettier",   // enable the opt-in format slot (blessed: prettier)
     "lint": "biome",        // pick an alternate adapter
     "spell": false,         // disable a slot
-    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "origin/main"] },
+    "test": { "use": "vitest", "timeout": 0, "changedArgs": ["--changed", "{base}"] },
     "tidy": {           // a bespoke custom check that runs FIRST, ahead of the built-ins
       "command": "pnpm",
       "args": ["exec", "some-formatter", "--write"],

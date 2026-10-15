@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 6 — feat(report): record why each check runs as origin and detected_by
+**Current step:** 7 — feat(changed): resolve one base ref for --changed and pass it as {base}
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -28,7 +28,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 3. feat(baseline): add baseline diff against a git ref
 - ☑ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
 - ☑ 5. docs(contract): list every summary field and hold the list with a test
-- ☐ 6. feat(report): record why each check runs as origin and detected_by
+- ☑ 6. feat(report): record why each check runs as origin and detected_by
 - ☐ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
 - ☐ 8. feat(summary): record the run's selection and git state
 - ☐ 9. feat(summary): record the argv each check spawned
@@ -421,3 +421,54 @@ folder, so it rides the branch into the PR.)*
   **4.** No CHANGELOG line, as the seam planned
 
   No field, flag or behavior changed, so C11 (docs-in-step) and C1 (additive-contract) ask for nothing under **Contract**. The doc and its test still moved together. #7's reporter might like a line under **Unreleased** saying the field list exists. That would go outside the seam, so I left it for you to decide.
+
+- 2026-10-10 — step 6 checkpointed · eda7f176b — feat(report): record why each check runs as origin and detected_by (1 drift, 11m)
+
+  **Summary**: Every check now says why it's in the run. Resolution records `origin` (`config`, `detected`, `built-in` or `custom`) and the detection signal, the summary carries them as `origin` and `detected_by`, and each status line and `doctor` slot row ends with the matching tag, such as `[config]` or `[detected: stryker.config.mjs]`.
+
+  1. Resolution records provenance through one helper
+  2. A check that sat out keeps its origin
+  3. The doctor tag replaces the "Detected via" hint
+  4. detectedVia stays beside the new detectedBy
+  5. Two source files sit outside the seam
+
+  **Readout**: Step 6 - feat(report): record why each check runs as origin and detected_by
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 5 paths outside the seam
+               - src/__tests__/config.test.ts
+               - src/__tests__/doctor.test.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/execute.ts
+               - src/orchestrator/index.ts
+  diff         +373 -53 across 14 files
+  spent        11 min · 1 turn · 26s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint. The gate is green, each of the done-when's four parts has its own test, and the one judgment call (origin on checks that sat out) is written into the contract doc, so you can veto it there.
+
+  **1.** Resolution records provenance through one helper
+
+  `active()` in `src/config.ts` now takes a provenance. The string, `{ use }` and `{ command }` arms pass `config`, the custom-check arm passes `custom`, and detection passes what `detectionSignal` found. That function now returns the signal in both forms: `detected_by` (`.oxlintrc.json`, `package.json: oxlint`, `package.json: scripts.build`) and the older `detectedVia`. An adapter that declares no signal returns the `null` signal, which reads as `built-in`. Today that covers `links`, `pnpm audit` and the publish built-ins, all of which are checkride built-ins. `standDownIfScriptless` strips the provenance when it turns a configured `build` into a skip, so a check with no adapter never claims an origin. The config tests cover every arm, plus the four kinds of skip that must carry nothing (S21).
+
+  **2.** A check that sat out keeps its origin
+
+  The presence rule is "`origin` is present exactly when `adapter` isn't `null`". Entries left out by `--only` or `--skip`, entries unavailable under this package manager, and custom checks that skipped themselves all keep the origin of the adapter that would have run. R8.2 says "the check is active", and I read that the way the done-when does: resolution gave the check an adapter. The contract test asserts the rule across a whole run, and the contract doc says it in words. Only executed checks print the tag, because a skip line already explains itself, as the provenance draft asked. If you'd rather keep `origin` off skipped entries, the change is one spread in `skippedEntry` plus the doc row.
+
+  **3.** The doctor tag replaces the "Detected via" hint
+
+  `DoctorCheck` gains `origin` and `detectedBy` on rows whose adapter can run, and `renderToolRow` appends the same tag through the shared `provenanceTag`, aligned after the note column. The hint's old "Detected via X." clause is gone because the tag now says the same thing. Two doctor tests read the signal from that hint, so they now assert `detectedBy`, and a new test checks the rendered rows for detected, built-in, custom and disabled slots.
+
+  **4.** detectedVia stays beside the new detectedBy
+
+  `ResolvedCheck` is exported, and its existing `detectedVia` values (`scripts.build`, `dependency 'oxlint'`) differ from the summary's form, so rewriting them would break any caller that reads them. I kept it unchanged, added `detectedBy` in the summary's form, and said so in the Contract changelog entry. Nothing inside checkride reads `detectedVia` any more. Retiring it would be a breaking change to name in some later release.
+
+  **5.** Two source files sit outside the seam
+
+  `src/orchestrator/execute.ts` builds the summary entry for an executed check, so it gains one `...provenanceFields(r)` spread. `src/orchestrator/index.ts` exports `provenanceTag`, so `doctor` reaches the shared rendering rule through the barrel rather than through a deep import. The S21 unit tests live in `config.test.ts`, `orchestrator.test.ts` and `doctor.test.ts`, and the F23 self-skip test's exact entry gained `origin: 'custom'`. The contract doc dates the new fields "(0.15.0)", which assumes your next `/version` is a minor.

@@ -147,6 +147,12 @@ export type CheckrideConfig = Noted & {
    * disables the cap.
    */
   timeout?: number;
+  /**
+   * The base `--changed` measures from when neither `--base` nor
+   * `CHECKRIDE_BASE` names one. Unset, it's `origin/main` when that resolves,
+   * else `HEAD`. A base named here that doesn't resolve is a usage error.
+   */
+  changedBase?: string;
   /** What the stop gate runs, when the full check is too slow to pay per turn. */
   gate?: GateProfile;
 };
@@ -285,6 +291,20 @@ function deepMerge(
 /** Throw the friendly `invalid checkride.config.json: <reason>` error. */
 function invalidConfig(reason: string, cause?: unknown): never {
   throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, cause ? { cause } : undefined);
+}
+
+/**
+ * The config's `changedBase`, validated, or `null` when it sets none. A value
+ * that isn't a non-empty string is the friendly config error, read on every
+ * run so a typo surfaces before the day someone passes `--changed`.
+ */
+export function configChangedBase(config: CheckrideConfig | null): string | null {
+  const base: unknown = config?.changedBase;
+  if (base === undefined) return null;
+  if (typeof base !== 'string' || base.length === 0) {
+    invalidConfig(`changedBase must be a non-empty string (got ${JSON.stringify(base)})`);
+  }
+  return base;
 }
 
 const ORDER_KEYWORDS: ReadonlySet<string> = new Set(['first', 'last', 'middle', 'single', 'any']);

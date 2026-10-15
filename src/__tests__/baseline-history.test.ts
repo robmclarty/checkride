@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
-import type { Baseline, GitResult, GitRunner } from '../baseline/index.js';
-import { collectCandidates, diffBaselines, gitFailureError, historicalHint, unionBaselines } from '../baseline/index.js';
+import type { Baseline } from '../baseline/index.js';
+import { collectCandidates, diffBaselines, historicalHint, unionBaselines } from '../baseline/index.js';
+import type { GitResult, GitRunner } from '../git.js';
 
 const base = (slots: Record<string, string[]>): Baseline => ({ schema_version: 1, slots });
 
@@ -186,14 +187,6 @@ describe('unionBaselines / diffBaselines', () => {
     const delta = diffBaselines(null, base({ lint: ['a', 'b'] }));
     expect(delta.restoredCount).toBe(2);
     expect(delta.absentCount).toBe(0);
-  });
-});
-
-describe('gitFailureError', () => {
-  test('each failure class names its remedy', () => {
-    expect(gitFailureError({ error: 'missing', detail: '' }).message).toContain('not found on PATH');
-    expect(gitFailureError({ error: 'not-a-repo', detail: '' }).message).toContain('not inside a git repository');
-    expect(gitFailureError({ error: 'failed', detail: 'boom' }).message).toContain('boom');
   });
 });
 

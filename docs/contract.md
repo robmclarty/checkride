@@ -239,7 +239,7 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 `recover`, `agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the run flags:
 
 ```text
---only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed
+--only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
 ```
 
@@ -267,6 +267,19 @@ A file inside the repo, and the `baseline` command wherever its file sits,
 behave as they do without the flag. `gate` takes neither: it strips
 `CHECKRIDE_CONFIG` from the check it spawns, which always reads the repo's own
 config.
+
+**`--changed` measures from one base ref.** It resolves from `--base <ref>`,
+then `CHECKRIDE_BASE` (an empty variable counts as unset), then the config's
+`changedBase`, then `origin/main` when it names a commit, then `HEAD`. A check's
+`changedArgs` say `{base}` where they need it: vitest runs `--changed {base}` and
+jest `--changedSince {base}`, so with nothing named and `origin/main` present the
+argv is the one 0.13 spawned. A base that `--base`, the variable or the config
+names and that doesn't name a commit exits 2 before anything runs, because
+narrowing from some other base would check a different change. A defaulted
+`origin/main` that doesn't resolve, as in a clone without that remote, falls
+back to `HEAD` with a warning on stderr. Outside `--changed` the base is never
+resolved, and `gate` strips `CHECKRIDE_BASE` from the check it spawns, as it does
+`CHECKRIDE_CONFIG`.
 
 **`baseline diff` says what the working tree grandfathers, and writes
 nothing.** `checkride baseline diff [<ref>] [--json]` reads `<ref>`'s committed

@@ -6,6 +6,7 @@
  * a "Contract" CHANGELOG entry).
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -123,6 +124,94 @@ describe('CLI config path (--config / CHECKRIDE_CONFIG)', () => {
     expect(
       await runCli(['--only', 'probe', '--config', 'fail.json'], deps(capture(), { CHECKRIDE_CONFIG: 'pass.json' })),
     ).toBe(1);
+  });
+});
+
+/**
+ * A custom check that passes only when its one `changedArgs` argument, `{base}`
+ * expanded, is the ref it expects.
+ */
+const baseProbe = (expected: string): unknown => ({
+  command: process.execPath,
+  args: ['-e', `process.exit(process.argv[1] === ${JSON.stringify(expected)} ? 0 : 1)`],
+  changedArgs: ['{base}'],
+});
+
+/**
+ * Contract: `--changed` measures from one base ref (docs/contract.md §CLI).
+ * `--base <ref>` names it, then `CHECKRIDE_BASE`, then config `changedBase`,
+ * then `origin/main` when it resolves, then `HEAD`, and `{base}` in a check's
+ * `changedArgs` expands to it. A named base that doesn't resolve is exit 2; a
+ * defaulted `origin/main` that doesn't falls back to `HEAD` with a warning (F26).
+ */
+describe('CLI changed base (--base / CHECKRIDE_BASE)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-base-flag-'));
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.name=contract', '-c', 'user.email=contract@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, stdio: 'ignore' });
+    };
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { develop: baseProbe('develop'), head: baseProbe('HEAD'), configured: baseProbe('configured') },
+    }));
+    git('init', '-q', '-b', 'main');
+    git('add', '-A');
+    git('commit', '-q', '--no-verify', '-m', 'contract');
+    git('branch', 'develop');
+    git('branch', 'configured');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function deps(stderr: CliDeps['stderr'], env: Record<string, string> = {}): CliDeps {
+    return { cwd: dir, stdout: capture(), stderr, env };
+  }
+
+  test('--base <ref> parses to its raw value', () => {
+    expect(parseCliArgs(['--changed', '--base', 'origin/develop']).base).toBe('origin/develop');
+    expect(parseCliArgs([]).base).toBeUndefined();
+  });
+
+  test('{base} expands to the named base, and the flag beats the variable', async () => {
+    expect(await runCli(['--changed', '--only', 'develop', '--base', 'develop'], deps(capture()))).toBe(0);
+    expect(await runCli(['--changed', '--only', 'develop'], deps(capture(), { CHECKRIDE_BASE: 'develop' }))).toBe(0);
+    expect(await runCli(['--changed', '--only', 'develop', '--base', 'develop'], deps(capture(), { CHECKRIDE_BASE: 'nope' }))).toBe(0);
+  });
+
+  test('the config’s changedBase applies when neither the flag nor the variable names one', async () => {
+    const config = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ ...config, changedBase: 'configured' }));
+    expect(await runCli(['--changed', '--only', 'configured'], deps(capture()))).toBe(0);
+    expect(await runCli(['--changed', '--only', 'develop'], deps(capture(), { CHECKRIDE_BASE: 'develop' }))).toBe(0);
+  });
+
+  test('a named base that doesn’t resolve exits 2, naming what named it (F26)', async () => {
+    const flag = capture();
+    expect(await runCli(['--changed', '--base', 'nope'], deps(flag))).toBe(2);
+    expect(flag.text()).toContain("--base 'nope' doesn't name a commit");
+    const variable = capture();
+    expect(await runCli(['--changed'], deps(variable, { CHECKRIDE_BASE: 'nope' }))).toBe(2);
+    expect(variable.text()).toContain("CHECKRIDE_BASE 'nope' doesn't name a commit");
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('--base with no ref is a usage error', async () => {
+    expect(await runCli(['--changed', '--base', ''], deps(capture()))).toBe(2);
+  });
+
+  test('with nothing named and no origin/main, the base falls back to HEAD with a warning (F26)', async () => {
+    const stderr = capture();
+    expect(await runCli(['--changed', '--only', 'head'], deps(stderr))).toBe(0);
+    expect(stderr.text()).toContain("--changed: origin/main doesn't resolve, so changes are measured from HEAD");
+  });
+
+  test('with nothing named and a resolvable origin/main, the base is origin/main, as in 0.13', async () => {
+    execFileSync('git', ['update-ref', 'refs/remotes/origin/main', 'HEAD'], { cwd: dir, stdio: 'ignore' });
+    const config = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    config.checks['origin'] = baseProbe('origin/main');
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify(config));
+    const stderr = capture();
+    expect(await runCli(['--changed', '--only', 'origin'], deps(stderr))).toBe(0);
+    expect(stderr.text()).not.toContain('measured from HEAD');
   });
 });
 

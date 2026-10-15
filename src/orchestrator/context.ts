@@ -10,6 +10,7 @@ import type { Baseline, BaselineRead } from '../baseline/index.js';
 import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
 import { loadConfig } from '../config.js';
+import type { ChangedBase } from '../git.js';
 import type { PackageManager } from '../pm/index.js';
 import { detectPackageManager } from '../pm/index.js';
 import { defaultConcurrency, defaultRunner } from './spawn.js';
@@ -58,6 +59,12 @@ export type RunContext = CommonContext & {
   json: boolean;
   bail: boolean;
   changed: boolean;
+  /**
+   * The base a `--changed` run measures from, and `{base}` expands to; `null`
+   * off `--changed`. A placeholder here like `nameWidth`: resolving it asks
+   * git, so `runChecks` fills it in once the selection is validated.
+   */
+  changedBase: ChangedBase | null;
   timeout: number | undefined;
   pm: PackageManager;
   baseline: Baseline | null;
@@ -87,7 +94,8 @@ function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
 /**
  * Apply every run default: the common options plus runner, flags, PM, and
  * baseline. `nameWidth` is a placeholder here — the selection it measures is
- * not known until after `selectChecks`, so `runChecks` narrows it then.
+ * not known until after `selectChecks`, so `runChecks` narrows it then — and so
+ * is `changedBase`, which `runChecks` resolves through git.
  */
 export function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
@@ -99,6 +107,7 @@ export function resolveRunContext(options: RunOptions): RunContext {
     json: options.json ?? false,
     bail: options.bail ?? false,
     changed: options.changed ?? false,
+    changedBase: null,
     timeout: common.config?.timeout,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
     baseline: read.baseline,

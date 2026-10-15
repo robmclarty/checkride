@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import type { Baseline, GitResult, GitRunner } from '../baseline/index.js';
+import type { Baseline } from '../baseline/index.js';
 import {
   applyBaseline,
   BASELINE_SCHEMA_VERSION,
@@ -23,6 +23,7 @@ import {
 } from '../baseline/index.js';
 import { runBaseline, runBaselineDiff } from '../baseline-command.js';
 import { runCli } from '../cli.js';
+import type { GitResult, GitRunner } from '../git.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');

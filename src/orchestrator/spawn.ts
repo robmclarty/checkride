@@ -12,6 +12,7 @@ import { cpus } from 'node:os';
 import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { DEFAULT_BASE } from '../git.js';
 import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
@@ -23,10 +24,27 @@ import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
 import type { CheckRunner } from './types.js';
 
-/** Append an adapter's `changedArgs` under `--changed` (otherwise base args). */
-export function runtimeArgs(adapter: Adapter, changed: boolean): string[] {
-  if (changed && adapter.changedArgs) return [...adapter.args, ...adapter.changedArgs];
-  return adapter.args;
+/** The placeholder in `changedArgs` that expands to the base ref a `--changed` run measures from. */
+const BASE_PLACEHOLDER = '{base}';
+
+/**
+ * The args a check runs with: its `args`, plus its `changedArgs` under
+ * `--changed`, with `{base}` in each expanded to `base`, the ref the run
+ * measures changes from. `base` is `null` off `--changed`.
+ */
+export function runtimeArgs(adapter: Adapter, base: string | null): string[] {
+  if (base === null || !adapter.changedArgs) return adapter.args;
+  return [...adapter.args, ...adapter.changedArgs.map((arg) => arg.replaceAll(BASE_PLACEHOLDER, base))];
+}
+
+/**
+ * The base a runner's `{base}` expands to: the run's resolved base under
+ * `--changed`, or `null` off it. A context built without one, by a caller that
+ * never resolved a base, measures from the default the way 0.13 did.
+ */
+function changedRef(ctx: { changed: boolean; base?: string }): string | null {
+  if (!ctx.changed) return null;
+  return ctx.base ?? DEFAULT_BASE;
 }
 
 /**
@@ -196,7 +214,7 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
  */
 function runBuiltin(
   adapter: Adapter,
-  ctx: { cwd: string; changed: boolean; pm: PackageManager },
+  ctx: { cwd: string; changed: boolean; base?: string; pm: PackageManager },
   timeout: number,
 ): Promise<CheckOutcome> | null {
   const base = { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout };
@@ -206,7 +224,7 @@ function runBuiltin(
     case 'smoke':
       return checkSmoke(base);
     case 'security':
-      return checkSecurity({ ...base, command: adapter.command, args: runtimeArgs(adapter, ctx.changed) });
+      return checkSecurity({ ...base, command: adapter.command, args: runtimeArgs(adapter, changedRef(ctx)) });
     case 'snippets':
       return checkSnippets({ ...base, mode: 'src', pm: ctx.pm });
     case 'snippets-dist':
@@ -318,7 +336,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (builtin) return builtin;
   const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
-  const declared = runtimeArgs(adapter, ctx.changed);
+  const declared = runtimeArgs(adapter, changedRef(ctx));
   const missing = missingToolOutcome(resolved.slot, adapter, declared, ctx);
   if (missing) return Promise.resolve(missing);
   const { command, args } = translateExec(adapter.command, declared, ctx.pm);

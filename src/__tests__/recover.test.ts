@@ -6,7 +6,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import type { Baseline, GitResult, GitRunner } from '../baseline/index.js';
+import type { Baseline } from '../baseline/index.js';
+import type { GitResult, GitRunner } from '../git.js';
 import type { Out } from '../orchestrator/index.js';
 import { runRecover } from '../recover.js';
 

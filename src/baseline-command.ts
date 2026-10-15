@@ -24,7 +24,7 @@
  */
 
 import type { Adapter, Slot } from './adapters.js';
-import type { Baseline, GitRunner } from './baseline/index.js';
+import type { Baseline } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
@@ -32,10 +32,11 @@ import {
   fingerprint,
   readBaselineAt,
   readBaselineStatus,
-  realGit,
   writeBaseline,
 } from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
+import type { GitRunner } from './git.js';
+import { realGit } from './git.js';
 import type { CheckRunner, Out, RunOptions } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './pm/index.js';

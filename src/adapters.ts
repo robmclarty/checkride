@@ -97,7 +97,10 @@ export type Adapter = {
   args: string[];
   /** `.check/<file>` target when stdout is JSON; `null` if the tool writes its own. */
   outputFile: string | null;
-  /** Appended to `args` under `--changed`. */
+  /**
+   * Appended to `args` under `--changed`. `{base}` in any of them expands to the
+   * base ref the run measures changes from (see `resolveChangedBase`).
+   */
   changedArgs?: string[];
   /** Used by `checkride fix`. */
   fixArgs?: string[];
@@ -324,7 +327,7 @@ export const ADAPTERS: readonly Adapter[] = [
       '--outputFile=.check/test.json',
     ],
     outputFile: null,
-    changedArgs: ['--changed', 'origin/main'],
+    changedArgs: ['--changed', '{base}'],
     devDeps: { vitest: '5.0.3', '@vitest/coverage-v8': '5.0.3' },
   },
   {
@@ -341,7 +344,7 @@ export const ADAPTERS: readonly Adapter[] = [
     command: 'pnpm',
     args: ['exec', 'jest', '--ci', '--json', '--outputFile=.check/test.json'],
     outputFile: null,
-    changedArgs: ['--changedSince', 'origin/main'],
+    changedArgs: ['--changedSince', '{base}'],
     devDeps: { jest: '30.4.2' },
   },
   {

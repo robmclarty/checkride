@@ -22,7 +22,7 @@ import { parseToolJson } from '../tool-json.js';
 import type { RunContext } from './context.js';
 import { formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
-import type { CheckRun, SummaryCheck } from './types.js';
+import type { CheckRun, CheckRunner, SummaryCheck } from './types.js';
 
 /**
  * Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout
@@ -103,17 +103,17 @@ function couldNotVerifyReason(outcome: CheckOutcome): string | null {
  * report verdict (fallow — keyed on its name, see `reportVerdict`) derives
  * pass/fail from the parsed report, since its exit code doesn't reliably gate;
  * everything else masks the adapter's fingerprint, keyed under the argv the
- * check ran with (`changed` adds its `changedArgs`). `observed` is non-null only
- * when the run's findings could be read — the ratchet must never prune from an
- * unreadable run.
+ * check ran with (under `--changed`, `base` adds its `changedArgs`). `observed`
+ * is non-null only when the run's findings could be read — the ratchet must
+ * never prune from an unreadable run.
  */
-function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, changed: boolean): MaskResult {
+function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, base: string | null): MaskResult {
   const verdict = reportVerdict(adapter.name);
   if (verdict) {
     const v = verdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
-  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, changed)]) : null;
+  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, base)]) : null;
   if (baseline && current !== null) {
     const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
@@ -170,6 +170,17 @@ type CheckResult = {
   newKeys: string[];
 };
 
+/** What a {@link CheckRunner} is handed: `base` only under `--changed`, `timeout` only when the config sets one. */
+function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
+  return {
+    cwd: ctx.cwd,
+    changed: ctx.changed,
+    ...(ctx.changedBase !== null ? { base: ctx.changedBase.ref } : {}),
+    pm: ctx.pm,
+    ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
+  };
+}
+
 /**
  * Run one active check: clear stale output, run it, persist, and mask against
  * the baseline. A custom check that exits its `skipExitCode` stops after the
@@ -183,7 +194,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   // the tool writes during *this* run (for example `test.json`) survives.
   await clearSlotOutputs(ctx.cwd, adapter);
   const start = performance.now();
-  const outcome = await ctx.runner(r, { cwd: ctx.cwd, changed: ctx.changed, pm: ctx.pm, ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}) });
+  const outcome = await ctx.runner(r, runnerContext(ctx));
   const duration_ms = Math.round(performance.now() - start);
   const skipReason = selfSkipReason(r, outcome);
   if (skipReason !== null) {
@@ -194,7 +205,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `.check/<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, ctx.changed);
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, ctx.changedBase?.ref ?? null);
   const entry: SummaryCheck = {
     name: r.slot,
     adapter: adapter.name,

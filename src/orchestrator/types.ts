@@ -7,6 +7,7 @@
 import type { Adapter, Slot } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from '../config.js';
+import type { NamedBase } from '../git.js';
 import type { CheckOutcome } from '../links.js';
 import type { PackageManager } from '../pm/index.js';
 
@@ -87,7 +88,8 @@ export type Summary = {
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
   resolved: ResolvedCheck,
-  ctx: { cwd: string; changed: boolean; pm: PackageManager; timeout?: number },
+  /** `base` is the ref a `--changed` run measures from, present exactly when `changed` is. */
+  ctx: { cwd: string; changed: boolean; base?: string; pm: PackageManager; timeout?: number },
 ) => Promise<CheckOutcome>;
 
 export type RunOptions = RunFlags & {
@@ -102,6 +104,13 @@ export type RunOptions = RunFlags & {
    * makes this a consumer run, which never ratchets the baseline.
    */
   configPath?: string;
+  /**
+   * The base a `--changed` run measures from, when one is named (`--base`,
+   * `CHECKRIDE_BASE`): `ref` as given, `from` what named it, for the exit-2
+   * error when it doesn't resolve. Omitted, the config's `changedBase` names
+   * it, else `origin/main` when it resolves, else `HEAD`. Unused off `--changed`.
+   */
+  base?: NamedBase;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

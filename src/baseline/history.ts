@@ -1,11 +1,12 @@
 /**
- * Git plumbing for baseline recovery: reconstruct recent committed states of
+ * Baseline history for recovery: reconstruct recent committed states of
  * `checkride.baseline.json` so a clobbered file (a botched merge, an agent
  * resolving a conflict by deleting the "problem" lines) can be restored without
- * manual archaeology. Everything here is read-only toward git — recovery writes
- * the file through `writeBaseline`, never `git checkout`, so a restore lands as
- * an ordinary reviewable working-tree edit. `baseline diff` reads one committed
- * state through the same plumbing ({@link readBaselineAt}).
+ * manual archaeology. Everything here is read-only toward git, through the
+ * shared runner in `../git.ts` — recovery writes the file through
+ * `writeBaseline`, never `git checkout`, so a restore lands as an ordinary
+ * reviewable working-tree edit. `baseline diff` reads one committed state
+ * through the same plumbing ({@link readBaselineAt}).
  *
  * `git log --follow` is deliberately not used: the baseline's name and location
  * are constants ({@link BASELINE_FILE}), so history beyond a rename boundary
@@ -13,68 +14,16 @@
  * running stock checkride anyway.
  */
 
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-
+import type { GitRunner } from '../git.js';
+import { gitFailureError, realGit } from '../git.js';
 import type { Baseline } from './store.js';
 import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, baselinesEqual, parseBaseline } from './store.js';
-
-const execFileP = promisify(execFile);
-
-/** Why a git invocation failed, classified for user-facing messages. */
-export type GitFailure = 'missing' | 'not-a-repo' | 'timeout' | 'failed';
-
-export type GitResult = { ok: true; stdout: string } | { ok: false; error: GitFailure; detail: string };
-
-/** Runs `git <args>`; injectable so history logic is testable without a repo. */
-export type GitRunner = (args: readonly string[]) => Promise<GitResult>;
-
-const GIT_TIMEOUT_MS = 10_000;
-/** A monorepo baseline can be large; a `git show` must not be truncated mid-blob. */
-const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 
 /** At most this many distinct snapshots are presented — a small set to choose from. */
 const MAX_SNAPSHOTS = 5;
 
 /** Commits of file history walked when `--depth` is not given. */
 export const DEFAULT_DEPTH = 25;
-
-/** The `code`/`killed`/`stderr` shape of a rejected `execFile`, checked not cast. */
-function rejection(err: unknown): { code?: string; killed?: boolean; stderr?: string } {
-  if (typeof err !== 'object' || err === null) return {};
-  const out: { code?: string; killed?: boolean; stderr?: string } = {};
-  if ('code' in err && typeof err.code === 'string') out.code = err.code;
-  if ('killed' in err && typeof err.killed === 'boolean') out.killed = err.killed;
-  if ('stderr' in err && typeof err.stderr === 'string') out.stderr = err.stderr;
-  return out;
-}
-
-/** The real runner: `git` under `cwd`, with a timeout so recovery can't hang. */
-export function realGit(cwd: string, timeoutMs = GIT_TIMEOUT_MS): GitRunner {
-  return async (args) => {
-    try {
-      const { stdout } = await execFileP('git', [...args], { cwd, timeout: timeoutMs, maxBuffer: GIT_MAX_BUFFER });
-      return { ok: true, stdout };
-    } catch (err) {
-      const e = rejection(err);
-      if (e.code === 'ENOENT') return { ok: false, error: 'missing', detail: 'git not found on PATH' };
-      if (e.killed === true) return { ok: false, error: 'timeout', detail: `git ${args[0]} timed out (>${GIT_TIMEOUT_MS / 1000}s)` };
-      const stderr = (e.stderr ?? '').trim();
-      if (stderr.includes('not a git repository')) return { ok: false, error: 'not-a-repo', detail: stderr };
-      return { ok: false, error: 'failed', detail: stderr.length > 0 ? stderr : `git ${args[0]} failed` };
-    }
-  };
-}
-
-/**
- * The user-facing error for a failed git invocation; `runCli` renders it as
- * exit 2. `command` prefixes the message so it names the command that ran.
- */
-export function gitFailureError(result: { error: GitFailure; detail: string }, command = 'recover'): Error {
-  if (result.error === 'missing') return new Error(`${command}: git is required but was not found on PATH`);
-  if (result.error === 'not-a-repo') return new Error(`${command}: not inside a git repository`);
-  return new Error(`${command}: ${result.detail}`);
-}
 
 /** One commit that touched the baseline file. */
 export type BaselineRevision = { sha: string; shortSha: string; date: string; author: string; subject: string };

@@ -497,7 +497,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
 
 ### Phase 2: runs that explain themselves
 
-6. [ ] feat(report): record why each check runs as origin and detected_by, **done when:** resolution sets `origin` on every active check and `detected_by` on detected ones (the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>`); the status line ends with `[config]`, `[detected: <file>]`, `[built-in]` or `[custom]`; `doctor` shows the same; the summary schema, contract doc and contract tests move together (S21)
+6. [x] feat(report): record why each check runs as origin and detected_by, **done when:** resolution sets `origin` on every active check and `detected_by` on detected ones (the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>`); the status line ends with `[config]`, `[detected: <file>]`, `[built-in]` or `[custom]`; `doctor` shows the same; the summary schema, contract doc and contract tests move together (S21)
    - seam: `src/config.ts`, `src/orchestrator/report.ts`, `src/orchestrator/types.ts`,
      `src/doctor.ts`, `schema/checkride.summary.schema.json`,
      `test/contract/summary.contract.test.ts`, `test/contract/streams.contract.test.ts`,

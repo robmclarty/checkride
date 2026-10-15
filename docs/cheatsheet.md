@@ -32,6 +32,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
+| `--base <ref>` | The ref `--changed` measures from (or set `CHECKRIDE_BASE`, or `changedBase` in the config; the flag wins). Default `origin/main`, else `HEAD` with a warning. A named ref that doesn't resolve exits 2. |
 | `--config <path>` | Read this config file instead of `./checkride.config.json` (or set `CHECKRIDE_CONFIG`; the flag wins). Also on `doctor`, `fix` and `baseline`. A file outside the repo never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |
