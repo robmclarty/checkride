@@ -1,5 +1,7 @@
 /**
- * Slot-tool resolution — where a check's tool has to be for the gate to run it,
+ * The `js-lockfile` pin source: a tool is the copy the project's lockfile
+ * installed under `node_modules/.bin`, run through the project's own package
+ * manager. This file holds where that copy has to be for the gate to run it,
  * and how to install it when it isn't.
  *
  * `translate.ts` decides *how* a tool is spawned; this decides *whether it may
@@ -15,8 +17,9 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import type { PackageManager } from './detect.js';
-import { LOCKFILE_NAMES } from './detect.js';
+import { TOOLS } from '../packs/index.js';
+import type { PackageManager } from './package-manager.js';
+import { LOCKFILE_NAMES } from './package-manager.js';
 
 /**
  * The `<tool>` in a canonical `pnpm exec <tool> …` adapter invocation, or `null`
@@ -43,9 +46,57 @@ const INSTALL: Record<PackageManager, string> = {
   bun: 'bun add -d',
 };
 
-/** The command that would declare `tool` as a dev dependency under `pm`. */
+/**
+ * The command that would declare `tool` as a dev dependency under `pm`.
+ *
+ * `tool` is the executable a check runs, and it isn't always its package's
+ * name: `tsc` comes from `typescript` and `ast-grep` from `@ast-grep/cli`. So
+ * the command names the package `TOOLS` lists for it, and falls back to the
+ * executable's own name for a tool `TOOLS` doesn't know, which is what a custom
+ * check's `pnpm exec` usually runs.
+ */
 export function installCommand(pm: PackageManager, tool: string): string {
-  return `${INSTALL[pm]} ${tool}`;
+  const pkg = TOOLS.find((t) => t.bin === tool)?.npm ?? tool;
+  return `${INSTALL[pm]} ${pkg}`;
+}
+
+/**
+ * Why a check whose tool this repo never installed may not spawn under `pm`, or
+ * `null` when it may.
+ *
+ * `--no-install` stops `npx`/`bunx` fetching a missing tool, but both still run
+ * a copy cached from some earlier, unrelated invocation — so the same commit
+ * passes on a machine that happens to hold one and fails on a clean checkout,
+ * which is the CI runner. A gate whose result depends on that is not reporting
+ * on the code. Resolving the binary in the local tree first moves the failure
+ * to every machine equally, and to the one place it is cheap to fix.
+ *
+ * Scoped to the launchers that *have* such a cache ({@link
+ * execUsesGlobalCache}): `pnpm exec` and `yarn` resolve from the project tree
+ * already, and pre-flighting Yarn PnP — which has no `node_modules/.bin` — would
+ * report every tool missing.
+ */
+export function missingToolRefusal(
+  slot: string,
+  command: string,
+  args: readonly string[],
+  ctx: { cwd: string; pm: PackageManager },
+): string | null {
+  if (!execUsesGlobalCache(ctx.pm)) return null;
+  const tool = execTool(command, args);
+  if (!tool || resolveSlotTool(ctx.cwd, tool)) return null;
+  return [
+    `checkride: the \`${slot}\` slot needs \`${tool}\`, which is not installed in this project.`,
+    '',
+    `  looked for: node_modules/.bin/${tool} (from ${ctx.cwd} up to the repo root)`,
+    '',
+    'checkride never fetches a tool mid-run, and a launcher cache can still supply',
+    "one this repo never declared — so a tool that isn't a dependency here would",
+    'pass on your machine and fail on a clean checkout. Declare it instead:',
+    '',
+    `  ${installCommand(ctx.pm, tool)}`,
+    '',
+  ].join('\n');
 }
 
 /**

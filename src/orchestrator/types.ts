@@ -8,8 +8,8 @@ import type { Adapter, Slot } from '../adapters.js';
 import type { Baseline } from '../baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from '../config.js';
 import type { NamedBase } from '../git.js';
+import type { PackageManager } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
-import type { PackageManager } from '../pm/index.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };

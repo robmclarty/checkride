@@ -17,7 +17,7 @@
  * refuses to start the script — an `engines.node` pin the running Node does not
  * satisfy, most often — exits 1, exactly as a red pipeline does. Left
  * unclassified, the reader an agent is sent to by a red gate would confirm the
- * red and point at slots that never ran. See `../pm/launch.ts`.
+ * red and point at slots that never ran. See `../launch/refusal.ts`.
  */
 
 import { readFileSync } from 'node:fs';

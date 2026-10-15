@@ -9,7 +9,7 @@
  * and only {@link VERIFY_DEPS_OFF} is prepended.
  */
 
-import type { PackageManager } from './detect.js';
+import type { PackageManager } from './package-manager.js';
 
 /**
  * What each non-pnpm PM uses in place of `pnpm exec`, and the flags that ride

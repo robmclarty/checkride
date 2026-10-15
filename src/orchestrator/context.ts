@@ -14,8 +14,8 @@ import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
 import { loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
-import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager } from '../pm/index.js';
+import type { PackageManager } from '../launch/index.js';
+import { detectPackageManager } from '../launch/index.js';
 import { defaultConcurrency, defaultRunner } from './spawn.js';
 import type { CheckRunner, Out, RunOptions } from './types.js';
 

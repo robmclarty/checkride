@@ -595,7 +595,7 @@ reference rules and porting trap apply as written there.
     - seam: `test/contract/invariance.contract.test.ts`, `test/fixtures/invariance/`,
       `test/e2e/invariance.e2e.test.ts`
     - model: opus (what the golden masks decides what it can catch)
-21. [ ] refactor(packs): split the adapter registry into ts and repo packs, **done when:** `src/packs/` holds `ts` and `repo` as pure data; `SLOTS` gains `scope`; `ADAPTERS` stays exported as their union; `PACKS` and `TOOLS` are exported; the round-trip test (A1) passes; the invariance golden is unchanged
+21. [x] refactor(packs): split the adapter registry into ts and repo packs, **done when:** `src/packs/` holds `ts` and `repo` as pure data; `SLOTS` gains `scope`; `ADAPTERS` stays exported as their union; `PACKS` and `TOOLS` are exported; the round-trip test (A1) passes; the invariance golden is unchanged
     - seam: `src/adapters.ts`, `src/packs/`, `src/index.ts`, `src/__tests__/adapters.test.ts`,
       `test/contract/exports.contract.test.ts`
     - model: sonnet

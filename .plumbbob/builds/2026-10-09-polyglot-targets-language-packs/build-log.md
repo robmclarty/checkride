@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 21 — refactor(packs): split the adapter registry into ts and repo packs
+**Current step:** 22 — refactor(launch): resolve tool argv through a pin-source launcher
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -43,7 +43,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 18. feat(init): write a config naming every scaffolded slot in new mode
 - ☑ 19. feat(init): type-check scaffolded tests outside src
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
-- ☐ 21. refactor(packs): split the adapter registry into ts and repo packs
+- ☑ 21. refactor(packs): split the adapter registry into ts and repo packs
 - ☐ 22. refactor(launch): resolve tool argv through a pin-source launcher
 - ☐ 23. refactor(resources): read bundled files through one module
 - ☐ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
@@ -117,8 +117,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] rules/no-logic-in-barrel.yml is weaker than the shipped copy (it misses top-level and exported const); the shipped rule scans this repo with 0 findings, so the repo could run it as is
 - [x] nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/; a dogfood-config check like the vale one would keep this repo running the shipped rules
 - [x] src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules (writeSharedStatic); it has written ten since step 12
-- [ ] step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist; step 21 left it off rather than point PACKS at directories that don't exist yet
-- [ ] missing-tool hint installs the binary, not the package: spawn.ts and doctor.ts pass execTool's bin to installCommand, so tsc, biome, ast-grep, vale, stryker and attw get 'npm install -D tsc' and kin; TOOLS.npm now names the right package
+- [x] step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist; step 21 left it off rather than point PACKS at directories that don't exist yet
+- [x] missing-tool hint installs the binary, not the package: spawn.ts and doctor.ts pass execTool's bin to installCommand, so tsc, biome, ast-grep, vale, stryker and attw get 'npm install -D tsc' and kin; TOOLS.npm now names the right package
+- [ ] src/pm/index.ts is now a re-export of launch/ kept so pm.test.ts passes unchanged; point gate, init, doctor, agent-setup, snippets, pack, baseline-command and triage/gate at launch/, move pm.test.ts under src/launch/__tests__/, and delete src/pm/
+- [ ] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
+- [ ] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -149,6 +152,8 @@ Harvest results this boundary:
 - After step 17: "rules/no-logic-in-barrel.yml is weaker than the shipped copy..." → **tangent**, deferred to step 21 (the repo passes the shipped rule with 0 findings today, but step 21 writes the build's first new barrel, and R17 plans `src/packs/index.ts` to hold `PACKS`, which the shipped rule flags; so step 21 adopts the shipped rule and defines `PACKS` in a named file that `index.ts` re-exports, as AGENTS.md's "`index.ts` only re-exports" already asks; `rules/no-logic-in-barrel.yml` and AGENTS.md's barrel bullet sit outside step 21's seam, so add them via `/plumbbob:step 21` or accept a two-file stray).
 - After step 17: "nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/..." → **tangent**, killed (the five rules rarely change).
 - After step 19: "src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules..." → **tangent**, deferred to step 23 (a stale comment blocks nothing; step 23's seam holds `src/init.ts`, and moving the templates under `templates/ts/` and `templates/repo/` rewrites the `ADD_CONFIGS` paths the comment sits on, so the fix rides that edit).
+- After step 21: "step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist..." → **tangent**, deferred to step 23 (it creates both directories and makes `src/resources.ts` the only reader of `templates/`, so it decides whether that path comes from `Pack` or from the pack's name, which also settles whether the field is needed at all; `src/packs/` sits outside step 23's seam, so add it via `/plumbbob:step 23` or accept a two-file stray, `types.ts` and the pack rows).
+- After step 21: "missing-tool hint installs the binary, not the package..." → **tangent**, deferred to step 22 (it moves `installCommand` and the spawn pre-flight into the `js-lockfile` source, which can name `TOOLS.npm` for the binary it resolves; `pm.test.ts` still passes unchanged, since oxlint's binary is its package; the fix earns a CHANGELOG Fixed line, and `src/doctor.ts` is a one-file stray; step 30, where R6.2 rewrites the message around `Tool.install`, was the alternative, but it would ship the wrong hint in the Phase 5 release).
 
 ## Log
 
@@ -1210,3 +1215,81 @@ folder, so it rides the branch into the PR.)*
   **5.** Step 18 had broken `existing.e2e.test.ts`, and one setup line restores what it tests
 
   The first whole `pnpm test:e2e` failed one case outside this step: "existing-failing: init disables a failing slot". That case builds its existing repo by running new-mode `init`, which has written `checkride.config.json` since step 18. Existing-mode `init` keeps a config it finds, so `links` stayed `"links"` where the case expects `false`. I confirmed the attribution in a scratch worktree. The case fails the same way at step 18's commit with none of this step's changes, and passes at step 17's. Step 18's done-when ran only the shapes e2e, and D52 (e2e-cadence) saves the whole suite for the phase's last step, which is this one. The fix deletes the config the scaffold wrote before existing-mode `init` runs, so the project stands in for a repo with tools and no checkride config. That is the situation the case was written for. Existing mode itself is unchanged, and keeping a config it finds is its documented behavior. With the fix, the whole suite is green: 12 files and 110 tests, none skipped. I also parked one stale comment I came across: `ADD_CONFIGS` still says new mode writes "all four" struct rules, where it has written ten since step 12.
+
+- 2026-10-15 — step 21 checkpointed · 00b7e4237 — refactor(packs): split the adapter registry into ts and repo packs (1 drift, 26m)
+
+  **Summary**: The adapter rows now live in two packs under `src/packs/`, `ts` and `repo`, and the package root exports them as `PACKS`, with the tools they run as `TOOLS`. `ADAPTERS` is drawn from the two packs and is deep-equal to 0.13's array, order included, and each `SLOTS` entry declares its `scope`. Both halves of the invariance golden pass unchanged, and the gate is green on all 18 checks.
+
+  1. The rows moved with every value intact, `ADAPTERS` order included
+  2. Pack rows keep the 0.13 `Adapter` shape, so R4's `invoke` form stays step 22's call
+  3. `PACKS` and `TOOLS` are public plain data, held by the exports contract test
+  4. `scope` is optional on the public `Slot` type, so code that builds its own slots still compiles
+  5. Five files outside the seam, each required by a constraint, a harvest or a docs test
+
+  **Readout**: Step 21 - refactor(packs): split the adapter registry into ts and repo packs
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored:
+               - D5 (packs)
+               - D7 (scope)
+               - D51 (golden-placement)
+               - D53 (inactive-slots)
+  constraints  12 of 12 honored
+  seam         strayed: 5 paths outside the seam
+               - AGENTS.md
+               - CHANGELOG.md
+               - docs/contract.md
+               - rules/no-logic-in-barrel.yml
+               - test/integration/conventions.test.ts
+  diff         +748 -436 across 16 files
+  spent        26 min · 3 turns · 36s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 21. Every value a consumer could read before is unchanged, the gate and both halves of the golden are green, and the one call that binds later steps, the row shape in highlight 2, stays open for step 22 until the Phase 5 release.
+
+  **1.** The rows moved with every value intact, `ADAPTERS` order included
+
+  The 21 toolchain-bound rows went to `src/packs/ts.ts` and the five repo-wide rows (ast-grep, markdownlint-cli2, links, cspell, vale) to `src/packs/repo.ts`, comments and all. `ADAPTERS` lays the two packs' rows out slot by slot in `SLOTS` order. Plain concatenation would have moved all five repo rows behind every ts row. Order is part of a public export's value, and the first row per slot is the blessed default.
+
+  I dumped HEAD's `ADAPTERS` to JSON before the edit and compared it with the built `dist/index.js` afterwards. All 26 rows were deep-equal, and `SLOTS` differed only by `scope`. A new unit test pins the 26 `slot:name` pairs in order. The old "every adapter targets a catalogue slot" test now walks the pack rows, because a row naming an unknown slot would drop out of `ADAPTERS` unseen.
+
+  The snippets rows' scratch argument is now built from `CHECK_DIR` through a `SNIPPETS_TSCONFIG` constant. That settles the step-10 park: rule A5 (`no-check-dir-literal`) forbids the `.check` literal in `src/packs/`, and the value stays byte-identical. The contract half of the golden passes 14 of 14 and the e2e half 13 of 13, with `test/fixtures/invariance/` untouched.
+
+  **2.** Pack rows keep the 0.13 `Adapter` shape, so R4's `invoke` form stays step 22's call
+
+  R4 sketches a `PackAdapter` that carries `invoke: Invocation` in place of `command`, `args`, `fixArgs` and `builtin`. I kept the 0.13 rows instead. Converting them would mean deriving every 0.13 row back out of `invoke` for `ADAPTERS`, and the built-ins don't survive that. `pnpm-audit`'s args are the audit invocation and its threshold. The args on `pack` and both snippets rows are availability signatures, which the run and `doctor` both pass to `isAvailableUnder`. R4's `{ kind: 'builtin', id }` carries none of that. Step 22 is where argv starts going through a launcher, so it is the step that knows what the launcher needs from a row.
+
+  One consequence to weigh: `PACKS` is public now. Once a release ships it, swapping its rows' `command` and `args` for `invoke` would be a breaking change, and a later pack would have to add `invoke` alongside them instead. No release falls between this step and step 23, so step 22 can still reshape the rows freely.
+
+  I also left R4's `templates` field off `Pack`, because `templates/ts/` and `templates/repo/` don't exist until step 23, and parked it there. `Pack` carries what is true today: `name`, `markers` (ts has `package.json` and `tsconfig.json`, repo has none), `pins` (`js-lockfile` for both, per R5.3 and R5.4's implicit-mode chain), `env` (empty for both) and `adapters`. The pin-source type and `Pack['name']` admit only the values that exist, and later packs widen them.
+
+  **3.** `PACKS` and `TOOLS` are public plain data, held by the exports contract test
+
+  The package root now exports `PACKS`, keyed by pack name, and `TOOLS`, one row per tool with its `bin`, `npm` package and an `install` hint, plus the types `Pack` and `Tool`. The exports contract test lists both names and holds the four promises the contract doc now makes:
+
+  - all four registry exports survive a JSON round trip unchanged (A1), compared with `toStrictEqual`, so an `undefined` field or a class instance fails it;
+  - `PACKS` keys each pack by its own name;
+  - `ADAPTERS` is exactly the two packs' rows, grouped by slot in `SLOTS` order;
+  - each slot's `scope` is `repo` exactly when the repo pack fills it.
+
+  A packs unit test checks that `TOOLS` covers exactly the 16 binaries the rows run through `pnpm exec`, and that each tool's `npm` package is among the `devDeps` of the rows that run it.
+
+  Building `TOOLS` turned up a live bug, which I parked. The missing-tool hint in `spawn.ts` and `doctor.ts` passes the binary name to `installCommand`. Six tools have a binary that differs from their package (`tsc`, `biome`, `ast-grep`, `vale`, `stryker`, `attw`), so their hint is wrong, for example `npm install -D tsc`. `TOOLS.npm` now has the right name, and step 22 absorbs that code.
+
+  **4.** `scope` is optional on the public `Slot` type, so code that builds its own slots still compiles
+
+  Every `SLOTS` entry declares `scope`, per R5.1: `struct`, `docs`, `links`, `spell` and `prose` are `repo`, and the other fifteen are `target`. R4 types the field as required. But `Slot` is exported, and callers build their own slot lists for `runChecks` (`baseline.contract.test.ts` does, with `{ name: 'spell' }`). A required field would break their compile, which C1 (additive-contract) rules out. Nothing reads `scope` yet. Step 27 is the first reader, and it can say then what an undeclared scope means.
+
+  `schema` and `unclaimed` stay out of `SLOTS` for now. Added today, they would show up as skipped entries in every summary, which D53 (inactive-slots) and the golden both forbid. Steps 33 and 66 add them along with the logic that keeps them absent while inactive.
+
+  **5.** Five files outside the seam, each required by a constraint, a harvest or a docs test
+
+  `docs/contract.md` and `CHANGELOG.md` move with the contract test, as C1 (additive-contract) and C11 (docs-in-step) require. The programmatic surface section lists `PACKS`, `TOOLS`, `Pack` and `Tool` and the four promises above, and the CHANGELOG gains a Contract entry and an Internal one.
+
+  `rules/no-logic-in-barrel.yml` is now a byte-for-byte copy of the shipped rule, as step 17's harvest asked, and `PACKS` lives in `src/packs/packs.ts` behind a re-export-only barrel. On a scratch probe, the adopted rule flags `export const PACKS = …` in an `index.ts`, which the old rule let through. The full scan finds nothing in this repo.
+
+  `AGENTS.md` gets the matching barrel bullet ("functions, classes and values"), and `packs/` joins the layout block and the folder-module sentence. `test/integration/conventions.test.ts` holds that sentence against the tree, and its count words stopped at "Eight". I extended them to "Twelve", which covers the folder modules R17 still plans. The README's slot table gets its scope column in step 73, as planned.

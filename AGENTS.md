@@ -69,9 +69,10 @@ src/
   artifacts/        the output directory (`.check/`) and its shared, bounded read
   baseline/         fingerprints, the committed baseline store, the ratchet
   digest/           token-bounded digest.md of the failing slots
+  launch/           a check's argv through its pin source: the package manager, so far
   orchestrator/     slot selection, spawning, .check/ writing, the summary
   packs/            the language packs' adapter rows, and the tools they run (data-only)
-  pm/               package-manager detection, command translation, slot-tool resolution
+  pm/               the package-manager names, re-exported from launch/
   qa/               bundled-plugin reader: the quality artifacts
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
@@ -86,9 +87,9 @@ rules/              ast-grep structural rules (dogfooded here)
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Nine modules (`agent-setup/`, `artifacts/`, `baseline/`,
-`digest/`, `orchestrator/`, `packs/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
-rest are single files. That list is checked against the tree by
+siblings reach only the index. Ten modules (`agent-setup/`, `artifacts/`,
+`baseline/`, `digest/`, `launch/`, `orchestrator/`, `packs/`, `pm/`, `qa/`,
+`triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
 same rules ship to consumer projects — see `templates/shared/rules/`.
 

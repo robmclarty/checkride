@@ -629,9 +629,9 @@ describe('per-check reporting', () => {
   /**
    * The counterpart to the test above, and the gap that let a real defect
    * through: a slot refused because its tool is not a declared dependency
-   * (`missingToolOutcome`) exits 1, so it must read as a finding. While it
-   * carried -1 the caveat above fired on it and told the reader the actionable
-   * failure was a harness problem to disregard.
+   * (`refusedOutcome` in the orchestrator) exits 1, so it must read as a
+   * finding. While it carried -1 the caveat above fired on it and told the
+   * reader the actionable failure was a harness problem to disregard.
    */
   test('a refused slot is not discounted as a harness problem', async () => {
     const { text } = await run(

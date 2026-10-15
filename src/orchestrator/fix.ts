@@ -8,8 +8,8 @@ import { spawn } from 'node:child_process';
 import type { Adapter, Slot } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
-import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager, translateExec } from '../pm/index.js';
+import type { PackageManager } from '../launch/index.js';
+import { detectPackageManager, launchFix } from '../launch/index.js';
 import { resolveCommonOptions } from './context.js';
 import { nameWidth, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
@@ -43,13 +43,13 @@ function spawnInherit(command: string, args: string[], cwd: string): Promise<Fix
 
 /**
  * The command `checkride fix` spawns for one adapter under `pm` — the fix
- * path's counterpart to `defaultRunner`'s `translateExec` call, so a fix runs
- * on the same binary the run path does (a canonical `pnpm exec oxlint --fix`
- * becomes `npx oxlint --fix` under npm). Non-`pnpm exec` fix commands, and
- * everything under pnpm, pass through unchanged.
+ * path's counterpart to `defaultRunner`'s `launchCheck` call, so a fix runs on
+ * the same binary the run path does (a canonical `pnpm exec oxlint --fix`
+ * becomes `npx --no-install oxlint --fix` under npm). Non-`pnpm exec` fix
+ * commands pass through unchanged.
  */
 export function fixInvocation(adapter: Adapter, pm: PackageManager): { command: string; args: string[] } {
-  return translateExec(adapter.command, adapter.fixArgs ?? [], pm);
+  return launchFix(adapter.command, adapter.fixArgs ?? [], pm);
 }
 
 const defaultFixRunner: FixRunner = (adapter, ctx) => {

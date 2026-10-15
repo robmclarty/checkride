@@ -20,7 +20,7 @@
  * satisfy is the common cause, and it exits non-zero exactly like a failing
  * test. Reading that as red produced a permanent red no code change could clear,
  * pointing at a `.check/summary.json` no run had written. So it names the cause
- * instead of naming an artifact. See `./pm/launch.ts` for the classification and
+ * instead of naming an artifact. See `./launch/refusal.ts` for the classification and
  * `./node-pin.ts` for the alignment that avoids it.
  *
  * Whether that third verdict *blocks* turns on one question: can the turn clear

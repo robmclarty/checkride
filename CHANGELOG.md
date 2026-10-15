@@ -164,6 +164,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keyed. Existing baselines keep masking, and the next full run prunes the
   warning keys they hold, so expect one `checkride.baseline.json` diff after
   upgrading.
+- **A missing tool's install hint names its package.** Under npm or bun, a
+  check whose tool isn't installed fails with the command that declares it,
+  and `checkride doctor` prints the same hint. That command named the
+  executable, so six tools whose package has another name got the wrong one:
+  `npm install -D tsc` instead of `npm install -D typescript`, and likewise
+  for `biome`, `ast-grep`, `vale`, `stryker` and `attw`. It now names the
+  package that provides the executable, and keeps the executable's name for a
+  tool checkride doesn't know.
 
 ### Contract
 
@@ -245,6 +253,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   under `src/packs/`, which `ADAPTERS` now draws from. No check resolves,
   orders or spawns differently. This repo's own `no-logic-in-barrel` rule is
   now the shipped copy, which also flags a value defined in an `index.ts`.
+- Every argv a check or a fix spawns now comes from a launcher in
+  `src/launch/`, through the `js-lockfile` pin source, which took over
+  `src/pm/`'s package-manager detection, translation and tool lookup.
+  `src/pm/` only re-exports those names. No check resolves, orders or spawns
+  differently. A new structural rule, `no-pack-name-literal`, stops the
+  orchestrator and the launcher from spelling a pack's name, so a later pack
+  adds rows instead of branches.
 
 ## [0.14.0] - 2026-10-09
 
