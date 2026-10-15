@@ -22,12 +22,13 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { CHECK_DIR, outDir, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import { fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
-/** The digest file, beside `summary.json` under the gitignored `.check/`. */
+/** The digest file, beside `summary.json` in the output directory. */
 export const DIGEST_FILE = 'digest.md';
 
 /** Caps that keep the digest token-bounded. Truncation, never normalization. */
@@ -55,18 +56,23 @@ function isJson(raw: string): boolean {
   }
 }
 
+/** An output-directory file as an agent would type it: `.check/lint.json`. */
+function inOut(file: string): string {
+  return `${CHECK_DIR}/${file}`;
+}
+
 /**
- * The `.check/` path holding the bytes this section excerpts — matched to how
- * `persistOutput` in `../orchestrator/execute.ts` persisted them: an adapter's JSON output
- * lands in `.check/<outputFile>`, everything else in `<slot>.stdout.txt` /
- * `<slot>.stderr.txt`. Points the agent at exactly what to read for the full
- * diagnostics.
+ * The output-directory path holding the bytes this section excerpts — matched
+ * to how `persistOutput` in `../orchestrator/execute.ts` persisted them: an
+ * adapter's JSON output lands in `<outputFile>`, everything else in
+ * `<slot>.stdout.txt` / `<slot>.stderr.txt`. Points the agent at exactly what
+ * to read for the full diagnostics.
  */
 function rawPointer(adapter: Adapter, outcome: CheckOutcome): string {
-  if (adapter.outputFile && isJson(outcome.stdout)) return `.check/${adapter.outputFile}`;
-  if (outcome.stdout.trim()) return `.check/${adapter.slot}.stdout.txt`;
-  if (outcome.stderr.trim()) return `.check/${adapter.slot}.stderr.txt`;
-  return '.check/summary.json';
+  if (adapter.outputFile && isJson(outcome.stdout)) return inOut(adapter.outputFile);
+  if (outcome.stdout.trim()) return inOut(`${adapter.slot}.stdout.txt`);
+  if (outcome.stderr.trim()) return inOut(`${adapter.slot}.stderr.txt`);
+  return inOut(SUMMARY_FILE);
 }
 
 /** Non-empty lines of the raw text, used by the tail fallback. */
@@ -130,7 +136,7 @@ export function buildDigest(
     `# checkride failure digest\n\n` +
     `${failing.length} of ${checks.length} check(s) failed. Excerpt only — up to ` +
     `${budget.maxItemsPerSlot} finding(s) per slot; read each linked raw file under ` +
-    `\`.check/\` for the complete, authoritative diagnostics.\n`;
+    `\`${CHECK_DIR}/\` for the complete, authoritative diagnostics.\n`;
 
   let rendered = 0;
   for (const check of failing) {
@@ -139,13 +145,13 @@ export function buildDigest(
     // future code path that summarizes a failure without a run can't crash here.
     const section = run
       ? `\n${renderSection(run, budget.maxItemsPerSlot)}`
-      : `\n## ${check.name} — ${check.adapter ?? 'unknown'}\n\nRaw: \`.check/summary.json\` — exited ${check.exit_code}\n`;
+      : `\n## ${check.name} — ${check.adapter ?? 'unknown'}\n\nRaw: \`${inOut(SUMMARY_FILE)}\` — exited ${check.exit_code}\n`;
 
     // Byte budget: once a section would overflow, stop and name what's left —
     // but only after at least one section is in, so the digest is never empty.
     if (rendered > 0 && Buffer.byteLength(out + section, 'utf8') > budget.maxBytes) {
       const omitted = failing.length - rendered;
-      out += `\n_Digest truncated at ${budget.maxBytes} bytes; ${omitted} more failing slot(s) omitted — see \`.check/summary.json\`._\n`;
+      out += `\n_Digest truncated at ${budget.maxBytes} bytes; ${omitted} more failing slot(s) omitted — see \`${inOut(SUMMARY_FILE)}\`._\n`;
       return out;
     }
     out += section;
@@ -155,10 +161,11 @@ export function buildDigest(
 }
 
 /**
- * Persist the digest for a completed run. Writes `.check/digest.md` when a slot
- * failed; on a green run removes any stale digest so the file's presence always
- * means "this run failed". `cwd/.check/` is assumed to exist — the orchestrator
- * creates it before running. Returns whether a digest file now exists.
+ * Persist the digest for a completed run. Writes `digest.md` into `cwd`'s
+ * output directory when a slot failed; on a green run removes any stale digest
+ * so the file's presence always means "this run failed". The output directory
+ * is assumed to exist — the orchestrator creates it before running. Returns
+ * whether a digest file now exists.
  */
 export async function writeDigest(
   cwd: string,
@@ -166,7 +173,7 @@ export async function writeDigest(
   checks: readonly SummaryCheck[],
   budget: DigestBudget = DEFAULT_BUDGET,
 ): Promise<boolean> {
-  const path = join(cwd, '.check', DIGEST_FILE);
+  const path = join(outDir(cwd), DIGEST_FILE);
   const digest = buildDigest(runs, checks, budget);
   if (digest === null) {
     await rm(path, { force: true });

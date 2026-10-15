@@ -65,7 +65,7 @@ src/
   json.ts           the one `isRecord` narrowing primitive
   tool-json.ts      tolerant JSON extraction from a tool's stdout
   agent-setup/      AGENTS.md stanza + Claude Code hooks
-  artifacts/        the shared, bounded read of `.check/`
+  artifacts/        the output directory (`.check/`) and its shared, bounded read
   baseline/         fingerprints, the committed baseline store, the ratchet
   digest/           token-bounded digest.md of the failing slots
   orchestrator/     slot selection, spawning, .check/ writing, the summary

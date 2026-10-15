@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 9 — feat(summary): record the argv each check spawned
+**Current step:** 10 — refactor(artifacts): route every artifact path through one output dir
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -31,7 +31,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 6. feat(report): record why each check runs as origin and detected_by
 - ☑ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
 - ☑ 8. feat(summary): record the run's selection and git state
-- ☐ 9. feat(summary): record the argv each check spawned
+- ☑ 9. feat(summary): record the argv each check spawned
 - ☐ 10. refactor(artifacts): route every artifact path through one output dir
 - ☐ 11. feat(cli): write artifacts to another directory with --out
 - ☐ 12. feat(init): ship the six layout and barrel rules in new-project mode
@@ -107,6 +107,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
 - [x] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
 - [x] Steps 11 and 53-56 must write their run.<flag> field in runRecord (src/orchestrator/run.ts) and drop its 'no such flag yet' note in docs/contract.md; step 56 also adds --static-only to isPartialRun and the partial row
+- [ ] step 11: {out} now expands in custom checks' args too (step 10); document it in docs/contract.md and CHANGELOG beside --out
+- [ ] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
+- [ ] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -606,3 +609,65 @@ folder, so it rides the branch into the PR.)*
   - `src/__tests__/git.test.ts`: five `readGitState` cases, including the exact status argv.
   - `src/__tests__/artifacts.test.ts`: one `run` line in a `Summary` literal, because `run` is now required.
   - `README.md`: the summary example shows `run` and `git`, since every summary now has `run`, as C11 (docs-in-step) asks.
+- 2026-10-15 — step 9 checkpointed · b0b7ad01b — feat(summary): record the argv each check spawned (1 drift, 26m)
+
+  **Summary**: Each check that spawned its own tool now records `argv` in `summary.json`, exactly as checkride handed it to `spawn`: after package-manager translation, and with `{base}` already expanded under `--changed`. Built-ins, checks refused before their tool started, and every skipped entry carry none. The schema, the contract doc and the contract tests move together, and both the gate and the whole `pnpm test:e2e` are green, which closes Phase 2.
+
+  1. The default runner records argv on the one path that spawns a check's own tool
+  2. A tool that failed to start keeps its argv, and a check the interrupt held back has none
+  3. The invariance contract test now holds every summary argv to what spawn was handed
+  4. The whole e2e suite is green, so Phase 2 ends at a release point
+  5. Three files outside the seam changed
+
+  **Readout**: Step 9 - feat(summary): record the argv each check spawned
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored:
+               - D17 (run-record)
+               - D19 (contract-fields)
+               - D34 (skip-exit-code)
+               - D52 (e2e-cadence)
+  constraints  12 of 12 honored
+  seam         strayed: 3 paths outside the seam
+               - CHANGELOG.md
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - test/contract/invariance.contract.test.ts
+  diff         +174 -22 across 9 files
+  spent        26 min · 3 turns · 26s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 9. Each clause of the done-when has a test that fails when the behavior breaks, the gate and the whole e2e suite are green, and Phase 2 closes at a release point.
+
+  **1.** The default runner records argv on the one path that spawns a check's own tool
+
+  `spawnTool` in `src/orchestrator/spawn.ts` wraps `spawnCheck` and adds `argv: [command, ...args]`, the translated command and arguments that `spawn` receives. The default runner calls it only after the built-in dispatch and both pre-flights. So `links` (which runs in-process), the built-ins that start processes of their own (`pnpm-audit`, `pack`, `smoke`, `snippets`) and a refused check never record one. The argv isn't attached inside `spawnCheck`, because built-ins return that function's outcome as-is (`snippets` and `pack` do), so it would leak into their entries.
+
+  `CheckRunner` now resolves a `RunnerOutcome`, which is `CheckOutcome` plus an optional `argv`, so an injected runner that returns none still type-checks. `runOneCheck` copies the argv into the entry through a small `argvField` helper, the way `provenanceFields` works, which keeps the function's complexity where step 7 left it. Every skipped entry is built by `skippedEntry`, which has no `argv`. That includes a custom check that skipped itself: it did spawn, but D34 (skip-exit-code) and the done-when give it the skipped shape. A spot run in this repo records `["pnpm","--config.verify-deps-before-run=false","exec","oxlint",…]` for `lint` and nothing for `links` or `smoke`.
+
+  **2.** A tool that failed to start keeps its argv, and a check the interrupt held back has none
+
+  I read "spawned" as "handed to `spawn`". A missing binary still reaches `spawn` before the OS refuses it, so its entry keeps the argv beside `exit_code: -1`. That records the whole command line that failed, where the `Failed to spawn` message names only the binary. A timed-out tool did spawn before it was killed, so it keeps its argv too.
+
+  After `killLiveChecks`, the interrupt latch makes `spawnCheck` start nothing, so `spawnTool` reads the latch first and records nothing. Only `runChecks` called in-process can see that case, because the CLI exits right after an interrupt and `killLiveChecks` isn't a package export. So the contract doc leaves it out, and the "latches" unit test holds it. If you'd rather a failed spawn carried no argv, the change is a check on the child's `spawn` event inside `spawnCheck`, plus a sentence each in the doc and the schema.
+
+  **3.** The invariance contract test now holds every summary argv to what spawn was handed
+
+  The contract half of the invariance golden already fakes `spawn` and reads back each argv it was handed. It now also asserts that each summary entry's `argv` equals that raw argv, and that a check that spawned nothing (a built-in, or any skipped entry) records none. That runs on every `pnpm check`, across 12 subjects in three passes each, under pnpm's translation and `--changed`. The golden file itself is unchanged.
+
+  I checked that these tests can fail. Recording the untranslated argv failed all 12 invariance subjects and both translation tests: the contract test's `npm run build` and the unit test's. Dropping the latch read failed the interrupt test. `summary.contract.test.ts` covers the presence rule through the CLI: a custom check's exact argv, none on `links`, on a self-skip or on any skipped entry, and the npm-translated `build`.
+
+  **4.** The whole e2e suite is green, so Phase 2 ends at a release point
+
+  `pnpm test:e2e` ran all 10 files and 50 tests green in 76 seconds, with nothing skipped, the mutation canary included. `invariance.e2e.test.ts` already strips `argv` before it compares summaries, as step 20 planned, so its golden still matches 0.13 with no re-record. D52 (e2e-cadence) asks for this run at the end of every phase.
+
+  **5.** Three files outside the seam changed
+
+  - `CHANGELOG.md`: C1 (additive-contract) and C11 (docs-in-step) require the Added and Contract entries. This step's seam left the file out, though every earlier step listed it.
+  - `src/orchestrator/__tests__/orchestrator.test.ts`: the unit tests for `spawn.ts` and `execute.ts` live here. It gains argv cases for the npm-translated `build`, a spawn failure, a timeout, the npx pre-flight refusal, the interrupt latch, the exemplars refusal, the `security` built-in, an injected runner's argv and a self-skip.
+  - `test/contract/invariance.contract.test.ts`: the cross-check in highlight 3.
+
+  The README's summary example is unchanged: its check entry doesn't show `origin` either, and `argv` is optional.

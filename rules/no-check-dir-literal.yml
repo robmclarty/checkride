@@ -1,0 +1,20 @@
+id: no-check-dir-literal
+message: |
+  The output directory belongs to src/artifacts/: don't spell `.check` here.
+  Take the directory from `outDir(cwd)`, and name it in text through
+  `CHECK_DIR`, both from `../artifacts/index.js`, so moving it (R9's `--out`)
+  is one change in one module.
+severity: error
+language: typescript
+files:
+  - src/orchestrator/**/*.ts
+  - src/packs/**/*.ts
+  - src/launch/**/*.ts
+  - src/digest/**/*.ts
+  - src/triage/**/*.ts
+  - src/qa/**/*.ts
+ignores:
+  - '**/__tests__/**'
+rule:
+  kind: string_fragment
+  regex: "(^|[^\\w.-])\\.check([^\\w-]|$)"

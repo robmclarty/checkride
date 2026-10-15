@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
+import { CHECK_DIR, outDir } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
@@ -588,11 +589,11 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
 }
 
 async function checkWritable(cwd: string, env: DoctorEnv): Promise<DoctorCheck> {
-  const dir = join(cwd, '.check');
+  const dir = outDir(cwd);
   const ok = await env.canWrite(dir);
   return ok
-    ? { name: '.check', category: 'workspace', required: true, status: 'ok', found: 'writable', expected: 'writable', hint: null }
-    : { name: '.check', category: 'workspace', required: true, status: 'missing', found: 'not writable', expected: 'writable', hint: `Ensure ${dir} is writable.` };
+    ? { name: CHECK_DIR, category: 'workspace', required: true, status: 'ok', found: 'writable', expected: 'writable', hint: null }
+    : { name: CHECK_DIR, category: 'workspace', required: true, status: 'missing', found: 'not writable', expected: 'writable', hint: `Ensure ${dir} is writable.` };
 }
 
 function statusMark(status: DoctorStatus): string {

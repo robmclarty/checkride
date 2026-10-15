@@ -7,7 +7,9 @@
 
 import type { Adapter } from '../adapters.js';
 import { SCHEMA_VERSION } from '../adapters.js';
+import { CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import type { CheckOrigin, ResolvedCheck } from '../config.js';
+import { DIGEST_FILE } from '../digest/index.js';
 import { selectChecks } from './select.js';
 import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun } from './types.js';
 
@@ -196,8 +198,8 @@ export function reportSummary(
       : summary.ok ? '✔ all checks passed' : '✘ one or more checks failed';
   const ran = summary.checks_run === 0 ? '' : coverage(summary, checks);
   writeLine(stderr, `${status} in ${summary.total_duration_ms}ms${ran}`);
-  writeLine(stderr, 'report: .check/summary.json');
-  if (digestWritten) writeLine(stderr, 'digest: .check/digest.md');
+  writeLine(stderr, `report: ${CHECK_DIR}/${SUMMARY_FILE}`);
+  if (digestWritten) writeLine(stderr, `digest: ${CHECK_DIR}/${DIGEST_FILE}`);
   writeLine(stderr, '');
 }
 

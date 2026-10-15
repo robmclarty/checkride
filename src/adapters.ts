@@ -93,7 +93,10 @@ export type Adapter = {
   detectDeps?: string[];
   /** Command to spawn (usually `'pnpm'`). Ignored when `builtin` is set. */
   command: string;
-  /** Arguments to the command. Ignored when `builtin` is set. */
+  /**
+   * Arguments to the command. Ignored when `builtin` is set. `{out}` in any of
+   * them expands to the check's artifact directory, `.check` by default.
+   */
   args: string[];
   /** `.check/<file>` target when stdout is JSON; `null` if the tool writes its own. */
   outputFile: string | null;
@@ -324,7 +327,7 @@ export const ADAPTERS: readonly Adapter[] = [
       '--coverage',
       '--reporter=default',
       '--reporter=json',
-      '--outputFile=.check/test.json',
+      '--outputFile={out}/test.json',
     ],
     outputFile: null,
     changedArgs: ['--changed', '{base}'],
@@ -342,7 +345,7 @@ export const ADAPTERS: readonly Adapter[] = [
       'jest.config.json',
     ],
     command: 'pnpm',
-    args: ['exec', 'jest', '--ci', '--json', '--outputFile=.check/test.json'],
+    args: ['exec', 'jest', '--ci', '--json', '--outputFile={out}/test.json'],
     outputFile: null,
     changedArgs: ['--changedSince', '{base}'],
     devDeps: { jest: '30.4.2' },

@@ -11,6 +11,7 @@ import { mkdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
+import { SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
@@ -156,14 +157,14 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   resetInterrupt();
   const base = resolveRunContext(options);
   const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, cwd: base.cwd });
-  // A usage error before any side effect: no `.check/` dir, no run, exit 2.
+  // A usage error before any side effect: no output dir, no run, exit 2.
   validateSelection(resolved, options);
   const changedBase = await changedBaseFor(options, base);
   // Asked as the run starts and awaited once the checks finish, so git's
   // answer costs the run no wall-clock time unless git is the slower of the two.
   const gitQuery = readGitState(realGit(base.cwd, GIT_STATE_TIMEOUT_MS));
 
-  await mkdir(join(base.cwd, '.check'), { recursive: true });
+  await mkdir(base.out, { recursive: true });
 
   const selected = selectChecks(resolved, options);
   // The status-line column is sized once the selection is known, so a long
@@ -199,11 +200,11 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // about itself.
   const reported = [...checks, ...narrowedEntries(resolved, selected, options)];
   const summary = buildSummary(reported, totalDurationMs, runRecord(options, ctx.cwd, partial), gitRecord(gitState, changedBase));
-  await writeFileAtomic(join(ctx.cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
+  await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
   // A file beside summary.json, never a stdout stream, so the machine-output
-  // split holds. Raw `.check/<slot>.json` files are already persisted and
+  // split holds. Raw `<slot>.json` files are already persisted and
   // untouched — the digest only reads them.
   const digestWritten = (options.digest ?? false) ? await writeDigest(ctx.cwd, runs, checks) : false;
 

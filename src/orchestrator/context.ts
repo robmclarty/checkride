@@ -6,6 +6,7 @@
 
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
+import { outDir } from '../artifacts/index.js';
 import type { Baseline, BaselineRead } from '../baseline/index.js';
 import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
@@ -55,6 +56,8 @@ export function resolveCommonOptions(options: CommonOptions): CommonContext {
 
 /** The resolved run environment: {@link CommonContext} plus the run-only options. */
 export type RunContext = CommonContext & {
+  /** The absolute output directory the run writes its artifacts into (see `outDir`). */
+  out: string;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -92,16 +95,18 @@ function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
 }
 
 /**
- * Apply every run default: the common options plus runner, flags, PM, and
- * baseline. `nameWidth` is a placeholder here — the selection it measures is
- * not known until after `selectChecks`, so `runChecks` narrows it then — and so
- * is `changedBase`, which `runChecks` resolves through git.
+ * Apply every run default: the common options plus the output directory,
+ * runner, flags, PM, and baseline. `nameWidth` is a placeholder here — the
+ * selection it measures is not known until after `selectChecks`, so
+ * `runChecks` narrows it then — and so is `changedBase`, which `runChecks`
+ * resolves through git.
  */
 export function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
   const read = resolveBaselineRead(options, common.cwd);
   return {
     ...common,
+    out: outDir(common.cwd),
     nameWidth: 8,
     runner: options.runner ?? defaultRunner,
     json: options.json ?? false,

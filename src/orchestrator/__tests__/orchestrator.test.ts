@@ -284,6 +284,18 @@ describe('runtimeArgs', () => {
     expect(ADAPTERS.find((a) => a.name === 'vitest')?.changedArgs).toEqual(['--changed', '{base}']);
     expect(ADAPTERS.find((a) => a.name === 'jest')?.changedArgs).toEqual(['--changedSince', '{base}']);
   });
+  test('expands {out} to .check in args and changedArgs, on --changed or off it', () => {
+    const withOut = fakeAdapter({ name: 'vitest', slot: 'test', args: ['run', '--outputFile={out}/test.json'], changedArgs: ['--cache={out}/{base}'] });
+    expect(runtimeArgs(withOut, null)).toEqual(['run', '--outputFile=.check/test.json']);
+    expect(runtimeArgs(withOut, 'main')).toEqual(['run', '--outputFile=.check/test.json', '--cache=.check/main']);
+  });
+  test('the vitest and jest rows write their report through {out}', () => {
+    for (const name of ['vitest', 'jest']) {
+      const adapter = ADAPTERS.find((a) => a.name === name);
+      expect(adapter?.args).toContain('--outputFile={out}/test.json');
+      if (adapter) expect(runtimeArgs(adapter, null)).toContain('--outputFile=.check/test.json');
+    }
+  });
 });
 
 describe('runChecks (injected runner)', () => {

@@ -1,6 +1,6 @@
 /**
  * The per-check pipeline and the scheduler that drives it. One check: clear
- * its stale `.check/` artifacts, run it, persist the raw output, mask the
+ * its stale artifacts from the output directory, run it, persist the raw output, mask the
  * outcome against the baseline, and print its row. The set: `--bail`'s flat
  * sequential path, or waves on the effective `order` through a bounded pool,
  * with the report assembled in selection order regardless of who finished
@@ -25,8 +25,8 @@ import { runtimeArgs } from './spawn.js';
 import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types.js';
 
 /**
- * Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout
- * text — and stderr text on either path. A slot that produced a JSON artifact
+ * Persist raw output atomically into the output directory `dir`: JSON to
+ * `<outputFile>`, else stdout text — and stderr text on either path. A slot that produced a JSON artifact
  * can still have explained itself on stderr (a built-in's `check-<slot>:` line,
  * a launcher warning), and that explanation must not vanish because the JSON
  * won: `security` against an unreachable registry used to lose its reason here.
@@ -38,8 +38,7 @@ import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types
  * run), and naming a file that was never written sends every consumer to an
  * ENOENT while the real bytes sit in `<slot>.stdout.txt` beside it.
  */
-async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcome): Promise<string | null> {
-  const dir = join(cwd, '.check');
+async function persistOutput(dir: string, adapter: Adapter, outcome: CheckOutcome): Promise<string | null> {
   if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
   if (adapter.outputFile && outcome.stdout.trim()) {
     // Tolerates a launcher preamble ahead of the JSON; writes the tool's own
@@ -55,16 +54,15 @@ async function persistOutput(cwd: string, adapter: Adapter, outcome: CheckOutcom
 }
 
 /**
- * Remove a slot's prior `.check/` artifacts before it re-runs, so a later clean
+ * Remove a slot's prior artifacts from the output directory `dir` before it re-runs, so a later clean
  * run that emits nothing — or a different stream/form than last time — can't leave
  * the previous run's output lingering as authoritative. Covers everything
  * `persistOutput` writes (`<slot>.stdout.txt`, `<slot>.stderr.txt`, the adapter's
  * JSON `outputFile`) plus the conventional `<slot>.json` a tool may write itself
- * (for example vitest's `--outputFile=.check/test.json`, where `outputFile` is null).
+ * (for example vitest's `--outputFile={out}/test.json`, where `outputFile` is null).
  * Runs *before* the check so this run's own tool-written artifacts survive.
  */
-async function clearSlotOutputs(cwd: string, adapter: Adapter): Promise<void> {
-  const dir = join(cwd, '.check');
+async function clearSlotOutputs(dir: string, adapter: Adapter): Promise<void> {
   const names = new Set([
     `${adapter.slot}.stdout.txt`,
     `${adapter.slot}.stderr.txt`,
@@ -194,10 +192,10 @@ function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
  */
 async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext): Promise<CheckResult> {
   if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
-  // Wipe this slot's stale `.check/` artifacts before it runs, so a leaner re-run
+  // Wipe this slot's stale artifacts before it runs, so a leaner re-run
   // can't leave last run's output behind as authoritative — and so any artifact
   // the tool writes during *this* run (for example `test.json`) survives.
-  await clearSlotOutputs(ctx.cwd, adapter);
+  await clearSlotOutputs(ctx.out, adapter);
   const start = performance.now();
   const outcome = await ctx.runner(r, runnerContext(ctx));
   const duration_ms = Math.round(performance.now() - start);
@@ -205,10 +203,10 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   if (skipReason !== null) {
     return { entry: handleSkip({ ...r, skip: skipReason }, false, ctx), run: null, observed: null, newKeys: [] };
   }
-  const outputFile = await persistOutput(ctx.cwd, adapter, outcome);
+  const outputFile = await persistOutput(ctx.out, adapter, outcome);
 
   // Masking is always on (even under a partial run); only the ratchet is gated.
-  // The raw `.check/<slot>.json` is persisted untouched — masking changes the
+  // The raw `<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
   const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, ctx.changedBase?.ref ?? null);
   const entry: SummaryCheck = {

@@ -525,7 +525,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
      `schema/checkride.summary.schema.json`, `test/contract/summary.contract.test.ts`,
      `docs/contract.md`, `CHANGELOG.md`
    - model: sonnet
-9. [ ] feat(summary): record the argv each check spawned, **done when:** each check that spawned a process carries `argv` exactly as spawned, after package-manager translation, and built-ins and skipped checks carry none; schema, contract doc and contract test move together; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+9. [x] feat(summary): record the argv each check spawned, **done when:** each check that spawned a process carries `argv` exactly as spawned, after package-manager translation, and built-ins and skipped checks carry none; schema, contract doc and contract test move together; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
    - seam: `src/orchestrator/spawn.ts`, `src/orchestrator/execute.ts`,
      `src/orchestrator/types.ts`, `schema/checkride.summary.schema.json`,
      `test/contract/summary.contract.test.ts`, `docs/contract.md`

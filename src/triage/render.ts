@@ -14,7 +14,7 @@
  * is short and a pathological one is still bounded.
  */
 
-import { formatBytes, formatDuration, tail } from '../artifacts/index.js';
+import { CHECK_DIR, formatBytes, formatDuration, tail } from '../artifacts/index.js';
 import type { ArtifactFile, Freshness, RawOutput } from '../artifacts/index.js';
 import type { DoctorFinding, DoctorFold } from './doctor-fold.js';
 import type { GateOutcome } from './gate.js';
@@ -26,7 +26,7 @@ const GATE_TAIL_LINES = 25;
 const GATE_TAIL_BYTES = 2000;
 
 const NOT_READ_NOTE =
-  'Not read: the contents of any `.check/` artifact. This reader reports sizes and ' +
+  `Not read: the contents of any \`${CHECK_DIR}/\` artifact. This reader reports sizes and ` +
   'locations only — open a listed file when its slot is the one you are working on.';
 
 function heading(title: string, body: string): string {
@@ -56,7 +56,7 @@ function exitClause(gate: GateOutcome): string {
  */
 function provenance(report: TriageReport): string {
   const { summary, fromThisRun } = report;
-  const at = '`.check/summary.json`';
+  const at = `\`${CHECK_DIR}/summary.json\``;
   if (summary.state === 'missing') return `${at} — absent; this run wrote no summary`;
   if (summary.state === 'unreadable') return `${at} — unreadable (${summary.detail})`;
   if (summary.state === 'foreign') {
@@ -110,7 +110,7 @@ const VERDICTS: Readonly<Record<GateOutcome['verdict'], (r: TriageReport) => str
   'could-not-start': (r) =>
     `**the gate could not start** — ${r.gate.refusal ?? 'the package manager refused to run the script'}. ` +
     'The exit code is 1, the same code a red pipeline uses, but **no check ran and no artifact was ' +
-    'written**: everything under `.check/` belongs to an earlier run and nothing below describes this ' +
+    `written**: everything under \`${CHECK_DIR}/\` belongs to an earlier run and nothing below describes this ` +
     'one. This is an environment finding, not a code one — no edit will clear it. The most common cause ' +
     'is Node: an agent harness runs hooks in a non-login shell, so a hook gets the machine’s default ' +
     'interpreter rather than the one your terminal has, and a repo pinning `engines.node` then refuses ' +
@@ -123,7 +123,7 @@ const VERDICTS: Readonly<Record<GateOutcome['verdict'], (r: TriageReport) => str
     '0/1/2. Something in the `check` script failed before or around checkride itself.',
   'not-run': () =>
     '**gate not run** — this repo has no `check` script, so there is nothing that defines done here. ' +
-    'Run `checkride init` to add one; everything below is from whatever last wrote `.check/`.',
+    `Run \`checkride init\` to add one; everything below is from whatever last wrote \`${CHECK_DIR}/\`.`,
 };
 
 /**
@@ -162,17 +162,17 @@ function unparsedSummaryClause(report: TriageReport): string | null {
   const { summary } = report;
   if (summary.state === 'foreign') {
     return (
-      'a `.check/summary.json` exists but carries no `schema_version`, so it was not written by checkride — ' +
+      `a \`${CHECK_DIR}/summary.json\` exists but carries no \`schema_version\`, so it was not written by checkride — ` +
       "this repo's gate is a different tool, and its artifacts follow no contract this reader can index"
     );
   }
   if (summary.state === 'schema-mismatch') {
     return (
-      `\`.check/summary.json\` is \`schema_version\` ${JSON.stringify(summary.found)}, which this reader is not ` +
+      `\`${CHECK_DIR}/summary.json\` is \`schema_version\` ${JSON.stringify(summary.found)}, which this reader is not ` +
       'pinned to — the additive-only guarantee holds within a version and promises nothing across one'
     );
   }
-  if (summary.state === 'unreadable') return `\`.check/summary.json\` could not be parsed (${summary.detail})`;
+  if (summary.state === 'unreadable') return `\`${CHECK_DIR}/summary.json\` could not be parsed (${summary.detail})`;
   return null;
 }
 
@@ -305,7 +305,7 @@ function rawCells(row: SlotRow): string {
   if (row.raw === null) return '— | — | —';
   const { chosen } = row.raw;
   const extra = row.raw.candidates.length > 1 ? ` (+${row.raw.candidates.length - 1})` : '';
-  return `\`.check/${chosen.file}\`${extra} | ${formatBytes(chosen.bytes)} | ${ageCell(chosen.freshness)}`;
+  return `\`${CHECK_DIR}/${chosen.file}\`${extra} | ${formatBytes(chosen.bytes)} | ${ageCell(chosen.freshness)}`;
 }
 
 function tableRow(row: SlotRow): string {
@@ -337,20 +337,20 @@ function renderCheckDir(report: TriageReport): string {
   const files = report.checkDir;
   if (files === null || files.length === 0) return '';
   const shown = files.slice(0, CHECK_DIR_LIMIT);
-  const rows = shown.map((f) => `| \`.check/${f.file}\` | ${formatBytes(f.bytes)} | ${ageCell(f.freshness)} |`);
+  const rows = shown.map((f) => `| \`${CHECK_DIR}/${f.file}\` | ${formatBytes(f.bytes)} | ${ageCell(f.freshness)} |`);
   const omitted = files.length - shown.length;
   const note = omitted === 0 ? '' : `\n\n${omitted} further file(s) present and not listed.`;
   const body =
     'No parseable summary, so this listing is the index. `fresh` means the file was written after this run\'s ' +
     'gate started; `stale` means it is a leftover from something earlier and describes no part of this run.\n\n' +
     `${[CHECK_DIR_HEAD, ...rows].join('\n')}${note}`;
-  return heading('.check/ contents', body);
+  return heading(`${CHECK_DIR}/ contents`, body);
 }
 
 /** One alternate, named and sized — a stale one carries its age, never dropped. */
 function alternate(file: ArtifactFile): string {
   const stale = file.freshness.state === 'stale' ? `, stale ${formatDuration(file.freshness.ageMs ?? 0)}` : '';
-  return `\`.check/${file.file}\` (${formatBytes(file.bytes)}${stale})`;
+  return `\`${CHECK_DIR}/${file.file}\` (${formatBytes(file.bytes)}${stale})`;
 }
 
 /**
@@ -366,8 +366,8 @@ function alternatesClause(raw: RawOutput): string {
 
 function failingLine(row: SlotRow, index: number): string {
   const where = row.raw === null
-    ? 'no output file found under `.check/` — the tool wrote nothing this reader can locate'
-    : `read \`.check/${row.raw.chosen.file}\` (${formatBytes(row.raw.chosen.bytes)})${alternatesClause(row.raw)}`;
+    ? `no output file found under \`${CHECK_DIR}/\` — the tool wrote nothing this reader can locate`
+    : `read \`${CHECK_DIR}/${row.raw.chosen.file}\` (${formatBytes(row.raw.chosen.bytes)})${alternatesClause(row.raw)}`;
   return `${index + 1}. **${row.slot}** (${row.adapter ?? 'no adapter'}) — exit ${row.exitCode ?? '—'} — ${where}`;
 }
 
@@ -386,12 +386,12 @@ function renderDigest(report: TriageReport): string {
     // Only a run this reader can index supports the `--digest` explanation;
     // a gate it could not parse may have no such flag to pass.
     const why = summaryParsed(report) ? 'this run passed no `--digest`, so there is' : 'there is';
-    return heading('digest', `No \`.check/digest.md\`: ${why} no pre-built excerpt. Read the raw files above.`);
+    return heading('digest', `No \`${CHECK_DIR}/digest.md\`: ${why} no pre-built excerpt. Read the raw files above.`);
   }
   if (digest.freshness.state === 'stale') {
-    return heading('digest', `\`.check/digest.md\` (${formatBytes(digest.bytes)}) is from an EARLIER run — ${formatDuration(digest.freshness.ageMs ?? 0)} before this one started. Do not read it as this run's failures.`);
+    return heading('digest', `\`${CHECK_DIR}/digest.md\` (${formatBytes(digest.bytes)}) is from an EARLIER run — ${formatDuration(digest.freshness.ageMs ?? 0)} before this one started. Do not read it as this run's failures.`);
   }
-  return heading('digest', `\`.check/digest.md\` (${formatBytes(digest.bytes)}) — checkride's own bounded excerpt of this run's failing slots. Read it before any raw file.`);
+  return heading('digest', `\`${CHECK_DIR}/digest.md\` (${formatBytes(digest.bytes)}) — checkride's own bounded excerpt of this run's failing slots. Read it before any raw file.`);
 }
 
 function baselineCaveats(rows: readonly SlotRow[]): string[] {
@@ -407,7 +407,7 @@ function skipCaveats(rows: readonly SlotRow[]): string[] {
 }
 
 function staleCaveats(stale: readonly ArtifactFile[]): string[] {
-  return stale.map((f) => `\`.check/${f.file}\` is ${formatDuration(f.freshness.ageMs ?? 0)} older than this run's start — a leftover, not this run's output.`);
+  return stale.map((f) => `\`${CHECK_DIR}/${f.file}\` is ${formatDuration(f.freshness.ageMs ?? 0)} older than this run's start — a leftover, not this run's output.`);
 }
 
 function spawnFailureCaveats(rows: readonly SlotRow[]): string[] {
@@ -428,12 +428,12 @@ function spawnFailureCaveats(rows: readonly SlotRow[]): string[] {
 function summaryCaveats(report: TriageReport): string[] {
   if (report.summary.state !== 'ok') {
     return [
-      '`.check/summary.json` could not be parsed, so there is no slot table: `baselined` and `skipped` counts are ' +
+      `\`${CHECK_DIR}/summary.json\` could not be parsed, so there is no slot table: \`baselined\` and \`skipped\` counts are ` +
         '**unknown**, not zero, and no slot in this repo can be reported as passing on this run\'s evidence.',
     ];
   }
   if (report.fromThisRun !== false) return [];
-  return ['`.check/summary.json` predates the run just made, so the table above describes an earlier run. Everything in it is suspect.'];
+  return [`\`${CHECK_DIR}/summary.json\` predates the run just made, so the table above describes an earlier run. Everything in it is suspect.`];
 }
 
 function renderCaveats(report: TriageReport): string {

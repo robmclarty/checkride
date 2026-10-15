@@ -12,6 +12,7 @@ import { cpus } from 'node:os';
 import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { CHECK_DIR } from '../artifacts/index.js';
 import { DEFAULT_BASE } from '../git.js';
 import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
@@ -27,14 +28,19 @@ import type { CheckRunner, RunnerOutcome } from './types.js';
 /** The placeholder in `changedArgs` that expands to the base ref a `--changed` run measures from. */
 const BASE_PLACEHOLDER = '{base}';
 
+/** The placeholder in any arg that expands to the check's own artifact directory. */
+const OUT_PLACEHOLDER = '{out}';
+
 /**
  * The args a check runs with: its `args`, plus its `changedArgs` under
  * `--changed`, with `{base}` in each expanded to `base`, the ref the run
- * measures changes from. `base` is `null` off `--changed`.
+ * measures changes from, and `{out}` in all of them to the output directory.
+ * `base` is `null` off `--changed`. `{out}` is the relative `CHECK_DIR`, so
+ * vitest's `--outputFile={out}/test.json` spawns the argv 0.13 did.
  */
 export function runtimeArgs(adapter: Adapter, base: string | null): string[] {
-  if (base === null || !adapter.changedArgs) return adapter.args;
-  return [...adapter.args, ...adapter.changedArgs.map((arg) => arg.replaceAll(BASE_PLACEHOLDER, base))];
+  const changed = base === null || !adapter.changedArgs ? [] : adapter.changedArgs.map((arg) => arg.replaceAll(BASE_PLACEHOLDER, base));
+  return [...adapter.args, ...changed].map((arg) => arg.replaceAll(OUT_PLACEHOLDER, CHECK_DIR));
 }
 
 /**

@@ -19,7 +19,7 @@
  * 2.3 MB file.
  */
 
-import { formatBytes, formatDuration } from '../artifacts/index.js';
+import { CHECK_DIR, formatBytes, formatDuration } from '../artifacts/index.js';
 import type { SummaryRead } from '../artifacts/index.js';
 import type { DeadExtract } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -31,12 +31,12 @@ import type { LedgerEntry, QaReport } from './qa.js';
 export const QA_MAX_BYTES = 8000;
 
 const NOT_READ_NOTE =
-  'Not read: the full contents of any `.check/` artifact. Every list above is capped and every ' +
+  `Not read: the full contents of any \`${CHECK_DIR}/\` artifact. Every list above is capped and every ` +
   'count is from a full pass, so a short list is a *ranked* list, never a complete one — open the ' +
   'named artifact when a specific finding is the one you are working on.';
 
 const NOTHING_RUN_NOTE =
-  'This reader ran nothing. Every number above is whatever the last run left in `.check/`, which ' +
+  `This reader ran nothing. Every number above is whatever the last run left in \`${CHECK_DIR}/\`, which ` +
   'may be a narrow run — check `covered` above before treating a clean artifact as a clean repo.';
 
 function bullets(items: readonly string[]): string {
@@ -111,7 +111,7 @@ function headlineFor(report: QaReport, slot: string): string {
 
 function ledgerRow(report: QaReport, entry: LedgerEntry): string {
   const size = entry.file === null ? '—' : formatBytes(entry.file.bytes);
-  return `| \`.check/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry.slot)} |`;
+  return `| \`${CHECK_DIR}/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry.slot)} |`;
 }
 
 /** Where this artifact came from, when that is not "the run described above". */
@@ -190,7 +190,7 @@ function summaryProblem(summary: SummaryRead): string {
 /** Provenance first: what wrote these artifacts, when, and over which slots. */
 function renderHead(report: QaReport): string {
   const { summary } = report;
-  const at = '`.check/summary.json`';
+  const at = `\`${CHECK_DIR}/summary.json\``;
   const provenance =
     summary.state === 'ok'
       ? `${at} — \`schema_version\` 1, ${ageClause(report.summaryAgeMs)}, ${formatDuration(summary.summary.total_duration_ms)}`

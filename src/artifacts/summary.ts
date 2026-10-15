@@ -30,12 +30,7 @@ import { join } from 'node:path';
 import type { Summary, SummaryCheck } from '../orchestrator/index.js';
 import type { JsonRecord } from './json.js';
 import { isRecord, parseJson } from './json.js';
-
-/** The gitignored directory every run writes its artifacts into. */
-export const CHECK_DIR = '.check';
-
-/** The aggregate report, beside the raw artifacts under {@link CHECK_DIR}. */
-const SUMMARY_FILE = 'summary.json';
+import { outDir, SUMMARY_FILE } from './out.js';
 
 /**
  * The only `schema_version` these readers understand.
@@ -119,9 +114,9 @@ export function parseSummary(raw: string, path: string, mtimeMs: number): Summar
   return { state: 'ok', path, mtimeMs, summary: value };
 }
 
-/** Read and classify `<cwd>/.check/summary.json`. Never throws. */
+/** Read and classify the summary in `cwd`'s output directory. Never throws. */
 export async function readSummary(cwd: string): Promise<SummaryRead> {
-  const path = join(cwd, CHECK_DIR, SUMMARY_FILE);
+  const path = join(outDir(cwd), SUMMARY_FILE);
   try {
     const [stats, raw] = await Promise.all([stat(path), readFile(path, 'utf8')]);
     return parseSummary(raw, path, stats.mtimeMs);

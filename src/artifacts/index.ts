@@ -1,8 +1,9 @@
 /**
- * Artifacts module — the shared, bounded read of what a checkride run left in
- * `.check/`. Parse the summary and pin its schema, judge each file against the
- * run's freshness window, resolve a slot's raw output by the documented
- * convention, and size what was found without opening it.
+ * Artifacts module — the output directory a checkride run writes into, and
+ * the shared, bounded read of what it left there. Name the directory, parse
+ * the summary and pin its schema, judge each file against the run's freshness
+ * window, resolve a slot's raw output by the documented convention, and size
+ * what was found without opening it.
  *
  * Both bundled-plugin readers (`../triage` and `../qa`) consume the
  * contract only through here — one copy of the summary parse,
@@ -20,8 +21,10 @@ export type { Freshness } from './freshness.js';
 
 export { asNumberOrNull, asRecord, asRecordArray, asStringOrNull, isRecord, parseJson } from './json.js';
 
+export { CHECK_DIR, outDir, SUMMARY_FILE } from './out.js';
+
 export { listArtifacts, resolveRawOutput, statArtifact } from './raw.js';
 export type { ArtifactFile, RawOutput } from './raw.js';
 
-export { CHECK_DIR, parseSummary, readSummary, SUPPORTED_SCHEMA_VERSION } from './summary.js';
+export { parseSummary, readSummary, SUPPORTED_SCHEMA_VERSION } from './summary.js';
 export type { SummaryRead } from './summary.js';

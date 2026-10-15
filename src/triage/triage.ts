@@ -14,10 +14,8 @@
  * reports contents instead of bytes has spent the context it exists to save.
  */
 
-import { join } from 'node:path';
-
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import { CHECK_DIR, configuredSlots, listArtifacts, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
+import { configuredSlots, listArtifacts, outDir, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
 import type { DoctorFold } from './doctor-fold.js';
@@ -167,7 +165,7 @@ function gateAnchor(gate: GateOutcome): number | null {
 
 /** Read everything the run left behind, measuring and never opening. */
 async function readArtifacts(cwd: string, gate: GateOutcome): Promise<Artifacts> {
-  const checkDir = join(cwd, CHECK_DIR);
+  const checkDir = outDir(cwd);
   const summary = await readSummary(cwd);
   const parsed = summary.state === 'ok';
   const windowStart = parsed ? runWindowStart(summary.summary) : null;

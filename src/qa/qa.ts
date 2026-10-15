@@ -24,10 +24,8 @@
  * every finding below that is qualified by it.
  */
 
-import { join } from 'node:path';
-
 import type { ArtifactFile, SummaryRead } from '../artifacts/index.js';
-import { CHECK_DIR, configuredSlots, readSummary, runWindowStart } from '../artifacts/index.js';
+import { configuredSlots, outDir, readSummary, runWindowStart } from '../artifacts/index.js';
 import type { DeadExtract } from './dead.js';
 import { extractDead } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -178,7 +176,7 @@ function summaryAge(summary: SummaryRead, now: number): number | null {
  * Never throws and never runs anything: every failure is a ledger state.
  */
 export async function qaExtract(cwd: string, now: () => number = Date.now): Promise<QaReport> {
-  const checkDir = join(cwd, CHECK_DIR);
+  const checkDir = outDir(cwd);
   const summary = await readSummary(cwd);
   const windowStart = summary.state === 'ok' ? runWindowStart(summary.summary) : null;
   const { covered, skipped } = coverage(summary);
