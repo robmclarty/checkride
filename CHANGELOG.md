@@ -92,6 +92,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of failing the run when it can't be written. The stop gate strips
   `CHECKRIDE_OUT` from the check it runs (#6).
 
+### Changed
+
+- **The `links` check skips every directory named `fixtures`.** Markdown
+  there is test data, and a broken link in it is usually deliberate, so
+  `fixtures` joins `node_modules`, `dist` and the tool caches in the built-in
+  exclude set. `checks.links.exclude` only adds to that set, so a repo can't
+  opt a `fixtures/` directory back in; keep docs you want checked elsewhere.
+  The configs `init` writes skip `test/fixtures/` the same way: oxlint,
+  markdownlint, cspell, fallow, vitest and every shipped ast-grep rule leave
+  it alone, so a deliberately broken fixture no longer fails a scaffolded
+  repo's gate.
+
 ### Fixed
 
 - **A new lint or struct warning no longer keeps a baselined slot red.**

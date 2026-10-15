@@ -327,11 +327,12 @@ adopting checkride never fails a repo on formatting it never signed up for.
 ### Tuning the links check
 
 The built-in `links` check walks every `*.md` under the repo (minus a built-in
-exclude set — `node_modules`, `dist`, `.git`, the tool caches) and fails on any
-relative Markdown link whose target doesn't exist on disk. Links inside fenced
-code blocks and inline code spans are skipped — a `[text](target)` shown as an
-example isn't a link to verify. Two config knobs adapt it to repos that would
-otherwise false-positive, so you can retire a bespoke link-checker script:
+exclude set — `node_modules`, `dist`, `.git`, the tool caches, and any
+directory named `fixtures`) and fails on any relative Markdown link whose
+target doesn't exist on disk. Links inside fenced code blocks and inline code
+spans are skipped — a `[text](target)` shown as an example isn't a link to
+verify. Two config knobs adapt it to repos that would otherwise
+false-positive, so you can retire a bespoke link-checker script:
 
 ```jsonc
 "links": {
@@ -343,6 +344,10 @@ otherwise false-positive, so you can retire a bespoke link-checker script:
 
 - **`exclude`** adds directory *names* to skip — for generated or vendored
   markdown (a `.ridgeline/` build store, illustrative specs under `research/`).
+  It only adds: nothing removes a built-in name, so a repo can't opt a
+  `fixtures/` directory back in. Markdown there is test data, and a broken
+  link in it is usually deliberate; keep docs you want checked out of any
+  directory named `fixtures`.
 - **`allowlist`** is a list of regular-expression sources tested against each
   link *target*; a match is treated as valid. For deliberately illustrative
   links — template placeholders or example targets that never resolve on disk. A

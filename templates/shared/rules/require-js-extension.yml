@@ -7,6 +7,8 @@ language: typescript
 files:
   - '**/src/**/*.ts'
   - '**/test/**/*.ts'
+ignores:
+  - '**/test/fixtures/**'
 rule:
   any:
     - all:

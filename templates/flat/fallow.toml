@@ -1,6 +1,9 @@
 # Fallow: dead code, circular deps, duplication, complexity, architecture boundaries.
 # Docs: https://docs.fallow.tools
 
+# test/fixtures/ holds fake repos and deliberately broken inputs: data, never code.
+ignorePatterns = ["**/test/fixtures/**"]
+
 entry = [
   "src/index.ts",
   "src/**/*.test.ts",

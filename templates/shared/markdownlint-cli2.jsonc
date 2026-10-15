@@ -7,5 +7,5 @@
     "MD060": false
   },
   "globs": ["**/*.md"],
-  "ignores": ["**/node_modules/**", "dist/**", ".check/**", "CHANGELOG.md"]
+  "ignores": ["**/node_modules/**", "dist/**", ".check/**", "CHANGELOG.md", "**/test/fixtures/**"]
 }

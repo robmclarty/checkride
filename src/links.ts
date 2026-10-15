@@ -59,7 +59,12 @@ export type LinksOptions = {
   allowlist?: readonly string[] | undefined;
 };
 
-/** Directories never walked for markdown — build output, VCS, tool caches. */
+/**
+ * Directories never walked for markdown — build output, VCS, tool caches, and
+ * test fixtures, whose markdown is test data and whose broken links are
+ * usually deliberate. `exclude` only adds to this set, so a repo can't opt a
+ * `fixtures/` directory back in.
+ */
 const DEFAULT_EXCLUDE_DIRS: readonly string[] = [
   'node_modules',
   'dist',
@@ -69,6 +74,7 @@ const DEFAULT_EXCLUDE_DIRS: readonly string[] = [
   '.fallow',
   'coverage',
   '.pnpm-store',
+  'fixtures',
 ];
 
 const LINK_RE = /\[([^\]\n]*)\]\(([^)\n]+)\)/g;

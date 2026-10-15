@@ -2,6 +2,8 @@ id: no-class
 message: Prefer functional/procedural style over classes. Use modules and closures instead.
 severity: error
 language: typescript
+ignores:
+  - '**/test/fixtures/**'
 rule:
   any:
     - kind: class_declaration

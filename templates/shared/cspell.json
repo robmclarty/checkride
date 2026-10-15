@@ -9,7 +9,8 @@
     ".check/**",
     "pnpm-lock.yaml",
     "package.json",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "**/test/fixtures/**"
   ],
   "ignoreRegExpList": ["/v1[0-9a-f]{16}/g"],
   "words": []

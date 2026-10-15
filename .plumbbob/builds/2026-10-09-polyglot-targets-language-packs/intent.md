@@ -562,7 +562,7 @@ reference rules and porting trap apply as written there.
 12. [x] feat(init): ship the six layout and barrel rules in new-project mode, **done when:** `init.test.ts` asserts the new-mode scaffold writes all ten rules, and the existing-mode assertions are unchanged
     - seam: `templates/shared/rules/`, `src/init.ts`, `src/__tests__/init.test.ts`
     - model: sonnet (port the reference rules with that spec's shape-agnostic globs)
-13. [ ] feat(init): make the starter files obey the rules they ship, **done when:** `shapes.e2e.test.ts` is green for flat, monorepo and hybrid, and `init.test.ts`'s expected file list names `src/<name>.ts` and `src/__tests__/<name>.test.ts`
+13. [x] feat(init): make the starter files obey the rules they ship, **done when:** `shapes.e2e.test.ts` is green for flat, monorepo and hybrid, and `init.test.ts`'s expected file list names `src/<name>.ts` and `src/__tests__/<name>.test.ts`
     - seam: `src/init.ts`, `src/__tests__/init.test.ts`, `test/e2e/shapes.e2e.test.ts`
     - model: sonnet (fully specified by that spec's starter-file decision)
 14. [ ] feat(init): carve test/fixtures out of every scaffolded tool, **done when:** an e2e case scaffolds each shape, plants a broken `test/fixtures/probe/`, and checkride still exits 0; the probe holds malformed markdown, a dead link, a typo, a default export, an `it.only` and a loose test file; `fixtures` joins the `links` slot's built-in exclude set, and `docs/tools.md` records that a repo can't opt back in

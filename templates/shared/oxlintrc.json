@@ -29,5 +29,12 @@
       }
     }
   ],
-  "ignorePatterns": ["dist/**", ".check/**", ".claude/**", ".cursor/**", "node_modules/**"]
+  "ignorePatterns": [
+    "dist/**",
+    ".check/**",
+    ".claude/**",
+    ".cursor/**",
+    "node_modules/**",
+    "**/test/fixtures/**"
+  ]
 }

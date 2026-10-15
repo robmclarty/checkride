@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 13 — feat(init): make the starter files obey the rules they ship
+**Current step:** 14 — feat(init): carve test/fixtures out of every scaffolded tool
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -35,7 +35,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 10. refactor(artifacts): route every artifact path through one output dir
 - ☑ 11. feat(cli): write artifacts to another directory with --out
 - ☑ 12. feat(init): ship the six layout and barrel rules in new-project mode
-- ☐ 13. feat(init): make the starter files obey the rules they ship
+- ☑ 13. feat(init): make the starter files obey the rules they ship
 - ☐ 14. feat(init): carve test/fixtures out of every scaffolded tool
 - ☐ 15. test(init): verify the location rules by scanning a real tree
 - ☐ 16. docs(init): describe the shipped layout and rules
@@ -111,6 +111,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
 - [x] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
 - [x] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
+- [ ] a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold: oxlint's nested config voids the root ignorePatterns, and the scaffolded lint argv lacks --disable-nested-config (this repo's own config has it)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -842,3 +843,50 @@ folder, so it rides the branch into the PR.)*
   **5.** The docs and CHANGELOG wait for step 16, as the plan sequences them
 
   `docs/deep-modules.md` still lists the old rule set, and `CHANGELOG.md` has no entry. C11 (docs-in-step) would have them move with this step, but the plan puts both in step 16's seam (docs(init): describe the shipped layout and rules), together with the currency test that keeps them aligned with `templates/shared/rules/`.
+
+- 2026-10-15 — step 13 checkpointed · 8a10a26b5 — feat(init): make the starter files obey the rules they ship (1 drift, 90m)
+
+  **Summary**: New-project `init` now puts the value in `src/<name>.ts`, writes an `index.ts` that only re-exports it, and moves the smoke test to `src/__tests__/<name>.test.ts`. All three shapes pass their own check again. Getting hybrid green also took a one-line `dist/` ignore in a step 12 rule.
+
+  1. Every shape's starter now follows the layout and barrel rules
+  2. The module's file name is a kebab-case stem, never `index`
+  3. Hybrid failed struct because ast-grep scanned tsc's dist output
+  4. The fix is a dist ignore in a step 12 template, outside this step's seam
+  5. Both e2e files that run the shapes are green again
+
+  **Readout**: Step 13 - feat(init): make the starter files obey the rules they ship
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  bent: C11 (docs-in-step), the docs wait for step 16 as planned
+  seam         strayed: 1 path outside the seam
+               → templates/shared/rules/tests-dir-is-src-only.yml
+  diff         +51 -16 across 3 files
+  spent        90 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve, keeping the `dist/` ignore. It's the smallest change that keeps a scaffold green on every run, git repo or not, and it's one line to revisit if you'd rather solve the gitignore gap with an `.ignore` file instead.
+
+  **1.** Every shape's starter now follows the layout and barrel rules
+
+  One `writeStarter` helper in `src/init.ts` writes the three starter files for the flat root, the hybrid root, and each monorepo or hybrid package, so all three shapes share one code path. The barrel is `export { NAME } from './<stem>.js';`, which `no-logic-in-barrel` accepts. The smoke test imports `'../index.js'`, so it goes through the public barrel as the layout spec's D7 (starter-conforms) says, and `no-deep-sibling-import` doesn't match that path. Existing mode never calls the helper, so the layout spec's D1 (new-mode-only) and C1 (existing-mode-untouched) hold.
+
+  **2.** The module's file name is a kebab-case stem, never `index`
+
+  The layout spec writes `src/<name>.ts`, but the project name isn't validated: it defaults to the directory's basename, which can hold spaces or be `index`. A literal `index` would make the barrel import itself, with no value behind it. `moduleStem` lowercases the name, collapses everything outside `[a-z0-9]` to `-`, and falls back to `app` when the result is empty or `index`, the same fallback `constName` already uses. So `my-app` stays `my-app.ts`, and `My Cool App` becomes `my-cool-app.ts`. A `test.each` in `init.test.ts` covers those three cases.
+
+  **3.** Hybrid failed struct because ast-grep scanned tsc's dist output
+
+  With the starter fixed, flat and monorepo passed but hybrid failed `tests-dir-is-src-only` on `dist/__tests__/t.test.d.ts` and `packages/core/dist/__tests__/core.test.d.ts`. `types` emits declarations for the tests into `dist/`, and ast-grep only reads `.gitignore` inside a git repo, which a fresh scaffold isn't. This is the same gap the 0.13.0 npm smoke test hit with `node_modules/`. On the first run whether it shows up is a race with `types`, but from the second run on `dist/` already exists, so every shape would fail every time. Three fresh hybrid runs reproduced it; after `git init` the same tree scanned clean.
+
+  **4.** The fix is a dist ignore in a step 12 template, outside this step's seam
+
+  `templates/shared/rules/tests-dir-is-src-only.yml` now also ignores `**/dist/**`, the scaffold's own `outDir`, which the vitest template already excludes. Its `note:` says why. That rule is the only one of the ten whose `files` glob reaches `dist/`: the others key on `src/`, `test/` or `.spec.ts`. A planted `lib/__tests__/x.ts` still fires. A fresh no-git hybrid scaffold now exits 0 on both its first and second run. I chose not to `git init` inside the e2e tests, because that would hide a failure real users hit. The other option was shipping a `.ignore` file, which would also cover npm's `node_modules/`, but it adds a scaffold file and goes beyond this step. Step 15 (the scan test) and step 16 (the docs) should list the new ignore beside the spec's reference table.
+
+  **5.** Both e2e files that run the shapes are green again
+
+  `shapes.e2e.test.ts` passes for flat, monorepo and hybrid without any edit, and `invariance.e2e.test.ts` keeps all thirteen 0.13 summaries, including the three `init:` ones step 12 had turned red. The docs and the CHANGELOG still describe the old starter files, and step 16 updates them as the plan sequences it, the same way step 12 handled them.

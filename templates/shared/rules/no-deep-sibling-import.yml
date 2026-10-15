@@ -7,6 +7,8 @@ severity: error
 language: typescript
 files:
   - '**/src/**/*.ts'
+ignores:
+  - '**/test/fixtures/**'
 rule:
   all:
     - kind: import_statement

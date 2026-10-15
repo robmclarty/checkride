@@ -72,6 +72,14 @@ test('ignores markdown under excluded directories', async () => {
   expect(out.ok).toBe(true);
 });
 
+test('never walks a fixtures directory, at any depth', async () => {
+  await write('test/fixtures/probe/README.md', '[deliberately broken](./nope.md)\n');
+  await write('packages/core/test/fixtures/README.md', '[deliberately broken](./nope.md)\n');
+  await write('README.md', '# clean\n');
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(true);
+});
+
 test('config exclude skips a directory the walk would otherwise fail on', async () => {
   await write('.ridgeline/builds/x/spec.md', '[illustrative](target)\n');
   await write('README.md', '# clean\n');
