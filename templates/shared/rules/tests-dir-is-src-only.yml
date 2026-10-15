@@ -5,13 +5,15 @@ message: |
   `test/contract/`, and shared test code goes in `test/helpers/`.
 note: |
   A location rule, like `colocate-unit-tests`: `files` and `ignores` alone
-  decide what fires.
+  decide what fires. `dist/` is ignored because tsc emits each test's
+  `.d.ts` there, and ast-grep reads `.gitignore` only inside a git repo.
 severity: error
 language: typescript
 files:
   - '**/__tests__/**/*.ts'
 ignores:
   - '**/src/**'
+  - '**/dist/**'
   - '**/test/fixtures/**'
 rule:
   kind: program

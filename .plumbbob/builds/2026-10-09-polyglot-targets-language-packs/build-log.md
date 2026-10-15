@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 12 — feat(init): ship the six layout and barrel rules in new-project mode
+**Current step:** 13 — feat(init): make the starter files obey the rules they ship
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -34,7 +34,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 9. feat(summary): record the argv each check spawned
 - ☑ 10. refactor(artifacts): route every artifact path through one output dir
 - ☑ 11. feat(cli): write artifacts to another directory with --out
-- ☐ 12. feat(init): ship the six layout and barrel rules in new-project mode
+- ☑ 12. feat(init): ship the six layout and barrel rules in new-project mode
 - ☐ 13. feat(init): make the starter files obey the rules they ship
 - ☐ 14. feat(init): carve test/fixtures out of every scaffolded tool
 - ☐ 15. test(init): verify the location rules by scanning a real tree
@@ -796,3 +796,49 @@ folder, so it rides the branch into the PR.)*
   **5.** The seam undercounted where the plumbing runs, and one gap is parked
 
   The 22 strays are the files the directory has to pass through, not new scope. Ten are tests: the unit suite beside each module that changed. Nine are source files the seam's entry points call into: `context.ts`, `execute.ts`, `spawn.ts` and `types.ts` under the orchestrator, where the directory and `{out}` reach each check, plus `triage.ts`, `triage/gate.ts`, `env.ts`, `doctor-fold.ts` and `qa.ts`, where the readers actually read and spawn. Then `src/links.ts`, for the one optional `skip` field. Three are contract surfaces: the summary schema's `run.out` description lost its "no such flag yet" note to match the doc, per C1 (additive-contract), and `docs/cheatsheet.md` and `docs/plugin.md` list the flag beside `--config` and the reader arguments. `docs/contract.md` gained the `--out` paragraph, the flag in the promised list, the scratch skip, and the `{out}`-in-custom-checks note from step 10's park. I parked one gap rather than widening the step: stryker writes `mutation.json` wherever the repo's stryker config says, so `qa --out` reports it missing.
+
+- 2026-10-15 — step 12 checkpointed · 64aafcd6f — feat(init): ship the six layout and barrel rules in new-project mode (6m)
+
+  **Summary**: New-project `init` now writes ten ast-grep rules instead of four, adding `colocate-unit-tests`, `tests-dir-is-src-only`, `test-dir-layout`, `no-spec-suffix`, `src-never-imports-test` and `no-logic-in-barrel`, ported from keyframes with the layout spec's shape-agnostic globs, and existing mode writes exactly what it did.
+
+  1. The six rules are ported from keyframes with `**/src/**` and `**/test/**` globs
+  2. All six rules ignore test/fixtures, including src-never-imports-test
+  3. init.test.ts checks all three shapes against the templates, file for file
+  4. Fresh scaffolds now fail their own struct check until step 13 lands
+  5. The docs and CHANGELOG wait for step 16, as the plan sequences them
+
+  **Readout**: Step 12 - feat(init): ship the six layout and barrel rules in new-project mode
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  bent: C11 (docs-in-step), the docs wait for step 16 as planned
+  seam         held: 3 of 3 declared, no strays
+  diff         +165 -2 across 8 files
+  spent        6 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve and build step 13 straight after, with no release in between. Steps 12 and 13 together turn the scaffold from red to green, and Phase 4 doesn't reach its release point until step 19 anyway.
+
+  **1.** The six rules are ported from keyframes with `**/src/**` and `**/test/**` globs
+
+  Each rule body comes from `~/Projects/keyframes/code/keyframes/rules/`, with keyframes' root-anchored `src/**` and `test/**` globs rewritten as `**/src/**` and `**/test/**`, so the monorepo and hybrid packages are covered too (the layout spec's D5 (shape-agnostic-globs)). The field order (`id`, `message`, `severity`, `language`, `files`, `ignores`, `rule`) matches the four rules already in `templates/shared/rules/`. The location rules keep a short `note:` saying they're decided by `files` and `ignores` alone, which matters because `ast-grep test` can't see paths. The note no longer points at keyframes' `layout-rules.test.ts`, since a scaffolded repo has no such file. `no-logic-in-barrel` takes keyframes' fuller body, which also catches a top-level or exported `const`, not this repo's own narrower version. `src-never-imports-test` matches the string node directly with `has:` and `regex:`, and its `note:` records the porting trap from the spec.
+
+  **2.** All six rules ignore test/fixtures, including src-never-imports-test
+
+  The spec's reference table says every rule except `src-never-imports-test` ignores `**/test/fixtures/**`. That exception made sense in keyframes, where the rule's `src/**` glob never reached a fixture. With the `**/src/**` glob it does reach a fixture repo's own `src/`, and the layout spec's D5 and D6 (fixtures-are-data) both say fixtures are skipped by every rule. So I followed the decisions over the table and gave it the ignore too. If you'd rather keep the table literally, it's one line to drop.
+
+  **3.** init.test.ts checks all three shapes against the templates, file for file
+
+  A `test.each` over flat, monorepo and hybrid asserts that `rules/` holds exactly the ten files, and that each one matches its template byte for byte, so a wrong template mapping fails as well as a missing file. The existing-mode assertions are untouched, including the `--add struct` case that writes only `no-deep-sibling-import.yml`. In `src/init.ts` the change is only a longer list in `writeSharedStatic`, which existing mode never calls.
+
+  **4.** Fresh scaffolds now fail their own struct check until step 13 lands
+
+  I scaffolded each shape from the built CLI and scanned it with ast-grep. Every shape trips `colocate-unit-tests` on its `src/index.test.ts` and `no-logic-in-barrel` on the `export const` in its `src/index.ts`. Step 13 exists to fix exactly this: its done-when is `shapes.e2e.test.ts` green for all three shapes. `pnpm check` stays green because it leaves `test/e2e/` out, but `pnpm test:e2e` would fail on the shapes between these two steps. A scratch scan of a planted tree also confirmed that each new rule fires on a misplaced file and stays quiet on `__tests__/`, `test/integration/`, `test/helpers/` and fixture paths (step 15 turns that into a real test).
+
+  **5.** The docs and CHANGELOG wait for step 16, as the plan sequences them
+
+  `docs/deep-modules.md` still lists the old rule set, and `CHANGELOG.md` has no entry. C11 (docs-in-step) would have them move with this step, but the plan puts both in step 16's seam (docs(init): describe the shipped layout and rules), together with the currency test that keeps them aligned with `templates/shared/rules/`.

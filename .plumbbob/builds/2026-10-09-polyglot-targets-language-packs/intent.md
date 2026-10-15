@@ -559,7 +559,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
 Steps 12 to 17 are [the test layout spec](../../../docs/spec-test-layout.md)'s steps 1 to 6. Its decisions,
 reference rules and porting trap apply as written there.
 
-12. [ ] feat(init): ship the six layout and barrel rules in new-project mode, **done when:** `init.test.ts` asserts the new-mode scaffold writes all ten rules, and the existing-mode assertions are unchanged
+12. [x] feat(init): ship the six layout and barrel rules in new-project mode, **done when:** `init.test.ts` asserts the new-mode scaffold writes all ten rules, and the existing-mode assertions are unchanged
     - seam: `templates/shared/rules/`, `src/init.ts`, `src/__tests__/init.test.ts`
     - model: sonnet (port the reference rules with that spec's shape-agnostic globs)
 13. [ ] feat(init): make the starter files obey the rules they ship, **done when:** `shapes.e2e.test.ts` is green for flat, monorepo and hybrid, and `init.test.ts`'s expected file list names `src/<name>.ts` and `src/__tests__/<name>.test.ts`

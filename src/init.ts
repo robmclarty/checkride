@@ -475,9 +475,19 @@ const PACKAGE_TSCONFIG = `${JSON.stringify(
   2,
 )}\n`;
 
+/** The starter module's file stem: kebab-case, and never the barrel's own `index`. */
+function moduleStem(value: string): string {
+  const stem = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return stem.length > 0 && stem !== 'index' ? stem : 'app';
+}
+
 function sourceModule(value: string): string {
   const id = constName(value);
   return `export const ${id} = '${value}';\n`;
+}
+
+function barrel(value: string): string {
+  return `export { ${constName(value)} } from './${moduleStem(value)}.js';\n`;
 }
 
 function smokeTest(value: string): string {
@@ -485,7 +495,7 @@ function smokeTest(value: string): string {
   return [
     "import { expect, test } from 'vitest';",
     '',
-    "import { " + id + " } from './index.js';",
+    "import { " + id + " } from '../index.js';",
     '',
     `test('${value} smoke', () => {`,
     `  expect(${id}).toBe('${value}');`,
@@ -614,11 +624,21 @@ async function writeSharedStatic(w: Writer): Promise<void> {
   await Promise.all(rules.map((rule) => put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)))));
 }
 
+/**
+ * Write a `src/` that obeys the rules it ships with: the value in a named
+ * module, a barrel that only re-exports it, and the smoke test in `__tests__/`.
+ */
+async function writeStarter(w: Writer, dir: string, value: string): Promise<void> {
+  const stem = moduleStem(value);
+  await put(w, join(dir, 'src', `${stem}.ts`), sourceModule(value));
+  await put(w, join(dir, 'src', 'index.ts'), barrel(value));
+  await put(w, join(dir, 'src', '__tests__', `${stem}.test.ts`), smokeTest(value));
+}
+
 async function writePackage(w: Writer, dir: string, pkgName: string, value: string): Promise<void> {
   await put(w, join(dir, 'package.json'), packageJsonFor(pkgName));
   await put(w, join(dir, 'tsconfig.json'), PACKAGE_TSCONFIG);
-  await put(w, join(dir, 'src', 'index.ts'), sourceModule(value));
-  await put(w, join(dir, 'src', 'index.test.ts'), smokeTest(value));
+  await writeStarter(w, dir, value);
 }
 
 /** The hook-writing slice of the init/agent-setup options. */
@@ -714,14 +734,12 @@ async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
   await put(w, 'CLAUDE.md', claudeMd());
 
   if (s.shape === 'flat') {
-    await put(w, join('src', 'index.ts'), sourceModule(s.name));
-    await put(w, join('src', 'index.test.ts'), smokeTest(s.name));
+    await writeStarter(w, '', s.name);
   } else if (s.shape === 'monorepo') {
     await writePackage(w, join('libs', 'core'), s.scope ? `${s.scope}/core` : 'core', 'core');
     await writePackage(w, join('apps', s.name), s.fullName, s.name);
   } else {
-    await put(w, join('src', 'index.ts'), sourceModule(s.name));
-    await put(w, join('src', 'index.test.ts'), smokeTest(s.name));
+    await writeStarter(w, '', s.name);
     await writePackage(w, join('packages', 'core'), s.scope ? `${s.scope}/core` : 'core', 'core');
   }
 }

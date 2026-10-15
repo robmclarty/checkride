@@ -320,9 +320,11 @@ describe('new-project generation (flat)', () => {
     const result = await runInit({ cwd: dir, shape: 'flat', name: 'demo', checkrideSpec: '^0.1.0' });
     expect(result.mode).toBe('new');
     expect(result.shape).toBe('flat');
-    for (const f of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'fallow.toml', 'pnpm-workspace.yaml', '.oxlintrc.json', 'cspell.json', 'vitest.config.ts', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'LICENSE', 'src/index.ts', 'src/index.test.ts', 'rules/no-class.yml']) {
+    for (const f of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'fallow.toml', 'pnpm-workspace.yaml', '.oxlintrc.json', 'cspell.json', 'vitest.config.ts', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'LICENSE', 'src/index.ts', 'src/demo.ts', 'src/__tests__/demo.test.ts', 'rules/no-class.yml']) {
       expect(existsSync(join(dir, f)), f).toBe(true);
     }
+    // colocate-unit-tests would fail the scaffold's own struct check on a loose test.
+    expect(existsSync(join(dir, 'src', 'index.test.ts'))).toBe(false);
     const pkg: { scripts: Record<string, string>; devDependencies: Record<string, string> } =
       JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
     expect(pkg.scripts['check']).toBe('checkride');
@@ -361,7 +363,7 @@ describe('new-project generation (flat)', () => {
   test('generates a monorepo with an app and a lib package', async () => {
     const result = await runInit({ cwd: dir, shape: 'monorepo', name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
     expect(result.shape).toBe('monorepo');
-    for (const f of ['apps/demo/src/index.ts', 'apps/demo/src/index.test.ts', 'apps/demo/package.json', 'apps/demo/tsconfig.json', 'libs/core/src/index.ts', 'libs/core/package.json']) {
+    for (const f of ['apps/demo/src/index.ts', 'apps/demo/src/demo.ts', 'apps/demo/src/__tests__/demo.test.ts', 'apps/demo/package.json', 'apps/demo/tsconfig.json', 'libs/core/src/index.ts', 'libs/core/src/core.ts', 'libs/core/src/__tests__/core.test.ts', 'libs/core/package.json']) {
       expect(existsSync(join(dir, f)), f).toBe(true);
     }
     const appPkg: { name: string } = JSON.parse(await readFile(join(dir, 'apps', 'demo', 'package.json'), 'utf8'));
@@ -374,7 +376,7 @@ describe('new-project generation (flat)', () => {
   test('generates a hybrid project with a root app plus a package', async () => {
     const result = await runInit({ cwd: dir, shape: 'hybrid', name: 'demo', checkrideSpec: '^0.1.0' });
     expect(result.shape).toBe('hybrid');
-    for (const f of ['src/index.ts', 'src/index.test.ts', 'packages/core/src/index.ts', 'packages/core/package.json']) {
+    for (const f of ['src/index.ts', 'src/demo.ts', 'src/__tests__/demo.test.ts', 'packages/core/src/index.ts', 'packages/core/src/core.ts', 'packages/core/src/__tests__/core.test.ts', 'packages/core/package.json']) {
       expect(existsSync(join(dir, f)), f).toBe(true);
     }
   });
@@ -402,13 +404,26 @@ describe('new-project generation (flat)', () => {
     expect(await readFile(join(dir, 'README.md'), 'utf8')).toContain('# demo');
   });
 
-  test('the generated smoke test asserts on the module constant', async () => {
+  test('the value lives in a named module, the barrel only re-exports it, and the smoke test imports the barrel', async () => {
     await runInit({ cwd: dir, shape: 'flat', name: 'my-app' });
-    const src = await readFile(join(dir, 'src', 'index.ts'), 'utf8');
-    const spec = await readFile(join(dir, 'src', 'index.test.ts'), 'utf8');
-    expect(src).toContain("export const MY_APP = 'my-app';");
-    expect(spec).toContain("import { MY_APP } from './index.js';");
+    const src = await readFile(join(dir, 'src', 'my-app.ts'), 'utf8');
+    const barrel = await readFile(join(dir, 'src', 'index.ts'), 'utf8');
+    const spec = await readFile(join(dir, 'src', '__tests__', 'my-app.test.ts'), 'utf8');
+    expect(src).toBe("export const MY_APP = 'my-app';\n");
+    expect(barrel).toBe("export { MY_APP } from './my-app.js';\n");
+    expect(spec).toContain("import { MY_APP } from '../index.js';");
     expect(spec).toContain("expect(MY_APP).toBe('my-app');");
+  });
+
+  test.each([
+    ['My Cool App', 'my-cool-app'],
+    ['index', 'app'],
+    ['___', 'app'],
+  ])('names the starter module safely for %j', async (name, stem) => {
+    await runInit({ cwd: dir, shape: 'flat', name });
+    expect(existsSync(join(dir, 'src', `${stem}.ts`))).toBe(true);
+    expect(existsSync(join(dir, 'src', '__tests__', `${stem}.test.ts`))).toBe(true);
+    expect(await readFile(join(dir, 'src', 'index.ts'), 'utf8')).toContain(`from './${stem}.js';`);
   });
 });
 
