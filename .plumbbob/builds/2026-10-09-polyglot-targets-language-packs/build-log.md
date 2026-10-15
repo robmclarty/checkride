@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 14 — feat(init): carve test/fixtures out of every scaffolded tool
+**Current step:** 15 — test(init): verify the location rules by scanning a real tree
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -36,7 +36,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 11. feat(cli): write artifacts to another directory with --out
 - ☑ 12. feat(init): ship the six layout and barrel rules in new-project mode
 - ☑ 13. feat(init): make the starter files obey the rules they ship
-- ☐ 14. feat(init): carve test/fixtures out of every scaffolded tool
+- ☑ 14. feat(init): carve test/fixtures out of every scaffolded tool
 - ☐ 15. test(init): verify the location rules by scanning a real tree
 - ☐ 16. docs(init): describe the shipped layout and rules
 - ☐ 17. chore(test): adopt the test layout in this repo
@@ -111,7 +111,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
 - [x] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
 - [x] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
-- [ ] a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold: oxlint's nested config voids the root ignorePatterns, and the scaffolded lint argv lacks --disable-nested-config (this repo's own config has it)
+- [x] a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold: oxlint's nested config voids the root ignorePatterns, and the scaffolded lint argv lacks --disable-nested-config (this repo's own config has it)
+- [ ] shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/, but no-deep-sibling-import (no __tests__ ignore) fires on that same import; decide which rule yields
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -136,6 +137,7 @@ Harvest results this boundary:
 - After step 10: "step 11: report, digest, triage and qa text name the dir through CHECK_DIR..." → **blocker**, handled now: folded into `intent.md` as D56 (out-labels). Step 11's done-when names it, and `src/orchestrator/report.ts`, `src/digest/digest.ts`, `src/triage/render.ts` and `src/qa/render.ts` joined its seam.
 - After step 10: "step 21: the snippets adapters' scratch arg..." → **tangent**, deferred to step 21 (the `struct` check turns red when the adapters move, so it can't slip; a scratch constant, or dropping the path from an availability-only signature, is that step's call).
 - After step 11: "qa --out can't find mutation.json..." → **tangent**, deferred to step 38 (the file's path is the repo's own stryker `jsonReporter.fileName`, not checkride's argv, and mutation is opt-in; step 38 already revisits where `qa` finds artifacts, so it decides between documenting the limit and routing the file through the adapter).
+- After step 14: "a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold..." → **tangent**, deferred to step 18 (it writes a config entry for every scaffolded slot, so its `lint` entry can carry `--disable-nested-config` as this repo's does, and the step 14 probe can gain a nested `.oxlintrc.json` to prove it; the flag moves the init shapes' lint argv in the invariance golden, which D51 (golden-placement) expects Phase 4 to update on purpose, though `test/contract/invariance.contract.test.ts` sits outside step 18's seam, and it also stops a monorepo package's own `.oxlintrc.json` from applying, which step 18 weighs).
 
 ## Log
 
@@ -890,3 +892,69 @@ folder, so it rides the branch into the PR.)*
   **5.** Both e2e files that run the shapes are green again
 
   `shapes.e2e.test.ts` passes for flat, monorepo and hybrid without any edit, and `invariance.e2e.test.ts` keeps all thirteen 0.13 summaries, including the three `init:` ones step 12 had turned red. The docs and the CHANGELOG still describe the old starter files, and step 16 updates them as the plan sequences it, the same way step 12 handled them.
+
+- 2026-10-15 — step 14 checkpointed · c94445aa8 — feat(init): carve test/fixtures out of every scaffolded tool (1 drift, 15m)
+
+  **Summary**: Scaffolded repos now treat `test/fixtures/` as data. oxlint, markdownlint, cspell, fallow, vitest and every shipped ast-grep rule skip it, the `links` check skips any directory named `fixtures` in every repo, and a broken probe planted there leaves all three shapes green.
+
+  1. Every tool a scaffold runs now leaves test/fixtures/ alone
+  2. The e2e probe proves itself broken before it proves the carve-out
+  3. Removing any one of the ten ignores turned its own check red
+  4. init --add in an existing repo writes these ignores too
+  5. Two files sit outside the seam, and one tangent is parked
+
+  **Readout**: Step 14 - feat(init): carve test/fixtures out of every scaffolded tool
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  bent: C2 (legacy-invariance), by D44's design
+               → a broken link under a fixtures/ dir no longer fails links
+  seam         strayed: 2 paths outside the seam
+               - CHANGELOG.md
+               - src/__tests__/links.test.ts
+  diff         +175 -23 across 16 files
+  spent        15 min · 1 turn · 29s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve and land step 14. The done-when is met with evidence beyond it, and both bends are ones the plan chose: D44 picked the `links` default, and the layout spec's seam put the shared templates in play.
+
+  **1.** Every tool a scaffold runs now leaves test/fixtures/ alone
+
+  Seven tools, each in its own syntax, all with the shape-agnostic `**/test/fixtures/**` glob so a package's own `test/fixtures/` is covered in the monorepo and hybrid shapes:
+
+  - oxlint: `ignorePatterns` in `templates/shared/oxlintrc.json`.
+  - markdownlint-cli2: `ignores` in `templates/shared/markdownlint-cli2.jsonc`.
+  - cspell: `ignorePaths` in `templates/shared/cspell.json`.
+  - fallow: a top-level `ignorePatterns` in all three shapes' `fallow.toml`.
+  - vitest: both `exclude` and `coverage.exclude`. The coverage one matters too, because vitest 5 counts every file matching `coverage.include` (`**/src/**/*.ts`), so a fixture repo's `src/` would drag coverage under 70%. `include` itself is untouched, per the layout spec's D9 (include-unchanged).
+  - ast-grep: `ignores` added to `no-class`, `no-default-export`, `no-deep-sibling-import` and `require-js-extension`. The six layout rules from step 12 already had it.
+  - links: `fixtures` joins `DEFAULT_EXCLUDE_DIRS` in `src/links.ts`, the lean of the layout spec's Q1 that D44 (test-layout-in) adopted. It matches a directory *name*, so it applies to every repo, not only scaffolds, and `exclude` can only add to the set. `docs/tools.md` now says a repo can't opt a `fixtures/` directory back in.
+
+  One finding along the way: fallow's vitest plugin already treats `**/fixtures/**` files as entry points, so an unused fixture file never tripped `dead`. An import of a package no `package.json` lists still does (unlisted dependency), so the probe uses one, and the fallow ignore is load-bearing.
+
+  **2.** The e2e probe proves itself broken before it proves the carve-out
+
+  `test/e2e/shapes.e2e.test.ts` now installs each shape once (`beforeAll`) and runs two tests against it. The first is the old "init, install, checkride exits 0". The second plants the probe twice:
+
+  - First at `test/probe/` (and `<package>/test/probe/` in monorepo and hybrid). The run must exit 1 with exactly `dead, docs, links, lint, spell, struct, test` failing, and `struct.json` must name `no-class`, `no-deep-sibling-import`, `no-default-export`, `require-js-extension` and `test-dir-layout`.
+  - Then, with that copy removed, at `test/fixtures/probe/` in the same places. The run must exit 0 with nothing failing.
+
+  The control run is beyond the done-when, but without it the green half could go vacuous on a tool upgrade (a cspell dictionary that stops calling `recieve` a common typo, say) and nobody would notice. The probe holds every ingredient the done-when names: malformed markdown, a dead link, a typo, a default export, an `it.only` (in a test that fails, so it breaks with or without `CI` set) and a loose test file, plus a `debugger` for oxlint, an unlisted import for fallow, and a class, an extensionless import and a deep sibling import for the other style rules. All six tests passed in 72s.
+
+  **3.** Removing any one of the ten ignores turned its own check red
+
+  In a scratch flat scaffold with the probe under `test/fixtures/`, I took out each ignore in turn and reran: oxlint turned `lint` red, markdownlint `docs`, cspell `spell`, fallow `dead`, either vitest exclude `test`, and each of the four rule ignores turned `struct` red with only that rule's id. So none of the ten is decorative. The `links` exclusion has its own unit test, and the pre-change run had `links` red on the same probe.
+
+  **4.** init --add in an existing repo writes these ignores too
+
+  `--add lint`, `docs`, `spell`, `test`, `dead` and `struct` copy the same shared templates, so an existing repo adopting one of those slots now gets the fixture ignore in its new config file. That bends the layout spec's C1 (existing-mode-untouched), which says existing mode writes exactly what it wrote before. I left it, because that spec's own step 3 put `templates/shared/` in the seam, and the ignore can only narrow what a tool checks, so it can't turn an adopting repo red. Splitting the templates per mode to avoid it would need `src/init.ts` changes outside the seam.
+
+  **5.** Two files sit outside the seam, and one tangent is parked
+
+  `src/__tests__/links.test.ts` gains a test that a `fixtures/` directory at any depth is never walked. Only the e2e covered it otherwise, and stryker runs unit tests only, so the new array entry would have been a surviving mutant. `CHANGELOG.md` gains a Changed entry, per C11 (docs-in-step), because the `links` default changes behavior for every repo, not only new scaffolds. Step 16 can fold the scaffold half into its init entry.
+
+  Parked: a fixture repo carrying its own `.oxlintrc.json` re-lints itself, because oxlint's nested config voids the root `ignorePatterns` for that subtree, and the scaffolded lint argv lacks the `--disable-nested-config` this repo's own config uses. I confirmed it in the scratch scaffold.
