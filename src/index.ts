@@ -3,11 +3,15 @@
  *
  * The primary interface is the `checkride` CLI (see `src/cli.ts`). This module is
  * the package's programmatic surface: the command entry points, the adapter
- * registry, and the public types (including the `.check/summary.json` schema).
+ * registry and the packs it is drawn from, and the public types (including the
+ * `.check/summary.json` schema).
  */
 
 export { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
 export type { Adapter, Slot } from './adapters.js';
+
+export { PACKS, TOOLS } from './packs/index.js';
+export type { Pack, Tool } from './packs/index.js';
 
 export { loadConfig, resolveChecks } from './config.js';
 export type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from './config.js';

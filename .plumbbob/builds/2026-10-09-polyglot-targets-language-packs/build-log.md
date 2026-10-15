@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 19 — feat(init): type-check scaffolded tests outside src
+**Current step:** 21 — refactor(packs): split the adapter registry into ts and repo packs
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -41,7 +41,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 16. docs(init): describe the shipped layout and rules
 - ☑ 17. chore(test): adopt the test layout in this repo
 - ☑ 18. feat(init): write a config naming every scaffolded slot in new mode
-- ☐ 19. feat(init): type-check scaffolded tests outside src
+- ☑ 19. feat(init): type-check scaffolded tests outside src
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
 - ☐ 21. refactor(packs): split the adapter registry into ts and repo packs
 - ☐ 22. refactor(launch): resolve tool argv through a pin-source launcher
@@ -116,7 +116,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes under full-suite coverage load: its 10ms-spaced timers finished b/c swapped once in step 16's gate; widen the spacing or assert only the summary order
 - [x] rules/no-logic-in-barrel.yml is weaker than the shipped copy (it misses top-level and exported const); the shipped rule scans this repo with 0 findings, so the repo could run it as is
 - [x] nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/; a dogfood-config check like the vale one would keep this repo running the shipped rules
-- [ ] src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules (writeSharedStatic); it has written ten since step 12
+- [x] src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules (writeSharedStatic); it has written ten since step 12
+- [ ] step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist; step 21 left it off rather than point PACKS at directories that don't exist yet
+- [ ] missing-tool hint installs the binary, not the package: spawn.ts and doctor.ts pass execTool's bin to installCommand, so tsc, biome, ast-grep, vale, stryker and attw get 'npm install -D tsc' and kin; TOOLS.npm now names the right package
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -146,6 +148,7 @@ Harvest results this boundary:
 - After step 16: "orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes..." → **tangent**, deferred to step 28 (its seam already holds `src/orchestrator/__tests__/orchestrator.test.ts`, and its interval-recording fake-spawner tests face the same timer trap, so it widens this test's spacing or asserts only the summary order there; until then a red gate on this test alone clears on a re-run).
 - After step 17: "rules/no-logic-in-barrel.yml is weaker than the shipped copy..." → **tangent**, deferred to step 21 (the repo passes the shipped rule with 0 findings today, but step 21 writes the build's first new barrel, and R17 plans `src/packs/index.ts` to hold `PACKS`, which the shipped rule flags; so step 21 adopts the shipped rule and defines `PACKS` in a named file that `index.ts` re-exports, as AGENTS.md's "`index.ts` only re-exports" already asks; `rules/no-logic-in-barrel.yml` and AGENTS.md's barrel bullet sit outside step 21's seam, so add them via `/plumbbob:step 21` or accept a two-file stray).
 - After step 17: "nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/..." → **tangent**, killed (the five rules rarely change).
+- After step 19: "src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules..." → **tangent**, deferred to step 23 (a stale comment blocks nothing; step 23's seam holds `src/init.ts`, and moving the templates under `templates/ts/` and `templates/repo/` rewrites the `ADD_CONFIGS` paths the comment sits on, so the fix rides that edit).
 
 ## Log
 
@@ -1153,3 +1156,57 @@ folder, so it rides the branch into the PR.)*
   **5.** The docs name two consequences, and I checked both against a real scaffold first
 
   `docs/getting-started.md` shows the written file under "A new project", with `v<version>` in the `$schema` URL, and says what follows from it, as the slot provenance draft asked. With the config in place and `sgconfig.yml` deleted, `struct` goes red and the run exits 1. Without the config, detection skips `struct` and the run passes as "only 7 of 8 checks ran". With `.oxlintrc.json` deleted, `lint` keeps running on oxlint's defaults. I kept "no longer" out of the knip example: by registry order, fallow already beat knip in a scaffold, so the new part is the pin, not the behavior. The CHANGELOG's Changed entry says it the same way, and adds the refusal and that existing mode is unchanged.
+
+- 2026-10-15 — step 19 checkpointed · cee9f51ce — feat(init): type-check scaffolded tests outside src (1 drift, 34m)
+
+  **Summary**: New projects now type-check their tests outside `src/`. `init` writes a `tsconfig.test.json` and a `typecheck-tests` custom check, and in every shape a type error planted in each package's `test/integration/` fails that check and no other. The gate and the whole `pnpm test:e2e` are green, after a one-line fix to an existing-mode e2e case that step 18 had broken.
+
+  1. New projects get `tsconfig.test.json` and a `typecheck-tests` check, and the stanza lists it after the slots
+  2. The test config globs `**/src/**` and `**/test/**`, because root-relative globs leave a monorepo with nothing to check
+  3. In every shape, a type error in each package's `test/integration/` fails `typecheck-tests` and nothing else
+  4. The template ships as `tsconfig-test.json`, because `pack` refuses a `.test.` name in the tarball
+  5. Step 18 had broken `existing.e2e.test.ts`, and one setup line restores what it tests
+
+  **Readout**: Step 19 - feat(init): type-check scaffolded tests outside src
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored:
+               - D44 (test-layout-in)
+               - D51 (golden-placement)
+               - D52 (e2e-cadence)
+  constraints  12 of 12 honored
+  seam         strayed: 5 paths outside the seam
+               - CHANGELOG.md
+               - src/__tests__/init.test.ts
+               - test/e2e/existing.e2e.test.ts
+               - test/fixtures/invariance/resolution.json
+               - test/fixtures/invariance/summaries.json
+  diff         +185 -58 across 9 files
+  spent        34 min · 2 turns · 27s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 19, with the one-line `existing.e2e.test.ts` fix in it. Every done-when clause has a test that held, the gate and the whole `pnpm test:e2e` are green, and the step closes Phase 4, which makes this a release point for your `/version` call.
+
+  **1.** New projects get `tsconfig.test.json` and a `typecheck-tests` check, and the stanza lists it after the slots
+
+  `writeSharedStatic` writes `tsconfig.test.json` at the root of every shape. `newChecks` puts `typecheck-tests` after the eight slot entries in `checkride.config.json`. It runs `pnpm exec tsc -p tsconfig.test.json` like this repo's own check, with a status-line description and a `note` that says why it exists. The AGENTS.md stanza now takes its list from the config's keys, so it ends with `spell, typecheck-tests`. Left at the eight slots, the stanza would disagree with the config, and the first `checkride agent-setup` in a fresh project would rewrite it. A new unit test runs agent-setup on each fresh shape and expects it to write nothing. With the stanza reverted to the eight slots, that test fails in all three shapes. The check's status line ends in `[custom]`, because a config-only custom check carries origin `custom`, so the shapes e2e now expects `[config]` on the eight slots and `[custom]` on this one. `init.test.ts` pins the entry's command, args and description, and checks the written file byte for byte against the template. `getting-started.md` shows the entry and says why it's there, and the CHANGELOG's Changed section records it. I also narrowed one sentence of step 18's CHANGELOG entry. It said every check line of a fresh run ends in `[config]`, and it now says every slot's line does.
+
+  **2.** The test config globs `**/src/**` and `**/test/**`, because root-relative globs leave a monorepo with nothing to check
+
+  This repo's `tsconfig.test.json` includes `src/**/*` and `test/**/*`, relative to the root. Copied as is, those globs miss every package's `test/` in the monorepo and hybrid shapes. A fresh monorepo also has neither folder at its root, so tsc stops with TS18003 ("No inputs were found") and the first run goes red. I confirmed both against real scaffolds. With the root-relative globs, all three monorepo e2e cases failed, and the type error under `libs/core/test/` went unreported. The shipped config globs `**/src/**/*` and `**/test/**/*`, following the layout spec's D5 (shape-agnostic-globs), and excludes `**/test/fixtures/**`, following its D6 (fixtures-are-data). On an installed monorepo, TypeScript 7.0.2's `--listFiles` showed which files outside `node_modules` it took in: the package sources and the planted tests, nothing from `dist/` after a build, and nothing from either fixtures folder. Taking in `src/` means `typecheck-tests` re-checks what `types` already covers, as this repo's copy does. In exchange, the program is never empty in a project that has no `test/` folder yet.
+
+  **3.** In every shape, a type error in each package's `test/integration/` fails `typecheck-tests` and nothing else
+
+  The new shapes case writes a test that assigns a string to a `number`. It plants it in `test/integration/` at the root of every shape, and in `libs/core` or `packages/core` for the two workspace shapes. vitest strips the types and passes it, so `typecheck-tests` is the only check that fails, and the case asserts exactly that. It also reads tsc's `<file>(<line>,<col>): error` lines from `.check/typecheck-tests.stdout.txt` and expects exactly the planted files. That second assertion is what proves each package's `test/` is covered, not only the root's. The step-14 probe now fails `typecheck-tests` too, on its three imports that resolve to nothing, and still passes under `test/fixtures/`, so the new check keeps the fixtures carve-out with every other tool. All nine shapes cases pass. Both invariance goldens moved for the three `init:` subjects only, which is the update D51 (golden-placement) gives Phase 4's steps. Each shape's canonical, `--all` and `--changed` runs gain the same `custom:typecheck-tests` row, and each summary goes from 8 checks to 9 with the exit code still 0. No example moved in either half.
+
+  **4.** The template ships as `tsconfig-test.json`, because `pack` refuses a `.test.` name in the tarball
+
+  The first full gate went red on `pack`. Its fixed deny list matches `/\.test\./` so that test files never ship, and `templates/shared/tsconfig.test.json` matched it. That list holds for every consumer, so I left it alone. I followed the precedent `vitest.config.ts.template` already sets for the list's `\.ts$` instead: the template is named `tsconfig-test.json` and is written as `tsconfig.test.json`. A two-line comment over the template map says why, so a later tidy-up doesn't rename it back. The next gate was green on all 18 checks, with `pack` reporting 346 files and no forbidden paths.
+
+  **5.** Step 18 had broken `existing.e2e.test.ts`, and one setup line restores what it tests
+
+  The first whole `pnpm test:e2e` failed one case outside this step: "existing-failing: init disables a failing slot". That case builds its existing repo by running new-mode `init`, which has written `checkride.config.json` since step 18. Existing-mode `init` keeps a config it finds, so `links` stayed `"links"` where the case expects `false`. I confirmed the attribution in a scratch worktree. The case fails the same way at step 18's commit with none of this step's changes, and passes at step 17's. Step 18's done-when ran only the shapes e2e, and D52 (e2e-cadence) saves the whole suite for the phase's last step, which is this one. The fix deletes the config the scaffold wrote before existing-mode `init` runs, so the project stands in for a repo with tools and no checkride config. That is the situation the case was written for. Existing mode itself is unchanged, and keeping a config it finds is its documented behavior. With the fix, the whole suite is green: 12 files and 110 tests, none skipped. I also parked one stale comment I came across: `ADD_CONFIGS` still says new mode writes "all four" struct rules, where it has written ten since step 12.

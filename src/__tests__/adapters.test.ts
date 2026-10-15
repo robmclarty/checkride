@@ -9,6 +9,7 @@ import type { Adapter, Order } from '../adapters.js';
 import { reportVerdict } from '../baseline/index.js';
 import type { Out } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
+import { PACKS } from '../packs/index.js';
 
 /** Discards output — the run's own stdout/stderr aren't under test here. */
 const sink = (): Out => ({ write: () => true });
@@ -31,11 +32,30 @@ describe('registry invariants', () => {
     expect(SCHEMA_VERSION).toBe(1);
   });
 
-  test('every adapter targets a catalogue slot', () => {
+  test('every pack row targets a catalogue slot', () => {
+    // The pack rows, not ADAPTERS: ADAPTERS is laid out slot by slot, so a row
+    // naming a slot outside the catalogue would drop out of it unseen.
     const slotNames = new Set(SLOTS.map((s) => s.name));
-    for (const adapter of ADAPTERS) {
+    for (const adapter of [...PACKS.ts.adapters, ...PACKS.repo.adapters]) {
       expect(slotNames.has(adapter.slot)).toBe(true);
     }
+  });
+
+  test('the repo-scope slots are struct, docs, links, spell and prose; the rest are target-scope', () => {
+    expect(SLOTS.filter((s) => s.scope === 'repo').map((s) => s.name)).toEqual(['struct', 'docs', 'links', 'spell', 'prose']);
+    expect(SLOTS.filter((s) => s.scope !== 'repo').every((s) => s.scope === 'target')).toBe(true);
+  });
+
+  test('ADAPTERS keeps the order it had before the packs split it', () => {
+    // Order is part of a public export's value, and the blessed default is the
+    // first row per slot, so the split must not move a single row.
+    expect(ADAPTERS.map((a) => `${a.slot}:${a.name}`)).toEqual([
+      'types:tsc', 'format:prettier', 'format:biome-format', 'lint:oxlint', 'lint:biome', 'lint:eslint',
+      'struct:ast-grep', 'dead:fallow', 'dead:knip', 'dupes:fallow', 'health:fallow', 'test:vitest', 'test:jest',
+      'docs:markdownlint-cli2', 'links:links', 'spell:cspell', 'prose:vale', 'mutation:stryker',
+      'security:pnpm-audit', 'build:build', 'publint:publint', 'attw:attw', 'pack:pack', 'smoke:smoke',
+      'snippets:snippets', 'snippets:snippets-dist',
+    ]);
   });
 
   test('the first adapter for each slot is the blessed default', () => {

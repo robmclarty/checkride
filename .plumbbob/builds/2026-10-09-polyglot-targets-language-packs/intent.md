@@ -584,7 +584,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/init.ts`, `src/__tests__/init.test.ts`, `test/e2e/shapes.e2e.test.ts`,
       `docs/getting-started.md`, `CHANGELOG.md`
     - model: sonnet (specified by the slot provenance draft's feature 2)
-19. [ ] feat(init): type-check scaffolded tests outside src, **done when:** new-mode scaffolds ship `tsconfig.test.json` and a `typecheck-tests` custom check in the written config, and a type error planted in `test/integration/` fails that check in every shape (e2e); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+19. [x] feat(init): type-check scaffolded tests outside src, **done when:** new-mode scaffolds ship `tsconfig.test.json` and a `typecheck-tests` custom check in the written config, and a type error planted in `test/integration/` fails that check in every shape (e2e); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `templates/shared/`, `src/init.ts`, `test/e2e/shapes.e2e.test.ts`,
       `docs/getting-started.md`
     - model: sonnet (this repo's own `typecheck-tests` is the reference)

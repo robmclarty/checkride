@@ -600,12 +600,23 @@ Everything exported from the package root (`import ... from 'checkride'`) is
 public and semver-bound:
 
 `runChecks`, `runFix`, `selectChecks`, `runDoctor`, `runInit`, `loadConfig`,
-`resolveChecks`, `ADAPTERS`, `SLOTS`, `SCHEMA_VERSION`,
+`resolveChecks`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`, `SCHEMA_VERSION`,
 `DEFAULT_TIMEOUT_SECONDS` — plus the exported types (`Summary`,
 `SummaryCheck`, `RunFlags`, `RunOptions`, `RunResult`, `CheckrideConfig`,
 `CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`, `Slot`,
-`DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`, `InitResult`,
-`Shape`).
+`Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
+`InitResult`, `Shape`).
+
+The four registry exports are plain data, and each survives a JSON round trip
+unchanged. `PACKS` maps each pack's name (`ts`, `repo`) to its adapter rows,
+root markers, pin sources and environment. `ADAPTERS` is the `ts` and `repo`
+packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for each
+external tool those rows run, with the npm package that provides it. Each
+`SLOTS` entry carries a `scope`: `repo` for the slots the repo pack fills,
+which check the repo as a whole, and `target` for the rest, which a language
+pack fills.
+[`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) holds
+each of these promises.
 
 Everything not exported there — internal modules, file layouts, private
 helpers — is not public API, even if technically importable.

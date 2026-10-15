@@ -221,6 +221,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
   written before keeps masking, since the same findings now produce a subset
   of its keys, and the next full run ratchets its warning keys away.
+- Additive: the package root exports `PACKS` and `TOOLS`, with the types
+  `Pack` and `Tool`. `PACKS` maps each pack's name to its adapter rows, root
+  markers, pin sources and environment: `ts` holds the toolchain-bound
+  adapters, and `repo` the five that check the repo as a whole (`ast-grep`,
+  `markdownlint-cli2`, `links`, `cspell` and `vale`). `TOOLS` has one row for
+  each external tool those rows run, with the npm package that provides it.
+  `ADAPTERS` keeps every row and its order, now drawn from the two packs.
+  Each `SLOTS` entry gains `scope` (`target` or `repo`), and the exported
+  `Slot` type an optional `scope`. All four exports are plain data that
+  survive a JSON round trip, held by `exports.contract.test.ts`.
 
 ### Internal
 
@@ -231,6 +241,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repo's docs, config, plugin manifest and site from drifting, and one
   resolves checks against a fixture repo. None locks a surface consumers rely
   on, which is what `test/contract/` holds.
+- The adapter rows moved out of `src/adapters.ts` into the language packs
+  under `src/packs/`, which `ADAPTERS` now draws from. No check resolves,
+  orders or spawns differently. This repo's own `no-logic-in-barrel` rule is
+  now the shipped copy, which also flags a value defined in an `index.ts`.
 
 ## [0.14.0] - 2026-10-09
 

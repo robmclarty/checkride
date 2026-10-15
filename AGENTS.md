@@ -38,7 +38,7 @@ Full `pnpm check` is for the final verification.
 - **No classes.** Enforced by `rules/no-class.yml`.
 - **Named exports only.** Enforced by `rules/no-default-export.yml`.
 - **File extensions:** import with `.js` from `.ts` files (NodeNext resolution). Enforced by `rules/require-js-extension.yml`.
-- **No logic in barrels.** `index.ts` only re-exports (`export { x } from './x.js'`); functions and classes live in named files. Enforced by `rules/no-logic-in-barrel.yml`.
+- **No logic in barrels.** `index.ts` only re-exports (`export { x } from './x.js'`); functions, classes and values live in named files. Enforced by `rules/no-logic-in-barrel.yml`.
 - **A single file does not need a folder.** Each module is a named file (`src/atomic.ts`), not a one-file folder.
 - **Tests:** colocated with the module they cover, always inside a `__tests__/` folder — `src/__tests__/foo.test.ts` for a root module, `src/<module>/__tests__/bar.test.ts` for a file inside a folder module. Never beside the source file. Enforced by `rules/colocate-unit-tests.yml` and `test/integration/conventions.test.ts`.
 - **Tests outside `src/`** go in `test/integration/` when they span modules, `test/contract/` when they lock a surface consumers rely on (`docs/contract.md`), or `test/e2e/` for the slow suite. Shared test code goes in `test/helpers/` and test data in `test/fixtures/`. One suffix, `.test.ts`. Enforced by `rules/test-dir-layout.yml`, `rules/tests-dir-is-src-only.yml` and `rules/no-spec-suffix.yml`; `rules/src-never-imports-test.yml` keeps shipped code from importing any of it.
@@ -51,7 +51,7 @@ A single flat package. Named module files under `src/`, with `src/index.ts` as t
 src/
   index.ts          barrel: re-exports the public API (no logic)
   cli.ts            arg parsing, command dispatch (the bin)
-  adapters.ts       the registry (data-only)
+  adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
   config.ts         checkride.config.json loading, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
   doctor.ts
@@ -70,6 +70,7 @@ src/
   baseline/         fingerprints, the committed baseline store, the ratchet
   digest/           token-bounded digest.md of the failing slots
   orchestrator/     slot selection, spawning, .check/ writing, the summary
+  packs/            the language packs' adapter rows, and the tools they run (data-only)
   pm/               package-manager detection, command translation, slot-tool resolution
   qa/               bundled-plugin reader: the quality artifacts
   triage/           bundled-plugin reader: preflight a red gate
@@ -85,8 +86,8 @@ rules/              ast-grep structural rules (dogfooded here)
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Eight modules (`agent-setup/`, `artifacts/`, `baseline/`,
-`digest/`, `orchestrator/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
+siblings reach only the index. Nine modules (`agent-setup/`, `artifacts/`, `baseline/`,
+`digest/`, `orchestrator/`, `packs/`, `pm/`, `qa/`, `triage/`) have crossed that line; the
 rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
 same rules ship to consumer projects — see `templates/shared/rules/`.
