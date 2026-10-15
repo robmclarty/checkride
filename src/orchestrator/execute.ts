@@ -22,7 +22,7 @@ import { parseToolJson } from '../tool-json.js';
 import type { RunContext } from './context.js';
 import { formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
-import type { CheckRun, CheckRunner, SummaryCheck } from './types.js';
+import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types.js';
 
 /**
  * Persist raw output atomically: JSON to `.check/<outputFile>`, else stdout
@@ -133,6 +133,11 @@ function selfSkipReason(r: ResolvedCheck, outcome: CheckOutcome): string | null 
   return `${last} (exit ${outcome.exit_code})`;
 }
 
+/** The argv the runner spawned, as the summary records it, with nothing for a check that spawned no tool. */
+function argvField(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv'> {
+  return outcome.argv !== undefined ? { argv: outcome.argv } : {};
+}
+
 /** Build (and print) the skipped-entry row for a slot that won't run this pass. */
 function handleSkip(r: ResolvedCheck, unavailable: boolean, ctx: RunContext): SummaryCheck {
   const entry = skippedEntry(
@@ -215,6 +220,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
     duration_ms,
     output_file: outputFile,
     ...provenanceFields(r),
+    ...argvField(outcome),
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);

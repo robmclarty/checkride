@@ -2,8 +2,8 @@
  * Process lifecycle for one check: the default runner, the built-in dispatch,
  * the pre-flights that refuse to spawn at all, the spawn itself with its
  * timeout and UTF-8 capture, and the registry of live process groups the CLI
- * reaps on a fatal signal. The interrupt latch lives here too, beside the one
- * function that reads it and the two that set it.
+ * reaps on a fatal signal. The interrupt latch lives here too, beside the two
+ * functions that read it and the two that set it.
  */
 
 import { spawn } from 'node:child_process';
@@ -22,7 +22,7 @@ import { KILL_GRACE_SECONDS, killGroup } from '../proc.js';
 import { checkSecurity } from '../security.js';
 import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
-import type { CheckRunner } from './types.js';
+import type { CheckRunner, RunnerOutcome } from './types.js';
 
 /** The placeholder in `changedArgs` that expands to the base ref a `--changed` run measures from. */
 const BASE_PLACEHOLDER = '{base}';
@@ -204,6 +204,21 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
 }
 
 /**
+ * Spawn a check's own tool, and record on its outcome the argv handed to
+ * `spawn`, so the summary can say exactly what ran. A tool that fails to start
+ * or times out keeps its argv, since that's what failed. After an interrupt
+ * `spawnCheck` starts nothing, so nothing is recorded; `started` reads the
+ * latch just before `spawnCheck` does, so the two agree. The built-ins spawn
+ * through `spawnCheck` directly and record none: their processes are
+ * checkride's own, and a built-in may start several or none.
+ */
+async function spawnTool(command: string, args: string[], cwd: string, timeoutSec: number): Promise<RunnerOutcome> {
+  const started = !interrupted;
+  const outcome = await spawnCheck(command, args, cwd, timeoutSec);
+  return started ? { ...outcome, argv: [command, ...args] } : outcome;
+}
+
+/**
  * Dispatch a built-in check, or `null` when the adapter spawns a real tool.
  * Every built-in that runs a subprocess goes through `spawnCheck`, so its
  * child registers in `liveChecks` and inherits the timeout + reaping like any
@@ -326,6 +341,7 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
  * in-process, the other built-ins through `runBuiltin`, and everything else
  * spawned under the resolved package manager — after the pre-flights that
  * refuse to spawn at all (`missingExemplarsOutcome`, `missingToolOutcome`).
+ * Only that last path spawns the check's own tool, so only it records `argv`.
  */
 export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
@@ -340,5 +356,5 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const missing = missingToolOutcome(resolved.slot, adapter, declared, ctx);
   if (missing) return Promise.resolve(missing);
   const { command, args } = translateExec(adapter.command, declared, ctx.pm);
-  return spawnCheck(command, args, ctx.cwd, timeout);
+  return spawnTool(command, args, ctx.cwd, timeout);
 };

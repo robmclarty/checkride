@@ -63,6 +63,14 @@ export type SummaryCheck = {
    */
   detected_by?: string;
   /**
+   * Present when the check spawned its own tool: the command and arguments
+   * exactly as handed to `spawn`, after package-manager translation, so the
+   * canonical `pnpm exec oxlint` reads `npx --no-install oxlint` under npm.
+   * Built-ins and skipped checks have none. Additive field; `schema_version`
+   * holds.
+   */
+  argv?: string[];
+  /**
    * Present only when a baseline masked one or more of this slot's diagnostics:
    * the count of current findings grandfathered by `checkride.baseline.json`.
    * Additive field — absent on runs with no baseline, so `schema_version` holds.
@@ -125,12 +133,19 @@ export type Summary = {
   checks: SummaryCheck[];
 };
 
+/**
+ * What a {@link CheckRunner} resolves to: the raw outcome, plus `argv` when the
+ * runner spawned the check's own tool. The summary records that `argv` as the
+ * check's own.
+ */
+export type RunnerOutcome = CheckOutcome & { argv?: string[] };
+
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
   resolved: ResolvedCheck,
   /** `base` is the ref a `--changed` run measures from, present exactly when `changed` is. */
   ctx: { cwd: string; changed: boolean; base?: string; pm: PackageManager; timeout?: number },
-) => Promise<CheckOutcome>;
+) => Promise<RunnerOutcome>;
 
 export type RunOptions = RunFlags & {
   cwd?: string;

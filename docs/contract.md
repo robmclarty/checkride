@@ -61,8 +61,8 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0), per-check `origin` and `detected_by`, and top-level `run` and `git`
-(0.15.0).
+(0.3.0), per-check `origin`, `detected_by` and `argv`, and top-level `run` and
+`git` (0.15.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -132,6 +132,7 @@ required ones, so a field can't reach the schema without a row here.
 | `output_file` | string or `null` | always: the JSON file the run wrote under `.check/`, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
+| `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
 
 **Every check says why it's in the run.** `origin` is `config` when
@@ -151,6 +152,22 @@ and `checkride doctor` ends its slot rows the same way.
 `ok: true`, `exit_code: null`, `duration_ms: 0` and `output_file: null`. Its
 `reason` is its last stderr line followed by `(exit N)`, and it writes no
 artifact.
+
+**A check that spawned its tool records what it ran.** `argv` holds the
+command and its arguments exactly as checkride handed them to `spawn`. That's
+after package-manager translation, so the canonical
+`pnpm exec oxlint --format=json` reads `npx --no-install oxlint --format=json`
+under npm, and under pnpm it keeps the `--config.verify-deps-before-run=false`
+checkride puts ahead of `exec` and `run`. Under `--changed`, `{base}` is
+already expanded. A tool that failed to start or timed out keeps its `argv`
+beside its `exit_code: -1`, so the entry names what failed. A check that
+spawned no tool of its own has none. That covers a built-in adapter (`links`,
+`pnpm-audit`, `pack`, `smoke`, `snippets` and `snippets-dist`), which checkride
+runs itself even when it starts processes along the way. It covers a check
+refused before its tool started: an `npx` or `bunx` tool missing from the
+local tree, or a `prose` slot whose exemplars are missing. And it covers every
+skipped entry, a custom check that skipped itself included, since that entry
+keeps the skipped shape above.
 
 **A run records what it selected and the tree it read.** `run` names each
 selection flag the run was given, so a narrowed run says so in the artifact

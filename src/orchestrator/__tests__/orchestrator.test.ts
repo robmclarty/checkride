@@ -47,6 +47,12 @@ const failLint: CheckRunner = (r) =>
 
 const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
 
+/** A runner that reports `[<slot>, '--flag']` as the argv it spawned, and exits 77 for `licenses`. */
+const argvRunner: CheckRunner = (r) => {
+  const exit_code = r.slot === 'licenses' ? 77 : 0;
+  return Promise.resolve({ ok: exit_code === 0, exit_code, stdout: '', stderr: '', argv: [r.slot, '--flag'] });
+};
+
 /** A runner that writes its own `.check/test.json`, the way vitest/jest do via `--outputFile`. */
 const toolWrites: CheckRunner = async (_r, ctx) => {
   await writeFile(join(ctx.cwd, '.check', 'test.json'), JSON.stringify({ fresh: true }));
@@ -302,6 +308,23 @@ describe('runChecks (injected runner)', () => {
     expect(lint).toMatchObject({ ok: false, exit_code: 1, adapter: 'oxlint' });
     const written = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as Summary;
     expect(written.checks).toHaveLength(2);
+  });
+
+  test("a runner's argv rides into the entry as given, and a check that skipped itself records none", async () => {
+    const config = { checks: { licenses: { command: 'node', skipExitCode: 77 } } };
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config, runner: argvRunner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    const byName = new Map(result.summary.checks.map((c) => [c.name, c]));
+    expect(byName.get('types')?.argv).toEqual(['types', '--flag']);
+    expect(byName.get('lint')?.argv).toEqual(['lint', '--flag']);
+    expect(byName.get('licenses')).toMatchObject({ skipped: true });
+    expect(byName.get('licenses')).not.toHaveProperty('argv');
+    // A runner that reports no argv leaves every entry without one.
+    const plain = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    for (const c of plain.summary.checks) expect(c, c.name).not.toHaveProperty('argv');
   });
 
   test('--bail stops after the first failure', async () => {
@@ -641,22 +664,23 @@ describe('runChecks (real subprocess)', () => {
       cwd: dir, slots: [{ name: 'build', optIn: true, order: 10 }], adapters: [build], config: { timeout: 30 },
       pm: 'npm', include: ['build'], json: true, stdout: sink().out, stderr: sink().out,
     });
-    expect(result.summary.checks[0]).toMatchObject({ name: 'build', ok: true, exit_code: 0 });
+    // The summary records the translated form, the one that actually spawned.
+    expect(result.summary.checks[0]).toMatchObject({ name: 'build', ok: true, exit_code: 0, argv: ['npm', 'run', 'build'] });
     expect(await readFile(join(dir, '.check', 'build.stdout.txt'), 'utf8')).toContain('BUILT_OK');
   }, 30_000);
 
-  test('reports a spawn failure for a missing binary', async () => {
+  test('reports a spawn failure for a missing binary, with the argv it tried', async () => {
     const adapter = fakeAdapter({
-      name: 'ghost', slot: 'ghost', command: 'checkride-no-such-binary-xyz', args: [],
+      name: 'ghost', slot: 'ghost', command: 'checkride-no-such-binary-xyz', args: ['--flag'],
     });
     const result = await runChecks({
       cwd: dir, slots: [{ name: 'ghost' }], adapters: [adapter], config: null, json: true,
       stdout: sink().out, stderr: sink().out,
     });
-    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1, argv: ['checkride-no-such-binary-xyz', '--flag'] });
   });
 
-  test('kills a check that exceeds the configured timeout', async () => {
+  test('kills a check that exceeds the configured timeout, and keeps the argv it ran', async () => {
     const adapter = fakeAdapter({
       name: 'hang', slot: 'hang', command: 'node', args: ['-e', 'setInterval(() => {}, 1000)'],
     });
@@ -664,8 +688,20 @@ describe('runChecks (real subprocess)', () => {
       cwd: dir, slots: [{ name: 'hang' }], adapters: [adapter], config: { timeout: 0.2 }, json: true,
       stdout: sink().out, stderr: sink().out,
     });
-    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1 });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1, argv: ['node', '-e', 'setInterval(() => {}, 1000)'] });
     expect(await readFile(join(dir, '.check', 'hang.stderr.txt'), 'utf8')).toContain('timed out');
+  });
+
+  test('a tool the npx pre-flight refuses never spawned, so it records no argv', async () => {
+    const adapter = fakeAdapter({
+      name: 'absent', slot: 'lint', command: 'pnpm', args: ['exec', 'checkride-nonexistent-tool'],
+    });
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [adapter], config: null, pm: 'npm', json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: 1 });
+    expect(result.summary.checks[0]).not.toHaveProperty('argv');
   });
 
   test('a fast check completes normally under a generous timeout', async () => {
@@ -1474,7 +1510,10 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
     await orch.killLiveChecks();
     const result = await running;
     expect(existsSync(sentinel)).toBe(false);
+    expect(result.summary.checks[0]).toMatchObject({ argv: ['node', join(dir, 'first.js')] });
     expect(result.summary.checks[1]).toMatchObject({ ok: false, exit_code: -1 });
+    // The latch kept `second` from spawning, so it has no argv to record.
+    expect(result.summary.checks[1]).not.toHaveProperty('argv');
   }, 30_000);
 
   test('escalates to SIGKILL for a check that ignores SIGTERM', async () => {
@@ -1708,6 +1747,7 @@ describe('missingExemplarsOutcome', () => {
     });
     expect(result.exitCode).toBe(1);
     expect(result.summary.checks.find((c) => c.name === 'prose')).toMatchObject({ ok: false });
+    expect(result.summary.checks.find((c) => c.name === 'prose')).not.toHaveProperty('argv');
     // The failure is persisted like any check output, so `triage` can read it.
     const persisted = await readFile(join(dir, '.check', 'prose.stderr.txt'), 'utf8');
     expect(persisted).toContain('voice exemplars');
@@ -1733,6 +1773,8 @@ describe('missingExemplarsOutcome', () => {
     expect(result.summary.checks.find((c) => c.name === 'security')).toMatchObject({
       ok: false, exit_code: -1, output_file: 'security.json',
     });
+    // A built-in records no argv, though this one spawned a process of its own.
+    expect(result.summary.checks.find((c) => c.name === 'security')).not.toHaveProperty('argv');
     // The terminal says why, not only that.
     expect(std.lines.join('')).toContain('could not complete: The operation was aborted due to timeout');
     // stdout won as the JSON artifact — and the stderr reason survives beside it.

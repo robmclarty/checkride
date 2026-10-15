@@ -68,6 +68,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   untracked changes, and under `--changed` the base it measured from. git is
   asked as the run starts, so a run normally waits no longer for it; it gets
   5 seconds before `git` is left out (#6).
+- **A summary says exactly what each check ran.** Every check that spawned
+  its own tool now records `argv`: the command and arguments as spawned,
+  after package-manager translation, so a repo on npm sees
+  `npx --no-install oxlint …` where the adapter says `pnpm exec oxlint …`,
+  and a `--changed` run sees its base already in place. A tool that failed to
+  start or timed out keeps the argv it was given. Built-ins, which checkride
+  runs itself, and skipped checks record none (#6).
 
 ### Fixed
 
@@ -118,6 +125,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Summary` type gains a required `run` and an optional `git`. A run whose
   checks finish before git answers waits for it, and `total_duration_ms`
   counts the wait, so `timestamp - total_duration_ms` stays the run's start.
+- Additive: per-check summary field `argv` (an array of strings, the command
+  first), present when the check spawned its own tool, in the JSON Schema, the
+  contract doc's field table and `summary.contract.test.ts`. The exported
+  `SummaryCheck` type gains an optional `argv`, and a `CheckRunner` may
+  resolve an optional `argv` with its outcome, which the summary records.
 - Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
   fail the check under its argv, and `docs/contract.md` and
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline

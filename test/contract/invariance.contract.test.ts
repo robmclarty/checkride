@@ -22,7 +22,9 @@
  * `expected.json` declares), the same with `--all`, which reaches every opt-in
  * adapter the repo detects, and the same with `--changed` in a git repo whose
  * `origin/main` resolves, which is the case where `{base}` must still expand to
- * 0.13's argv. Built-ins record no argv, as the summary's own `argv` won't.
+ * 0.13's argv. Built-ins record no argv, as the summary's own `argv` doesn't,
+ * and each check's summary `argv` must be exactly the argv its spawn was
+ * handed, so what the summary says ran can't drift from what did.
  *
  * Changing the golden is a contract change. Re-record it deliberately with
  * `CHECKRIDE_UPDATE_INVARIANCE=1 pnpm exec vitest run test/contract/invariance.contract.test.ts`,
@@ -135,6 +137,7 @@ type SummaryCheck = {
   adapter: string | null;
   skipped?: boolean;
   reason?: string;
+  argv?: string[];
   output_file: string | null;
 };
 
@@ -236,10 +239,15 @@ function portable(arg: string, roots: readonly string[]): string {
   return roots.reduce((text, root) => text.replaceAll(root, '<root>'), arg);
 }
 
+/** The scratch directory in both its spellings: as made, and with symlinks resolved (macOS's `/private/var`). */
+function rootsOf(dir: string): string[] {
+  return [dir, realpathSync(dir)];
+}
+
 /**
- * The argv a check spawned, read back from the stderr line the fake spawner
- * wrote, or `null` when it spawned nothing. A spawned check must have spawned
- * exactly once, at the repo root.
+ * The argv a check spawned, as `spawn` was handed it, read back from the
+ * stderr line the fake spawner wrote, or `null` when it spawned nothing. A
+ * spawned check must have spawned exactly once, at the repo root.
  */
 async function spawnedArgv(dir: string, check: SummaryCheck): Promise<string[] | null> {
   if (check.adapter !== null && BUILTINS.has(check.adapter)) return null;
@@ -249,18 +257,21 @@ async function spawnedArgv(dir: string, check: SummaryCheck): Promise<string[] |
   if (lines.length === 0) return null;
   expect(lines, `${check.name} spawned more than once`).toHaveLength(1);
   const spawned = JSON.parse((lines[0] ?? '').slice(MARKER.length)) as { argv: string[]; cwd: string | null };
-  const roots = [dir, realpathSync(dir)];
-  expect(roots, `${check.name} spawned outside the repo root`).toContain(spawned.cwd);
-  return spawned.argv.map((arg) => portable(arg, roots));
+  expect(rootsOf(dir), `${check.name} spawned outside the repo root`).toContain(spawned.cwd);
+  return spawned.argv;
 }
 
 async function recordCheck(dir: string, check: SummaryCheck): Promise<CheckRecord> {
   const base = { name: check.name, adapter: check.adapter };
   if (check.skipped === true) {
+    expect(check, `${check.name} is skipped`).not.toHaveProperty('argv');
     return { ...base, skipped: true, ...(check.reason !== undefined ? { reason: check.reason } : {}), output_file: check.output_file };
   }
   const argv = await spawnedArgv(dir, check);
-  return { ...base, ...(argv !== null ? { argv } : {}), output_file: check.output_file };
+  // The summary's own argv is the one `spawn` was handed, and a check that spawned nothing records none.
+  expect(check.argv ?? null, `${check.name}'s summary argv`).toEqual(argv);
+  const roots = rootsOf(dir);
+  return { ...base, ...(argv !== null ? { argv: argv.map((arg) => portable(arg, roots)) } : {}), output_file: check.output_file };
 }
 
 /** Run the CLI in `dir` with `argv` and record every check its summary lists, in order. */

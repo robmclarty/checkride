@@ -173,6 +173,38 @@ describe('summary.json shape', () => {
     }
   });
 
+  /**
+   * Contract: `argv` is present exactly when the check spawned its own tool,
+   * as spawned, and absent on built-ins and on every skipped entry, a custom
+   * check that skipped itself included (R8.2).
+   */
+  test('a check that spawned its tool records its argv, and built-ins and skipped checks record none', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        probe: { command: 'node', args: ['-e', 'process.exit(0)', 'two words'] },
+        licenses: { command: 'node', args: ['-e', 'process.exit(77)'], skipExitCode: 77 },
+      },
+    }));
+    const summary = await runAndValidate([]);
+    const checks = summary['checks'] as { name: string; skipped?: boolean; argv?: string[] }[];
+    const byName = new Map(checks.map((c) => [c.name, c]));
+    expect(byName.get('probe')?.argv).toEqual(['node', '-e', 'process.exit(0)', 'two words']);
+    expect(byName.get('links')).not.toHaveProperty('argv');
+    expect(byName.get('licenses')).toMatchObject({ skipped: true });
+    for (const c of checks.filter((check) => check.skipped === true)) expect(c, c.name).not.toHaveProperty('argv');
+  });
+
+  test('argv is the spawned form, after package-manager translation', async () => {
+    // The build adapter's canonical `pnpm run build` spawns as `npm run build`
+    // in a repo whose lockfile says npm.
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract', scripts: { build: 'node -e ""' } }));
+    await writeFile(join(dir, 'package-lock.json'), '{}');
+    const summary = await runAndValidate(['--only', 'build']);
+    const build = (summary['checks'] as { name: string; argv?: string[] }[]).find((c) => c.name === 'build');
+    expect(build).toMatchObject({ ok: true, argv: ['npm', 'run', 'build'] });
+  }, 30_000);
+
   test('a vacuous (zero-run) summary validates and says so', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false } }));

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 8 — feat(summary): record the run's selection and git state
+**Current step:** 9 — feat(summary): record the argv each check spawned
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -30,7 +30,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 5. docs(contract): list every summary field and hold the list with a test
 - ☑ 6. feat(report): record why each check runs as origin and detected_by
 - ☑ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
-- ☐ 8. feat(summary): record the run's selection and git state
+- ☑ 8. feat(summary): record the run's selection and git state
 - ☐ 9. feat(summary): record the argv each check spawned
 - ☐ 10. refactor(artifacts): route every artifact path through one output dir
 - ☐ 11. feat(cli): write artifacts to another directory with --out
@@ -106,7 +106,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
 - [x] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
-- [ ] Steps 11 and 53-56 must write their run.<flag> field in runRecord (src/orchestrator/run.ts) and drop its 'no such flag yet' note in docs/contract.md; step 56 also adds --static-only to isPartialRun and the partial row
+- [x] Steps 11 and 53-56 must write their run.<flag> field in runRecord (src/orchestrator/run.ts) and drop its 'no such flag yet' note in docs/contract.md; step 56 also adds --static-only to isPartialRun and the partial row
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -126,6 +126,7 @@ Harvest results this boundary:
 
 - After step 2: "summary schema's skipped description says 'did not execute'..." → **tangent**, deferred to step 5 (reword `schema/checkride.summary.schema.json:48` there; the schema file sits outside step 5's seam, so add it via `/plumbbob:step 5` or accept a one-file stray).
 - After step 3: "list `baseline diff` in docs/cheatsheet.md and the README command table..." → **tangent**, deferred to step 73 (README is in its seam; `docs/cheatsheet.md` is not, so add it via `/plumbbob:step 73` or accept a one-file stray).
+- After step 8: "Steps 11 and 53-56 must write their run.<flag> field..." → **blocker**, handled now: folded into `intent.md` as D55 (run-fields-ahead). Steps 11, 53, 54, 55 and 56 each name their `run` field and the doc note it drops in their done-whens, with the same wording; step 56 also names the `isPartialRun` change. `src/orchestrator/run.ts` joined all five seams, and `docs/contract.md` joined 54's and 55's.
 
 ## Log
 
@@ -534,3 +535,74 @@ folder, so it rides the branch into the PR.)*
   **5.** The earlier reds were machine stalls, and the gate that landed the step ran green
 
   The first three `plumbbob check` runs went overnight, at load averages between 21 and 66 (`siriactionsd` near 95% CPU). Each passed every slot but `test`, which was killed at its 600s cap, and each logged one stall of about 1000s on something that normally takes seconds: publint, attw and pack in the first run, then a `baseline diff` contract case and a triage SIGTERM test, which looks like the laptop sleeping mid-run. The tests that failed before those kills were timing tests outside this diff (`src/triage` is untouched) or stalls. Run on their own, the suites this step touches passed: the full contract suite (all 58 flags cases), `invariance.contract.test.ts` (14 of 14 in 8s, `init:monorepo` included), and the git, gate, config, cli, orchestrator `--changed base`, baseline, baseline-history and recover tests. The first run also showed three lint errors (`consistent-function-scoping` on test helpers) and the health finding above, both fixed before the reruns. The step landed through `plumbbob checkpoint`'s own full gate, run with `caffeinate -i` holding off idle sleep, and that gate was green.
+
+- 2026-10-15 — step 8 checkpointed · c0b39120c — feat(summary): record the run's selection and git state (1 drift, 12m)
+
+  **Summary**: Every `summary.json` now says what the run selected and which commit it read. `run` lists the selection flags the run was given and marks it `partial` by the same test the baseline ratchet uses. `git` records `head`, `dirty`, and the `--changed` base inside a git work tree. The git queries start with the run and finish alongside the checks, so they add no time unless git is slower than every check. As you chose, the schema, contract doc and contract test define all twelve `run` fields R8.1 names. Five of them are for flags that don't exist yet, and the follow-up for the steps that add those flags is parked.
+
+  1. `run` records each flag given, and `partial` is the ratchet's own test
+  2. git is asked as the run starts, so it costs nothing in the common case
+  3. A run that finishes before git waits for it inside the clock
+  4. `git` needs a commit as well as a work tree
+  5. Five files outside the seam changed
+
+  **Readout**: Step 8 - feat(summary): record the run's selection and git state
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 5 paths outside the seam
+               - README.md
+               - src/__tests__/artifacts.test.ts
+               - src/__tests__/git.test.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/report.ts
+  diff         +463 -32 across 12 files
+  spent        12 min · 6 turns · 43s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 8. Every clause of the done-when has a test, the full gate is green, and the invariance golden still matches 0.13 once R8's fields are set aside. Step 9 then adds `argv` and closes Phase 2 with the whole e2e suite.
+
+  **1.** `run` records each flag given, and `partial` is the ratchet's own test
+
+  `runRecord` in `src/orchestrator/run.ts` builds `run` from the run's options:
+  - `only`, `skip` and `include` as given, `all` and `changed` as `true`, and `config` as an absolute path;
+  - nothing for a flag that wasn't given, since absence is part of the shape.
+
+  `partial` is `isPartialRun(...)`, computed once and passed to both `maybeRatchet` and the record, so the two can't disagree. An orchestrator test runs six cases, each holding a stale baseline key that a whole run prunes, and asserts `run.partial` is the opposite of "the baseline file was rewritten". The cases are a whole run, `--only`, `--skip`, `--changed`, `--bail` with nothing failing, and `--bail` stopped at a failure.
+
+  The schema defines all twelve R8.1 `run` fields. The doc rows for `static_only`, `discover`, `defaults`, `pins` and `out` say checkride has no such flag yet, and the CHANGELOG's Contract entry says no run writes them. The park line asks steps 11 and 53 to 56 to start writing their field and drop that note, and asks step 56 to add `--static-only` to the partial test. The contract doc gains `run`, `git` and `git.base` tables, and `summary.contract.test.ts` holds each to its schema definition, the way it already held the top-level and per-check tables.
+
+  **2.** git is asked as the run starts, so it costs nothing in the common case
+
+  `readGitState` in `src/git.ts` runs two git queries concurrently, each with a 5-second timeout:
+  - `rev-parse --verify --quiet HEAD^{commit}`;
+  - `--no-optional-locks status --porcelain --untracked-files=normal`.
+
+  `runChecks` starts it right after the base resolves, past every exit-2 gate, and awaits it only after `executeChecks`.
+
+  `--no-optional-locks` keeps `status` from taking the index lock to refresh the index while checks, or a commit hook, run git. `--untracked-files=normal` overrides a `status.showUntrackedFiles=no` setting, under which a new file would read as clean. The function never rejects. A rejection left waiting until the checks finish would crash the process, so it catches and returns `null`.
+
+  A spot run in this repo recorded the right head and `dirty: true` for this step's edits. Under `--changed` it also recorded the `origin/main` base with its sha.
+
+  **3.** A run that finishes before git waits for it inside the clock
+
+  `src/artifacts/freshness.ts` dates the run's start as `timestamp - total_duration_ms`, with no slack, and judges each artifact against it. If the run waited for git outside the clock, that start would move later by the wait, and artifacts written early in the run would read as stale to `triage` and `qa`. So the await sits before the clock stops, and a run that beats git counts the wait, at most 5 seconds from its start, in `total_duration_ms`.
+
+  The schema's `total_duration_ms` description and the contract doc's "sequential equals the sum" sentence now say so. Both duration contract tests still pass, because git answers in milliseconds outside a repository. The alternative was to stamp `timestamp` when the checks finish, but that changes what an existing field means. Counting the wait only lengthens a rare run, and honestly.
+
+  **4.** `git` needs a commit as well as a work tree
+
+  R8.1 puts `git` in any git work tree, and `git.head` is a string whenever `git` is present. A repository with no commit yet has no head to record, so the presence rule reads "in a git work tree whose `HEAD` names a commit". A bare repository has no work tree: `rev-parse` answers but `status` fails, so it gets no `git` even when `--changed` resolved a base. A contract test pins that case, and removing the guard in `gitRecord` makes it fail. `git.base` is written only with a sha, which every path that leaves `git` present also has.
+
+  **5.** Five files outside the seam changed
+
+  - `src/orchestrator/report.ts`: `buildSummary` assembles the summary, so it takes `run` and `git` and places them before `checks`, putting what the run covered at the head of the file.
+  - `src/orchestrator/__tests__/orchestrator.test.ts`: the partial-versus-ratchet table, and a test that records `all`. `--all` can't go through the CLI in a contract test, because it reaches the network-bound `security` slot.
+  - `src/__tests__/git.test.ts`: five `readGitState` cases, including the exact status argv.
+  - `src/__tests__/artifacts.test.ts`: one `run` line in a `Summary` literal, because `run` is now required.
+  - `README.md`: the summary example shows `run` and `git`, since every summary now has `run`, as C11 (docs-in-step) asks.

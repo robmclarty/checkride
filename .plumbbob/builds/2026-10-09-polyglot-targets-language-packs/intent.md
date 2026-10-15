@@ -395,6 +395,17 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   makes Go ignore `vendor/`, so a vendored module's checks would fail offline under `GOPROXY=off`
   (was [Q11 (go-mod-readonly)](#q11)).
 
+### Settled during the build
+
+- <a id="d55"></a>**D55 (run-fields-ahead)**: step 8's schema, contract doc and contract test
+  define all twelve R8.1 `run` fields, five of them ahead of their flags (`out`, `defaults`,
+  `discover`, `pins` and `static_only`), and those five doc rows say checkride has no such flag
+  yet. The step that adds each flag records it through `runRecord` in `src/orchestrator/run.ts`
+  and drops that note from its row, and step 56 also adds `--static-only` to `isPartialRun` and
+  to the `partial` row, *because* the contract is then written once and consistently, and a flag
+  shipped without its field would leave a narrowed or redirected run silent in its summary while
+  the doc still said the flag didn't exist (settled at step 8 and its harvest).
+
 ## Constraints
 
 - <a id="c1"></a>**C1 (additive-contract)**: every contract change is additive under
@@ -509,7 +520,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
      `schema/checkride.config.schema.json`, `test/contract/flags.contract.test.ts`,
      `docs/contract.md`, `CHANGELOG.md`
    - model: sonnet (a resolution chain and a placeholder)
-8. [ ] feat(summary): record the run's selection and git state, **done when:** every summary carries `run` (R8.1), with `partial` true exactly when the ratchet's partial-run test is, and carries `git` (`head`, `dirty`, and `base` under `--changed`) when the working directory is a git work tree; the git queries start with the run, so they add no wall-clock time in the common case; schema, contract doc and contract test move together
+8. [x] feat(summary): record the run's selection and git state, **done when:** every summary carries `run` (R8.1), with `partial` true exactly when the ratchet's partial-run test is, and carries `git` (`head`, `dirty`, and `base` under `--changed`) when the working directory is a git work tree; the git queries start with the run, so they add no wall-clock time in the common case; schema, contract doc and contract test move together
    - seam: `src/orchestrator/run.ts`, `src/orchestrator/types.ts`, `src/git.ts`,
      `schema/checkride.summary.schema.json`, `test/contract/summary.contract.test.ts`,
      `docs/contract.md`, `CHANGELOG.md`
@@ -527,11 +538,11 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
       `src/orchestrator/spawn.ts`, `src/adapters.ts`, `src/digest/digest.ts`, `src/doctor.ts`,
       `rules/`
     - model: sonnet (mechanical, and held by the existing suite)
-11. [ ] feat(cli): write artifacts to another directory with --out, **done when:** `--out <dir>` and `CHECKRIDE_OUT` move `summary.json`, the raw files and `digest.md` (R9); `triage` and `qa` take `--out`; `doctor` probes that directory; `snippets` and `smoke` keep scratch under `<repo>/.check/` and skip with a reason when it isn't writable (F29); an output directory outside the repo suppresses the ratchet (F27), though `baseline --out` still writes `checkride.baseline.json` ([D47 (consumer-trigger)](#d47)); the gate strips `CHECKRIDE_OUT` (F47); an e2e case runs two checks at once with different `--out` values in one fixture and finds both artifact sets intact (F28); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+11. [ ] feat(cli): write artifacts to another directory with --out, **done when:** `--out <dir>` and `CHECKRIDE_OUT` move `summary.json`, the raw files and `digest.md` (R9); the summary records the directory as `run.out`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); `triage` and `qa` take `--out`; `doctor` probes that directory; `snippets` and `smoke` keep scratch under `<repo>/.check/` and skip with a reason when it isn't writable (F29); an output directory outside the repo suppresses the ratchet (F27), though `baseline --out` still writes `checkride.baseline.json` ([D47 (consumer-trigger)](#d47)); the gate strips `CHECKRIDE_OUT` (F47); an e2e case runs two checks at once with different `--out` values in one fixture and finds both artifact sets intact (F28); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/cli.ts`, `src/artifacts/`, `src/triage/cli.ts`, `src/qa/cli.ts`,
       `src/snippets.ts`, `src/smoke.ts`, `src/gate.ts`, `src/doctor.ts`,
       `test/contract/flags.contract.test.ts`, `test/e2e/`, `docs/contract.md`, `docs/ci.md`,
-      `src/baseline-command.ts`, `CHANGELOG.md`
+      `src/baseline-command.ts`, `src/orchestrator/run.ts`, `CHANGELOG.md`
     - model: opus (several readers, the scratch carve-out and a concurrency test)
 
 ### Phase 4: init writes the test layout and a config
@@ -696,19 +707,21 @@ reference rules and porting trap apply as written there.
 
 ### Phase 9: consumer mode
 
-53. [ ] feat(config): layer a defaults file below detection with --defaults, **done when:** `--defaults` and `CHECKRIDE_DEFAULTS` load a config per R13.1 that fills only the slots the repo's config and detection leave unresolved, with `origin: "defaults"` and a `[defaults]` suffix; a repo-detected adapter beats a default (F35); a defaults file with `targets` exits 2 (F36); the gate strips the variable
+53. [ ] feat(config): layer a defaults file below detection with --defaults, **done when:** `--defaults` and `CHECKRIDE_DEFAULTS` load a config per R13.1 that fills only the slots the repo's config and detection leave unresolved, with `origin: "defaults"` and a `[defaults]` suffix; a repo-detected adapter beats a default (F35); a defaults file with `targets` exits 2 (F36); the summary records the file as `run.defaults`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); the gate strips the variable
     - seam: `src/config.ts`, `src/cli.ts`, `src/orchestrator/report.ts`, `src/gate.ts`,
-      `schema/checkride.summary.schema.json`, `docs/contract.md`
+      `src/orchestrator/run.ts`, `schema/checkride.summary.schema.json`, `docs/contract.md`
     - model: opus (a new resolution layer)
-54. [ ] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; nothing is written
-    - seam: `src/targets/discover.ts`, `src/targets/add.ts`, `src/cli.ts`
+54. [ ] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; the summary records `run.discover`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); nothing is written
+    - seam: `src/targets/discover.ts`, `src/targets/add.ts`, `src/cli.ts`,
+      `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet (reuses discovery and the conversion)
-55. [ ] feat(launch): let an outside mise.toml override pins with --pins, **done when:** `--pins` and `CHECKRIDE_PINS` read the file's `[tools]` versions and put an `override` source first in every chain, run as `mise exec <id>@<version> -- <bin>` with auto-install off (R13.3); such checks record `pin_source: "override"`; an uninstalled version fails naming the tool (F38); the gate strips the variable
-    - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/cli.ts`, `src/gate.ts`
+55. [ ] feat(launch): let an outside mise.toml override pins with --pins, **done when:** `--pins` and `CHECKRIDE_PINS` read the file's `[tools]` versions and put an `override` source first in every chain, run as `mise exec <id>@<version> -- <bin>` with auto-install off (R13.3); such checks record `pin_source: "override"`; the summary records the file as `run.pins`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); an uninstalled version fails naming the tool (F38); the gate strips the variable
+    - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/cli.ts`, `src/gate.ts`,
+      `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet
-56. [ ] feat(select): keep only checks that need no install with --static-only, **done when:** adapters carry `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys` per R13.4; `--static-only` keeps a check only per [D26 (static-only)](#d26) and skips the rest with a `static-only:` reason; the summary records `run.static_only` and `run.partial`; F39 and F40 pass; the docs call it a selector, not a sandbox
+56. [ ] feat(select): keep only checks that need no install with --static-only, **done when:** adapters carry `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys` per R13.4; `--static-only` keeps a check only per [D26 (static-only)](#d26) and skips the rest with a `static-only:` reason; the summary records `run.static_only`, and its `docs/contract.md` row drops "no such flag yet"; `--static-only` joins `isPartialRun`, so `run.partial` is true and the ratchet stands down, and the `partial` row says so ([D55 (run-fields-ahead)](#d55)); F39 and F40 pass; the docs call it a selector, not a sandbox
     - seam: `src/packs/`, `src/packs/static.ts`, `src/orchestrator/select.ts`, `src/cli.ts`,
-      `docs/contract.md`
+      `src/orchestrator/run.ts`, `docs/contract.md`
     - model: opus (the sniffs decide what a pre-sandbox run touches)
 57. [ ] docs(consumers): document running checkride from outside a repo, **done when:** `docs/consumers.md` gives R13.6's recipes and the findings walk-through and says plainly that nothing in it is a sandbox; an e2e case runs the pre-sandbox recipe over an uninstalled `polyglot-stack` copy and the sandbox recipe over an installed one, and parses every finding with `findingsFor`, text-output checks included (S18); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `docs/consumers.md`, `docs/README.md`, `test/e2e/consumers.e2e.test.ts`
