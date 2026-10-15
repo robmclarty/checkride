@@ -61,6 +61,13 @@ const PROBE: Record<string, string> = {
 /** The checks the probe fails when it sits outside `test/fixtures/`. */
 const PROBED_CHECKS = ['dead', 'docs', 'links', 'lint', 'spell', 'struct', 'test'];
 
+/**
+ * The tag every check's status line ends with, by check name: the scaffold's
+ * checks are the seven the probe fails and `types`, and the config `init`
+ * writes names each of them, so none runs on detection.
+ */
+const ALL_CONFIG = Object.fromEntries(['types', ...PROBED_CHECKS].map((name) => [name, '[config]']));
+
 /** The ast-grep rules it breaks there, each of which must ignore fixtures. */
 const PROBED_RULES = ['no-class', 'no-deep-sibling-import', 'no-default-export', 'require-js-extension', 'test-dir-layout'];
 
@@ -82,19 +89,31 @@ async function generateInstall(dir: string, shape: string): Promise<void> {
   await execFileP('pnpm', ['install'], { cwd: dir, ...BIG });
 }
 
-/** Run checkride and report its exit code and the checks that failed. */
-async function check(dir: string): Promise<{ code: number; failed: string[] }> {
+/** Each status line's closing provenance tag (`[config]`, `[detected: …]`, …), keyed by its check's name. */
+function statusTags(stderr: string): Record<string, string> {
+  const tags: Record<string, string> = {};
+  for (const line of stderr.split('\n')) {
+    const name = /^ {2}[✔✘] (\S+) /.exec(line)?.[1];
+    if (name !== undefined) tags[name] = /\[[^\]]*\]$/.exec(line)?.[0] ?? '';
+  }
+  return tags;
+}
+
+/** Run checkride and report its exit code, the checks that failed, and how each check's status line ends. */
+async function check(dir: string): Promise<{ code: number; failed: string[]; tags: Record<string, string> }> {
   let code = 0;
+  let stderr = '';
   try {
-    await execFileP('node', [CLI], { cwd: dir, ...BIG });
+    ({ stderr } = await execFileP('node', [CLI], { cwd: dir, ...BIG }));
   } catch (err) {
-    const exit = (err as { code?: unknown }).code;
-    code = typeof exit === 'number' ? exit : -1;
+    const failure = err as { code?: unknown; stderr?: string };
+    code = typeof failure.code === 'number' ? failure.code : -1;
+    stderr = failure.stderr ?? '';
   }
   const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
     checks: { name: string; ok: boolean }[];
   };
-  return { code, failed: summary.checks.filter((c) => !c.ok).map((c) => c.name).toSorted() };
+  return { code, failed: summary.checks.filter((c) => !c.ok).map((c) => c.name).toSorted(), tags: statusTags(stderr) };
 }
 
 /** The ids of the ast-grep rules the last run's `struct` check matched. */
@@ -122,18 +141,18 @@ for (const { shape, homes } of SHAPES) {
     });
     afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 
-    test('init -> pnpm install -> checkride exits 0', async () => {
-      expect(await check(dir)).toEqual({ code: 0, failed: [] });
+    test('init -> pnpm install -> checkride exits 0, and every check line says [config]', async () => {
+      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: ALL_CONFIG });
     });
 
     test('a broken probe fails every tool outside test/fixtures/ and none inside it', async () => {
       await Promise.all(homes.map((home) => plant(dir, join(home, 'test', 'probe'))));
-      expect(await check(dir)).toEqual({ code: 1, failed: PROBED_CHECKS });
+      expect(await check(dir)).toEqual({ code: 1, failed: PROBED_CHECKS, tags: ALL_CONFIG });
       expect(await firedRules(dir)).toEqual(expect.arrayContaining(PROBED_RULES));
       await Promise.all(homes.map((home) => rm(join(dir, home, 'test', 'probe'), { recursive: true })));
 
       await Promise.all(homes.map((home) => plant(dir, join(home, 'test', 'fixtures', 'probe'))));
-      expect(await check(dir)).toEqual({ code: 0, failed: [] });
+      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: ALL_CONFIG });
     });
   });
 }

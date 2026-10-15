@@ -111,6 +111,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repo's gate. An existing repo's writes are unchanged, and `--add struct`
   still writes the one boundary rule. `docs/deep-modules.md` and
   `docs/getting-started.md` describe the layout and name every rule.
+- **New projects name every check they run in `checkride.config.json`.**
+  `init` in an empty directory now writes one, under the same version-pinned
+  `$schema` pointer an existing repo's config gets, with an entry for each of
+  the eight slots the scaffold sets up, naming its tool: `"types": "tsc"`,
+  `"lint": "oxlint"`, `"struct": "ast-grep"`, `"dead": "fallow"`,
+  `"test": "vitest"`, `"docs": "markdownlint-cli2"`, `"links": "links"` and
+  `"spell": "cspell"`. Every check line of a fresh project's run now ends in
+  `[config]` instead of a detection tag, so the file says what runs, and each
+  entry pins its tool against a tool added later or a change in how checkride
+  detects. A check also stays in the run when its tool's config file is
+  deleted: without `sgconfig.yml`, `struct` now fails where it used to skip.
+  Like every other file it scaffolds, `init` refuses to overwrite an existing
+  `checkride.config.json` without `--force`. Existing mode already wrote the
+  file and is unchanged, and no existing repo's config is rewritten.
+  `docs/getting-started.md` shows the file and what follows from it.
 - **`no-deep-sibling-import` leaves imports into `test/` alone.** `test/`
   isn't a sibling module, so the rule no longer flags an import like
   `'../../test/helpers/make.js'`. `src-never-imports-test` judges those

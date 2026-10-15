@@ -6,8 +6,12 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { ADAPTERS, SLOTS } from '../adapters.js';
 import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
+import type { CheckrideConfig, ResolvedCheck } from '../config.js';
+import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
+import { selectChecks } from '../orchestrator/index.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
 /** A capturing stdout for the few tests that read init's summary lines. */
@@ -345,6 +349,33 @@ describe('new-project generation (flat)', () => {
     }
   });
 
+  test.each(['flat', 'monorepo', 'hybrid'] as const)('writes a config naming every slot the scaffold enables (%s)', async (shape) => {
+    await runInit({ cwd: dir, shape, name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
+    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const own: { version: string } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
+    expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).toEqual({
+      $schema: configSchemaUrl(own.version),
+      checks: {
+        types: 'tsc',
+        lint: 'oxlint',
+        struct: 'ast-grep',
+        dead: 'fallow',
+        test: 'vitest',
+        docs: 'markdownlint-cli2',
+        links: 'links',
+        spell: 'cspell',
+      },
+    });
+
+    // Detection alone would run exactly these checks off the scaffold's own
+    // files, and with the config each one runs because the config names it.
+    const defaultRun = (config: CheckrideConfig | null): ResolvedCheck[] =>
+      selectChecks(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir }), {});
+    const written = loadConfig(dir);
+    expect(Object.fromEntries(defaultRun(null).map((r) => [r.slot, r.adapter?.name]))).toEqual(written?.checks);
+    expect(new Set(defaultRun(written).map((r) => r.origin))).toEqual(new Set(['config']));
+  });
+
   test('default checkride spec pins the exact product version (no caret)', async () => {
     await runInit({ cwd: dir, shape: 'flat', name: 'demo' });
     const pkg: { devDependencies: Record<string, string> } =
@@ -394,6 +425,16 @@ describe('new-project generation (flat)', () => {
     expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false);
     expect(await readFile(join(dir, 'README.md'), 'utf8')).toBe('# keep me\n');
     expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('node_modules\n');
+  });
+
+  test('refuses to overwrite a checkride.config.json that is already there', async () => {
+    const mine = '{ "checks": { "spell": false } }\n';
+    await writeFile(join(dir, 'checkride.config.json'), mine);
+    await expect(runInit({ cwd: dir, shape: 'flat', name: 'demo' })).rejects.toThrow(
+      /refusing to overwrite 1 existing file[\s\S]*checkride\.config\.json/,
+    );
+    expect(await readFile(join(dir, 'checkride.config.json'), 'utf8')).toBe(mine);
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
   });
 
   test('--force overwrites existing files and generates the project', async () => {

@@ -152,6 +152,35 @@ check holds the layout, so a test in the wrong place fails the run. Every tool
 `init` configures skips `test/fixtures/`, so a fixture that is broken on purpose
 can't fail it.
 
+`init` also writes a `checkride.config.json` that names each check it set up
+and the tool that runs it:
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v<version>/schema/checkride.config.schema.json",
+  "checks": {
+    "types": "tsc",
+    "lint": "oxlint",
+    "struct": "ast-grep",
+    "dead": "fallow",
+    "test": "vitest",
+    "docs": "markdownlint-cli2",
+    "links": "links",
+    "spell": "cspell"
+  }
+}
+```
+
+That file is the one place to read what runs, and every check line of
+`pnpm check` ends in `[config]` to say so. Because the file, not detection,
+picks each slot's tool, two things follow. A tool you add later doesn't take a
+slot over: drop in a `knip.json` and `dead` stays on fallow until you change
+its entry. And a check stays in the run when its tool's config file goes:
+without `sgconfig.yml`, `struct` fails instead of skipping, and without
+`.oxlintrc.json`, oxlint lints on its own defaults. The opt-in slots, which the
+file doesn't name, still find their tool by detection when you `--include`
+them.
+
 ## The daily loop
 
 Once set up, daily usage is one command regardless of the tool's name, because

@@ -402,17 +402,15 @@ function productVersion(): string {
   }
 }
 
-function collectDevDeps(
-  adapters: readonly Adapter[],
-  slots: readonly Slot[],
-  checkrideSpec: string,
-): Record<string, string> {
+/** A generated `checkride.config.json`, in either mode: the version-pinned `$schema` pointer, then `checks`. */
+function configFile(checks: Record<string, string | false>): string {
+  return `${JSON.stringify({ $schema: configSchemaUrl(productVersion()), checks }, null, 2)}\n`;
+}
+
+/** The root package.json's devDependencies: every scaffolded adapter's, plus checkride itself. */
+function collectDevDeps(scaffolded: readonly Adapter[], checkrideSpec: string): Record<string, string> {
   const deps: Record<string, string> = {};
-  for (const slot of slots) {
-    if (slot.optIn) continue;
-    const adapter = adapters.find((a) => a.slot === slot.name);
-    if (adapter) Object.assign(deps, adapter.devDeps);
-  }
+  for (const adapter of scaffolded) Object.assign(deps, adapter.devDeps);
   deps['checkride'] = checkrideSpec;
   const sorted: Record<string, string> = {};
   for (const key of Object.keys(deps).toSorted()) sorted[key] = deps[key] ?? '';
@@ -704,7 +702,28 @@ function record(w: Writer, files: readonly HookFile[], skipped?: string[]): void
 // New-project mode
 // ----------------------------------------------------------------------------
 
-const DEFAULT_ACTIVE_SLOTS = ['types', 'lint', 'struct', 'dead', 'test', 'docs', 'links', 'spell'];
+/**
+ * The adapter new mode sets up for each default slot: the first the registry
+ * lists for it, the blessed default whose config file the scaffold writes
+ * (`links` needs none). The root package.json pins their devDependencies,
+ * `checkride.config.json` names them, and the AGENTS.md stanza lists their
+ * slots, so the three can't disagree about what a new project runs.
+ */
+function scaffoldedAdapters(adapters: readonly Adapter[], slots: readonly Slot[]): Adapter[] {
+  return slots
+    .filter((slot) => slot.optIn !== true)
+    .flatMap((slot) => adapters.find((a) => a.slot === slot.name) ?? []);
+}
+
+/**
+ * Name every scaffolded slot's adapter in `checks`, as existing mode names the
+ * tools it adopts. Each check then runs because the config says so, not because
+ * detection found its file: a tool added later for one of these slots doesn't
+ * take it over, and a deleted tool config doesn't drop its check from the run.
+ */
+function newConfig(scaffolded: readonly Adapter[]): string {
+  return configFile(Object.fromEntries(scaffolded.map((a) => [a.slot, a.name])));
+}
 
 /** The derived inputs a new-project scaffold is generated from. */
 type NewScaffold = {
@@ -721,16 +740,18 @@ type NewScaffold = {
 
 /** Emit every scaffold file for the shape into `w` (records paths; obeys dryRun). */
 async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
+  const scaffolded = scaffoldedAdapters(s.adapters, s.slots);
   await writeSharedStatic(w);
   await put(w, 'tsconfig.json', render(readTemplate(join(s.shape, 'tsconfig.json')), { name: s.name }));
   await put(w, 'fallow.toml', render(readTemplate(join(s.shape, 'fallow.toml')), { name: s.name }));
   await put(w, 'pnpm-workspace.yaml', render(readTemplate(join(s.shape, 'pnpm-workspace.yaml')), { name: s.name }));
 
   await put(w, 'cspell.json', cspellWithName(s.name, s.scope));
-  await put(w, 'package.json', rootPackageJson(s.fullName, s.license, s.author, collectDevDeps(s.adapters, s.slots, s.checkrideSpec), s.shape !== 'flat'));
+  await put(w, 'package.json', rootPackageJson(s.fullName, s.license, s.author, collectDevDeps(scaffolded, s.checkrideSpec), s.shape !== 'flat'));
+  await put(w, 'checkride.config.json', newConfig(scaffolded));
   await put(w, 'LICENSE', licenseText(s.license, s.author ?? s.fullName));
   await put(w, 'README.md', readme(s.name));
-  await put(w, 'AGENTS.md', agentsMd(DEFAULT_ACTIVE_SLOTS));
+  await put(w, 'AGENTS.md', agentsMd(scaffolded.map((a) => a.slot)));
   await put(w, 'CLAUDE.md', claudeMd());
 
   if (s.shape === 'flat') {
@@ -1206,8 +1227,7 @@ async function writeExistingConfig(
   // The opt-in publish bundle follows the adopted default slots; explicit
   // entries opt these slots into the run (the library orders itself).
   for (const [slot, adapter] of Object.entries(bundleChecks)) checks[slot] = adapter;
-  const config = { $schema: configSchemaUrl(productVersion()), checks };
-  await put(w, 'checkride.config.json', `${JSON.stringify(config, null, 2)}\n`);
+  await put(w, 'checkride.config.json', configFile(checks));
 }
 
 /** Ensure `.check/` is gitignored: create the file, append to it, or note it's already there. */

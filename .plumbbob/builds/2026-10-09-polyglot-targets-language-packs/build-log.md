@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 17 — chore(test): adopt the test layout in this repo
+**Current step:** 18 — feat(init): write a config naming every scaffolded slot in new mode
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -39,7 +39,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 14. feat(init): carve test/fixtures out of every scaffolded tool
 - ☑ 15. test(init): verify the location rules by scanning a real tree
 - ☑ 16. docs(init): describe the shipped layout and rules
-- ☐ 17. chore(test): adopt the test layout in this repo
+- ☑ 17. chore(test): adopt the test layout in this repo
 - ☐ 18. feat(init): write a config naming every scaffolded slot in new mode
 - ☐ 19. feat(init): type-check scaffolded tests outside src
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
@@ -114,8 +114,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold: oxlint's nested config voids the root ignorePatterns, and the scaffolded lint argv lacks --disable-nested-config (this repo's own config has it)
 - [x] shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/, but no-deep-sibling-import (no __tests__ ignore) fires on that same import; decide which rule yields
 - [x] orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes under full-suite coverage load: its 10ms-spaced timers finished b/c swapped once in step 16's gate; widen the spacing or assert only the summary order
-- [ ] rules/no-logic-in-barrel.yml is weaker than the shipped copy (it misses top-level and exported const); the shipped rule scans this repo with 0 findings, so the repo could run it as is
-- [ ] nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/; a dogfood-config check like the vale one would keep this repo running the shipped rules
+- [x] rules/no-logic-in-barrel.yml is weaker than the shipped copy (it misses top-level and exported const); the shipped rule scans this repo with 0 findings, so the repo could run it as is
+- [x] nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/; a dogfood-config check like the vale one would keep this repo running the shipped rules
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -143,6 +143,8 @@ Harvest results this boundary:
 - After step 14: "a fixture repo carrying its own .oxlintrc.json re-lints itself in a scaffold..." → **tangent**, deferred to step 18 (it writes a config entry for every scaffolded slot, so its `lint` entry can carry `--disable-nested-config` as this repo's does, and the step 14 probe can gain a nested `.oxlintrc.json` to prove it; the flag moves the init shapes' lint argv in the invariance golden, which D51 (golden-placement) expects Phase 4 to update on purpose, though `test/contract/invariance.contract.test.ts` sits outside step 18's seam, and it also stops a monorepo package's own `.oxlintrc.json` from applying, which step 18 weighs).
 - After step 15: "shipped rules contradict: src-never-imports-test lets src/**/__tests__/ import ../../test/helpers/..." → **tangent**, deferred to step 17 (no planned step trips it, since neither a scaffold nor this repo's `src/` imports from `test/`, but Phase 4 shouldn't release the contradiction; step 17 copies `src-never-imports-test` into this repo's `rules/` beside the same gap, so it fixes both copies, leaning toward a `not: regex` that leaves imports into `test/` to `src-never-imports-test` over a blanket `__tests__` ignore; `templates/shared/rules/no-deep-sibling-import.yml` and `test/e2e/layout-rules.e2e.test.ts` sit outside step 17's seam, so add them via `/plumbbob:step 17` or accept a two-file stray; keyframes' copy has the same gap).
 - After step 16: "orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes..." → **tangent**, deferred to step 28 (its seam already holds `src/orchestrator/__tests__/orchestrator.test.ts`, and its interval-recording fake-spawner tests face the same timer trap, so it widens this test's spacing or asserts only the summary order there; until then a red gate on this test alone clears on a re-run).
+- After step 17: "rules/no-logic-in-barrel.yml is weaker than the shipped copy..." → **tangent**, deferred to step 21 (the repo passes the shipped rule with 0 findings today, but step 21 writes the build's first new barrel, and R17 plans `src/packs/index.ts` to hold `PACKS`, which the shipped rule flags; so step 21 adopts the shipped rule and defines `PACKS` in a named file that `index.ts` re-exports, as AGENTS.md's "`index.ts` only re-exports" already asks; `rules/no-logic-in-barrel.yml` and AGENTS.md's barrel bullet sit outside step 21's seam, so add them via `/plumbbob:step 21` or accept a two-file stray).
+- After step 17: "nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/..." → **tangent**, killed (the five rules rarely change).
 
 ## Log
 
@@ -1055,3 +1057,49 @@ folder, so it rides the branch into the PR.)*
   **5.** A timer flake failed the first gate run, and I parked it rather than fixing it
 
   The first full gate failed in `src/orchestrator/__tests__/orchestrator.test.ts`, in the "randomized completion" test. Its timers are 10ms apart, and under full-suite coverage load `b` and `c` finished in swapped order. It passed 5 of 5 in isolation and touches nothing in this step's seam, so I parked it with two candidate fixes. The second full gate was green. One more fix along the way: three `m[1]` captures needed the repo's `?? ''` idiom to pass `typecheck-tests` under `noUncheckedIndexedAccess`.
+
+- 2026-10-15 — step 17 checkpointed · bb5f61066 — chore(test): adopt the test layout in this repo (15m)
+
+  **Summary**: This repo now keeps the test layout it scaffolds. Its `rules/` runs the five test-layout rules, the six loose test files live in `test/integration/`, and both copies of `no-deep-sibling-import` leave imports into `test/` to `src-never-imports-test`, so a unit test can share code from `test/helpers/`.
+
+  1. The five test-layout rules joined `rules/`, copied byte for byte from the templates
+  2. The six loose tests moved to `test/integration/` with their paths fixed
+  3. `no-deep-sibling-import` now leaves imports into `test/` to `src-never-imports-test`
+  4. Every citation of the old paths now points at `test/integration/`
+  5. I parked two dogfood follow-ups instead of widening the step
+
+  **Readout**: Step 17 - chore(test): adopt the test layout in this repo
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         held: 9 of 9 declared, no strays
+  diff         +707 -564 across 27 files
+  spent        15 min · 2 turns · 27s gate · green first run
+  ```
+
+  **Verdict**: ● Plumb
+
+  **Recommendation**: Approve and land step 17. Every done-when clause is met, the gate was green on its first run, and both e2e files that exercise the changed rule pass.
+
+  **1.** The five test-layout rules joined `rules/`, copied byte for byte from the templates
+
+  `colocate-unit-tests`, `tests-dir-is-src-only`, `test-dir-layout`, `no-spec-suffix` and `src-never-imports-test` are verbatim copies of `templates/shared/rules/`, so they keep the shape-agnostic `**/src/**` and `**/test/**` globs instead of the root-anchored `src/**` the repo's older rules use. Before the move, a scan found exactly six findings: `test-dir-layout` on each loose file. Nothing fired under `examples/`, which the `**/` globs also reach. The alternative was root-anchored copies, which would keep the examples out of reach for good. But nothing in them trips these rules today, and copies that differ from what ships prove less about the shipped rules. `no-logic-in-barrel` was already here in an older, weaker form. I left it alone and parked it.
+
+  **2.** The six loose tests moved to `test/integration/` with their paths fixed
+
+  `git mv` keeps all six as renames. Each repo root went from `'..'` to `'..', '..'`, each import from `../src/` to `../../src/`, and `resolution.fixture.test.ts` now looks one level up for `test/fixtures/`. All 33 of their tests pass from the new folder. None of them went to `test/contract/`, because `docs/contract.md` names none of what they guard (AGENTS.md, the docs, this repo's config, the plugin manifest, the site, and a fixture resolution). The sibling-guard comments inside them (`./dogfood-config.test.ts` and so on) stay correct, since all six moved together.
+
+  **3.** `no-deep-sibling-import` now leaves imports into `test/` to `src-never-imports-test`
+
+  Both copies gain one commented `not: regex` clause, `from\s+['"](\.\./)+test/`. That follows the step 15 harvest's lean, rather than a blanket `__tests__` ignore. `layout-rules.e2e.test.ts` now expects `src/report/leak.ts` to fire `src-never-imports-test` alone. It adds `src/plan/__tests__/helped.test.ts`, which imports `test/helpers/` and gets no findings, and `src/plan/__tests__/deep.test.ts`, which proves a unit test still can't reach past a sibling's index. With the template clause removed, exactly the four `test/` cases fail (two per home); restored, all 51 tests pass. A scratch probe showed the repo copy behaves the same, and I deleted it. `shapes.e2e.test.ts` passes for all three shapes as well, because its probe's deep import is `../sibling/internal.js`.
+
+  **4.** Every citation of the old paths now points at `test/integration/`
+
+  The citations sat in AGENTS.md, two notes in `checkride.config.json`, `examples/README.md`, the version skill and a comment in `examples.e2e.test.ts`. A sweep now finds the old paths only in `.plumbbob/`, CHANGELOG.md and the two spec drafts. AGENTS.md also gains a convention for tests outside `src/` that names the new rules, and its layout block draws the four `test/` folders that exist. `docs/deep-modules.md` restores the claim step 16 had to drop: unit tests can share code from `test/helpers/`. CHANGELOG.md gets a Changed entry for the rule, because it changes what `--add struct` writes: a repo that takes that rule alone no longer gets a flag when `src/` imports `test/`, so the entry points it at `src-never-imports-test`. It also gets an Internal entry for the move.
+
+  **5.** I parked two dogfood follow-ups instead of widening the step
+
+  The first aligns `rules/no-logic-in-barrel.yml` with the shipped rule, which also catches a top-level or exported `const` and finds nothing in this repo today. The second is a guard that holds the five copies byte-equal to the templates, like `dogfood-config`'s vale check. Without that guard, the CHANGELOG's "copied unchanged" stays true only until someone edits one copy.
