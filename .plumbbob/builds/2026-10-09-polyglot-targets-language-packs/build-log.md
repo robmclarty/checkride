@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 11 — feat(cli): write artifacts to another directory with --out
+**Current step:** 12 — feat(init): ship the six layout and barrel rules in new-project mode
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -33,7 +33,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 8. feat(summary): record the run's selection and git state
 - ☑ 9. feat(summary): record the argv each check spawned
 - ☑ 10. refactor(artifacts): route every artifact path through one output dir
-- ☐ 11. feat(cli): write artifacts to another directory with --out
+- ☑ 11. feat(cli): write artifacts to another directory with --out
 - ☐ 12. feat(init): ship the six layout and barrel rules in new-project mode
 - ☐ 13. feat(init): make the starter files obey the rules they ship
 - ☐ 14. feat(init): carve test/fixtures out of every scaffolded tool
@@ -110,7 +110,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 11: {out} now expands in custom checks' args too (step 10); document it in docs/contract.md and CHANGELOG beside --out
 - [x] step 11: report, digest, triage and qa text name the dir through CHECK_DIR; make those labels follow --out, or they keep saying .check/
 - [x] step 21: the snippets adapters' scratch arg .check/doc-snippets/tsconfig.json lands in src/packs/, where no-check-dir-literal (A5) forbids it; give scratch its own constant
-- [ ] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
+- [x] qa --out can't find mutation.json: stryker writes it where the repo's jsonReporter.fileName says (.check/), not through {out}; decide whether the mutation adapter or init's stryker template should route it
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -134,6 +134,7 @@ Harvest results this boundary:
 - After step 10: "step 11: {out} now expands in custom checks' args too..." → **tangent**, deferred to step 11 (its seam already holds `docs/contract.md` and `CHANGELOG.md`, and C11 (docs-in-step) obliges the doc).
 - After step 10: "step 11: report, digest, triage and qa text name the dir through CHECK_DIR..." → **blocker**, handled now: folded into `intent.md` as D56 (out-labels). Step 11's done-when names it, and `src/orchestrator/report.ts`, `src/digest/digest.ts`, `src/triage/render.ts` and `src/qa/render.ts` joined its seam.
 - After step 10: "step 21: the snippets adapters' scratch arg..." → **tangent**, deferred to step 21 (the `struct` check turns red when the adapters move, so it can't slip; a scratch constant, or dropping the path from an availability-only signature, is that step's call).
+- After step 11: "qa --out can't find mutation.json..." → **tangent**, deferred to step 38 (the file's path is the repo's own stryker `jsonReporter.fileName`, not checkride's argv, and mutation is opt-in; step 38 already revisits where `qa` finds artifacts, so it decides between documenting the limit and routing the file through the adapter).
 
 ## Log
 
@@ -724,3 +725,74 @@ folder, so it rides the branch into the PR.)*
   **4.** Three follow-ups parked for steps 11 and 21
 
   The display text still says `.check/` even after `--out` moves the files, so step 11 has to make those labels follow the flag. `{out}` already expands in custom checks' args, and that surface goes undocumented until step 11 writes up `--out`; that's a small bend of C11 (docs-in-step), deferred on purpose rather than documenting a token that can only mean `.check` today. Step 21 moves the snippets scratch arg into `src/packs/`, where A5 will reject it. All three are in the build log as park lines. Outside the seam, I also touched `AGENTS.md`'s layout line for `artifacts/` and `src/orchestrator/context.ts`.
+
+- 2026-10-15 — step 11 checkpointed · 335d07732 — feat(cli): write artifacts to another directory with --out (1 drift, 23m)
+
+  **Summary**: `--out <dir>` and `CHECKRIDE_OUT` now move the summary, the raw files and the digest out of `.check/`, and every line that points at an artifact names the directory the run actually used. `baseline`, `triage`, `qa` and `doctor` take it, scratch stays in the repo, and an outside directory never ratchets the baseline. The full gate and the whole `pnpm test:e2e` are green, including a new e2e file where two runs at once with different `--out` values keep separate, complete artifact sets.
+
+  1. The run writes to `--out`, records it, and labels it
+  2. The readers and doctor follow the directory
+  3. Scratch stays in the repo, and a read-only `.check/` is a skip, not a crash
+  4. Consumer runs, the gate, and the baseline
+  5. The seam undercounted where the plumbing runs, and one gap is parked
+
+  **Readout**: Step 11 - feat(cli): write artifacts to another directory with --out
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    7 of 7 honored
+               - D21 (out-dir), D22 (consumer-runs-write-nothing)
+               - D47 (consumer-trigger), D48 (out-per-target), D52 (e2e-cadence)
+               - D55 (run-fields-ahead), D56 (out-labels)
+  constraints  12 of 12 honored
+  seam         strayed: 22 paths outside the seam
+               - docs/cheatsheet.md
+               - docs/plugin.md
+               - schema/checkride.summary.schema.json
+               - src/__tests__/artifacts.test.ts
+               - src/__tests__/digest.test.ts
+               - src/__tests__/doctor.test.ts
+               - src/__tests__/gate.test.ts
+               - src/__tests__/qa.test.ts
+               - src/__tests__/smoke.test.ts
+               - src/__tests__/snippets.test.ts
+               - src/__tests__/triage.test.ts
+               - src/links.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/context.ts
+               - src/orchestrator/execute.ts
+               - src/orchestrator/spawn.ts
+               - src/orchestrator/types.ts
+               - src/qa/qa.ts
+               - src/triage/doctor-fold.ts
+               - src/triage/env.ts
+               - src/triage/gate.ts
+               - src/triage/triage.ts
+  diff         +1239 -264 across 43 files
+  spent        23 min · 2 turns · 27s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 11. Every done-when clause has a test behind it, the full gate and the whole e2e suite are green at a phase end, and every stray is a module the directory has to travel through, its test, or a doc the contract obliges.
+
+  **1.** The run writes to `--out`, records it, and labels it
+
+  `src/artifacts/out.ts` gained the output-directory logic: `namedOut` resolves `--out`, then `CHECKRIDE_OUT` (an empty variable counts as unset, an empty flag is exit 2), against the working directory. `outLabel` names a directory relative to the working directory when it sits inside it (`.check` by default) and absolute when it sits outside, comparing real paths so macOS's `/var` and `/private/var` agree. `isInside` moved there from `run.ts`, and now also handles a directory that doesn't exist yet. The run context carries the directory, its label and what `{out}` expands to (`.check` by default, so the invariance golden holds, and the absolute path under `--out`, per R9). `run.out` is recorded, the `report:` and `digest:` lines use the label, and the digest's raw pointers and header do too (`writeDigest` now takes `{ dir, label }`).
+
+  **2.** The readers and doctor follow the directory
+
+  `triage` and `qa` take `--out` in both forms: the `checkride` subcommand and the bare `dist/*/cli.js` the plugin skills run. Every `.check/` in their reports became the label (D56 (out-labels)). `triage` passes `CHECKRIDE_OUT` to the gate run it starts and to its doctor fold through the spawn environment rather than as an argument. A variable reaches checkride whatever the package manager does with trailing arguments, and an older checkride ignores it instead of failing on an unknown flag. `readSummary` now takes the directory rather than a cwd. `doctor` probes the named directory and names the row with the same label.
+
+  **3.** Scratch stays in the repo, and a read-only `.check/` is a skip, not a crash
+
+  `snippets` and `smoke` call a new `prepareScratch(cwd)` before writing. When `<repo>/.check/` can't be written they return an outcome carrying `skip: "needs a writable ./.check for scratch files"`, and `runOneCheck` routes it through the existing self-skip path, so it records the contract's skipped shape and writes nothing (F29). Without this, the first failed scratch write threw out of the run and exited 2. The `skip` field went on `CheckOutcome` in `src/links.ts`, which is outside the seam: a one-field type addition, so the built-ins needed no new return type.
+
+  **4.** Consumer runs, the gate, and the baseline
+
+  An `--out` outside the repo is a consumer run: it masks with the baseline but never prunes it, and stderr says so (F27, unit and e2e). One inside the repo ratchets as if no flag were given. `baseline --out` writes its artifacts outside and `checkride.baseline.json` at the root (D47 (consumer-trigger)). The gate adds `CHECKRIDE_OUT` to the variables it strips and reads `<repo>/.check/` explicitly (F47).
+
+  **5.** The seam undercounted where the plumbing runs, and one gap is parked
+
+  The 22 strays are the files the directory has to pass through, not new scope. Ten are tests: the unit suite beside each module that changed. Nine are source files the seam's entry points call into: `context.ts`, `execute.ts`, `spawn.ts` and `types.ts` under the orchestrator, where the directory and `{out}` reach each check, plus `triage.ts`, `triage/gate.ts`, `env.ts`, `doctor-fold.ts` and `qa.ts`, where the readers actually read and spawn. Then `src/links.ts`, for the one optional `skip` field. Three are contract surfaces: the summary schema's `run.out` description lost its "no such flag yet" note to match the doc, per C1 (additive-contract), and `docs/cheatsheet.md` and `docs/plugin.md` list the flag beside `--config` and the reader arguments. `docs/contract.md` gained the `--out` paragraph, the flag in the promised list, the scratch skip, and the `{out}`-in-custom-checks note from step 10's park. I parked one gap rather than widening the step: stryker writes `mutation.json` wherever the repo's stryker config says, so `qa --out` reports it missing.

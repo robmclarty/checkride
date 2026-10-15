@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -297,6 +297,20 @@ describe('detectMode', () => {
   });
 });
 
+/** The ast-grep rules new mode ships: four style rules, then the six layout and barrel rules. */
+const NEW_MODE_RULES = [
+  'no-class.yml',
+  'no-default-export.yml',
+  'no-deep-sibling-import.yml',
+  'require-js-extension.yml',
+  'colocate-unit-tests.yml',
+  'tests-dir-is-src-only.yml',
+  'test-dir-layout.yml',
+  'no-spec-suffix.yml',
+  'src-never-imports-test.yml',
+  'no-logic-in-barrel.yml',
+];
+
 describe('new-project generation (flat)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-new-')); });
@@ -318,6 +332,15 @@ describe('new-project generation (flat)', () => {
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell.');
     expect(agents).toContain('`pnpm exec checkride triage` runs this procedure in full');
+  });
+
+  test.each(['flat', 'monorepo', 'hybrid'] as const)('ships all ten rules, verbatim from the templates (%s)', async (shape) => {
+    await runInit({ cwd: dir, shape, name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
+    expect((await readdir(join(dir, 'rules'))).toSorted()).toEqual(NEW_MODE_RULES.toSorted());
+    const templates = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'shared', 'rules');
+    for (const rule of NEW_MODE_RULES) {
+      expect(await readFile(join(dir, 'rules', rule), 'utf8'), rule).toBe(await readFile(join(templates, rule), 'utf8'));
+    }
   });
 
   test('default checkride spec pins the exact product version (no caret)', async () => {

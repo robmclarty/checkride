@@ -597,7 +597,20 @@ async function writeSharedStatic(w: Writer): Promise<void> {
   ];
   // Independent writes to distinct paths — run them concurrently.
   await Promise.all(map.map(([from, to]) => put(w, to, readTemplate(from))));
-  const rules = ['no-class.yml', 'no-default-export.yml', 'no-deep-sibling-import.yml', 'require-js-extension.yml'];
+  // The style rules, then the layout and barrel rules: where a test lives, and
+  // what an index.ts may hold. New mode only; existing mode's `struct` ships one.
+  const rules = [
+    'no-class.yml',
+    'no-default-export.yml',
+    'no-deep-sibling-import.yml',
+    'require-js-extension.yml',
+    'colocate-unit-tests.yml',
+    'tests-dir-is-src-only.yml',
+    'test-dir-layout.yml',
+    'no-spec-suffix.yml',
+    'src-never-imports-test.yml',
+    'no-logic-in-barrel.yml',
+  ];
   await Promise.all(rules.map((rule) => put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)))));
 }
 

@@ -1,0 +1,18 @@
+id: colocate-unit-tests
+message: |
+  Unit tests live in a `__tests__/` folder beside the code they cover
+  (`src/plan/parse.ts` -> `src/plan/__tests__/parse.test.ts`). Tests that span
+  modules belong under `test/integration/`, `test/e2e/` or `test/contract/`.
+note: |
+  A location rule: `kind: program` matches every file, so `files` and
+  `ignores` alone decide what fires. `ast-grep test` can't see file paths, so
+  check it by scanning a real tree, not with rule-test snippets.
+severity: error
+language: typescript
+files:
+  - '**/src/**/*.test.ts'
+ignores:
+  - '**/src/**/__tests__/**'
+  - '**/test/fixtures/**'
+rule:
+  kind: program

@@ -1,0 +1,13 @@
+id: no-spec-suffix
+message: 'One test suffix: rename `*.spec.ts` to `*.test.ts`.'
+note: |
+  A location rule, like `colocate-unit-tests`: `files` and `ignores` alone
+  decide what fires.
+severity: error
+language: typescript
+files:
+  - '**/*.spec.ts'
+ignores:
+  - '**/test/fixtures/**'
+rule:
+  kind: program

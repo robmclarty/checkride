@@ -1,0 +1,35 @@
+id: src-never-imports-test
+message: |
+  Shipped code never imports from `test/`: fixtures and helpers must not leak
+  into the published package. Unit tests in `__tests__/` may.
+note: |
+  Each `any` branch matches the string node directly with `regex:`. Don't
+  share one metavariable across the branches under a `constraints:` regex:
+  ast-grep binds the first pattern that matches structurally, and when the
+  regex rejects it, ast-grep doesn't try the next branch.
+severity: error
+language: typescript
+files:
+  - '**/src/**/*.ts'
+ignores:
+  - '**/src/**/__tests__/**'
+  - '**/test/fixtures/**'
+rule:
+  any:
+    - all:
+        - kind: string
+        - regex: "^['\"](\\.\\./)+test/"
+        - inside:
+            any:
+              - kind: import_statement
+              - kind: export_statement
+    - all:
+        - kind: call_expression
+        - has:
+            field: function
+            kind: import
+        - has:
+            field: arguments
+            has:
+              kind: string
+              regex: "^['\"](\\.\\./)+test/"
