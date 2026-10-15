@@ -32,7 +32,7 @@ const PROBE: Record<string, string> = {
   'README.md': '#Malformed heading\n* a list\nA [dead link](./missing.md) to recieve.\n',
   // lint: a debugger statement. dead: a dependency no package.json lists.
   // struct: a default export, a class, an extensionless import and a deep
-  // sibling import.
+  // sibling import. typecheck-tests: three imports that resolve to nothing.
   'src/index.ts': [
     "import { leftPad } from 'left-pad';",
     "import { helper } from './helper';",
@@ -59,14 +59,32 @@ const PROBE: Record<string, string> = {
 };
 
 /** The checks the probe fails when it sits outside `test/fixtures/`. */
-const PROBED_CHECKS = ['dead', 'docs', 'links', 'lint', 'spell', 'struct', 'test'];
+const PROBED_CHECKS = ['dead', 'docs', 'links', 'lint', 'spell', 'struct', 'test', 'typecheck-tests'];
+
+/** The scaffold's slots. The config `init` writes names each of them, so none runs on detection. */
+const SLOT_CHECKS = ['types', 'lint', 'struct', 'dead', 'test', 'docs', 'links', 'spell'];
 
 /**
- * The tag every check's status line ends with, by check name: the scaffold's
- * checks are the seven the probe fails and `types`, and the config `init`
- * writes names each of them, so none runs on detection.
+ * The tag every check's status line ends with, by check name: `[config]` for
+ * each slot, and `[custom]` for `typecheck-tests`, the check the config adds
+ * beside them.
  */
-const ALL_CONFIG = Object.fromEntries(['types', ...PROBED_CHECKS].map((name) => [name, '[config]']));
+const TAGS = { ...Object.fromEntries(SLOT_CHECKS.map((name) => [name, '[config]'])), 'typecheck-tests': '[custom]' };
+
+/**
+ * A test vitest passes, because it strips types without checking them, so
+ * only a type check can fail it. That is the gap `typecheck-tests` closes.
+ */
+const TYPE_ERROR_TEST = [
+  "import { expect, test } from 'vitest';",
+  '',
+  "const answer: number = 'forty-two';",
+  '',
+  "test('runs without a type check', () => {",
+  "  expect(answer).toBe('forty-two');",
+  '});',
+  '',
+].join('\n');
 
 /** The ast-grep rules it breaks there, each of which must ignore fixtures. */
 const PROBED_RULES = ['no-class', 'no-deep-sibling-import', 'no-default-export', 'require-js-extension', 'test-dir-layout'];
@@ -122,9 +140,15 @@ async function firedRules(dir: string): Promise<string[]> {
   return [...new Set(matches.map((m) => m.ruleId))];
 }
 
-async function plant(dir: string, at: string): Promise<void> {
+/** The files the last run's `typecheck-tests` reported an error in, read from tsc's `<file>(<line>,<col>): error` lines. */
+async function typeErrorFiles(dir: string): Promise<Set<string>> {
+  const output = await readFile(join(dir, '.check', 'typecheck-tests.stdout.txt'), 'utf8');
+  return new Set([...output.matchAll(/^(\S+)\(\d+,\d+\): error TS\d+/gm)].map((m) => m[1] ?? ''));
+}
+
+async function plant(dir: string, at: string, files: Record<string, string> = PROBE): Promise<void> {
   await Promise.all(
-    Object.entries(PROBE).map(async ([rel, body]) => {
+    Object.entries(files).map(async ([rel, body]) => {
       const file = join(dir, at, rel);
       await mkdir(dirname(file), { recursive: true });
       await writeFile(file, body);
@@ -141,18 +165,26 @@ for (const { shape, homes } of SHAPES) {
     });
     afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 
-    test('init -> pnpm install -> checkride exits 0, and every check line says [config]', async () => {
-      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: ALL_CONFIG });
+    test('init -> pnpm install -> checkride exits 0, with every slot tagged [config] and typecheck-tests [custom]', async () => {
+      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: TAGS });
+    });
+
+    test('a type error in test/integration/ fails typecheck-tests and nothing else', async () => {
+      const planted = homes.map((home) => join(home, 'test', 'integration', 'typed.test.ts'));
+      await Promise.all(homes.map((home) => plant(dir, join(home, 'test', 'integration'), { 'typed.test.ts': TYPE_ERROR_TEST })));
+      expect(await check(dir)).toEqual({ code: 1, failed: ['typecheck-tests'], tags: TAGS });
+      expect(await typeErrorFiles(dir)).toEqual(new Set(planted));
+      await Promise.all(homes.map((home) => rm(join(dir, home, 'test', 'integration'), { recursive: true })));
     });
 
     test('a broken probe fails every tool outside test/fixtures/ and none inside it', async () => {
       await Promise.all(homes.map((home) => plant(dir, join(home, 'test', 'probe'))));
-      expect(await check(dir)).toEqual({ code: 1, failed: PROBED_CHECKS, tags: ALL_CONFIG });
+      expect(await check(dir)).toEqual({ code: 1, failed: PROBED_CHECKS, tags: TAGS });
       expect(await firedRules(dir)).toEqual(expect.arrayContaining(PROBED_RULES));
       await Promise.all(homes.map((home) => rm(join(dir, home, 'test', 'probe'), { recursive: true })));
 
       await Promise.all(homes.map((home) => plant(dir, join(home, 'test', 'fixtures', 'probe'))));
-      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: ALL_CONFIG });
+      expect(await check(dir)).toEqual({ code: 0, failed: [], tags: TAGS });
     });
   });
 }

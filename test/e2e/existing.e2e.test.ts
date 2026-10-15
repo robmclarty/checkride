@@ -30,8 +30,12 @@ describe('existing-project adoption', () => {
   });
 
   test('existing-failing: init disables a failing slot, then checkride is green', async () => {
-    // Start from a green flat project and install its tools.
+    // Start from a green flat project and install its tools. New mode names
+    // every check in checkride.config.json, and existing mode keeps a config it
+    // finds, so take it away: the project stands in for a repo with tools and
+    // no checkride config yet.
     await execFileP('node', [CLI, 'init', '--shape', 'flat', '--name', 't'], { cwd: dir, ...BIG });
+    await rm(join(dir, 'checkride.config.json'));
     const pkgPath = join(dir, 'package.json');
     const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { devDependencies?: Record<string, string> };
     if (pkg.devDependencies) delete pkg.devDependencies['checkride'];

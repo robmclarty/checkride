@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 18 — feat(init): write a config naming every scaffolded slot in new mode
+**Current step:** 19 — feat(init): type-check scaffolded tests outside src
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -40,7 +40,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 15. test(init): verify the location rules by scanning a real tree
 - ☑ 16. docs(init): describe the shipped layout and rules
 - ☑ 17. chore(test): adopt the test layout in this repo
-- ☐ 18. feat(init): write a config naming every scaffolded slot in new mode
+- ☑ 18. feat(init): write a config naming every scaffolded slot in new mode
 - ☐ 19. feat(init): type-check scaffolded tests outside src
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
 - ☐ 21. refactor(packs): split the adapter registry into ts and repo packs
@@ -116,6 +116,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] orchestrator.test.ts 'summary array order is deterministic under randomized completion' flakes under full-suite coverage load: its 10ms-spaced timers finished b/c swapped once in step 16's gate; widen the spacing or assert only the summary order
 - [x] rules/no-logic-in-barrel.yml is weaker than the shipped copy (it misses top-level and exported const); the shipped rule scans this repo with 0 findings, so the repo could run it as is
 - [x] nothing holds rules/'s five test-layout copies byte-equal to templates/shared/rules/; a dogfood-config check like the vale one would keep this repo running the shipped rules
+- [ ] src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules (writeSharedStatic); it has written ten since step 12
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -1103,3 +1104,52 @@ folder, so it rides the branch into the PR.)*
   **5.** I parked two dogfood follow-ups instead of widening the step
 
   The first aligns `rules/no-logic-in-barrel.yml` with the shipped rule, which also catches a top-level or exported `const` and finds nothing in this repo today. The second is a guard that holds the five copies byte-equal to the templates, like `dogfood-config`'s vale check. Without that guard, the CHANGELOG's "copied unchanged" stays true only until someone edits one copy.
+
+- 2026-10-15 — step 18 checkpointed · 71eef9f99 — feat(init): write a config naming every scaffolded slot in new mode (24m)
+
+  **Summary**: New-mode `init` now writes a `checkride.config.json` that names the scaffold's eight checks and their tools, so a fresh project's first run ends every check line in `[config]`. Existing mode writes its config through the same helper and is otherwise unchanged.
+
+  1. New mode writes the config, and refuses to overwrite one that is already there
+  2. One list now feeds the devDependencies, the config and the AGENTS.md stanza
+  3. The shapes e2e checks that every status line of every run ends in `[config]`
+  4. Both halves of the invariance golden held, so no golden update was needed
+  5. The docs name two consequences, and I checked both against a real scaffold first
+
+  **Readout**: Step 18 - feat(init): write a config naming every scaffolded slot in new mode
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored:
+               - D16 (provenance)
+               - D51 (golden-placement)
+               - D52 (e2e-cadence)
+  constraints  12 of 12 honored
+  seam         held: 5 of 5 declared, no strays
+  diff         +149 -25 across 5 files
+  spent        24 min · 1 turn · 30s gate · green first run
+  ```
+
+  **Verdict**: ● Plumb
+
+  **Recommendation**: Approve and checkpoint step 18. Every done-when clause has a test that fails when it breaks, the gate is green, and both the shapes e2e and the init half of the invariance e2e pass.
+
+  **1.** New mode writes the config, and refuses to overwrite one that is already there
+
+  `writeNewScaffold` now writes `checkride.config.json` right after `package.json`. The file opens with the `$schema` pointer pinned to the running version, the same one existing mode writes, then names `types: tsc`, `lint: oxlint`, `struct: ast-grep`, `dead: fallow`, `test: vitest`, `docs: markdownlint-cli2`, `links: links` and `spell: cspell`. The write sits inside `writeNewScaffold`, so the dry-run collision plan sees it too: a directory that already holds a `checkride.config.json` and no `package.json` now refuses with exit 2 unless `--force`, like every other scaffolded file. A new unit test holds that refusal, because moving the write out of the plan would still pass the config test while clobbering the user's file. The config test runs over all three shapes and pins the exact file. Then it checks the entries against detection: with no config, the scaffold resolves to exactly those eight slot and tool pairs, and with the written config every check resolves with origin `config`. The opt-in slots stay out on purpose. Naming `dupes` or `health`, which `fallow.toml` also detects, would opt them into the default run.
+
+  **2.** One list now feeds the devDependencies, the config and the AGENTS.md stanza
+
+  `scaffoldedAdapters` picks the first adapter the registry lists for each non-opt-in slot. That is the rule `collectDevDeps` already used for the devDependencies. `collectDevDeps` now takes that list, `newConfig` names it, and the AGENTS.md stanza takes its slots in place of the hardcoded `DEFAULT_ACTIVE_SLOTS`, which I deleted. The stanza text is unchanged (the existing flat test still asserts its exact "Active checks" line), but the three can no longer drift apart. Existing mode's config write now goes through the same `configFile` helper and writes the same bytes as before, and every existing-mode test passes unchanged. The stanza rewiring and the shared helper go a little past the done-when. Both stay inside `src/init.ts` and change no behavior, and I can back them out if you'd rather keep the diff to the config alone.
+
+  **3.** The shapes e2e checks that every status line of every run ends in `[config]`
+
+  `check()` in `shapes.e2e.test.ts` now captures stderr and reads the closing tag of each status line, keyed by check name. Every comparison in the file now includes `tags: ALL_CONFIG`: the green run after `pnpm install`, the red probe run and the fixtures run, so a red line has to say `[config]` too. All six cases pass. To prove the assertion can fail, I scaffolded a flat project from the built CLI and ran it with the config deleted: all eight lines came back `[detected: …]` or `[built-in]`. The parser matches only lines that open with two spaces and `✔` or `✘`. That skips the `▸` progress lines and the closing `✔ all checks passed` line, which has no indent.
+
+  **4.** Both halves of the invariance golden held, so no golden update was needed
+
+  D51 (golden-placement) lets Phase 4 steps update the init-shape entries, so I checked whether this step had to. The resolution half (`invariance.contract.test.ts`, which `pnpm check` runs) passes unchanged for `init:flat`, `init:monorepo` and `init:hybrid`. The config names the same adapters detection picked, so names, order, argv and output files don't move. The summary half (`invariance.e2e.test.ts`, run with `-t init:`) passes too, because it strips `origin` and `detected_by` before comparing. Neither fixture under `test/fixtures/invariance/` changed.
+
+  **5.** The docs name two consequences, and I checked both against a real scaffold first
+
+  `docs/getting-started.md` shows the written file under "A new project", with `v<version>` in the `$schema` URL, and says what follows from it, as the slot provenance draft asked. With the config in place and `sgconfig.yml` deleted, `struct` goes red and the run exits 1. Without the config, detection skips `struct` and the run passes as "only 7 of 8 checks ran". With `.oxlintrc.json` deleted, `lint` keeps running on oxlint's defaults. I kept "no longer" out of the knip example: by registry order, fallow already beat knip in a scaffold, so the new part is the pin, not the behavior. The CHANGELOG's Changed entry says it the same way, and adds the refusal and that existing mode is unchanged.

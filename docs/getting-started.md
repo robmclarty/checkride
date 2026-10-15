@@ -166,12 +166,18 @@ and the tool that runs it:
     "test": "vitest",
     "docs": "markdownlint-cli2",
     "links": "links",
-    "spell": "cspell"
+    "spell": "cspell",
+    "typecheck-tests": {
+      "command": "pnpm",
+      "args": ["exec", "tsc", "-p", "tsconfig.test.json"],
+      "description": "Type-check the tests outside src/",
+      "note": "tsconfig.json covers src/ alone, and vitest runs a test without type-checking it, so this is what type-checks test/."
+    }
   }
 }
 ```
 
-That file is the one place to read what runs, and every check line of
+That file is the one place to read what runs, and each slot's check line in
 `pnpm check` ends in `[config]` to say so. Because the file, not detection,
 picks each slot's tool, two things follow. A tool you add later doesn't take a
 slot over: drop in a `knip.json` and `dead` stays on fallow until you change
@@ -180,6 +186,14 @@ without `sgconfig.yml`, `struct` fails instead of skipping, and without
 `.oxlintrc.json`, oxlint lints on its own defaults. The opt-in slots, which the
 file doesn't name, still find their tool by detection when you `--include`
 them.
+
+The last entry fills no slot. `tsconfig.json` covers `src/` alone, and vitest
+runs a test without type-checking it, so without this check a type error in a
+test under `test/` would pass the run. `typecheck-tests` runs `tsc` over
+`tsconfig.test.json`, which `init` writes beside `tsconfig.json`. That file
+takes in `src/` and `test/` in every package and skips `test/fixtures/`, as
+every tool `init` configures does. The check's line ends in `[custom]`, the
+tag every custom check carries.
 
 ## The daily loop
 

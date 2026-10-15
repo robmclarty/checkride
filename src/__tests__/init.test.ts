@@ -324,7 +324,7 @@ describe('new-project generation (flat)', () => {
     const result = await runInit({ cwd: dir, shape: 'flat', name: 'demo', checkrideSpec: '^0.1.0' });
     expect(result.mode).toBe('new');
     expect(result.shape).toBe('flat');
-    for (const f of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'fallow.toml', 'pnpm-workspace.yaml', '.oxlintrc.json', 'cspell.json', 'vitest.config.ts', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'LICENSE', 'src/index.ts', 'src/demo.ts', 'src/__tests__/demo.test.ts', 'rules/no-class.yml']) {
+    for (const f of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'tsconfig.test.json', 'fallow.toml', 'pnpm-workspace.yaml', '.oxlintrc.json', 'cspell.json', 'vitest.config.ts', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'LICENSE', 'src/index.ts', 'src/demo.ts', 'src/__tests__/demo.test.ts', 'rules/no-class.yml']) {
       expect(existsSync(join(dir, f)), f).toBe(true);
     }
     // colocate-unit-tests would fail the scaffold's own struct check on a loose test.
@@ -336,7 +336,7 @@ describe('new-project generation (flat)', () => {
     expect(pkg.devDependencies['oxlint']).toBeDefined();
 
     const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
-    expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell.');
+    expect(agents).toContain('Active checks in this repo: types, lint, struct, dead, test, docs, links, spell, typecheck-tests.');
     expect(agents).toContain('`pnpm exec checkride triage` runs this procedure in full');
   });
 
@@ -349,31 +349,52 @@ describe('new-project generation (flat)', () => {
     }
   });
 
-  test.each(['flat', 'monorepo', 'hybrid'] as const)('writes a config naming every slot the scaffold enables (%s)', async (shape) => {
+  test.each(['flat', 'monorepo', 'hybrid'] as const)('writes a config naming every slot the scaffold enables, then typecheck-tests (%s)', async (shape) => {
     await runInit({ cwd: dir, shape, name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
     const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
     const own: { version: string } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
+    const slots = {
+      types: 'tsc',
+      lint: 'oxlint',
+      struct: 'ast-grep',
+      dead: 'fallow',
+      test: 'vitest',
+      docs: 'markdownlint-cli2',
+      links: 'links',
+      spell: 'cspell',
+    };
     expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).toEqual({
       $schema: configSchemaUrl(own.version),
       checks: {
-        types: 'tsc',
-        lint: 'oxlint',
-        struct: 'ast-grep',
-        dead: 'fallow',
-        test: 'vitest',
-        docs: 'markdownlint-cli2',
-        links: 'links',
-        spell: 'cspell',
+        ...slots,
+        'typecheck-tests': {
+          command: 'pnpm',
+          args: ['exec', 'tsc', '-p', 'tsconfig.test.json'],
+          description: 'Type-check the tests outside src/',
+          note: expect.any(String),
+        },
       },
     });
+    expect(await readFile(join(dir, 'tsconfig.test.json'), 'utf8')).toBe(
+      await readFile(join(repoRoot, 'templates', 'shared', 'tsconfig-test.json'), 'utf8'),
+    );
 
-    // Detection alone would run exactly these checks off the scaffold's own
+    // Detection alone would run exactly these slots off the scaffold's own
     // files, and with the config each one runs because the config names it.
     const defaultRun = (config: CheckrideConfig | null): ResolvedCheck[] =>
       selectChecks(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir }), {});
-    const written = loadConfig(dir);
-    expect(Object.fromEntries(defaultRun(null).map((r) => [r.slot, r.adapter?.name]))).toEqual(written?.checks);
-    expect(new Set(defaultRun(written).map((r) => r.origin))).toEqual(new Set(['config']));
+    expect(Object.fromEntries(defaultRun(null).map((r) => [r.slot, r.adapter?.name]))).toEqual(slots);
+    expect(Object.fromEntries(defaultRun(loadConfig(dir)).map((r) => [r.slot, r.origin]))).toEqual({
+      ...Object.fromEntries(Object.keys(slots).map((slot) => [slot, 'config'])),
+      'typecheck-tests': 'custom',
+    });
+  });
+
+  test.each(['flat', 'monorepo', 'hybrid'] as const)('the stanza lists every check the config names, so agent-setup finds it current (%s)', async (shape) => {
+    await runInit({ cwd: dir, shape, name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
+    const setup = await runAgentSetup({ cwd: dir, hook: false });
+    expect(setup.written).toEqual([]);
+    expect(setup.skipped).toContain('AGENTS.md (stanza unchanged)');
   });
 
   test('default checkride spec pins the exact product version (no caret)', async () => {

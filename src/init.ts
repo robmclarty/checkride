@@ -27,6 +27,7 @@ import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/in
 import type { HarnessName } from './gate.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
+import type { CustomCheck, SlotConfig } from './config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
@@ -403,7 +404,7 @@ function productVersion(): string {
 }
 
 /** A generated `checkride.config.json`, in either mode: the version-pinned `$schema` pointer, then `checks`. */
-function configFile(checks: Record<string, string | false>): string {
+function configFile(checks: Record<string, SlotConfig>): string {
   return `${JSON.stringify({ $schema: configSchemaUrl(productVersion()), checks }, null, 2)}\n`;
 }
 
@@ -594,8 +595,11 @@ async function put(w: Writer, relPath: string, content: string): Promise<void> {
 }
 
 async function writeSharedStatic(w: Writer): Promise<void> {
+  // `pack` refuses a `.ts` file or a `.test.` name in this package's tarball,
+  // so those templates take another name here and get their real one on write.
   const map: [string, string][] = [
     ['shared/tsconfig.base.json', 'tsconfig.base.json'],
+    ['shared/tsconfig-test.json', 'tsconfig.test.json'],
     ['shared/oxlintrc.json', '.oxlintrc.json'],
     ['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc'],
     ['shared/sgconfig.yml', 'sgconfig.yml'],
@@ -706,8 +710,9 @@ function record(w: Writer, files: readonly HookFile[], skipped?: string[]): void
  * The adapter new mode sets up for each default slot: the first the registry
  * lists for it, the blessed default whose config file the scaffold writes
  * (`links` needs none). The root package.json pins their devDependencies,
- * `checkride.config.json` names them, and the AGENTS.md stanza lists their
- * slots, so the three can't disagree about what a new project runs.
+ * `checkride.config.json` names them, and the AGENTS.md stanza lists every
+ * check the config names, so the three can't disagree about what a new
+ * project runs.
  */
 function scaffoldedAdapters(adapters: readonly Adapter[], slots: readonly Slot[]): Adapter[] {
   return slots
@@ -716,13 +721,29 @@ function scaffoldedAdapters(adapters: readonly Adapter[], slots: readonly Slot[]
 }
 
 /**
- * Name every scaffolded slot's adapter in `checks`, as existing mode names the
- * tools it adopts. Each check then runs because the config says so, not because
- * detection found its file: a tool added later for one of these slots doesn't
- * take it over, and a deleted tool config doesn't drop its check from the run.
+ * The one check new mode writes that fills no slot. The scaffold's
+ * `tsconfig.json` covers `src/` alone, and vitest runs a test without
+ * type-checking it, so a type error in a test under `test/` would pass every
+ * slot. This runs tsc over `tsconfig.test.json`, which takes in `src/` and
+ * `test/` in every package and leaves out `test/fixtures/`, as every tool the
+ * scaffold configures does.
  */
-function newConfig(scaffolded: readonly Adapter[]): string {
-  return configFile(Object.fromEntries(scaffolded.map((a) => [a.slot, a.name])));
+const TYPECHECK_TESTS: CustomCheck = {
+  command: 'pnpm',
+  args: ['exec', 'tsc', '-p', 'tsconfig.test.json'],
+  description: 'Type-check the tests outside src/',
+  note: 'tsconfig.json covers src/ alone, and vitest runs a test without type-checking it, so this is what type-checks test/.',
+};
+
+/**
+ * The `checks` new mode writes: every scaffolded slot naming its adapter, as
+ * existing mode names the tools it adopts, then `typecheck-tests`. Each slot
+ * then runs because the config says so, not because detection found its file:
+ * a tool added later for one of these slots doesn't take it over, and a
+ * deleted tool config doesn't drop its check from the run.
+ */
+function newChecks(scaffolded: readonly Adapter[]): Record<string, SlotConfig> {
+  return { ...Object.fromEntries(scaffolded.map((a) => [a.slot, a.name])), 'typecheck-tests': TYPECHECK_TESTS };
 }
 
 /** The derived inputs a new-project scaffold is generated from. */
@@ -741,6 +762,7 @@ type NewScaffold = {
 /** Emit every scaffold file for the shape into `w` (records paths; obeys dryRun). */
 async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
   const scaffolded = scaffoldedAdapters(s.adapters, s.slots);
+  const checks = newChecks(scaffolded);
   await writeSharedStatic(w);
   await put(w, 'tsconfig.json', render(readTemplate(join(s.shape, 'tsconfig.json')), { name: s.name }));
   await put(w, 'fallow.toml', render(readTemplate(join(s.shape, 'fallow.toml')), { name: s.name }));
@@ -748,10 +770,10 @@ async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
 
   await put(w, 'cspell.json', cspellWithName(s.name, s.scope));
   await put(w, 'package.json', rootPackageJson(s.fullName, s.license, s.author, collectDevDeps(scaffolded, s.checkrideSpec), s.shape !== 'flat'));
-  await put(w, 'checkride.config.json', newConfig(scaffolded));
+  await put(w, 'checkride.config.json', configFile(checks));
   await put(w, 'LICENSE', licenseText(s.license, s.author ?? s.fullName));
   await put(w, 'README.md', readme(s.name));
-  await put(w, 'AGENTS.md', agentsMd(scaffolded.map((a) => a.slot)));
+  await put(w, 'AGENTS.md', agentsMd(Object.keys(checks)));
   await put(w, 'CLAUDE.md', claudeMd());
 
   if (s.shape === 'flat') {

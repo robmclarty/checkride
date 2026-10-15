@@ -468,7 +468,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ],
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
@@ -485,6 +486,7 @@
         {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
         {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null},
         {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
         {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -500,7 +502,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ]
     }
   },
@@ -515,7 +518,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ],
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
@@ -532,6 +536,7 @@
         {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
         {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null},
         {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
         {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -547,7 +552,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ]
     }
   },
@@ -562,7 +568,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ],
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
@@ -579,6 +586,7 @@
         {"name":"prose","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"security","adapter":"pnpm-audit","output_file":"security.json"},
         {"name":"snippets","adapter":"snippets","output_file":"snippets.json"},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null},
         {"name":"build","adapter":"build","argv":["pnpm","--config.verify-deps-before-run=false","run","build"],"output_file":null},
         {"name":"publint","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"attw","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -594,7 +602,8 @@
         {"name":"test","adapter":"vitest","argv":["pnpm","--config.verify-deps-before-run=false","exec","vitest","run","--coverage","--reporter=default","--reporter=json","--outputFile=.check/test.json","--changed","origin/main"],"output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","argv":["pnpm","--config.verify-deps-before-run=false","exec","markdownlint-cli2"],"output_file":null},
         {"name":"links","adapter":"links","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null}
+        {"name":"spell","adapter":"cspell","argv":["pnpm","--config.verify-deps-before-run=false","exec","cspell","--no-progress","--no-summary","--reporter=default"],"output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","-p","tsconfig.test.json"],"output_file":null}
       ]
     }
   }

@@ -207,7 +207,7 @@
       "schema_version": 1,
       "timestamp": "<volatile>",
       "ok": true,
-      "checks_run": 8,
+      "checks_run": 9,
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
@@ -217,7 +217,8 @@
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","description":"Type-check the tests outside src/","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
       ]
     }
   },
@@ -228,7 +229,7 @@
       "schema_version": 1,
       "timestamp": "<volatile>",
       "ok": true,
-      "checks_run": 8,
+      "checks_run": 9,
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
@@ -238,7 +239,8 @@
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","description":"Type-check the tests outside src/","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
       ]
     }
   },
@@ -249,7 +251,7 @@
       "schema_version": 1,
       "timestamp": "<volatile>",
       "ok": true,
-      "checks_run": 8,
+      "checks_run": 9,
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
@@ -259,7 +261,8 @@
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"docs","adapter":"markdownlint-cli2","description":"Markdown linting","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"links","adapter":"links","description":"Relative markdown link targets exist on disk","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"links.json"},
-        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
+        {"name":"spell","adapter":"cspell","description":"Spell check","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
+        {"name":"typecheck-tests","adapter":"custom:typecheck-tests","description":"Type-check the tests outside src/","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null}
       ]
     }
   }

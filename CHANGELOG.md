@@ -117,15 +117,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the eight slots the scaffold sets up, naming its tool: `"types": "tsc"`,
   `"lint": "oxlint"`, `"struct": "ast-grep"`, `"dead": "fallow"`,
   `"test": "vitest"`, `"docs": "markdownlint-cli2"`, `"links": "links"` and
-  `"spell": "cspell"`. Every check line of a fresh project's run now ends in
-  `[config]` instead of a detection tag, so the file says what runs, and each
-  entry pins its tool against a tool added later or a change in how checkride
-  detects. A check also stays in the run when its tool's config file is
-  deleted: without `sgconfig.yml`, `struct` now fails where it used to skip.
+  `"spell": "cspell"`. Every slot's check line in a fresh project's run now
+  ends in `[config]` instead of a detection tag, so the file says what runs,
+  and each entry pins its tool against a tool added later or a change in how
+  checkride detects. A check also stays in the run when its tool's config file
+  is deleted: without `sgconfig.yml`, `struct` now fails where it used to skip.
   Like every other file it scaffolds, `init` refuses to overwrite an existing
   `checkride.config.json` without `--force`. Existing mode already wrote the
   file and is unchanged, and no existing repo's config is rewritten.
   `docs/getting-started.md` shows the file and what follows from it.
+- **New projects type-check the tests outside `src/`.** `init` in an empty
+  directory now writes a `tsconfig.test.json` and adds a `typecheck-tests`
+  custom check to `checkride.config.json` that runs `tsc` over it. The
+  scaffold's `tsconfig.json` covers `src/` alone, and vitest runs a test
+  without type-checking it, so until now a type error in a test under `test/`
+  passed every check. `tsconfig.test.json` takes in `src/` and `test/` in
+  every package and skips `test/fixtures/`, like every other tool `init`
+  configures. The check's status line ends in `[custom]`, and the AGENTS.md
+  stanza lists it after the slots. Existing mode is unchanged.
+  `docs/getting-started.md` shows the entry.
 - **`no-deep-sibling-import` leaves imports into `test/` alone.** `test/`
   isn't a sibling module, so the rule no longer flags an import like
   `'../../test/helpers/make.js'`. `src-never-imports-test` judges those
