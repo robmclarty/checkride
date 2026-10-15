@@ -8,12 +8,13 @@
  * fields are added in lockstep with the schema, never renamed, removed, or
  * retyped without a `schema_version` bump.
  *
- * The contract doc's two field tables are held to the same schema: each must
- * name exactly the schema's properties, and say "always" for exactly its
- * required ones. A field added to the schema without a row in the doc, or a
- * row left behind for a field the schema dropped, fails here.
+ * The contract doc's field tables are held to the same schema: each must name
+ * exactly the properties of the object it describes, and say "always" for
+ * exactly its required ones. A field added to the schema without a row in the
+ * doc, or a row left behind for a field the schema dropped, fails here.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -32,7 +33,7 @@ const contractPath = join(here, '..', '..', 'docs', 'contract.md');
 
 type ObjectSchema = { properties: Record<string, unknown>; required: string[] };
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as ObjectSchema & {
-  definitions: { check: ObjectSchema };
+  definitions: Record<'check' | 'run' | 'git' | 'base', ObjectSchema>;
 };
 
 const ajv = new Ajv({ allErrors: true });
@@ -67,9 +68,26 @@ function sleeper(ms: number, order = 1): Record<string, unknown> {
   return { command: 'node', args: ['-e', `setTimeout(() => {}, ${ms})`], order };
 }
 
+/** A custom check that exits with `code`. */
+function exits(code: number, order = 1): Record<string, unknown> {
+  return { command: 'node', args: ['-e', `process.exit(${code})`], order };
+}
+
+/** Run git in `dir` as a fixed identity with signing off, so a commit works on any machine; its trimmed stdout. */
+function git(dir: string, ...args: string[]): string {
+  return execFileSync(
+    'git',
+    ['-c', 'user.name=contract', '-c', 'user.email=contract@example.com', '-c', 'commit.gpgsign=false', ...args],
+    { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+  ).trim();
+}
+
 describe('docs/contract.md lists every summary field', () => {
   const tables = [
     ['top-level', '**Top-level fields.**', schema],
+    ['run', '**`run` fields.**', schema.definitions.run],
+    ['git', '**`git` fields.**', schema.definitions.git],
+    ['git.base', '**`git.base` fields.**', schema.definitions.base],
     ['per-check', '**Per-check fields.**', schema.definitions.check],
   ] as const;
 
@@ -91,8 +109,9 @@ describe('summary.json shape', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-summary-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  async function runAndValidate(argv: string[]): Promise<Record<string, unknown>> {
-    await runCli(argv, { cwd: dir, stdout: sink(), stderr: sink() });
+  /** Run with `env` alone as the environment checkride reads, so an exported `CHECKRIDE_*` can't leak in. */
+  async function runAndValidate(argv: string[], env: Record<string, string> = {}): Promise<Record<string, unknown>> {
+    await runCli(argv, { cwd: dir, stdout: sink(), stderr: sink(), env });
     const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as Record<string, unknown>;
     const valid = validate(summary);
     expect(validate.errors ?? []).toEqual([]);
@@ -159,6 +178,87 @@ describe('summary.json shape', () => {
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false } }));
     const summary = await runAndValidate([]);
     expect(summary).toMatchObject({ ok: true, checks_run: 0 });
+  });
+
+  /**
+   * Contract: `run` records each selection flag the run was given and nothing
+   * for one it wasn't, with `partial` true when one narrowed the run (R8.1).
+   * The orchestrator suite holds `partial` equal to the ratchet's own test.
+   */
+  test.each([
+    { argv: [], run: { partial: false } },
+    { argv: ['--only', 'probe'], run: { partial: true, only: ['probe'] } },
+    { argv: ['--skip', 'links'], run: { partial: true, skip: ['links'] } },
+    { argv: ['--include', 'format'], run: { partial: false, include: ['format'] } },
+    { argv: ['--changed'], run: { partial: true, changed: true } },
+  ])('a run given $argv records run as $run, and no git outside a work tree', async ({ argv, run }) => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { probe: exits(0) } }));
+    const summary = await runAndValidate(argv);
+    expect(summary['run']).toEqual(run);
+    expect(summary['git']).toBeUndefined();
+  });
+
+  test('run records the config file the flag or the variable named, as an absolute path', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'ci.json'), JSON.stringify({ checks: { probe: exits(0) } }));
+    const config = join(dir, 'ci.json');
+    expect((await runAndValidate(['--config', 'ci.json']))['run']).toEqual({ partial: false, config });
+    expect((await runAndValidate([], { CHECKRIDE_CONFIG: 'ci.json' }))['run']).toEqual({ partial: false, config });
+  });
+
+  test('a --bail run is partial when it stops at a failure, and whole when nothing fails', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    const config = join(dir, 'checkride.config.json');
+    await writeFile(config, JSON.stringify({ checks: { links: false, first: exits(1, 1), second: exits(0, 2) } }));
+    expect((await runAndValidate(['--bail']))['run']).toEqual({ partial: true });
+    await writeFile(config, JSON.stringify({ checks: { links: false, first: exits(0, 1), second: exits(0, 2) } }));
+    expect((await runAndValidate(['--bail']))['run']).toEqual({ partial: false });
+  });
+
+  /** A repo with one commit, `.check/` ignored as `init` writes it; its head sha. */
+  async function committedRepo(): Promise<string> {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false, probe: exits(0) } }));
+    await writeFile(join(dir, '.gitignore'), '.check/\n');
+    git(dir, 'init', '-q', '-b', 'main');
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '--no-verify', '-m', 'contract');
+    return git(dir, 'rev-parse', 'HEAD');
+  }
+
+  /** Contract: a run in a git work tree records the commit it read and whether the tree held changes (R8.1). */
+  test('a run in a git work tree records its head, and dirty once the tree holds a change', async () => {
+    const head = await committedRepo();
+    expect((await runAndValidate([]))['git']).toEqual({ head, dirty: false });
+    await writeFile(join(dir, 'new.ts'), 'export const x = 1;\n');
+    expect((await runAndValidate([]))['git']).toEqual({ head, dirty: true });
+  });
+
+  test('under --changed, git records the base the run measured from', async () => {
+    const head = await committedRepo();
+    const summary = await runAndValidate(['--changed', '--base', 'HEAD']);
+    expect(summary['git']).toEqual({ head, dirty: false, base: { ref: 'HEAD', sha: head } });
+  });
+
+  test('a bare repository has no work tree, so it records no git, even when --changed resolves a base', async () => {
+    await committedRepo();
+    git(dir, 'clone', '-q', '--bare', '.', 'bare.git');
+    const bare = join(dir, 'bare.git');
+    await runCli(['--changed', '--base', 'HEAD'], { cwd: bare, stdout: sink(), stderr: sink(), env: {} });
+    const summary = JSON.parse(await readFile(join(bare, '.check', 'summary.json'), 'utf8')) as Record<string, unknown>;
+    expect(validate(summary)).toBe(true);
+    expect(summary['run']).toEqual({ partial: true, changed: true });
+    expect(summary['git']).toBeUndefined();
+  });
+
+  test('a repository with no commit yet records no git', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { probe: exits(0) } }));
+    git(dir, 'init', '-q', '-b', 'main');
+    const summary = await runAndValidate([]);
+    expect(summary['run']).toEqual({ partial: false });
+    expect(summary['git']).toBeUndefined();
   });
 
   test('the schema version constant is 1', () => {

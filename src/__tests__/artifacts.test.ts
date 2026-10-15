@@ -152,6 +152,7 @@ describe('runWindowStart', () => {
     ok: true,
     checks_run: 1,
     total_duration_ms: RUN_DURATION_MS,
+    run: { partial: false },
     checks: [],
   };
 

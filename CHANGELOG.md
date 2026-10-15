@@ -57,6 +57,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   measures from `HEAD` and warns on stderr instead of handing the tools a ref
   they can't read. The stop gate strips `CHECKRIDE_BASE` from the check it
   runs.
+- **A summary says what the run covered and which commit it read.** Every
+  `summary.json` now carries `run`, which lists the selection flags the run
+  was given (`--only`, `--skip`, `--include`, `--all`, `--changed`,
+  `--config`) and says `partial: true` when the run saw less than the whole
+  pipeline: `--only`, `--skip`, `--changed`, or `--bail` stopping at a
+  failure. That's the same test that keeps a run from ratcheting the
+  baseline, so the two never disagree. Inside a git work tree it also carries
+  `git`: the commit `HEAD` named, whether the tree held uncommitted or
+  untracked changes, and under `--changed` the base it measured from. git is
+  asked as the run starts, so a run normally waits no longer for it; it gets
+  5 seconds before `git` is left out (#6).
 
 ### Fixed
 
@@ -98,6 +109,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `origin/main`. The exported `RunOptions` type gains an optional `base`
   (`{ ref, from }`), and the `CheckRunner` context an optional `base`, present
   under `--changed`.
+- Additive: top-level summary fields `run`, always present with `partial`,
+  and `git` (`head`, `dirty`, and `base` as `{ ref, sha }` under `--changed`),
+  in the JSON Schema, the contract doc's field tables and
+  `summary.contract.test.ts`. The schema and the doc also define
+  `run.static_only`, `run.discover`, `run.defaults`, `run.pins` and `run.out`
+  for flags checkride doesn't have yet, so no run writes them. The exported
+  `Summary` type gains a required `run` and an optional `git`. A run whose
+  checks finish before git answers waits for it, and `total_duration_ms`
+  counts the wait, so `timestamp - total_duration_ms` stays the run's start.
 - Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
   fail the check under its argv, and `docs/contract.md` and
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline

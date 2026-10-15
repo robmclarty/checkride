@@ -503,7 +503,7 @@ Step 17 moves this repo's loose `test/*.test.ts` files. Later steps name test fi
      `test/contract/summary.contract.test.ts`, `test/contract/streams.contract.test.ts`,
      `docs/contract.md`, `CHANGELOG.md`
    - model: sonnet (specified by the slot provenance draft's feature 1)
-7. [ ] feat(changed): resolve one base ref for --changed and pass it as {base}, **done when:** the base resolves in [D18 (one-base)](#d18)'s order; vitest and jest `changedArgs` use `{base}`; with no flag, variable or config and a resolvable `origin/main`, argv equals 0.13's; an explicit base that doesn't resolve exits 2, and a defaulted `origin/main` that doesn't resolve falls back to `HEAD` with a stderr warning (F26); `src/git.ts` now hosts the git runner that `baseline/history.ts` owned
+7. [x] feat(changed): resolve one base ref for --changed and pass it as {base}, **done when:** the base resolves in [D18 (one-base)](#d18)'s order; vitest and jest `changedArgs` use `{base}`; with no flag, variable or config and a resolvable `origin/main`, argv equals 0.13's; an explicit base that doesn't resolve exits 2, and a defaulted `origin/main` that doesn't resolve falls back to `HEAD` with a stderr warning (F26); `src/git.ts` now hosts the git runner that `baseline/history.ts` owned
    - seam: `src/git.ts`, `src/baseline/history.ts`, `src/adapters.ts`,
      `src/orchestrator/spawn.ts`, `src/orchestrator/context.ts`, `src/cli.ts`, `src/config.ts`,
      `schema/checkride.config.schema.json`, `test/contract/flags.contract.test.ts`,

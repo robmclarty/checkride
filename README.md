@@ -295,6 +295,8 @@ fields are additive-only under a given `schema_version`.
     "ok": true,
     "checks_run": 8, // checks that actually executed
     "total_duration_ms": 4200,
+    "run": { "partial": false }, // the flags given, and whether they narrowed the run
+    "git": { "head": "…", "dirty": false }, // the commit the checks read, in a git work tree
     "checks": [
       { "name": "lint", "adapter": "oxlint", "description": "…",
         "ok": true, "exit_code": 0, "duration_ms": 470, "output_file": "lint.json" }

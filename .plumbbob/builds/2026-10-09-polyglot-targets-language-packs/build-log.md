@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 7 — feat(changed): resolve one base ref for --changed and pass it as {base}
+**Current step:** 8 — feat(summary): record the run's selection and git state
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -29,7 +29,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 4. fix(baseline): key only the oxlint and ast-grep findings that can fail
 - ☑ 5. docs(contract): list every summary field and hold the list with a test
 - ☑ 6. feat(report): record why each check runs as origin and detected_by
-- ☐ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
+- ☑ 7. feat(changed): resolve one base ref for --changed and pass it as {base}
 - ☐ 8. feat(summary): record the run's selection and git state
 - ☐ 9. feat(summary): record the argv each check spawned
 - ☐ 10. refactor(artifacts): route every artifact path through one output dir
@@ -106,6 +106,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - [x] summary schema's skipped description says 'did not execute', but a skipExitCode self-skip ran; reword when step 5 lists the summary fields
 - [x] list `baseline diff` in docs/cheatsheet.md and the README command table (step 3 documented it in contract.md, tools.md and --help only)
+- [ ] Steps 11 and 53-56 must write their run.<flag> field in runRecord (src/orchestrator/run.ts) and drop its 'no such flag yet' note in docs/contract.md; step 56 also adds --static-only to isPartialRun and the partial row
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -472,3 +473,64 @@ folder, so it rides the branch into the PR.)*
   **5.** Two source files sit outside the seam
 
   `src/orchestrator/execute.ts` builds the summary entry for an executed check, so it gains one `...provenanceFields(r)` spread. `src/orchestrator/index.ts` exports `provenanceTag`, so `doctor` reaches the shared rendering rule through the barrel rather than through a deep import. The S21 unit tests live in `config.test.ts`, `orchestrator.test.ts` and `doctor.test.ts`, and the F23 self-skip test's exact entry gained `origin: 'custom'`. The contract doc dates the new fields "(0.15.0)", which assumes your next `/version` is a minor.
+
+- 2026-10-15 — step 7 checkpointed · 3376c858b — feat(changed): resolve one base ref for --changed and pass it as {base} (1 drift, 7019m)
+
+  **Summary**: `--changed` now measures from one base ref, resolved in D18's order (`--base`, `CHECKRIDE_BASE`, config `changedBase`, `origin/main` when it resolves, then `HEAD`), and every check's `changedArgs` receive it as `{base}`. Every done-when clause has a passing test, the invariance golden confirms that a repo naming no base still spawns 0.13's argv, and the gate that landed the step ran green.
+
+  1. One resolver in `src/git.ts` picks the base and every check gets it as `{base}`
+  2. A named base that doesn't resolve exits 2; a missing `origin/main` falls back to `HEAD` with a warning
+  3. The gate strips `CHECKRIDE_BASE`, which R7.1 asks for though the done-when doesn't name it
+  4. The diff reaches past the declared seam in three places
+  5. The earlier reds were machine stalls, and the gate that landed the step ran green
+
+  **Readout**: Step 7 - feat(changed): resolve one base ref for --changed and pass it as {base}
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 15 paths outside the seam
+               - README.md
+               - docs/cheatsheet.md
+               - src/__tests__/baseline-history.test.ts
+               - src/__tests__/baseline.test.ts
+               - src/__tests__/gate.test.ts
+               - src/__tests__/recover.test.ts
+               - src/baseline-command.ts
+               - src/baseline/index.ts
+               - src/gate.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/execute.ts
+               - src/orchestrator/run.ts
+               - src/orchestrator/types.ts
+               - src/recover.ts
+               - src/__tests__/git.test.ts
+  diff         +598 -115 across 26 files
+  spent        116h 59m · 12 turns · 24s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Build step 8 next. It records the run's selection and git state, writing the base sha this step already resolves as `git.base`.
+
+  **1.** One resolver in `src/git.ts` picks the base and every check gets it as `{base}`
+
+  `resolveChangedBase` takes the named base (or `null`) and returns `{ ref, sha }` plus an optional warning. `runChecks` calls it right after `validateSelection`, so it runs before any side effect, and only under `--changed`. The config's `changedBase` is validated on every run, so a typo surfaces without `--changed`. `runtimeArgs(adapter, base)` now takes the ref (or `null` off `--changed`) and expands `{base}` anywhere inside a `changedArg`, so a custom check can write `--since={base}`. The vitest and jest rows say `{base}` where they said `origin/main`. The baseline fingerprint reads the same expanded argv, so oxlint's argv-dependent keying (step 4) sees what actually ran. The `CheckRunner` context gains an optional `base`, which is additive. The sha is resolved and held on the run context but not written anywhere yet; step 8 records it as `git.base`. Threading the base pushed `runOneCheck` to cyclomatic 10 (CRAP 31.6, a health finding), so the runner context moved into a small `runnerContext` helper, and `health` is green again.
+
+  **2.** A named base that doesn't resolve exits 2; a missing `origin/main` falls back to `HEAD` with a warning
+
+  A base named by `--base`, the variable or the config must name a commit, or the run throws `--base 'nope' doesn't name a commit` (or `CHECKRIDE_BASE …` / `config changedBase …`) and exits 2 before `.check/` exists. Outside a git repository a named base exits 2 with the git failure. With nothing named, `origin/main` is used when `git rev-parse --verify origin/main^{commit}` succeeds; otherwise the base is `HEAD` and stderr says `--changed: origin/main doesn't resolve, so changes are measured from HEAD; name a base with --base, CHECKRIDE_BASE or changedBase`. When `HEAD` names no commit either (no git, or an empty repo), the ref stays `HEAD` with a `null` sha and the warning says why. The warning prints under `--json` too, since stderr is never machine output. `--base ''` is a usage error, and a ref with a leading dash is refused before git sees it. `--base` without `--changed` is accepted and ignored, which I judged safe because it can only leave a run fuller, never narrower.
+
+  **3.** The gate strips `CHECKRIDE_BASE`, which R7.1 asks for though the done-when doesn't name it
+
+  R7.1 says the gate strips every variable in its table from the check it spawns, and step 2 started that list with `CHECKRIDE_CONFIG`. `CHECKRIDE_BASE` joins it, so a gate profile's `changed` measures from the repo's own base whatever a consumer exported. The gate's help and its unit test say so. It's one line in `src/gate.ts`, outside the seam.
+
+  **4.** The diff reaches past the declared seam in three places
+
+  `RunOptions`, the runner context and `maskOutcome` are where the flag meets the runner, so `src/orchestrator/types.ts`, `execute.ts` and `run.ts` had to change. Moving the git runner (`GitRunner`, `realGit`, `gitFailureError`) out of `baseline/history.ts` meant the baseline barrel stopped re-exporting it, so `src/recover.ts`, `src/baseline-command.ts` and three test files now import from `../git.js`. C11 (docs-in-step) brought in `docs/cheatsheet.md`, which lists every run flag, and the README config example, which showed `"changedArgs": ["--changed", "origin/main"]`. The new `src/__tests__/git.test.ts` holds eight resolver cases plus the moved `gitFailureError` test; `orchestrator.test.ts` gained `{base}` cases and a git-backed `--changed base` block; and the flags contract test gained seven cases on a real repo.
+
+  **5.** The earlier reds were machine stalls, and the gate that landed the step ran green
+
+  The first three `plumbbob check` runs went overnight, at load averages between 21 and 66 (`siriactionsd` near 95% CPU). Each passed every slot but `test`, which was killed at its 600s cap, and each logged one stall of about 1000s on something that normally takes seconds: publint, attw and pack in the first run, then a `baseline diff` contract case and a triage SIGTERM test, which looks like the laptop sleeping mid-run. The tests that failed before those kills were timing tests outside this diff (`src/triage` is untouched) or stalls. Run on their own, the suites this step touches passed: the full contract suite (all 58 flags cases), `invariance.contract.test.ts` (14 of 14 in 8s, `init:monorepo` included), and the git, gate, config, cli, orchestrator `--changed base`, baseline, baseline-history and recover tests. The first run also showed three lint errors (`consistent-function-scoping` on test helpers) and the health finding above, both fixed before the reruns. The step landed through `plumbbob checkpoint`'s own full gate, run with `caffeinate -i` holding off idle sleep, and that gate was green.

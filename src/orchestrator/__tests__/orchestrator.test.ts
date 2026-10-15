@@ -366,6 +366,24 @@ describe('runChecks (injected runner)', () => {
     // Rejected before any side effect: no `.check/` directory was created.
     expect(existsSync(join(dir, '.check'))).toBe(false);
   });
+
+  /** R8.1: `run` names each selection or mode flag given, and leaves out each one that wasn't. */
+  test('the summary records each flag the run was given, and nothing for one it wasn’t', async () => {
+    const plain = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(plain.summary.run).toEqual({ partial: false });
+
+    const configPath = join(dir, 'ci.json');
+    const flagged = await runChecks({
+      cwd: dir, slots, adapters, config: {}, configPath, runner: okRunner,
+      all: true, include: ['lint'], skip: ['types'], changed: true,
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(flagged.summary.run).toEqual({
+      partial: true, skip: ['types'], include: ['lint'], all: true, changed: true, config: configPath,
+    });
+  });
 });
 
 /** Slots + matching fake adapters from `[name, order]` pairs (order optional). */
@@ -1190,6 +1208,33 @@ describe('runChecks (baseline-aware)', () => {
       json: false, stdout: sink().out, stderr: std.out,
     });
     expect(std.lines.join('')).not.toContain('unparseable');
+  });
+
+  /**
+   * R8.1: `run.partial` is the ratchet's own partial-run test. Each run here
+   * holds a stale key that a whole run prunes, so whether the baseline file
+   * was rewritten is the ratchet's verdict, and `partial` must say the opposite.
+   */
+  test.each<{ label: string; flags: RunFlags; typesOk: boolean }>([
+    { label: 'a whole run', flags: {}, typesOk: true },
+    { label: '--only', flags: { only: ['lint'] }, typesOk: true },
+    { label: '--skip', flags: { skip: ['types'] }, typesOk: true },
+    { label: '--changed', flags: { changed: true }, typesOk: true },
+    { label: '--bail with nothing failing', flags: { bail: true }, typesOk: true },
+    { label: '--bail stopped at a failure', flags: { bail: true }, typesOk: false },
+  ])('run.partial agrees with the ratchet: $label', async ({ flags, typesOk }) => {
+    const lint = lintRunner(oneA);
+    const result = await runChecks({
+      cwd: dir,
+      slots: [...slots, { name: 'types' }],
+      adapters: [...adapters, fakeAdapter({ name: 'tsc', slot: 'types' })],
+      config: null,
+      runner: (r, c) =>
+        r.slot === 'types' ? Promise.resolve({ ok: typesOk, exit_code: typesOk ? 0 : 1, stdout: '', stderr: '' }) : lint(r, c),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      ...flags, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.run.partial).toBe(!existsSync(baselineFile()));
   });
 });
 

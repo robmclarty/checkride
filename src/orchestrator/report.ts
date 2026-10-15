@@ -9,7 +9,7 @@ import type { Adapter } from '../adapters.js';
 import { SCHEMA_VERSION } from '../adapters.js';
 import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { selectChecks } from './select.js';
-import type { Out, RunFlags, Summary, SummaryCheck } from './types.js';
+import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun } from './types.js';
 
 export function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
@@ -104,15 +104,24 @@ export function narrowedEntries(
  * `total_duration_ms` is the wall-clock span of the whole execution phase,
  * not the sum of per-check durations — under concurrency those diverge, and
  * wall-clock is what the field honestly means. It equals the per-check sum
- * whenever execution is sequential (one check in flight at a time).
+ * whenever execution is sequential (one check in flight at a time), unless the
+ * run had to wait for git's answer after its last check. `run` and `git` come
+ * before `checks`, so the head of the file says what the run covered.
  */
-export function buildSummary(checks: SummaryCheck[], totalDurationMs: number): Summary {
+export function buildSummary(
+  checks: SummaryCheck[],
+  totalDurationMs: number,
+  run: SummaryRun,
+  git: SummaryGit | null,
+): Summary {
   return {
     schema_version: SCHEMA_VERSION,
     timestamp: new Date().toISOString(),
     ok: checks.every((c) => c.ok),
     checks_run: checks.filter((c) => !c.skipped).length,
     total_duration_ms: totalDurationMs,
+    run,
+    ...(git !== null ? { git } : {}),
     checks,
   };
 }

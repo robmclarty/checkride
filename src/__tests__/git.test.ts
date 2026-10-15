@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { GitResult, GitRunner } from '../git.js';
-import { DEFAULT_BASE, gitFailureError, resolveChangedBase } from '../git.js';
+import { DEFAULT_BASE, gitFailureError, readGitState, resolveChangedBase } from '../git.js';
 
 const SHA = 'a'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
@@ -15,6 +15,21 @@ function revParseGit(refs: Record<string, string>, fail?: GitResult): GitRunner 
     const spec = args.at(-1) ?? '';
     const sha = refs[spec.replace(/\^\{commit\}$/, '')];
     return Promise.resolve(sha === undefined ? { ok: false, error: 'failed', detail: 'git rev-parse failed' } : { ok: true, stdout: `${sha}\n` });
+  };
+  return Object.assign(runner, { calls });
+}
+
+/** `stdout` as a successful git answer, or the failed result as given. */
+function answered(result: GitResult | string): GitResult {
+  return typeof result === 'string' ? { ok: true, stdout: result } : result;
+}
+
+/** A git whose `rev-parse` answers `head` and whose `status` answers `status`. */
+function stateGit(head: GitResult | string, status: GitResult | string): GitRunner & { calls: string[][] } {
+  const calls: string[][] = [];
+  const runner = (args: readonly string[]): Promise<GitResult> => {
+    calls.push([...args]);
+    return Promise.resolve(answered(args.includes('status') ? status : head));
   };
   return Object.assign(runner, { calls });
 }
@@ -82,5 +97,39 @@ describe('resolveChangedBase', () => {
 
     const missing = await resolveChangedBase(revParseGit({}, { ok: false, error: 'missing', detail: '' }), null);
     expect(missing.warning).toContain('git is not on PATH');
+  });
+});
+
+describe('readGitState', () => {
+  test('a clean tree records its head and dirty false', async () => {
+    expect(await readGitState(stateGit(`${HEAD_SHA}\n`, ''))).toEqual({ head: HEAD_SHA, dirty: false });
+  });
+
+  test('anything git status lists, an untracked file included, makes the tree dirty', async () => {
+    expect(await readGitState(stateGit(`${HEAD_SHA}\n`, ' M src/a.ts\n'))).toEqual({ head: HEAD_SHA, dirty: true });
+    expect(await readGitState(stateGit(`${HEAD_SHA}\n`, '?? new.ts\n'))).toEqual({ head: HEAD_SHA, dirty: true });
+  });
+
+  test('asks status without the index lock and with untracked files listed, and HEAD as a commit', async () => {
+    const git = stateGit(`${HEAD_SHA}\n`, '');
+    await readGitState(git);
+    expect(git.calls).toEqual([
+      ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'],
+      ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'],
+    ]);
+  });
+
+  test('git can’t say when HEAD names no commit, or status fails, or either times out', async () => {
+    const noCommit: GitResult = { ok: false, error: 'failed', detail: '' };
+    const outside: GitResult = { ok: false, error: 'not-a-repo', detail: 'fatal: not a git repository' };
+    const slow: GitResult = { ok: false, error: 'timeout', detail: 'git status timed out' };
+    expect(await readGitState(stateGit(noCommit, ''))).toBeNull();
+    expect(await readGitState(stateGit(outside, outside))).toBeNull();
+    expect(await readGitState(stateGit(`${HEAD_SHA}\n`, slow))).toBeNull();
+    expect(await readGitState(stateGit(slow, ''))).toBeNull();
+  });
+
+  test('a runner that rejects reads as no answer, never as a rejection', async () => {
+    expect(await readGitState(() => Promise.reject(new Error('spawn EBADF')))).toBeNull();
   });
 });

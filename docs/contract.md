@@ -61,14 +61,16 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0), per-check `origin` and `detected_by` (0.15.0).
+(0.3.0), per-check `origin` and `detected_by`, and top-level `run` and `git`
+(0.15.0).
 
-The two tables below name every field the schema allows, each with the rule
-for when it's present. A field whose rule isn't "always" is left out
-otherwise, never written as `null` or `false`, so absence is part of the
-shape. [`summary.contract.test.ts`](../test/contract/summary.contract.test.ts)
-holds both lists equal to the schema's properties, and the "always" rows equal
-to its required ones, so a field can't reach the schema without a row here.
+The tables below name every field the schema allows, each with the rule for
+when it's present. A field whose rule isn't "always" is left out otherwise,
+never written as `null` or `false`, so absence is part of the shape. Inside
+`run`, `git` and `git.base`, "always" means whenever that object is present.
+[`summary.contract.test.ts`](../test/contract/summary.contract.test.ts) holds
+each list equal to the schema's properties, and the "always" rows equal to its
+required ones, so a field can't reach the schema without a row here.
 
 **Top-level fields.**
 
@@ -79,7 +81,41 @@ to its required ones, so a field can't reach the schema without a row here.
 | `ok` | boolean | always: true when every check passed after baseline masking; a skipped check counts as passed, so read it with `checks_run` |
 | `checks_run` | integer, 0 or more | always: the checks that executed, skipped entries left out |
 | `total_duration_ms` | number, 0 or more | always: the run's wall-clock span |
+| `run` | object, below | always: what the run selected, and whether it saw the whole pipeline |
+| `git` | object, below | the working directory is in a git work tree whose `HEAD` names a commit, and git answered within 5 seconds |
 | `checks` | array of per-check entries | always: one per selected check, skipped ones included, plus a skipped entry for each check `--only` or `--skip` left out, in the order below |
+
+**`run` fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `partial` | boolean | always: true when `--only`, `--skip` or `--changed` narrowed the run, or `--bail` stopped it at a failure |
+| `only` | array of strings | `--only` was given: the names it listed |
+| `skip` | array of strings | `--skip` was given: the names it listed |
+| `include` | array of strings | `--include` was given: the names it listed |
+| `all` | `true` | `--all` was given |
+| `changed` | `true` | `--changed` was given |
+| `static_only` | `true` | `--static-only` was given; checkride has no such flag yet |
+| `discover` | `true` | `--discover` was given; checkride has no such flag yet |
+| `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
+| `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` was given; checkride has no such flag yet |
+| `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` was given; checkride has no such flag yet |
+| `out` | string, an absolute path | `--out` or `CHECKRIDE_OUT` was given; checkride has no such flag yet |
+
+**`git` fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `head` | string | always: the full sha `HEAD` named as the run started |
+| `dirty` | boolean | always: true when `git status --porcelain` listed anything, untracked files included |
+| `base` | object, below | `--changed` was given: the base the run measured changes from |
+
+**`git.base` fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `ref` | string | always: the base as `--base`, `CHECKRIDE_BASE` or `changedBase` named it, or `origin/main` or `HEAD` when nothing named one |
+| `sha` | string | always: the full sha `ref` named |
 
 **Per-check fields.**
 
@@ -116,6 +152,20 @@ and `checkride doctor` ends its slot rows the same way.
 `reason` is its last stderr line followed by `(exit N)`, and it writes no
 artifact.
 
+**A run records what it selected and the tree it read.** `run` names each
+selection flag the run was given, so a narrowed run says so in the artifact
+and not only on screen. `partial` is the test the baseline ratchet applies: a
+run with `partial: true` didn't observe every check, so it never prunes
+`checkride.baseline.json`. `git` names the commit the checks read and says
+whether the work tree held changes that commit doesn't, and under `--changed`
+it adds the base the run measured from. checkride asks git as the run starts,
+alongside the checks, so the answer normally costs no time. A run whose checks
+finish first waits for it, at most 5 seconds from the start, and
+`total_duration_ms` counts that wait. When git hasn't answered by then, the
+directory isn't in a work tree, or `HEAD` names no commit yet, `git` is left
+out. git reads the tree as the checks start, and a gitignored `.check/`, as
+`init` writes it, keeps the run's own artifacts out of `dirty`.
+
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,
 then `'last'`s; within a group by catalogue position, then config-key order —
@@ -123,7 +173,8 @@ independent of the order the checks actually *finish*. The same selection
 produces the same array order on every run, even when concurrency interleaves
 completion. `total_duration_ms` is the **wall-clock** duration of the whole run;
 when execution is sequential (including any `--bail` run) it equals the sum of
-the per-check durations, exactly as before.
+the per-check durations, exactly as before, unless the run waited on git as
+described above.
 
 **Raw output stays authoritative.** The per-tool files beside the summary —
 `.check/<slot>.json` when the tool emits JSON, `<slot>.stdout.txt` /

@@ -70,6 +70,38 @@ export type SummaryCheck = {
   baselined?: number;
 };
 
+/**
+ * What a run selected (R8.1): `partial`, plus each selection or mode flag the
+ * run was given and nothing for one it wasn't. `static_only`, `discover`,
+ * `defaults`, `pins` and `out` belong to flags checkride doesn't have yet, so
+ * no run writes them. Paths are absolute.
+ */
+export type SummaryRun = {
+  /**
+   * True when `--only`, `--skip` or `--changed` narrowed the run, or `--bail`
+   * stopped it at a failure: the test that keeps the run from ratcheting the
+   * baseline, so the two always agree.
+   */
+  partial: boolean;
+  only?: string[];
+  skip?: string[];
+  include?: string[];
+  all?: true;
+  changed?: true;
+  static_only?: true;
+  discover?: true;
+  config?: string;
+  defaults?: string;
+  pins?: string;
+  out?: string;
+};
+
+/** The base a `--changed` run measured from: the ref as given, and the commit it names. */
+export type SummaryBase = { ref: string; sha: string };
+
+/** The work tree a run read (R8.1): the commit checked out, whether it held changes, and the `--changed` base. */
+export type SummaryGit = { head: string; dirty: boolean; base?: SummaryBase };
+
 /** The `.check/summary.json` contract. A public API for agents. */
 export type Summary = {
   schema_version: number;
@@ -82,6 +114,14 @@ export type Summary = {
    */
   checks_run: number;
   total_duration_ms: number;
+  /** What the run selected, and whether it saw the whole pipeline. Additive field; `schema_version` holds. */
+  run: SummaryRun;
+  /**
+   * The work tree the run read, present when the working directory is in a git
+   * work tree whose `HEAD` names a commit and git answered within
+   * `GIT_STATE_TIMEOUT_MS`. Additive field; `schema_version` holds.
+   */
+  git?: SummaryGit;
   checks: SummaryCheck[];
 };
 

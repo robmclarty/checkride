@@ -1,8 +1,9 @@
 /**
  * `runChecks` — the run entry point: resolve the context, validate the
  * selection, execute, ratchet the baseline on a fully observed run, write the
- * summary and digest, and report. The ratchet gate and the red-run recover hint
- * live here because only the whole run can decide them.
+ * summary and digest, and report. The ratchet gate, the run record that shares
+ * its partial-run test, and the red-run recover hint live here because only the
+ * whole run can decide them.
  */
 
 import { realpathSync } from 'node:fs';
@@ -15,15 +16,15 @@ import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
-import type { ChangedBase } from '../git.js';
-import { realGit, resolveChangedBase } from '../git.js';
+import type { ChangedBase, GitState } from '../git.js';
+import { GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
 import { resetInterrupt } from './spawn.js';
-import type { RunOptions, RunResult } from './types.js';
+import type { RunOptions, RunResult, SummaryGit, SummaryRun } from './types.js';
 
 /**
  * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
@@ -32,6 +33,33 @@ import type { RunOptions, RunResult } from './types.js';
  */
 function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean): boolean {
   return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
+}
+
+/**
+ * The summary's `run`: `partial`, as the ratchet just judged it, and each
+ * selection or mode flag the run was given, so a narrowed run says so in the
+ * artifact and not only on screen. A flag that wasn't given leaves no field.
+ */
+function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryRun {
+  return {
+    partial,
+    ...(options.only ? { only: [...options.only] } : {}),
+    ...(options.skip ? { skip: [...options.skip] } : {}),
+    ...(options.include ? { include: [...options.include] } : {}),
+    ...(options.all === true ? { all: true } : {}),
+    ...(options.changed === true ? { changed: true } : {}),
+    ...(options.configPath !== undefined ? { config: resolve(cwd, options.configPath) } : {}),
+  };
+}
+
+/**
+ * The summary's `git`, or `null` when git couldn't say. Under `--changed` it
+ * carries the base the run measured from, which has a sha whenever `HEAD`
+ * named a commit, and so whenever there's a state to carry it.
+ */
+function gitRecord(state: GitState | null, base: ChangedBase | null): SummaryGit | null {
+  if (state === null) return null;
+  return base?.sha ? { ...state, base: { ref: base.ref, sha: base.sha } } : state;
 }
 
 /** The real path of `path`, or its plain resolution when it can't be read. */
@@ -131,6 +159,9 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A usage error before any side effect: no `.check/` dir, no run, exit 2.
   validateSelection(resolved, options);
   const changedBase = await changedBaseFor(options, base);
+  // Asked as the run starts and awaited once the checks finish, so git's
+  // answer costs the run no wall-clock time unless git is the slower of the two.
+  const gitQuery = readGitState(realGit(base.cwd, GIT_STATE_TIMEOUT_MS));
 
   await mkdir(join(base.cwd, '.check'), { recursive: true });
 
@@ -152,15 +183,22 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
   const { checks, runs, observed, newKeys, brokeEarly } = await executeChecks(selected, ctx);
+  // A run that beats git waits for it inside the clock, so the run's start
+  // stays `timestamp - total_duration_ms`, which the artifact readers judge
+  // freshness by.
+  const gitState = await gitQuery;
   const totalDurationMs = Math.round(performance.now() - startedAt);
 
-  await maybeRatchet(ctx, observed, isPartialRun(options, ctx.changed, brokeEarly), consumerCause(options, ctx.cwd));
+  // One partial-run test serves the ratchet and the summary, so `run.partial`
+  // is true exactly when the ratchet stood down for a partial run.
+  const partial = isPartialRun(options, ctx.changed, brokeEarly);
+  await maybeRatchet(ctx, observed, partial, consumerCause(options, ctx.cwd));
 
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"
   // about itself.
   const reported = [...checks, ...narrowedEntries(resolved, selected, options)];
-  const summary = buildSummary(reported, totalDurationMs);
+  const summary = buildSummary(reported, totalDurationMs, runRecord(options, ctx.cwd, partial), gitRecord(gitState, changedBase));
   await writeFileAtomic(join(ctx.cwd, '.check', 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.

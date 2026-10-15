@@ -1,9 +1,9 @@
 /**
  * Git plumbing every command shares: one runner that classifies a failed
- * invocation for user-facing messages, and the base a `--changed` run measures
- * from. Everything here is read-only toward git. Baseline history (`recover`,
- * `baseline diff`, the red-run hint) builds on the runner in
- * `./baseline/history.ts`.
+ * invocation for user-facing messages, the base a `--changed` run measures
+ * from, and the head and dirtiness a run records. Everything here is read-only
+ * toward git. Baseline history (`recover`, `baseline diff`, the red-run hint)
+ * builds on the runner in `./baseline/history.ts`.
  */
 
 import { execFile } from 'node:child_process';
@@ -117,4 +117,34 @@ function headFailure(result: { error: GitFailure; detail: string }): string {
   if (result.error === 'not-a-repo') return 'this is not a git repository';
   if (result.error === 'failed') return 'the repository has no commits yet';
   return result.detail;
+}
+
+/** How long a run waits on git for the summary's `git` record before leaving it out. */
+export const GIT_STATE_TIMEOUT_MS = 5_000;
+
+/** The commit a work tree has checked out, and whether it holds changes that commit doesn't. */
+export type GitState = { head: string; dirty: boolean };
+
+/**
+ * `status` runs while the checks do, so it must not take the index lock to
+ * refresh the index (`--no-optional-locks`), and it lists untracked files
+ * whatever `status.showUntrackedFiles` says, so a new file can't read as clean.
+ */
+const STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain', '--untracked-files=normal'] as const;
+
+/**
+ * The head and dirtiness of the work tree `git` runs in, or `null` when git
+ * can't say: not a work tree, no commit yet, git missing, or slower than the
+ * runner's timeout. It never rejects, because a run starts it before its checks
+ * and awaits it after them, and a rejection left waiting that long would crash
+ * the process.
+ */
+export async function readGitState(git: GitRunner): Promise<GitState | null> {
+  try {
+    const [head, status] = await Promise.all([commitOf(git, 'HEAD'), git(STATUS_ARGS)]);
+    if (!head.ok || !status.ok) return null;
+    return { head: head.stdout.trim(), dirty: status.stdout.trim().length > 0 };
+  } catch {
+    return null;
+  }
 }
