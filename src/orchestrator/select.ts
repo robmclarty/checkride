@@ -1,37 +1,43 @@
 /**
- * Which resolved checks a run touches: the only/skip/include selection by slot
- * name, and the usage-error guard that rejects a selection naming a slot that
- * does not exist. Shared by `runChecks` and `runFix`.
+ * Which resolved checks a run touches: the only/skip/include selection by
+ * token (R5.2's grammar, in `../targets/`), and the usage-error guard that
+ * rejects a selection naming nothing a check answers to. Shared by
+ * `runChecks` and `runFix`.
  */
 
 import type { ResolvedCheck } from '../config.js';
+import { namedBy, selectedBy, tokenProblem } from '../targets/index.js';
 import type { RunFlags } from './types.js';
 
 /**
- * Only/skip/opt-in selection by slot name.
- * An opt-in slot runs when `--all`/`--include` names it, or when it was
- * explicitly configured in `checks` (`r.explicit`) — naming a slot is opting in.
+ * Only/skip/opt-in selection by token: a slot or custom-check name, a target,
+ * or `<target>:<slot>`.
+ * An opt-in check runs when `--all` is given, when an `--include` token selects
+ * it, when it was explicitly configured in `checks` (`r.explicit`), or when an
+ * `--only` token names it — naming a slot is opting in. A target token names no
+ * slot, so `--only web` leaves `web`'s opt-in slots out unless one of the others
+ * lets them in.
  */
 export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags): ResolvedCheck[] {
   const only = flags.only ?? null;
-  const skipSet = new Set(flags.skip ?? []);
-  const includeSet = new Set(flags.include ?? []);
+  const skip = flags.skip ?? [];
+  const include = flags.include ?? [];
   const all = flags.all ?? false;
   return resolved.filter((r) => {
-    if (only) return only.includes(r.slot);
-    if (skipSet.has(r.slot)) return false;
-    if (r.optIn && !all && !includeSet.has(r.slot) && !r.explicit) return false;
-    return true;
+    const optedIn = !r.optIn || all || r.explicit === true || selectedBy(include, r);
+    if (only) return selectedBy(only, r) && (optedIn || namedBy(only, r));
+    return !selectedBy(skip, r) && optedIn;
   });
 }
 
 /**
- * Reject bad slot selections in `--only`/`--skip`/`--include`. A typo like
+ * Reject bad selections in `--only`/`--skip`/`--include`. A typo like
  * `--only lints` would otherwise slip through `selectChecks` as a filter that matched
  * nothing, silently disabling the gate — the worst kind of vacuous green in a
  * definition-of-done check. It is a usage error instead (thrown here, surfaced
- * as exit 2 at the CLI). The valid set is every resolved slot: the catalogue
- * slots plus any config custom-check names.
+ * as exit 2 at the CLI). The valid set is every token a resolved check answers
+ * to: the catalogue slots, any config custom-check names, and in multi-target
+ * mode the target names and each `<target>:<slot>`.
  *
  * A *present but empty* list is rejected for the same reason. `[]` is truthy,
  * so `selectChecks` reads it as "match nothing" rather than "no filter", and an
@@ -41,17 +47,8 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
  * it is exported public surface, and the error belongs before it runs.
  */
 export function validateSelection(resolved: readonly ResolvedCheck[], flags: RunFlags): void {
-  const valid = new Set(resolved.map((r) => r.slot));
   for (const flag of ['only', 'skip', 'include'] as const) {
-    const names = flags[flag];
-    if (names === undefined || names === null) continue;
-    if (names.length === 0) {
-      throw new Error(`--${flag} was given an empty list, which selects nothing. Valid slots: ${[...valid].join(', ')}.`);
-    }
-    const unknown = names.filter((name) => !valid.has(name));
-    if (unknown.length === 0) continue;
-    const named = unknown.map((n) => `'${n}'`).join(', ');
-    const noun = unknown.length > 1 ? 'slots' : 'slot';
-    throw new Error(`unknown ${noun} ${named} in --${flag}. Valid slots: ${[...valid].join(', ')}.`);
+    const problem = tokenProblem(resolved, `--${flag}`, flags[flag]);
+    if (problem !== null) throw new Error(problem);
   }
 }

@@ -66,12 +66,12 @@
         "only": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Run only these slots in the gate."
+          "description": "Run only these checks in the gate, each named as --only takes them: a slot, a custom check, a target, or <target>:<slot>. A name no check answers to stops the gate with exit 2."
         },
         "skip": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Run everything but these slots in the gate."
+          "description": "Run everything but these checks in the gate, named as gate.only takes them."
         },
         "changed": {
           "type": "boolean",

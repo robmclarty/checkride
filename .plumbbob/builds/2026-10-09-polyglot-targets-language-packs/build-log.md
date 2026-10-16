@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 25 — feat(config): accept targets and packs blocks with their validation
+**Current step:** 26 — feat(select): select checks with the target token grammar
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -47,7 +47,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 22. refactor(launch): resolve tool argv through a pin-source launcher
 - ☑ 23. refactor(resources): read bundled files through one module
 - ☑ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
-- ☐ 25. feat(config): accept targets and packs blocks with their validation
+- ☑ 25. feat(config): accept targets and packs blocks with their validation
 - ☐ 26. feat(select): select checks with the target token grammar
 - ☐ 27. feat(run): run target-scope slots once per target
 - ☐ 28. feat(run): never overlap checks that share a lock key
@@ -123,7 +123,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
 - [x] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
 - [x] publish.yaml runs pnpm test:e2e with no mise toolchains and no CHECKRIDE_REQUIRE_TOOLCHAINS, so once pack e2e cases land, a release would publish with them skipped; give it the same jdx/mise-action step as ci.yml
-- [ ] R2.3: a config error from a --config file (and later --defaults/--pins) should name that path in place of checkride.config.json; invalidConfig in src/config.ts hardcodes the repo file name today, even for resolve-time errors that never see the path
+- [x] R2.3: a config error from a --config file (and later --defaults/--pins) should name that path in place of checkride.config.json; invalidConfig in src/config.ts hardcodes the repo file name today, even for resolve-time errors that never see the path
+- [ ] V2 doesn't stop a target's or a packs block's custom check from sharing a target's name, so a bare token like --only web would select both target web and api:web; extend V2 in src/targets/resolve.ts
+- [ ] only-wins-over-skip: as in 0.13, --only ignores --skip, so '--only api --skip api:test' runs all of api; decide whether --skip should narrow within --only once target tokens select many checks
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -160,6 +162,7 @@ Harvest results this boundary:
 - After step 22: "built-ins pack (packInvocation in src/pack.ts) and snippets..." → **tangent**, deferred to step 30 (their argv can't differ yet, because the ts pack's chain is `[js-lockfile]` in every mode per R5.3; step 30 makes every spawned check record `pin_source`, so it decides whether a built-in's helper process counts as one, and the park dies there if not; `src/pack.ts` and `src/snippets.ts` sit outside its seam, so add them via `/plumbbob:step 30` or accept a two-file stray).
 - After step 22: "checkride fix never pre-flights..." → **tangent**, deferred to step 30 (the run path still refuses the undeclared tool, so the gate can't go green on it, and the gap is only a fix writing with a cached copy; step 30 rewrites resolution around R6.2's no-fall-through rule in `src/launch/`, where `launchFix` lives, so it decides whether the fix path walks the same chain and refuses the same way).
 - After step 24: "publish.yaml runs pnpm test:e2e with no mise toolchains..." → **tangent**, deferred to step 39 (nothing can skip until a pack has e2e cases, and CI on `main` already requires every toolchain on the same commit before the tag, so the publish run is a second proof, not the only one; step 39 adds the first pack e2e cases and closes Phase 6, the first release that would publish with them skipped, so it gives `publish.yaml` the same `jdx/mise-action` step and `CHECKRIDE_REQUIRE_TOOLCHAINS: '1'` as `ci.yml`; `.github/workflows/publish.yaml` sits outside step 39's seam, so add it via `/plumbbob:step 39` or accept a one-file stray).
+- After step 25: "R2.3: a config error from a --config file..." → **tangent**, deferred to step 53 (nothing is blocked, since a broken `--config` file still exits 2 and the message names the offending key, only the file-name prefix is wrong; step 53's `--defaults` is where it matters, because F36's "a defaults file with `targets` exits 2" is only useful if the error names the defaults file, and its seam already holds `src/config.ts` and `src/cli.ts`; step 53 decides whether resolve-time errors, which never see the path, get the label threaded through or only load-time errors name the file, and `--pins` at step 55 reuses whatever it builds).
 
 ## Log
 
@@ -1475,3 +1478,69 @@ folder, so it rides the branch into the PR.)*
   **5.** Parked: publish.yaml's e2e run gets no toolchains
 
   `publish.yaml` also runs `pnpm test:e2e`, but it sits outside this seam. Once pack e2e cases land, a release would publish with them skipped. I parked giving it the same mise-action step.
+
+- 2026-10-16 — step 25 checkpointed · 1d7103f24 — feat(config): accept targets and packs blocks with their validation (1 drift, 51m)
+
+  **Summary**: `checkride.config.json` now accepts `targets`, `packs`, `requirePins` and `unclaimed`, and `changedBase` as before. The loader checks each of R2.3's twelve rules as it reads the file and exits 2 with that rule's own message before any check runs. Nothing runs the new blocks yet, so a config without them resolves exactly as it did, and the invariance golden passes unchanged.
+
+  1. The loader holds V1 to V12, each with its own message and exit 2
+  2. Only packs that exist are valid: `ts` today
+  3. Loading the packs into the config loader needed one import cycle broken
+  4. The schema and `SlotConfig` gained the tuning-only form V6 relies on
+  5. V8 validates `schemas` before its slot exists, and one gap is parked
+
+  **Readout**: Step 25 - feat(config): accept targets and packs blocks with their validation
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D53 (inactive-slots), D9 (packs-key), D6 (targets)
+               - D23 (defaults-layer), D10 (resolution-order)
+  constraints  12 of 12 honored
+  seam         strayed: 8 paths outside the seam
+               - AGENTS.md
+               - CHANGELOG.md
+               - src/artifacts/configured.ts
+               - src/artifacts/index.ts
+               - src/cli.ts
+               - src/qa/qa.ts
+               - src/targets/index.ts
+               - src/triage/triage.ts
+  diff         +1082 -84 across 13 files
+  spent        51 min · 1 turn · 28s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 25. All twelve rules have their own message and test, eleven of them through a real exit-2 run. The golden proves implicit configs resolve as before, the gate is green, and the files outside the seam come from one import-cycle fix plus the docs and module list it requires.
+
+  **1.** The loader holds V1 to V12, each with its own message and exit 2
+
+  The rules live in a new `src/targets/resolve.ts`. It returns the first problem as reason text, and `config.ts` throws it as `invalid checkride.config.json: <reason>`. `loadConfig` and `loadConfigFile` both run it. `loadConfigFile` now takes the repo root, so a `--config` file outside the repo still checks target roots against the repo (one-line change in `src/cli.ts`). V7 runs as each preset folds in, so a preset two levels down is still caught, named by the file that extends it.
+
+  S3 lives in `config.test.ts`. For each of eleven rules, one config breaks that rule and nothing else. It goes through `loadConfig` and through a real `runCli` run, which must exit 2 with the message on stderr and leave no `.check/` behind. A twelfth test checks that the twelve messages are all different, and more tests cover each rule's other cases.
+
+  V11 is the exception. It's a rule about a defaults file, and no command loads one until step 53 adds `--defaults`. So its test calls the rules directly with `layer: 'defaults'`, and step 53 only has to pass that layer. V2's "another target name" clause can't be broken: `targets` is an object keyed by name, so `JSON.parse` folds a duplicate key into one entry, as it does for `checks`.
+
+  Three mistakes that used to be ignored now exit 2: a `static` key in a repo config, a `skipExitCode` on an entry with no `command`, and a URL or absolute path as a `schemas` rule's `schema`. The published schema already rejected the first two. CHANGELOG lists them under Changed. To keep one message source, `skipExitCode` validation in `config.ts` now calls the same `skipExitCodeProblem` function.
+
+  **2.** Only packs that exist are valid: `ts` today
+
+  R2.2 types `PackName` as all six planned packs. I validate `lang` and the `packs` keys against `PACKS` instead, so `lang: "go"` is an error until the go pack lands. Each pack step then makes its name valid with no edit here. If all six were accepted now, step 27 would run a `go` target with no adapters, and every slot would report "no tool detected": a vacuous green. The TS type is `Exclude<Pack['name'], 'repo'>`, so it grows with `PACKS`. A test holds the schema's `packName` enum equal to `PACKS`' language packs, so each pack step has to update the schema too. Another test holds the reserved target names to `SLOTS` plus `schema` and `unclaimed`.
+
+  V5's "file-list pack" is read from the data too: a pack takes `include` and `exclude` when one of its adapters takes `{files}`. That's true of none today, and true of bash once step 31 lands with `shellcheck -f json1 {files}`. Both V4's "different packs may nest" and V5's positive case are tested with a fake `sh` pack passed in, because the rules accept the catalogue as a parameter.
+
+  **3.** Loading the packs into the config loader needed one import cycle broken
+
+  With the rules reading `SLOTS` and `PACKS`, fallow found a cycle: `config.ts` → `adapters` → `packs/ts.ts` → `artifacts` (for `CHECK_DIR`) → `artifacts/configured.ts` → `config.ts`. I confirmed it with a probe before writing anything. The odd edge was `artifacts/` (the output directory) importing the config loader. So `configuredSlots`, the readers' list of the slots a repo configures, moved into `config.ts` unchanged, and `triage.ts` and `qa.ts` now import it from there. `src/artifacts/configured.ts` is deleted. That accounts for most of the files outside the seam. The others are AGENTS.md (the `targets/` module joins the layout and the folder-module list, which `conventions.test.ts` checks), CHANGELOG.md (required by C11 (docs-in-step)) and `src/targets/index.ts`, the module's barrel.
+
+  **4.** The schema and `SlotConfig` gained the tuning-only form V6 relies on
+
+  V6 says that once targets exist, a top-level entry for a target-scope slot is `false` or `{ optIn, timeout, order, note }`. The loader has always accepted that object form (it falls through to detection), but the schema's `slotConfig` required `use` or `command`. The exported `SlotConfig` type didn't allow it either. Both now have a `slotTuning` form. It's a widening, so it's additive, and the CHANGELOG Contract entry says so. The new schema blocks also carry what a schema can state: a name pattern, reserved names, roots that can't be absolute or contain `..`, `minProperties` for V9, and closed key sets.
+
+  **5.** V8 validates `schemas` before its slot exists, and one gap is parked
+
+  The done-when asks for V8 now, but adds `schemas` to the accepted keys only at step 66. So the loader checks a `schemas` rule's `schema` (bundled `checkride:<id>` or a repo-relative path, never a URL, which C4 (no-network) forbids). The key stays out of the JSON schema and the TS type until the slot ships. The contract paragraph says no run uses `targets`, `packs`, `requirePins`, `unclaimed` or `schemas` yet, following D55 (run-fields-ahead).
+
+  Parked: R2.3 says errors from a `--config` file should name that path instead of `checkride.config.json`. Every `invalidConfig` hardcodes the repo file name, including resolve-time errors that never see the path. Step 53 needs the same thing for `--defaults`, and its seam holds `src/config.ts` and `src/cli.ts`.

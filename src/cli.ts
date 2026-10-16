@@ -140,8 +140,9 @@ Commands:
                    a previous run left. Takes an optional repo path, and --out.
 
 Run options:
-  --only <a,b>     Run only these slots
-  --skip <a,b>     Skip these slots
+  --only <a,b>     Run only these checks, each named by a slot, a custom check,
+                   a target, or <target>:<slot>; an unknown name is exit 2
+  --skip <a,b>     Skip these checks, named the same way
   --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)

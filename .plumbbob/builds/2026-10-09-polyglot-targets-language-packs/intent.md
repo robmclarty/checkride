@@ -614,7 +614,7 @@ reference rules and porting trap apply as written there.
     - seam: `mise.toml`, `.github/workflows/ci.yml`, `test/helpers/toolchains.ts`,
       `CONTRIBUTING.md`
     - model: sonnet (needs the network once, for `mise install`)
-25. [ ] feat(config): accept targets and packs blocks with their validation, **done when:** the config schema and loader accept `targets`, `packs`, `requirePins`, `changedBase` and `unclaimed`; V1 to V12 each exit 2 with their own message (S3), and V2 already reserves `schema` and `unclaimed` ([D53 (inactive-slots)](#d53)); implicit-mode configs resolve as before
+25. [x] feat(config): accept targets and packs blocks with their validation, **done when:** the config schema and loader accept `targets`, `packs`, `requirePins`, `changedBase` and `unclaimed`; V1 to V12 each exit 2 with their own message (S3), and V2 already reserves `schema` and `unclaimed` ([D53 (inactive-slots)](#d53)); implicit-mode configs resolve as before
     - seam: `src/config.ts`, `src/targets/resolve.ts`, `schema/checkride.config.schema.json`,
       `src/__tests__/config.test.ts`, `docs/contract.md`
     - model: opus (twelve rules, each with an exact message)

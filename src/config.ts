@@ -215,9 +215,9 @@ export type CheckrideConfig = Noted & {
  * reader to infer it from a slot count.
  */
 export type GateProfile = Noted & {
-  /** Run only these slots. */
+  /** Run only these checks: each a slot, a custom check, a target or `<target>:<slot>`, as `--only` takes. */
   only?: string[];
-  /** Run everything but these. */
+  /** Run everything but these, named the same way. */
   skip?: string[];
   /** Affected-only mode, as `--changed`. */
   changed?: boolean;

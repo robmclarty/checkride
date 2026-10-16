@@ -15,6 +15,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import type { GateProfile } from '../config.js';
 import { checkArgs, DIRTY_MARKER, type GateSpawn, gatePreflight, gateProfile, runGate } from '../gate.js';
 import type { PinEnv } from '../node-pin.js';
 import type { Out } from '../orchestrator/index.js';
@@ -914,6 +915,59 @@ describe('runGate — the gate profile', () => {
     await runGate({ cwd: dir, spawn, stdout, stderr: capture(), pinEnv: pinEnv() });
     expect(args()).toContain('--only');
     expect((JSON.parse(stdout.text()) as { systemMessage: string }).systemMessage).toContain('only types');
+  });
+
+  /**
+   * A typo in the profile is a config mistake, and the gate says so before it
+   * spawns anything. Left to the run, the check would refuse `--only`, a flag
+   * nobody typed, and the gate would read the missing summary as a red.
+   */
+  test('a profile token no check answers to blocks naming its key, and nothing runs', async () => {
+    const cases: readonly (readonly [GateProfile, string])[] = [
+      [{ only: ['types', 'lints'] }, "unknown token 'lints' in gate.only"],
+      [{ skip: ['api:lint'] }, "unknown token 'api:lint' in gate.skip"],
+    ];
+    for (const [profile, message] of cases) {
+      const { spawn, args } = capturingArgs();
+      const stdout = capture();
+      const stderr = capture();
+      const result = await runGate({ cwd: dir, spawn, stdout, stderr, pinEnv: pinEnv(), profile });
+      expect(result).toMatchObject({ exitCode: 2, green: false, refusal: expect.stringContaining('gate profile') });
+      const body = JSON.parse(stdout.text()) as { decision: string; reason: string };
+      expect(body.decision).toBe('block');
+      expect(body.reason).toContain('could not run');
+      expect(body.reason).toContain(message);
+      expect(body.reason).toContain('Valid tokens: types, format, lint');
+      expect(stderr.text()).toContain(message);
+      expect(args()).toEqual([]);
+    }
+  });
+
+  /** Cursor reads a non-zero stop hook as a broken one, so the same refusal rides its followup at exit 0. */
+  test('under Cursor the same refusal is a followup at exit 0', async () => {
+    const { spawn, args } = capturingArgs();
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir, harness: 'cursor', spawn, stdout, stderr: capture(), pinEnv: pinEnv(), profile: { only: ['lints'] },
+    });
+    expect(result.exitCode).toBe(0);
+    expect((JSON.parse(stdout.text()) as { followup_message: string }).followup_message).toContain("'lints' in gate.only");
+    expect(args()).toEqual([]);
+  });
+
+  test('the profile from checkride.config.json is checked against its custom checks', async () => {
+    const checks = { licenses: { command: 'node', args: ['-e', ''] } };
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks, gate: { only: ['licenses'] } }));
+    const passed = capturingArgs();
+    await runGate({ cwd: dir, spawn: passed.spawn, stdout: capture(), stderr: capture(), pinEnv: pinEnv() });
+    expect(passed.args()).toContain('licenses');
+
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { only: ['licenses'] } }));
+    const refused = capturingArgs();
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: refused.spawn, stdout, stderr: capture(), pinEnv: pinEnv() });
+    expect(stdout.text()).toContain("unknown token 'licenses' in gate.only");
+    expect(refused.args()).toEqual([]);
   });
 
   /**

@@ -10,6 +10,7 @@ import { SCHEMA_VERSION } from '../adapters.js';
 import { SUMMARY_FILE } from '../artifacts/index.js';
 import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
+import { checkName, selectedBy } from '../targets/index.js';
 import { selectChecks } from './select.js';
 import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun } from './types.js';
 
@@ -89,15 +90,15 @@ export function narrowedEntries(
   flags: RunFlags,
 ): SummaryCheck[] {
   const only = flags.only ?? null;
-  const skipSet = new Set(flags.skip ?? []);
-  if (only === null && skipSet.size === 0) return [];
-  const ran = new Set(selected.map((r) => r.slot));
+  const skip = flags.skip ?? [];
+  if (only === null && skip.length === 0) return [];
+  const ran = new Set(selected.map(checkName));
   return selectChecks(resolved, { ...flags, only: null, skip: null })
-    .filter((r) => !ran.has(r.slot))
+    .filter((r) => !ran.has(checkName(r)))
     .map((r) =>
       skippedEntry({
         ...r,
-        skip: r.skip ?? (skipSet.has(r.slot) ? 'skipped by --skip' : 'not in --only'),
+        skip: r.skip ?? (selectedBy(skip, r) ? 'skipped by --skip' : 'not in --only'),
       }),
     );
 }

@@ -548,11 +548,29 @@ one `.check/`. See [Cursor](./cursor.md#cursor-also-runs-your-claude-code-hooks)
 report was produced — the verdict is in the report, not the process status, so a
 red repo never looks like a broken reader.
 
-**Selection is validated.** An unknown slot name in `--only`, `--skip`, or
-`--include` is a **usage error (exit 2)**, not a silently empty selection — the
-error names the bad slot and the valid set (the catalogue slots plus any config
-custom-check names). A typo like `--only lints` must never quietly disable the
-gate.
+**Selection takes tokens, and is validated.** `--only`, `--skip` and
+`--include`, and a gate profile's `gate.only` and `gate.skip`, name checks with
+tokens:
+
+| Token | Selects |
+| --- | --- |
+| `lint`, a slot | That slot in every target whose pack fills it, or the one check of that name in a repo with no targets. |
+| `links`, a repo-scope slot | The repo-scope check. |
+| `licenses`, a custom check | That custom check. |
+| `api`, a target | Every check of that target a full run would run. |
+| `api:lint` | One check. |
+
+Naming a slot opts it in, so `--only format` runs `format` even though it's
+opt-in. A target token names no slot, so `--only api` leaves `api`'s opt-in
+slots out unless `--all` or an `--include` token lets them in. A token that
+selects no check is a **usage error (exit 2)**, not a silently empty selection,
+and so is an empty list: the error names the bad token and every valid one. A
+typo like `--only lints` must never quietly disable the gate. The gate checks
+its profile's tokens before it spawns anything, so a bad one is a **could not
+run** that names `gate.only` or `gate.skip` and the valid tokens. It blocks,
+because the repo can fix it, and under `--harness cursor` it still exits 0. No
+run checks targets yet, so a target name or `<target>:<slot>` selects nothing
+for now and is an unknown token.
 
 **A config's targets and packs are validated before anything runs.**
 `checkride.config.json` takes `targets` (named targets, each a `lang` pack and

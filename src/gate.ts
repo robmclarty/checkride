@@ -41,9 +41,10 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { ADAPTERS, SLOTS } from './adapters.js';
 import { formatDuration, OUT_ENV, outDir, readSummary, type SummaryRead } from './artifacts/index.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
-import { CONFIG_ENV, loadConfig } from './config.js';
+import { CONFIG_ENV, loadConfig, resolveChecks } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
 import { BASE_ENV } from './git.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
@@ -57,6 +58,7 @@ import {
   runScript,
   SPAWN_FAILED_MARKER,
 } from './pm/index.js';
+import { tokenProblem } from './targets/index.js';
 
 /**
  * The edit marker: touched by the harness's "a file changed" hook, checked here
@@ -205,9 +207,10 @@ export type GateResult = {
   ran: boolean;
   green: boolean;
   /**
-   * Why the package manager never started the check script, or `null` when it
-   * did. A refusal is not a red: it blocks the turn all the same, but nothing
-   * was checked and nothing was written, so no artifact describes this run.
+   * Why the check script never started, or `null` when it did: the package
+   * manager refused it, or the gate profile named a token no check answers to.
+   * A refusal is not a red: it blocks the turn all the same, but nothing was
+   * checked and nothing was written, so no artifact describes this run.
    */
   refusal: string | null;
 };
@@ -288,6 +291,46 @@ export function gateProfile(cwd: string, config: CheckrideConfig | null = loadCo
   const profile = config?.gate;
   if (!profile) return null;
   return profileArgs(profile).length > 0 ? profile : null;
+}
+
+/**
+ * Why the profile's `only` or `skip` can't run, or `null` when each token it
+ * names selects a check.
+ *
+ * The run would refuse such a token as well, but it would name `--only`, a flag
+ * nobody typed, and the gate would then find no summary from this run and
+ * report a red, sending the agent to a failing slot when the fix is one word in
+ * `checkride.config.json`. Read before anything spawns, the message names
+ * `gate.only` or `gate.skip` and every valid token. An empty list is no
+ * narrowing at all (see {@link gateProfile}), so only a non-empty one is read.
+ */
+function profileProblem(cwd: string, profile: GateProfile | null): string | null {
+  if (profile === null) return null;
+  const resolved = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: loadConfig(cwd), cwd });
+  for (const key of ['only', 'skip'] as const) {
+    const tokens = profile[key];
+    const problem = tokens && tokens.length > 0 ? tokenProblem(resolved, `gate.${key}`, tokens) : null;
+    if (problem !== null) return problem;
+  }
+  return null;
+}
+
+/** The cause a profile with an unknown token reports, in the words a refusal uses. */
+const PROFILE_REFUSAL = 'the gate profile names a token no check answers to';
+
+/**
+ * The verdict for a profile that can't run. Nothing ran, as with a launch
+ * refusal, but the fix is the repo's, so it blocks rather than standing down.
+ */
+function profileVerdict(problem: string, elapsedMs: number): Verdict {
+  return {
+    status: headline('could not run', '⚠', elapsedMs, PROFILE_REFUSAL),
+    instruction:
+      `checkride: the gate could not run — ${problem} Fix \`gate\` in checkride.config.json. ` +
+      'Nothing ran: no check executed and no artifact was written.',
+    refusal: PROFILE_REFUSAL,
+    standDown: false,
+  };
 }
 
 /**
@@ -801,9 +844,14 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
 
   const pm = options.pm ?? detectPackageManager({ cwd });
   const profile = options.profile !== undefined ? options.profile : gateProfile(cwd);
+  const startedAt = now();
+  const problem = profileProblem(cwd, profile);
+  if (problem !== null) {
+    const exitCode = reportRed(harness, { stdout, stderr }, profileVerdict(problem, now() - startedAt), env);
+    return { exitCode, ran: true, green: false, refusal: PROFILE_REFUSAL };
+  }
   const alignment = alignNode(cwd, pinEnv);
   const childEnv = announceAlignment(alignment, withoutConsumerVars(env), stderr);
-  const startedAt = now();
   const output = recording(stderr);
   const code = await run(pm, checkArgs(pm, profile), { cwd, stderr: output, env: childEnv });
   const green = code === 0;

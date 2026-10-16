@@ -156,6 +156,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with `invalid checkride.config.json: <reason>`. The published JSON Schema
   already rejected the first two. Each is one of the rules that arrive with
   the `targets` and `packs` keys (see Contract).
+- **A typo in `gate.only` or `gate.skip` stops the gate before it runs.**
+  The gate now checks its profile's names before it spawns the check script.
+  A name no check answers to is a could-not-run that blocks the turn, naming
+  the config key and every valid name. Until now the check script refused it
+  as an unknown `--only` slot, and the gate reported the missing summary as a
+  red, pointing the agent at `.check/` instead of the config. Under
+  `--harness cursor` it exits 0 with a `followup_message`, as every verdict
+  there does.
+- **An unknown selection name is called a token.** `--only`, `--skip` and
+  `--include` say `unknown token 'lints' in --only. Valid tokens: …` in place
+  of `unknown slot`, because the same flags will name targets and
+  `<target>:<slot>` checks too (see Contract). The exit code and the list of
+  valid names in a repo without targets are unchanged.
 
 ### Fixed
 
@@ -253,6 +266,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that only tunes a detected slot (`optIn`, `timeout`, `order`, `note`),
   which the loader always accepted. `ts` is the only pack so far, and no run
   acts on the new keys yet, so a config without them resolves as before.
+- Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
+  take selection tokens: a slot or custom-check name, a target name (every
+  check of that target a full run would run), or `<target>:<slot>` (one
+  check). A bare slot selects it in every target whose pack fills it.
+  `docs/contract.md` has the table. Naming a slot still opts it in, and a
+  target token opts in nothing. In a repo without targets every token is a
+  slot or custom-check name, as before, and no run checks targets yet, so a
+  target name is an unknown token for now.
 
 ### Internal
 
