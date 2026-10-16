@@ -17,7 +17,7 @@
  * names a slot that no longer exists, so those are exact-set assertions.
  *
  * The rule pack is enumerated the same way. `init` copies every file in
- * `templates/shared/rules/` into a new project, and `docs/deep-modules.md`
+ * `templates/ts/shared/rules/` into a new project, and `docs/deep-modules.md`
  * names each by its `rules/` path, so that list is exact too. Both guides draw
  * the `test/` tree, held to the folders `test-dir-layout.yml` allows.
  *
@@ -43,7 +43,7 @@ const SCHEMA = read('schema', 'checkride.config.schema.json');
 const DEEP_MODULES = read('docs', 'deep-modules.md');
 const GETTING_STARTED = read('docs', 'getting-started.md');
 
-const RULES = join('templates', 'shared', 'rules');
+const RULES = join('templates', 'ts', 'shared', 'rules');
 const shippedRules = readdirSync(join(ROOT, RULES)).filter((f) => f.endsWith('.yml'));
 /** The folders `test-dir-layout.yml` sanctions under `test/`, from its `ignores`. */
 const testDirs = [...read(RULES, 'test-dir-layout.yml').matchAll(/'\*\*\/test\/([\w-]+)\/\*\*'/g)].map(

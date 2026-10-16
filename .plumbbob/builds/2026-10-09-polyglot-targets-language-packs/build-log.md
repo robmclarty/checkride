@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 22 — refactor(launch): resolve tool argv through a pin-source launcher
+**Current step:** 23 — refactor(resources): read bundled files through one module
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -44,7 +44,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 19. feat(init): type-check scaffolded tests outside src
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
 - ☑ 21. refactor(packs): split the adapter registry into ts and repo packs
-- ☐ 22. refactor(launch): resolve tool argv through a pin-source launcher
+- ☑ 22. refactor(launch): resolve tool argv through a pin-source launcher
 - ☐ 23. refactor(resources): read bundled files through one module
 - ☐ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
 - ☐ 25. feat(config): accept targets and packs blocks with their validation
@@ -119,9 +119,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules (writeSharedStatic); it has written ten since step 12
 - [x] step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist; step 21 left it off rather than point PACKS at directories that don't exist yet
 - [x] missing-tool hint installs the binary, not the package: spawn.ts and doctor.ts pass execTool's bin to installCommand, so tsc, biome, ast-grep, vale, stryker and attw get 'npm install -D tsc' and kin; TOOLS.npm now names the right package
-- [ ] src/pm/index.ts is now a re-export of launch/ kept so pm.test.ts passes unchanged; point gate, init, doctor, agent-setup, snippets, pack, baseline-command and triage/gate at launch/, move pm.test.ts under src/launch/__tests__/, and delete src/pm/
-- [ ] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
-- [ ] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
+- [x] src/pm/index.ts is now a re-export of launch/ kept so pm.test.ts passes unchanged; point gate, init, doctor, agent-setup, snippets, pack, baseline-command and triage/gate at launch/, move pm.test.ts under src/launch/__tests__/, and delete src/pm/
+- [x] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
+- [x] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -154,6 +154,9 @@ Harvest results this boundary:
 - After step 19: "src/init.ts ADD_CONFIGS struct comment says new-mode init writes 'all four' rules..." → **tangent**, deferred to step 23 (a stale comment blocks nothing; step 23's seam holds `src/init.ts`, and moving the templates under `templates/ts/` and `templates/repo/` rewrites the `ADD_CONFIGS` paths the comment sits on, so the fix rides that edit).
 - After step 21: "step 23: Pack gains R4's templates field once templates/ts/ and templates/repo/ exist..." → **tangent**, deferred to step 23 (it creates both directories and makes `src/resources.ts` the only reader of `templates/`, so it decides whether that path comes from `Pack` or from the pack's name, which also settles whether the field is needed at all; `src/packs/` sits outside step 23's seam, so add it via `/plumbbob:step 23` or accept a two-file stray, `types.ts` and the pack rows).
 - After step 21: "missing-tool hint installs the binary, not the package..." → **tangent**, deferred to step 22 (it moves `installCommand` and the spawn pre-flight into the `js-lockfile` source, which can name `TOOLS.npm` for the binary it resolves; `pm.test.ts` still passes unchanged, since oxlint's binary is its package; the fix earns a CHANGELOG Fixed line, and `src/doctor.ts` is a one-file stray; step 30, where R6.2 rewrites the message around `Tool.install`, was the alternative, but it would ship the wrong hint in the Phase 5 release).
+- After step 22: "src/pm/index.ts is now a re-export of launch/..." → **tangent**, deferred to step 35 (the re-export blocks nothing, since both paths reach the same code; step 35's `entry.ts` already edits `src/init.ts`, `src/agent-setup/` and `src/doctor.ts`, most of the importers, and the gate's `runScript` and `launchRefusal` are its entry-command concern; `src/gate.ts`, `src/triage/gate.ts`, `src/snippets.ts`, `src/pack.ts` and `src/baseline-command.ts` sit outside its seam, so add them via `/plumbbob:step 35` or accept a five-file stray; moving `pm.test.ts` under `src/launch/__tests__/` rides the same edit).
+- After step 22: "built-ins pack (packInvocation in src/pack.ts) and snippets..." → **tangent**, deferred to step 30 (their argv can't differ yet, because the ts pack's chain is `[js-lockfile]` in every mode per R5.3; step 30 makes every spawned check record `pin_source`, so it decides whether a built-in's helper process counts as one, and the park dies there if not; `src/pack.ts` and `src/snippets.ts` sit outside its seam, so add them via `/plumbbob:step 30` or accept a two-file stray).
+- After step 22: "checkride fix never pre-flights..." → **tangent**, deferred to step 30 (the run path still refuses the undeclared tool, so the gate can't go green on it, and the gap is only a fix writing with a cached copy; step 30 rewrites resolution around R6.2's no-fall-through rule in `src/launch/`, where `launchFix` lives, so it decides whether the fix path walks the same chain and refuses the same way).
 
 ## Log
 
@@ -1293,3 +1296,79 @@ folder, so it rides the branch into the PR.)*
   `rules/no-logic-in-barrel.yml` is now a byte-for-byte copy of the shipped rule, as step 17's harvest asked, and `PACKS` lives in `src/packs/packs.ts` behind a re-export-only barrel. On a scratch probe, the adopted rule flags `export const PACKS = …` in an `index.ts`, which the old rule let through. The full scan finds nothing in this repo.
 
   `AGENTS.md` gets the matching barrel bullet ("functions, classes and values"), and `packs/` joins the layout block and the folder-module sentence. `test/integration/conventions.test.ts` holds that sentence against the tree, and its count words stopped at "Eight". I extended them to "Twelve", which covers the folder modules R17 still plans. The README's slot table gets its scope column in step 73, as planned.
+
+- 2026-10-15 — step 22 checkpointed · 65a6c27b1 — refactor(launch): resolve tool argv through a pin-source launcher (1 drift, 20m)
+
+  **Summary**: Every argv a check or a fix spawns from an adapter row or a custom check now comes from a launcher in `src/launch/`, through the `js-lockfile` source, which took over all of `src/pm/`'s code. `pm.test.ts` is byte-identical and passes, the package-manager quartet e2e is green with all four managers installed, both halves of the invariance golden pass with no re-record, and the gate is green on all 18 checks. A new rule keeps pack names out of the orchestrator and the launcher, and the missing-tool hint now names the right package.
+
+  1. `src/pm/` moved into `src/launch/`, and `src/pm/` only re-exports it now
+  2. One launcher call returns a check's argv, or the reason it won't spawn
+  3. Pack rows keep 0.13's `command` and `args`, which settles the `invoke` question step 21 left to this step
+  4. Rule A2 is `rules/no-pack-name-literal.yml`, and it fires only where it should
+  5. The install hint names the package now, and nine files outside the seam changed with the step
+
+  **Readout**: Step 22 - refactor(launch): resolve tool argv through a pin-source launcher
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  12 of 12 honored
+  seam         strayed: 9 paths outside the seam
+               - AGENTS.md
+               - CHANGELOG.md
+               - src/__tests__/triage.test.ts
+               - src/gate.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/context.ts
+               - src/orchestrator/execute.ts
+               - src/orchestrator/types.ts
+               - src/triage/gate.ts
+  diff         +821 -649 across 24 files
+  spent        20 min · 1 turn · 33s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 22. `pm.test.ts`, the quartet and both golden halves pass with no edit to any of them, and highlight 3 is the one call to weigh before the Phase 5 release fixes the `PACKS` row shape.
+
+  **1.** `src/pm/` moved into `src/launch/`, and `src/pm/` only re-exports it now
+
+  The four files moved with `git mv`, so their history follows them: `detect.ts` became `package-manager.ts`, `tools.ts` became `js-lockfile.ts` (it already held the source's whole question, where the lockfile's copy of a tool has to be), `launch.ts` became `refusal.ts` (the gate's "the script never started" table), and `translate.ts` kept its name. `resolve.ts` is new, and it holds the launcher.
+
+  `src/pm/index.ts` now defines nothing and re-exports the same names from `../launch/index.js`. That is what lets `pm.test.ts` pass unchanged, as the done-when asks: it still imports from `../pm/index.js`, and every one of its cases now exercises the code in `src/launch/`. The orchestrator (`spawn.ts`, `fix.ts`, `context.ts`, `execute.ts`, `types.ts`) imports from `launch/` directly. The gate, `init`, `doctor`, `agent-setup`, the `pack` and `snippets` built-ins, `baseline-command` and `triage` still import through `pm/`, so none of them changed. I parked retiring the re-export: point those importers at `launch/`, move `pm.test.ts` under `src/launch/__tests__/`, and delete `src/pm/`.
+
+  AGENTS.md now counts ten folder modules with `launch/` among them, and its layout block names both. `test/integration/conventions.test.ts` holds that sentence against the tree, and it caught my first rewrap, which split "have crossed that line" across two lines.
+
+  **2.** One launcher call returns a check's argv, or the reason it won't spawn
+
+  `launchCheck(slot, command, args, { cwd, pm })` returns either `{ command, args }` or `{ refusal }`. It runs the `js-lockfile` pre-flight (under npm or bun, refuse a `pnpm exec` tool missing from `node_modules/.bin`), then the exec-prefix translation. Any command other than `pnpm` spawns as written, the way a custom check's `node scripts/x.mjs` always has. `launchFix` is the translation alone, because 0.13's fix path never pre-flighted. One call returning either outcome is the shape step 30 needs, since R6.2's refusals (a declared source that can't run the tool, an unpinned tool under `requirePins`) come out of the same resolution as the argv.
+
+  `defaultRunner` and the `security` built-in call `launchCheck`, and `fixInvocation` calls `launchFix`. `spawn.ts` keeps one private `refusedOutcome`, which turns a refusal into exit 1 and carries the old comment on why exit 1 is used and not -1. `missingToolOutcome` is gone. Its seven unit tests moved to `src/launch/__tests__/resolve.test.ts` against `launchCheck`, beside six new ones (argv per manager, a custom command passing through, the package-named hint, and `launchFix` never refusing). Its exit-code assertions live on in `orchestrator.test.ts`'s existing real-runner case, which asserts `exit_code: 1` and no `argv` for an npx-refused tool.
+
+  I checked that the tests can fail. Making `launchCheck` return its input untranslated failed 16 tests: all 12 contract-golden subjects, three launcher tests and the orchestrator's real `npm run build` case.
+
+  The `pack`, `snippets` and `smoke` built-ins still build their helper processes' argv themselves (`snippets` through `translateExec`, which now lives in `launch/`). Step 9 drew the same line for `argv` recording, since those processes are checkride's own. I parked routing them through the launcher once step 30 records `pin_source`.
+
+  **3.** Pack rows keep 0.13's `command` and `args`, which settles the `invoke` question step 21 left to this step
+
+  R4 sketches `invoke: Invocation` on each pack row. I kept the 0.13 row shape and have the launcher read the invocation off it: `pnpm exec <tool>` is a `js-lockfile` tool, `pnpm run`, `audit` and `pack` are package-manager subcommands, and anything else is a command spawned as written. The launcher has to read that form whatever the rows store, because config overrides and custom checks are written in it: this repo's own `lint` and `prose` override `args` as `["exec", "oxlint", …]`, and its `typecheck-tests` custom check is `pnpm exec tsc`. C2 (legacy-invariance) freezes all three. Storing `invoke` as well would give the rows two spellings of one invocation, and the merged `Adapter` the runner sees would still carry `command` and `args`.
+
+  The cost is what step 21 flagged: once a release ships `PACKS` in this shape, adding `invoke` later is additive at best. Later packs don't need it, though. A bash row can say `command: 'shellcheck'` and resolve that executable through `TOOLS` and the pack's chain, and `go`, `cargo` and `terraform` can be read off `command` the same way. Phase 5's release falls after step 23, so this is the last step that can reverse it cheaply.
+
+  **4.** Rule A2 is `rules/no-pack-name-literal.yml`, and it fires only where it should
+
+  It matches a string fragment that is exactly `ts`, `go`, `rust`, `bash`, `python` or `terraform` under `src/orchestrator/` and `src/launch/`, and skips `__tests__`, as A5 does. Matching the fragment catches plain strings, template literals and literal types (`type X = 'ts'`). The tree scans clean. On a scratch probe file copied into four places, it reported 6 hits in `src/orchestrator/` and 6 in `src/launch/`, none in `src/packs/` or a `__tests__/` folder, and none on the look-alikes `'.ts'`, `'tsx'`, `'gopher'`, `'repo'` and `'pnpm'`. The probe files are deleted. `repo` is left out on purpose, following R16.2: it isn't a language, and the word turns up in ordinary strings.
+
+  **5.** The install hint names the package now, and nine files outside the seam changed with the step
+
+  `installCommand` looks the executable up in `TOOLS` and names its `npm` package, falling back to the executable for a tool `TOOLS` doesn't know. So `tsc` now gets `npm install -D typescript`, and likewise for `biome`, `ast-grep`, `vale`, `stryker` and `attw`. That settles step 21's park. Because both the pre-flight and `doctor` call `installCommand`, `doctor.ts` needed no edit, so the stray the harvest expected didn't happen. `pm.test.ts`'s `installCommand` cases use `oxlint`, whose package shares its name, so they pass unchanged. CHANGELOG.md has a Fixed entry for the hint and an Internal one for the launcher and the rule.
+
+  The strays, each a consequence of the move:
+
+  - `AGENTS.md`: the folder-module list and layout block (highlight 1).
+  - `CHANGELOG.md`: C11 (docs-in-step).
+  - `src/orchestrator/context.ts`, `execute.ts`, `types.ts`: one import line each, from `pm/` to `launch/`.
+  - `src/orchestrator/__tests__/orchestrator.test.ts`: the moved pre-flight block, and its import from `launch/`.
+  - `src/gate.ts`, `src/triage/gate.ts`: comments pointing at `pm/launch.ts`, now `launch/refusal.ts`.
+  - `src/__tests__/triage.test.ts`: a comment naming the removed `missingToolOutcome`.

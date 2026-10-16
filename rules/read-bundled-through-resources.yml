@@ -1,0 +1,32 @@
+id: read-bundled-through-resources
+message: |
+  The package's own files belong to src/resources.ts: don't build a path into
+  templates/, schema/ or skills/ here. Read them with `readResource` from
+  ../resources.js, so the standalone binary (R14.1) can serve them from its
+  embedded assets by changing one module.
+severity: error
+language: typescript
+files:
+  - src/**/*.ts
+ignores:
+  - src/resources.ts
+  - '**/__tests__/**'
+rule:
+  kind: string_fragment
+  regex: "^(\\.\\.?/)*/?(templates|schema|skills)(/|$)"
+  inside:
+    any:
+      - kind: string
+      - kind: template_string
+    inside:
+      kind: arguments
+      inside:
+        any:
+          - kind: call_expression
+            has:
+              field: function
+              regex: "(^|\\.)(join|resolve|readFileSync|readFile|readdirSync|readdir|existsSync|statSync|stat|createReadStream|opendir|fileURLToPath)$"
+          - kind: new_expression
+            has:
+              field: constructor
+              regex: "^URL$"

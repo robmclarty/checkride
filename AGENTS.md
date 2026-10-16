@@ -64,6 +64,7 @@ src/
   atomic.ts         atomic file writes (temp file + fsync + rename)
   proc.ts           process-group kill + SIGTERM→SIGKILL escalation
   json.ts           the one `isRecord` narrowing primitive
+  resources.ts      the only reader of the shipped templates/, schema/ and skills/
   tool-json.ts      tolerant JSON extraction from a tool's stdout
   agent-setup/      AGENTS.md stanza + Claude Code hooks
   artifacts/        the output directory (`.check/`) and its shared, bounded read
@@ -76,7 +77,7 @@ src/
   qa/               bundled-plugin reader: the quality artifacts
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
-templates/          shape preset files + shared config templates + rules (shipped)
+templates/          per-pack scaffold files (shipped): ts/ (shapes, configs, rules), repo/
 test/
   integration/      tests that span modules (run by `pnpm check`)
   contract/         locks on the surfaces in docs/contract.md (run by `pnpm check`)
@@ -91,7 +92,7 @@ siblings reach only the index. Ten modules (`agent-setup/`, `artifacts/`,
 `baseline/`, `digest/`, `launch/`, `orchestrator/`, `packs/`, `pm/`, `qa/`,
 `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
-same rules ship to consumer projects — see `templates/shared/rules/`.
+same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 
 ## Patched dependencies
 

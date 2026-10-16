@@ -599,7 +599,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/adapters.ts`, `src/packs/`, `src/index.ts`, `src/__tests__/adapters.test.ts`,
       `test/contract/exports.contract.test.ts`
     - model: sonnet
-22. [ ] refactor(launch): resolve tool argv through a pin-source launcher, **done when:** `src/launch/` builds every spawned argv through the `js-lockfile` source, which absorbs `src/pm/`'s behavior; rule A2 holds for `src/orchestrator/` and `src/launch/`; `pm.test.ts`, `pm-quartet.e2e.test.ts` and the invariance golden pass unchanged
+22. [x] refactor(launch): resolve tool argv through a pin-source launcher, **done when:** `src/launch/` builds every spawned argv through the `js-lockfile` source, which absorbs `src/pm/`'s behavior; rule A2 holds for `src/orchestrator/` and `src/launch/`; `pm.test.ts`, `pm-quartet.e2e.test.ts` and the invariance golden pass unchanged
     - seam: `src/launch/`, `src/pm/`, `src/orchestrator/spawn.ts`, `src/orchestrator/fix.ts`,
       `rules/`
     - model: opus (the package-manager quartet's edge cases move house)

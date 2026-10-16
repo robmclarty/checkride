@@ -16,7 +16,6 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import type { Adapter, Slot } from './adapters.js';
 import { ADAPTERS, SLOTS } from './adapters.js';
@@ -33,6 +32,7 @@ import type { Out } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
 import type { PackageManager } from './pm/index.js';
 import { detectPackageManager, execCommand, runScript } from './pm/index.js';
+import { readResource } from './resources.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -107,9 +107,6 @@ async function defaultProbe(slots: string[], cwd: string): Promise<string[]> {
 }
 
 export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = join(HERE, '..', 'templates');
 
 const STANZA_BEGIN_PREFIX = '<!-- checkride:begin';
 const STANZA_END = '<!-- checkride:end -->';
@@ -380,8 +377,9 @@ export function inventory(input: {
 // Generation helpers
 // ----------------------------------------------------------------------------
 
+/** A scaffold template, by its path under `templates/` (`ts/shared/oxlintrc.json`). */
 function readTemplate(rel: string): string {
-  return readFileSync(join(TEMPLATES_DIR, rel), 'utf8');
+  return readResource(`templates/${rel}`);
 }
 
 function render(text: string, vars: Record<string, string>): string {
@@ -395,7 +393,7 @@ function constName(name: string): string {
 
 function productVersion(): string {
   try {
-    const raw = readFileSync(join(TEMPLATES_DIR, '..', 'package.json'), 'utf8');
+    const raw = readResource('package.json');
     const pkg: { version?: string } = JSON.parse(raw);
     return pkg.version ?? '0.1.0';
   } catch {
@@ -565,7 +563,7 @@ function licenseText(license: string, holder: string): string {
 }
 
 function cspellWithName(name: string, scope: string | null): string {
-  const base: { words?: string[] } & Record<string, unknown> = JSON.parse(readTemplate('shared/cspell.json'));
+  const base: { words?: string[] } & Record<string, unknown> = JSON.parse(readTemplate('repo/shared/cspell.json'));
   const words = new Set(base.words ?? []);
   for (const token of `${name} ${scope ?? ''}`.split(/[^A-Za-z0-9]+/)) {
     if (token.length > 1) words.add(token);
@@ -598,14 +596,14 @@ async function writeSharedStatic(w: Writer): Promise<void> {
   // `pack` refuses a `.ts` file or a `.test.` name in this package's tarball,
   // so those templates take another name here and get their real one on write.
   const map: [string, string][] = [
-    ['shared/tsconfig.base.json', 'tsconfig.base.json'],
-    ['shared/tsconfig-test.json', 'tsconfig.test.json'],
-    ['shared/oxlintrc.json', '.oxlintrc.json'],
-    ['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc'],
-    ['shared/sgconfig.yml', 'sgconfig.yml'],
-    ['shared/vitest.config.ts.template', 'vitest.config.ts'],
-    ['shared/gitignore', '.gitignore'],
-    ['shared/npmrc', '.npmrc'],
+    ['ts/shared/tsconfig.base.json', 'tsconfig.base.json'],
+    ['ts/shared/tsconfig-test.json', 'tsconfig.test.json'],
+    ['ts/shared/oxlintrc.json', '.oxlintrc.json'],
+    ['repo/shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc'],
+    ['repo/shared/sgconfig.yml', 'sgconfig.yml'],
+    ['ts/shared/vitest.config.ts.template', 'vitest.config.ts'],
+    ['ts/shared/gitignore', '.gitignore'],
+    ['ts/shared/npmrc', '.npmrc'],
   ];
   // Independent writes to distinct paths — run them concurrently.
   await Promise.all(map.map(([from, to]) => put(w, to, readTemplate(from))));
@@ -623,7 +621,7 @@ async function writeSharedStatic(w: Writer): Promise<void> {
     'src-never-imports-test.yml',
     'no-logic-in-barrel.yml',
   ];
-  await Promise.all(rules.map((rule) => put(w, join('rules', rule), readTemplate(join('shared', 'rules', rule)))));
+  await Promise.all(rules.map((rule) => put(w, join('rules', rule), readTemplate(`ts/shared/rules/${rule}`))));
 }
 
 /**
@@ -764,9 +762,9 @@ async function writeNewScaffold(w: Writer, s: NewScaffold): Promise<void> {
   const scaffolded = scaffoldedAdapters(s.adapters, s.slots);
   const checks = newChecks(scaffolded);
   await writeSharedStatic(w);
-  await put(w, 'tsconfig.json', render(readTemplate(join(s.shape, 'tsconfig.json')), { name: s.name }));
-  await put(w, 'fallow.toml', render(readTemplate(join(s.shape, 'fallow.toml')), { name: s.name }));
-  await put(w, 'pnpm-workspace.yaml', render(readTemplate(join(s.shape, 'pnpm-workspace.yaml')), { name: s.name }));
+  await put(w, 'tsconfig.json', render(readTemplate(`ts/${s.shape}/tsconfig.json`), { name: s.name }));
+  await put(w, 'fallow.toml', render(readTemplate(`ts/${s.shape}/fallow.toml`), { name: s.name }));
+  await put(w, 'pnpm-workspace.yaml', render(readTemplate(`ts/${s.shape}/pnpm-workspace.yaml`), { name: s.name }));
 
   await put(w, 'cspell.json', cspellWithName(s.name, s.scope));
   await put(w, 'package.json', rootPackageJson(s.fullName, s.license, s.author, collectDevDeps(scaffolded, s.checkrideSpec), s.shape !== 'flat'));
@@ -1106,30 +1104,32 @@ async function writeAgentsStanza(
 // Shape-specific slots (types, dead) use the flat variant — existing repos
 // adopting checkride incrementally are overwhelmingly single-package.
 const ADD_CONFIGS: Record<string, [string, string][]> = {
-  types: [['shared/tsconfig.base.json', 'tsconfig.base.json'], ['flat/tsconfig.json', 'tsconfig.json']],
-  format: [['shared/prettierrc.json', '.prettierrc.json']],
-  lint: [['shared/oxlintrc.json', '.oxlintrc.json']],
+  types: [['ts/shared/tsconfig.base.json', 'tsconfig.base.json'], ['ts/flat/tsconfig.json', 'tsconfig.json']],
+  format: [['ts/shared/prettierrc.json', '.prettierrc.json']],
+  lint: [['ts/shared/oxlintrc.json', '.oxlintrc.json']],
   // `struct` scaffolds the boundary rule and stops. New-mode `init` writes all
-  // four (`writeSharedStatic`), and that is a different bargain: there checkride
+  // ten (`writeSharedStatic`), and that is a different bargain: there checkride
   // is creating the package, so its house style has nobody to override. Here the
   // repo already exists and has already decided. `no-class`, `no-default-export`
   // and `require-js-extension` are style and module-system opinions — a repo
   // with classes, default exports, or bundler resolution goes red on adoption
   // for writing the code it always wrote, which reads as checkride being broken.
+  // The six layout and barrel rules are the same kind of call, about where tests
+  // live and what an `index.ts` may hold.
   // `no-deep-sibling-import` is the one that makes `struct` the slot it is, and
-  // failing it means what it says. The other three stay one copy away, in
-  // `docs/deep-modules.md`.
+  // failing it means what it says. The other nine stay one copy away, as
+  // `docs/deep-modules.md` says.
   struct: [
-    ['shared/sgconfig.yml', 'sgconfig.yml'],
-    ['shared/rules/no-deep-sibling-import.yml', 'rules/no-deep-sibling-import.yml'],
+    ['repo/shared/sgconfig.yml', 'sgconfig.yml'],
+    ['ts/shared/rules/no-deep-sibling-import.yml', 'rules/no-deep-sibling-import.yml'],
   ],
-  dead: [['flat/fallow.toml', 'fallow.toml']],
+  dead: [['ts/flat/fallow.toml', 'fallow.toml']],
   // dupes/health are the same fallow tool + config as `dead`, just other slots.
-  dupes: [['flat/fallow.toml', 'fallow.toml']],
-  health: [['flat/fallow.toml', 'fallow.toml']],
-  test: [['shared/vitest.config.ts.template', 'vitest.config.ts']],
-  docs: [['shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc']],
-  spell: [['shared/cspell.json', 'cspell.json']],
+  dupes: [['ts/flat/fallow.toml', 'fallow.toml']],
+  health: [['ts/flat/fallow.toml', 'fallow.toml']],
+  test: [['ts/shared/vitest.config.ts.template', 'vitest.config.ts']],
+  docs: [['repo/shared/markdownlint-cli2.jsonc', '.markdownlint-cli2.jsonc']],
+  spell: [['repo/shared/cspell.json', 'cspell.json']],
   // `prose` is the one slot whose config alone scaffolds nothing usable: vale's
   // .vale.ini is a pointer at a StylesPath, and an empty StylesPath lints
   // nothing. The rules are the deliverable, so they come with it. They are the
@@ -1139,13 +1139,13 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
   // assert nothing about code at all, and a prose rule the author disagrees
   // with is deleted in one line.
   prose: [
-    ['shared/vale.ini', '.vale.ini'],
-    ['shared/styles/Repo/Drift.yml', '.vale/styles/Repo/Drift.yml'],
-    ['shared/styles/Repo/Latin.yml', '.vale/styles/Repo/Latin.yml'],
-    ['shared/styles/Repo/LyHyphen.yml', '.vale/styles/Repo/LyHyphen.yml'],
-    ['shared/styles/Repo/Minted.yml', '.vale/styles/Repo/Minted.yml'],
-    ['shared/styles/Repo/ThereIs.yml', '.vale/styles/Repo/ThereIs.yml'],
-    ['shared/styles/Repo/Weasel.yml', '.vale/styles/Repo/Weasel.yml'],
+    ['repo/shared/vale.ini', '.vale.ini'],
+    ['repo/shared/styles/Repo/Drift.yml', '.vale/styles/Repo/Drift.yml'],
+    ['repo/shared/styles/Repo/Latin.yml', '.vale/styles/Repo/Latin.yml'],
+    ['repo/shared/styles/Repo/LyHyphen.yml', '.vale/styles/Repo/LyHyphen.yml'],
+    ['repo/shared/styles/Repo/Minted.yml', '.vale/styles/Repo/Minted.yml'],
+    ['repo/shared/styles/Repo/ThereIs.yml', '.vale/styles/Repo/ThereIs.yml'],
+    ['repo/shared/styles/Repo/Weasel.yml', '.vale/styles/Repo/Weasel.yml'],
   ],
 };
 

@@ -17,7 +17,7 @@ import { dirname, join } from 'node:path';
  */
 export type HookFile = { path: string; changed: boolean; removed?: boolean };
 
-export async function readIfExists(path: string): Promise<string | null> {
+async function readIfExists(path: string): Promise<string | null> {
   try {
     return await readFile(path, 'utf8');
   } catch {

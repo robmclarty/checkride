@@ -111,12 +111,12 @@ describe("this repo's checkride.config.json", () => {
    * by editing this test to say so.
    */
   test('the repo vale config and style are the shipped scaffold, unchanged', () => {
-    const templateStyles = join(ROOT, 'templates', 'shared', 'styles', 'Repo');
+    const templateStyles = join(ROOT, 'templates', 'repo', 'shared', 'styles', 'Repo');
     const repoStyles = join(ROOT, '.vale', 'styles', 'Repo');
     expect(readdirSync(repoStyles).toSorted()).toEqual(readdirSync(templateStyles).toSorted());
 
     const pairs: Array<[string, string]> = [
-      [join(ROOT, 'templates', 'shared', 'vale.ini'), join(ROOT, '.vale.ini')],
+      [join(ROOT, 'templates', 'repo', 'shared', 'vale.ini'), join(ROOT, '.vale.ini')],
       ...readdirSync(templateStyles).map(
         (f): [string, string] => [join(templateStyles, f), join(repoStyles, f)],
       ),

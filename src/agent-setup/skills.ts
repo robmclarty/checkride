@@ -13,19 +13,12 @@
  * free (`/checkride:check`); here it has to be spelled out.
  */
 
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
+import { readResource } from '../resources.js';
 import type { HookFile } from './files.js';
-import { putFile, readIfExists } from './files.js';
+import { putFile } from './files.js';
 
 /** Where Cursor discovers project skills, relative to the repo root. */
 export const CURSOR_SKILLS_DIR = '.cursor/skills';
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-
-/** The package's own `skills/` directory, which ships in the published tarball. */
-const SKILLS_DIR = join(HERE, '..', '..', 'skills');
 
 /** Source skill → the name it takes once it is a repo-local Cursor skill. */
 const SKILLS: readonly { source: string; name: string }[] = [
@@ -45,6 +38,15 @@ export function renameSkill(body: string, name: string): string {
   return `${open}${renamed}${close}${body.slice(frontmatter[0].length)}`;
 }
 
+/** A bundled skill's body, or `null` when the package doesn't carry it. */
+function readSkill(source: string): string | null {
+  try {
+    return readResource(`skills/${source}/SKILL.md`);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Write the bundled skills into `cwd`'s Cursor skills directory. A source skill
  * that cannot be read is skipped rather than fatal: a broken or trimmed install
@@ -54,7 +56,7 @@ export async function writeCursorSkills(cwd: string, opts: { dryRun?: boolean } 
   const dryRun = opts.dryRun ?? false;
   const written = await Promise.all(
     SKILLS.map(async (skill) => {
-      const body = await readIfExists(join(SKILLS_DIR, skill.source, 'SKILL.md'));
+      const body = readSkill(skill.source);
       if (body === null) return null;
       const rel = `${CURSOR_SKILLS_DIR}/${skill.name}/SKILL.md`;
       return putFile(cwd, rel, renameSkill(body, skill.name), { dryRun });

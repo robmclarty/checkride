@@ -343,7 +343,7 @@ describe('new-project generation (flat)', () => {
   test.each(['flat', 'monorepo', 'hybrid'] as const)('ships all ten rules, verbatim from the templates (%s)', async (shape) => {
     await runInit({ cwd: dir, shape, name: 'demo', scope: '@demo', checkrideSpec: '^0.1.0' });
     expect((await readdir(join(dir, 'rules'))).toSorted()).toEqual(NEW_MODE_RULES.toSorted());
-    const templates = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'shared', 'rules');
+    const templates = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'templates', 'ts', 'shared', 'rules');
     for (const rule of NEW_MODE_RULES) {
       expect(await readFile(join(dir, 'rules', rule), 'utf8'), rule).toBe(await readFile(join(templates, rule), 'utf8'));
     }
@@ -376,7 +376,7 @@ describe('new-project generation (flat)', () => {
       },
     });
     expect(await readFile(join(dir, 'tsconfig.test.json'), 'utf8')).toBe(
-      await readFile(join(repoRoot, 'templates', 'shared', 'tsconfig-test.json'), 'utf8'),
+      await readFile(join(repoRoot, 'templates', 'ts', 'shared', 'tsconfig-test.json'), 'utf8'),
     );
 
     // Detection alone would run exactly these slots off the scaffold's own

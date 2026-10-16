@@ -3,8 +3,8 @@
  *
  * A location rule matches `kind: program`, so its `files` and `ignores` globs
  * alone decide what fires, and `ast-grep test` runs snippets with no path at
- * all. So this builds a temp tree from `templates/shared/`'s sgconfig.yml and
- * rules/, plants a file at each path below, scans it once, and holds every
+ * all. So this builds a temp tree from the sgconfig.yml in `templates/repo/shared/`
+ * and the rules in `templates/ts/shared/rules/`, plants a file at each path below, scans it once, and holds every
  * file to exactly the rules that must fire on it. Every path is planted twice:
  * at the root, the way the flat shape lays it out, and under a monorepo
  * package, where the rules' shape-agnostic globs have to reach too.
@@ -19,7 +19,8 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const SHARED = join(REPO, 'templates', 'shared');
+const SGCONFIG = join(REPO, 'templates', 'repo', 'shared', 'sgconfig.yml');
+const RULES = join(REPO, 'templates', 'ts', 'shared', 'rules');
 const AST_GREP = join(REPO, 'node_modules', '.bin', 'ast-grep');
 
 /** Where each shape keeps `src/` and `test/`: the root, or one package. */
@@ -71,8 +72,8 @@ function casesUnder(home: string): Case[] {
 const CASES = HOMES.flatMap(({ home }) => casesUnder(home));
 
 /** The shipped rules that decide by path alone, read from the templates rather than listed here. */
-const LOCATION_RULES = readdirSync(join(SHARED, 'rules'))
-  .filter((name) => /^rule:\n {2}kind: program$/m.test(readFileSync(join(SHARED, 'rules', name), 'utf8')))
+const LOCATION_RULES = readdirSync(RULES)
+  .filter((name) => /^rule:\n {2}kind: program$/m.test(readFileSync(join(RULES, name), 'utf8')))
   .map((name) => name.replace(/\.yml$/, ''))
   .toSorted();
 
@@ -83,8 +84,8 @@ let fired = new Map<string, string[]>();
 
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), 'checkride-e2e-layout-'));
-  cpSync(join(SHARED, 'sgconfig.yml'), join(root, 'sgconfig.yml'));
-  cpSync(join(SHARED, 'rules'), join(root, 'rules'), { recursive: true });
+  cpSync(SGCONFIG, join(root, 'sgconfig.yml'));
+  cpSync(RULES, join(root, 'rules'), { recursive: true });
   for (const [path, body] of CASES) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
     writeFileSync(join(root, path), body);

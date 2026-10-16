@@ -187,7 +187,7 @@ a git repo.
 An existing repo adopting the `struct` check with `init --add struct` gets
 `no-deep-sibling-import.yml` alone. The other nine are style and layout
 decisions the repo has already made its own way. Copy in any you agree with from
-`node_modules/checkride/templates/shared/rules/`.
+`node_modules/checkride/templates/ts/shared/rules/`.
 
 The cross-package boundary is fallow's, not ast-grep's, and it only applies to
 the **monorepo** shape: fallow's `boundary-violation` rule enforces that

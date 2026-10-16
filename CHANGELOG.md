@@ -243,7 +243,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Internal
 
 - This repo now keeps the test layout `init` scaffolds. Its `rules/` carries
-  the five test-layout rules, copied unchanged from `templates/shared/rules/`,
+  the five test-layout rules, copied unchanged from `templates/ts/shared/rules/`,
   so its own `struct` check runs them on every `pnpm check`. The six test
   files that sat loose in `test/` moved to `test/integration/`. Five keep the
   repo's docs, config, plugin manifest and site from drifting, and one
@@ -260,6 +260,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   differently. A new structural rule, `no-pack-name-literal`, stops the
   orchestrator and the launcher from spelling a pack's name, so a later pack
   adds rows instead of branches.
+- The scaffold templates now sit under one folder per pack:
+  `templates/ts/` holds the three shapes and the TypeScript configs and
+  rules, and `templates/repo/shared/` the cspell, markdownlint, vale and
+  ast-grep files every repo shares. `init` writes the same files as before.
+  `src/resources.ts` is now the only module that reads the package's
+  `templates/`, `schema/` and `skills/`, and a new structural rule,
+  `read-bundled-through-resources`, keeps it that way, so the standalone
+  binary can later serve them from embedded assets.
 
 ## [0.14.0] - 2026-10-09
 
