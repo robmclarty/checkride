@@ -14,12 +14,14 @@
  * property that lets a green run mean the same thing locally and in CI.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
+import { isRecord } from '../json.js';
 import { TOOLS } from '../packs/index.js';
 import type { PackageManager } from './package-manager.js';
 import { LOCKFILE_NAMES } from './package-manager.js';
+import { dirsUpTo } from './walk.js';
 
 /**
  * The `<tool>` in a canonical `pnpm exec <tool> …` adapter invocation, or `null`
@@ -56,8 +58,59 @@ const INSTALL: Record<PackageManager, string> = {
  * check's `pnpm exec` usually runs.
  */
 export function installCommand(pm: PackageManager, tool: string): string {
-  const pkg = TOOLS.find((t) => t.bin === tool)?.npm ?? tool;
-  return `${INSTALL[pm]} ${pkg}`;
+  return `${INSTALL[pm]} ${npmPackage(tool)}`;
+}
+
+/** The npm package that provides `tool`: the one `TOOLS` lists, else the executable's own name. */
+function npmPackage(tool: string): string {
+  return TOOLS.find((t) => t.bin === tool)?.npm ?? tool;
+}
+
+/** Read and parse a JSON object, or `null` when the file is missing or isn't one. */
+function readJsonObject(file: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    return isRecord(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The `package.json` dependency blocks a lockfile installs from. */
+const DEPENDENCY_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
+
+/**
+ * Whether the `js-lockfile` source declares `tool` for a check in `cwd`: its
+ * package is a dependency in the nearest `package.json` from `cwd` up to
+ * `repo` (R6.1). Only the nearest file counts, the one the package manager
+ * installs that directory from.
+ */
+export function jsLockfileDeclares(cwd: string, repo: string, tool: string): boolean {
+  const manifest = dirsUpTo(cwd, repo).map((dir) => join(dir, 'package.json')).find((file) => existsSync(file));
+  if (manifest === undefined) return false;
+  const pkg = readJsonObject(manifest);
+  const name = npmPackage(tool);
+  return DEPENDENCY_KEYS.some((key) => {
+    const deps = pkg?.[key];
+    return typeof deps === 'object' && deps !== null && Object.hasOwn(deps, name);
+  });
+}
+
+/**
+ * The version of `tool` the lockfile installed, read from
+ * `node_modules/<package>/package.json` in the nearest directory from `cwd`
+ * up to `repo` that has it, or `undefined` (R6.3). Only a tool `TOOLS` names a
+ * package for has one: guessing the package from the executable's name could
+ * report another package's version.
+ */
+export function jsLockfileVersion(cwd: string, repo: string, tool: string): string | undefined {
+  const pkg = TOOLS.find((t) => t.bin === tool)?.npm;
+  if (pkg === undefined) return undefined;
+  for (const dir of dirsUpTo(cwd, repo)) {
+    const version = readJsonObject(join(dir, 'node_modules', pkg, 'package.json'))?.['version'];
+    if (typeof version === 'string' && version !== '') return version;
+  }
+  return undefined;
 }
 
 /**

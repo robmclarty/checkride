@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Baseline } from '../../baseline/index.js';
 import { runBaseline } from '../../baseline-command.js';
 import type { CheckrideConfig, ResolvedCheck } from '../../config.js';
+import { PACKS } from '../../packs/index.js';
 import type { CheckRunner, Out, RunResult } from '../index.js';
 import { runChecks, runFix } from '../index.js';
 import { skipUnchanged } from '../select.js';
@@ -67,6 +68,25 @@ describe('runChecks with targets', () => {
     expect(seen['tally']).toEqual({ cwd: dir, out: join(dir, '.check') });
   });
 
+  test("each target runs under the package manager declared nearest its root, and with its pack's pin chain", async () => {
+    await writeFile(join(dir, 'pnpm-lock.yaml'), '');
+    await mkdir(join(dir, 'apps', 'api'), { recursive: true });
+    await mkdir(join(dir, 'apps', 'web'), { recursive: true });
+    await writeFile(join(dir, 'apps', 'api', 'package-lock.json'), '{}');
+    const seen: Record<string, { pm: string; repo?: string; pins?: readonly string[] }> = {};
+    const runner: CheckRunner = (r, ctx) => {
+      seen[r.target ?? r.slot] = { pm: ctx.pm, ...(ctx.repo !== undefined ? { repo: ctx.repo } : {}), ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}) };
+      return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+    };
+    await runChecks({ cwd: dir, config: { ...config, checks: { tally: { command: 'node' } } }, runner, baseline: null, stderr: sink().out });
+    expect(seen['web']).toEqual({ pm: 'pnpm', repo: dir, pins: ['js-lockfile'] });
+    expect(seen['api']).toEqual({ pm: 'npm', repo: dir, pins: ['js-lockfile'] });
+    expect(seen['tally']).toEqual({ pm: 'pnpm', repo: dir, pins: ['js-lockfile'] });
+    // Each chain is its pack's own row, not the implicit chain that happens to match it today.
+    expect(seen['web']?.pins).toBe(PACKS.ts.pins);
+    expect(seen['tally']?.pins).toBe(PACKS.repo.pins);
+  });
+
   test("a target's findings mask against its <target>:<slot> entry, keyed from the repo root", async () => {
     const baseline: Baseline = { schema_version: 1, slots: { 'web:lint': ['apps/web/src/a.ts:no-x:bad'] } };
     const result = await run(lintRunner({ web: [['src/a.ts', 'no-x', 'bad']], api: [['src/a.ts', 'no-x', 'bad']] }), baseline);
@@ -111,6 +131,28 @@ describe('runChecks with targets', () => {
 });
 
 describe('runFix with targets', () => {
+  test("a target's fixer runs under the package manager declared nearest its root", async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-targets-'));
+    try {
+      await mkdir(join(dir, 'apps', 'web'), { recursive: true });
+      await mkdir(join(dir, 'apps', 'api'), { recursive: true });
+      await writeFile(join(dir, 'apps', 'api', 'yarn.lock'), '');
+      const seen: string[] = [];
+      await runFix({
+        cwd: dir,
+        config,
+        stderr: sink().out,
+        fixRunner: (_adapter, ctx) => {
+          seen.push(`${ctx.cwd.slice(dir.length)}:${ctx.pm}`);
+          return Promise.resolve({ ok: true, exit_code: 0 });
+        },
+      });
+      expect(seen).toEqual(['/apps/web:pnpm', '/apps/api:yarn']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("a target's fixer runs from its root, named <target>:<slot>", async () => {
     const ran: string[] = [];
     const err = sink();

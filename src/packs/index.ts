@@ -8,4 +8,4 @@
 
 export { PACKS } from './packs.js';
 export { TOOLS } from './tools.js';
-export type { Pack, Tool } from './types.js';
+export type { Pack, PinSourceName, Tool } from './types.js';

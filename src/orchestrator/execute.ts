@@ -16,7 +16,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
 import { applyBaseline, fingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { isAvailableUnder } from '../launch/index.js';
+import { isAvailableUnder, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson } from '../tool-json.js';
@@ -144,15 +144,26 @@ function selfSkipReason(r: ResolvedCheck, outcome: CheckOutcome): string | null 
   return `${last} (exit ${outcome.exit_code})`;
 }
 
-/** The argv the runner spawned, as the summary records it, with nothing for a check that spawned no tool. */
-function argvField(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv'> {
-  return outcome.argv !== undefined ? { argv: outcome.argv } : {};
+/**
+ * What the runner spawned, as the summary records it: the argv, and the pin
+ * source and tool version it resolved through, with nothing for a check that
+ * spawned no tool.
+ */
+function spawnedFields(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv' | 'pin_source' | 'tool_version'> {
+  return {
+    ...(outcome.argv !== undefined ? { argv: outcome.argv } : {}),
+    ...(outcome.pin_source !== undefined ? { pin_source: outcome.pin_source } : {}),
+    ...(outcome.tool_version !== undefined ? { tool_version: outcome.tool_version } : {}),
+  };
 }
 
-/** Build (and print) the skipped-entry row for a slot that won't run this pass. */
-function handleSkip(r: ResolvedCheck, unavailable: boolean, ctx: RunContext): SummaryCheck {
+/**
+ * Build (and print) the skipped-entry row for a slot that won't run this pass.
+ * `unavailable` names the package manager the adapter can't run under.
+ */
+function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContext): SummaryCheck {
   const entry = skippedEntry(
-    unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${ctx.pm}` } : r,
+    unavailable !== null ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${unavailable}` } : r,
     ctx.targets !== null,
   );
   if (!ctx.json) writeLine(ctx.stderr, `  ○ ${entry.name.padEnd(ctx.nameWidth)}      skip  ${entry.reason ?? ''}`);
@@ -187,15 +198,22 @@ type CheckResult = {
   newKeys: string[];
 };
 
-/** What a {@link CheckRunner} is handed: `base` only under `--changed`, `timeout` only when the config sets one. */
-function runnerContext(ctx: RunContext, place: Place): Parameters<CheckRunner>[1] {
+/**
+ * What a {@link CheckRunner} is handed: `base` only under `--changed`,
+ * `timeout` only when the config sets one, and the pin chain of the check's
+ * pack.
+ */
+function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Parameters<CheckRunner>[1] {
   return {
     cwd: place.cwd,
     changed: ctx.changed,
     ...(ctx.changedBase !== null ? { base: ctx.changedBase.ref } : {}),
     out: place.outArg,
-    pm: ctx.pm,
+    pm: place.pm,
     ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
+    repo: ctx.cwd,
+    pins: pinChain(r.pack),
+    requirePins: ctx.requirePins,
   };
 }
 
@@ -219,7 +237,7 @@ function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, writte
     duration_ms: written.durationMs,
     output_file: written.file === null ? null : `${written.place.prefix}${written.file}`,
     ...provenanceFields(r),
-    ...argvField(run.outcome),
+    ...spawnedFields(run.outcome),
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
 }
@@ -232,9 +250,8 @@ function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, writte
  * writes no artifact and feeds nothing to the ratchet, so the baseline keeps
  * its keys for that slot.
  */
-async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext): Promise<CheckResult> {
+async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx: RunContext): Promise<CheckResult> {
   const name = checkName(r);
-  const place = placeOf(r, ctx);
   if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${name}  ${adapter.description}`);
   // A target's directory is made as its first check starts, since its tools
   // may write their own reports there through `{out}`.
@@ -244,11 +261,11 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
   // the tool writes during *this* run (for example `test.json`) survives.
   await clearSlotOutputs(place.dir, adapter);
   const start = performance.now();
-  const outcome = await ctx.runner(r, runnerContext(ctx, place));
+  const outcome = await ctx.runner(r, runnerContext(r, ctx, place));
   const durationMs = Math.round(performance.now() - start);
   const skipReason = outcome.skip ?? selfSkipReason(r, outcome);
   if (skipReason !== null) {
-    return { entry: handleSkip({ ...r, skip: skipReason }, false, ctx), run: null, observed: null, newKeys: [] };
+    return { entry: handleSkip({ ...r, skip: skipReason }, null, ctx), run: null, observed: null, newKeys: [] };
   }
   const file = await persistOutput(place.dir, adapter, outcome);
 
@@ -270,13 +287,14 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext):
  * so N of these can be in flight at once.
  */
 async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<CheckResult> {
-  // Skip when unresolved, or when the adapter can't run under this PM — for
-  // example `pnpm audit` (the `security` slot) is unavailable off pnpm.
-  const unavailable = Boolean(r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, ctx.pm));
-  if (r.skip || !r.adapter || unavailable) {
+  const place = placeOf(r, ctx);
+  // Skip when unresolved, or when the adapter can't run under the check's PM —
+  // for example `pnpm audit` (the `security` slot) is unavailable off pnpm.
+  const unavailable = r.adapter && !isAvailableUnder(r.adapter.command, r.adapter.args, place.pm) ? place.pm : null;
+  if (r.skip || !r.adapter || unavailable !== null) {
     return { entry: handleSkip(r, unavailable, ctx), run: null, observed: null, newKeys: [] };
   }
-  return runOneCheck(r, r.adapter, ctx);
+  return runOneCheck(r, r.adapter, place, ctx);
 }
 
 /** The run accumulators every execution path fills. */

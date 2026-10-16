@@ -1,6 +1,8 @@
 /**
- * `checkride fix` — run every active adapter's `fixArgs` in sequence under the
- * resolved package manager, on the same binary the run path spawns.
+ * `checkride fix` — run every active adapter's `fixArgs` in sequence, each
+ * launched through its check's pin chain the way the run path launches the
+ * check, so a fix runs the same copy of the tool and is refused where the
+ * check would be.
  */
 
 import { spawn } from 'node:child_process';
@@ -8,20 +10,27 @@ import { spawn } from 'node:child_process';
 import type { Adapter, Slot } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
-import type { PackageManager } from '../launch/index.js';
-import { detectPackageManager, launchFix } from '../launch/index.js';
+import type { Launch, LaunchContext, PackageManager } from '../launch/index.js';
+import { launchCheck, pinChain } from '../launch/index.js';
 import { checkName } from '../targets/index.js';
-import { resolveCommonOptions } from './context.js';
+import { packageManagerAt, resolveCommonOptions } from './context.js';
 import { checkCwd } from './place.js';
 import { nameWidth, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
 import type { Out, RunFlags } from './types.js';
 
-/** Result of a single adapter's fix command. */
-export type FixOutcome = { ok: boolean; exit_code: number };
+/**
+ * Result of a single adapter's fix command. `refusal` is the launcher's
+ * message when it wouldn't start the fixer, which `runFix` prints.
+ */
+export type FixOutcome = { ok: boolean; exit_code: number; refusal?: string };
 
-/** Runs one adapter's `fixArgs` under the resolved PM. Injectable for testing. */
-export type FixRunner = (adapter: Adapter, ctx: { cwd: string; pm: PackageManager }) => Promise<FixOutcome>;
+/**
+ * Runs one adapter's `fixArgs`, launched with `ctx`: the check's directory and
+ * package manager, the repo root, its pin chain and `requirePins`. Injectable
+ * for testing.
+ */
+export type FixRunner = (adapter: Adapter, ctx: LaunchContext) => Promise<FixOutcome>;
 
 export type FixOptions = RunFlags & {
   cwd?: string;
@@ -35,28 +44,31 @@ export type FixOptions = RunFlags & {
 
 export type FixResult = { ok: boolean; exitCode: number; ran: string[] };
 
-function spawnInherit(command: string, args: string[], cwd: string): Promise<FixOutcome> {
+function spawnInherit(command: string, args: string[], cwd: string, env: Readonly<Record<string, string>> = {}): Promise<FixOutcome> {
   return new Promise((resolveOutcome) => {
-    const proc = spawn(command, args, { cwd, stdio: 'inherit', env: process.env });
+    const proc = spawn(command, args, { cwd, stdio: 'inherit', env: { ...process.env, ...env } });
     proc.on('error', () => { resolveOutcome({ ok: false, exit_code: -1 }); });
     proc.on('close', (code) => { resolveOutcome({ ok: code === 0, exit_code: code ?? -1 }); });
   });
 }
 
 /**
- * The command `checkride fix` spawns for one adapter under `pm` — the fix
- * path's counterpart to `defaultRunner`'s `launchCheck` call, so a fix runs on
- * the same binary the run path does (a canonical `pnpm exec oxlint --fix`
- * becomes `npx --no-install oxlint --fix` under npm). Non-`pnpm exec` fix
- * commands pass through unchanged.
+ * What `checkride fix` launches for one adapter — the fix path's counterpart
+ * to `defaultRunner`'s `launchCheck` call, so a fix runs the copy of the tool
+ * the run path does (a canonical `pnpm exec oxlint --fix` becomes
+ * `npx --no-install oxlint --fix` under npm), or is refused where the check
+ * would be: a tool the project never installed under `npx` or `bunx`, a pin
+ * whose source can't run it, an unpinned tool under `requirePins`. Non-tool
+ * fix commands pass through unchanged.
  */
-export function fixInvocation(adapter: Adapter, pm: PackageManager): { command: string; args: string[] } {
-  return launchFix(adapter.command, adapter.fixArgs ?? [], pm);
+export function fixInvocation(adapter: Adapter, ctx: LaunchContext): Launch {
+  return launchCheck(adapter.slot, adapter.command, adapter.fixArgs ?? [], ctx);
 }
 
 const defaultFixRunner: FixRunner = (adapter, ctx) => {
-  const { command, args } = fixInvocation(adapter, ctx.pm);
-  return spawnInherit(command, args, ctx.cwd);
+  const launch = fixInvocation(adapter, ctx);
+  if ('refusal' in launch) return Promise.resolve({ ok: false, exit_code: 1, refusal: launch.refusal });
+  return spawnInherit(launch.command, launch.args, ctx.cwd, launch.env);
 };
 
 /**
@@ -71,14 +83,19 @@ function reportFix(stderr: Out, r: ResolvedCheck, outcome: FixOutcome): 'ok' | '
     return 'skipped';
   }
   writeLine(stderr, outcome.ok ? `  ✔ ${name}` : `  ✘ ${name} (exit ${outcome.exit_code})`);
+  if (outcome.refusal !== undefined) stderr.write(outcome.refusal);
   return outcome.ok ? 'ok' : 'failed';
 }
 
-/** Run every active adapter's `fixArgs` (`checkride fix`), a target's from its root. */
+/**
+ * Run every active adapter's `fixArgs` (`checkride fix`), a target's from its
+ * root under the package manager declared nearest it.
+ */
 export async function runFix(options: FixOptions): Promise<FixResult> {
   const { cwd, slots, adapters, config, stderr } = resolveCommonOptions(options);
   const fixRunner = options.fixRunner ?? defaultFixRunner;
-  const pm = options.pm ?? detectPackageManager({ cwd });
+  const pmAt = packageManagerAt(options.pm, cwd);
+  const requirePins = config?.requirePins === true;
 
   const resolved = resolveChecks({ slots, adapters, config, cwd });
   validateSelection(resolved, options);
@@ -96,8 +113,9 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     const adapter = r.adapter;
     if (!adapter) continue;
     writeLine(stderr, `  ▸ fix ${checkName(r).padEnd(width)} (${adapter.name})`);
+    const dir = checkCwd(cwd, r);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.
-    const outcome = await fixRunner(adapter, { cwd: checkCwd(cwd, r), pm });
+    const outcome = await fixRunner(adapter, { cwd: dir, pm: pmAt(dir), repo: cwd, pins: pinChain(r.pack), requirePins });
     const result = reportFix(stderr, r, outcome);
     if (result !== 'skipped') ran.push(adapter.name);
     if (result === 'failed') ok = false;

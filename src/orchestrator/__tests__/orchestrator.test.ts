@@ -19,7 +19,7 @@ import { fixInvocation } from '../fix.js';
 import type { CheckRunner, Out, RunFlags, RunOptions, RunResult, Summary, SummaryCheck } from '../index.js';
 import { runChecks, runFix, selectChecks } from '../index.js';
 import { formatStatusLine } from '../report.js';
-import { defaultConcurrency, missingExemplarsOutcome, runtimeArgs } from '../spawn.js';
+import { defaultConcurrency, defaultRunner, missingExemplarsOutcome, runtimeArgs } from '../spawn.js';
 
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };
@@ -48,6 +48,12 @@ const failLint: CheckRunner = (r) =>
   Promise.resolve({ ok: r.slot !== 'lint', exit_code: r.slot === 'lint' ? 1 : 0, stdout: '', stderr: '' });
 
 const okRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+/** A runner that reports `types` as a pinned npm tool with its version, and every other check as a tool from PATH. */
+const pinned: CheckRunner = (r) => Promise.resolve({
+  ok: true, exit_code: 0, stdout: '', stderr: '',
+  ...(r.slot === 'types' ? { argv: ['tsc'], pin_source: 'js-lockfile' as const, tool_version: '5.9.3' } : { argv: ['oxlint'], pin_source: 'path' as const }),
+});
 
 /** A runner that reports `[<slot>, '--flag']` as the argv it spawned, and exits 77 for `licenses`. */
 const argvRunner: CheckRunner = (r) => {
@@ -384,6 +390,24 @@ describe('runChecks (injected runner)', () => {
       cwd: dir, slots, adapters, config: null, runner: okRunner, json: true, stdout: sink().out, stderr: sink().out,
     });
     for (const c of plain.summary.checks) expect(c, c.name).not.toHaveProperty('argv');
+  });
+
+  test("a runner's pin_source and tool_version ride into the entry beside its argv", async () => {
+    const result = await runChecks({ cwd: dir, slots, adapters, config: null, runner: pinned, json: true, stdout: sink().out, stderr: sink().out });
+    const byName = new Map(result.summary.checks.map((c) => [c.name, c]));
+    expect(byName.get('types')).toMatchObject({ argv: ['tsc'], pin_source: 'js-lockfile', tool_version: '5.9.3' });
+    expect(byName.get('lint')).toMatchObject({ argv: ['oxlint'], pin_source: 'path' });
+    expect(byName.get('lint')).not.toHaveProperty('tool_version');
+  });
+
+  test("the runner gets the repo root, the check's pin chain and the config's requirePins", async () => {
+    const seen: Parameters<CheckRunner>[1][] = [];
+    const capture: CheckRunner = (_r, ctx) => { seen.push(ctx); return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }); };
+    await runChecks({ cwd: dir, slots: [{ name: 'lint' }], adapters, config: { requirePins: true }, runner: capture, json: true, stdout: sink().out, stderr: sink().out });
+    expect(seen).toMatchObject([{ cwd: dir, repo: dir, pins: ['js-lockfile'], requirePins: true }]);
+    seen.length = 0;
+    await runChecks({ cwd: dir, slots: [{ name: 'lint' }], adapters, config: null, runner: capture, json: true, stdout: sink().out, stderr: sink().out });
+    expect(seen).toMatchObject([{ requirePins: false }]);
   });
 
   test('--bail stops after the first failure', async () => {
@@ -807,7 +831,8 @@ describe('runChecks (real subprocess)', () => {
       pm: 'npm', include: ['build'], json: true, stdout: sink().out, stderr: sink().out,
     });
     // The summary records the translated form, the one that actually spawned.
-    expect(result.summary.checks[0]).toMatchObject({ name: 'build', ok: true, exit_code: 0, argv: ['npm', 'run', 'build'] });
+    expect(result.summary.checks[0]).toMatchObject({ name: 'build', ok: true, exit_code: 0, argv: ['npm', 'run', 'build'], pin_source: 'js-lockfile' });
+    expect(result.summary.checks[0]).not.toHaveProperty('tool_version');
     expect(await readFile(join(dir, '.check', 'build.stdout.txt'), 'utf8')).toContain('BUILT_OK');
   }, 30_000);
 
@@ -820,6 +845,8 @@ describe('runChecks (real subprocess)', () => {
       stdout: sink().out, stderr: sink().out,
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: -1, argv: ['checkride-no-such-binary-xyz', '--flag'] });
+    // A command spawned as written resolved through no pin source.
+    expect(result.summary.checks[0]).not.toHaveProperty('pin_source');
   });
 
   test('kills a check that exceeds the configured timeout, and keeps the argv it ran', async () => {
@@ -844,6 +871,7 @@ describe('runChecks (real subprocess)', () => {
     });
     expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: 1 });
     expect(result.summary.checks[0]).not.toHaveProperty('argv');
+    expect(result.summary.checks[0]).not.toHaveProperty('pin_source');
   });
 
   test('a fast check completes normally under a generous timeout', async () => {
@@ -1705,6 +1733,8 @@ describe('runFix', () => {
   test('the default fix runner spawns the PM-translated (npx) form, matching the run path', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-npx-'));
     await writeFile(join(dir, 'package-lock.json'), '{}'); // an npm-detected fixture
+    await mkdir(join(dir, 'node_modules', '.bin'), { recursive: true });
+    await writeFile(join(dir, 'node_modules', '.bin', 'oxlint'), '');
     try {
       const pm = detectPackageManager({ cwd: dir });
       expect(pm).toBe('npm');
@@ -1712,16 +1742,46 @@ describe('runFix', () => {
       // --fix`, the same translation the run path applies via `translateExec` in
       // `defaultRunner` — a fix must not npx-install a tool the run path won't.
       const adapter = fakeAdapter({ name: 'oxlint', slot: 'lint', command: 'pnpm', args: ['exec', 'oxlint'], fixArgs: ['exec', 'oxlint', '--fix'] });
-      expect(fixInvocation(adapter, pm)).toEqual({ command: 'npx', args: ['--no-install', 'oxlint', '--fix'] });
+      expect(fixInvocation(adapter, { cwd: dir, pm })).toMatchObject({ command: 'npx', args: ['--no-install', 'oxlint', '--fix'] });
       // The pnpm path keeps its prefix; only the deps-check override is added,
       // exactly as the run path does — a fix spawns tools the same way.
-      expect(fixInvocation(adapter, 'pnpm')).toEqual({
+      expect(fixInvocation(adapter, { cwd: dir, pm: 'pnpm' })).toMatchObject({
         command: 'pnpm',
         args: ['--config.verify-deps-before-run=false', 'exec', 'oxlint', '--fix'],
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  /**
+   * The run path refuses a tool the project never installed under `npx` or
+   * `bunx`, whose caches could otherwise supply one; a fix, which writes
+   * files, is refused the same way rather than run that cached copy.
+   */
+  test('the default fix runner refuses a tool the project never installed, as the run path does', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-refuse-'));
+    await writeFile(join(dir, 'package-lock.json'), '{}');
+    try {
+      const absent = fakeAdapter({ name: 'absent', slot: 'lint', command: 'pnpm', args: ['exec', 'checkride-nonexistent-tool'], fixArgs: ['exec', 'checkride-nonexistent-tool', '--fix'] });
+      const std = sink();
+      const result = await runFix({ cwd: dir, slots: [{ name: 'lint' }], adapters: [absent], config: null, stderr: std.out });
+      expect(result).toMatchObject({ ok: false, exitCode: 1, ran: ['absent'] });
+      const text = std.lines.join('');
+      expect(text).toContain('✘ lint (exit 1)');
+      expect(text).toContain('the `lint` slot needs `checkride-nonexistent-tool`, which is not installed in this project');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("the fix runner gets the check's repo root, pin chain and requirePins", async () => {
+    const seen: unknown[] = [];
+    await runFix({
+      cwd: '/work', slots: [{ name: 'lint' }], adapters: [fixable], config: { requirePins: true }, pm: 'pnpm', stderr: sink().out,
+      fixRunner: (_a, ctx) => { seen.push(ctx); return Promise.resolve({ ok: true, exit_code: 0 }); },
+    });
+    expect(seen).toEqual([{ cwd: '/work', pm: 'pnpm', repo: '/work', pins: ['js-lockfile'], requirePins: true }]);
   });
 
   test('reports a custom check whose fix exits its skipExitCode as skipped, not failed', async () => {
@@ -2056,5 +2116,63 @@ describe.skipIf(!gitAvailable)('runChecks --changed base', () => {
         runChecks({ cwd: dir, slots, adapters, config: { changedBase } as never, runner: baseRecorder().runner, json: true, stdout: sink().out, stderr: sink().out }),
       ).rejects.toThrow('changedBase must be a non-empty string');
     }
+  });
+});
+
+/**
+ * F11 and F12 through the real runner and a real spawn, with `PATH` held to
+ * one scratch directory: a stand-in `shellcheck` there leaves a mark when it
+ * runs, so a test can tell a refusal that fell back to it from one that
+ * didn't. The chain is a Node-free pack's, mise then `PATH` (R6.1).
+ */
+describe('the default runner resolves a tool through its pin chain', () => {
+  let root: string;
+  let repo: string;
+  let ran: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'checkride-pin-runner-'));
+    repo = join(root, 'repo');
+    ran = join(root, 'ran');
+    const bin = join(root, 'bin');
+    await mkdir(repo, { recursive: true });
+    await mkdir(bin);
+    await writeFile(join(bin, 'shellcheck'), `#!/bin/sh\necho ran > "${ran}"\necho '[]'\n`);
+    await chmod(join(bin, 'shellcheck'), 0o755);
+    vi.stubEnv('PATH', bin);
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const shellcheck = fakeAdapter({ name: 'shellcheck', slot: 'lint', command: 'pnpm', args: ['exec', 'shellcheck', '-f', 'json1', 'run.sh'] });
+  const resolved: ResolvedCheck = { slot: 'lint', optIn: false, adapter: shellcheck, skip: null };
+  const context = (requirePins: boolean): Parameters<CheckRunner>[1] => ({
+    cwd: repo, changed: false, pm: 'pnpm', repo, pins: ['mise', 'path'], requirePins,
+  });
+
+  test('F12: a tool nothing pins runs from PATH, and records argv and pin_source path', async () => {
+    const outcome = await defaultRunner(resolved, context(false));
+    expect(outcome).toMatchObject({ ok: true, exit_code: 0, argv: ['shellcheck', '-f', 'json1', 'run.sh'], pin_source: 'path' });
+    expect(outcome).not.toHaveProperty('tool_version');
+    expect(existsSync(ran)).toBe(true);
+  });
+
+  test('F12 under requirePins: the same tool fails with the mise use hint, and never runs', async () => {
+    const outcome = await defaultRunner(resolved, context(true));
+    expect(outcome).toMatchObject({ ok: false, exit_code: 1 });
+    expect(outcome.stderr).toContain('shellcheck is not pinned; pin it with: mise use shellcheck@<version>');
+    expect(outcome).not.toHaveProperty('argv');
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  test('F11: a tool mise.toml pins fails naming mise when mise is not on PATH, and never runs the PATH copy', async () => {
+    await writeFile(join(repo, 'mise.toml'), '[tools]\nshellcheck = "0.11.0"\n');
+    const outcome = await defaultRunner(resolved, context(false));
+    expect(outcome).toMatchObject({ ok: false, exit_code: 1 });
+    expect(outcome.stderr).toContain("`mise` isn't on PATH");
+    expect(outcome).not.toHaveProperty('argv');
+    expect(outcome).not.toHaveProperty('pin_source');
+    expect(existsSync(ran)).toBe(false);
   });
 });

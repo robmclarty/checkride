@@ -16,6 +16,11 @@ Start here:
 - **[Tools and installation](./tools.md)** — what each pipeline slot runs, and
   how to install a missing tool (fallow, ast-grep, oxlint, …) when `doctor`
   reports one as not installed.
+- **[Packs and pins](./packs.md)** — how a check's tool resolves to the copy
+  that runs: each pack's pin chain, the `js-lockfile`, `mise` and `path`
+  sources, `requirePins`, and the spawn environment that keeps a check from
+  downloading anything. Read this to know which copy of a tool produced a
+  finding.
 - **[Deep modules](./deep-modules.md)** — the module-boundary convention the
   `struct` slot enforces: the Ousterhout idea behind it, how it's held in place,
   and how to swap it for a different convention or language. Read this to

@@ -123,6 +123,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that landed on the base after your branch began doesn't count as your
   change. When git can't list the paths, as outside a git repository, every
   target runs and stderr says why. A repo without `targets` is unchanged.
+- **Every spawned tool says which copy ran.** A check whose tool resolves
+  through a pin source records `pin_source` in the summary: `js-lockfile`
+  for a tool or package script the project's package manager runs. When a
+  file read finds it, `tool_version` adds the version, for an npm tool the
+  `version` in its `node_modules/<package>/package.json`; checkride never
+  runs a tool to ask. A finding quoted from a run can now name the copy that
+  produced it (#6). A custom check's own command, such as
+  `node scripts/x.mjs`, still spawns as written and records only its `argv`.
+- **Tools resolve through their pack's pin chain.** The launcher walks a
+  pack's pin sources in order, and the first that declares a tool runs it.
+  When that source can't, the check fails with exit 1 naming the source,
+  rather than fall back to another copy whose version depends on the
+  machine. The new `mise` source runs a tool that a `mise.toml` or
+  `.mise.toml` in the repo names under `[tools]` as `mise exec -- <tool>`,
+  with mise's auto-install switched off, and the new `path` source runs a
+  tool nothing declares from `PATH`, recorded as unpinned. With
+  `requirePins: true` such a tool fails instead, with
+  `<tool> is not pinned; pin it with: mise use <id>@<version>`. The `ts` and
+  `repo` packs still resolve every tool through the project's package
+  manager alone, so no existing run changes; the packs that reach mise and
+  `PATH` arrive next. See `docs/packs.md`.
 
 ### Changed
 
@@ -229,6 +250,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for `biome`, `ast-grep`, `vale`, `stryker` and `attw`. It now names the
   package that provides the executable, and keeps the executable's name for a
   tool checkride doesn't know.
+- **`checkride fix` refuses a tool the project never installed, as the run
+  does.** Under npm or bun, `npx --no-install` and `bunx --no-install` still
+  run a copy their cache kept from some unrelated earlier run. The run path
+  already refused such a tool, but `fix`, which writes files, ran it. Now
+  that fixer fails with the same message and install command, and the other
+  fixers still run.
+- **A target with its own package manager runs under it.** A ts target whose
+  root holds its own lockfile or `packageManager` field ran under the repo
+  root's manager, and recorded that manager's argv. Each target's checks and
+  fixers now take the nearest declaration from the target's root up to the
+  repo root, so a workspace package that declares neither still runs under
+  the root's. A repo without `targets` detects as before.
 - **A slot entry that only tunes the slot now tunes it.** An entry like
   `"lint": { "timeout": 60, "order": 1 }`, which leaves the tool to
   detection, used to have its `timeout` and `order` ignored, though the
@@ -311,7 +344,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   custom check, a target's or a pack's included. The schema's slot entry
   also takes an object that only tunes a detected slot (`optIn`, `timeout`,
   `order`, `note`), which the loader always accepted. `ts` is the only pack
-  so far, runs act on `targets` and `packs` but not yet on `requirePins` or
+  so far, runs act on `targets`, `packs` and `requirePins` but not yet on
   `unclaimed`, and a config without `targets` resolves as before.
 - Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
   take selection tokens: a slot or custom-check name, a target name (every
@@ -347,6 +380,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   started, so its timeout and `duration_ms` don't count the wait.
   `docs/contract.md` describes it under check ordering. No row of `ADAPTERS`
   or `PACKS` declares one yet, so every existing run schedules as before.
+- Additive: per-check summary fields `pin_source` and `tool_version`, in the
+  JSON Schema, the contract doc's field table and `summary.contract.test.ts`.
+  `pin_source` is one of `override`, `js-lockfile`, `go-mod-tool`,
+  `rust-toolchain`, `uv-lock`, `tf-version`, `mise` or `path`; a run writes
+  only `js-lockfile`, `mise` and `path` so far, and the schema names the rest
+  ahead of the packs and flag that use them. `tool_version` is a string,
+  present with `pin_source` when a file read found the version. The exported
+  `SummaryCheck` type gains both, a `CheckRunner` may resolve both with its
+  outcome, and the `CheckRunner` context gains optional `repo`, `pins` and
+  `requirePins`. The exported `Tool` type gains an optional `mise` (the
+  `[tools]` keys that declare the tool), and `Pack`'s `pins` takes any of the
+  eight source names. `requirePins` now acts on a run and on `fix`.
 
 ### Internal
 
@@ -382,6 +427,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a repo configures, moved from `src/artifacts/` into `src/config.ts`, so the
   output-directory module no longer imports the config loader, which now
   imports the packs.
+- `src/launch/` gains the pin chain walk in `resolve.ts`, the `mise` source
+  in `mise.ts`, the `path` source in `path.ts` and the upward search they
+  share, bounded at the repo root, in `walk.ts`. `launchFix` is gone: a fix
+  launches through `launchCheck`, as a check does.
 
 ## [0.14.0] - 2026-10-09
 

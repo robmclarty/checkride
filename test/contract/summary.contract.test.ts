@@ -207,6 +207,46 @@ describe('summary.json shape', () => {
   }, 30_000);
 
   /**
+   * Contract: `pin_source` names the pin source a spawned tool resolved
+   * through, and `tool_version` its version when a file read finds one. A
+   * command spawned as written, a built-in and a skipped check have neither
+   * (R8.2, R6.3).
+   */
+  test('a tool that resolved through a pin source records it, with the version its install names', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract', scripts: { noop: 'node -e ""' } }));
+    await writeFile(join(dir, 'package-lock.json'), '{}');
+    await mkdir(join(dir, 'node_modules', '.bin'), { recursive: true });
+    await mkdir(join(dir, 'node_modules', 'typescript'), { recursive: true });
+    await writeFile(join(dir, 'node_modules', '.bin', 'tsc'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    await writeFile(join(dir, 'node_modules', 'typescript', 'package.json'), JSON.stringify({ name: 'typescript', version: '5.0.0-contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        compile: { command: 'pnpm', args: ['exec', 'tsc', '--noEmit'] },
+        script: { command: 'pnpm', args: ['run', 'noop'] },
+        probe: exits(0),
+      },
+    }));
+    const summary = await runAndValidate([]);
+    const byName = new Map((summary['checks'] as Record<string, unknown>[]).map((c) => [c['name'], c]));
+    expect(byName.get('compile')).toMatchObject({
+      ok: true,
+      argv: ['npx', '--no-install', 'tsc', '--noEmit'],
+      pin_source: 'js-lockfile',
+      tool_version: '5.0.0-contract',
+    });
+    expect(byName.get('script')).toMatchObject({ ok: true, argv: ['npm', 'run', 'noop'], pin_source: 'js-lockfile' });
+    expect(byName.get('script')).not.toHaveProperty('tool_version');
+    expect(byName.get('probe')).toHaveProperty('argv');
+    for (const name of ['probe', 'links']) {
+      expect(byName.get(name), name).not.toHaveProperty('pin_source');
+      expect(byName.get(name), name).not.toHaveProperty('tool_version');
+    }
+    for (const c of byName.values()) {
+      if (c['skipped'] === true) expect(c, String(c['name'])).not.toHaveProperty('pin_source');
+    }
+  }, 30_000);
+
+  /**
    * Contract: a multi-target run lists its targets in config order, and every
    * check carries its `slot` and `pack`; a target's check is `<target>:<slot>`
    * with its `target`, and its `cwd` when its root isn't the repo's. A check of

@@ -641,7 +641,7 @@ reference rules and porting trap apply as written there.
 28. [x] feat(run): never overlap checks that share a lock key, **done when:** checks whose resolved `lock` keys are equal never run at once, and a wait doesn't count against the timeout (F4 and F5, with a fake spawner that records intervals)
     - seam: `src/orchestrator/execute.ts`, `src/orchestrator/__tests__/orchestrator.test.ts`
     - model: sonnet
-29. [ ] feat(changed): skip unaffected targets under --changed, **done when:** changed paths come from the resolved base's merge base (R10.2); unaffected targets' checks skip with `no changes under <root>`; repo-scope checks still run; with no git or no base nothing is skipped and stderr warns (S10, F19)
+29. [x] feat(changed): skip unaffected targets under --changed, **done when:** changed paths come from the resolved base's merge base (R10.2); unaffected targets' checks skip with `no changes under <root>`; repo-scope checks still run; with no git or no base nothing is skipped and stderr warns (S10, F19)
     - seam: `src/targets/changed.ts`, `src/git.ts`, `src/orchestrator/select.ts`
     - model: sonnet
 30. [ ] feat(launch): resolve tools through mise and PATH and record the pin, **done when:** the launcher walks each pack's chain per R6.2, with mise's auto-install switched off; `requirePins` fails an unpinned tool with the `mise use` hint; every spawned check records `pin_source`, and `tool_version` when R6.3 finds one; F11 and F12 pass; `docs/packs.md` records each R6.4 variable name as verified against the pinned tool
@@ -827,6 +827,100 @@ reference rules and porting trap apply as written there.
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
 75, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+
+## Ranges
+
+*(Proposed 2026-10-16 at step 29's boundary, for the maintainer to approve or trim. Advice, the
+way a `model:` line is, never a gate.)*
+
+A range like `/plumbbob:build 31-39` is a bounded `--auto`. Each step lands on its own when the
+check is green and the self-review finds no done-when, Decision or Constraint mismatch, and the
+top step lands before the range hands back. It stops early on a red check, a mismatch, a bound
+agent's `blocked` or `drift`, or a call the plan hasn't made. A seam stray doesn't stop it, and
+neither does a phase end: the whole `pnpm test:e2e` that [D52 (e2e-cadence)](#d52) asks of a
+phase's last step still runs inside the range.
+
+Nothing caps a range's length. `/plumbbob:build 30-74` is legal and would stop by itself at the
+first trouble. What makes a range useful is ending it where a human call is due, and only four
+remain: the pin model at step 30, the calls parked for steps 30, 38, 45 and 53 (leans below),
+[Q1 (scope-cut)](#q1)'s cut call after step 65, and step 70's CI clause, which no range can
+prove without a push. With the leans approved, all 45 remaining steps run in one bare build and
+five ranges:
+
+| Run | Steps | Stops after | Why it stops there |
+| --- | --- | --- | --- |
+| `/plumbbob:build 30` | 1 | step 30, at the pause | every pack after it resolves tools through this chain ([D12 (pin-chain)](#d12)), and `pin_source` becomes a contract field, so read it before anything leans on it |
+| `/plumbbob:build 31-39` | 9 | Phase 6 | a phase end and release point, with step 39's example proving step 30's chain through mise |
+| `/plumbbob:build 40-47` | 8 | Phase 7 | a phase end and release point |
+| `/plumbbob:build 48-57` | 10 | Phase 9 | the review agent's findings and consumer mode are whole, and step 57's e2e parses every finding through step 49's new surface; stop at 52 instead to release findings on their own |
+| `/plumbbob:build 58-65` | 8 | Phase 11 | [Q1 (scope-cut)](#q1)'s cut call is due |
+| `/plumbbob:build 66-74` | 9 | the plan's end | nothing; if Q1 cuts Phases 12 and 13, `/plumbbob:refine` the cut and run `73-74` instead |
+
+What each range should watch for:
+
+- **31 to 39.** Step 36 (opus) rewrites the config and the baseline keys together, and its S11
+  and F22 tests hold it. Steps 35, 36 and 39 carry harvested tangents whose leans are already
+  written (retiring `src/pm/`, reserving `doc-snippets`, the mise step in `publish.yaml`); they
+  only add seam strays.
+- **40 to 47.** Steps 42 and 46 check real flags and JSON at the pinned versions, and test setup
+  downloads Go modules and crates, which [C4 (no-network)](#c4) allows, so keep the network up.
+  Step 45 needs the `cargo:global` lean.
+- **48 to 57.** Step 48's byte-identical golden holds the refactor. Step 53 needs both of its
+  leans, and step 56 follows R13.4's table, so neither should have to stop to ask.
+- **58 to 65.** `uv sync` and `tofu init` fetch wheels and providers in test setup, so keep the
+  network up.
+- **66 to 74.** Step 66 adds `ajv`, `yaml` and `jsonc-parser`. The global pnpm config on this
+  machine refuses releases under 48 hours old, so exact-pin versions older than that, or the
+  install fails and the range stops. If SEA fails step 69's e2e, [D39 (sea-binary)](#d39) already settles the switch to
+  `bun build --compile`. Step 70 needs its CI clause read as below. Step 74's audit needs the
+  network, and it records whatever the day's advisory feed says.
+
+**Leans to settle before the ranges.** Each one is a call parked for a step in a range that
+would otherwise stop there to ask. Once approved, each folds into Decisions as D58 onward and
+amends its step, the way D55 to D57 did, so the building agent reads it where it reads every
+other call.
+
+- **Step 30, built-in helpers.** `pack` and `snippets` record neither `argv` nor `pin_source`,
+  as step 9 already rules for built-ins, so the park closes without routing their helper argv
+  through the launcher, *because* a built-in's verdict is checkride's own, not a pinned tool's.
+- **Step 30, `checkride fix`.** `launchFix` walks the same chain as the run path and refuses an
+  undeclared tool the same way, with a CHANGELOG **Fixed** line, *because* a fixer from a cached
+  copy is the substitution [D12 (pin-chain)](#d12) rules out, and `fix` writes files.
+- **Step 30, a target's own package manager.** The js-lockfile source takes the nearest
+  declaration from the target root up to the repo root, in `src/launch/package-manager.ts`, with
+  `src/orchestrator/place.ts` and `src/orchestrator/context.ts` accepted as strays, as step 27's
+  harvest leaned.
+- **Step 38, `qa` and `mutation.json`.** Document the limit and route nothing: `qa --out` reports
+  mutation only when the repo's stryker `jsonReporter.fileName` writes into that directory, and
+  the docs say so, *because* that path comes from the repo's stryker config, not from argv
+  checkride builds, and `mutation` is opt-in and too slow for a review agent's run.
+- **Step 45, `cargo:global`.** Drop it and amend R6.5's sentence: with `CARGO_TARGET_DIR` set,
+  cargo's own build-directory lock serializes the runs, and `docs/packs.md` says the wait counts
+  against the timeout, *because* a scheduler branch for it breaks [C5 (pure-data)](#c5), several
+  rust targets sharing one target directory is rare, and the cost is a slow red, never a false
+  green. A data form such as `cargo:{env:CARGO_TARGET_DIR|root}` can follow if a repo hits it.
+- **Step 53, the file a config error names.** Every config error names the file it came from.
+  Load-time errors already hold the path, resolve-time errors read it from a label recorded on
+  each loaded layer, and step 55's `--pins` reuses the label, *because* F36's error helps only
+  if it names the defaults file.
+- **Step 53, `packs` without targets.** In implicit mode the top-level `checks` acts as the
+  implicit target's own entry, so it ranks first, then `packs.<pack>.checks`, then detection,
+  then the defaults layer's `packs` and `checks`. Multi-target mode keeps R3 as written,
+  *because* a preset's or a defaults file's `packs` block would otherwise do nothing in a repo
+  without `targets`, and a pack default must not beat the repo's own entry.
+- **Step 70, the CI clause.** Amend the done-when to read "`ci.yml` runs it on linux-x64 and
+  macOS arm64 (S12), and actionlint passes"; the first green CI run on `main` after the build is
+  the proof, *because* only a push can show CI green, a range can't push, and pushing stays your
+  call.
+
+**Between ranges.**
+
+- Run `/plumbbob:harvest` once a range lands. No harvest runs between the steps inside a range,
+  so parks pile up, and a blocker among them would otherwise reach the next range.
+- When a range stops early, settle the step it stopped on, then rerun the range from the step
+  after it, for example `/plumbbob:build 35-39`.
+- Run every range on Opus. Each one holds at least one opus step, and the sonnet steps have been
+  running on Opus already.
 
 ## Open questions
 

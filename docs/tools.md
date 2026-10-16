@@ -42,9 +42,13 @@ field in `package.json` first, then the lockfile:
 | `yarn.lock` | yarn | `yarn <tool>` |
 | `bun.lock` / `bun.lockb` | bun | `bunx --no-install <tool>` |
 
-With no lockfile or field, checkride falls back to pnpm. `doctor` prints the
-detected manager at the top of its report and verifies that manager is on your
-PATH (pnpm keeps its `>=9` floor; the others are presence-only for now).
+With no lockfile or field, checkride falls back to pnpm. A target's checks
+and fixers take the nearest declaration from the target's root up to the
+repo root, so a target with its own lockfile runs under its own manager, and
+a workspace package that declares neither runs under the root's. `doctor`
+prints the detected manager at the top of its report and verifies that
+manager is on your PATH (pnpm keeps its `>=9` floor; the others are
+presence-only for now).
 
 **A check never fetches a tool from the registry.** `npx` and `bunx` will
 otherwise download a missing package and run it — and because a check is

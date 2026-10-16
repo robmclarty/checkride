@@ -66,8 +66,9 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0), per-check `origin`, `detected_by`, `argv`, `target`, `slot`, `pack`
-and `cwd`, and top-level `run`, `git` and `targets` (0.15.0).
+(0.3.0), per-check `origin`, `detected_by`, `argv`, `pin_source`,
+`tool_version`, `target`, `slot`, `pack` and `cwd`, and top-level `run`, `git`
+and `targets` (0.15.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -153,6 +154,8 @@ required ones, so a field can't reach the schema without a row here.
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
+| `pin_source` | `js-lockfile`, `mise` or `path`; also `override`, `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, or `path` for a tool nothing declared |
+| `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
 
 **Every check says why it's in the run.** `origin` is `config` when
@@ -188,6 +191,24 @@ refused before its tool started: an `npx` or `bunx` tool missing from the
 local tree, or a `prose` slot whose exemplars are missing. And it covers every
 skipped entry, a custom check that skipped itself included, since that entry
 keeps the skipped shape above.
+
+**A spawned tool says which copy ran.** A check's tool resolves through its
+pack's pin chain (see [Packs and pins](./packs.md)), and `pin_source` names
+the source that declared the copy that ran: `js-lockfile` for a
+`pnpm exec <tool>` the project's package manager runs, a package script
+(`pnpm run build`) included, `mise` for a tool a `mise.toml` in the repo names
+under `[tools]`, and `path` for a tool nothing declared, found on `PATH` and so
+unpinned. `tool_version` adds the version when a file read finds it, never by
+running the tool: for `js-lockfile`, the `version` in
+`node_modules/<package>/package.json` nearest the check's directory, for a tool
+whose package `TOOLS` names. `mise` and `path` record none, since mise or the
+machine decides it. `pin_source` appears exactly where `argv` does, apart from
+a custom check's own command, such as `node scripts/x.mjs`, which spawns as
+written through no pin source and records only its `argv`. A declared pin
+whose source can't run the tool fails the check with exit 1, naming the
+source; checkride never falls back to another copy. The schema names five more
+sources, for packs and a flag checkride doesn't have yet, so its vocabulary is
+written once.
 
 **A run records what it selected and the tree it read.** `run` names each
 selection flag the run was given, so a narrowed run says so in the artifact
@@ -673,7 +694,9 @@ is written:
 
 `ts` is the only pack so far. A run checks each declared target as the
 [summary section](#checksummaryjson) describes, while no run acts on
-`requirePins`, `unclaimed` or `schemas` yet. A config without `targets`
+`unclaimed` or `schemas` yet. `requirePins` fails a check whose tool resolves
+from `PATH` with no pin, but the `ts` and `repo` packs resolve every tool
+through the project's package manager, so no shipped check reaches `PATH` yet. A config without `targets`
 resolves exactly as before: `packs` configures targets, so without them it
 applies to nothing. [`config.test.ts`](../src/__tests__/config.test.ts) holds
 each rule, its message and its exit code.

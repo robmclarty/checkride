@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import type { Adapter } from '../adapters.js';
 import { CHECK_DIR } from '../artifacts/index.js';
 import { DEFAULT_BASE } from '../git.js';
-import type { PackageManager } from '../launch/index.js';
+import type { LaunchContext, Spawn } from '../launch/index.js';
 import { launchCheck } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
@@ -146,9 +146,16 @@ export function resetInterrupt(): void {
  * split across two read chunks survives intact rather than decoding to U+FFFD.
  * Every spawn is registered in `liveChecks` until it closes, so a fatal signal
  * can reap the lot (`killLiveChecks`); after that interrupt, no new check
- * starts.
+ * starts. `env` sets variables over the inherited environment, such as the
+ * ones that keep mise from installing a tool.
  */
-function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: number): Promise<CheckOutcome> {
+function spawnCheck(
+  command: string,
+  args: string[],
+  cwd: string,
+  timeoutSec?: number,
+  env: Readonly<Record<string, string>> = {},
+): Promise<CheckOutcome> {
   return new Promise((resolveOutcome) => {
     // Post-interrupt, the process is about to die by the re-raised signal —
     // starting another detached group here would orphan it (see `interrupted`).
@@ -160,7 +167,7 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
       cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', ...env },
     });
     let resolveClosed: (() => void) | null = null;
     if (proc.pid !== undefined) {
@@ -212,17 +219,37 @@ function spawnCheck(command: string, args: string[], cwd: string, timeoutSec?: n
 
 /**
  * Spawn a check's own tool, and record on its outcome the argv handed to
- * `spawn`, so the summary can say exactly what ran. A tool that fails to start
- * or times out keeps its argv, since that's what failed. After an interrupt
- * `spawnCheck` starts nothing, so nothing is recorded; `started` reads the
- * latch just before `spawnCheck` does, so the two agree. The built-ins spawn
- * through `spawnCheck` directly and record none: their processes are
- * checkride's own, and a built-in may start several or none.
+ * `spawn` and the pin source it resolved through, with the version a file read
+ * found, so the summary can say exactly what ran and which copy. A tool that
+ * fails to start or times out keeps both, since that's what failed. After an
+ * interrupt `spawnCheck` starts nothing, so nothing is recorded; `started`
+ * reads the latch just before `spawnCheck` does, so the two agree. The
+ * built-ins spawn through `spawnCheck` directly and record none: their
+ * processes are checkride's own, and a built-in may start several or none.
  */
-async function spawnTool(command: string, args: string[], cwd: string, timeoutSec: number): Promise<RunnerOutcome> {
+async function spawnTool(launch: Spawn, cwd: string, timeoutSec: number): Promise<RunnerOutcome> {
   const started = !interrupted;
-  const outcome = await spawnCheck(command, args, cwd, timeoutSec);
-  return started ? { ...outcome, argv: [command, ...args] } : outcome;
+  const outcome = await spawnCheck(launch.command, launch.args, cwd, timeoutSec, launch.env);
+  if (!started) return outcome;
+  const pin = launch.pin === undefined
+    ? {}
+    : { pin_source: launch.pin.source, ...(launch.pin.version !== undefined ? { tool_version: launch.pin.version } : {}) };
+  return { ...outcome, argv: [launch.command, ...launch.args], ...pin };
+}
+
+/**
+ * What the launcher reads to resolve a check's tool: where it runs, the repo
+ * root a pin search stops at, its package manager and pin chain, and whether
+ * an unpinned tool fails.
+ */
+function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
+  return {
+    cwd: ctx.cwd,
+    pm: ctx.pm,
+    ...(ctx.repo !== undefined ? { repo: ctx.repo } : {}),
+    ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}),
+    ...(ctx.requirePins !== undefined ? { requirePins: ctx.requirePins } : {}),
+  };
 }
 
 /**
@@ -234,11 +261,7 @@ async function spawnTool(command: string, args: string[], cwd: string, timeoutSe
  * enforces, since pnpm's JSON-mode exit code ignores the level. The snippets
  * pair shares one execution path, differing only in mode.
  */
-function runBuiltin(
-  adapter: Adapter,
-  ctx: { cwd: string; changed: boolean; base?: string; out?: string; pm: PackageManager },
-  timeout: number,
-): Promise<CheckOutcome> | null {
+function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: number): Promise<CheckOutcome> | null {
   const base = { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout };
   switch (adapter.builtin) {
     case 'pack':
@@ -246,8 +269,9 @@ function runBuiltin(
     case 'smoke':
       return checkSmoke(base);
     case 'security': {
-      const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), ctx);
-      return 'refusal' in launch ? Promise.resolve(refusedOutcome(launch.refusal)) : checkSecurity({ ...base, ...launch });
+      const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
+      if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
+      return checkSecurity({ ...base, command: launch.command, args: launch.args });
     }
     case 'snippets':
       return checkSnippets({ ...base, mode: 'src', pm: ctx.pm });
@@ -318,10 +342,11 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
 /**
  * The runner `runChecks` uses when none is injected: the `links` built-in
  * in-process, the other built-ins through `runBuiltin`, and everything else
- * spawned as the launcher resolves it, unless a pre-flight refuses to spawn
- * it at all: `missingExemplarsOutcome`, or the launcher's own refusal of a tool
- * the project never installed. Only that last path spawns the check's own
- * tool, so only it records `argv`.
+ * spawned as the launcher resolves it through the check's pin chain, unless a
+ * pre-flight refuses to spawn it at all: `missingExemplarsOutcome`, or the
+ * launcher's own refusal (a tool the project never installed, a pin whose
+ * source can't run it, an unpinned tool under `requirePins`). Only that last
+ * path spawns the check's own tool, so only it records `argv` and the pin.
  */
 export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
@@ -332,7 +357,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (builtin) return builtin;
   const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
-  const launch = launchCheck(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), ctx);
+  const launch = launchCheck(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
   if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
-  return spawnTool(launch.command, launch.args, ctx.cwd, timeout);
+  return spawnTool(launch, ctx.cwd, timeout);
 };

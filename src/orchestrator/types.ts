@@ -10,6 +10,7 @@ import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from '../config.js';
 import type { NamedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
+import type { PinSourceName } from '../packs/index.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -83,6 +84,20 @@ export type SummaryCheck = {
    * holds.
    */
   argv?: string[];
+  /**
+   * Present when the check's tool resolved through a pin source: the one that
+   * declared the copy that ran (`js-lockfile`, `mise`), or `path` for a tool
+   * nothing declared, found on `PATH`. A command spawned as written, a
+   * built-in and a skipped check have none. Additive field; `schema_version`
+   * holds.
+   */
+  pin_source?: PinSourceName;
+  /**
+   * With `pin_source`, the version of the tool that ran when a file read found
+   * it (R6.3), never by running the tool. Additive field; `schema_version`
+   * holds.
+   */
+  tool_version?: string;
   /**
    * Present only when a baseline masked one or more of this slot's diagnostics:
    * the count of current findings grandfathered by `checkride.baseline.json`.
@@ -161,10 +176,11 @@ export type Summary = {
 
 /**
  * What a {@link CheckRunner} resolves to: the raw outcome, plus `argv` when the
- * runner spawned the check's own tool. The summary records that `argv` as the
+ * runner spawned the check's own tool, and the `pin_source` and
+ * `tool_version` it resolved through. The summary records all three as the
  * check's own.
  */
-export type RunnerOutcome = CheckOutcome & { argv?: string[] };
+export type RunnerOutcome = CheckOutcome & { argv?: string[]; pin_source?: PinSourceName; tool_version?: string };
 
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
@@ -176,9 +192,23 @@ export type CheckRunner = (
    * own artifact directory: in implicit mode the absolute output directory
    * when `--out` or `CHECKRIDE_OUT` named one, and `.check` when omitted; in
    * multi-target mode the absolute `<out>/<target>` for a target's check, and
-   * the absolute output directory for the rest.
+   * the absolute output directory for the rest. `pm` is the package manager
+   * declared nearest the check's directory. `repo` is the repo root, where a
+   * pin search stops, `pins` the check's pin chain and `requirePins` the
+   * config's switch; omitted, they read as `cwd`, the `js-lockfile` source
+   * alone, and off.
    */
-  ctx: { cwd: string; changed: boolean; base?: string; out?: string; pm: PackageManager; timeout?: number },
+  ctx: {
+    cwd: string;
+    changed: boolean;
+    base?: string;
+    out?: string;
+    pm: PackageManager;
+    timeout?: number;
+    repo?: string;
+    pins?: readonly PinSourceName[];
+    requirePins?: boolean;
+  },
 ) => Promise<RunnerOutcome>;
 
 export type RunOptions = RunFlags & {

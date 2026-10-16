@@ -15,7 +15,7 @@ import type { CheckrideConfig } from '../config.js';
 import { loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
-import { detectPackageManager } from '../launch/index.js';
+import { detectPackageManager, nearestPackageManager } from '../launch/index.js';
 import type { Target } from '../targets/index.js';
 import { configuredTargets } from '../targets/index.js';
 import { defaultConcurrency, defaultRunner } from './spawn.js';
@@ -84,7 +84,16 @@ export type RunContext = CommonContext & {
    */
   changedBase: ChangedBase | null;
   timeout: number | undefined;
+  /** The package manager the repo root declares, or the one the caller named. */
   pm: PackageManager;
+  /**
+   * The package manager a check running from `dir` uses: the nearest one
+   * declared from `dir` up to the repo root, so a target with its own lockfile
+   * runs under it, or the caller's for every check when it named one.
+   */
+  pmAt: (dir: string) => PackageManager;
+  /** The config's `requirePins`: a tool that resolves from `PATH` with no pin fails its check. */
+  requirePins: boolean;
   baseline: Baseline | null;
   /**
    * Why `baseline` is null when it is: `absent` is a repo without one,
@@ -107,6 +116,23 @@ function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
     return { baseline: options.baseline, state: options.baseline === null ? 'absent' : 'ok' };
   }
   return readBaselineStatus(cwd);
+}
+
+/**
+ * How a run finds a check's package manager: the caller's for every check when
+ * it named one, else the nearest declaration from the check's directory up to
+ * `repo`, read once per directory.
+ */
+export function packageManagerAt(named: PackageManager | undefined, repo: string): (dir: string) => PackageManager {
+  if (named !== undefined) return () => named;
+  const seen = new Map<string, PackageManager>();
+  return (dir) => {
+    const known = seen.get(dir);
+    if (known !== undefined) return known;
+    const pm = nearestPackageManager(dir, repo);
+    seen.set(dir, pm);
+    return pm;
+  };
 }
 
 /**
@@ -135,6 +161,8 @@ export function resolveRunContext(options: RunOptions): RunContext {
     changedBase: null,
     timeout: common.config?.timeout,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
+    pmAt: packageManagerAt(options.pm, common.cwd),
+    requirePins: common.config?.requirePins === true,
     baseline: read.baseline,
     baselineState: read.state,
     concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),

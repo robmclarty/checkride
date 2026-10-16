@@ -7,12 +7,14 @@
  * never write one report over the other, and a check of the repo as a whole
  * writes into `<out>` with `{out}` absolute too. Scratch follows the working
  * directory, so a built-in's generated files sit at `<target root>/.check/`,
- * where they resolve the target's own modules.
+ * where they resolve the target's own modules, and so does the package
+ * manager, the nearest one declared from the working directory up.
  */
 
 import { join } from 'node:path';
 
 import type { ResolvedCheck } from '../config.js';
+import type { PackageManager } from '../launch/index.js';
 import type { RunContext } from './context.js';
 
 /** Where one check runs and writes. */
@@ -25,6 +27,8 @@ export type Place = {
   outArg: string;
   /** Where {@link dir} sits in the output directory, as its `output_file` names it: `''`, or `<target>/`. */
   prefix: string;
+  /** The package manager the check runs its tools under. */
+  pm: PackageManager;
 };
 
 /** The absolute directory a check runs from: its target's root under `repo`, else `repo` itself. */
@@ -33,9 +37,10 @@ export function checkCwd(repo: string, r: ResolvedCheck): string {
 }
 
 /** Where `r` runs and writes in a run with context `ctx`. */
-export function placeOf(r: ResolvedCheck, ctx: Pick<RunContext, 'cwd' | 'out' | 'outArg' | 'targets'>): Place {
-  if (ctx.targets === null) return { cwd: ctx.cwd, dir: ctx.out, outArg: ctx.outArg, prefix: '' };
-  if (r.target === undefined) return { cwd: ctx.cwd, dir: ctx.out, outArg: ctx.out, prefix: '' };
+export function placeOf(r: ResolvedCheck, ctx: Pick<RunContext, 'cwd' | 'out' | 'outArg' | 'targets' | 'pmAt'>): Place {
+  if (ctx.targets === null) return { cwd: ctx.cwd, dir: ctx.out, outArg: ctx.outArg, prefix: '', pm: ctx.pmAt(ctx.cwd) };
+  if (r.target === undefined) return { cwd: ctx.cwd, dir: ctx.out, outArg: ctx.out, prefix: '', pm: ctx.pmAt(ctx.cwd) };
   const dir = join(ctx.out, r.target);
-  return { cwd: checkCwd(ctx.cwd, r), dir, outArg: dir, prefix: `${r.target}/` };
+  const cwd = checkCwd(ctx.cwd, r);
+  return { cwd, dir, outArg: dir, prefix: `${r.target}/`, pm: ctx.pmAt(cwd) };
 }

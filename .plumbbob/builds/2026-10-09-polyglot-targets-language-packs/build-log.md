@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 29 — feat(changed): skip unaffected targets under --changed
+**Current step:** 30 — feat(launch): resolve tools through mise and PATH and record the pin
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -52,7 +52,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 27. feat(run): run target-scope slots once per target
 - ☑ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
 - ☑ 28. feat(run): never overlap checks that share a lock key
-- ☐ 29. feat(changed): skip unaffected targets under --changed
+- ☑ 29. feat(changed): skip unaffected targets under --changed
 - ☐ 30. feat(launch): resolve tools through mise and PATH and record the pin
 - ☐ 31. feat(packs): add the bash pack with file lists
 - ☐ 32. feat(packs): give repo-scope slots Node-free alternates
@@ -132,6 +132,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
 - [x] a folder already under --out that shares a target's name gets that target's artifacts written into it, and when the target is dropped the prune deletes the whole folder, the user's files included; R9 promises checkride never deletes what it didn't write, so delete only the files the previous summary's checks name, then the folder once empty
 - [x] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
+- [ ] step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN, which beats rust-toolchain.toml, so the rust-toolchain source must not claim a toolchain file mise overrides (seen with rustup 1.29.1 under mise)
+- [ ] step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle when one exists and the embedded checks only on an empty cache, so R5.8's 'uses trivy's embedded checks' holds only on a clean machine (trivy 0.76.0)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -1884,3 +1886,88 @@ folder, so it rides the branch into the PR.)*
   R6.5 says Rust locks on `cargo:<root>`, or `cargo:global` when `CARGO_TARGET_DIR` is set, because then every target shares one build directory. No step's done-when names it, and a branch in the scheduler would break C5 (pure-data). It's parked for step 45, which writes the rust rows, to decide how the data expresses it or to drop it. Without it, cargo's own build-directory lock still serializes those runs, but that wait would count against their timeouts.
 
   The step's `model:` line says Sonnet; it ran on Opus.
+
+- 2026-10-16 — step 29 checkpointed · aed4967bc — feat(changed): skip unaffected targets under --changed (1 drift, 14m)
+
+  **Summary**: With `targets`, a `--changed` run now skips each check of a target that has no changed path under its root, recording the reason `no changes under <root>`. Changed paths are measured from the merge base of the base and `HEAD`. Repo-scope and top-level checks still run. Outside git, no target is skipped and stderr says why. I also settled the `--only`/`--skip` question parked here at step 26: `--skip` now narrows `--only`. That bends C2 (legacy-invariance) for that one flag pair, and it's the call you may want to overrule.
+
+  1. Git lists the changed paths from the merge base, and a rename counts on both sides
+  2. Selection marks an unaffected target's checks skipped in place, so each prints and records its skipped row
+  3. S10 and F19 run against real git repositories, and each git flag has a test that fails without it
+  4. The parked --only/--skip question is settled by letting --skip narrow --only, which bends C2 (legacy-invariance)
+  5. Five paths sit outside the seam: the run wiring, the targets barrel, two test files and the docs
+
+  **Readout**: Step 29 - feat(changed): skip unaffected targets under --changed
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  bent: C2 (legacy-invariance)
+               → a 0.13 run given both --only and --skip now honors --skip
+  seam         strayed: 8 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - src/__tests__/git.test.ts
+               - src/orchestrator/__tests__/targets.test.ts
+               - src/orchestrator/run.ts
+               - src/targets/__tests__/tokens.test.ts
+               - src/targets/index.ts
+               - src/targets/__tests__/changed.test.ts
+  diff         +429 -22 across 11 files
+  spent        14 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve and checkpoint step 29, unless you'd rather `--only` keep winning over `--skip`. Each done-when clause has a real-git test that fails without the code, and `pnpm check` is green. The one bent constraint comes from the decision this step was handed, and reversing it is a one-line revert plus a `profileClause` fix.
+
+  **1.** Git lists the changed paths from the merge base, and a rename counts on both sides
+
+  `changedPaths` in `src/git.ts` follows R10.2. It runs `git merge-base <sha> HEAD`, falling back to the base itself when git exits 1 because the histories share no commit. It then runs `git diff --name-only -z --no-renames --relative <merge base> --` and `git ls-files --others --exclude-standard -z`, and returns the union, deduplicated and sorted. Each flag is there for a reason:
+
+  - `-z`: git would otherwise quote non-ASCII names and split a name that holds a newline.
+  - `--no-renames`: with git's default rename detection, a file moved from `api/` to `frontend/` lists only its new path, so `api` would read as untouched though a file left it.
+  - `--relative`: checkride's working directory can be a subdirectory of the git repository. Target roots are relative to that directory, so paths have to be too, and nothing outside it should count.
+
+  It diffs from the base's sha, which step 7 already verified, rather than the ref, so a ref that is also a path name can't be misread. A base with no sha (no git, or no commit yet) and any git failure return `ok: false` with the reason, and the run skips nothing.
+
+  **2.** Selection marks an unaffected target's checks skipped in place, so each prints and records its skipped row
+
+  `src/targets/changed.ts` holds the rule: `changedUnder(paths, root)` is true when a path equals the root or sits below it (`apps/webby/` doesn't count for `apps/web`, and every path counts for `.`), and `noChangesReason(root)` writes the reason. `skipUnchanged` in `src/orchestrator/select.ts` maps the selection: a target-scope check whose root saw no change gets `skip: 'no changes under <root>'`. Everything else passes through, including a check that resolution already skipped, which keeps its own reason.
+
+  The existing skip path then does the rest. Each skipped check prints `○ api:lint  skip  no changes under api`, records the contract's skipped shape (`ok: true`, `exit_code: null`, `duration_ms: 0`), stays out of `checks_run`, and feeds nothing to the ratchet. `--changed` already marks a run partial.
+
+  `runChecks` in `src/orchestrator/run.ts` lists the paths through a new `changedPathsFor`, and only under `--changed` in multi-target mode. A repo without `targets` makes no extra git call and prints no new line, which keeps C2 (legacy-invariance) for implicit mode. When the listing fails, stderr gets `--changed: can't list the changed paths (<why>), so no target is skipped`. Outside git, step 7's base warning prints just before it.
+
+  **3.** S10 and F19 run against real git repositories, and each git flag has a test that fails without it
+
+  In `src/orchestrator/__tests__/targets.test.ts`, a two-target repo (`web` at `frontend/`, `api` at `api/`) plus a top-level custom check:
+
+  - **S10:** a commit touching only `frontend/` skips `api:lint` with `no changes under api` and runs `web:lint`, `links` and the custom check.
+  - **Merge base (R10.2):** a commit `main` gained after the branch began doesn't count as this change.
+  - An untracked file affects its target, and so does an unstaged edit.
+  - A `git mv` between targets affects both.
+  - With nothing changed, both targets sit out and the repo-scope checks still run.
+  - **F19:** outside a git repository, no target is skipped and stderr warns. Without `targets`, nothing new is printed.
+
+  `src/__tests__/git.test.ts` covers `changedPaths` with a fake runner (exact argv, the merge-base fallback, NUL parsing of a name holding a newline, each failure class) and once against a real repository run from a subdirectory. `src/targets/__tests__/changed.test.ts` covers the prefix rule and `.`.
+
+  I checked that the tests have teeth. Diffing from the base instead of the merge base, dropping `--no-renames`, and dropping `--relative` each fail a real-git test, not just the argv assertion.
+
+  **4.** The parked --only/--skip question is settled by letting --skip narrow --only, which bends C2 (legacy-invariance)
+
+  At step 26's harvest you deferred this to step 29. 0.13's rule was that `--only` ignores `--skip`. Under it, a gate profile with both keys printed `without <x>` in its verdict even when `<x>` ran. The choice was between letting `--skip` narrow `--only` and keeping `--only` winning while fixing `profileClause` in `src/gate.ts`.
+
+  I took the first option, which is one line in `selectChecks`. The target grammar makes `--only api --skip api:test` the natural way to say "all of `api` but its tests", and under the old rule that skip was dropped without a word. With it, the gate's `without` clause becomes true and `src/gate.ts` needs no change. `narrowedEntries` already records such a check as `skipped by --skip`. Its S2 row in `src/targets/__tests__/tokens.test.ts` changes: `--only lint --skip lint` now selects nothing, which draws the vacuous-green warning, and `--strict` exits 2 on it. There are two new multi-target rows. The contract doc's selection paragraph and a CHANGELOG **Changed** entry say so.
+
+  The cost is C2 (legacy-invariance): a 0.13 repo run given both flags now runs fewer checks. The invariance golden doesn't cover that pair and passed unchanged. If you'd rather keep C2 whole, the other option is to revert that line and the S2 rows and fix `profileClause` instead.
+
+  **5.** Five paths sit outside the seam: the run wiring, the targets barrel, two test files and the docs
+
+  - `src/orchestrator/run.ts`: `changedPathsFor` and one call. The paths need the resolved base and git, and `runChecks` is where both are.
+  - `src/targets/index.ts`: re-exports `changedUnder` and `noChangesReason`, since siblings import only through the barrel.
+  - `src/orchestrator/__tests__/targets.test.ts`, `src/__tests__/git.test.ts` and `src/targets/__tests__/tokens.test.ts`: the tests above.
+  - `docs/contract.md` and `CHANGELOG.md` under C11 (docs-in-step): a paragraph on target skipping, a sentence on `--skip` within `--only`, an **Added** entry and a **Changed** entry. The summary's fields and JSON Schema don't change, since R8.3 already listed the reason, so C1 (additive-contract) asks for nothing more.
+
+  The step names no e2e file and isn't the phase's last step, so D52 (e2e-cadence) asks for no e2e run. The step's `model:` line says Sonnet; it ran on Opus.
