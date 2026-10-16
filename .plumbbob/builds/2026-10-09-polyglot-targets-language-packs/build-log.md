@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 23 — refactor(resources): read bundled files through one module
+**Current step:** 24 — chore(dev): pin every e2e toolchain in a dev mise.toml
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -45,7 +45,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 20. test(invariance): pin 0.13's resolved checks, argv and summaries
 - ☑ 21. refactor(packs): split the adapter registry into ts and repo packs
 - ☑ 22. refactor(launch): resolve tool argv through a pin-source launcher
-- ☐ 23. refactor(resources): read bundled files through one module
+- ☑ 23. refactor(resources): read bundled files through one module
 - ☐ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
 - ☐ 25. feat(config): accept targets and packs blocks with their validation
 - ☐ 26. feat(select): select checks with the target token grammar
@@ -122,6 +122,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] src/pm/index.ts is now a re-export of launch/ kept so pm.test.ts passes unchanged; point gate, init, doctor, agent-setup, snippets, pack, baseline-command and triage/gate at launch/, move pm.test.ts under src/launch/__tests__/, and delete src/pm/
 - [x] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
 - [x] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
+- [ ] publish.yaml runs pnpm test:e2e with no mise toolchains and no CHECKRIDE_REQUIRE_TOOLCHAINS, so once pack e2e cases land, a release would publish with them skipped; give it the same jdx/mise-action step as ci.yml
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -1372,3 +1373,56 @@ folder, so it rides the branch into the PR.)*
   - `src/orchestrator/__tests__/orchestrator.test.ts`: the moved pre-flight block, and its import from `launch/`.
   - `src/gate.ts`, `src/triage/gate.ts`: comments pointing at `pm/launch.ts`, now `launch/refusal.ts`.
   - `src/__tests__/triage.test.ts`: a comment naming the removed `missingToolOutcome`.
+- 2026-10-16 — step 23 checkpointed · bee26afc3 — refactor(resources): read bundled files through one module (1 drift, 19m)
+
+  **Summary**: Every read of the package's `templates/`, `schema/` and `skills/` now goes through `readResource` in `src/resources.ts`, a new ast-grep rule (A3) holds that, and the templates sit under `templates/ts/` and `templates/repo/shared/` with `init` writing byte-identical files: `pnpm check`, both invariance halves, `shapes.e2e` unchanged and the whole `pnpm test:e2e` (12 files, 110 tests) are green.
+
+  1. One module now reads the package's own files
+  2. The templates split into a ts folder and a repo folder, per R11.6
+  3. Rule A3 flags a path or fs call that names a bundled directory
+  4. Both parked items for this step are settled, one fixed and one dropped
+  5. init reads package.json through readResource, which step 69 inherits
+
+  **Readout**: Step 23 - refactor(resources): read bundled files through one module
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 8 paths outside the seam
+               - AGENTS.md
+               - CHANGELOG.md
+               - docs/deep-modules.md
+               - src/__tests__/init.test.ts
+               - test/e2e/layout-rules.e2e.test.ts
+               - test/integration/docs-currency.test.ts
+               - test/integration/dogfood-config.test.ts
+               - src/__tests__/resources.test.ts
+  diff         +871 -777 across 85 files
+  spent        19 min · 4 turns · 30s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 23. The done-when holds on every clause, with the whole e2e suite green and the shape and invariance goldens untouched, and the one design call (no `Pack.templates`) is cheap to reverse before Phase 5's release if you want R4 followed literally.
+
+  **1.** One module now reads the package's own files
+
+  `src/resources.ts` exports `readResource(relPath)`, which takes a package-root path with `/` separators (`templates/ts/shared/oxlintrc.json`), the same form a SEA asset key takes, so step 69 can swap the backing without touching a caller. `init.ts` lost `HERE` and `TEMPLATES_DIR`, and its `readTemplate(rel)` is now one line over `readResource`. `agent-setup/skills.ts` lost `SKILLS_DIR` and reads each skill through a small `readSkill` that keeps the old tolerance: a skill the package doesn't carry is skipped, not fatal. Its old helper, `readIfExists` in `agent-setup/files.ts`, had no other caller outside that file, so it lost its `export`. R14.1.3 also names `listResources(prefix)`. Nothing lists resources yet, and an export with no caller is what fallow's `dead` slot flags, so it lands with its first caller (step 46 or 69). A two-test `src/__tests__/resources.test.ts` reads one file from each bundled root and pins the throw on a missing one.
+
+  **2.** The templates split into a ts folder and a repo folder, per R11.6
+
+  `git mv` keeps each file's history. `templates/ts/` holds the three shapes (`flat/`, `monorepo/`, `hybrid/`) and `shared/` with the TypeScript configs, `gitignore`, `npmrc` and the ten rules. `templates/repo/shared/` holds what R11.6 assigns to every repo: `cspell.json`, `markdownlint-cli2.jsonc`, `vale.ini` with `styles/Repo/`, and `sgconfig.yml`. The rules stay at `ts/shared/rules/` and are still written to the project's flat `rules/`, because R11.6 says the ts rules are "unchanged" and the shape e2e had to pass without edits. Four tests that read templates straight off disk got path-only edits: `init.test.ts`, `docs-currency.test.ts`, `dogfood-config.test.ts` and `layout-rules.e2e.test.ts`. That last one now copies `sgconfig.yml` from `repo/` and the rules from `ts/`. `AGENTS.md`, `docs/deep-modules.md` and the CHANGELOG's Internal list name the new paths, so most of the seam row's strays are these test and doc edits.
+
+  **3.** Rule A3 flags a path or fs call that names a bundled directory
+
+  `rules/read-bundled-through-resources.yml` covers `src/**/*.ts`, except `src/resources.ts` and `__tests__/`. It flags a string that starts at `templates/`, `schema/` or `skills/` (with `../` or `/` allowed in front) when the string is a direct argument to `join`, `resolve`, an fs read, `fileURLToPath` or `new URL`. Before the fix it flagged exactly the two readers, `init.ts:112` and `skills.ts:28`. A scratch probe confirmed it also catches `new URL('../schema/…')` and `` `${ROOT}/templates/…` ``, and leaves alone `readResource('templates/…')`, `.cursor/skills`, the `'schema'` slot name step 25 adds, and the `$schema` URL. I anchored the match at the start of the path after the first draft flagged `.cursor/skills`. It's a guardrail, not a proof: a path held in a variable before the call goes unseen. A literal-only rule like A2 would have flagged the future `schema` slot name, which is why it looks at path calls.
+
+  **4.** Both parked items for this step are settled, one fixed and one dropped
+
+  The stale `ADD_CONFIGS` comment now says new-mode `init` writes all ten rules, names the six layout and barrel rules beside the three style ones, and says "the other nine", which matches `docs/deep-modules.md`. R4's `Pack.templates` field isn't added. The directory is always `templates/<pack name>/`, so the field would repeat `name`. It would also be an additive change to the public `PACKS` export, with a contract doc and test edit under C1 (additive-contract), and nothing would read it. That kept `src/packs/` out of the diff, and R4's sketch now has one field the code deliberately leaves off.
+
+  **5.** init reads package.json through readResource, which step 69 inherits
+
+  `productVersion()` used `TEMPLATES_DIR/../package.json`. It now calls `readResource('package.json')`, so `init.ts` doesn't locate the package itself. R14.1.2 embeds only `templates/`, `schema/` and `skills/`, so in binary mode this read throws and `productVersion` falls back to `0.1.0`, which would stamp a wrong `$schema` URL. Step 69 has to embed `package.json` or compile the version in. That's already part of its job, since `cli.ts --version` reads the same file.

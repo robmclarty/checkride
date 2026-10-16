@@ -47,6 +47,36 @@ Mutation is deliberately not in the default gate: a cold run has no warm
 `stryker.incremental.json` (it is gitignored), so a full pass would time out
 `pnpm check` in CI. Run it locally, or refresh the score with `pnpm mutation`.
 
+### E2e toolchains
+
+Each language pack's e2e cases run that pack's real tools, pinned in the root
+[`mise.toml`](./mise.toml): Go, Rust, Python and uv, shellcheck, shfmt,
+golangci-lint, typos, rumdl, vale, ast-grep, OpenTofu, tflint and trivy. Node
+isn't among them; `engines.node` and CI's matrix own it. Fetch the pins once
+(this needs the network), then run the suite with them on `PATH`:
+
+```bash
+mise install
+mise exec -- pnpm test:e2e
+```
+
+A pack whose tools don't run skips its e2e cases and says why on stderr, so
+the suite still runs on a machine that has only some of them. CI installs
+every pin with `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`,
+which turns that skip into a failure; set it locally to prove a full install.
+[`test/helpers/toolchains.ts`](./test/helpers/toolchains.ts) lists what each
+pack needs, and a test holds that list equal to `mise.toml`'s pins.
+
+Without rustup, mise installs one for the Rust pin into `~/.cargo` and
+`~/.rustup`, and its `cargo` then shadows any other on a `PATH` that lists
+`~/.cargo/bin`. To keep it inside mise's own directories, set its homes before
+the first install:
+
+```bash
+mise settings set rust.cargo_home ~/.local/share/mise/rust/cargo
+mise settings set rust.rustup_home ~/.local/share/mise/rust/rustup
+```
+
 Conventions (enforced mechanically — see [AGENTS.md](./AGENTS.md)): deep
 modules with barrel `index.ts` surfaces, named exports only, no classes, `.js`
 extensions on relative imports, tests colocated or under `test/`.

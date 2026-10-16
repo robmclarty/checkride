@@ -1,0 +1,23 @@
+# The dev toolchains the e2e suite runs each pack against, pinned to the
+# versions those cases were tested with. `mise install` fetches them once. CI
+# installs them with jdx/mise-action and sets CHECKRIDE_REQUIRE_TOOLCHAINS=1,
+# so a pack whose tools are missing fails there instead of skipping
+# (test/helpers/toolchains.ts holds the list each pack needs).
+#
+# Node stays out: engines.node and CI's matrix own it. vale and ast-grep match
+# the npm copies package.json pins, so both chains run the same version.
+[tools]
+go = "1.27.2"
+rust = { version = "1.99.0", profile = "minimal", components = "clippy,rustfmt" }
+python = "3.14.8"
+uv = "0.13.1"
+shellcheck = "0.11.0"
+shfmt = "3.14.1"
+golangci-lint = "2.14.0"
+typos = "1.51.1"
+rumdl = "0.2.79"
+vale = "3.24.0"
+ast-grep = "0.45.3"
+opentofu = "1.13.1"
+tflint = "0.64.0"
+trivy = "0.76.0"

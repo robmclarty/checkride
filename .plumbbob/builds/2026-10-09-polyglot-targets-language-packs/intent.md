@@ -603,7 +603,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/launch/`, `src/pm/`, `src/orchestrator/spawn.ts`, `src/orchestrator/fix.ts`,
       `rules/`
     - model: opus (the package-manager quartet's edge cases move house)
-23. [ ] refactor(resources): read bundled files through one module, **done when:** `src/resources.ts` is the only module that reads `templates/`, `schema/` or `skills/` (rule A3); templates live under `templates/ts/` and `templates/repo/`; every shape e2e passes unchanged; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+23. [x] refactor(resources): read bundled files through one module, **done when:** `src/resources.ts` is the only module that reads `templates/`, `schema/` or `skills/` (rule A3); templates live under `templates/ts/` and `templates/repo/`; every shape e2e passes unchanged; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/resources.ts`, `src/init.ts`, `src/agent-setup/`, `templates/`, `rules/`,
       `package.json`
     - model: sonnet

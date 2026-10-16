@@ -88,8 +88,19 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+      # Every pack's toolchain at the version the root mise.toml pins. Installed
+      # after `pnpm check` so this repo's own run sees the same PATH as before;
+      # the action exports the install paths, so the CLI under test finds the
+      # tools from the temp copies the e2e cases run in.
+      - name: Install e2e toolchains
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+
       # The green-out-of-the-box invariant: generate each shape, install it, and
       # run the built CLI against it (the predecessor's encoded lesson) — plus
       # the PM quartet and the interrupted-run (never-torn artifacts) cases.
+      # CHECKRIDE_REQUIRE_TOOLCHAINS turns a pack's missing tool from a local
+      # skip into a failure (test/helpers/toolchains.ts).
       - name: pnpm test:e2e
         run: pnpm test:e2e
+        env:
+          CHECKRIDE_REQUIRE_TOOLCHAINS: '1'
