@@ -81,7 +81,7 @@ describe('runChecks with targets', () => {
     await runChecks({ cwd: dir, config: { ...config, checks: { tally: { command: 'node' } } }, runner, baseline: null, stderr: sink().out });
     expect(seen['web']).toEqual({ pm: 'pnpm', repo: dir, pins: ['js-lockfile'] });
     expect(seen['api']).toEqual({ pm: 'npm', repo: dir, pins: ['js-lockfile'] });
-    expect(seen['tally']).toEqual({ pm: 'pnpm', repo: dir, pins: ['js-lockfile'] });
+    expect(seen['tally']).toEqual({ pm: 'pnpm', repo: dir, pins: ['js-lockfile', 'mise', 'path'] });
     // Each chain is its pack's own row, not the implicit chain that happens to match it today.
     expect(seen['web']?.pins).toBe(PACKS.ts.pins);
     expect(seen['tally']?.pins).toBe(PACKS.repo.pins);

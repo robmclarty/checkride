@@ -261,3 +261,27 @@ describe('a bash target detects its tools by config file or by pin', () => {
     expect(check(checks, 'scripts:format').adapter).toBeNull();
   });
 });
+
+/** Resolve the catalogue with `config` (none by default), keyed by each check's name. */
+const repoSlots = (fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
+  new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists, manifest: NO_MANIFEST }).map((c) => [checkName(c), c]));
+
+describe("the repo pack's Node-free alternates", () => {
+  test('rumdl fills docs from its own config, and typos fills spell from its own', () => {
+    const checks = repoSlots(present('.rumdl.toml', '_typos.toml'));
+    expect(check(checks, 'docs')).toMatchObject({ adapter: { name: 'rumdl', outputFile: 'docs.json' }, detectedBy: '.rumdl.toml' });
+    expect(check(checks, 'spell')).toMatchObject({ adapter: { name: 'typos' }, detectedBy: '_typos.toml' });
+  });
+
+  test('the npm default still wins where both configs sit', () => {
+    const checks = repoSlots(present('.markdownlint-cli2.jsonc', 'rumdl.toml', 'cspell.json', 'typos.toml'));
+    expect(check(checks, 'docs').adapter?.name).toBe('markdownlint-cli2');
+    expect(check(checks, 'spell').adapter?.name).toBe('cspell');
+  });
+
+  test('in multi-target mode they resolve once, at the repo root, as the repo pack', () => {
+    const checks = repoSlots(present('.typos.toml', 'apps/web/rumdl.toml'), { targets: { web } });
+    expect(check(checks, 'spell')).toMatchObject({ pack: 'repo', adapter: { name: 'typos' } });
+    expect(check(checks, 'docs').adapter).toBeNull();
+  });
+});

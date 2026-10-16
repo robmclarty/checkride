@@ -257,6 +257,31 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       });
     }));
 
+  test("the repo pack's chain runs a binary a mise.toml pins, or one on PATH, where package.json declares nothing", () =>
+    withScratch(async (s) => {
+      await s.file('package.json', JSON.stringify({ devDependencies: {} }));
+      await s.file('mise.toml', '[tools]\n"aqua:rvben/rumdl" = "0.2.79"\n');
+      await s.tool('mise');
+      await s.tool('vale');
+      const repo = s.at('.', { pins: pinChain('repo') });
+      expect(launchCheck('docs', 'pnpm', ['exec', 'rumdl', 'check', '.'], repo)).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'rumdl', 'check', '.'],
+        pin: { source: 'mise' },
+      });
+      expect(launchCheck('prose', 'pnpm', ['exec', 'vale', '.'], repo)).toMatchObject({ command: 'vale', args: ['.'], pin: { source: 'path' } });
+    }));
+
+  test('a check with no pack resolves the same tools through js-lockfile alone, as 0.13 did', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nvale = "3.24.0"\nrumdl = "0.2.79"\n');
+      await s.tool('mise');
+      await s.tool('vale');
+      const implicit = s.at('.', { pins: pinChain(undefined) });
+      expect(launchCheck('prose', 'pnpm', ['exec', 'vale', '.'], implicit)).toMatchObject({ command: 'pnpm', pin: { source: 'js-lockfile' } });
+      expect(launchCheck('docs', 'pnpm', ['exec', 'rumdl', 'check', '.'], implicit)).toMatchObject({ command: 'pnpm', pin: { source: 'js-lockfile' } });
+    }));
+
   test('a mise.toml in a parent of the check, inside the repo, declares the tool too', () =>
     withScratch(async (s) => {
       await s.file('.mise.toml', '[tools]\nshellcheck = "0.11.0"\n');

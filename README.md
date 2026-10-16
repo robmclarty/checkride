@@ -216,9 +216,9 @@ generates config for the blessed default.
 | `dupes`    | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
 | `health`   | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
 | `test`     | Tests + coverage                       | `vitest`            | `jest`           |
-| `docs`     | Markdown lint                          | `markdownlint-cli2` | —                |
+| `docs`     | Markdown lint                          | `markdownlint-cli2` | `rumdl`          |
 | `links`    | Relative markdown links resolve        | built-in            | —                |
-| `spell`    | Spelling                               | `cspell`            | —                |
+| `spell`    | Spelling                               | `cspell`            | `typos`          |
 | `prose`    | Writing style (opt-in)                 | `vale`              | —                |
 | `mutation` | Mutation testing (opt-in)              | `stryker`           | —                |
 | `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |

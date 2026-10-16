@@ -3,8 +3,12 @@
  * language's code — its structure, markdown, links, spelling and prose.
  *
  * It fills every repo-scope slot, and has no root markers of its own. Its
- * tools are the ones the project's own package manager installed, as the ts
- * pack's are.
+ * tools resolve through the project's own package manager first, then a
+ * `mise.toml` pin, then `PATH`, so a repo without Node can run them as single
+ * binaries: rumdl for `docs`, typos for `spell`, and the vale and ast-grep
+ * binaries. A repo without `targets` is checked as one TypeScript project
+ * whose every tool resolves through its package manager alone, as before
+ * (R5.4); the launcher gives its checks that chain, not this one.
  */
 
 import type { Pack } from './types.js';
@@ -12,7 +16,7 @@ import type { Pack } from './types.js';
 export const REPO_PACK: Pack = {
   name: 'repo',
   markers: [],
-  pins: ['js-lockfile'],
+  pins: ['js-lockfile', 'mise', 'path'],
   env: {},
   adapters: [
     {
@@ -43,6 +47,19 @@ export const REPO_PACK: Pack = {
       devDeps: { 'markdownlint-cli2': '0.23.3' },
     },
     {
+      name: 'rumdl',
+      slot: 'docs',
+      description: 'rumdl: Markdown linting',
+      detect: ['.rumdl.toml', 'rumdl.toml'],
+      command: 'pnpm',
+      // `--no-cache` keeps rumdl from writing `.rumdl_cache` into the checkout,
+      // and JSON is one array of every warning, with its file, line and rule.
+      args: ['exec', 'rumdl', 'check', '--no-cache', '--output-format', 'json', '.'],
+      outputFile: 'docs.json',
+      fixArgs: ['exec', 'rumdl', 'check', '--no-cache', '--fix', '.'],
+      devDeps: {},
+    },
+    {
       name: 'links',
       slot: 'links',
       description: 'Relative markdown link targets exist on disk',
@@ -70,6 +87,19 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
       outputFile: null,
       devDeps: { cspell: '10.3.6' },
+    },
+    {
+      name: 'typos',
+      slot: 'spell',
+      description: 'typos: common misspellings',
+      detect: ['_typos.toml', 'typos.toml', '.typos.toml'],
+      command: 'pnpm',
+      // typos flags only words it holds a correction for, which is the slot's
+      // stance, and `brief` prints each one as `file:line:col: message`.
+      args: ['exec', 'typos', '--format', 'brief'],
+      outputFile: null,
+      fixArgs: ['exec', 'typos', '--write-changes'],
+      devDeps: {},
     },
     {
       name: 'vale',

@@ -18,12 +18,35 @@ order.
 | Pack | Pin chain |
 | --- | --- |
 | `ts` | `js-lockfile` |
-| `repo` | `js-lockfile` |
+| `repo` | `js-lockfile`, then `mise`, then `path` |
 | `bash` | `mise`, then `path` |
 
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
-every tool through its package manager as it always has.
+every tool through its package manager as it always has. The `repo` pack's
+own chain applies once a repo declares targets.
+
+## The repo pack without Node
+
+The repo pack's slots check the repo as a whole, so a repo with no
+`package.json` still needs them. Each slot that runs an npm tool by default has
+a single-binary alternate, which `mise.toml` or `PATH` provides:
+
+| Slot | npm default | Node-free alternate | Detected by |
+| --- | --- | --- | --- |
+| `struct` | `ast-grep`, from `@ast-grep/cli` | the `ast-grep` binary | `sgconfig.yml`, `sgconfig.yaml` |
+| `docs` | `markdownlint-cli2` | `rumdl`, writing `docs.json` | `.rumdl.toml`, `rumdl.toml` |
+| `spell` | `cspell` | `typos` | `_typos.toml`, `typos.toml`, `.typos.toml` |
+| `prose` | `vale`, from `@vvago/vale` | the `vale` binary | `.vale.ini`, `_vale.ini` |
+
+`ast-grep` and `vale` are one adapter each: the copy that runs is whichever the
+chain reaches first, the `package.json` dependency, then a `mise.toml` pin,
+then `PATH`. `rumdl` and `typos` are adapters of their own, after the npm
+default in their slot, so where both configs sit the npm default wins
+detection. rumdl runs `rumdl check --no-cache --output-format json .`, so it
+writes no cache into the checkout, and `checkride fix` runs it with `--fix`.
+typos runs `typos --format brief`, which exits 2 on a typo, and
+`checkride fix` runs `typos --write-changes`.
 
 ## Pin sources
 

@@ -668,7 +668,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/launch/`, `src/orchestrator/spawn.ts`, `schema/checkride.summary.schema.json`,
       `test/contract/summary.contract.test.ts`, `docs/contract.md`, `docs/packs.md`
     - model: opus (no fall-through is the pin model's whole point)
-31. [ ] feat(packs): add the bash pack with file lists, **done when:** a `bash` target runs shellcheck (`lint`) and shfmt (opt-in `format`) over `{files}` built per R11.2; zero matches skip with `no files matched` (F10); an argv over 200,000 bytes exits 2
+31. [x] feat(packs): add the bash pack with file lists, **done when:** a `bash` target runs shellcheck (`lint`) and shfmt (opt-in `format`) over `{files}` built per R11.2; zero matches skip with `no files matched` (F10); an argv over 200,000 bytes exits 2
     - seam: `src/packs/bash.ts`, `src/targets/files.ts`, `src/launch/`
     - model: sonnet
 32. [ ] feat(packs): give repo-scope slots Node-free alternates, **done when:** outside implicit `ts` mode the repo pack's chain is `[js-lockfile, mise, path]`, so rumdl, typos and the vale and ast-grep binaries resolve through it; implicit `ts` mode still resolves `[js-lockfile]` only, and the invariance golden is unchanged

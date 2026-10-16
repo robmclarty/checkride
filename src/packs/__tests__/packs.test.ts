@@ -6,6 +6,9 @@ import { PACKS, TOOLS } from '../index.js';
 
 const ROWS: readonly Adapter[] = Object.values(PACKS).flatMap((pack) => pack.adapters);
 
+/** The repo pack's adapters for `slot`, by name, in row order. */
+const fill = (slot: string): string[] => PACKS.repo.adapters.filter((a) => a.slot === slot).map((a) => a.name);
+
 /** The `<bin>` of a canonical `pnpm exec <bin> …` argument list, or undefined for anything else. */
 const execBin = (args: readonly string[] | undefined): string | undefined => (args?.[0] === 'exec' ? args[1] : undefined);
 
@@ -19,10 +22,17 @@ describe('the ts and repo packs', () => {
     expect(PACKS.repo.markers).toEqual([]);
   });
 
-  test('both pin their tools through the package manager\'s lockfile and set no variables', () => {
-    for (const pack of [PACKS.ts, PACKS.repo]) {
-      expect(pack.pins).toEqual(['js-lockfile']);
-      expect(pack.env).toEqual({});
+  test('ts pins its tools through the lockfile alone, and repo falls through to mise and PATH; neither sets variables', () => {
+    expect(PACKS.ts.pins).toEqual(['js-lockfile']);
+    expect(PACKS.repo.pins).toEqual(['js-lockfile', 'mise', 'path']);
+    for (const pack of [PACKS.ts, PACKS.repo]) expect(pack.env).toEqual({});
+  });
+
+  test('the repo pack runs a Node-free alternate after each npm default, with mise ids for every binary', () => {
+    expect(fill('docs')).toEqual(['markdownlint-cli2', 'rumdl']);
+    expect(fill('spell')).toEqual(['cspell', 'typos']);
+    for (const bin of ['ast-grep', 'vale', 'rumdl', 'typos']) {
+      expect(TOOLS.find((t) => t.bin === bin)?.mise?.[0], bin).toBe(bin);
     }
   });
 

@@ -46,13 +46,14 @@ describe('registry invariants', () => {
     expect(SLOTS.filter((s) => s.scope !== 'repo').every((s) => s.scope === 'target')).toBe(true);
   });
 
-  test('ADAPTERS keeps the order it had before the packs split it', () => {
+  test("ADAPTERS keeps 0.13's rows in their order, with the repo pack's alternates after their defaults", () => {
     // Order is part of a public export's value, and the blessed default is the
-    // first row per slot, so the split must not move a single row.
+    // first row per slot, so the split must not move a single row, and a new
+    // alternate (rumdl, typos) only ever follows its slot's default.
     expect(ADAPTERS.map((a) => `${a.slot}:${a.name}`)).toEqual([
       'types:tsc', 'format:prettier', 'format:biome-format', 'lint:oxlint', 'lint:biome', 'lint:eslint',
       'struct:ast-grep', 'dead:fallow', 'dead:knip', 'dupes:fallow', 'health:fallow', 'test:vitest', 'test:jest',
-      'docs:markdownlint-cli2', 'links:links', 'spell:cspell', 'prose:vale', 'mutation:stryker',
+      'docs:markdownlint-cli2', 'docs:rumdl', 'links:links', 'spell:cspell', 'spell:typos', 'prose:vale', 'mutation:stryker',
       'security:pnpm-audit', 'build:build', 'publint:publint', 'attw:attw', 'pack:pack', 'smoke:smoke',
       'snippets:snippets', 'snippets:snippets-dist',
     ]);
@@ -77,6 +78,8 @@ describe('registry invariants', () => {
     expect(adapterNames('lint')).toEqual(['oxlint', 'biome', 'eslint']);
     expect(adapterNames('dead')).toEqual(['fallow', 'knip']);
     expect(adapterNames('test')).toEqual(['vitest', 'jest']);
+    expect(adapterNames('docs')).toEqual(['markdownlint-cli2', 'rumdl']);
+    expect(adapterNames('spell')).toEqual(['cspell', 'typos']);
   });
 
   test('the three fallow analyses fill dead/dupes/health, each checkride-gated', () => {

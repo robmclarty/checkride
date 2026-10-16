@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 31 — feat(packs): add the bash pack with file lists
+**Current step:** 32 — feat(packs): give repo-scope slots Node-free alternates
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -54,7 +54,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 28. feat(run): never overlap checks that share a lock key
 - ☑ 29. feat(changed): skip unaffected targets under --changed
 - ☑ 30. feat(launch): resolve tools through mise and PATH and record the pin
-- ☐ 31. feat(packs): add the bash pack with file lists
+- ☑ 31. feat(packs): add the bash pack with file lists
 - ☐ 32. feat(packs): give repo-scope slots Node-free alternates
 - ☐ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
 - ☐ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
@@ -2090,3 +2090,5 @@ folder, so it rides the branch into the PR.)*
   - `CHANGELOG.md`, `docs/README.md` and `docs/tools.md`, under C11 (docs-in-step).
 
   The step names no e2e file and isn't the phase's last, but I ran `pm-quartet`, `invariance` and `out` e2e anyway, since the package manager and fix paths moved. All 20 cases are green.
+
+- 2026-10-16 — step 31 checkpointed · 46f9504f7 — feat(packs): add the bash pack with file lists (1 drift, 19m)

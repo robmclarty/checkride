@@ -161,6 +161,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.shellcheckrc` (shellcheck only) or by a `mise.toml` that pins it, and
   `detected_by` names that pin as `mise.toml: shellcheck`. See
   `docs/packs.md`.
+- **Check a repo's markdown, spelling, structure and prose without Node.**
+  Once a repo declares `targets`, the repo-scope tools resolve through the
+  project's package manager, then a `mise.toml` pin, then `PATH`, so the
+  `ast-grep` and `vale` binaries can stand in for their npm packages. Two new
+  adapters fill the slots that had only an npm tool: `rumdl` for `docs`
+  (detected by `.rumdl.toml` or `rumdl.toml`, run with `--no-cache` so it
+  writes nothing into the checkout, its findings in `docs.json`) and `typos`
+  for `spell` (detected by `_typos.toml`, `typos.toml` or `.typos.toml`).
+  Each comes after the npm default in its slot, so a repo with both configs
+  keeps running markdownlint-cli2 and cspell, and `checkride fix` runs
+  `rumdl check --fix` and `typos --write-changes`. A repo without `targets`
+  still resolves every tool through its package manager alone. See
+  `docs/packs.md`.
 
 ### Changed
 
@@ -421,6 +434,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the JSON Schema's description, the contract doc and
   `summary.contract.test.ts`. The exported `Pack` type's `name` takes
   `bash`.
+- Additive: the `repo` pack's rows gain `rumdl` (`docs`) and `typos`
+  (`spell`), so `ADAPTERS` gains both, each after its slot's blessed default.
+  `PACKS.repo.pins` is `js-lockfile`, `mise`, `path`, the chain a repo-scope
+  check uses once `targets` are declared, while a repo without them still
+  resolves through `js-lockfile` alone. `TOOLS` gains `rumdl` and `typos`, and
+  its `ast-grep` and `vale` rows gain their `mise` ids.
 
 ### Internal
 
