@@ -6,7 +6,11 @@
  * `fileExists`, which answers for paths relative to the repo root.
  */
 
-import { describe, expect, test } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
@@ -190,5 +194,70 @@ describe('a tuning-only entry in a repo without targets', () => {
       manifest: NO_MANIFEST,
     });
     expect(lint).toMatchObject({ adapter: { name: 'oxlint', timeout: 7, order: 2 }, order: 2, origin: 'detected' });
+  });
+});
+
+describe('a bash target detects its tools by config file or by pin', () => {
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'checkride-detect-pin-'));
+    await mkdir(join(repo, 'scripts'));
+  });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  const scripts = { lang: 'bash', root: 'scripts' } as const;
+  const resolveAt = (config: CheckrideConfig): Map<string, ResolvedCheck> =>
+    new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo }).map((c) => [checkName(c), c]));
+
+  test('with neither a .shellcheckrc nor a pin, nothing fills lint or format', () => {
+    const checks = resolveAt({ targets: { scripts } });
+    expect(check(checks, 'scripts:lint')).toMatchObject({ adapter: null, skip: 'no tool detected for slot', pack: 'bash' });
+    expect(check(checks, 'scripts:format')).toMatchObject({ adapter: null, optIn: true });
+    expect(checks.has('scripts:types')).toBe(false);
+  });
+
+  test(".shellcheckrc at the target's root detects shellcheck", async () => {
+    await writeFile(join(repo, 'scripts', '.shellcheckrc'), 'disable=SC1091\n');
+    expect(check(resolveAt({ targets: { scripts } }), 'scripts:lint')).toMatchObject({
+      adapter: { name: 'shellcheck' },
+      origin: 'detected',
+      detectedBy: '.shellcheckrc',
+    });
+  });
+
+  test('a mise.toml from the target root up to the repo root detects each tool it pins, by any of its ids', async () => {
+    await writeFile(join(repo, 'mise.toml'), '[tools]\n"aqua:koalaman/shellcheck" = "0.11.0"\nshfmt = "3.14.1"\n');
+    const checks = resolveAt({ targets: { scripts } });
+    expect(check(checks, 'scripts:lint')).toMatchObject({
+      adapter: { name: 'shellcheck' },
+      origin: 'detected',
+      detectedBy: 'mise.toml: aqua:koalaman/shellcheck',
+    });
+    expect(check(checks, 'scripts:format')).toMatchObject({ adapter: { name: 'shfmt' }, optIn: true, detectedBy: 'mise.toml: shfmt' });
+  });
+
+  test('a pin for one tool detects only that tool', async () => {
+    await writeFile(join(repo, 'scripts', 'mise.toml'), '[tools]\nshfmt = "3.14.1"\n');
+    const checks = resolveAt({ targets: { scripts } });
+    expect(check(checks, 'scripts:lint').adapter).toBeNull();
+    expect(check(checks, 'scripts:format')).toMatchObject({ adapter: { name: 'shfmt' }, detectedBy: 'scripts/mise.toml: shfmt' });
+  });
+
+  test('a mise.toml above the repo root pins nothing in it', async () => {
+    const outer = await mkdtemp(join(tmpdir(), 'checkride-detect-pin-outer-'));
+    try {
+      await writeFile(join(outer, 'mise.toml'), '[tools]\nshellcheck = "0.11.0"\n');
+      await mkdir(join(outer, 'repo', 'scripts'), { recursive: true });
+      const checks = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: { targets: { scripts } }, cwd: join(outer, 'repo') });
+      expect(checks.find((c) => checkName(c) === 'scripts:lint')?.adapter).toBeNull();
+    } finally {
+      await rm(outer, { recursive: true, force: true });
+    }
+  });
+
+  test('a detection that injects its own files reads no pins off disk', () => {
+    const checks = resolve({ targets: { scripts } }, present('scripts/.shellcheckrc'));
+    expect(check(checks, 'scripts:lint')).toMatchObject({ adapter: { name: 'shellcheck' }, detectedBy: '.shellcheckrc' });
+    expect(check(checks, 'scripts:format').adapter).toBeNull();
   });
 });

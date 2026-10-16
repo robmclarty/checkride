@@ -175,6 +175,29 @@ describe('summary.json shape', () => {
   });
 
   /**
+   * Contract: a tool a pin declares is detected by that pin, named as
+   * `<file>: <key>`, and a bash target with no files skips its checks with
+   * `no files matched` (R11.2, F10), spawning nothing.
+   */
+  test('a pin detects a bash tool, and a bash target with no files skips with no files matched', async () => {
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'notes.txt'), 'not a script\n');
+    await writeFile(join(dir, 'mise.toml'), '[tools]\nshellcheck = "0.11.0"\n');
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { scripts: { lang: 'bash', root: 'scripts' } } }));
+    const summary = await runAndValidate(['--only', 'scripts:lint']);
+    const checks = summary['checks'] as Record<string, unknown>[];
+    expect(checks.find((c) => c['name'] === 'scripts:lint')).toMatchObject({
+      adapter: 'shellcheck',
+      pack: 'bash',
+      origin: 'detected',
+      detected_by: 'mise.toml: shellcheck',
+      skipped: true,
+      reason: 'no files matched',
+      exit_code: null,
+    });
+  });
+
+  /**
    * Contract: `argv` is present exactly when the check spawned its own tool,
    * as spawned, and absent on built-ins and on every skipped entry, a custom
    * check that skipped itself included (R8.2).

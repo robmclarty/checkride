@@ -16,5 +16,5 @@ export type { LaunchRefusal } from './refusal.js';
 export { launchRefusal, SPAWN_FAILED_MARKER } from './refusal.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, Spawn } from './resolve.js';
-export { isReadableSource, launchCheck, pinChain } from './resolve.js';
+export { isReadableSource, launchCheck, pinChain, pinDeclaration } from './resolve.js';
 export { execCommand, isAvailableUnder, runScript, translateExec } from './translate.js';

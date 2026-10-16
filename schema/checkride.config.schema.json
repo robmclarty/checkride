@@ -93,8 +93,8 @@
   },
   "definitions": {
     "packName": {
-      "description": "A language pack.",
-      "enum": ["ts"]
+      "description": "A language pack: ts checks TypeScript code from its root, and bash checks a list of shell scripts under its root.",
+      "enum": ["ts", "bash"]
     },
     "targetName": {
       "type": "string",
@@ -124,12 +124,12 @@
         "include": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Globs, relative to root, for the files a file-list pack checks. A pack that checks its root rejects it."
+          "description": "Globs, relative to root, for the files a file-list pack (bash) checks: **, *, ? and {a,b}. Omitted, bash checks every .sh and .bash file and each extensionless file with a shell shebang. A pack that checks its root rejects it."
         },
         "exclude": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Globs, relative to root, for files a file-list pack leaves out. A pack that checks its root rejects it."
+          "description": "Globs, relative to root, for files a file-list pack (bash) leaves out; a glob that matches a directory leaves out everything under it. A pack that checks its root rejects it."
         },
         "checks": {
           "type": "object",

@@ -28,10 +28,11 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo';
+  name: 'ts' | 'repo' | 'bash';
   /**
    * Files whose presence marks a directory as holding this pack's code. The
-   * repo pack has none: its slots check the repo as a whole.
+   * repo pack has none, since its slots check the repo as a whole, and neither
+   * does bash, whose targets are always declared.
    */
   markers: readonly string[];
   /**

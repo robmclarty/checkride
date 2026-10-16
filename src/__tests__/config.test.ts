@@ -876,7 +876,7 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     {
       rule: 'V10',
       config: { packs: { go: { checks: { lint: 'golangci-lint' } } } },
-      message: /packs has 'go', which isn't a pack \(packs: ts\)/,
+      message: /packs has 'go', which isn't a pack \(packs: ts, bash\)/,
     },
     {
       rule: 'V12',
@@ -1094,7 +1094,7 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
   });
 
   test('a target names a pack, holds only known keys, and its note is a string', () => {
-    expect(problem({ targets: { web: { root: 'apps/web' } } })).toMatch(/targets\.web has no lang: name its pack \(packs: ts\)/);
+    expect(problem({ targets: { web: { root: 'apps/web' } } })).toMatch(/targets\.web has no lang: name its pack \(packs: ts, bash\)/);
     expect(problem({ targets: { web: { lang: 'cobol', root: 'apps/web' } } })).toMatch(/targets\.web\.lang "cobol" isn't a pack/);
     expect(problem({ targets: { web: { lang: 'repo', root: 'apps/web' } } })).toMatch(/targets\.web\.lang "repo" isn't a pack/);
     expect(problem({ targets: { web: { ...web, rot: '.' } } })).toMatch(/targets\.web has an unknown key 'rot'/);

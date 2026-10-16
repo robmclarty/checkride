@@ -144,6 +144,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `repo` packs still resolve every tool through the project's package
   manager alone, so no existing run changes; the packs that reach mise and
   `PATH` arrive next. See `docs/packs.md`.
+- **Check shell scripts with a `bash` target.** Declare one
+  (`"scripts": { "lang": "bash", "root": "scripts" }`) and `scripts:lint`
+  runs shellcheck over the target's scripts, writing `lint.json`, while the
+  opt-in `scripts:format` runs `shfmt -d`, and `checkride fix` runs
+  `shfmt -w`. Both tools resolve through `mise`, then `PATH`. A check runs
+  over the target's file list: the files git lists under its root, tracked or
+  untracked but not ignored (every file there outside git), kept by the
+  target's `include` globs or, by default, every `.sh` and `.bash` file plus
+  each extensionless file with a `bash`, `sh`, `dash` or `ksh` shebang, and
+  dropped by its `exclude` globs. Globs take `**`, `*`, `?` and `{a,b}`. A
+  target whose list matches nothing skips its checks with `no files matched`
+  rather than failing them, and a list that would take a check's argv past
+  200,000 bytes exits 2 before anything runs, naming `include` and
+  `exclude`. Since neither tool needs a config file, each is detected by a
+  `.shellcheckrc` (shellcheck only) or by a `mise.toml` that pins it, and
+  `detected_by` names that pin as `mise.toml: shellcheck`. See
+  `docs/packs.md`.
 
 ### Changed
 
@@ -392,6 +409,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `requirePins`. The exported `Tool` type gains an optional `mise` (the
   `[tools]` keys that declare the tool), and `Pack`'s `pins` takes any of the
   eight source names. `requirePins` now acts on a run and on `fix`.
+- Additive: `PACKS` gains `bash` (`shellcheck` for `lint`, `shfmt` for the
+  opt-in `format`, pinned through `mise` then `path`), `TOOLS` gains
+  `shellcheck` and `shfmt`, and a target's `lang` and the config schema's
+  pack names take `bash`, the one pack whose targets take `include` and
+  `exclude`. `ADAPTERS` is unchanged. An argument that is exactly `{files}`
+  expands to a bash target's file list, and a target whose list is empty
+  records its checks as skipped with the reason `no files matched`. The
+  exported `Adapter` type gains an optional `detectPin`, and `detected_by`
+  takes a fourth form, `<file>: <key>` for the pin that declared the tool, in
+  the JSON Schema's description, the contract doc and
+  `summary.contract.test.ts`. The exported `Pack` type's `name` takes
+  `bash`.
 
 ### Internal
 

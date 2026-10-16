@@ -420,6 +420,26 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   target's name takes that target's artifacts, and deleting the whole folder when the target is
   dropped would take the user's own files with it, breaking R9's promise that checkride never
   deletes what it didn't write (settled at step 27's harvest).
+- <a id="d58"></a>**D58 (fix-same-chain)**: `checkride fix` launches each fixer through its
+  check's pin chain with `launchCheck`, so it runs the copy the check runs and is refused where
+  the check would be: an `npx` or `bunx` tool the project never installed, a pin whose source
+  can't run the tool, or an unpinned tool under `requirePins`. A refused fixer prints the
+  launcher's message and counts as failed, and the other fixers still run, *because* a fixer
+  from a launcher's cache is the substitution [D12 (pin-chain)](#d12) rules out, and `fix`
+  writes files (settled at step 30 and its harvest, from step 22's park).
+- <a id="d59"></a>**D59 (nearest-pm)**: a check's package manager is the nearest one declared,
+  by `packageManager` field and then lockfile, from its working directory up to the repo root,
+  else `pnpm`. A target with its own lockfile runs under it, and a workspace package that
+  declares neither runs under the root's. `nearestPackageManager` in
+  `src/launch/package-manager.ts` resolves it, `src/orchestrator/place.ts` carries it per check
+  and the fix path does the same, *because* a target with its own non-pnpm lockfile otherwise
+  launched under the root's manager and recorded that manager's argv, and the `js-lockfile`
+  source's declaration and version reads already walk up from the working directory (settled at
+  step 30 and its harvest, from step 27's park).
+- <a id="d60"></a>**D60 (builtins-unpinned)**: the `pack`, `smoke`, `snippets` and
+  `snippets-dist` built-ins record neither `argv` nor `pin_source`, and their helper processes
+  don't go through the launcher, *because* a built-in's verdict is checkride's own, not a pinned
+  tool's, as step 9 ruled for `argv` (settled at step 30 and its harvest, from step 22's park).
 
 ## Constraints
 
@@ -644,7 +664,7 @@ reference rules and porting trap apply as written there.
 29. [x] feat(changed): skip unaffected targets under --changed, **done when:** changed paths come from the resolved base's merge base (R10.2); unaffected targets' checks skip with `no changes under <root>`; repo-scope checks still run; with no git or no base nothing is skipped and stderr warns (S10, F19)
     - seam: `src/targets/changed.ts`, `src/git.ts`, `src/orchestrator/select.ts`
     - model: sonnet
-30. [ ] feat(launch): resolve tools through mise and PATH and record the pin, **done when:** the launcher walks each pack's chain per R6.2, with mise's auto-install switched off; `requirePins` fails an unpinned tool with the `mise use` hint; every spawned check records `pin_source`, and `tool_version` when R6.3 finds one; F11 and F12 pass; `docs/packs.md` records each R6.4 variable name as verified against the pinned tool
+30. [x] feat(launch): resolve tools through mise and PATH and record the pin, **done when:** the launcher walks each pack's chain per R6.2, with mise's auto-install switched off; `requirePins` fails an unpinned tool with the `mise use` hint; every spawned check records `pin_source`, and `tool_version` when R6.3 finds one; F11 and F12 pass; `docs/packs.md` records each R6.4 variable name as verified against the pinned tool
     - seam: `src/launch/`, `src/orchestrator/spawn.ts`, `schema/checkride.summary.schema.json`,
       `test/contract/summary.contract.test.ts`, `docs/contract.md`, `docs/packs.md`
     - model: opus (no fall-through is the pin model's whole point)
@@ -876,20 +896,15 @@ What each range should watch for:
   network, and it records whatever the day's advisory feed says.
 
 **Leans to settle before the ranges.** Each one is a call parked for a step in a range that
-would otherwise stop there to ask. Once approved, each folds into Decisions as D58 onward and
+would otherwise stop there to ask. Once approved, each folds into Decisions as D61 onward and
 amends its step, the way D55 to D57 did, so the building agent reads it where it reads every
 other call.
 
-- **Step 30, built-in helpers.** `pack` and `snippets` record neither `argv` nor `pin_source`,
-  as step 9 already rules for built-ins, so the park closes without routing their helper argv
-  through the launcher, *because* a built-in's verdict is checkride's own, not a pinned tool's.
-- **Step 30, `checkride fix`.** `launchFix` walks the same chain as the run path and refuses an
-  undeclared tool the same way, with a CHANGELOG **Fixed** line, *because* a fixer from a cached
-  copy is the substitution [D12 (pin-chain)](#d12) rules out, and `fix` writes files.
-- **Step 30, a target's own package manager.** The js-lockfile source takes the nearest
-  declaration from the target root up to the repo root, in `src/launch/package-manager.ts`, with
-  `src/orchestrator/place.ts` and `src/orchestrator/context.ts` accepted as strays, as step 27's
-  harvest leaned.
+- **Step 30, built-in helpers.** *Folded at step 30's harvest as
+  [D60 (builtins-unpinned)](#d60).*
+- **Step 30, `checkride fix`.** *Folded at step 30's harvest as [D58 (fix-same-chain)](#d58).*
+- **Step 30, a target's own package manager.** *Folded at step 30's harvest as
+  [D59 (nearest-pm)](#d59).*
 - **Step 38, `qa` and `mutation.json`.** Document the limit and route nothing: `qa --out` reports
   mutation only when the repo's stryker `jsonReporter.fileName` writes into that directory, and
   the docs say so, *because* that path comes from the repo's stryker config, not from argv

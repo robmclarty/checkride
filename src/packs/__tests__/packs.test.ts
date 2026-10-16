@@ -4,7 +4,7 @@ import type { Adapter } from '../../adapters.js';
 import { SLOTS } from '../../adapters.js';
 import { PACKS, TOOLS } from '../index.js';
 
-const ROWS: readonly Adapter[] = [...PACKS.ts.adapters, ...PACKS.repo.adapters];
+const ROWS: readonly Adapter[] = Object.values(PACKS).flatMap((pack) => pack.adapters);
 
 /** The `<bin>` of a canonical `pnpm exec <bin> …` argument list, or undefined for anything else. */
 const execBin = (args: readonly string[] | undefined): string | undefined => (args?.[0] === 'exec' ? args[1] : undefined);

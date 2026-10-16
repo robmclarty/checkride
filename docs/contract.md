@@ -152,7 +152,7 @@ required ones, so a field can't reach the schema without a row here.
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
-| `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
+| `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
 | `pin_source` | `js-lockfile`, `mise` or `path`; also `override`, `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
@@ -440,6 +440,19 @@ get their `changedArgs`. When git can't list the paths, as outside a git
 repository, no target is skipped and stderr says so. A repo without `targets`
 narrows through `changedArgs` alone, as it always did.
 
+**A bash target's checks run over its files.** An adapter argument that is
+exactly `{files}` expands, in a target of a file-list pack (bash), to the files
+under the target's root that git lists, tracked or untracked but not ignored,
+or every file under it outside a git repository. Its `include` globs keep a
+file, by default every `.sh` and `.bash` file and each extensionless file whose
+first line is a `bash`, `sh`, `dash` or `ksh` shebang, and its `exclude` globs
+drop a file or a whole directory. Paths are relative to the target's root, one
+argument each, so `argv` names every file the check read. A target whose list
+matches nothing records its checks as skipped with the reason
+`no files matched`. A list that would take a check's argv past 200,000 bytes
+is a usage error (exit 2), raised before any check runs or any artifact is
+written, and the message names the target's `include` and `exclude`.
+
 **`--out <dir>` and `CHECKRIDE_OUT` move a run's artifacts.** The summary, the
 raw files and `digest.md` are written to that directory instead of
 `<cwd>/.check`, and `output_file` stays relative to it. The flag beats the
@@ -677,7 +690,8 @@ is written:
 - A root is an existing directory, given relative to the repo root, never
   absolute or through `..`. Two targets of one pack never share or nest their
   roots; targets of different packs may.
-- `include` and `exclude` belong only to a pack that checks a list of files.
+- `include` and `exclude` belong only to a pack that checks a list of files
+  (bash).
 - Once targets are declared, a top-level entry for a target-scope slot is
   `false` or sets only `optIn`, `timeout`, `order` and `note`. An entry that
   picks a tool belongs under `packs.<pack>.checks` or a target's own `checks`,
@@ -767,10 +781,11 @@ public and semver-bound:
 `InitResult`, `Shape`).
 
 The four registry exports are plain data, and each survives a JSON round trip
-unchanged. `PACKS` maps each pack's name (`ts`, `repo`) to its adapter rows,
-root markers, pin sources and environment. `ADAPTERS` is the `ts` and `repo`
-packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for each
-external tool those rows run, with the npm package that provides it. Each
+unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`) to its adapter
+rows, root markers, pin sources and environment. `ADAPTERS` is the `ts` and
+`repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
+each external tool every pack runs, with the npm package that provides it or
+the `mise.toml` keys that pin it. Each
 `SLOTS` entry carries a `scope`: `repo` for the slots the repo pack fills,
 which check the repo as a whole, and `target` for the rest, which a language
 pack fills.

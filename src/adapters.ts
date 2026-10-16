@@ -97,11 +97,20 @@ export type Adapter = {
    * installed the tool but never wrote its config file still opts in.
    */
   detectDeps?: string[];
+  /**
+   * Detection by pin: the slot is available when a source in the check's pin
+   * chain other than `PATH` declares this tool, such as a `[tools]` key in a
+   * `mise.toml`. For a tool that needs no config file, a pin is the repo's
+   * word that the tool should run, where a copy on one machine's `PATH` isn't.
+   */
+  detectPin?: string;
   /** Command to spawn (usually `'pnpm'`). Ignored when `builtin` is set. */
   command: string;
   /**
    * Arguments to the command. Ignored when `builtin` is set. `{out}` in any of
-   * them expands to the check's artifact directory, `.check` by default.
+   * them expands to the check's artifact directory, `.check` by default. In a
+   * target of a pack that checks a list of files (bash), an argument that is
+   * exactly `{files}` expands to the target's files, one argument each.
    */
   args: string[];
   /** `.check/<file>` target when stdout is JSON; `null` if the tool writes its own. */

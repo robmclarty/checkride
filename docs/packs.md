@@ -1,13 +1,14 @@
 # Packs and pins
 
 A pack is one language's adapters, together with where its tools are pinned
-and the environment its checks run with. Two packs ship so far: `ts`, which
-checks TypeScript code, and `repo`, which checks the repo as a whole
-(`struct`, `docs`, `links`, `spell` and `prose`). This page covers how a
-check's tool resolves to the copy that runs, what the summary records about
-that copy, and the spawn environment each pack sets. Packs for bash, Go, Rust,
-Python and Terraform arrive in later releases, and the rows below that belong
-to them say so.
+and the environment its checks run with. Three packs ship so far: `ts`, which
+checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
+`docs`, `links`, `spell` and `prose`), and `bash`, which checks shell scripts.
+This page covers how a check's tool resolves to the copy that runs, what the
+summary records about that copy, the bash pack and the file lists its checks
+run over, and the spawn environment each pack sets. Packs for Go, Rust, Python
+and Terraform arrive in later releases, and the rows below that belong to them
+say so.
 
 ## Pin chains
 
@@ -18,6 +19,7 @@ order.
 | --- | --- |
 | `ts` | `js-lockfile` |
 | `repo` | `js-lockfile` |
+| `bash` | `mise`, then `path` |
 
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
@@ -69,6 +71,57 @@ fall-through a pin chain exists to rule out, so the source runs
 check when mise answers that the pinned copy isn't active. The question costs
 one short spawn per check that mise launches, and it never asks for a
 version.
+
+## The bash pack
+
+A bash target checks the shell scripts under its root. The pack has no root
+marker, so a bash target is always one the config declares:
+
+```json
+{
+  "targets": {
+    "scripts": { "lang": "bash", "root": "scripts", "exclude": ["vendor"] }
+  }
+}
+```
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `lint` | `shellcheck` | `shellcheck -f json1 {files}` | a `.shellcheckrc` at the target's root, or a pin | `lint.json` |
+| `format` (opt-in) | `shfmt` | `shfmt -d {files}`, and `shfmt -w {files}` under `checkride fix` | a pin | `format.stdout.txt` |
+
+Both tools resolve through `mise`, then `path`, and need no config file, so
+detection asks for the repo's word that a tool should run: a config file, or a
+pin. A `mise.toml` from the target's root up to the repo root that declares
+the tool, by its own name or its `aqua:` id, is that pin, and the summary
+records it as `detected_by`, such as `mise.toml: shellcheck`. A target with
+neither leaves the slot empty. Naming the adapter in `packs.bash.checks` or
+the target's own `checks` runs it either way, from `PATH` when nothing pins
+it.
+
+### File lists
+
+`{files}` stands for the target's files, one argument each, relative to its
+root, so every check of the target runs from its root over the same list:
+
+1. The candidates are the files git lists under the root, tracked or
+   untracked but not ignored. Outside a git repository, checkride walks the
+   root instead, skipping `.git`, `node_modules`, `target` and `vendor`. A
+   path that isn't a file on disk, such as a deleted file git still tracks,
+   is left out.
+2. The target's `include` globs keep a file. With no `include`, a target keeps
+   every `.sh` and `.bash` file and each extensionless file whose first line
+   is a `bash`, `sh`, `dash` or `ksh` shebang, directly or through `env`, as
+   in `#!/bin/sh` or `#!/usr/bin/env bash`. An `include` replaces all of that.
+3. The target's `exclude` globs drop a file, and a glob that matches a
+   directory drops everything under it.
+
+Globs are relative to the root and take `**` for any number of directories,
+`*` and `?` within one, and `{a,b}` for alternatives. A target whose list
+matches nothing records its checks as skipped with `no files matched`, rather
+than failed. A list that would take a check's argv past 200,000 bytes stops
+the run with exit 2 before anything runs; narrow `include`, or add `exclude`
+globs.
 
 ## The spawn environment
 

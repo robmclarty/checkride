@@ -12,11 +12,11 @@ import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
 import type { Launch, LaunchContext, PackageManager } from '../launch/index.js';
 import { launchCheck, pinChain } from '../launch/index.js';
-import { checkName } from '../targets/index.js';
+import { checkName, configuredTargets } from '../targets/index.js';
 import { packageManagerAt, resolveCommonOptions } from './context.js';
 import { checkCwd } from './place.js';
 import { nameWidth, writeLine } from './report.js';
-import { selectChecks, validateSelection } from './select.js';
+import { selectChecks, validateSelection, withFileLists } from './select.js';
 import type { Out, RunFlags } from './types.js';
 
 /**
@@ -99,7 +99,8 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
 
   const resolved = resolveChecks({ slots, adapters, config, cwd });
   validateSelection(resolved, options);
-  const fixable = selectChecks(resolved, options).filter((r) => r.adapter?.fixArgs);
+  const selected = await withFileLists(selectChecks(resolved, options), cwd, configuredTargets(config));
+  const fixable = selected.filter((r) => r.adapter?.fixArgs);
 
   if (fixable.length === 0) {
     writeLine(stderr, 'checkride fix: no active adapters expose a fix command.');
@@ -112,6 +113,11 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
   for (const r of fixable) {
     const adapter = r.adapter;
     if (!adapter) continue;
+    // A file-list target with no files has nothing to fix.
+    if (r.skip !== null) {
+      writeLine(stderr, `  ○ ${checkName(r)} skipped (${r.skip})`);
+      continue;
+    }
     writeLine(stderr, `  ▸ fix ${checkName(r).padEnd(width)} (${adapter.name})`);
     const dir = checkCwd(cwd, r);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.

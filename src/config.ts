@@ -22,6 +22,7 @@ import { join, posix, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
 import { isRecord } from './json.js';
+import { pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
@@ -692,8 +693,15 @@ function readManifest(cwd: string): Manifest {
 
 /** True when this adapter declares any detection signal (so absence of a match means "off", not "always"). */
 function hasAnySignal(a: Adapter): boolean {
-  return a.detect.length > 0 || a.detectScript !== undefined || (a.detectDeps?.length ?? 0) > 0;
+  return a.detect.length > 0 || a.detectScript !== undefined || (a.detectDeps?.length ?? 0) > 0 || a.detectPin !== undefined;
 }
+
+/**
+ * How detection reads one directory: which files sit there, its package.json,
+ * and where a pin declares a tool for a check there (`<file>: <key>`, or `null`
+ * when nothing but `PATH` would provide it).
+ */
+type Detection = { fileExists: (file: string) => boolean; manifest: Manifest; pinned: (bin: string) => string | null };
 
 /**
  * What made an adapter's detection fire: a named signal, given in the summary's
@@ -708,34 +716,39 @@ function depSignal(a: Adapter, manifest: Manifest): Signal | undefined {
   return dep !== undefined ? { by: `package.json: ${dep}`, via: `dependency '${dep}'` } : undefined;
 }
 
+/** The pin that declares an adapter's `detectPin` tool, as a named signal, or `undefined`. */
+function pinSignal(a: Adapter, pinned: Detection['pinned']): Signal | undefined {
+  const by = a.detectPin === undefined ? null : pinned(a.detectPin);
+  return by !== null ? { by, via: `pin '${by}'` } : undefined;
+}
+
 /**
  * Which of an adapter's detection signals fires, or `undefined` when none does.
  * Precedence: a present `detect` file, then `detectScript` (`scripts.<name>`),
- * then a `detectDeps` package in dependencies/devDependencies. An adapter with
- * no signals at all (empty `detect`, no `detectScript`/`detectDeps`: `links`,
- * `pnpm audit` and the publish built-ins) is always available, which is the
- * `null` signal.
+ * then a `detectDeps` package in dependencies/devDependencies, then a pin that
+ * declares its `detectPin` tool. An adapter with no signals at all (empty
+ * `detect`, no `detectScript`/`detectDeps`/`detectPin`: `links`, `pnpm audit`
+ * and the publish built-ins) is always available, which is the `null` signal.
  */
-function detectionSignal(a: Adapter, fileExists: (f: string) => boolean, manifest: Manifest): Signal | undefined {
-  const file = a.detect.find((f) => fileExists(f));
+function detectionSignal(a: Adapter, detection: Detection): Signal | undefined {
+  const file = a.detect.find((f) => detection.fileExists(f));
   if (file !== undefined) return { by: file, via: file };
   const script = a.detectScript;
-  if (script !== undefined && manifest.scripts.has(script)) {
+  if (script !== undefined && detection.manifest.scripts.has(script)) {
     return { by: `package.json: scripts.${script}`, via: `scripts.${script}` };
   }
-  return depSignal(a, manifest) ?? (hasAnySignal(a) ? undefined : null);
+  return depSignal(a, detection.manifest) ?? pinSignal(a, detection.pinned) ?? (hasAnySignal(a) ? undefined : null);
 }
 
 /** First adapter for `slot` whose detection fires, plus the signal that matched (for the report). */
 function detectAdapter(
   slot: string,
   adapters: readonly Adapter[],
-  fileExists: (file: string) => boolean,
-  manifest: Manifest,
+  detection: Detection,
 ): { adapter: Adapter; signal: Signal } | null {
   for (const a of adapters) {
     if (a.slot !== slot) continue;
-    const signal = detectionSignal(a, fileExists, manifest);
+    const signal = detectionSignal(a, detection);
     if (signal !== undefined) return { adapter: a, signal };
   }
   return null;
@@ -937,8 +950,7 @@ function resolveConfigOrDetect(
   slot: Slot,
   entry: SlotConfig | undefined,
   adapters: readonly Adapter[],
-  fileExists: (file: string) => boolean,
-  manifest: Manifest,
+  detection: Detection,
   explicit: boolean,
 ): ResolvedCheck {
   if (typeof entry === 'string') {
@@ -951,7 +963,7 @@ function resolveConfigOrDetect(
     const resolved = resolveObjectEntry(slot, entry, adapters, explicit);
     if (resolved !== null) return resolved;
   }
-  const detected = detectAdapter(slot.name, adapters, fileExists, manifest);
+  const detected = detectAdapter(slot.name, adapters, detection);
   if (!detected) return skipped(slot, undetectedReason(slot.name, adapters), explicit);
   return active(slot, tuned(detected.adapter, entry, slot.name), fromDetection(detected.signal));
 }
@@ -960,8 +972,7 @@ function resolveOne(
   slot: Slot,
   entry: SlotConfig | undefined,
   adapters: readonly Adapter[],
-  fileExists: (file: string) => boolean,
-  manifest: Manifest,
+  detection: Detection,
 ): ResolvedCheck {
   // Any non-`false` config entry is an explicit opt-in for this slot (`false`
   // disables it, so it never runs regardless). Detection (no entry) is not.
@@ -969,12 +980,12 @@ function resolveOne(
   if (entry === false) {
     return skipped(slot, 'disabled in checkride.config.json');
   }
-  const resolved = resolveConfigOrDetect(slot, entry, adapters, fileExists, manifest, explicit);
+  const resolved = resolveConfigOrDetect(slot, entry, adapters, detection, explicit);
   // Config may override the slot's opt-in default (configure-without-opting-in).
   const overridden = applyOptIn(resolved, entry, slot.name);
   // A script-gated adapter (build) stands down — never red — when its script is
   // absent, even when config named it explicitly.
-  return standDownIfScriptless(overridden, manifest);
+  return standDownIfScriptless(overridden, detection.manifest);
 }
 
 /**
@@ -1057,11 +1068,12 @@ type ResolveInput = {
   manifest?: { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
 };
 
-/** How detection reads one directory: which files sit there, and its package.json. */
-type Detection = { fileExists: (file: string) => boolean; manifest: Manifest };
-
-/** Detection at `root`, a directory relative to the repo root, with `.` for the root itself. */
-function detectionAt(input: ResolveInput, root: string): Detection {
+/**
+ * Detection at `root`, a directory relative to the repo root, with `.` for the
+ * root itself, for a check of `pack`. A pin declares a tool through that
+ * pack's chain, searched from `root` up; `pack` is omitted in implicit mode.
+ */
+function detectionAt(input: ResolveInput, root: string, pack?: string): Detection {
   const cwd = input.cwd ?? process.cwd();
   const injected = input.fileExists;
   const fileExists = injected
@@ -1071,15 +1083,20 @@ function detectionAt(input: ResolveInput, root: string): Detection {
   // `fileExists` (a test, `inventory`) wants detection driven by that alone, not
   // the ambient process cwd — so it gets an empty manifest unless one is passed.
   const manifest = input.manifest ?? (input.cwd !== undefined ? readManifest(join(input.cwd, root)) : EMPTY_MANIFEST);
-  return { fileExists, manifest };
+  // Pins are read off disk only against an explicit `cwd`, for the same reason.
+  const repo = input.cwd;
+  const pinned = repo !== undefined
+    ? (bin: string) => pinDeclaration(bin, { cwd: join(repo, root), repo, pins: pinChain(pack) })
+    : () => null;
+  return { fileExists, manifest, pinned };
 }
 
 /** Implicit mode: every catalogue slot, then every custom check, at the repo root. */
 function implicitChecks(input: ResolveInput, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
-  const { fileExists, manifest } = detectionAt(input, '.');
+  const detection = detectionAt(input, '.');
   const checks = input.config?.checks ?? {};
-  const catalogue = input.slots.map((slot) => resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest));
-  return [...catalogue, ...foldCustomChecks(checks, catalogueNames, fileExists)];
+  const catalogue = input.slots.map((slot) => resolveOne(slot, checks[slot.name], input.adapters, detection));
+  return [...catalogue, ...foldCustomChecks(checks, catalogueNames, detection.fileExists)];
 }
 
 /** One target as resolution reads it: its pack's adapters, the two blocks above the top level, and detection at its root. */
@@ -1101,7 +1118,7 @@ function targetScope(input: ResolveInput, target: Target): TargetScope {
     adapters: rows?.adapters ?? [],
     own: input.config?.targets?.[target.name]?.checks ?? {},
     pack: packs[target.pack]?.checks ?? {},
-    detection: detectionAt(input, target.root),
+    detection: detectionAt(input, target.root, target.pack),
   };
 }
 
@@ -1165,9 +1182,8 @@ function targetSlotCheck(slot: Slot, scope: TargetScope, top: SlotConfig | undef
   const own = scope.own[slot.name];
   const pack = scope.pack[slot.name];
   if (own === undefined && pack === undefined && !scope.adapters.some((a) => a.slot === slot.name)) return null;
-  const { fileExists, manifest } = scope.detection;
   const entry = layeredEntry([own, pack, top], slot.name);
-  return inTarget(resolveOne(slot, entry, scope.adapters, fileExists, manifest), scope.target);
+  return inTarget(resolveOne(slot, entry, scope.adapters, scope.detection), scope.target);
 }
 
 /**
@@ -1191,15 +1207,15 @@ function targetCustomChecks(scope: TargetScope, catalogueNames: ReadonlySet<stri
  * natural order is the tie-break the group sort keeps (R8.4).
  */
 function targetChecks(input: ResolveInput, targets: readonly Target[], catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
-  const { fileExists, manifest } = detectionAt(input, '.');
+  const detection = detectionAt(input, '.', PACKS.repo.name);
   const checks = input.config?.checks ?? {};
   const scopes = targets.map((target) => targetScope(input, target));
   const catalogue = input.slots.flatMap((slot) =>
     slot.scope === 'repo'
-      ? [inRepo(resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest))]
+      ? [inRepo(resolveOne(slot, checks[slot.name], input.adapters, detection))]
       : scopes.flatMap((scope) => targetSlotCheck(slot, scope, checks[slot.name]) ?? []),
   );
-  const customs = foldCustomChecks(checks, catalogueNames, fileExists).map(inRepo);
+  const customs = foldCustomChecks(checks, catalogueNames, detection.fileExists).map(inRepo);
   return [...catalogue, ...customs, ...scopes.flatMap((scope) => targetCustomChecks(scope, catalogueNames))];
 }
 

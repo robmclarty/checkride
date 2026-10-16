@@ -349,7 +349,7 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       const refusal = refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: FULL_CHAIN }))) ?? '';
       expect(refusal).toContain('the `lint` slot needs `shellcheck`, which no source in its pin chain provides');
       expect(refusal).toContain('looked for: js-lockfile, then mise, then `shellcheck` on PATH');
-      expect(refusal).toContain('install shellcheck, or pin it in mise.toml');
+      expect(refusal).toContain('pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net)');
     }));
 
   test("a source the launcher can't read stops the walk, rather than pass over a pin it can't see", () =>

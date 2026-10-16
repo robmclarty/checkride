@@ -16,6 +16,7 @@ import type { Adapter, Slot } from '../adapters.js';
 import { SLOTS } from '../adapters.js';
 import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
+import { takesFiles } from './files.js';
 
 /** Which config a rule reads: the repo's own, presets folded in, or a defaults file (R13.1). */
 type ConfigLayer = 'repo' | 'defaults';
@@ -48,14 +49,22 @@ type Catalogue = {
   packs: ReadonlyMap<string, PackRows>;
 };
 
-/** A target that passed its own rules, with its root normalized. */
-type Declared = { name: string; lang: string; root: string };
+/** A target that passed its own rules, with its root normalized and the globs it gave. */
+type Declared = { name: string; lang: string; root: string; include?: string[]; exclude?: string[] };
 
 /**
  * A target as a run reads it: its name, the pack that checks it, and its root,
- * relative to the repo root and normalized, with `.` for the root itself.
+ * relative to the repo root and normalized, with `.` for the root itself. A
+ * target of a file-list pack carries the `include` and `exclude` globs it
+ * gave, relative to that root.
  */
-export type Target = { readonly name: string; readonly pack: string; readonly root: string };
+export type Target = {
+  readonly name: string;
+  readonly pack: string;
+  readonly root: string;
+  readonly include?: readonly string[];
+  readonly exclude?: readonly string[];
+};
 
 /**
  * Repo-scope slots R5.1 appends after `snippets`. Until each joins `SLOTS`, V2
@@ -77,9 +86,6 @@ const FILE_LIST_KEYS: readonly string[] = ['include', 'exclude'];
 
 /** V6: what a top-level entry for a target-scope slot may still set once targets are declared. */
 const LIFTABLE_KEYS: readonly string[] = ['optIn', 'timeout', 'order', 'note'];
-
-/** The argv placeholder a file-list pack's adapters take their files through (R11.2). */
-const FILES_TOKEN = '{files}';
 
 /** A value as the config spelled it, for a message. */
 function show(value: unknown): string {
@@ -248,7 +254,7 @@ function rootProblem(root: unknown, where: string, cwd: string): string | null {
 
 /** True when a pack's checks run over a list of files rather than a root. */
 function checksFileList(pack: PackRows): boolean {
-  return pack.adapters.some((a) => a.args.includes(FILES_TOKEN));
+  return pack.adapters.some((a) => takesFiles(a.args));
 }
 
 /** V5: `include` and `exclude` pick a file-list pack's files, and no other pack takes them. */
@@ -289,11 +295,19 @@ function targetProblem(name: string, raw: unknown, config: Record<string, unknow
   );
 }
 
+/** A target's `include` and `exclude`, each when it gave one as globs. */
+function globsOf(target: Record<string, unknown>): Pick<Declared, 'include' | 'exclude'> {
+  const { include, exclude } = target;
+  return { ...(isStringArray(include) ? { include } : {}), ...(isStringArray(exclude) ? { exclude } : {}) };
+}
+
 /** The configured targets, once each has passed its own rules. */
 function declaredTargets(targets: unknown): Declared[] {
   if (!isRecord(targets)) return [];
   return Object.entries(targets).flatMap(([name, t]) =>
-    isRecord(t) ? [{ name, lang: String(t['lang']), root: normalizeRoot(String(t['root'])) }] : [],
+    isRecord(t)
+      ? [{ name, lang: String(t['lang']), root: normalizeRoot(String(t['root'])), ...globsOf(t) }]
+      : [],
   );
 }
 
@@ -305,7 +319,7 @@ function declaredTargets(targets: unknown): Declared[] {
  */
 export function configuredTargets(config: { readonly targets?: unknown } | null): Target[] | null {
   if (config?.targets === undefined) return null;
-  return declaredTargets(config.targets).map(({ name, lang, root }) => ({ name, pack: lang, root }));
+  return declaredTargets(config.targets).map(({ name, lang, root, ...globs }) => ({ name, pack: lang, root, ...globs }));
 }
 
 /** True when `inner` sits below `outer`. */

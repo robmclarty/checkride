@@ -19,6 +19,16 @@ export const TOOLS: readonly Tool[] = [
   { bin: 'oxlint', npm: 'oxlint', install: 'add oxlint to devDependencies' },
   { bin: 'prettier', npm: 'prettier', install: 'add prettier to devDependencies' },
   { bin: 'publint', npm: 'publint', install: 'add publint to devDependencies' },
+  {
+    bin: 'shellcheck',
+    mise: ['shellcheck', 'aqua:koalaman/shellcheck'],
+    install: 'pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net)',
+  },
+  {
+    bin: 'shfmt',
+    mise: ['shfmt', 'aqua:mvdan/sh'],
+    install: 'pin it with `mise use shfmt@<version>`, or install shfmt (https://github.com/mvdan/sh)',
+  },
   { bin: 'stryker', npm: '@stryker-mutator/core', install: 'add @stryker-mutator/core to devDependencies' },
   { bin: 'tsc', npm: 'typescript', install: 'add typescript to devDependencies' },
   { bin: 'vale', npm: '@vvago/vale', install: 'add @vvago/vale to devDependencies' },

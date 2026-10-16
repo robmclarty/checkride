@@ -23,7 +23,7 @@ import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
-import { selectChecks, skipUnchanged, validateSelection } from './select.js';
+import { selectChecks, skipUnchanged, validateSelection, withFileLists } from './select.js';
 import { resetInterrupt } from './spawn.js';
 import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
@@ -167,13 +167,15 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // answer costs the run no wall-clock time unless git is the slower of the two.
   const gitQuery = readGitState(realGit(base.cwd, GIT_STATE_TIMEOUT_MS));
   const changed = await changedPathsFor(base, changedBase);
+  // A file list too long for one argv is a usage error too, so the lists are
+  // read before the output directory is touched.
+  const selected = await withFileLists(skipUnchanged(selectChecks(resolved, options), changed), base.cwd, base.targets);
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;
   // clear it, and nothing the previous summary didn't list as a target (R9).
   await pruneDroppedTargets(base.out, base.cwd, (base.targets ?? []).map((t) => t.name));
 
-  const selected = skipUnchanged(selectChecks(resolved, options), changed);
   // The status-line column is sized once the selection is known, so a long
   // custom-check name widens the column instead of overflowing it.
   const ctx: RunContext = { ...base, nameWidth: nameWidth(selected), changedBase };

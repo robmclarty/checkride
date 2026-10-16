@@ -153,6 +153,30 @@ function toolRow(bin: string): Tool {
   return TOOLS.find((t) => t.bin === bin) ?? { bin, install: `install ${bin}, or pin it in mise.toml` };
 }
 
+/** Where a source declared a tool, as detection names it: the pin file and the key in it. */
+function declarationSignal(declared: Declared, tool: Tool): string {
+  if (declared.mise !== undefined) return `${declared.mise.file}: ${declared.mise.id}`;
+  return `package.json: ${tool.npm ?? tool.bin}`;
+}
+
+/**
+ * Where a source in `at.pins` other than `path` declares `bin` for a check in
+ * `at.cwd`, as `<file>: <key>`, or `null` when none does: what an adapter's
+ * `detectPin` detects by. A source this checkride can't read ends the search
+ * with nothing, since it may be the one that declares the tool.
+ */
+export function pinDeclaration(bin: string, at: { cwd: string; repo: string; pins: readonly PinSourceName[] }): string | null {
+  const tool = toolRow(bin);
+  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {} };
+  for (const name of at.pins.filter((n) => n !== 'path')) {
+    const source = SOURCES[name];
+    if (source === undefined) return null;
+    const declared = source.declares(req);
+    if (declared !== null) return declarationSignal(declared, tool);
+  }
+  return null;
+}
+
 /**
  * Launch the tool a check's `command` and `args` declare, for the check
  * filling `slot` from `ctx.cwd`. `args` arrive with their placeholders already

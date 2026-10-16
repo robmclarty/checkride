@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 30 — feat(launch): resolve tools through mise and PATH and record the pin
+**Current step:** 31 — feat(packs): add the bash pack with file lists
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -53,7 +53,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
 - ☑ 28. feat(run): never overlap checks that share a lock key
 - ☑ 29. feat(changed): skip unaffected targets under --changed
-- ☐ 30. feat(launch): resolve tools through mise and PATH and record the pin
+- ☑ 30. feat(launch): resolve tools through mise and PATH and record the pin
 - ☐ 31. feat(packs): add the bash pack with file lists
 - ☐ 32. feat(packs): give repo-scope slots Node-free alternates
 - ☐ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
@@ -132,8 +132,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
 - [x] a folder already under --out that shares a target's name gets that target's artifacts written into it, and when the target is dropped the prune deletes the whole folder, the user's files included; R9 promises checkride never deletes what it didn't write, so delete only the files the previous summary's checks name, then the folder once empty
 - [x] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
-- [ ] step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN, which beats rust-toolchain.toml, so the rust-toolchain source must not claim a toolchain file mise overrides (seen with rustup 1.29.1 under mise)
-- [ ] step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle when one exists and the embedded checks only on an empty cache, so R5.8's 'uses trivy's embedded checks' holds only on a clean machine (trivy 0.76.0)
+- [x] step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN, which beats rust-toolchain.toml, so the rust-toolchain source must not claim a toolchain file mise overrides (seen with rustup 1.29.1 under mise)
+- [x] step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle when one exists and the embedded checks only on an empty cache, so R5.8's 'uses trivy's embedded checks' holds only on a clean machine (trivy 0.76.0)
+- [ ] shfmt (and any tool that reads FORCE_COLOR's presence, not its value) colors its output under checkride's global FORCE_COLOR=0 spawn env; an empty FORCE_COLOR turns it off (verified shfmt 3.14.1), so decide at step 41's env.ts whether the bash pack's env or the global spawn env should set FORCE_COLOR to empty
+- [ ] R11.2's shebang regex ^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b never matches #!/bin/bash or #!/bin/sh; step 31 matched the interpreter's basename directly or through env (with env flags), so amend R11.2's text to that
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -178,6 +180,9 @@ Harvest results this boundary:
 - After step 27: "a target named doc-snippets rooted at '.'..." → **tangent**, deferred to step 36 (it needs a target literally named `doc-snippets` at the repo root, and the cost is that target's artifacts and the snippets scratch sharing one directory; moving the scratch would change the snippets argv the invariance golden pins, so the fix is reserving the name in V2's `nameProblem` with its own message; `target add` is the first command that mints target names, but `src/targets/resolve.ts` and the S3 case in `src/__tests__/config.test.ts` sit outside step 36's seam, so add them via `/plumbbob:step 36` or accept a two-file stray).
 - After step 27: "a folder already under --out that shares a target's name..." → **blocker**, handled now: folded into `intent.md` as D57 (prune-own-files), which amends R9's prune to delete only the files the previous summary's checks of a dropped target name by convention and then the directory once it's empty, and as step 75, ordered to build next (R9 promises checkride never deletes what it didn't write, and step 27's prune breaks that for any folder under `--out` a target wrote into).
 - After step 28: "R6.5's cargo:global key when CARGO_TARGET_DIR is set..." → **tangent**, deferred to step 45 (no adapter carries a lock until its rust rows exist, and without the key cargo's own build-directory lock still serializes the runs, so the cost is a wait counted against a timeout, never a false green; step 45 expresses it as pure data, for instance a key placeholder that reads the variable and falls back to the root, such as `cargo:{env:CARGO_TARGET_DIR|root}`, which groups checks by the directory they really share, or drops it and amends R6.5's sentence; the placeholder's expansion lives in `lockKey` in `src/orchestrator/execute.ts`, which sits outside step 45's seam, so add it via `/plumbbob:step 45` or accept a one-file stray).
+- After step 30: "step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN..." → **tangent**, deferred to step 44 (the cost is a record, never a verdict: with mise pinning `rust` the toolchain file is ignored, so a `rust-toolchain` source that claimed it would record the file's channel as `tool_version` for a copy mise picked, while mise's pin still decides the toolchain; step 44 builds that source and its seam is all of `src/launch/`, so it decides whether the source stands down or records `mise` when mise declares `rust`, and whether toolchains get the `mise which` check the `mise` source runs).
+- After step 30: "step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle..." → **tangent**, deferred to step 63 (no network call happens either way, but a cached bundle makes `security` findings differ between a laptop that ran trivy before and a clean CI runner, the machine-state hole the npx pre-flight closes for npm tools; `security` is opt-in, so nothing is exposed before step 63, which runs on Opus, verifies trivy's flags at the pinned version and owns the adapter row in `src/packs/terraform.ts`, so it decides between pointing `--cache-dir` at scratch under `.check/`, so the embedded checks always run, and rewriting R5.8's note).
+- After step 30: the three step-30 leans in `intent.md`'s Ranges section, which step 30 applied and the human approved with the step → folded into `intent.md` as D58 (fix-same-chain), D59 (nearest-pm) and D60 (builtins-unpinned); the Ranges section's remaining leans now fold as D61 onward once approved.
 
 ## Log
 
@@ -1971,3 +1976,117 @@ folder, so it rides the branch into the PR.)*
   - `docs/contract.md` and `CHANGELOG.md` under C11 (docs-in-step): a paragraph on target skipping, a sentence on `--skip` within `--only`, an **Added** entry and a **Changed** entry. The summary's fields and JSON Schema don't change, since R8.3 already listed the reason, so C1 (additive-contract) asks for nothing more.
 
   The step names no e2e file and isn't the phase's last step, so D52 (e2e-cadence) asks for no e2e run. The step's `model:` line says Sonnet; it ran on Opus.
+
+- 2026-10-16 — step 30 checkpointed · 675c4296f — feat(launch): resolve tools through mise and PATH and record the pin (1 drift, 86m)
+
+  **Summary**: The launcher now walks each pack's pin chain. The first source that declares a tool runs it. A source that can't run it fails the check with exit 1 instead of falling back. A tool nothing declares runs from `PATH`, and `requirePins` fails it with the `mise use` hint. Each tool resolved this way records `pin_source`, and `tool_version` when a file read finds it. F11 and F12 pass against a real spawn with a controlled `PATH`. `docs/packs.md` records each R6.4 variable with the evidence it was checked against. Verifying them turned up one real hole: mise runs a `PATH` copy when a pinned version isn't installed. The `mise` source now closes that. `ts` and `repo` still resolve through `js-lockfile` alone, so the invariance golden and the e2e summaries are unchanged.
+
+  1. Tools resolve through their pack's chain, and the summary says which copy ran
+  2. mise runs a `PATH` copy when the pinned version isn't installed, so the `mise` source asks `mise which` first
+  3. `docs/packs.md` records all sixteen R6.4 variables as verified, and one does nothing in OpenTofu
+  4. I took all three step-30 leans from the uncommitted Ranges section
+  5. A custom check's own command records no `pin_source`, and the schema names all eight sources ahead of their packs
+
+  **Readout**: Step 30 - feat(launch): resolve tools through mise and PATH and record the pin
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 12 paths outside the seam
+               - CHANGELOG.md
+               - docs/README.md
+               - docs/tools.md
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/__tests__/targets.test.ts
+               - src/orchestrator/context.ts
+               - src/orchestrator/execute.ts
+               - src/orchestrator/fix.ts
+               - src/orchestrator/place.ts
+               - src/orchestrator/types.ts
+               - src/packs/index.ts
+               - src/packs/types.ts
+  diff         +1657 -160 across 26 files
+  spent        86 min · 2 turns · 30s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 30. Every done-when clause has a test that fails without its code, the gate is green on all 18 checks, and the one new behavior beyond the plan, the `mise which` probe, is what keeps D12 (pin-chain) true under real mise.
+
+  **1.** Tools resolve through their pack's chain, and the summary says which copy ran
+
+  `src/launch/resolve.ts` walks the chain per R6.2. A canonical `pnpm exec <tool>` names a tool. Each source except `path` is asked in order whether it declares that tool, and the first that does runs it. A source the launcher can't read yet (`go-mod-tool` and the rest) stops the walk with a refusal, because passing over it could pass over the pin. With nothing declaring the tool, `path` runs it if the chain names `path`. Otherwise the chain's last source runs it, which is how `[js-lockfile]` keeps 0.13's behavior exactly.
+
+  The sources:
+
+  - **`js-lockfile`** declares a tool listed in the nearest `package.json`. It runs the tool as before, and reads `tool_version` from `node_modules/<package>/package.json`, nearest first.
+  - **`mise`** (`src/launch/mise.ts`) declares a tool when a `mise.toml` or `.mise.toml` has a `[tools]` key for it. It runs `mise exec -- <tool>` with `MISE_EXEC_AUTO_INSTALL` and `MISE_NOT_FOUND_AUTO_INSTALL` set to `false`.
+  - **`path`** (`src/launch/path.ts`) runs the bare name, unpinned.
+
+  Every upward search stops at the repo root (`src/launch/walk.ts`), so a `mise.toml` or a `node_modules` above the checkout counts for nothing. `Tool` gains an optional `mise` id list, and its fallback is the executable's name. That fallback is what lets F11 and F12 run with a `shellcheck` that `TOOLS` doesn't list yet; step 31 adds the real row.
+
+  A spawned check gets `pin_source` and `tool_version` on its entry. Both are in the schema, the contract doc's table and paragraph, the contract test (a real `npx` run that records `js-lockfile` and `5.0.0-contract`) and the CHANGELOG, per C1 (additive-contract).
+
+  F11 and F12 are tested at two levels. In `resolve.test.ts` the launcher runs against scratch repos. In `orchestrator.test.ts` the default runner spawns for real, with `PATH` stubbed to one directory. A stand-in `shellcheck` there leaves a mark when it runs. F11 asserts the mark never appears.
+
+  I checked that the tests can fail with eleven mutations, one at a time: a fallback to `PATH` on the F11 path, dropping the `mise which` gate, dropping `requirePins`, dropping the mise env, unbounding the walk two ways, using the root's package manager for every target, letting a refused fixer spawn, dropping the pin from the spawn record, and stopping the version walk at the working directory. The first ten each fail at least one test. The eleventh, passing the implicit chain instead of the pack's, survived at first, because both are `[js-lockfile]` today. The targets test now checks the chain is the pack's own row, and it fails that mutation.
+
+  **2.** mise runs a `PATH` copy when the pinned version isn't installed, so the `mise` source asks `mise which` first
+
+  The verification agent found this, and I reproduced it with mise 2026.10.4. With auto-install off, `mise exec -- shellcheck` in a directory that pins `shellcheck = "0.0.1"` prints a warning, runs Homebrew's shellcheck 0.11.0, and exits 0. That is exactly the fall-through D12 (pin-chain) forbids. Turning off `not_found_system_fallback` doesn't change it, and passing an explicit `tool@version` doesn't either. `mise exec` has no strict flag.
+
+  `mise which shellcheck` exits 1 for that pin ("is a mise bin however it is not currently active") and returns the install path in about 20 ms when the copy is there. It attempts no download with only R6.4's two variables set; I ran it behind a dead proxy to be sure. So the `mise` source runs `mise which <tool>` from the check's directory before it spawns. When mise says no, the check fails with mise's answer and `mise install`.
+
+  That's one short synchronous spawn per check mise launches. It asks for no version, so D13 (pin-recorded) holds: `tool_version` still never comes from a spawn. R6.1's run form, `mise exec -- <bin>`, is unchanged. `docs/packs.md` explains why the probe exists. The same check covers F38 when `--pins` lands at step 55.
+
+  **3.** `docs/packs.md` records all sixteen R6.4 variables as verified, and one does nothing in OpenTofu
+
+  A background agent checked each name against the version `mise.toml` pins, with offline behavior probes wherever a probe was safe:
+
+  - `GOTOOLCHAIN` and `GOPROXY` against Go 1.27.2.
+  - `CARGO_NET_OFFLINE` and `CARGO_TERM_COLOR` against cargo 1.99.0.
+  - `RUSTUP_AUTO_INSTALL` against rustup 1.29.1, the version mise's rust home uses. The variable dates from rustup 1.28.1.
+  - `PYTHONDONTWRITEBYTECODE` against Python 3.14.8, and `PIP_NO_INDEX` against the pip 26.2.1 bundled with it.
+  - `UV_OFFLINE` against uv 0.13.1.
+  - `TF_IN_AUTOMATION` and `TF_INPUT` against OpenTofu 1.13.1.
+  - `TRIVY_SKIP_CHECK_UPDATE` against trivy 0.76.0.
+  - `MISE_*` against mise 2026.10.4.
+
+  tfenv and tofuenv aren't pinned, so their two variables were checked against upstream source: tfenv v3.2.2 and tofuenv v1.0.7.
+
+  `CHECKPOINT_DISABLE` isn't read by OpenTofu at all, since OpenTofu removed the version check call. It's a harmless no-op for the pinned CLI. It matters only for Terraform, which this repo doesn't pin, and the doc says so rather than call it verified.
+
+  Two findings belong to later steps, so I parked them:
+
+  - Under mise, rust exports `RUSTUP_TOOLCHAIN`, which beats `rust-toolchain.toml` (step 44).
+  - trivy uses a cached checks bundle whenever one exists, so R5.8's "embedded checks" claim only holds on a clean machine (step 63).
+
+  One side effect to clean up: an early probe ran `go help toolchain` inside a `go 1.99` scratch module before setting `GOTOOLCHAIN=local`. Go's lookup failed, since that version doesn't exist, so nothing downloaded, but it created `~/go`, which didn't exist before. It holds only empty directories and one 0-byte lock file. Your permission settings blocked the agent from deleting it, so I left it for you: `rm ~/go/pkg/mod/cache/download/golang.org/toolchain/@v/v0.0.1-go1.99.0.darwin-arm64.lock && find ~/go -depth -type d -empty -delete`.
+
+  **4.** I took all three step-30 leans from the uncommitted Ranges section
+
+  The harvest deferred three parks to this step for a decision, and the Ranges section proposed a lean for each. I followed all three:
+
+  - **`checkride fix` walks the same chain and refuses the same way.** `launchFix` is gone, and `fixInvocation` calls `launchCheck`. A refused fixer prints the launcher's message and counts as failed, and the other fixers still run. It's a CHANGELOG **Fixed** entry.
+  - **A target takes the nearest package manager declaration.** `nearestPackageManager` in `src/launch/package-manager.ts` looks from the target's root up to the repo root. `place.ts` carries the result per check, and `context.ts` caches it per directory. Both files are the strays the lean accepted. The fix path does the same, and `docs/tools.md` says so. It's another **Fixed** entry.
+  - **`pack` and `snippets` record neither `argv` nor `pin_source`.** Their processes are checkride's own, so that park closes with no change.
+
+  None of the three is folded into Decisions yet. The Ranges section says each becomes D58 onward once you approve it, and I left `intent.md` alone.
+
+  **5.** A custom check's own command records no `pin_source`, and the schema names all eight sources ahead of their packs
+
+  **Custom commands.** I read "every spawned check records `pin_source`" through R8.2's own condition: the check spawned a tool through the launcher. `pnpm exec <tool>` and `pnpm run <script>` record `js-lockfile`, this repo's `typecheck-tests` included. A custom check's own `node scripts/x.mjs` or `bash lint.sh` spawns as written and records only `argv`. Recording `path` for it would be true, but `requirePins` would then fail every such check, including the ones a Go scaffold writes with `requirePins: true` (D41).
+
+  **Schema names.** The `pin_source` enum lists all eight R4 names, and the doc row says five of them have no writer yet. That follows the pattern D55 (run-fields-ahead) set for `run`, so later steps don't widen an enum consumers may already switch on. Each later step owes the row nothing but its own runs.
+
+  **Strays.** Outside the seam:
+
+  - `src/packs/types.ts` and its barrel, for the source names and `Tool.mise`.
+  - `types.ts`, `execute.ts` and `fix.ts` under `src/orchestrator/`, where the chain, `requirePins` and the record reach each check.
+  - `place.ts` and `context.ts`, which the lean accepted.
+  - The two orchestrator test files.
+  - `CHANGELOG.md`, `docs/README.md` and `docs/tools.md`, under C11 (docs-in-step).
+
+  The step names no e2e file and isn't the phase's last, but I ran `pm-quartet`, `invariance` and `out` e2e anyway, since the package manager and fix paths moved. All 20 cases are green.
