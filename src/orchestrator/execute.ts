@@ -1,13 +1,13 @@
 /**
  * The per-check pipeline and the scheduler that drives it. One check: clear
- * its stale artifacts from the output directory, run it, persist the raw output, mask the
+ * its stale artifacts from its artifact directory, run it, persist the raw output, mask the
  * outcome against the baseline, and print its row. The set: `--bail`'s flat
  * sequential path, or waves on the effective `order` through a bounded pool,
  * with the report assembled in selection order regardless of who finished
  * first.
  */
 
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -18,9 +18,12 @@ import { applyBaseline, fingerprint, reportVerdict } from '../baseline/index.js'
 import type { ResolvedCheck } from '../config.js';
 import { isAvailableUnder } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
+import { checkName } from '../targets/index.js';
 import { parseToolJson } from '../tool-json.js';
 import type { RunContext } from './context.js';
-import { formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
+import type { Place } from './place.js';
+import { placeOf } from './place.js';
+import { checkIdentity, formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
 import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types.js';
 
@@ -97,23 +100,33 @@ function couldNotVerifyReason(outcome: CheckOutcome): string | null {
 }
 
 /**
- * Baseline-aware verdict for one slot's outcome. An adapter with a registered
+ * Which baseline entry a check masks against and how its findings are keyed:
+ * `key` names the entry (the check's name), `root` is the check's target root,
+ * joined onto each path its tool printed (D50), and `base` and `out` fill the
+ * argv placeholders the gating rules read.
+ */
+type MaskScope = { key: string; root: string | undefined; base: string | null; out: string };
+
+/**
+ * Baseline-aware verdict for one check's outcome. An adapter with a registered
  * report verdict (fallow — keyed on its name, see `reportVerdict`) derives
  * pass/fail from the parsed report, since its exit code doesn't reliably gate;
  * everything else masks the adapter's fingerprint, keyed under the argv the
- * check ran with (`expand` fills its placeholders, and under `--changed` its
+ * check ran with (`scope` fills its placeholders, and under `--changed` its
  * `base` adds the `changedArgs`). `observed` is non-null only when the run's
  * findings could be read — the ratchet must never prune from an unreadable run.
  */
-function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, slot: string, expand: { base: string | null; out: string }): MaskResult {
+function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
   const verdict = reportVerdict(adapter.name);
+  const keys = baseline ? (baseline.slots[scope.key] ?? []) : null;
   if (verdict) {
-    const v = verdict(outcome.stdout, baseline ? (baseline.slots[slot] ?? []) : null);
+    const v = verdict(outcome.stdout, keys, scope.root);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
-  const current = baseline ? fingerprint(adapter.name, outcome.stdout, [adapter.command, ...runtimeArgs(adapter, expand.base, expand.out)]) : null;
-  if (baseline && current !== null) {
-    const adj = applyBaseline(current, baseline.slots[slot] ?? [], outcome.ok);
+  const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
+  const current = keys !== null ? fingerprint(adapter.name, outcome.stdout, argv, scope.root) : null;
+  if (keys !== null && current !== null) {
+    const adj = applyBaseline(current, keys, outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
   }
   return { ok: outcome.ok, baselined: 0, newKeys: [], reason: couldNotVerifyReason(outcome), observed: null };
@@ -140,6 +153,7 @@ function argvField(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv'> {
 function handleSkip(r: ResolvedCheck, unavailable: boolean, ctx: RunContext): SummaryCheck {
   const entry = skippedEntry(
     unavailable ? { ...r, skip: `'${r.adapter?.command} ${r.adapter?.args[0]}' is unavailable under ${ctx.pm}` } : r,
+    ctx.targets !== null,
   );
   if (!ctx.json) writeLine(ctx.stderr, `  ○ ${entry.name.padEnd(ctx.nameWidth)}      skip  ${entry.reason ?? ''}`);
   return entry;
@@ -167,21 +181,46 @@ type CheckResult = {
   entry: SummaryCheck;
   /** The raw run (for the ratchet + digest); null for a skipped slot. */
   run: CheckRun | null;
-  /** Fingerprint to feed the ratchet, keyed by slot; null when nothing was observed. */
-  observed: { slot: string; fp: Fingerprint } | null;
+  /** Fingerprint to feed the ratchet, keyed by the check's name; null when nothing was observed. */
+  observed: { key: string; fp: Fingerprint } | null;
   /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
   newKeys: string[];
 };
 
 /** What a {@link CheckRunner} is handed: `base` only under `--changed`, `timeout` only when the config sets one. */
-function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
+function runnerContext(ctx: RunContext, place: Place): Parameters<CheckRunner>[1] {
   return {
-    cwd: ctx.cwd,
+    cwd: place.cwd,
     changed: ctx.changed,
     ...(ctx.changedBase !== null ? { base: ctx.changedBase.ref } : {}),
-    out: ctx.outArg,
+    out: place.outArg,
     pm: ctx.pm,
     ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
+  };
+}
+
+/** The raw run the summary's caller gets back: the check's name keys its baseline entry, and its root rebases its keys. */
+function checkRun(r: ResolvedCheck, adapter: Adapter, outcome: CheckOutcome): CheckRun {
+  return { slot: r.slot, adapter, outcome, name: checkName(r), ...(r.root !== undefined ? { root: r.root } : {}) };
+}
+
+/**
+ * The entry an executed check records: what it is, how it ended after the
+ * baseline's masking, and the file it wrote, named relative to the output
+ * directory, `<target>/` included.
+ */
+function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: { file: string | null; place: Place; durationMs: number }, multiTarget: boolean): SummaryCheck {
+  return {
+    ...checkIdentity(r, multiTarget),
+    adapter: run.adapter.name,
+    description: run.adapter.description,
+    ok: mask.ok,
+    exit_code: run.outcome.exit_code,
+    duration_ms: written.durationMs,
+    output_file: written.file === null ? null : `${written.place.prefix}${written.file}`,
+    ...provenanceFields(r),
+    ...argvField(run.outcome),
+    ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
 }
 
@@ -194,43 +233,33 @@ function runnerContext(ctx: RunContext): Parameters<CheckRunner>[1] {
  * its keys for that slot.
  */
 async function runOneCheck(r: ResolvedCheck, adapter: Adapter, ctx: RunContext): Promise<CheckResult> {
-  if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${r.slot}  ${adapter.description}`);
+  const name = checkName(r);
+  const place = placeOf(r, ctx);
+  if (!ctx.json) writeLine(ctx.stderr, `  ▸ ${name}  ${adapter.description}`);
+  // A target's directory is made as its first check starts, since its tools
+  // may write their own reports there through `{out}`.
+  if (place.dir !== ctx.out) await mkdir(place.dir, { recursive: true });
   // Wipe this slot's stale artifacts before it runs, so a leaner re-run
   // can't leave last run's output behind as authoritative — and so any artifact
   // the tool writes during *this* run (for example `test.json`) survives.
-  await clearSlotOutputs(ctx.out, adapter);
+  await clearSlotOutputs(place.dir, adapter);
   const start = performance.now();
-  const outcome = await ctx.runner(r, runnerContext(ctx));
-  const duration_ms = Math.round(performance.now() - start);
+  const outcome = await ctx.runner(r, runnerContext(ctx, place));
+  const durationMs = Math.round(performance.now() - start);
   const skipReason = outcome.skip ?? selfSkipReason(r, outcome);
   if (skipReason !== null) {
     return { entry: handleSkip({ ...r, skip: skipReason }, false, ctx), run: null, observed: null, newKeys: [] };
   }
-  const outputFile = await persistOutput(ctx.out, adapter, outcome);
+  const file = await persistOutput(place.dir, adapter, outcome);
 
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, r.slot, { base: ctx.changedBase?.ref ?? null, out: ctx.outArg });
-  const entry: SummaryCheck = {
-    name: r.slot,
-    adapter: adapter.name,
-    description: adapter.description,
-    ok: mask.ok,
-    exit_code: outcome.exit_code,
-    duration_ms,
-    output_file: outputFile,
-    ...provenanceFields(r),
-    ...argvField(outcome),
-    ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
-  };
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, { key: name, root: r.root, base: ctx.changedBase?.ref ?? null, out: place.outArg });
+  const run = checkRun(r, adapter, outcome);
+  const entry = executedEntry(r, run, mask, { file, place, durationMs }, ctx.targets !== null);
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
-  return {
-    entry,
-    run: { slot: r.slot, adapter, outcome },
-    observed: mask.observed !== null ? { slot: r.slot, fp: mask.observed } : null,
-    newKeys: mask.newKeys,
-  };
+  return { entry, run, observed: mask.observed !== null ? { key: name, fp: mask.observed } : null, newKeys: mask.newKeys };
 }
 
 /**
@@ -263,7 +292,7 @@ type Execution = {
 function collect(res: CheckResult, acc: Execution): void {
   acc.checks.push(res.entry);
   if (res.run) acc.runs.push(res.run);
-  if (res.observed) acc.observed.set(res.observed.slot, res.observed.fp);
+  if (res.observed) acc.observed.set(res.observed.key, res.observed.fp);
   acc.newKeys.push(...res.newKeys);
 }
 

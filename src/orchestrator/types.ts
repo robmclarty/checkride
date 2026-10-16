@@ -43,7 +43,20 @@ export type RunFlags = {
 
 /** A single check in the aggregate report. */
 export type SummaryCheck = {
+  /** The slot or custom check's name, or `<target>:<slot>` for a target's check in multi-target mode. */
   name: string;
+  /** In multi-target mode, the target a target-scope check belongs to. Additive field; `schema_version` holds. */
+  target?: string;
+  /** In multi-target mode, the catalogue slot or custom check name, on every check. Additive field; `schema_version` holds. */
+  slot?: string;
+  /**
+   * In multi-target mode, the pack that fills the check: its target's, or
+   * `repo` for one that checks the repo as a whole. Additive field;
+   * `schema_version` holds.
+   */
+  pack?: string;
+  /** The directory the check ran from, relative to the repo root, when it isn't the root. Additive field; `schema_version` holds. */
+  cwd?: string;
   adapter: string | null;
   description: string;
   ok: boolean;
@@ -110,6 +123,13 @@ export type SummaryBase = { ref: string; sha: string };
 /** The work tree a run read (R8.1): the commit checked out, whether it held changes, and the `--changed` base. */
 export type SummaryGit = { head: string; dirty: boolean; base?: SummaryBase };
 
+/**
+ * One target a multi-target run checked (R8.1): its name, its pack, and its
+ * root relative to the repo root, with `.` for the root itself. `discovered`
+ * belongs to `--discover`, which checkride doesn't have yet, so no run writes it.
+ */
+export type SummaryTarget = { name: string; pack: string; root: string; discovered?: true };
+
 /** The `.check/summary.json` contract. A public API for agents. */
 export type Summary = {
   schema_version: number;
@@ -130,6 +150,12 @@ export type Summary = {
    * `GIT_STATE_TIMEOUT_MS`. Additive field; `schema_version` holds.
    */
   git?: SummaryGit;
+  /**
+   * The targets a multi-target run checked, in config order; absent in
+   * implicit mode. A later run reads it to clear the directories of the
+   * targets the config dropped. Additive field; `schema_version` holds.
+   */
+  targets?: SummaryTarget[];
   checks: SummaryCheck[];
 };
 
@@ -144,10 +170,13 @@ export type RunnerOutcome = CheckOutcome & { argv?: string[] };
 export type CheckRunner = (
   resolved: ResolvedCheck,
   /**
-   * `base` is the ref a `--changed` run measures from, present exactly when
-   * `changed` is. `out` is what `{out}` expands to: the absolute output
-   * directory when `--out` or `CHECKRIDE_OUT` named one, and `.check` when
-   * omitted.
+   * `cwd` is the directory the check runs from: its target's root, else the
+   * repo root. `base` is the ref a `--changed` run measures from, present
+   * exactly when `changed` is. `out` is what `{out}` expands to, the check's
+   * own artifact directory: in implicit mode the absolute output directory
+   * when `--out` or `CHECKRIDE_OUT` named one, and `.check` when omitted; in
+   * multi-target mode the absolute `<out>/<target>` for a target's check, and
+   * the absolute output directory for the rest.
    */
   ctx: { cwd: string; changed: boolean; base?: string; out?: string; pm: PackageManager; timeout?: number },
 ) => Promise<RunnerOutcome>;
@@ -198,7 +227,12 @@ export type RunOptions = RunFlags & {
  * `baseline` command reads these to fingerprint each fingerprintable slot's
  * output — the same bytes a normal run captures — without re-walking the loop.
  * Skipped checks never appear here; they produced no output to fingerprint.
+ *
+ * `name` is the check's name, which keys its baseline entry: the slot itself
+ * in implicit mode, `<target>:<slot>` for a target's check. `root` is that
+ * target's root, relative to the repo root, which the baseline joins onto each
+ * path the tool printed, so the keys stay repo-root-relative.
  */
-export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome };
+export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome; name: string; root?: string };
 
 export type RunResult = { ok: boolean; summary: Summary; exitCode: number; runs: CheckRun[] };

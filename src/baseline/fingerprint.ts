@@ -17,7 +17,8 @@
  * cspell, vale) and for fallow's three analyses (dead-code, dupes, health — see
  * `./fallow.ts`, which also owns fallow's gating verdict). Each keys only the
  * findings that can fail its check, so a finding that can only advise never
- * blocks masking.
+ * blocks masking. Each joins the check's root onto the paths its tool printed,
+ * so a target's keys are repo-root-relative (see `./rebase.ts`).
  *
  * The same registry style keys the *report verdicts* — the adapters whose
  * pass/fail is read from the parsed report rather than the exit code — on
@@ -29,6 +30,7 @@ import { isRecord } from '../json.js';
 import { parseToolJson } from '../tool-json.js';
 import type { FallowVerdict } from './fallow.js';
 import { fallowFindings, fallowVerdict } from './fallow.js';
+import { rebasePath } from './rebase.js';
 
 /** A stable, order-independent set of diagnostic keys for one adapter's output. */
 export type Fingerprint = ReadonlySet<string>;
@@ -47,9 +49,11 @@ type Argv = readonly string[] | undefined;
  * from a clean one in their formats, so "nothing found" is the honest answer.
  * An extractor whose format *can* tell the two apart returns `null` for the
  * unreadable case instead, which propagates through {@link fingerprint} as "not
- * observed" and stands the ratchet down (see {@link extractVale}).
+ * observed" and stands the ratchet down (see {@link extractVale}). `root` is
+ * the directory the check ran from, relative to the repo root, which each
+ * path it keys is joined onto ({@link rebasePath}).
  */
-type Extractor = (raw: string, argv: Argv) => Fingerprint | null;
+type Extractor = (raw: string, argv: Argv, root: string | undefined) => Fingerprint | null;
 
 /**
  * Build a finding's key from its identity. Line and column are intentionally
@@ -114,7 +118,7 @@ function oxlintWarningsGate(argv: Argv): boolean {
  * warning's key would block masking when it first appears on an otherwise
  * grandfathered red run, though it could never fail the check itself.
  */
-const extractOxlint: Extractor = (raw, argv) => {
+const extractOxlint: Extractor = (raw, argv, root) => {
   const keys = new Set<string>();
   const all = oxlintWarningsGate(argv);
   const payload = parseJson(raw);
@@ -124,7 +128,7 @@ const extractOxlint: Extractor = (raw, argv) => {
     if (!all && OXLINT_ADVISORY.has(str(d['severity']))) continue;
     const file = str(d['filename']);
     const message = str(d['message']);
-    if (file && message) keys.add(key(file, str(d['code']), message));
+    if (file && message) keys.add(key(rebasePath(root, file), str(d['code']), message));
   }
   return keys;
 };
@@ -157,7 +161,7 @@ function astGrepRaised(argv: Argv): ReadonlySet<string> | 'all' {
  * Only matches that can fail the scan are keyed, for the reason
  * {@link extractOxlint} gives.
  */
-const extractAstGrep: Extractor = (raw, argv) => {
+const extractAstGrep: Extractor = (raw, argv, root) => {
   const keys = new Set<string>();
   const raised = astGrepRaised(argv);
   for (const m of asArray(parseJson(raw))) {
@@ -166,7 +170,7 @@ const extractAstGrep: Extractor = (raw, argv) => {
     if (raised !== 'all' && !raised.has(rule) && AST_GREP_ADVISORY.has(str(m['severity']))) continue;
     const file = str(m['file']);
     const message = str(m['message']);
-    if (file && message) keys.add(key(file, rule, message));
+    if (file && message) keys.add(key(rebasePath(root, file), rule, message));
   }
   return keys;
 };
@@ -175,11 +179,11 @@ const extractAstGrep: Extractor = (raw, argv) => {
 const CSPELL_LINE = /^(.+?):\d+:\d+ - (.+)$/;
 
 /** cspell has no rule id, so its key is `<file>::<message>` (empty rule slot). */
-const extractCspell: Extractor = (raw) => {
+const extractCspell: Extractor = (raw, _argv, root) => {
   const keys = new Set<string>();
   for (const line of raw.split('\n')) {
     const m = CSPELL_LINE.exec(line.trim());
-    if (m) keys.add(key(m[1] ?? '', '', m[2] ?? ''));
+    if (m) keys.add(key(rebasePath(root, m[1] ?? ''), '', m[2] ?? ''));
   }
   return keys;
 };
@@ -214,7 +218,7 @@ function isValeAlertReport(payload: unknown): payload is Record<string, Record<s
  * run would prune every grandfathered prose key out of the baseline on the next
  * ratchet. `null` means "not observed", which leaves the baseline standing.
  */
-const extractVale: Extractor = (raw) => {
+const extractVale: Extractor = (raw, _argv, root) => {
   const payload = parseJson(raw);
   if (!isValeAlertReport(payload)) return null;
   const keys = new Set<string>();
@@ -222,7 +226,7 @@ const extractVale: Extractor = (raw) => {
     for (const a of alerts) {
       if (str(a['Severity']) !== 'error') continue;
       const message = str(a['Message']);
-      if (file && message) keys.add(key(file, str(a['Check']), message));
+      if (file && message) keys.add(key(rebasePath(root, file), str(a['Check']), message));
     }
   }
   return keys;
@@ -237,15 +241,16 @@ const EXTRACTORS: Readonly<Record<string, Extractor>> = {
   // One `fallow` adapter fills all three fallow slots (dead/dupes/health); its
   // extractor dispatches on the report's `kind`, so a single registration serves
   // every slot. See `./fallow.ts`.
-  fallow: fallowFindings,
+  fallow: (raw, _argv, root) => fallowFindings(raw, root),
 };
 
 /**
  * Derives one slot's pass/fail (and its baseline bookkeeping) from the tool's
  * raw report instead of its exit code. `baselineKeys === null` means no
- * baseline is active — the same contract as {@link fallowVerdict}.
+ * baseline is active — the same contract as {@link fallowVerdict} — and `root`
+ * is the check's root, which its keys' paths are joined onto.
  */
-type ReportVerdict = (raw: string, baselineKeys: readonly string[] | null) => FallowVerdict;
+type ReportVerdict = (raw: string, baselineKeys: readonly string[] | null, root?: string) => FallowVerdict;
 
 /**
  * Report verdicts keyed by adapter name (not slot), like `EXTRACTORS`: only
@@ -283,10 +288,15 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * `argv` is the check's command and then its args, as declared for the run
  * (`changedArgs` included under `--changed`). Only findings that can fail the
  * check under it are keyed; without it, oxlint and ast-grep key every finding.
+ *
+ * `root` is the directory the check ran from, relative to the repo root: a
+ * target's root in multi-target mode. Each path a key carries is joined onto
+ * it, so the key names the file from the repo root. Omitted, or `.`, the paths
+ * stay as the tool printed them.
  */
-export function fingerprint(adapter: string, raw: string, argv?: readonly string[]): Fingerprint | null {
+export function fingerprint(adapter: string, raw: string, argv?: readonly string[], root?: string): Fingerprint | null {
   const extractor = EXTRACTORS[adapter];
-  return extractor ? extractor(raw, argv) : null;
+  return extractor ? extractor(raw, argv, root) : null;
 }
 
 /**

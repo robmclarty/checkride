@@ -12,7 +12,7 @@ import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import { checkName, selectedBy } from '../targets/index.js';
 import { selectChecks } from './select.js';
-import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun } from './types.js';
+import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 export function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
@@ -22,10 +22,28 @@ export function writeLine(out: Out, line: string): void {
  * Width of the slot-name column, measured from the names this run will print
  * (never below the historical 8). A fixed 8 was sized for catalogue slots, and
  * a config custom check — `typecheck-tests` is 15 — pushed the duration and
- * description columns right on its row alone.
+ * description columns right on its row alone, as a `<target>:<slot>` name does.
  */
 export function nameWidth(selected: readonly ResolvedCheck[]): number {
-  return selected.reduce((n, r) => Math.max(n, r.slot.length), 8);
+  return selected.reduce((n, r) => Math.max(n, checkName(r).length), 8);
+}
+
+/**
+ * How a summary entry names its check (R8.2). In implicit mode that's the slot
+ * or custom check's name alone. In multi-target mode a target's check is
+ * `<target>:<slot>` and carries its `target`; every check carries its `slot`
+ * and the `pack` that fills it, and a check that ran outside the repo root
+ * carries that directory as `cwd`.
+ */
+export function checkIdentity(r: ResolvedCheck, multiTarget: boolean): Pick<SummaryCheck, 'name' | 'target' | 'slot' | 'pack' | 'cwd'> {
+  if (!multiTarget) return { name: r.slot };
+  return {
+    name: checkName(r),
+    ...(r.target !== undefined ? { target: r.target } : {}),
+    slot: r.slot,
+    ...(r.pack !== undefined ? { pack: r.pack } : {}),
+    ...(r.root !== undefined && r.root !== '.' ? { cwd: r.root } : {}),
+  };
 }
 
 /**
@@ -55,9 +73,9 @@ export function formatStatusLine(check: SummaryCheck, width: number): string {
   return `  ${mark} ${name} ${duration}  ${check.description}${tag ? `  ${tag}` : ''}`;
 }
 
-export function skippedEntry(resolved: ResolvedCheck): SummaryCheck {
+export function skippedEntry(resolved: ResolvedCheck, multiTarget: boolean): SummaryCheck {
   return {
-    name: resolved.slot,
+    ...checkIdentity(resolved, multiTarget),
     adapter: resolved.adapter?.name ?? null,
     description: resolved.adapter?.description ?? resolved.slot,
     ok: true,
@@ -88,6 +106,7 @@ export function narrowedEntries(
   resolved: readonly ResolvedCheck[],
   selected: readonly ResolvedCheck[],
   flags: RunFlags,
+  multiTarget: boolean,
 ): SummaryCheck[] {
   const only = flags.only ?? null;
   const skip = flags.skip ?? [];
@@ -99,7 +118,7 @@ export function narrowedEntries(
       skippedEntry({
         ...r,
         skip: r.skip ?? (selectedBy(skip, r) ? 'skipped by --skip' : 'not in --only'),
-      }),
+      }, multiTarget),
     );
 }
 
@@ -108,14 +127,16 @@ export function narrowedEntries(
  * not the sum of per-check durations — under concurrency those diverge, and
  * wall-clock is what the field honestly means. It equals the per-check sum
  * whenever execution is sequential (one check in flight at a time), unless the
- * run had to wait for git's answer after its last check. `run` and `git` come
- * before `checks`, so the head of the file says what the run covered.
+ * run had to wait for git's answer after its last check. `run`, `git` and
+ * `targets` come before `checks`, so the head of the file says what the run
+ * covered.
  */
 export function buildSummary(
   checks: SummaryCheck[],
   totalDurationMs: number,
   run: SummaryRun,
   git: SummaryGit | null,
+  targets: SummaryTarget[] | null,
 ): Summary {
   return {
     schema_version: SCHEMA_VERSION,
@@ -125,6 +146,7 @@ export function buildSummary(
     total_duration_ms: totalDurationMs,
     run,
     ...(git !== null ? { git } : {}),
+    ...(targets !== null ? { targets } : {}),
     checks,
   };
 }
@@ -156,7 +178,7 @@ function warnVacuous(
     writeLine(stderr, '  No slots matched the selection (--only/--skip).');
   }
   for (const c of checks) {
-    const hint = c.adapter === null ? enableHint(c.name, adapters) : null;
+    const hint = c.adapter === null ? enableHint(c.slot ?? c.name, adapters) : null;
     writeLine(stderr, `  ○ ${c.name}: ${c.reason ?? 'skipped'}${hint ? ` — ${hint}` : ''}`);
   }
   writeLine(stderr, '  Run `checkride doctor` for per-slot detail, or add a custom check to');

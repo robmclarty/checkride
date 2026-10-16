@@ -14,6 +14,7 @@ import {
   outLabel,
   parseSummary,
   prepareScratch,
+  pruneDroppedTargets,
   readSummary,
   resolveRawOutput,
   runWindowStart,
@@ -351,5 +352,76 @@ describe('prepareScratch', () => {
     } finally {
       await chmod(join(root, '.check'), 0o755);
     }
+  });
+});
+
+/** Write a summary checkride could have written into `dir`, listing `targets`. */
+async function writeSummary(dir: string, targets: unknown): Promise<void> {
+  const summary = { schema_version: SCHEMA_VERSION, timestamp: RUN_END_ISO, ok: true, checks_run: 0, total_duration_ms: 1, run: { partial: false }, targets, checks: [] };
+  await writeFile(join(dir, 'summary.json'), JSON.stringify(summary));
+}
+
+/**
+ * A repo at `<tmp>/repo` whose output directory `<tmp>/out` holds a summary
+ * listing `targets` and a directory with one file for each name in `made`.
+ */
+async function outWith(targets: unknown, made: readonly string[]): Promise<{ repo: string; out: string }> {
+  const tmp = await mkdtemp(join(tmpdir(), 'checkride-prune-'));
+  dirs.push(tmp);
+  const repo = join(tmp, 'repo');
+  const out = join(tmp, 'out');
+  await mkdir(repo);
+  await mkdir(out);
+  await writeSummary(out, targets);
+  for (const name of made) {
+    await mkdir(join(out, name), { recursive: true });
+    await writeFile(join(out, name, 'lint.json'), '{}');
+  }
+  return { repo, out };
+}
+
+const listed = (...names: string[]): unknown[] => names.map((name) => ({ name, pack: 'ts', root: `apps/${name}` }));
+
+describe('pruneDroppedTargets (R9)', () => {
+  test('deletes the listed targets the config dropped, and keeps the ones it still has', async () => {
+    const { repo, out } = await outWith(listed('web', 'old'), ['web', 'old']);
+    await pruneDroppedTargets(out, repo, ['web']);
+    expect(await statArtifact(join(out, 'web'), 'lint.json', null)).not.toBeNull();
+    expect(await statArtifact(join(out, 'old'), 'lint.json', null)).toBeNull();
+  });
+
+  test('deletes nothing when no summary checkride wrote is there to list targets', async () => {
+    const { repo, out } = await outWith(listed('old'), ['old']);
+    await writeFile(join(out, 'summary.json'), JSON.stringify({ targets: listed('old') }));
+    await pruneDroppedTargets(out, repo, []);
+    expect(await statArtifact(join(out, 'old'), 'lint.json', null)).not.toBeNull();
+    await rm(join(out, 'summary.json'));
+    await pruneDroppedTargets(out, repo, []);
+    expect(await statArtifact(join(out, 'old'), 'lint.json', null)).not.toBeNull();
+  });
+
+  test('never follows a name that is not a target name out of the directory', async () => {
+    const { repo, out } = await outWith([{ name: '../repo' }, { name: '.git' }, { name: 'Old' }, { name: 7 }], ['.git', 'Old']);
+    await writeFile(join(repo, 'keep.txt'), 'mine\n');
+    await pruneDroppedTargets(out, repo, []);
+    expect(await statArtifact(repo, 'keep.txt', null)).not.toBeNull();
+    expect(await statArtifact(join(out, '.git'), 'lint.json', null)).not.toBeNull();
+    expect(await statArtifact(join(out, 'Old'), 'lint.json', null)).not.toBeNull();
+  });
+
+  test('leaves a symlink, a file, and a directory that holds the repo where they are', async () => {
+    const { repo, out } = await outWith(listed('linked', 'file'), []);
+    await mkdir(join(repo, 'elsewhere'));
+    await writeFile(join(repo, 'elsewhere', 'keep.txt'), 'mine\n');
+    await symlink(join(repo, 'elsewhere'), join(out, 'linked'));
+    await writeFile(join(out, 'file'), 'not a directory\n');
+    await pruneDroppedTargets(out, repo, []);
+    expect(await statArtifact(join(out, 'linked'), 'keep.txt', null)).not.toBeNull();
+    expect(await statArtifact(out, 'file', null)).not.toBeNull();
+    // An output directory one level above the repo puts `<out>/repo` on the repo itself.
+    const above = join(repo, '..');
+    await writeSummary(above, listed('repo'));
+    await pruneDroppedTargets(above, repo, []);
+    expect(await statArtifact(join(repo, 'elsewhere'), 'keep.txt', null)).not.toBeNull();
   });
 });

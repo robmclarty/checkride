@@ -1,9 +1,10 @@
 /**
  * Artifacts module — the output directory a checkride run writes into, and
- * the shared, bounded read of what it left there. Name the directory, parse
- * the summary and pin its schema, judge each file against the run's freshness
- * window, resolve a slot's raw output by the documented convention, and size
- * what was found without opening it.
+ * the shared, bounded read of what it left there. Name the directory, clear
+ * the directories of targets the config dropped, parse the summary and pin its
+ * schema, judge each file against the run's freshness window, resolve a slot's
+ * raw output by the documented convention, and size what was found without
+ * opening it.
  *
  * Both bundled-plugin readers (`../triage` and `../qa`) consume the
  * contract only through here — one copy of the summary parse,
@@ -26,3 +27,5 @@ export type { ArtifactFile, RawOutput } from './raw.js';
 
 export { parseSummary, readSummary, SUPPORTED_SCHEMA_VERSION } from './summary.js';
 export type { SummaryRead } from './summary.js';
+
+export { pruneDroppedTargets } from './targets.js';

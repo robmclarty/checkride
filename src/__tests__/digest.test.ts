@@ -21,7 +21,7 @@ function outcome(over: Partial<CheckOutcome> = {}): CheckOutcome {
 }
 
 function run(adapter: Adapter, oc: CheckOutcome): CheckRun {
-  return { slot: adapter.slot, adapter, outcome: oc };
+  return { slot: adapter.slot, adapter, outcome: oc, name: adapter.slot };
 }
 
 /** A summary entry for a failing slot; override `ok`/`skipped` to vary it. */

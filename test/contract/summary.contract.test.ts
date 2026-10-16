@@ -16,7 +16,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +33,7 @@ const contractPath = join(here, '..', '..', 'docs', 'contract.md');
 
 type ObjectSchema = { properties: Record<string, unknown>; required: string[] };
 const schema = JSON.parse(readFileSync(schemaPath, 'utf8')) as ObjectSchema & {
-  definitions: Record<'check' | 'run' | 'git' | 'base', ObjectSchema>;
+  definitions: Record<'check' | 'run' | 'git' | 'base' | 'target', ObjectSchema>;
 };
 
 const ajv = new Ajv({ allErrors: true });
@@ -88,6 +88,7 @@ describe('docs/contract.md lists every summary field', () => {
     ['run', '**`run` fields.**', schema.definitions.run],
     ['git', '**`git` fields.**', schema.definitions.git],
     ['git.base', '**`git.base` fields.**', schema.definitions.base],
+    ['targets entry', '**`targets` entry fields.**', schema.definitions.target],
     ['per-check', '**Per-check fields.**', schema.definitions.check],
   ] as const;
 
@@ -204,6 +205,57 @@ describe('summary.json shape', () => {
     const build = (summary['checks'] as { name: string; argv?: string[] }[]).find((c) => c.name === 'build');
     expect(build).toMatchObject({ ok: true, argv: ['npm', 'run', 'build'] });
   }, 30_000);
+
+  /**
+   * Contract: a multi-target run lists its targets in config order, and every
+   * check carries its `slot` and `pack`; a target's check is `<target>:<slot>`
+   * with its `target`, and its `cwd` when its root isn't the repo's. A check of
+   * the repo as a whole runs from the root, so it has neither (R8.1, R8.2).
+   */
+  test('a multi-target run records its targets, and each check its target, slot, pack and cwd', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    for (const root of ['apps/web', 'apps/api']) await mkdir(join(dir, root), { recursive: true });
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      targets: { web: { lang: 'ts', root: 'apps/web' }, api: { lang: 'ts', root: './apps/api/' } },
+      packs: { ts: { checks: { probe: exits(0) } } },
+      checks: { licenses: exits(0) },
+    }));
+    const summary = await runAndValidate([]);
+    expect(summary['targets']).toEqual([{ name: 'web', pack: 'ts', root: 'apps/web' }, { name: 'api', pack: 'ts', root: 'apps/api' }]);
+    const checks = summary['checks'] as Record<string, unknown>[];
+    const byName = new Map(checks.map((c) => [c['name'], c]));
+    expect(byName.get('web:probe')).toMatchObject({ target: 'web', slot: 'probe', pack: 'ts', cwd: 'apps/web', ok: true });
+    expect(byName.get('api:types')).toMatchObject({ target: 'api', slot: 'types', pack: 'ts', cwd: 'apps/api', skipped: true });
+    for (const name of ['links', 'licenses']) {
+      expect(byName.get(name)).toMatchObject({ slot: name, pack: 'repo' });
+      expect(byName.get(name)).not.toHaveProperty('target');
+      expect(byName.get(name)).not.toHaveProperty('cwd');
+    }
+    // A row a narrowed run keeps out still says whose it is.
+    const narrowed = await runAndValidate(['--only', 'web']);
+    expect((narrowed['checks'] as Record<string, unknown>[]).find((c) => c['name'] === 'api:probe')).toMatchObject({
+      target: 'api',
+      slot: 'probe',
+      skipped: true,
+      reason: 'not in --only',
+    });
+  });
+
+  test('a target rooted at the repo root records no cwd, and a run without targets records none of the four', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    const config = join(dir, 'checkride.config.json');
+    await writeFile(config, JSON.stringify({ targets: { app: { lang: 'ts', root: '.', checks: { probe: exits(0) } } } }));
+    const probe = (await runAndValidate([]))['checks'] as Record<string, unknown>[];
+    expect(probe.find((c) => c['name'] === 'app:probe')).toMatchObject({ target: 'app', slot: 'probe', pack: 'ts' });
+    expect(probe.find((c) => c['name'] === 'app:probe')).not.toHaveProperty('cwd');
+
+    await writeFile(config, JSON.stringify({ checks: { probe: exits(0) } }));
+    const implicit = await runAndValidate([]);
+    expect(implicit).not.toHaveProperty('targets');
+    for (const c of implicit['checks'] as Record<string, unknown>[]) {
+      for (const field of ['target', 'slot', 'pack', 'cwd']) expect(c, `${String(c['name'])}.${field}`).not.toHaveProperty(field);
+    }
+  });
 
   test('a vacuous (zero-run) summary validates and says so', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));

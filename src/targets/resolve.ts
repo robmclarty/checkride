@@ -52,6 +52,12 @@ type Catalogue = {
 type Declared = { name: string; lang: string; root: string };
 
 /**
+ * A target as a run reads it: its name, the pack that checks it, and its root,
+ * relative to the repo root and normalized, with `.` for the root itself.
+ */
+export type Target = { readonly name: string; readonly pack: string; readonly root: string };
+
+/**
  * Repo-scope slots R5.1 appends after `snippets`. Until each joins `SLOTS`, V2
  * reserves its name anyway, so a target named after one doesn't break on the
  * upgrade that adds it (R5.1).
@@ -179,16 +185,44 @@ function scopedChecksProblem(checks: unknown, where: string, pack: PackRows, cat
   return null;
 }
 
-/** V1 and V2: a target's name is well formed and means one thing as a selection token. */
-function nameProblem(name: string, checks: unknown, cat: Catalogue): string | null {
+/** Each target's or pack's `checks` block, under the path a message names it by. */
+function scopedBlocks(key: 'targets' | 'packs', blocks: unknown): [string, unknown][] {
+  if (!isRecord(blocks)) return [];
+  return Object.entries(blocks).map(([name, block]) => [`${key}.${name}.checks`, isRecord(block) ? block['checks'] : undefined]);
+}
+
+/**
+ * Where the config declares a check named `name`, as `<block>.<name>`, or
+ * `null` when it declares none: the top-level `checks`, then each target's,
+ * then each pack's. A target's name is never a slot's, so a check it finds is
+ * a custom one.
+ */
+function customHome(name: string, config: Record<string, unknown>): string | null {
+  const blocks: [string, unknown][] = [
+    ['checks', config['checks']],
+    ...scopedBlocks('targets', config['targets']),
+    ...scopedBlocks('packs', config['packs']),
+  ];
+  const home = blocks.find(([, checks]) => isRecord(checks) && Object.hasOwn(checks, name));
+  return home === undefined ? null : `${home[0]}.${name}`;
+}
+
+/**
+ * V1 and V2: a target's name is well formed and means one thing as a selection
+ * token, so it's no slot's name and no custom check's, wherever the config
+ * declares that check: `--only web` would otherwise select target `web` and
+ * `api:web` both.
+ */
+function nameProblem(name: string, config: Record<string, unknown>, cat: Catalogue): string | null {
   if (!TARGET_NAME.test(name)) {
     return `target name ${show(name)} must start with a lowercase letter and hold only lowercase letters, digits and hyphens, 32 characters at most`;
   }
   if (cat.slotNames.has(name)) {
     return `target name '${name}' is reserved: it's a slot's name, and a token like --only ${name} has to mean one thing`;
   }
-  if (isRecord(checks) && Object.hasOwn(checks, name)) {
-    return `target name '${name}' is taken by the custom check checks.${name}, and a token like --only ${name} has to mean one thing`;
+  const home = customHome(name, config);
+  if (home !== null) {
+    return `target name '${name}' is taken by the custom check ${home}, and a token like --only ${name} has to mean one thing`;
   }
   return null;
 }
@@ -239,9 +273,9 @@ function langOf(target: Record<string, unknown>, where: string, cat: Catalogue):
 }
 
 /** Every rule one target keeps on its own. */
-function targetProblem(name: string, raw: unknown, checks: unknown, cat: Catalogue): string | null {
+function targetProblem(name: string, raw: unknown, config: Record<string, unknown>, cat: Catalogue): string | null {
   const where = `targets.${name}`;
-  const named = nameProblem(name, checks, cat);
+  const named = nameProblem(name, config, cat);
   if (named !== null) return named;
   if (!isRecord(raw)) return `${where} must be an object with lang and root (got ${show(raw)})`;
   const pack = langOf(raw, where, cat);
@@ -261,6 +295,17 @@ function declaredTargets(targets: unknown): Declared[] {
   return Object.entries(targets).flatMap(([name, t]) =>
     isRecord(t) ? [{ name, lang: String(t['lang']), root: normalizeRoot(String(t['root'])) }] : [],
   );
+}
+
+/**
+ * The targets a config declares, in config order, or `null` when it declares
+ * none: implicit mode, where the repo is one unnamed target at its root
+ * (R2.1). Declaring any is multi-target mode, where each target's slots run
+ * once from its root.
+ */
+export function configuredTargets(config: { readonly targets?: unknown } | null): Target[] | null {
+  if (config?.targets === undefined) return null;
+  return declaredTargets(config.targets).map(({ name, lang, root }) => ({ name, pack: lang, root }));
 }
 
 /** True when `inner` sits below `outer`. */
@@ -300,7 +345,7 @@ function targetsProblem(config: Record<string, unknown>, cat: Catalogue): string
   const entries = Object.entries(targets);
   if (entries.length === 0) return 'targets is empty: declare at least one target, or drop the key to check the repo as one';
   for (const [name, raw] of entries) {
-    const problem = targetProblem(name, raw, config['checks'], cat);
+    const problem = targetProblem(name, raw, config, cat);
     if (problem !== null) return problem;
   }
   return nestingProblem(declaredTargets(targets));

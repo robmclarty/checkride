@@ -16,6 +16,8 @@ import { loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
 import { detectPackageManager } from '../launch/index.js';
+import type { Target } from '../targets/index.js';
+import { configuredTargets } from '../targets/index.js';
 import { defaultConcurrency, defaultRunner } from './spawn.js';
 import type { CheckRunner, Out, RunOptions } from './types.js';
 
@@ -63,11 +65,14 @@ export type RunContext = CommonContext & {
   /** How the run's own lines name {@link out} (see `outLabel`): `.check` by default. */
   outLabel: string;
   /**
-   * What `{out}` in an adapter's args expands to: the relative `.check` by
-   * default, so 0.13's argv holds, and the absolute {@link out} when a flag or
-   * variable named it.
+   * What `{out}` in an adapter's args expands to in implicit mode: the
+   * relative `.check` by default, so 0.13's argv holds, and the absolute
+   * {@link out} when a flag or variable named it. Multi-target mode expands it
+   * per check (see `placeOf`).
    */
   outArg: string;
+  /** The targets the config declares, in config order, or `null` in implicit mode. */
+  targets: readonly Target[] | null;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -121,6 +126,7 @@ export function resolveRunContext(options: RunOptions): RunContext {
     out,
     outLabel: outLabel(common.cwd, out),
     outArg: named ?? CHECK_DIR,
+    targets: configuredTargets(common.config),
     nameWidth: 8,
     runner: options.runner ?? defaultRunner,
     json: options.json ?? false,

@@ -37,10 +37,15 @@
       "$ref": "#/definitions/git",
       "description": "The work tree the run read. Present when the working directory is in a git work tree whose HEAD names a commit, and git answered within 5 seconds."
     },
+    "targets": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/target" },
+      "description": "Present in multi-target mode, when checkride.config.json declares targets: each target the run checked, in config order. A later run in the same output directory reads it to delete the directories of targets the config dropped."
+    },
     "checks": {
       "type": "array",
       "items": { "$ref": "#/definitions/check" },
-      "description": "One entry per selected slot, in pipeline order."
+      "description": "One entry per selected check, in pipeline order: group sequence, then catalogue position, then repo-scope before target-scope, then target order, then custom checks in config order."
     }
   },
   "definitions": {
@@ -49,7 +54,11 @@
       "additionalProperties": false,
       "required": ["name", "adapter", "description", "ok", "exit_code", "duration_ms", "output_file"],
       "properties": {
-        "name": { "type": "string", "description": "Slot name (e.g. lint), or a custom check's key." },
+        "name": { "type": "string", "description": "Slot name (e.g. lint), or a custom check's key; <target>:<slot> (e.g. web:lint) for a target's check in multi-target mode." },
+        "target": { "type": "string", "description": "Present in multi-target mode on a target-scope check: the target it belongs to." },
+        "slot": { "type": "string", "description": "Present on every check in multi-target mode: the catalogue slot (lint) or custom check name the check fills." },
+        "pack": { "type": "string", "description": "Present on every check in multi-target mode: the pack that fills it, its target's for a target-scope check (ts) and repo for a check of the repo as a whole, a top-level custom check included." },
+        "cwd": { "type": "string", "description": "Present when the check ran from a directory other than the repo root, as a target's check does when its root isn't .: that directory, relative to the repo root." },
         "adapter": { "type": ["string", "null"], "description": "Adapter that ran (e.g. oxlint), or null when the slot resolved to nothing." },
         "description": { "type": "string", "description": "Human description of the check." },
         "ok": { "type": "boolean", "description": "Pass/fail after any baseline masking; skipped checks are ok." },
@@ -57,7 +66,7 @@
         "reason": { "type": "string", "description": "Why a skipped check sat out (no tool detected, disabled in config, unavailable under this package manager, ...)." },
         "exit_code": { "type": ["integer", "null"], "description": "The tool's exit code; -1 for spawn failure or timeout; null when skipped." },
         "duration_ms": { "type": "number", "description": "Wall-clock duration in milliseconds (0 when skipped)." },
-        "output_file": { "type": ["string", "null"], "description": "The file holding the tool's raw JSON output, when it emits JSON on stdout, relative to the output directory (.check/ unless --out named another)." },
+        "output_file": { "type": ["string", "null"], "description": "The file holding the tool's raw JSON output, when it emits JSON on stdout, relative to the output directory (.check/ unless --out named another). A target's check writes into the target's directory there, so its file is <target>/<file> (e.g. web/lint.json)." },
         "origin": { "enum": ["config", "detected", "built-in", "custom"], "description": "Present exactly when adapter is not null: why the check is in the run. config when checkride.config.json (presets included) names the slot, detected when a detection signal chose the adapter, built-in when detection chose an adapter that needs no signal, custom for a config-only custom check." },
         "detected_by": { "type": "string", "description": "Present when origin is detected: the signal that chose the adapter, as the matched detect file, package.json: <dep> or package.json: scripts.<name>." },
         "argv": { "type": "array", "items": { "type": "string" }, "minItems": 1, "description": "Present when the check spawned its own tool: the command and its arguments exactly as spawned, after package-manager translation (the canonical pnpm exec oxlint runs as npx --no-install oxlint under npm). A tool that failed to start or timed out keeps the argv it was given. Built-ins, which checkride runs itself, and skipped checks have none." },
@@ -100,6 +109,17 @@
       "properties": {
         "ref": { "type": "string", "description": "The base as named by --base, CHECKRIDE_BASE or changedBase, or origin/main or HEAD when nothing named one." },
         "sha": { "type": "string", "description": "The full sha ref named." }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "pack", "root"],
+      "properties": {
+        "name": { "type": "string", "description": "The target's name, as checkride.config.json declares it; its checks are named <name>:<slot> and write under <out>/<name>/." },
+        "pack": { "type": "string", "description": "The pack that checks the target (ts)." },
+        "root": { "type": "string", "description": "The directory its target-scope checks run from, relative to the repo root and normalized: . for the root itself." },
+        "discovered": { "const": true, "description": "Present when --discover proposed the target rather than the config declaring it. checkride has no such flag yet, so no run writes it." }
       }
     }
   }

@@ -66,13 +66,14 @@ summary. A non-additive change requires a `schema_version` bump and is a
 breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
-(0.3.0), per-check `origin`, `detected_by` and `argv`, and top-level `run` and
-`git` (0.15.0).
+(0.3.0), per-check `origin`, `detected_by`, `argv`, `target`, `slot`, `pack`
+and `cwd`, and top-level `run`, `git` and `targets` (0.15.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
 never written as `null` or `false`, so absence is part of the shape. Inside
-`run`, `git` and `git.base`, "always" means whenever that object is present.
+`run`, `git`, `git.base` and a `targets` entry, "always" means whenever that
+object is present.
 [`summary.contract.test.ts`](../test/contract/summary.contract.test.ts) holds
 each list equal to the schema's properties, and the "always" rows equal to its
 required ones, so a field can't reach the schema without a row here.
@@ -88,6 +89,7 @@ required ones, so a field can't reach the schema without a row here.
 | `total_duration_ms` | number, 0 or more | always: the run's wall-clock span |
 | `run` | object, below | always: what the run selected, and whether it saw the whole pipeline |
 | `git` | object, below | the working directory is in a git work tree whose `HEAD` names a commit, and git answered within 5 seconds |
+| `targets` | array of target entries, below | multi-target mode, when `checkride.config.json` declares `targets`: each target the run checked, in config order |
 | `checks` | array of per-check entries | always: one per selected check, skipped ones included, plus a skipped entry for each check `--only` or `--skip` left out, in the order below |
 
 **`run` fields.**
@@ -122,11 +124,24 @@ required ones, so a field can't reach the schema without a row here.
 | `ref` | string | always: the base as `--base`, `CHECKRIDE_BASE` or `changedBase` named it, or `origin/main` or `HEAD` when nothing named one |
 | `sha` | string | always: the full sha `ref` named |
 
+**`targets` entry fields.**
+
+| Field | Type | Present when |
+| --- | --- | --- |
+| `name` | string | always: the target's name, which names its checks `<name>:<slot>` and its directory `<out>/<name>/` |
+| `pack` | string | always: the pack that checks it (`ts`) |
+| `root` | string | always: the directory its checks run from, relative to the repo root and normalized, `.` for the root itself |
+| `discovered` | `true` | `--discover` proposed the target; checkride has no such flag yet |
+
 **Per-check fields.**
 
 | Field | Type | Present when |
 | --- | --- | --- |
-| `name` | string | always: the slot name (`lint`), or the custom check's config key |
+| `name` | string | always: the slot name (`lint`), or the custom check's config key; `<target>:<slot>` (`web:lint`) for a target's check |
+| `target` | string | multi-target mode, on a target's check: the target it belongs to |
+| `slot` | string | multi-target mode, on every check: the catalogue slot or custom check name it fills |
+| `pack` | string | multi-target mode, on every check: the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
+| `cwd` | string, repo-relative | the check ran from a directory other than the repo root, as a target's check does when its root isn't `.` |
 | `adapter` | string or `null` | always: the adapter that ran or would have run (`oxlint`, or `custom:<key>` for a custom check with no `name`); `null` when the slot resolved to nothing |
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
@@ -134,7 +149,7 @@ required ones, so a field can't reach the schema without a row here.
 | `reason` | string | with `skipped`: why the check sat out |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
-| `output_file` | string or `null` | always: the JSON file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it, or `null` when it wrote none |
+| `output_file` | string or `null` | always: the JSON file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>` or `package.json: scripts.<name>` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
@@ -188,10 +203,38 @@ directory isn't in a work tree, or `HEAD` names no commit yet, `git` is left
 out. git reads the tree as the checks start, and a gitignored `.check/`, as
 `init` writes it, keeps the run's own artifacts out of `dirty`.
 
+**A target's slots run once for that target, from its root.** When
+`checkride.config.json` declares `targets`, the run checks the repo as a whole
+once, at its root, and each target once from its own root. A repo-scope slot
+(`struct`, `docs`, `links`, `spell`, `prose`) and a top-level custom check keep
+their bare names, run from the repo root and write into the output directory.
+Every other slot runs once for each target whose pack fills it, or whose own
+`checks` or pack block names it, as `<target>:<slot>`. Its entry comes from the
+target's `checks`, then `packs.<pack>.checks`, then the top level's, then
+detection, which reads the target's root: the first of those that picks a tool
+or switches the slot off decides it, and `optIn`, `timeout` and `order` come
+from the highest one that sets each. A target's custom checks, from its own
+block or its pack's, run the same way. Each target's check runs with the
+target root as its working directory and writes into `<out>/<target>/`, so its
+`output_file` is `<target>/<file>`, and `{out}` in its args expands to that
+directory as an absolute path, which keeps two targets' reports apart; a
+repo-scope check's `{out}` is the absolute output directory. A built-in's
+scratch files sit under the working directory's `.check/`, so a target's are at
+`<target root>/.check/`, where they resolve the target's own modules, and its
+skip reason names `./.check` relative to the entry's `cwd`. Before anything
+runs, the run deletes each `<target>/` directory that the output directory's
+previous `summary.json` listed in `targets` and the config no longer declares,
+and nothing else: never a directory the previous summary didn't list, a
+symlink, or one that holds the repo or that target's own root. Without
+`targets` the run is unchanged, apart from clearing those same directories
+when the config has just dropped its `targets`.
+
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,
-then `'last'`s; within a group by catalogue position, then config-key order —
-independent of the order the checks actually *finish*. The same selection
+then `'last'`s; within a group by catalogue position, then repo scope before
+target scope, then target order, then custom checks in config order (the
+top-level ones, then each target's) — independent of the order the checks
+actually *finish*. The same selection
 produces the same array order on every run, even when concurrency interleaves
 completion. `total_duration_ms` is the **wall-clock** duration of the whole run;
 when execution is sequential (including any `--bail` run) it equals the sum of
@@ -200,7 +243,8 @@ described above.
 
 **Raw output stays authoritative.** The per-tool files beside the summary —
 `.check/<slot>.json` when the tool emits JSON, `<slot>.stdout.txt` /
-`<slot>.stderr.txt` otherwise — are the tool's own bytes, never normalized,
+`<slot>.stderr.txt` otherwise, under `<target>/` for a target's check — are the
+tool's own bytes, never normalized,
 reshaped, or filtered. The summary is an index; the raw file is the truth.
 This is the product's thesis and will not change.
 
@@ -249,7 +293,8 @@ what the file is for; this section names what a consumer may rely on.
 
 **The same additive-only discipline as the summary.** Under schema version 1
 the file has two top-level fields and no others: `schema_version`, the integer
-`1`, and `slots`, an object from slot name to an array of key strings. A slot
+`1`, and `slots`, an object from check name to an array of key strings: the
+slot name, or `<target>:<slot>` for a target's check. A slot
 whose adapter can be fingerprinted and had nothing to grandfather is present
 with an empty array; a slot whose adapter has no extractor is absent. Fields
 are added in lockstep with the published schema, never renamed, removed, or
@@ -271,7 +316,10 @@ finding is keyed. Line and column are never part of these keys, so a
 finding keeps its key when unrelated edits move it — the property the ratchet
 and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the extractor documents, and
-add a position only for a finding with no symbol to name.
+add a position only for a finding with no symbol to name. A file in a key is
+named from the repo root: a target's check prints paths relative to its root,
+and the key joins the root on, so `src/a.ts` from a target at `apps/web` keys
+as `apps/web/src/a.ts`. A check at the repo root keeps the path as printed.
 
 **The message inside a key belongs to the tool.** A key carries the tool's own
 wording. A tool upgrade that rewords a message, renames a rule, or restructures
@@ -368,10 +416,13 @@ pointers, and the `triage` and `qa` reports. It's written relative to the
 working directory when it sits inside it, so `.check/` by default, and absolute
 when it sits outside. `{out}` in a check's `args` or `changedArgs`, a custom
 check's included, expands to the same directory: `.check` with no flag or
-variable, so 0.13's argv holds, and the absolute path when one names it.
+variable, so 0.13's argv holds, and the absolute path when one names it. With
+`targets` declared it's always absolute, and a target's check gets its own
+`<dir>/<target>` ([above](#checksummaryjson)).
 Scratch isn't output. `snippets` and `smoke` generate files that have to
-resolve the repo's own modules, so they write under `<repo>/.check/` whatever
-`--out` says, and skip when it can't be written. A run whose directory sits
+resolve the repo's own modules, so they write under the `.check/` of the
+directory they run from, the repo root or a target's root, whatever `--out`
+says, and skip when it can't be written. A run whose directory sits
 outside the repo never ratchets and never writes `checkride.baseline.json`,
 like a `--config` outside it, while `baseline --out` still writes the file at
 the repo root. `gate` strips `CHECKRIDE_OUT` from the check it spawns and reads
@@ -568,9 +619,9 @@ and so is an empty list: the error names the bad token and every valid one. A
 typo like `--only lints` must never quietly disable the gate. The gate checks
 its profile's tokens before it spawns anything, so a bad one is a **could not
 run** that names `gate.only` or `gate.skip` and the valid tokens. It blocks,
-because the repo can fix it, and under `--harness cursor` it still exits 0. No
-run checks targets yet, so a target name or `<target>:<slot>` selects nothing
-for now and is an unknown token.
+because the repo can fix it, and under `--harness cursor` it still exits 0. In
+a repo without `targets`, no check has a target, so a target name or
+`<target>:<slot>` is an unknown token there.
 
 **A config's targets and packs are validated before anything runs.**
 `checkride.config.json` takes `targets` (named targets, each a `lang` pack and
@@ -582,8 +633,8 @@ is written:
 
 - A target name is a lowercase letter and up to 31 more lowercase letters,
   digits and hyphens. It's never a slot's name, `schema` and `unclaimed`
-  included, nor a top-level custom check's, so a selection token means one
-  thing.
+  included, nor any custom check's, at the top level or in a target's or a
+  pack's `checks`, so a selection token means one thing.
 - A root is an existing directory, given relative to the repo root, never
   absolute or through `..`. Two targets of one pack never share or nest their
   roots; targets of different packs may.
@@ -602,9 +653,11 @@ is written:
 - `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
   sets `static`.
 
-`ts` is the only pack so far, and no run acts on `targets`, `packs`,
-`requirePins`, `unclaimed` or `schemas` yet. A config without them resolves
-exactly as before. [`config.test.ts`](../src/__tests__/config.test.ts) holds
+`ts` is the only pack so far. A run checks each declared target as the
+[summary section](#checksummaryjson) describes, while no run acts on
+`requirePins`, `unclaimed` or `schemas` yet. A config without `targets`
+resolves exactly as before: `packs` configures targets, so without them it
+applies to nothing. [`config.test.ts`](../src/__tests__/config.test.ts) holds
 each rule, its message and its exit code.
 
 **Stream discipline:** stdout carries machine output only (the summary JSON

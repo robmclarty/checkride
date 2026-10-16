@@ -953,6 +953,20 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     );
   });
 
+  test("V2 holds a target's name apart from every custom check, a target's or a pack's included", () => {
+    const api = { lang: 'ts', root: 'apps/api' };
+    expect(problem({ targets: { web, api: { ...api, checks: { web: { command: 'node' } } } } })).toMatch(
+      /target name 'web' is taken by the custom check targets\.api\.checks\.web, and a token like --only web has to mean one thing/,
+    );
+    expect(problem({ targets: { web: { ...web, checks: { web: { command: 'node' } } } } })).toMatch(
+      /taken by the custom check targets\.web\.checks\.web/,
+    );
+    expect(problem({ targets: { web }, packs: { ts: { checks: { web: { command: 'node' } } } } })).toMatch(
+      /target name 'web' is taken by the custom check packs\.ts\.checks\.web/,
+    );
+    expect(problem({ targets: { web, api: { ...api, checks: { e2e: { command: 'node' } } } } })).toBeNull();
+  });
+
   test('V1 holds names to a lowercase word of 32 characters at most', () => {
     expect(problem({ targets: { 'web-2': web } })).toBeNull();
     expect(problem({ targets: { [`a${'b'.repeat(31)}`]: web } })).toBeNull();

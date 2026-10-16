@@ -89,11 +89,13 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   const result = await runChecks(runOptions);
 
   // A capture run is never `--changed`, so each check ran its declared args.
+  // Keys go under the check's name, `<target>:<slot>` for a target's check, with
+  // its paths joined onto the target's root, as a run masks with them.
   const slots: Record<string, string[]> = {};
   for (const run of result.runs) {
-    const keys = fingerprint(run.adapter.name, run.outcome.stdout, [run.adapter.command, ...run.adapter.args]);
+    const keys = fingerprint(run.adapter.name, run.outcome.stdout, [run.adapter.command, ...run.adapter.args], run.root);
     if (keys === null) continue;
-    slots[run.slot] = [...keys].toSorted();
+    slots[run.name] = [...keys].toSorted();
   }
 
   const baseline: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots };

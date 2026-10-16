@@ -91,6 +91,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where generated files can resolve the repo's own modules, and skip instead
   of failing the run when it can't be written. The stop gate strips
   `CHECKRIDE_OUT` from the check it runs (#6).
+- **Check each part of a repo from its own root with `targets`.** Declare
+  named targets in `checkride.config.json` (`"web": { "lang": "ts", "root":
+  "apps/web" }`) and the run checks each one once, from its root, as
+  `web:lint`, `web:test` and so on, while `struct`, `docs`, `links`, `spell`,
+  `prose` and top-level custom checks still run once for the whole repo. A
+  target's slot takes its tool from the target's own `checks`, then
+  `packs.<pack>.checks`, then the top level's, then detection at the target's
+  root, and a top-level `timeout`, `order` or `optIn` reaches every target
+  that doesn't set its own. A pack's custom checks run in each of its targets.
+  Each target's output lands in `.check/<target>/` (or under `--out`), with
+  `{out}` pointing there, so two TypeScript targets' vitest reports never
+  overwrite each other, and scratch files sit under the target's own
+  `.check/`. A target the config drops has its directory cleared on the next
+  run, and nothing else in the output directory is touched. The summary lists
+  the run's `targets`, and each check says which `target`, `slot` and `pack`
+  it belongs to and the `cwd` it ran from. Baseline keys for a target's checks
+  sit under `<target>:<slot>` and name files from the repo root, so they stay
+  valid when a later release moves where tools are run from. `checkride fix`
+  runs a target's fixers from its root. Selection tokens such as `--only web`
+  and `--only web:lint` now select these checks.
 
 ### Changed
 
@@ -166,7 +186,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   there does.
 - **An unknown selection name is called a token.** `--only`, `--skip` and
   `--include` say `unknown token 'lints' in --only. Valid tokens: …` in place
-  of `unknown slot`, because the same flags will name targets and
+  of `unknown slot`, because the same flags name targets and
   `<target>:<slot>` checks too (see Contract). The exit code and the list of
   valid names in a repo without targets are unchanged.
 
@@ -191,6 +211,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for `biome`, `ast-grep`, `vale`, `stryker` and `attw`. It now names the
   package that provides the executable, and keeps the executable's name for a
   tool checkride doesn't know.
+- **A slot entry that only tunes the slot now tunes it.** An entry like
+  `"lint": { "timeout": 60, "order": 1 }`, which leaves the tool to
+  detection, used to have its `timeout` and `order` ignored, though the
+  published schema describes them as tuning the slot. Both now apply to the
+  tool detection picks, and an `order` that isn't a number or a keyword is a
+  config error there as everywhere else. A config without such an entry runs
+  as before.
 
 ### Contract
 
@@ -261,19 +288,39 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Additive: the config keys `targets`, `packs`, `requirePins` and
   `unclaimed`, in the JSON Schema and the exported `CheckrideConfig` type,
   with the rules `docs/contract.md` lists. A config that breaks one exits 2
-  before anything runs, and `schema` and `unclaimed` are reserved as target
-  names ahead of their slots. The schema's slot entry also takes an object
-  that only tunes a detected slot (`optIn`, `timeout`, `order`, `note`),
-  which the loader always accepted. `ts` is the only pack so far, and no run
-  acts on the new keys yet, so a config without them resolves as before.
+  before anything runs, `schema` and `unclaimed` are reserved as target
+  names ahead of their slots, and a target can't share a name with any
+  custom check, a target's or a pack's included. The schema's slot entry
+  also takes an object that only tunes a detected slot (`optIn`, `timeout`,
+  `order`, `note`), which the loader always accepted. `ts` is the only pack
+  so far, runs act on `targets` and `packs` but not yet on `requirePins` or
+  `unclaimed`, and a config without `targets` resolves as before.
 - Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
   take selection tokens: a slot or custom-check name, a target name (every
   check of that target a full run would run), or `<target>:<slot>` (one
   check). A bare slot selects it in every target whose pack fills it.
   `docs/contract.md` has the table. Naming a slot still opts it in, and a
   target token opts in nothing. In a repo without targets every token is a
-  slot or custom-check name, as before, and no run checks targets yet, so a
-  target name is an unknown token for now.
+  slot or custom-check name, as before.
+- Additive: with `targets` declared, a target-scope check is named
+  `<target>:<slot>`, runs from its target's root and writes into
+  `<out>/<target>/`, so its `output_file` is `<target>/<file>` and `{out}` in
+  its args is that absolute directory; a repo-scope check's `{out}` is the
+  absolute output directory. The summary gains top-level `targets` (each
+  `{ name, pack, root }`, with `discovered` defined ahead of `--discover`)
+  and per-check `target`, `slot`, `pack` and `cwd`, in the JSON Schema, the
+  contract doc's field tables and `summary.contract.test.ts`. `checks` keeps
+  target order within a slot, and the top-level custom checks before each
+  target's. A run first deletes the `<target>/` directories that the output
+  directory's previous summary listed and the config dropped, and nothing
+  else. Baseline entries for a target's checks are keyed `<target>:<slot>`,
+  with paths joined onto the target's root. The exported `ResolvedCheck`
+  type gains optional `target`, `root` and `pack`, `SummaryCheck` gains
+  `target`, `slot`, `pack` and `cwd`, `Summary` gains `targets`, the
+  `CheckRun` entries of `RunResult.runs` gain `name` and `root`, and
+  `resolveChecks` resolves each target's slots against its pack's rows in
+  `PACKS`. Without `targets`, names, argv, output files and summaries are
+  unchanged, and `test/contract/targets.contract.test.ts` holds the rest.
 
 ### Internal
 

@@ -10,16 +10,22 @@
  *   2. otherwise detection — the first registry adapter for the slot whose
  *      `detect` files exist (or whose `detect` is empty, that is, always available).
  *   3. otherwise the slot is skipped (skipped ≠ failed).
+ *
+ * With `targets` declared, each target resolves its pack's slots that way from
+ * its own root, and its entry comes from the target, then `packs`, then the top
+ * level (D10).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative, resolve } from 'node:path';
+import { join, posix, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
 import { isRecord } from './json.js';
 import type { Pack } from './packs/index.js';
-import { configProblem, presetProblem, skipExitCodeProblem } from './targets/index.js';
+import { PACKS } from './packs/index.js';
+import type { Target } from './targets/index.js';
+import { configProblem, configuredTargets, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -302,6 +308,23 @@ export type ResolvedCheck = {
    * Absent on every adapter-backed check and on custom checks that declare none.
    */
   skipExitCode?: number;
+  /**
+   * In multi-target mode, the target a target-scope check belongs to: it runs
+   * as `<target>:<slot>`. Absent on repo-scope and top-level custom checks, and
+   * on every check in implicit mode.
+   */
+  target?: string;
+  /**
+   * With {@link target}, the directory the check runs from: its target's root,
+   * relative to the repo root, with `.` for the root itself.
+   */
+  root?: string;
+  /**
+   * In multi-target mode, the pack that fills the check: its target's for a
+   * target-scope check, and `repo` for one that checks the repo as a whole,
+   * a top-level custom check included. Absent in implicit mode.
+   */
+  pack?: string;
 };
 
 const CONFIG_FILE = 'checkride.config.json';
@@ -887,6 +910,29 @@ function resolveObjectEntry(
   return null;
 }
 
+/** A config entry in object form: `{ use }`, `{ command }`, or tuning alone. */
+type EntryObject = Exclude<SlotConfig, string | false>;
+
+/** True for an entry in object form; a hand-built config's `null` reads as no entry, as it always has. */
+function isEntryObject(entry: SlotConfig | undefined): entry is EntryObject {
+  return Boolean(entry) && typeof entry === 'object';
+}
+
+/**
+ * A detected adapter with the `timeout` and `order` of the tuning entry that
+ * left the tool to detection, so the entry changes how the slot runs and not
+ * which tool fills it.
+ */
+function tuned(adapter: Adapter, entry: SlotConfig | undefined, context: string): Adapter {
+  if (!isEntryObject(entry)) return adapter;
+  const order = readOrder(entry, context);
+  return {
+    ...adapter,
+    ...(entry.timeout !== undefined ? { timeout: entry.timeout } : {}),
+    ...(order !== undefined ? { order } : {}),
+  };
+}
+
 function resolveConfigOrDetect(
   slot: Slot,
   entry: SlotConfig | undefined,
@@ -907,7 +953,7 @@ function resolveConfigOrDetect(
   }
   const detected = detectAdapter(slot.name, adapters, fileExists, manifest);
   if (!detected) return skipped(slot, undetectedReason(slot.name, adapters), explicit);
-  return active(slot, detected.adapter, fromDetection(detected.signal));
+  return active(slot, tuned(detected.adapter, entry, slot.name), fromDetection(detected.signal));
 }
 
 function resolveOne(
@@ -990,42 +1036,176 @@ function lineValue(order: Order): number {
   return typeof order === 'number' ? order : 0;
 }
 
-/**
- * Resolve every catalogue slot (in SLOTS order) to an adapter or a skip reason,
- * fold in the config-only custom checks (config key order), then sort into the
- * group sequence: firsts, the numeric line ascending (`'any'`/`'middle'` at 0),
- * singles, lasts. The natural order — catalogue before customs — is the stable
- * within-group tie-break, so within any group catalogue members keep SLOTS order
- * and precede customs, which keep config-key order. The orchestrator's wave
- * scheduler waves on the same effective `order`.
- */
-export function resolveChecks(input: {
+/** What {@link resolveChecks} resolves from. */
+type ResolveInput = {
   slots: readonly Slot[];
+  /**
+   * The adapters a check at the repo root resolves against: every check in
+   * implicit mode, and the repo-scope ones in multi-target mode, where each
+   * target resolves against its own pack's rows in `PACKS`.
+   */
   adapters: readonly Adapter[];
   config: CheckrideConfig | null;
   cwd?: string;
+  /** Answers for a path relative to the repo root, a target's files included. */
   fileExists?: (file: string) => boolean;
   /**
    * package.json signals for `detectScript`/`detectDeps` detection; read from
-   * `cwd` when omitted (tests inject an empty manifest to stay hermetic).
+   * `cwd` (or a target's root) when omitted (tests inject an empty manifest to
+   * stay hermetic, and it then stands for every directory).
    */
   manifest?: { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
-}): ResolvedCheck[] {
+};
+
+/** How detection reads one directory: which files sit there, and its package.json. */
+type Detection = { fileExists: (file: string) => boolean; manifest: Manifest };
+
+/** Detection at `root`, a directory relative to the repo root, with `.` for the root itself. */
+function detectionAt(input: ResolveInput, root: string): Detection {
   const cwd = input.cwd ?? process.cwd();
-  const fileExists = input.fileExists ?? ((file: string) => existsSync(join(cwd, file)));
+  const injected = input.fileExists;
+  const fileExists = injected
+    ? (file: string) => injected(root === '.' ? file : posix.join(root, file))
+    : (file: string) => existsSync(join(cwd, root, file));
   // Read package.json only against an explicit `cwd`; a caller that injects just
   // `fileExists` (a test, `inventory`) wants detection driven by that alone, not
   // the ambient process cwd — so it gets an empty manifest unless one is passed.
-  const manifest = input.manifest ?? (input.cwd !== undefined ? readManifest(input.cwd) : EMPTY_MANIFEST);
+  const manifest = input.manifest ?? (input.cwd !== undefined ? readManifest(join(input.cwd, root)) : EMPTY_MANIFEST);
+  return { fileExists, manifest };
+}
+
+/** Implicit mode: every catalogue slot, then every custom check, at the repo root. */
+function implicitChecks(input: ResolveInput, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+  const { fileExists, manifest } = detectionAt(input, '.');
   const checks = input.config?.checks ?? {};
-  const catalogue = input.slots.map((slot) =>
-    resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest),
+  const catalogue = input.slots.map((slot) => resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest));
+  return [...catalogue, ...foldCustomChecks(checks, catalogueNames, fileExists)];
+}
+
+/** One target as resolution reads it: its pack's adapters, the two blocks above the top level, and detection at its root. */
+type TargetScope = {
+  target: Target;
+  adapters: readonly Adapter[];
+  /** `targets.<name>.checks`, the highest layer. */
+  own: Readonly<Record<string, SlotConfig>>;
+  /** `packs.<pack>.checks`, below the target's own and above the top level. */
+  pack: Readonly<Record<string, SlotConfig>>;
+  detection: Detection;
+};
+
+function targetScope(input: ResolveInput, target: Target): TargetScope {
+  const packs: Readonly<Record<string, PackConfig | undefined>> = input.config?.packs ?? {};
+  const rows = Object.values(PACKS).find((p) => p.name === target.pack);
+  return {
+    target,
+    adapters: rows?.adapters ?? [],
+    own: input.config?.targets?.[target.name]?.checks ?? {},
+    pack: packs[target.pack]?.checks ?? {},
+    detection: detectionAt(input, target.root),
+  };
+}
+
+/** True for an entry that decides a check: an adapter's name, `false`, `{ use }` or `{ command }`. */
+function decides(entry: SlotConfig | undefined): boolean {
+  return typeof entry === 'string' || entry === false || (isEntryObject(entry) && ('use' in entry || 'command' in entry));
+}
+
+/**
+ * The tuning a target's check runs with: each of `optIn`, `timeout` and
+ * `order` from the highest layer that sets it, so a target's `timeout` beats
+ * its pack's, and the top level's `optIn` reaches every target that sets none.
+ * Every layer's values are validated, the ones a higher layer beat included.
+ */
+function layerTuning(layers: readonly (SlotConfig | undefined)[], context: string): SlotTuning {
+  const objects = layers.filter(isEntryObject);
+  for (const o of objects) checkNote(o, context);
+  const optIn = objects.map((o) => readOptIn(o, context)).find((v) => v !== undefined);
+  const order = objects.map((o) => readOrder(o, context)).find((v) => v !== undefined);
+  const timeout = objects.map((o) => o.timeout).find((v) => v !== undefined);
+  return {
+    ...(optIn !== undefined ? { optIn } : {}),
+    ...(timeout !== undefined ? { timeout } : {}),
+    ...(order !== undefined ? { order } : {}),
+  };
+}
+
+/**
+ * The one entry a target's check resolves from (D10), given its layers highest
+ * first: the target's own, its pack's, then the top level's. The highest layer
+ * that picks a tool, or switches the check off, decides it, and the tuning of
+ * every layer applies over it ({@link layerTuning}). With no layer deciding,
+ * detection picks the tool.
+ */
+function layeredEntry(layers: readonly (SlotConfig | undefined)[], context: string): SlotConfig | undefined {
+  const decider = layers.find(decides);
+  if (decider === false) return false;
+  const tuning = layerTuning(layers, context);
+  if (typeof decider === 'string') return Object.keys(tuning).length > 0 ? { use: decider, ...tuning } : decider;
+  if (decider !== undefined) return { ...decider, ...tuning };
+  return layers.some(isEntryObject) ? tuning : undefined;
+}
+
+/** In multi-target mode, mark a check as one that checks the repo as a whole, from its root. */
+function inRepo(check: ResolvedCheck): ResolvedCheck {
+  return { ...check, pack: PACKS.repo.name };
+}
+
+/** Mark a check as `target`'s: it runs as `<target>:<slot>`, from the target's root. */
+function inTarget(check: ResolvedCheck, target: Target): ResolvedCheck {
+  return { ...check, target: target.name, root: target.root, pack: target.pack };
+}
+
+/**
+ * The target's check for catalogue slot `slot`, or `null` when it has none:
+ * its pack fills no such slot, and neither the target nor the pack configures
+ * one. The top-level entry, which V6 holds to `false` or tuning, reaches only
+ * the targets whose pack fills the slot. Detection reads the target's root.
+ */
+function targetSlotCheck(slot: Slot, scope: TargetScope, top: SlotConfig | undefined): ResolvedCheck | null {
+  const own = scope.own[slot.name];
+  const pack = scope.pack[slot.name];
+  if (own === undefined && pack === undefined && !scope.adapters.some((a) => a.slot === slot.name)) return null;
+  const { fileExists, manifest } = scope.detection;
+  const entry = layeredEntry([own, pack, top], slot.name);
+  return inTarget(resolveOne(slot, entry, scope.adapters, fileExists, manifest), scope.target);
+}
+
+/**
+ * The target's custom checks: each name outside the catalogue that its pack's
+ * block or its own declares, pack names first, each resolved from the target's
+ * entry over its pack's as a slot is. A `detect` gate reads the target's root.
+ */
+function targetCustomChecks(scope: TargetScope, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+  const names = Object.keys({ ...scope.pack, ...scope.own }).filter((name) => !catalogueNames.has(name));
+  return names.flatMap((name) => {
+    const entry = layeredEntry([scope.own[name], scope.pack[name]], name);
+    const check = entry === undefined ? null : customCheckEntry(name, entry, scope.detection.fileExists);
+    return check === null ? [] : [inTarget(check, scope.target)];
+  });
+}
+
+/**
+ * Multi-target mode: each repo-scope slot once at the repo root, each
+ * target-scope slot once for every target that has it, in target order, then
+ * the top-level custom checks at the repo root, then each target's own. That
+ * natural order is the tie-break the group sort keeps (R8.4).
+ */
+function targetChecks(input: ResolveInput, targets: readonly Target[], catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+  const { fileExists, manifest } = detectionAt(input, '.');
+  const checks = input.config?.checks ?? {};
+  const scopes = targets.map((target) => targetScope(input, target));
+  const catalogue = input.slots.flatMap((slot) =>
+    slot.scope === 'repo'
+      ? [inRepo(resolveOne(slot, checks[slot.name], input.adapters, fileExists, manifest))]
+      : scopes.flatMap((scope) => targetSlotCheck(slot, scope, checks[slot.name]) ?? []),
   );
+  const customs = foldCustomChecks(checks, catalogueNames, fileExists).map(inRepo);
+  return [...catalogue, ...customs, ...scopes.flatMap((scope) => targetCustomChecks(scope, catalogueNames))];
+}
 
-  const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const customs = foldCustomChecks(checks, catalogueNames, fileExists);
-
-  return [...catalogue, ...customs]
+/** Sort into the group sequence, keeping the given order within a group. */
+function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
+  return checks
     .map((check, i) => ({ check, i }))
     .toSorted((a, b) => {
       const orderA = a.check.order ?? 'any';
@@ -1036,4 +1216,26 @@ export function resolveChecks(input: {
       return byLine !== 0 ? byLine : a.i - b.i;
     })
     .map(({ check }) => check);
+}
+
+/**
+ * Resolve every catalogue slot (in SLOTS order) to an adapter or a skip reason,
+ * fold in the config-only custom checks (config key order), then sort into the
+ * group sequence: firsts, the numeric line ascending (`'any'`/`'middle'` at 0),
+ * singles, lasts. The natural order — catalogue before customs — is the stable
+ * within-group tie-break, so within any group catalogue members keep SLOTS order
+ * and precede customs, which keep config-key order. The orchestrator's wave
+ * scheduler waves on the same effective `order`.
+ *
+ * With `targets` declared, a repo-scope slot still resolves once at the repo
+ * root, and a target-scope slot once for each target that has it, from that
+ * target's root and against its pack's adapters, in the order D10 sets: the
+ * target's entry, then its pack's, then the top level's, then detection. The
+ * catalogue checks then sit in target order within a slot, and the top-level
+ * custom checks before each target's own (R8.4).
+ */
+export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
+  const catalogueNames = new Set(input.slots.map((s) => s.name));
+  const targets = configuredTargets(input.config);
+  return sortByGroup(targets === null ? implicitChecks(input, catalogueNames) : targetChecks(input, targets, catalogueNames));
 }

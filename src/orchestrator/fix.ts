@@ -10,7 +10,9 @@ import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
 import type { PackageManager } from '../launch/index.js';
 import { detectPackageManager, launchFix } from '../launch/index.js';
+import { checkName } from '../targets/index.js';
 import { resolveCommonOptions } from './context.js';
+import { checkCwd } from './place.js';
 import { nameWidth, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
 import type { Out, RunFlags } from './types.js';
@@ -63,15 +65,16 @@ const defaultFixRunner: FixRunner = (adapter, ctx) => {
  * neither fails the fix nor counts as one that ran.
  */
 function reportFix(stderr: Out, r: ResolvedCheck, outcome: FixOutcome): 'ok' | 'skipped' | 'failed' {
+  const name = checkName(r);
   if (outcome.exit_code === r.skipExitCode) {
-    writeLine(stderr, `  ○ ${r.slot} skipped (exit ${outcome.exit_code})`);
+    writeLine(stderr, `  ○ ${name} skipped (exit ${outcome.exit_code})`);
     return 'skipped';
   }
-  writeLine(stderr, outcome.ok ? `  ✔ ${r.slot}` : `  ✘ ${r.slot} (exit ${outcome.exit_code})`);
+  writeLine(stderr, outcome.ok ? `  ✔ ${name}` : `  ✘ ${name} (exit ${outcome.exit_code})`);
   return outcome.ok ? 'ok' : 'failed';
 }
 
-/** Run every active adapter's `fixArgs` (`checkride fix`). */
+/** Run every active adapter's `fixArgs` (`checkride fix`), a target's from its root. */
 export async function runFix(options: FixOptions): Promise<FixResult> {
   const { cwd, slots, adapters, config, stderr } = resolveCommonOptions(options);
   const fixRunner = options.fixRunner ?? defaultFixRunner;
@@ -92,9 +95,9 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
   for (const r of fixable) {
     const adapter = r.adapter;
     if (!adapter) continue;
-    writeLine(stderr, `  ▸ fix ${r.slot.padEnd(width)} (${adapter.name})`);
+    writeLine(stderr, `  ▸ fix ${checkName(r).padEnd(width)} (${adapter.name})`);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.
-    const outcome = await fixRunner(adapter, { cwd, pm });
+    const outcome = await fixRunner(adapter, { cwd: checkCwd(cwd, r), pm });
     const result = reportFix(stderr, r, outcome);
     if (result !== 'skipped') ran.push(adapter.name);
     if (result === 'failed') ok = false;

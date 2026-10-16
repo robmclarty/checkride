@@ -5,5 +5,6 @@
  * siblings import from `../targets/index.js`, never from a file inside it.
  */
 
-export { configProblem, presetProblem, skipExitCodeProblem } from './resolve.js';
+export { configProblem, configuredTargets, presetProblem, skipExitCodeProblem } from './resolve.js';
+export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';

@@ -618,7 +618,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/config.ts`, `src/targets/resolve.ts`, `schema/checkride.config.schema.json`,
       `src/__tests__/config.test.ts`, `docs/contract.md`
     - model: opus (twelve rules, each with an exact message)
-26. [ ] feat(select): select checks with the target token grammar, **done when:** `--only`, `--skip`, `--include`, `gate.only` and `gate.skip` accept R5.2's grammar; an unknown token exits 2 and lists the valid ones; a table test covers every row (S2, F18)
+26. [x] feat(select): select checks with the target token grammar, **done when:** `--only`, `--skip`, `--include`, `gate.only` and `gate.skip` accept R5.2's grammar; an unknown token exits 2 and lists the valid ones; a table test covers every row (S2, F18)
     - seam: `src/targets/tokens.ts`, `src/orchestrator/select.ts`, `src/gate.ts`
     - model: sonnet
 27. [ ] feat(run): run target-scope slots once per target, **done when:** each target resolves its slots in [D10 (resolution-order)](#d10)'s order with the target root as working directory; checks are named `<target>:<slot>` and write under `<out>/<target>/`; a run deletes only the directories of targets the previous summary listed and the config dropped (R9), and a test proves an unrelated folder under `--out` survives; the summary carries `target`, `slot`, `pack`, `cwd` and the top-level `targets`, held by the schema and contract test; `checks` follows R8.4's order; `{out}` and scratch resolve per [D48 (out-per-target)](#d48), and a case with two ts targets finds both vitest reports where the summary says; target-scope baseline keys carry repo-root-relative paths ([D50 (key-rebasing)](#d50))

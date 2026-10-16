@@ -10,7 +10,7 @@ import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { isInside, SUMMARY_FILE } from '../artifacts/index.js';
+import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
@@ -18,13 +18,14 @@ import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
+import type { Target } from '../targets/index.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, validateSelection } from './select.js';
 import { resetInterrupt } from './spawn.js';
-import type { RunOptions, RunResult, SummaryGit, SummaryRun } from './types.js';
+import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
  * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
@@ -61,6 +62,11 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
 function gitRecord(state: GitState | null, base: ChangedBase | null): SummaryGit | null {
   if (state === null) return null;
   return base?.sha ? { ...state, base: { ref: base.ref, sha: base.sha } } : state;
+}
+
+/** The summary's `targets`: each configured target in config order, or `null` in implicit mode. */
+function targetsRecord(targets: readonly Target[] | null): SummaryTarget[] | null {
+  return targets === null ? null : targets.map(({ name, pack, root }) => ({ name, pack, root }));
 }
 
 /**
@@ -149,6 +155,9 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   const gitQuery = readGitState(realGit(base.cwd, GIT_STATE_TIMEOUT_MS));
 
   await mkdir(base.out, { recursive: true });
+  // A target the config dropped leaves a directory no run refreshes again;
+  // clear it, and nothing the previous summary didn't list as a target (R9).
+  await pruneDroppedTargets(base.out, base.cwd, (base.targets ?? []).map((t) => t.name));
 
   const selected = selectChecks(resolved, options);
   // The status-line column is sized once the selection is known, so a long
@@ -182,8 +191,14 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"
   // about itself.
-  const reported = [...checks, ...narrowedEntries(resolved, selected, options)];
-  const summary = buildSummary(reported, totalDurationMs, runRecord(options, ctx.cwd, partial), gitRecord(gitState, changedBase));
+  const reported = [...checks, ...narrowedEntries(resolved, selected, options, ctx.targets !== null)];
+  const summary = buildSummary(
+    reported,
+    totalDurationMs,
+    runRecord(options, ctx.cwd, partial),
+    gitRecord(gitState, changedBase),
+    targetsRecord(ctx.targets),
+  );
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.

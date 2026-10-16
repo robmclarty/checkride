@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 26 — feat(select): select checks with the target token grammar
+**Current step:** 27 — feat(run): run target-scope slots once per target
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -48,7 +48,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 23. refactor(resources): read bundled files through one module
 - ☑ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
 - ☑ 25. feat(config): accept targets and packs blocks with their validation
-- ☐ 26. feat(select): select checks with the target token grammar
+- ☑ 26. feat(select): select checks with the target token grammar
 - ☐ 27. feat(run): run target-scope slots once per target
 - ☐ 28. feat(run): never overlap checks that share a lock key
 - ☐ 29. feat(changed): skip unaffected targets under --changed
@@ -124,8 +124,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
 - [x] publish.yaml runs pnpm test:e2e with no mise toolchains and no CHECKRIDE_REQUIRE_TOOLCHAINS, so once pack e2e cases land, a release would publish with them skipped; give it the same jdx/mise-action step as ci.yml
 - [x] R2.3: a config error from a --config file (and later --defaults/--pins) should name that path in place of checkride.config.json; invalidConfig in src/config.ts hardcodes the repo file name today, even for resolve-time errors that never see the path
-- [ ] V2 doesn't stop a target's or a packs block's custom check from sharing a target's name, so a bare token like --only web would select both target web and api:web; extend V2 in src/targets/resolve.ts
-- [ ] only-wins-over-skip: as in 0.13, --only ignores --skip, so '--only api --skip api:test' runs all of api; decide whether --skip should narrow within --only once target tokens select many checks
+- [x] V2 doesn't stop a target's or a packs block's custom check from sharing a target's name, so a bare token like --only web would select both target web and api:web; extend V2 in src/targets/resolve.ts
+- [x] only-wins-over-skip: as in 0.13, --only ignores --skip, so '--only api --skip api:test' runs all of api; decide whether --skip should narrow within --only once target tokens select many checks
+- [ ] a ts target whose root declares its own package manager (a lockfile or packageManager field) still launches under the repo root's: detect per target, nearest declaration from the target root up to the repo root (src/launch/package-manager.ts); step 30's launcher work or step 39's example is where it bites
+- [ ] without targets, a packs block (a preset's included) applies to nothing: R3 ranks packs above top-level checks, so reading it in implicit mode would let a preset's pack default beat the repo's own checks entry; decide whether implicit mode reads packs below checks or ignores it (step 53's defaults layer resolves its own packs block and needs the same answer)
+- [ ] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -163,6 +166,8 @@ Harvest results this boundary:
 - After step 22: "checkride fix never pre-flights..." → **tangent**, deferred to step 30 (the run path still refuses the undeclared tool, so the gate can't go green on it, and the gap is only a fix writing with a cached copy; step 30 rewrites resolution around R6.2's no-fall-through rule in `src/launch/`, where `launchFix` lives, so it decides whether the fix path walks the same chain and refuses the same way).
 - After step 24: "publish.yaml runs pnpm test:e2e with no mise toolchains..." → **tangent**, deferred to step 39 (nothing can skip until a pack has e2e cases, and CI on `main` already requires every toolchain on the same commit before the tag, so the publish run is a second proof, not the only one; step 39 adds the first pack e2e cases and closes Phase 6, the first release that would publish with them skipped, so it gives `publish.yaml` the same `jdx/mise-action` step and `CHECKRIDE_REQUIRE_TOOLCHAINS: '1'` as `ci.yml`; `.github/workflows/publish.yaml` sits outside step 39's seam, so add it via `/plumbbob:step 39` or accept a one-file stray).
 - After step 25: "R2.3: a config error from a --config file..." → **tangent**, deferred to step 53 (nothing is blocked, since a broken `--config` file still exits 2 and the message names the offending key, only the file-name prefix is wrong; step 53's `--defaults` is where it matters, because F36's "a defaults file with `targets` exits 2" is only useful if the error names the defaults file, and its seam already holds `src/config.ts` and `src/cli.ts`; step 53 decides whether resolve-time errors, which never see the path, get the label threaded through or only load-time errors name the file, and `--pins` at step 55 reuses whatever it builds).
+- After step 26: "V2 doesn't stop a target's or a packs block's custom check from sharing a target's name..." → **tangent**, deferred to step 27 (nothing can collide until step 27 creates the first `<target>:<slot>` checks, and the cost is over-selection, a bare `web` selecting both target `web` and `api:web`, never a false green; step 27's seam holds `src/targets/` and `src/config.ts`, so it extends V2's `nameProblem` in `src/targets/resolve.ts` to every `targets.<t>.checks` and `packs.<p>.checks` custom name; its done-when doesn't name the fix, and the S3 cases live in `src/__tests__/config.test.ts`, which sits outside its seam, so add it via `/plumbbob:step 27` or accept a one-file stray).
+- After step 26: "only-wins-over-skip: as in 0.13, --only ignores --skip..." → **tangent**, deferred to step 29 (0.13's rule stands today and step 26's S2 table pins it, but a gate profile with both keys prints `without <x>` in its verdict even when `<x>` ran, because `profileClause` in `src/gate.ts` reads the profile rather than what ran; misleading, never a false green; step 29's seam holds `src/orchestrator/select.ts`, so it decides between letting `--skip` narrow within `--only` (a CHANGELOG Changed entry and an updated S2 row in `src/targets/__tests__/tokens.test.ts`) and keeping `--only` winning while fixing the gate's clause; `src/gate.ts` and the test file sit outside its seam, so add them via `/plumbbob:step 29` or accept a two-file stray).
 
 ## Log
 
@@ -1544,3 +1549,58 @@ folder, so it rides the branch into the PR.)*
   The done-when asks for V8 now, but adds `schemas` to the accepted keys only at step 66. So the loader checks a `schemas` rule's `schema` (bundled `checkride:<id>` or a repo-relative path, never a URL, which C4 (no-network) forbids). The key stays out of the JSON schema and the TS type until the slot ships. The contract paragraph says no run uses `targets`, `packs`, `requirePins`, `unclaimed` or `schemas` yet, following D55 (run-fields-ahead).
 
   Parked: R2.3 says errors from a `--config` file should name that path instead of `checkride.config.json`. Every `invalidConfig` hardcodes the repo file name, including resolve-time errors that never see the path. Step 53 needs the same thing for `--defaults`, and its seam holds `src/config.ts` and `src/cli.ts`.
+
+- 2026-10-16 — step 26 checkpointed · 7ece7e05b — feat(select): select checks with the target token grammar (1 drift, 27m)
+
+  **Summary**: `--only`, `--skip` and `--include` now take R5.2's tokens (a slot or custom-check name, a target, or `<target>:<slot>`), and so does a gate profile. A token that selects no check exits 2 and lists every valid token. In a repo without targets every token is a slot or custom-check name, so selection behaves exactly as before, and the invariance golden passes unchanged.
+
+  1. The grammar lives in one new module, and selection matches through it
+  2. A target token leaves that target's opt-in slots out
+  3. The gate checks its profile's tokens before it spawns anything
+  4. The S2 table covers every R5.2 row over checks the step builds by hand
+  5. Nine paths outside the seam, and two parks
+
+  **Readout**: Step 26 - feat(select): select checks with the target token grammar
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 9 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - schema/checkride.config.schema.json
+               - src/__tests__/gate.test.ts
+               - src/cli.ts
+               - src/config.ts
+               - src/orchestrator/report.ts
+               - src/targets/index.ts
+               - src/targets/__tests__/tokens.test.ts
+  diff         +468 -51 across 12 files
+  spent        27 min · 1 turn · 28s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 26. The table covers every R5.2 row and twelve unknown tokens, implicit-mode selection is unchanged and the golden agrees, and the gate check routes through the existing contract instead of around it; the one call worth a second look is highlight 2's reading of a target token.
+
+  **1.** The grammar lives in one new module, and selection matches through it
+
+  `src/targets/tokens.ts` holds the grammar as four small functions. `checkName` gives `<target>:<slot>`, or the bare slot when a check has no target. `selectedBy` matches a token against a check's slot, target or full name. `namedBy` is true only when a token names the check itself. `tokenProblem` returns the empty-list or unknown-token message with the valid tokens. Valid tokens are built from the resolved checks, bare names first, then target names, then each `<target>:<slot>`, so in implicit mode the list is today's slot list in today's order. `src/orchestrator/select.ts` now calls these functions instead of comparing `r.slot` against a list. The module types a check structurally as `{ slot, target? }`, so when step 27 adds `target` to `ResolvedCheck`, target tokens start selecting with no edit here. The message now says `unknown token 'lints' in --only. Valid tokens: …` where it said `unknown slot`. The contract test only asserts the bad name and `types`, so it still passes untouched.
+
+  **2.** A target token leaves that target's opt-in slots out
+
+  R5.2 says a target token selects "every check of that target", and F18 says `--only api` "runs all of api". I read that as what a full run would run for `api`. Otherwise `--only web` would also start web's stryker run, its `pnpm audit` and its publint, attw and pack checks. The existing rule still holds: naming a slot opts it in, so `--only format` or `--only web:format` runs an opt-in slot. A target token names no slot, so its opt-in slots join only through `--all` or an `--include` token, and `--include web` opts in all of web's. In implicit mode every `--only` token names its check, so the old `only.includes(slot)` short-circuit gives the same answer as before. If you want the other reading, it's a one-line change in `selectChecks`.
+
+  **3.** The gate checks its profile's tokens before it spawns anything
+
+  `gate.only` and `gate.skip` already reach the run as `--only` and `--skip`, so they took the grammar for free. A typo was still badly reported, though: the run refused a flag nobody typed, and the gate found no summary and reported a red that pointed the agent at `.check/`. `src/gate.ts` now resolves the checks and runs `tokenProblem` on the profile first. A bad token is a **could not run** that names `gate.only` or `gate.skip` and the valid tokens. It blocks, because the repo can fix it. I first wrote it as a thrown error, then saw that the contract promises `--harness cursor` always exits 0. So it goes through `reportRed`: exit 2 with a block under Claude Code, and exit 0 with a `followup_message` under Cursor. That's the one place "exits 2" bends, and it follows the existing gate contract. The gate's clock now starts before this check, so its elapsed time covers it.
+
+  **4.** The S2 table covers every R5.2 row over checks the step builds by hand
+
+  No run produces targeted checks until step 27, so `src/targets/__tests__/tokens.test.ts` builds them by hand: three targets of three packs (one without `types`, one with its own custom check), the repo-scope slots and a top-level custom check. Its 46 cases cover each R5.2 row under `--only`, then `--skip` and `--include` with the same tokens, then the implicit-mode rows, including "`--only` wins over `--skip`". Twelve unknown tokens are each checked against the exact message: `lints`, `API`, `api:`, `:lint`, `api:nope`, `nope:lint`, `api:lint:x`, `scripts:types` (a slot that target's pack lacks), `api:links` and `web:licenses` (no target owns them), and `app` and `app:lint` in a repo without targets. Three gate tests cover the Claude block, the Cursor followup at exit 0, and a profile checked against the config's own custom checks.
+
+  **5.** Nine paths outside the seam, and two parks
+
+  The new test file and the targets barrel come with the module. `src/orchestrator/report.ts` changed so narrowed summary rows key on the check's name and take their `skipped by --skip` reason from the same matcher. Without that, `--only web:lint` would hide `api:lint` from the narrowed rows once targets run. The C11 (docs-in-step) set: `docs/contract.md` gains the token table and the gate's behavior, `CHANGELOG.md` gets two Changed entries and one Contract entry, and the help text, the `GateProfile` comment and the schema's `gate.only` and `gate.skip` descriptions now say tokens. `src/__tests__/gate.test.ts` holds the gate cases. Parked: V2 doesn't stop a target's own custom check from taking another target's name, so a bare token would select both. Also parked: `--only` still ignores `--skip`, so `--only api --skip api:test` runs all of `api`.

@@ -249,6 +249,31 @@ describe('fallowVerdict (with baseline)', () => {
 // guard and left the whole slot permanently red after `checkride baseline`.
 // ---------------------------------------------------------------------------
 
+describe("fallowVerdict (a target's keys name files from the repo root, D50)", () => {
+  test("a baseline of repo-root-relative keys masks the same findings run from the target's root", () => {
+    const raw = deadCode([['unused_files', 'src/a.ts']]);
+    expect(fallowVerdict(raw, ['dead-code:unused_files:apps/web/src/a.ts'], 'apps/web')).toMatchObject({ ok: true, baselined: 1, newKeys: [] });
+    // A key written from the repo root names another file, so it masks nothing here.
+    expect(fallowVerdict(raw, ['dead-code:unused_files:src/a.ts'], 'apps/web')).toMatchObject({
+      ok: false,
+      newKeys: ['dead-code:unused_files:apps/web/src/a.ts'],
+    });
+  });
+
+  test('a cycle keys each file it passes through from the repo root, and health keys its path', () => {
+    const cycle = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 1, circular_dependencies: 1 },
+      circular_dependencies: [{ files: ['src/b.ts', 'src/a.ts'] }],
+    });
+    expect([...fallowVerdict(cycle, null, 'apps/web').findings]).toEqual(['dead-code:circular_dependencies:apps/web/src/a.ts->apps/web/src/b.ts']);
+    expect([...fallowVerdict(health([{ path: 'src/x.ts', name: 'tangled' }]), null, 'apps/web').findings]).toEqual([
+      'health:apps/web/src/x.ts:tangled',
+    ]);
+  });
+});
+
 describe('fallowVerdict (key collisions coarsen the baseline; un-keyable findings still block it)', () => {
   test('health: two anonymous findings that key identically still baseline to green', () => {
     // Two <arrow> functions at the same spot collide on one key. Capturing then

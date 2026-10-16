@@ -144,6 +144,49 @@ describe('fingerprint — extraction', () => {
   });
 });
 
+/** Every key of `adapter` over `raw`, run from `root` and from the repo root. */
+function bothKeys(adapter: string, raw: string, root: string): [string[], string[]] {
+  return [[...(fingerprint(adapter, raw, undefined, root) ?? [])].toSorted(), [...(fingerprint(adapter, raw) ?? [])].toSorted()];
+}
+
+/** An oxlint report with one error diagnostic on `filename`. */
+function oxlintOn(filename: string): string {
+  return JSON.stringify({ diagnostics: [{ filename, code: 'eslint(x)', message: 'm', severity: 'error' }] });
+}
+
+describe("fingerprint — a target's keys name files from the repo root (D50)", () => {
+  test.each([
+    ['oxlint', OXLINT],
+    ['ast-grep', AST_GREP],
+    ['cspell', CSPELL],
+    ['vale', VALE],
+  ])('%s joins the target root onto each file, and changes nothing else in the key', (adapter, raw) => {
+    const [rebased, plain] = bothKeys(adapter, raw, 'apps/web');
+    expect(rebased).toEqual(plain.map((key) => `apps/web/${key}`).toSorted());
+  });
+
+  test("fallow's dead-code and health keys join the root onto their paths, and dupes keys carry none", () => {
+    expect(fingerprint('fallow', FALLOW_DEAD, undefined, 'apps/web')).toEqual(
+      new Set(['dead-code:unused_files:apps/web/src/unused.ts', 'dead-code:unused_exports:apps/web/src/extras.ts:extraExport']),
+    );
+    expect(fingerprint('fallow', FALLOW_HEALTH, undefined, 'apps/web')).toEqual(new Set(['health:apps/web/src/complex.ts:tangled']));
+    expect(fingerprint('fallow', FALLOW_DUPES, undefined, 'apps/web')).toEqual(fingerprint('fallow', FALLOW_DUPES));
+  });
+
+  test('a root of . keeps every key as the tool printed it, as no root does', () => {
+    for (const [adapter, raw] of [['oxlint', OXLINT], ['fallow', FALLOW_DEAD], ['cspell', CSPELL]] as const) {
+      const [atRoot, plain] = bothKeys(adapter, raw, '.');
+      expect(atRoot, adapter).toEqual(plain);
+    }
+  });
+
+  test('an absolute path stays absolute, and ./ and .. segments normalize away', () => {
+    expect(fingerprint('oxlint', oxlintOn('/tmp/a.ts'), undefined, 'apps/web')).toEqual(new Set(['/tmp/a.ts:eslint(x):m']));
+    expect(fingerprint('oxlint', oxlintOn('./src/a.ts'), undefined, 'apps/web')).toEqual(new Set(['apps/web/src/a.ts:eslint(x):m']));
+    expect(fingerprint('oxlint', oxlintOn('../shared/a.ts'), undefined, 'apps/web')).toEqual(new Set(['apps/shared/a.ts:eslint(x):m']));
+  });
+});
+
 describe('fingerprint — vale severity and report shape', () => {
   test('only error-severity alerts are fingerprinted (D19)', () => {
     // The `prose` verdict is vale's exit code, which is 1 iff an error-severity

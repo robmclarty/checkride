@@ -24,6 +24,7 @@
 
 import { parseToolJson } from '../tool-json.js';
 import type { Fingerprint } from './fingerprint.js';
+import { rebasePath } from './rebase.js';
 import { applyBaseline } from './store.js';
 
 /**
@@ -145,15 +146,17 @@ const STABLE_IDENTIFIER = /^[A-Za-z_$][\w$.]*$/;
 /**
  * Key a cross-file finding (circular_dependencies, re_export_cycles) on its
  * sorted file membership — a list of files/segments rather than one location.
- * Returns `null` when the item carries no such list.
+ * Returns `null` when the item carries no such list. Each file is joined onto
+ * `root`, the check's root, as every path in a key is.
  */
-function cycleKey(category: string, item: Record<string, unknown>): string | null {
+function cycleKey(category: string, item: Record<string, unknown>, root: string | undefined): string | null {
   for (const field of ['cycle', 'files', 'chain']) {
     const arr = item[field];
     if (!Array.isArray(arr)) continue;
     const files = arr
       .map((x) => (typeof x === 'string' ? x : isPlainObject(x) ? str(x['path']) || str(x['file']) : ''))
       .filter(Boolean)
+      .map((file) => rebasePath(root, file))
       .toSorted();
     if (files.length > 0) return `dead-code:${category}:${files.join('->')}`;
   }
@@ -171,14 +174,15 @@ function cycleKey(category: string, item: Record<string, unknown>): string | nul
  * sorted set of files. Returns `null` when no stable identity can be read — the
  * finding still counts toward `issueCount`, it just can't be individually
  * grandfathered (which keeps the slot conservatively red, never silently green).
+ * Its file is joined onto `root`, the check's root.
  */
-function deadKey(category: string, item: unknown): string | null {
+function deadKey(category: string, item: unknown, root: string | undefined): string | null {
   if (!isPlainObject(item)) return null;
-  const file = str(item['path']) || str(item['file']);
+  const file = rebasePath(root, str(item['path']) || str(item['file']));
   const symbol = symbolIdentity(item);
   if (symbol) return `dead-code:${category}:${[file, symbol].filter(Boolean).join(':')}`;
   if (file) return withPosition(`dead-code:${category}:${file}`, item);
-  return cycleKey(category, item);
+  return cycleKey(category, item, root);
 }
 
 /**
@@ -204,13 +208,13 @@ const UNCOUNTED_ARRAYS = new Set<string>([
  * intact, so a collision stays visible to the caller's tracking check — and how
  * many items carried no stable identity to key on.
  */
-function collectDeadKeys(j: Record<string, unknown>): { keys: string[]; unkeyed: number } {
+function collectDeadKeys(j: Record<string, unknown>, root: string | undefined): { keys: string[]; unkeyed: number } {
   const keys: string[] = [];
   let unkeyed = 0;
   for (const [category, value] of Object.entries(j)) {
     if (!Array.isArray(value) || UNCOUNTED_ARRAYS.has(category)) continue;
     for (const item of value) {
-      const key = deadKey(category, item);
+      const key = deadKey(category, item, root);
       if (key === null) unkeyed += 1;
       else keys.push(key);
     }
@@ -231,13 +235,13 @@ function collectDeadKeys(j: Record<string, unknown>): { keys: string[]; unkeyed:
  * no stable identity simply isn't fingerprinted; it still counts toward
  * `total_issues`, so the slot stays red (never masked) until it's fixed.
  */
-function parseDeadCode(j: Record<string, unknown>): ParsedFallow {
+function parseDeadCode(j: Record<string, unknown>, root: string | undefined): ParsedFallow {
   const summary = isPlainObject(j['summary']) ? j['summary'] : {};
   const total = summary['total_issues'] ?? j['total_issues'];
   if (typeof total !== 'number') {
     return { ok: false, reason: 'fallow dead-code JSON missing summary.total_issues' };
   }
-  const { keys, unkeyed } = collectDeadKeys(j);
+  const { keys, unkeyed } = collectDeadKeys(j, root);
   // Two independent ways the keys can fail to cover the findings, both required
   // because either alone has a blind spot. Counting the items we could not key
   // is direct and exact. Comparing against the authoritative `total` catches
@@ -274,9 +278,10 @@ function parseDupes(j: Record<string, unknown>): ParsedFallow {
  * on file + function name. A named function stays line-free so its key survives
  * edits above it; an anonymous placeholder (`<arrow>`, `<anonymous>`) shares its
  * name with every sibling in the file, so it gets a position appended to stay
- * distinct. The issue count is the number of findings.
+ * distinct. The issue count is the number of findings. Each path is joined
+ * onto `root`, the check's root.
  */
-function parseHealth(j: Record<string, unknown>): ParsedFallow {
+function parseHealth(j: Record<string, unknown>, root: string | undefined): ParsedFallow {
   const findings = j['findings'];
   if (!Array.isArray(findings)) {
     return { ok: false, reason: 'fallow health JSON missing findings' };
@@ -285,7 +290,7 @@ function parseHealth(j: Record<string, unknown>): ParsedFallow {
   for (const f of findings) {
     if (!isPlainObject(f)) continue;
     const name = str(f['name']);
-    const base = `health:${str(f['path'])}:${name}`;
+    const base = `health:${rebasePath(root, str(f['path']))}:${name}`;
     keys.push(STABLE_IDENTIFIER.test(name) ? base : withPosition(base, f));
   }
   return { ok: true, kind: 'health', findings: keys, issueCount: findings.length, fullyTracked: keys.length === findings.length };
@@ -308,9 +313,10 @@ function fallowSchemaError(j: Record<string, unknown>): string | null {
  * Parse a fallow report into findings + an issue count, or the reason it could
  * not be trusted. Every failure path (bad JSON, missing/old schema, unknown
  * kind, missing count field) is a *loud* failure the caller turns into a red
- * slot — checkride never treats an unreadable fallow report as "clean".
+ * slot — checkride never treats an unreadable fallow report as "clean". `root`
+ * is the check's root, which every path in a key is joined onto.
  */
-function parseFallow(raw: string): ParsedFallow {
+function parseFallow(raw: string, root: string | undefined): ParsedFallow {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
   // Tolerant of a launcher preamble ahead of the report — see `parseToolJson`.
   const parsed = parseToolJson(raw);
@@ -324,11 +330,11 @@ function parseFallow(raw: string): ParsedFallow {
   const kind = str(j['kind']);
   switch (kind) {
     case 'dead-code':
-      return parseDeadCode(j);
+      return parseDeadCode(j, root);
     case 'dupes':
       return parseDupes(j);
     case 'health':
-      return parseHealth(j);
+      return parseHealth(j, root);
     default:
       return { ok: false, reason: `unrecognized fallow report kind '${kind || '(missing)'}'` };
   }
@@ -340,9 +346,10 @@ function parseFallow(raw: string): ParsedFallow {
  * for anything else — the "never throw, empty on malformed" contract every
  * extractor honours. The *gating* verdict (`fallowVerdict`) is where an
  * unreadable report becomes a failure; capture and masking only need the keys.
+ * `root` is the check's root, relative to the repo root.
  */
-export function fallowFindings(raw: string): Fingerprint {
-  const parsed = parseFallow(raw);
+export function fallowFindings(raw: string, root?: string): Fingerprint {
+  const parsed = parseFallow(raw, root);
   return new Set(parsed.ok ? parsed.findings : []);
 }
 
@@ -380,10 +387,11 @@ export type FallowVerdict = {
  * *collision* (two findings sharing a key) is not un-keyable — both are keyed, so
  * the baseline coarsens (grandfathering one grandfathers both) but stays active.
  * Correctness over precision: better to keep re-surfacing a finding than to
- * silently pass one.
+ * silently pass one. `root` is the check's root, which the keys' paths are
+ * joined onto, as {@link fallowFindings} joins them.
  */
-export function fallowVerdict(raw: string, baselineKeys: readonly string[] | null): FallowVerdict {
-  const parsed = parseFallow(raw);
+export function fallowVerdict(raw: string, baselineKeys: readonly string[] | null, root?: string): FallowVerdict {
+  const parsed = parseFallow(raw, root);
   if (!parsed.ok) {
     return { ok: false, baselined: 0, newKeys: [], findings: new Set(), observed: false, reason: parsed.reason };
   }
