@@ -222,12 +222,17 @@ repo-scope check's `{out}` is the absolute output directory. A built-in's
 scratch files sit under the working directory's `.check/`, so a target's are at
 `<target root>/.check/`, where they resolve the target's own modules, and its
 skip reason names `./.check` relative to the entry's `cwd`. Before anything
-runs, the run deletes each `<target>/` directory that the output directory's
-previous `summary.json` listed in `targets` and the config no longer declares,
-and nothing else: never a directory the previous summary didn't list, a
-symlink, or one that holds the repo or that target's own root. Without
-`targets` the run is unchanged, apart from clearing those same directories
-when the config has just dropped its `targets`.
+runs, the run clears what it left for each target that the output directory's
+previous `summary.json` listed in `targets` and the config no longer declares:
+the files that summary's checks of the target name (`<slot>.stdout.txt`,
+`<slot>.stderr.txt`, `<slot>.json` and each `output_file`), then the
+`<target>/` directory once nothing else is in it. Nothing else is deleted: not
+a file those checks didn't name, so a folder of yours under `--out` that shares
+a target's name keeps your files, and not anything under a directory the
+previous summary didn't list, a symlink, or a directory that holds the repo or
+that target's own root. Without `targets` the run is unchanged, apart from
+clearing what those targets left when the config has just dropped its
+`targets`.
 
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,

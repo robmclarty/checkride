@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 27 — feat(run): run target-scope slots once per target
+**Current step:** 75 — fix(artifacts): delete only checkride's own files from a dropped target's directory
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -49,7 +49,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
 - ☑ 25. feat(config): accept targets and packs blocks with their validation
 - ☑ 26. feat(select): select checks with the target token grammar
-- ☐ 27. feat(run): run target-scope slots once per target
+- ☑ 27. feat(run): run target-scope slots once per target
+- ☐ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
 - ☐ 28. feat(run): never overlap checks that share a lock key
 - ☐ 29. feat(changed): skip unaffected targets under --changed
 - ☐ 30. feat(launch): resolve tools through mise and PATH and record the pin
@@ -126,9 +127,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] R2.3: a config error from a --config file (and later --defaults/--pins) should name that path in place of checkride.config.json; invalidConfig in src/config.ts hardcodes the repo file name today, even for resolve-time errors that never see the path
 - [x] V2 doesn't stop a target's or a packs block's custom check from sharing a target's name, so a bare token like --only web would select both target web and api:web; extend V2 in src/targets/resolve.ts
 - [x] only-wins-over-skip: as in 0.13, --only ignores --skip, so '--only api --skip api:test' runs all of api; decide whether --skip should narrow within --only once target tokens select many checks
-- [ ] a ts target whose root declares its own package manager (a lockfile or packageManager field) still launches under the repo root's: detect per target, nearest declaration from the target root up to the repo root (src/launch/package-manager.ts); step 30's launcher work or step 39's example is where it bites
-- [ ] without targets, a packs block (a preset's included) applies to nothing: R3 ranks packs above top-level checks, so reading it in implicit mode would let a preset's pack default beat the repo's own checks entry; decide whether implicit mode reads packs below checks or ignores it (step 53's defaults layer resolves its own packs block and needs the same answer)
-- [ ] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
+- [x] a ts target whose root declares its own package manager (a lockfile or packageManager field) still launches under the repo root's: detect per target, nearest declaration from the target root up to the repo root (src/launch/package-manager.ts); step 30's launcher work or step 39's example is where it bites
+- [x] without targets, a packs block (a preset's included) applies to nothing: R3 ranks packs above top-level checks, so reading it in implicit mode would let a preset's pack default beat the repo's own checks entry; decide whether implicit mode reads packs below checks or ignores it (step 53's defaults layer resolves its own packs block and needs the same answer)
+- [x] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
+- [x] a folder already under --out that shares a target's name gets that target's artifacts written into it, and when the target is dropped the prune deletes the whole folder, the user's files included; R9 promises checkride never deletes what it didn't write, so delete only the files the previous summary's checks name, then the folder once empty
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -168,6 +170,10 @@ Harvest results this boundary:
 - After step 25: "R2.3: a config error from a --config file..." → **tangent**, deferred to step 53 (nothing is blocked, since a broken `--config` file still exits 2 and the message names the offending key, only the file-name prefix is wrong; step 53's `--defaults` is where it matters, because F36's "a defaults file with `targets` exits 2" is only useful if the error names the defaults file, and its seam already holds `src/config.ts` and `src/cli.ts`; step 53 decides whether resolve-time errors, which never see the path, get the label threaded through or only load-time errors name the file, and `--pins` at step 55 reuses whatever it builds).
 - After step 26: "V2 doesn't stop a target's or a packs block's custom check from sharing a target's name..." → **tangent**, deferred to step 27 (nothing can collide until step 27 creates the first `<target>:<slot>` checks, and the cost is over-selection, a bare `web` selecting both target `web` and `api:web`, never a false green; step 27's seam holds `src/targets/` and `src/config.ts`, so it extends V2's `nameProblem` in `src/targets/resolve.ts` to every `targets.<t>.checks` and `packs.<p>.checks` custom name; its done-when doesn't name the fix, and the S3 cases live in `src/__tests__/config.test.ts`, which sits outside its seam, so add it via `/plumbbob:step 27` or accept a one-file stray).
 - After step 26: "only-wins-over-skip: as in 0.13, --only ignores --skip..." → **tangent**, deferred to step 29 (0.13's rule stands today and step 26's S2 table pins it, but a gate profile with both keys prints `without <x>` in its verdict even when `<x>` ran, because `profileClause` in `src/gate.ts` reads the profile rather than what ran; misleading, never a false green; step 29's seam holds `src/orchestrator/select.ts`, so it decides between letting `--skip` narrow within `--only` (a CHANGELOG Changed entry and an updated S2 row in `src/targets/__tests__/tokens.test.ts`) and keeping `--only` winning while fixing the gate's clause; `src/gate.ts` and the test file sit outside its seam, so add them via `/plumbbob:step 29` or accept a two-file stray).
+- After step 27: "a ts target whose root declares its own package manager..." → **tangent**, deferred to step 30 (steps 28 and 29 never need it, and the cost today is a ts target with its own non-pnpm lockfile launching under the repo root's manager, which runs when that manager is installed and records the wrong one in `argv`, never a false green; step 30 rewrites the js-lockfile source, whose R6.1 declaration and R6.3 version reads already walk up from the working directory, so a nearest-declaration lookup belongs in `src/launch/package-manager.ts` beside them; threading a per-check manager through `src/orchestrator/place.ts` and `context.ts` sits outside its seam, so add it via `/plumbbob:step 30` or accept a two-file stray).
+- After step 27: "without targets, a packs block (a preset's included) applies to nothing..." → **tangent**, deferred to step 53 (no config can be broken by it yet, since `packs` is new in this build and `docs/contract.md` now says it applies only to targets; read literally, R3 ranks the implicit target's `packs.<pack>.checks` above the repo's own top-level `checks`, which step 27 deliberately doesn't do, because a preset's pack default would then beat the repo's explicit entry; step 53's defaults layer is the first to resolve a `packs` block outside a target, R3's fifth layer reads its `packs` before its `checks`, and its seam holds `src/config.ts` and `docs/contract.md`, so it settles implicit mode's rule for both files at once).
+- After step 27: "a target named doc-snippets rooted at '.'..." → **tangent**, deferred to step 36 (it needs a target literally named `doc-snippets` at the repo root, and the cost is that target's artifacts and the snippets scratch sharing one directory; moving the scratch would change the snippets argv the invariance golden pins, so the fix is reserving the name in V2's `nameProblem` with its own message; `target add` is the first command that mints target names, but `src/targets/resolve.ts` and the S3 case in `src/__tests__/config.test.ts` sit outside step 36's seam, so add them via `/plumbbob:step 36` or accept a two-file stray).
+- After step 27: "a folder already under --out that shares a target's name..." → **blocker**, handled now: folded into `intent.md` as D57 (prune-own-files), which amends R9's prune to delete only the files the previous summary's checks of a dropped target name by convention and then the directory once it's empty, and as step 75, ordered to build next (R9 promises checkride never deletes what it didn't write, and step 27's prune breaks that for any folder under `--out` a target wrote into).
 
 ## Log
 
@@ -1604,3 +1610,120 @@ folder, so it rides the branch into the PR.)*
   **5.** Nine paths outside the seam, and two parks
 
   The new test file and the targets barrel come with the module. `src/orchestrator/report.ts` changed so narrowed summary rows key on the check's name and take their `skipped by --skip` reason from the same matcher. Without that, `--only web:lint` would hide `api:lint` from the narrowed rows once targets run. The C11 (docs-in-step) set: `docs/contract.md` gains the token table and the gate's behavior, `CHANGELOG.md` gets two Changed entries and one Contract entry, and the help text, the `GateProfile` comment and the schema's `gate.only` and `gate.skip` descriptions now say tokens. `src/__tests__/gate.test.ts` holds the gate cases. Parked: V2 doesn't stop a target's own custom check from taking another target's name, so a bare token would select both. Also parked: `--only` still ignores `--skip`, so `--only api --skip api:test` runs all of `api`.
+
+- 2026-10-16 — step 27 checkpointed · 773811b6c — feat(run): run target-scope slots once per target (1 drift, 43m)
+
+  **Summary**: A config that declares `targets` now runs each target's slots once, from that target's root, as `<target>:<slot>`, with output under `<out>/<target>/`. Repo-scope slots and top-level custom checks still run once at the repo root. The summary lists the targets and says which target, slot, pack and working directory each check belongs to. Baseline keys for a target's checks sit under `<target>:<slot>` and name files from the repo root. A repo without `targets` runs exactly as before: both invariance goldens pass unchanged, as do the e2e summaries and exit codes of every example and init shape.
+
+  1. Each target resolves its pack's slots in D10's order, and top-level tuning now reaches them
+  2. A target's checks run from its root and write into `<out>/<target>/`, so two ts targets keep both vitest reports
+  3. A run deletes only the dropped targets' directories, with three guards R9 doesn't name
+  4. The summary, schema and contract doc gain the five fields, and baseline keys go repo-root-relative under `<target>:<slot>`
+  5. Eleven files sit outside the seam, three tangents are parked, and the mutation slot wasn't run
+
+  **Readout**: Step 27 - feat(run): run target-scope slots once per target
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D6 (targets), D7 (scope), D8 (naming), D9 (packs-key)
+               - D10 (resolution-order), D48 (out-per-target)
+               - D50 (key-rebasing)
+  constraints  12 of 12 honored
+  seam         strayed: 11 paths outside the seam
+               - CHANGELOG.md
+               - src/__tests__/artifacts.test.ts
+               - src/__tests__/baseline-fingerprint.test.ts
+               - src/__tests__/config.test.ts
+               - src/__tests__/digest.test.ts
+               - src/__tests__/fallow.test.ts
+               - src/baseline-command.ts
+               - src/baseline/fallow.ts
+               - src/__tests__/config-targets.test.ts
+               - src/baseline/rebase.ts
+               - test/contract/targets.contract.test.ts
+  diff         +1577 -175 across 28 files
+  spent        43 min · 2 turns · 29s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 27. Every done-when clause has its own test, including the two-target vitest case, the surviving folder under `--out`, R8.4's order and D50's keys. `pnpm check` and the three e2e suites are green, and the goldens didn't move. The calls worth a second look are highlight 3's extra prune guards and the implicit-mode clearing.
+
+  **1.** Each target resolves its pack's slots in D10's order, and top-level tuning now reaches them
+
+  `resolveChecks` in `src/config.ts` now has two modes. Implicit mode is the old code, moved into its own function. Multi-target mode resolves repo-scope slots once at the repo root, as before. Each target-scope slot then resolves once for each target whose pack fills it, or whose own block or pack block names it, against that pack's rows in `PACKS`. Detection reads the target's root, and the package.json signals come from there too. Moving the code into `src/targets/` would have created an import cycle, so it stays in `config.ts`. `targets/` contributes `configuredTargets`, the normalized target list the run reads.
+
+  The three layers (the target's `checks`, then `packs.<pack>.checks`, then the top level) merge in one place, `layeredEntry`. The highest layer that picks a tool or sets `false` decides the slot. Each of `optIn`, `timeout` and `order` comes from the highest layer that sets it, so a top-level `"test": { "timeout": 900 }` reaches every target, and a pack's own `timeout` beats it. Every layer is validated, including ones a higher layer overrides. A pack's custom checks run in each of its targets, and a target's own entry overrides the pack's.
+
+  Getting V6's top-level tuning to work exposed a bug. A tuning-only entry such as `{ timeout, order }` fell through to detection, which dropped both keys, in implicit mode as well. The published schema says this form tunes the slot. I fixed it on the shared detection path rather than only for targets, so the same entry behaves the same in both modes, and added a CHANGELOG Fixed entry. No example or shape uses such an entry, and the goldens confirm it.
+
+  **2.** A target's checks run from its root and write into `<out>/<target>/`, so two ts targets keep both vitest reports
+
+  The new `src/orchestrator/place.ts` decides, per check, where it runs and writes (D48):
+
+  - the working directory: the target root;
+  - the artifact directory: `<out>/<target>`, created when the target's first check starts;
+  - what `{out}` expands to: that absolute directory for a target's check, and the absolute `<out>` for a repo-scope check;
+  - the `output_file` prefix: `web/lint.json`.
+
+  Implicit mode keeps `.check` and the old paths. Scratch follows the working directory, so `snippets` and `smoke` write to `<target root>/.check/` with no change to either file.
+
+  `test/contract/targets.contract.test.ts` fakes `spawn`, as the invariance golden does, so the real ts adapter rows launch with nothing installed. Its first case has two ts targets, each detecting vitest. For each target it reads the `--outputFile=` path from the summary's `argv`, confirms the path is `<out>/<target>/test.json`, and opens the report there; each report names its own target root. The fake creates no directories, so the reports land only because checkride prepared them. Other cases cover the `web/lint.json` artifact, the repo-scope `{out}`, snippets scratch under `apps/web/.check/`, and R8.4's order.
+
+  `fix` now runs a target's fixer from its root, under its `<target>:<slot>` name.
+
+  **3.** A run deletes only the dropped targets' directories, with three guards R9 doesn't name
+
+  The new `src/artifacts/targets.ts` holds `pruneDroppedTargets`. Before any check runs, it reads the previous `summary.json` in the output directory (only a schema-version-1 summary, so not a foreign file). It then deletes each listed target the config no longer declares. A test leaves `notes/` and an unlisted `api/` under `--out` and shows both survive.
+
+  I added guards R9 doesn't state, because the rule trusts names in a file:
+
+  - Only names shaped like V1 target names are touched, so `../repo` and `.git` can't be reached.
+  - Only real directories are deleted, never symlinks.
+  - A directory is never deleted if it contains the repo or the dropped target's own root.
+
+  The last guard matters when `--out` points at the targets' parent, for example `--out apps` with a target at `apps/old`. There, `<out>/old` is the target's source tree, and a literal prune would delete it. A contract case covers that.
+
+  One call goes past R9's wording: a run without `targets` also clears the directories the previous summary listed. Otherwise converting back to implicit mode would leave stale target reports with nothing to refresh them. A real 0.13 repo never has such a summary, so C2 (legacy-invariance) holds.
+
+  **4.** The summary, schema and contract doc gain the five fields, and baseline keys go repo-root-relative under `<target>:<slot>`
+
+  Changes to the contract, all additive:
+
+  - Per check: `target`, `slot`, `pack` and `cwd`. `pack` is `repo` for repo-scope and top-level custom checks.
+  - Top level: `targets` (each `{ name, pack, root }`). `discovered` is defined ahead of `--discover`, with a "no such flag yet" note, following D55's precedent, since step 54's seam has no schema.
+  - `docs/contract.md` gains a `targets` entry table, the new rows, the R8.4 order, and a paragraph on how targets run.
+  - `summary.contract.test.ts` holds the new table to the schema and validates real multi-target summaries.
+
+  The two paragraphs that said no run checks targets yet are updated, and so are the matching unreleased CHANGELOG entries.
+
+  For D50:
+
+  - The four extractors in `src/baseline/fingerprint.ts` and fallow's dead-code, cycle and health keys join the check's root onto each path, through the new `src/baseline/rebase.ts`. That has to be its own file, because `fallow.ts` can't import from `fingerprint.ts` without a cycle.
+  - Masking and the ratchet key each check's baseline entry by its name.
+  - `CheckRun` gains `name` and `root`, so `checkride baseline` writes `web:lint: ["apps/web/src/a.ts:…"]`, the same keys a run masks with.
+
+  Implicit-mode keys are byte-identical, and the existing fingerprint fixtures prove it.
+
+  **5.** Eleven files sit outside the seam, three tangents are parked, and the mutation slot wasn't run
+
+  Outside the seam:
+
+  - the unit tests beside each module that changed: `config-targets.test.ts` (new), `config.test.ts`, `baseline-fingerprint.test.ts`, `fallow.test.ts`, `artifacts.test.ts`, and a one-line `digest.test.ts` update for `CheckRun.name`;
+  - the D50 files: `src/baseline/fallow.ts`, `src/baseline/rebase.ts` and `src/baseline-command.ts`;
+  - the new contract test file, which needs its own file because it fakes `spawn` for the whole file;
+  - `CHANGELOG.md`, under C11 (docs-in-step).
+
+  `config.test.ts` also holds the V2 extension deferred at step 26's harvest: a target name can't match any custom check, including a target's or a pack's.
+
+  Parked:
+
+  - A ts target whose root declares its own package manager still launches under the repo root's.
+  - Without `targets`, a `packs` block applies to nothing. R3 would rank it above the repo's own `checks`. Step 53's defaults layer needs the same answer.
+  - A target named `doc-snippets` rooted at `.` would share the snippets scratch directory.
+
+  Readers that aren't target-aware yet: `doctor` (step 34), the stanza's check list (step 35), and the digest, `triage` and `qa` (step 38). In multi-target mode they show bare slot rows or a generic digest section, but nothing breaks.
+
+  Verified: `pnpm check` is green. Beyond the plumbbob gate, the e2e invariance, `--out` and examples suites pass (27 tests). The opt-in mutation slot wasn't run, as at earlier steps, so C12 (quality-floors) rests on the coverage gate the `test` slot holds.

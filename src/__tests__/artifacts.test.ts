@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, rm, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -355,15 +356,32 @@ describe('prepareScratch', () => {
   });
 });
 
-/** Write a summary checkride could have written into `dir`, listing `targets`. */
-async function writeSummary(dir: string, targets: unknown): Promise<void> {
-  const summary = { schema_version: SCHEMA_VERSION, timestamp: RUN_END_ISO, ok: true, checks_run: 0, total_duration_ms: 1, run: { partial: false }, targets, checks: [] };
+/** Write a summary checkride could have written into `dir`, listing `targets` and `checks`. */
+async function writeSummary(dir: string, targets: unknown, checks: readonly unknown[] = []): Promise<void> {
+  const summary = { schema_version: SCHEMA_VERSION, timestamp: RUN_END_ISO, ok: true, checks_run: 0, total_duration_ms: 1, run: { partial: false }, targets, checks };
   await writeFile(join(dir, 'summary.json'), JSON.stringify(summary));
+}
+
+/** The summary entry of target `target`'s lint check, which wrote `<target>/lint.json`; `over` replaces any field. */
+function lintCheck(target: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: `${target}:lint`,
+    target,
+    slot: 'lint',
+    adapter: 'oxlint',
+    description: 'Oxlint',
+    ok: true,
+    exit_code: 0,
+    duration_ms: 1,
+    output_file: `${target}/lint.json`,
+    ...over,
+  };
 }
 
 /**
  * A repo at `<tmp>/repo` whose output directory `<tmp>/out` holds a summary
- * listing `targets` and a directory with one file for each name in `made`.
+ * listing `targets`, with a lint check for each name in `made`, and the
+ * files that check wrote in that target's directory.
  */
 async function outWith(targets: unknown, made: readonly string[]): Promise<{ repo: string; out: string }> {
   const tmp = await mkdtemp(join(tmpdir(), 'checkride-prune-'));
@@ -372,27 +390,54 @@ async function outWith(targets: unknown, made: readonly string[]): Promise<{ rep
   const out = join(tmp, 'out');
   await mkdir(repo);
   await mkdir(out);
-  await writeSummary(out, targets);
+  await writeSummary(out, targets, made.map((name) => lintCheck(name)));
   for (const name of made) {
     await mkdir(join(out, name), { recursive: true });
     await writeFile(join(out, name, 'lint.json'), '{}');
+    await writeFile(join(out, name, 'lint.stderr.txt'), 'note\n');
   }
   return { repo, out };
 }
 
 const listed = (...names: string[]): unknown[] => names.map((name) => ({ name, pack: 'ts', root: `apps/${name}` }));
 
-describe('pruneDroppedTargets (R9)', () => {
-  test('deletes the listed targets the config dropped, and keeps the ones it still has', async () => {
+describe('pruneDroppedTargets (R9, D57)', () => {
+  test('clears the listed targets the config dropped, files and folder, and keeps the ones it still has', async () => {
     const { repo, out } = await outWith(listed('web', 'old'), ['web', 'old']);
     await pruneDroppedTargets(out, repo, ['web']);
     expect(await statArtifact(join(out, 'web'), 'lint.json', null)).not.toBeNull();
+    expect(existsSync(join(out, 'old'))).toBe(false);
+  });
+
+  test("a dropped target's folder loses only the files its checks wrote, and stays while anything else is in it", async () => {
+    const { repo, out } = await outWith(listed('old'), ['old']);
+    await writeFile(join(out, 'old', 'notes.md'), 'mine\n');
+    await mkdir(join(out, 'old', 'drafts'));
+    await pruneDroppedTargets(out, repo, []);
     expect(await statArtifact(join(out, 'old'), 'lint.json', null)).toBeNull();
+    expect(await statArtifact(join(out, 'old'), 'lint.stderr.txt', null)).toBeNull();
+    expect(await statArtifact(join(out, 'old'), 'notes.md', null)).not.toBeNull();
+    expect(existsSync(join(out, 'old', 'drafts'))).toBe(true);
+  });
+
+  test('a crafted slot or output_file never names a file outside the directory', async () => {
+    const { repo, out } = await outWith(listed('old'), []);
+    const crafted = [
+      lintCheck('old', { slot: '../escape', output_file: 'old/../escape.json' }),
+      lintCheck('old', { slot: 'probe', output_file: 'other/lint.json' }),
+    ];
+    await writeSummary(out, listed('old'), crafted);
+    await mkdir(join(out, 'old'));
+    await mkdir(join(out, 'other'));
+    for (const file of ['escape.stdout.txt', 'escape.json', 'other/lint.json', 'old/probe.json']) await writeFile(join(out, file), '{}');
+    await pruneDroppedTargets(out, repo, []);
+    for (const file of ['escape.stdout.txt', 'escape.json', 'other/lint.json']) expect(existsSync(join(out, file)), file).toBe(true);
+    expect(existsSync(join(out, 'old'))).toBe(false);
   });
 
   test('deletes nothing when no summary checkride wrote is there to list targets', async () => {
     const { repo, out } = await outWith(listed('old'), ['old']);
-    await writeFile(join(out, 'summary.json'), JSON.stringify({ targets: listed('old') }));
+    await writeFile(join(out, 'summary.json'), JSON.stringify({ targets: listed('old'), checks: [lintCheck('old')] }));
     await pruneDroppedTargets(out, repo, []);
     expect(await statArtifact(join(out, 'old'), 'lint.json', null)).not.toBeNull();
     await rm(join(out, 'summary.json'));
@@ -402,26 +447,29 @@ describe('pruneDroppedTargets (R9)', () => {
 
   test('never follows a name that is not a target name out of the directory', async () => {
     const { repo, out } = await outWith([{ name: '../repo' }, { name: '.git' }, { name: 'Old' }, { name: 7 }], ['.git', 'Old']);
-    await writeFile(join(repo, 'keep.txt'), 'mine\n');
+    await writeFile(join(repo, 'lint.json'), 'mine\n');
     await pruneDroppedTargets(out, repo, []);
-    expect(await statArtifact(repo, 'keep.txt', null)).not.toBeNull();
+    expect(await statArtifact(repo, 'lint.json', null)).not.toBeNull();
     expect(await statArtifact(join(out, '.git'), 'lint.json', null)).not.toBeNull();
     expect(await statArtifact(join(out, 'Old'), 'lint.json', null)).not.toBeNull();
   });
 
   test('leaves a symlink, a file, and a directory that holds the repo where they are', async () => {
     const { repo, out } = await outWith(listed('linked', 'file'), []);
+    await writeSummary(out, listed('linked', 'file'), [lintCheck('linked'), lintCheck('file')]);
     await mkdir(join(repo, 'elsewhere'));
-    await writeFile(join(repo, 'elsewhere', 'keep.txt'), 'mine\n');
+    await writeFile(join(repo, 'elsewhere', 'lint.json'), 'mine\n');
     await symlink(join(repo, 'elsewhere'), join(out, 'linked'));
     await writeFile(join(out, 'file'), 'not a directory\n');
     await pruneDroppedTargets(out, repo, []);
-    expect(await statArtifact(join(out, 'linked'), 'keep.txt', null)).not.toBeNull();
+    expect(await statArtifact(join(out, 'linked'), 'lint.json', null)).not.toBeNull();
     expect(await statArtifact(out, 'file', null)).not.toBeNull();
     // An output directory one level above the repo puts `<out>/repo` on the repo itself.
     const above = join(repo, '..');
-    await writeSummary(above, listed('repo'));
+    await writeFile(join(repo, 'lint.json'), 'mine too\n');
+    await writeSummary(above, listed('repo'), [lintCheck('repo')]);
     await pruneDroppedTargets(above, repo, []);
-    expect(await statArtifact(join(repo, 'elsewhere'), 'keep.txt', null)).not.toBeNull();
+    expect(await statArtifact(repo, 'lint.json', null)).not.toBeNull();
+    expect(await statArtifact(join(repo, 'elsewhere'), 'lint.json', null)).not.toBeNull();
   });
 });

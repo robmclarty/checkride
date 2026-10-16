@@ -103,8 +103,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Each target's output lands in `.check/<target>/` (or under `--out`), with
   `{out}` pointing there, so two TypeScript targets' vitest reports never
   overwrite each other, and scratch files sit under the target's own
-  `.check/`. A target the config drops has its directory cleared on the next
-  run, and nothing else in the output directory is touched. The summary lists
+  `.check/`. When the config drops a target, the next run deletes the files
+  its checks wrote, and its directory once nothing else is left in it, so a
+  folder of yours under `--out` that shares a target's name keeps your own
+  files; nothing checkride didn't write is touched. The summary lists
   the run's `targets`, and each check says which `target`, `slot` and `pack`
   it belongs to and the `cwd` it ran from. Baseline keys for a target's checks
   sit under `<target>:<slot>` and name files from the repo root, so they stay
@@ -311,9 +313,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and per-check `target`, `slot`, `pack` and `cwd`, in the JSON Schema, the
   contract doc's field tables and `summary.contract.test.ts`. `checks` keeps
   target order within a slot, and the top-level custom checks before each
-  target's. A run first deletes the `<target>/` directories that the output
-  directory's previous summary listed and the config dropped, and nothing
-  else. Baseline entries for a target's checks are keyed `<target>:<slot>`,
+  target's. For each target the output directory's previous summary listed
+  and the config dropped, a run first deletes the files that summary's checks
+  of the target name (`<slot>.stdout.txt`, `<slot>.stderr.txt`, `<slot>.json`
+  and each `output_file`), then the `<target>/` directory once it's empty, and
+  nothing else. Baseline entries for a target's checks are keyed `<target>:<slot>`,
   with paths joined onto the target's root. The exported `ResolvedCheck`
   type gains optional `target`, `root` and `pack`, `SummaryCheck` gains
   `target`, `slot`, `pack` and `cwd`, `Summary` gains `targets`, the

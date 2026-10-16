@@ -229,6 +229,18 @@ describe('multi-target runs', () => {
       expect(await readFile(join(outFolder(), 'api', 'keep.md'), 'utf8')).toBe('mine too\n');
     });
 
+    test('a folder already under --out that a target wrote into keeps its own files when the target is dropped (D57)', async () => {
+      // The user's folder happens to share its name with a target added later.
+      await lay({ 'out/old/mine.md': 'mine\n' });
+      await run(withOld, ['--out', 'out'], outFolder());
+      expect(existsSync(join(outFolder(), 'old', 'probe.stdout.txt'))).toBe(true);
+
+      await run(webOnly, ['--out', 'out'], outFolder());
+      expect(await readFile(join(outFolder(), 'old', 'mine.md'), 'utf8')).toBe('mine\n');
+      expect(existsSync(join(outFolder(), 'old', 'probe.stdout.txt'))).toBe(false);
+      expect(existsSync(join(outFolder(), 'old', 'probe.stderr.txt'))).toBe(false);
+    });
+
     test('dropping targets altogether clears what they left', async () => {
       await run(withOld, ['--out', 'out'], outFolder());
       await run({ checks: { links: false, probe: custom } }, ['--out', 'out'], outFolder());

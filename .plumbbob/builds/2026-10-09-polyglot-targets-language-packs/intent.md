@@ -412,6 +412,14 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   directory, *because* step 10 routed that text through `CHECK_DIR`, and under `--out` it would
   still send a reader, the review agent of #6 among them, to `.check/` files that aren't there
   (settled at step 10's harvest).
+- <a id="d57"></a>**D57 (prune-own-files)**: for a target that the output directory's previous
+  summary listed and the config dropped, a run deletes only the files that summary's checks of
+  the target name by convention (`<slot>.stdout.txt`, `<slot>.stderr.txt`, `<slot>.json` and
+  each `output_file`), then the `<target>/` directory once nothing else is in it, with or
+  without `targets` in the config, *because* a folder already under `--out` that shares a
+  target's name takes that target's artifacts, and deleting the whole folder when the target is
+  dropped would take the user's own files with it, breaking R9's promise that checkride never
+  deletes what it didn't write (settled at step 27's harvest).
 
 ## Constraints
 
@@ -466,7 +474,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 3. An output directory | 10 to 11 | `--out` |
 | 4. `init` writes the test layout and a config | 12 to 19 | the test layout spec, provenance feature 2, type-checked scaffold tests |
 | 5. Pack groundwork | 20 to 23 | the invariance golden, packs, the launcher, `resources.ts`, with no behavior change (draft M1) |
-| 6. Targets, bash and mise | 24 to 39 | targets, tokens, locks, pins, `unclaimed`, the bash pack, `target add`, discovery (draft M2) |
+| 6. Targets, bash and mise | 24 to 39, 75 | targets, tokens, locks, pins, `unclaimed`, the bash pack, `target add`, discovery (draft M2) |
 | 7. Go and Rust | 40 to 47 | the go and rust packs, Go narrowing, `init --lang` (draft M3) |
 | 8. Findings | 48 to 52 | one parser per format, `checkride/findings`, a Go baseline (draft M6) |
 | 9. Consumer mode | 53 to 57 | `--defaults`, `--discover`, `--pins`, `--static-only`, the consumer guide |
@@ -621,11 +629,15 @@ reference rules and porting trap apply as written there.
 26. [x] feat(select): select checks with the target token grammar, **done when:** `--only`, `--skip`, `--include`, `gate.only` and `gate.skip` accept R5.2's grammar; an unknown token exits 2 and lists the valid ones; a table test covers every row (S2, F18)
     - seam: `src/targets/tokens.ts`, `src/orchestrator/select.ts`, `src/gate.ts`
     - model: sonnet
-27. [ ] feat(run): run target-scope slots once per target, **done when:** each target resolves its slots in [D10 (resolution-order)](#d10)'s order with the target root as working directory; checks are named `<target>:<slot>` and write under `<out>/<target>/`; a run deletes only the directories of targets the previous summary listed and the config dropped (R9), and a test proves an unrelated folder under `--out` survives; the summary carries `target`, `slot`, `pack`, `cwd` and the top-level `targets`, held by the schema and contract test; `checks` follows R8.4's order; `{out}` and scratch resolve per [D48 (out-per-target)](#d48), and a case with two ts targets finds both vitest reports where the summary says; target-scope baseline keys carry repo-root-relative paths ([D50 (key-rebasing)](#d50))
+27. [x] feat(run): run target-scope slots once per target, **done when:** each target resolves its slots in [D10 (resolution-order)](#d10)'s order with the target root as working directory; checks are named `<target>:<slot>` and write under `<out>/<target>/`; a run deletes only the directories of targets the previous summary listed and the config dropped (R9), and a test proves an unrelated folder under `--out` survives; the summary carries `target`, `slot`, `pack`, `cwd` and the top-level `targets`, held by the schema and contract test; `checks` follows R8.4's order; `{out}` and scratch resolve per [D48 (out-per-target)](#d48), and a case with two ts targets finds both vitest reports where the summary says; target-scope baseline keys carry repo-root-relative paths ([D50 (key-rebasing)](#d50))
     - seam: `src/orchestrator/`, `src/config.ts`, `src/targets/`, `src/artifacts/`,
       `schema/checkride.summary.schema.json`, `test/contract/summary.contract.test.ts`,
       `docs/contract.md`, `src/baseline/fingerprint.ts`
     - model: opus (the core of multi-target mode)
+75. [ ] fix(artifacts): delete only checkride's own files from a dropped target's directory, **done when:** for a target the previous summary listed and the config dropped, a run deletes only the files that summary's checks of the target name (`<slot>.stdout.txt`, `<slot>.stderr.txt`, `<slot>.json` and each `output_file`), then the directory once nothing else is in it ([D57 (prune-own-files)](#d57)); a test shows a user's file in a folder under `--out` that a target of the same name wrote into survives that target being dropped, while checkride's files there are gone; a crafted slot or `output_file` never reaches outside the directory; `docs/contract.md` and `CHANGELOG.md` say so
+    - seam: `src/artifacts/targets.ts`, `src/__tests__/artifacts.test.ts`,
+      `test/contract/targets.contract.test.ts`, `docs/contract.md`, `CHANGELOG.md`
+    - model: sonnet (a narrower delete, held by the existing prune tests)
 28. [ ] feat(run): never overlap checks that share a lock key, **done when:** checks whose resolved `lock` keys are equal never run at once, and a wait doesn't count against the timeout (F4 and F5, with a fake spawner that records intervals)
     - seam: `src/orchestrator/execute.ts`, `src/orchestrator/__tests__/orchestrator.test.ts`
     - model: sonnet
@@ -814,7 +826,7 @@ reference rules and porting trap apply as written there.
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-20, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+75, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
 
 ## Open questions
 
@@ -1546,10 +1558,11 @@ then target order, then custom checks in config-key order. It stays independent 
 - **Resolution.** `--out`, then `CHECKRIDE_OUT`, then `<cwd>/.check`. A relative path resolves
   against the working directory.
 - **Written there.** `summary.json`, the raw files, `digest.md`, `unclaimed.json`, `schema.json`
-  and the `<target>/` directories. `output_file` stays relative to it. In multi-target mode, a run
-  first deletes each `<target>/` directory that the directory's previous `summary.json` listed as
-  a target and the config no longer has. checkride never deletes a directory it didn't write, so
-  `--out` can point into a folder that holds other things.
+  and the `<target>/` directories. `output_file` stays relative to it. A run first clears what it
+  left for each target that the directory's previous `summary.json` listed and the config no
+  longer has: the files that summary's checks of the target name, then the `<target>/` directory
+  once nothing else is in it ([D57 (prune-own-files)](#d57)). checkride never deletes a directory
+  it didn't write, so `--out` can point into a folder that holds other things.
 - **`{out}`** is a check's own artifact directory ([D48 (out-per-target)](#d48)). In implicit
   mode it expands to `.check` for the default and to an absolute path otherwise, so default argv
   matches 0.13's. In multi-target mode it expands to the absolute `<out>/<target>` for a
