@@ -706,6 +706,17 @@ just slower — not a usage error). Concurrency never weakens the
 concurrently running check keeps its own timeout and has its whole process group
 reaped independently.
 
+**Locks.** An adapter row may name a `lock` key (the exported `Adapter`
+type's `lock`; a config entry has none). Two checks whose keys are equal never
+run at the same time, even in one wave. `{root}` in a key expands to the
+check's target root, `.` for the repo root, so `cargo:{root}` keeps one
+target's cargo checks apart while another target's run beside them, and a key
+without `{root}` holds across every target. A check held back by its key isn't
+started: the pool runs what it can meanwhile, and the check's timeout and
+`duration_ms` begin only once it starts. A lock holds a check back only while
+another check holding its key runs, so under `--concurrency 1` or `--bail` it
+changes nothing.
+
 ## Programmatic surface
 
 Everything exported from the package root (`import ... from 'checkride'`) is

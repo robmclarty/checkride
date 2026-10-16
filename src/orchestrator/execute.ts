@@ -2,9 +2,9 @@
  * The per-check pipeline and the scheduler that drives it. One check: clear
  * its stale artifacts from its artifact directory, run it, persist the raw output, mask the
  * outcome against the baseline, and print its row. The set: `--bail`'s flat
- * sequential path, or waves on the effective `order` through a bounded pool,
- * with the report assembled in selection order regardless of who finished
- * first.
+ * sequential path, or waves on the effective `order` through a bounded pool
+ * that never runs two checks sharing a lock key at once, with the report
+ * assembled in selection order regardless of who finished first.
  */
 
 import { mkdir, rm } from 'node:fs/promises';
@@ -341,22 +341,64 @@ function partitionWaves<T extends { r: ResolvedCheck }>(items: readonly T[]): T[
   return waves;
 }
 
+/** The placeholder in an adapter's `lock` that expands to the check's target root. */
+const ROOT_PLACEHOLDER = '{root}';
+
 /**
- * Run `items` through a pool `width` workers wide: each worker pulls the next
- * item until the queue drains, so at most `width` run at once. Concurrency is the
- * worker count; each worker still processes its own items one at a time. `width`
- * is clamped to at least 1 and never exceeds the item count.
+ * The lock key a check runs under: its adapter's `lock`, with `{root}`
+ * expanded to the check's target root, `.` for the repo root, or `null` when
+ * the adapter declares none. Checks with equal keys never run at once, so
+ * `cargo:{root}` keeps one target's cargo checks apart while another target's
+ * run beside them, and a key without `{root}`, like `golangci-lint`, holds
+ * across every target (R6.5).
  */
-async function runPool<T>(items: readonly T[], width: number, worker: (item: T) => Promise<void>): Promise<void> {
+function lockKey(r: ResolvedCheck): string | null {
+  const lock = r.adapter?.lock;
+  return lock === undefined ? null : lock.replaceAll(ROOT_PLACEHOLDER, r.root ?? '.');
+}
+
+/** Take off `queue` the first item whose lock key no running item holds, or `undefined` when every queued item is locked out. */
+function takeRunnable<T extends { key: string | null }>(queue: T[], held: ReadonlySet<string>): T | undefined {
+  const at = queue.findIndex((item) => item.key === null || !held.has(item.key));
+  return at === -1 ? undefined : queue.splice(at, 1)[0];
+}
+
+/**
+ * Run `items` through a pool `width` workers wide: each worker takes the first
+ * queued item whose lock `key` no running item holds, until the queue drains,
+ * so at most `width` run at once and two with equal keys never do. A worker
+ * that finds every queued item locked waits for a key to come free rather than
+ * start one, so a waiting check isn't started, and its timeout, which starts
+ * when it spawns, doesn't count the wait. An item is held back only while one
+ * holding its key runs, so without keys, or at a `width` of 1, items start in
+ * queue order. Concurrency is the worker count; each worker still processes its
+ * own items one at a time. `width` is clamped to at least 1 and never exceeds
+ * the item count.
+ */
+async function runPool<T extends { key: string | null }>(items: readonly T[], width: number, worker: (item: T) => Promise<void>): Promise<void> {
   if (items.length === 0) return;
-  let next = 0;
-  const runWorker = async (): Promise<void> => {
-    while (next < items.length) {
-      const item = items[next];
-      next += 1;
-      if (item === undefined) continue;
-      // oxlint-disable-next-line no-await-in-loop -- a worker processes its items in sequence; concurrency is the `width` workers running this loop at once.
+  const queue = [...items];
+  const held = new Set<string>();
+  let freed = Promise.withResolvers<void>();
+  const release = (key: string | null): void => {
+    if (key === null) return;
+    held.delete(key);
+    freed.resolve();
+    freed = Promise.withResolvers<void>();
+  };
+  const runHolding = async (item: T): Promise<void> => {
+    if (item.key !== null) held.add(item.key);
+    try {
       await worker(item);
+    } finally {
+      release(item.key);
+    }
+  };
+  const runWorker = async (): Promise<void> => {
+    while (queue.length > 0) {
+      const item = takeRunnable(queue, held);
+      // oxlint-disable-next-line no-await-in-loop -- a worker processes its items in sequence, and waits for a key to come free when every queued item is locked; concurrency is the `width` workers running this loop at once.
+      await (item === undefined ? freed.promise : runHolding(item));
     }
   };
   const workers = Array.from({ length: Math.max(1, Math.min(width, items.length)) }, () => runWorker());
@@ -367,7 +409,8 @@ async function runPool<T>(items: readonly T[], width: number, worker: (item: T) 
  * `--bail`: the flat sequential path. Checks run one at a time in group order
  * and the run stops at the first *executed* failure — fail-fast is
  * incompatible with already-launched concurrent work, so `--concurrency` is moot
- * here (the caller notes it if one was passed). For the default set (all `'any'`)
+ * here (the caller notes it if one was passed), and so are lock keys, since
+ * nothing overlaps. For the default set (all `'any'`)
  * this is exactly the cheapest-first order.
  */
 async function executeBail(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
@@ -383,13 +426,14 @@ async function executeBail(selected: readonly ResolvedCheck[], ctx: RunContext):
 
 /**
  * The wave scheduler: run each wave's members concurrently through the pool,
- * with a barrier between waves. Results are placed by their `selected` index and
- * assembled in that order afterwards, so the report is deterministic regardless
- * of which check finishes first. Every selected check runs — there is no
- * early stop off the `--bail` path.
+ * with a barrier between waves, and never two members sharing a lock key at
+ * once. Results are placed by their `selected` index and assembled in that
+ * order afterwards, so the report is deterministic regardless of which check
+ * finishes first. Every selected check runs — there is no early stop off the
+ * `--bail` path.
  */
 async function executeWaves(selected: readonly ResolvedCheck[], ctx: RunContext): Promise<Execution> {
-  const indexed = selected.map((r, i) => ({ r, i }));
+  const indexed = selected.map((r, i) => ({ r, i, key: lockKey(r) }));
   const results = Array.from<CheckResult | undefined>({ length: selected.length });
   for (const wave of partitionWaves(indexed)) {
     // oxlint-disable-next-line no-await-in-loop -- the between-values barrier: a wave runs to completion before the next distinct order value begins.

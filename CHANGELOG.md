@@ -325,6 +325,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `resolveChecks` resolves each target's slots against its pack's rows in
   `PACKS`. Without `targets`, names, argv, output files and summaries are
   unchanged, and `test/contract/targets.contract.test.ts` holds the rest.
+- Additive: the exported `Adapter` type gains an optional `lock`. Two checks
+  whose keys are equal never run at once, even in one wave, with `{root}` in
+  a key expanded to the check's target root; the check that waits isn't
+  started, so its timeout and `duration_ms` don't count the wait.
+  `docs/contract.md` describes it under check ordering. No row of `ADAPTERS`
+  or `PACKS` declares one yet, so every existing run schedules as before.
 
 ### Internal
 

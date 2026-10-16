@@ -125,6 +125,14 @@ export type Adapter = {
    * the slot.
    */
   order?: Order;
+  /**
+   * A key two checks never run under at the same time, even in one wave: the
+   * one that would overlap waits, unstarted, so its timeout doesn't run while
+   * it waits. `{root}` expands to the check's target root, `.` for the repo
+   * root, so `cargo:{root}` keeps one target's cargo checks apart and leaves
+   * another target's free. Omitted, the check takes no lock.
+   */
+  lock?: string;
   /** Pinned versions `init` writes into package.json. */
   devDeps: Record<string, string>;
 };

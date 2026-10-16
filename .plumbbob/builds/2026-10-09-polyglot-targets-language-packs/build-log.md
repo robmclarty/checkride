@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 75 — fix(artifacts): delete only checkride's own files from a dropped target's directory
+**Current step:** 28 — feat(run): never overlap checks that share a lock key
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -50,7 +50,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 25. feat(config): accept targets and packs blocks with their validation
 - ☑ 26. feat(select): select checks with the target token grammar
 - ☑ 27. feat(run): run target-scope slots once per target
-- ☐ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
+- ☑ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
 - ☐ 28. feat(run): never overlap checks that share a lock key
 - ☐ 29. feat(changed): skip unaffected targets under --changed
 - ☐ 30. feat(launch): resolve tools through mise and PATH and record the pin
@@ -131,6 +131,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] without targets, a packs block (a preset's included) applies to nothing: R3 ranks packs above top-level checks, so reading it in implicit mode would let a preset's pack default beat the repo's own checks entry; decide whether implicit mode reads packs below checks or ignores it (step 53's defaults layer resolves its own packs block and needs the same answer)
 - [x] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
 - [x] a folder already under --out that shares a target's name gets that target's artifacts written into it, and when the target is dropped the prune deletes the whole folder, the user's files included; R9 promises checkride never deletes what it didn't write, so delete only the files the previous summary's checks name, then the folder once empty
+- [ ] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -1727,3 +1728,82 @@ folder, so it rides the branch into the PR.)*
   Readers that aren't target-aware yet: `doctor` (step 34), the stanza's check list (step 35), and the digest, `triage` and `qa` (step 38). In multi-target mode they show bare slot rows or a generic digest section, but nothing breaks.
 
   Verified: `pnpm check` is green. Beyond the plumbbob gate, the e2e invariance, `--out` and examples suites pass (27 tests). The opt-in mutation slot wasn't run, as at earlier steps, so C12 (quality-floors) rests on the coverage gate the `test` slot holds.
+
+- 2026-10-16 — step 75 checkpointed · e75ff9be2 — fix(artifacts): delete only checkride's own files from a dropped target's directory (7m)
+
+  **Summary**: When the config drops a target, a run now deletes only the files the previous summary says that target's checks wrote, then the target's folder once nothing else is in it. A folder of yours under `--out` that shares a target's name keeps your own files. Step 27's prune deleted the whole folder, which broke R9's promise that checkride never deletes what it didn't write.
+
+  1. The prune deletes only the files the previous summary's checks name, then the folder once empty
+  2. A folder of yours that shares a target's name keeps your files when the target is dropped, and the test fails on step 27's prune
+  3. The plan gained D57, an R9 amendment and step 75, ordered ahead of step 28
+
+  **Readout**: Step 75 - fix(artifacts): delete only checkride's own files from a dropped target's directory
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  12 of 12 honored
+  seam         held: 5 of 5 declared, no strays
+  diff         +158 -42 across 5 files
+  spent        7 min · 1 turn · 33s gate · green first run
+  ```
+
+  **Verdict**: ● Plumb
+
+  **Recommendation**: Approve and checkpoint step 75. The new case fails on step 27's prune and passes with the fix, the crafted-name case shows nothing outside the folder is named, every path stays inside the seam, and `pnpm check` is green.
+
+  **1.** The prune deletes only the files the previous summary's checks name, then the folder once empty
+
+  `pruneDroppedTargets` in `src/artifacts/targets.ts` still reads the previous `summary.json` and works out which targets the config dropped. It now also collects, from that summary's checks of each dropped target, the names checkride's conventions give it:
+
+  - `<slot>.stdout.txt`, `<slot>.stderr.txt` and `<slot>.json`;
+  - each `output_file` under `<target>/`.
+
+  It unlinks those names and then removes the folder only if it's empty, so anything else in the folder stays where it is. Anything left over is treated as someone else's: a file of yours, a subfolder, or a report a custom check wrote through `{out}` under another name.
+
+  The guards from step 27 still apply before anything is touched:
+
+  - a V1-shaped name only;
+  - a real directory only, never a symlink;
+  - never a folder that holds the repo or the target's own root.
+
+  Each file name also has to be a single path entry, so a hand-edited `slot` like `../escape`, or an `output_file` outside `<target>/`, names nothing.
+
+  Known limit, in the safe direction: the summary only records the last run's checks. A file from an older run of a check that didn't run last time stays behind, and so does its folder.
+
+  **2.** A folder of yours that shares a target's name keeps your files when the target is dropped, and the test fails on step 27's prune
+
+  A new case in `test/contract/targets.contract.test.ts` runs the real CLI with `spawn` faked:
+
+  1. It puts `out/old/mine.md` in place.
+  2. It runs with a target `old` that writes into that folder.
+  3. It drops `old`.
+
+  `mine.md` survives, and the target's `probe.stdout.txt` and `probe.stderr.txt` are gone. I checked the test against the old code by briefly restoring step 27's prune: the case fails there, then passes again with the fix.
+
+  In `src/__tests__/artifacts.test.ts`, the prune fixtures now carry the checks a real summary would, and two new cases cover:
+
+  - a dropped target's folder keeping a file and a subfolder of its own;
+  - crafted `slot` and `output_file` values that never reach outside the folder.
+
+  The step 27 cases still pass: a folder holding only checkride's files is removed whole, and so is a target dropped by a config that no longer has `targets`. `docs/contract.md` and both CHANGELOG entries for targets now describe the narrower delete. Those entries are unreleased, so they're amended in place rather than given a Fixed line.
+
+  **3.** The plan gained D57, an R9 amendment and step 75, ordered ahead of step 28
+
+  At step 27's harvest you confirmed three tangents:
+
+  - per-target package managers, to step 30;
+  - implicit-mode `packs`, to step 53;
+  - the `doc-snippets` name, to step 36.
+
+  All four park items are now closed, with the calls recorded in the build log.
+
+  You called the prune hazard a fix-now blocker. That produced these changes:
+
+  - `intent.md` gains D57 (prune-own-files) under "Settled during the build".
+  - R9's "Written there" bullet now describes the narrower delete and cites D57.
+  - Step 75 sits right after step 27 in Phase 6. The phases table row reads "24 to 39, 75".
+  - `plumbbob order 75` put it ahead of step 28.
+
+  Its `model:` line says Sonnet. You asked for the fix now, so it ran on Opus.

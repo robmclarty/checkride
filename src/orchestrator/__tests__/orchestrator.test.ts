@@ -12,8 +12,11 @@ import type { Baseline } from '../../baseline/index.js';
 import { resolveChecks } from '../../config.js';
 import type { ResolvedCheck } from '../../config.js';
 import { detectPackageManager } from '../../launch/index.js';
+import type { Target } from '../../targets/index.js';
+import { resolveRunContext } from '../context.js';
+import { executeChecks } from '../execute.js';
 import { fixInvocation } from '../fix.js';
-import type { CheckRunner, Out, RunFlags, Summary, SummaryCheck } from '../index.js';
+import type { CheckRunner, Out, RunFlags, RunOptions, RunResult, Summary, SummaryCheck } from '../index.js';
 import { runChecks, runFix, selectChecks } from '../index.js';
 import { formatStatusLine } from '../report.js';
 import { defaultConcurrency, missingExemplarsOutcome, runtimeArgs } from '../spawn.js';
@@ -153,15 +156,56 @@ function schedulingRunner(opts: { delayMs?: number; fail?: string[] } = {}): {
   return { runner, events, maxInFlight: () => maxInFlight };
 }
 
-/** A runner that resolves each slot after its mapped delay, recording completion order. */
-function delayedRunner(delays: Record<string, number>): { runner: CheckRunner; endOrder: string[] } {
+/**
+ * A runner under which each check finishes only once the check after it in
+ * `names` has, recording completion order. Completion then runs exactly in
+ * reverse whatever the machine's load, where timers spaced a few
+ * milliseconds apart could swap; it needs every check in flight at once.
+ */
+function reversedRunner(names: readonly string[]): { runner: CheckRunner; endOrder: string[] } {
   const endOrder: string[] = [];
+  const finished = new Map(names.map((name) => [name, Promise.withResolvers<void>()]));
   const runner: CheckRunner = async (r) => {
-    await new Promise((res) => setTimeout(res, delays[r.slot] ?? 0));
+    const next = names[names.indexOf(r.slot) + 1];
+    if (next !== undefined) await finished.get(next)?.promise;
     endOrder.push(r.slot);
+    finished.get(r.slot)?.resolve();
     return { ok: true, exit_code: 0, stdout: '', stderr: '' };
   };
   return { runner, endOrder };
+}
+
+/**
+ * The fake spawner the lock tests observe: each check holds for its mapped
+ * time (10ms when unmapped) and records its interval as `start:<name>` and
+ * `end:<name>` events, in the order they happened, where `<name>` is
+ * `<target>:<slot>` for a target's check.
+ */
+function intervalRunner(holdMs: Record<string, number> = {}): { runner: CheckRunner; events: string[] } {
+  const events: string[] = [];
+  const runner: CheckRunner = async (r) => {
+    const name = r.target === undefined ? r.slot : `${r.target}:${r.slot}`;
+    events.push(`start:${name}`);
+    await new Promise((res) => setTimeout(res, holdMs[name] ?? 10));
+    events.push(`end:${name}`);
+    return { ok: true, exit_code: 0, stdout: '', stderr: '' };
+  };
+  return { runner, events };
+}
+
+/** True when an {@link intervalRunner}'s events show checks `a` and `b` in flight at once. */
+function overlapped(events: readonly string[], a: string, b: string): boolean {
+  const at = (event: string): number => {
+    const i = events.indexOf(event);
+    expect(i, `${event} was recorded`).toBeGreaterThan(-1);
+    return i;
+  };
+  return at(`start:${a}`) < at(`end:${b}`) && at(`start:${b}`) < at(`end:${a}`);
+}
+
+/** `target`'s check filled by `adapter`, as multi-target resolution makes one. */
+function targetCheck(target: Target, adapter: Adapter): ResolvedCheck {
+  return { slot: adapter.slot, optIn: false, adapter, skip: null, target: target.name, root: target.root, pack: target.pack };
 }
 
 describe('selectChecks', () => {
@@ -507,7 +551,7 @@ describe('runChecks (wave scheduler)', () => {
   test('summary array order is deterministic under randomized completion', async () => {
     const { slots, adapters } = waveFixture([['a'], ['b'], ['c'], ['d']]); // one 'any' wave
     // Completion order is the reverse of selection order (d finishes first).
-    const rec = delayedRunner({ a: 40, b: 30, c: 20, d: 10 });
+    const rec = reversedRunner(['a', 'b', 'c', 'd']);
     const result = await runChecks({
       cwd: dir, slots, adapters, config: null, concurrency: 4, runner: rec.runner, json: true,
       stdout: sink().out, stderr: sink().out,
@@ -547,6 +591,89 @@ describe('runChecks (wave scheduler)', () => {
     });
     expect(rec.events).toEqual(['start:a', 'end:a', 'start:n', 'end:n', 'start:z', 'end:z']);
     expect(result.summary.checks.map((c) => c.name)).toEqual(['a', 'n', 'z']);
+  });
+});
+
+describe('runChecks (lock keys)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-lock-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const cargoCheck = fakeAdapter({ name: 'cargo-check', slot: 'types', lock: 'cargo:{root}' });
+  const clippy = fakeAdapter({ name: 'clippy', slot: 'lint', lock: 'cargo:{root}' });
+  const rumdl = fakeAdapter({ name: 'rumdl', slot: 'docs' });
+
+  /** Run `adapters` in implicit mode as one `'any'` wave, in the order given, through `runner`. */
+  const run = (adapters: Adapter[], runner: CheckRunner, extra: Partial<RunOptions> = {}): Promise<RunResult> =>
+    runChecks({
+      cwd: dir, slots: adapters.map((a) => ({ name: a.slot })), adapters, config: null, concurrency: 4, runner,
+      json: true, stdout: sink().out, stderr: sink().out, ...extra,
+    });
+
+  /**
+   * Hand `selected` straight to the scheduler, as a multi-target run does. No
+   * pack fills a slot with a locked adapter yet, so resolution can't make
+   * these checks.
+   */
+  const executeTargets = (targets: Target[], selected: ResolvedCheck[], runner: CheckRunner): Promise<unknown> => {
+    const ctx = resolveRunContext({
+      cwd: dir, config: null, runner, pm: 'pnpm', baseline: null, concurrency: 4, json: true,
+      stdout: sink().out, stderr: sink().out,
+    });
+    return executeChecks(selected, { ...ctx, targets });
+  };
+
+  test('two cargo checks for one target in one wave never overlap, while an unlocked check runs beside them (F4)', async () => {
+    const rec = intervalRunner({ types: 50, lint: 50, docs: 50 });
+    await run([cargoCheck, clippy, rumdl], rec.runner);
+    expect(overlapped(rec.events, 'types', 'lint')).toBe(false);
+    // The lock held back clippy alone: rumdl ran while cargo-check held it.
+    expect(overlapped(rec.events, 'types', 'docs')).toBe(true);
+  });
+
+  test('a check waiting on a lock is not started, so the wait never counts against its timeout (F4)', async () => {
+    const rec = intervalRunner({ types: 300, lint: 0 });
+    const err = sink();
+    const result = await run([cargoCheck, { ...clippy, timeout: 0.2 }], rec.runner, { json: false, stderr: err.out });
+    expect(rec.events).toEqual(['start:types', 'end:types', 'start:lint', 'end:lint']);
+    // clippy waited out cargo-check's run, longer than its own 0.2s timeout,
+    // yet its timed run, the window that timeout caps, opened only once the
+    // lock came free.
+    const [types, lint] = result.summary.checks;
+    expect(types?.duration_ms).toBeGreaterThan(200);
+    expect(lint?.duration_ms).toBeLessThan(200);
+    // Nor did it report itself started while it waited.
+    const lines = err.lines.join('').split('\n').map((l) => l.trim());
+    const at = (prefix: string): number => lines.findIndex((l) => l.startsWith(prefix));
+    expect(at('✔ types')).toBeGreaterThan(-1);
+    expect(at('▸ lint')).toBeGreaterThan(at('✔ types'));
+  });
+
+  test('under --concurrency 1 a lock changes nothing, and the checks keep their selection order', async () => {
+    const rec = intervalRunner();
+    await run([cargoCheck, rumdl, clippy], rec.runner, { concurrency: 1 });
+    expect(rec.events).toEqual(['start:types', 'end:types', 'start:docs', 'end:docs', 'start:lint', 'end:lint']);
+  });
+
+  test('two go targets each running golangci-lint never overlap (F5)', async () => {
+    const golangci = fakeAdapter({ name: 'golangci-lint', slot: 'lint', lock: 'golangci-lint' });
+    const api = { name: 'api', pack: 'go', root: 'services/api' };
+    const worker = { name: 'worker', pack: 'go', root: 'services/worker' };
+    const rec = intervalRunner({ 'api:lint': 50, 'worker:lint': 50 });
+    await executeTargets([api, worker], [targetCheck(api, golangci), targetCheck(worker, golangci)], rec.runner);
+    expect(overlapped(rec.events, 'api:lint', 'worker:lint')).toBe(false);
+  });
+
+  test("cargo:{root} keeps each target's cargo checks apart, while two targets' run side by side", async () => {
+    const core = { name: 'core', pack: 'rust', root: 'crates/core' };
+    const cli = { name: 'cli', pack: 'rust', root: 'crates/cli' };
+    const rec = intervalRunner({ 'core:types': 50, 'cli:types': 50, 'core:lint': 50, 'cli:lint': 50 });
+    // R8.4's order: each slot, in target order.
+    const selected = [targetCheck(core, cargoCheck), targetCheck(cli, cargoCheck), targetCheck(core, clippy), targetCheck(cli, clippy)];
+    await executeTargets([core, cli], selected, rec.runner);
+    expect(overlapped(rec.events, 'core:types', 'core:lint')).toBe(false);
+    expect(overlapped(rec.events, 'cli:types', 'cli:lint')).toBe(false);
+    expect(overlapped(rec.events, 'core:types', 'cli:types')).toBe(true);
   });
 });
 
