@@ -610,7 +610,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 6: targets, the bash pack and mise
 
-24. [ ] chore(dev): pin every e2e toolchain in a dev mise.toml, **done when:** a root `mise.toml` pins Go, Rust, Python, uv, shellcheck, shfmt, golangci-lint, typos, rumdl, vale, ast-grep, OpenTofu, tflint and trivy at tested versions; `mise install` succeeds locally; CI's e2e job installs them with `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`; a helper skips a pack's e2e cases when its tools are missing, unless that variable is set; this repo's own run is unchanged
+24. [x] chore(dev): pin every e2e toolchain in a dev mise.toml, **done when:** a root `mise.toml` pins Go, Rust, Python, uv, shellcheck, shfmt, golangci-lint, typos, rumdl, vale, ast-grep, OpenTofu, tflint and trivy at tested versions; `mise install` succeeds locally; CI's e2e job installs them with `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`; a helper skips a pack's e2e cases when its tools are missing, unless that variable is set; this repo's own run is unchanged
     - seam: `mise.toml`, `.github/workflows/ci.yml`, `test/helpers/toolchains.ts`,
       `CONTRIBUTING.md`
     - model: sonnet (needs the network once, for `mise install`)

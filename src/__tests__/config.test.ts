@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -9,8 +9,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { Adapter } from '../adapters.js';
+import { runCli } from '../cli.js';
 import type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from '../config.js';
-import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
+import { configSchemaUrl, configuredSlots, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
+import { isRecord } from '../json.js';
+import { PACKS } from '../packs/index.js';
+import { configProblem } from '../targets/index.js';
 
 const never = (): boolean => false;
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);
@@ -802,6 +806,316 @@ describe('skipExitCode (a custom check skipping itself)', () => {
   });
 });
 
+function sink(): { write: (text: string) => boolean; text: () => string } {
+  const lines: string[] = [];
+  return { write: (text: string) => { lines.push(text); return true; }, text: () => lines.join('') };
+}
+
+describe('targets and packs (the R2.3 rules, S3)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-targets-'));
+    for (const sub of ['apps/web/admin', 'apps/webapp', 'apps/api', 'scripts']) await mkdir(join(dir, sub), { recursive: true });
+    await writeFile(join(dir, 'README.md'), '# fixture\n');
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const write = (config: unknown, file = 'checkride.config.json'): Promise<void> =>
+    writeFile(join(dir, file), JSON.stringify(config));
+  const web = { lang: 'ts', root: 'apps/web' };
+  const problem = (config: Record<string, unknown>): string | null => configProblem(config, { cwd: dir, layer: 'repo' });
+  const defaults = (config: Record<string, unknown>): string | null => configProblem(config, { cwd: dir, layer: 'defaults' });
+
+  /**
+   * For each rule the loader holds, a config that breaks it and nothing else,
+   * and the words its message carries. V11 reads a defaults file, which no
+   * command loads yet, so its case calls the rules directly below.
+   */
+  const RULES: readonly {
+    rule: string;
+    config: Record<string, unknown>;
+    base?: Record<string, unknown>;
+    message: RegExp;
+  }[] = [
+    { rule: 'V1', config: { targets: { Web: web } }, message: /target name "Web" must start with a lowercase letter/ },
+    { rule: 'V2', config: { targets: { lint: web } }, message: /target name 'lint' is reserved: it's a slot's name/ },
+    {
+      rule: 'V3',
+      config: { targets: { web: { lang: 'ts', root: 'apps/nope' } } },
+      message: /targets\.web\.root "apps\/nope" doesn't exist in the repo/,
+    },
+    {
+      rule: 'V4',
+      config: { targets: { web, admin: { lang: 'ts', root: 'apps/web/admin' } } },
+      message: /ts target 'admin' sits inside 'web' \('apps\/web\/admin' is under 'apps\/web'\)/,
+    },
+    {
+      rule: 'V5',
+      config: { targets: { web: { ...web, include: ['**/*.ts'] } } },
+      message: /targets\.web sets include, but ts checks its root rather than a list of files/,
+    },
+    {
+      rule: 'V6',
+      config: { targets: { web }, checks: { lint: 'biome' } },
+      message: /checks\.lint names "biome", but once targets are declared .*: move it to packs\.ts\.checks\.lint \(targets web\)/,
+    },
+    {
+      rule: 'V7',
+      base: { targets: { web } },
+      config: { extends: './base.json' },
+      message: /extends "\.\/base\.json" declares targets \(in checkride\.config\.json\): a preset can't know/,
+    },
+    {
+      rule: 'V8',
+      config: { schemas: [{ files: ['data/*.json'], schema: 'https://example.com/s.json' }] },
+      message: /schemas\[0\]\.schema "https:\/\/example\.com\/s\.json" is a URL, and a check never fetches/,
+    },
+    { rule: 'V9', config: { targets: {} }, message: /targets is empty: declare at least one target/ },
+    {
+      rule: 'V10',
+      config: { packs: { go: { checks: { lint: 'golangci-lint' } } } },
+      message: /packs has 'go', which isn't a pack \(packs: ts\)/,
+    },
+    {
+      rule: 'V12',
+      config: { checks: { licenses: { command: 'node', static: true } } },
+      message: /'licenses' sets static, which only a defaults file may set/,
+    },
+  ];
+
+  async function writeCase(c: (typeof RULES)[number]): Promise<void> {
+    if (c.base) await write(c.base, 'base.json');
+    await write(c.config);
+  }
+
+  test.each(RULES)('$rule: the loader names the problem', async (c) => {
+    await writeCase(c);
+    expect(() => loadConfig(dir)).toThrow(c.message);
+  });
+
+  test.each(RULES)('$rule: a run exits 2 with that message before anything runs', async (c) => {
+    await writeCase(c);
+    const err = sink();
+    expect(await runCli(['--only', 'links'], { cwd: dir, stdout: sink(), stderr: err })).toBe(2);
+    expect(err.text()).toMatch(/^checkride: invalid checkride\.config\.json: /);
+    expect(err.text()).toMatch(c.message);
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test("V11: a defaults file can't declare targets, though a repo's config can", () => {
+    expect(defaults({ targets: { web } })).toMatch(/^a defaults file can't declare targets/);
+    expect(problem({ targets: { web } })).toBeNull();
+  });
+
+  test('V1 to V12 each have their own message', async () => {
+    const messages: string[] = [];
+    for (const c of RULES) {
+      await writeCase(c);
+      try {
+        loadConfig(dir);
+      } catch (err) {
+        messages.push(err instanceof Error ? err.message : String(err));
+      }
+    }
+    messages.push(defaults({ targets: { web } }) ?? '');
+    expect(messages).toHaveLength(12);
+    expect(new Set(messages).size).toBe(12);
+  });
+
+  test('a config declaring targets, packs and their companion keys loads as written', async () => {
+    const config = {
+      changedBase: 'origin/develop',
+      requirePins: true,
+      unclaimed: { ignore: ['vendor-tools/**'] },
+      targets: {
+        web: { lang: 'ts', root: './apps/web/', note: 'the storefront', checks: { lint: 'biome', e2e: { command: 'node' } } },
+        api: { lang: 'ts', root: 'apps/api', checks: { test: { use: 'jest', timeout: 0 } } },
+      },
+      packs: { ts: { note: 'every ts target', checks: { types: 'tsc', format: false, audit: { command: 'node', skipExitCode: 77 } } } },
+      checks: { lint: { optIn: false, timeout: 120, order: 'first', note: 'tuned' }, test: false, spell: 'cspell', licenses: { command: 'node' } },
+    };
+    await write(config);
+    expect(loadConfig(dir)).toEqual(config);
+  });
+
+  test('a top-level entry for a target-scope slot is unrestricted without targets', async () => {
+    await write({ checks: { lint: 'biome', test: { use: 'vitest', args: ['run'] } }, packs: { ts: { checks: { lint: 'oxlint' } } } });
+    expect(loadConfig(dir)?.checks?.['lint']).toBe('biome');
+  });
+
+  test('V2 reserves schema and unclaimed before either slot exists, and every custom check name', () => {
+    expect(problem({ targets: { schema: web } })).toMatch(/target name 'schema' is reserved/);
+    expect(problem({ targets: { unclaimed: web } })).toMatch(/target name 'unclaimed' is reserved/);
+    expect(problem({ targets: { licenses: web }, checks: { licenses: { command: 'node' } } })).toMatch(
+      /target name 'licenses' is taken by the custom check checks\.licenses/,
+    );
+  });
+
+  test('V1 holds names to a lowercase word of 32 characters at most', () => {
+    expect(problem({ targets: { 'web-2': web } })).toBeNull();
+    expect(problem({ targets: { [`a${'b'.repeat(31)}`]: web } })).toBeNull();
+    for (const name of [`a${'b'.repeat(32)}`, '2web', '-web', 'web_2', 'wéb', '']) {
+      expect(problem({ targets: { [name]: web } }), name).toMatch(/must start with a lowercase letter/);
+    }
+  });
+
+  test('V3 normalizes a root, and rejects one that is absolute, climbs out, is missing or is a file', () => {
+    for (const root of ['.', './', 'apps/web/', './apps//web', 'apps/web/admin']) {
+      expect(problem({ targets: { web: { lang: 'ts', root } } }), root).toBeNull();
+    }
+    const at = (root: unknown): string | null => problem({ targets: { web: { lang: 'ts', root } } });
+    expect(at('/etc')).toMatch(/targets\.web\.root "\/etc" is absolute/);
+    expect(at('apps/../apps/web')).toMatch(/has a '\.\.' segment/);
+    expect(at('..')).toMatch(/has a '\.\.' segment/);
+    expect(at('README.md')).toMatch(/targets\.web\.root "README\.md" is a file, not a directory/);
+    expect(at('')).toMatch(/targets\.web\.root must be a directory relative to the repo root \(got ""\)/);
+    expect(at(7)).toMatch(/\(got 7\)/);
+    expect(problem({ targets: { web: { lang: 'ts' } } })).toMatch(/targets\.web has no root/);
+  });
+
+  test('V4 rejects two targets of one pack on one root, and one at the repo root over another', () => {
+    expect(problem({ targets: { web, site: { lang: 'ts', root: './apps/web/' } } })).toMatch(
+      /ts targets 'web' and 'site' share the root 'apps\/web'/,
+    );
+    expect(problem({ targets: { web, root: { lang: 'ts', root: '.' } } })).toMatch(/ts target 'web' sits inside 'root'/);
+    // Siblings with a shared prefix don't nest.
+    expect(problem({ targets: { web, webapp: { lang: 'ts', root: 'apps/webapp' } } })).toBeNull();
+  });
+
+  /** A pack that checks a file list, the way R11.2 says a bash pack will. */
+  const shell: { name: string; adapters: Adapter[] } = {
+    name: 'sh',
+    adapters: [
+      {
+        name: 'shellcheck',
+        slot: 'lint',
+        description: 'ShellCheck',
+        detect: [],
+        command: 'shellcheck',
+        args: ['{files}'],
+        outputFile: null,
+        devDeps: {},
+      },
+    ],
+  };
+  const withShell = (config: Record<string, unknown>): string | null =>
+    configProblem(config, { cwd: dir, layer: 'repo', packs: [...Object.values(PACKS), shell] });
+
+  test('V4 lets targets of different packs nest', () => {
+    expect(withShell({ targets: { web, tools: { lang: 'sh', root: 'apps' } } })).toBeNull();
+    expect(withShell({ targets: { web, tools: { lang: 'sh', root: 'apps/web' } } })).toBeNull();
+  });
+
+  test('V5 lets a file-list pack take include and exclude, as globs', () => {
+    expect(withShell({ targets: { tools: { lang: 'sh', root: 'scripts', include: ['**/*.sh'], exclude: ['vendor/**'] } } })).toBeNull();
+    expect(withShell({ targets: { tools: { lang: 'sh', root: 'scripts', exclude: '**/*.sh' } } })).toMatch(
+      /targets\.tools\.exclude must be an array of globs/,
+    );
+    expect(problem({ targets: { web: { ...web, exclude: ['x'] } } })).toMatch(/targets\.web sets exclude, but ts checks its root/);
+  });
+
+  test('V6 allows false and scheduling keys at the top level, and names every pack that fills the slot', () => {
+    expect(problem({ targets: { web }, checks: { lint: false, test: { optIn: true, timeout: 0, order: 3, note: 'n' } } })).toBeNull();
+    expect(problem({ targets: { web }, checks: { links: 'links', licenses: { command: 'node' } } })).toBeNull();
+    expect(problem({ targets: { web }, checks: { test: { use: 'vitest', timeout: 0 } } })).toMatch(
+      /checks\.test sets use, but once targets are declared a top-level target-scope slot may set only optIn, timeout, order, note/,
+    );
+    expect(problem({ targets: { web }, checks: { types: { command: 'node', args: ['x'] } } })).toMatch(/checks\.types sets command, args/);
+    expect(
+      withShell({ targets: { web, api: { lang: 'ts', root: 'apps/api' }, tools: { lang: 'sh', root: 'scripts' } }, checks: { lint: 'biome' } }),
+    ).toMatch(/move it to packs\.ts\.checks\.lint \(targets web, api\) or packs\.sh\.checks\.lint \(targets tools\), or into one target's checks/);
+  });
+
+  test('V7 catches targets in a preset of a preset, naming the file that extends it', async () => {
+    await write({ targets: { web } }, 'grandparent.json');
+    await write({ extends: './grandparent.json' }, 'parent.json');
+    await write({ extends: './parent.json' });
+    expect(() => loadConfig(dir)).toThrow(/extends "\.\/grandparent\.json" declares targets \(in \S*parent\.json\)/);
+  });
+
+  test('V7 leaves packs in a preset alone', async () => {
+    await write({ packs: { ts: { checks: { lint: 'biome' } } } }, 'base.json');
+    await write({ extends: './base.json', targets: { web } });
+    expect(loadConfig(dir)?.packs).toEqual({ ts: { checks: { lint: 'biome' } } });
+  });
+
+  test('V8 takes a bundled id or a repo-relative path, and nothing fetched or absolute', () => {
+    expect(problem({ schemas: [{ files: ['a.json'], schema: 'checkride:agent-skill' }, { files: ['b.yml'], schema: 'schemas/b.json' }] })).toBeNull();
+    expect(problem({ schemas: [{ files: ['a.json'], schema: 'HTTP://example.com/s.json' }] })).toMatch(/is a URL/);
+    expect(problem({ schemas: [{ files: ['a.json'], schema: '/etc/s.json' }] })).toMatch(/schemas\[0\]\.schema "\/etc\/s\.json" is absolute/);
+    expect(problem({ schemas: [{ files: ['a.json'] }] })).toMatch(/schemas\[0\]\.schema must name a bundled checkride:<id> schema/);
+    expect(problem({ schemas: { files: ['a.json'] } })).toMatch(/schemas must be an array of rules/);
+  });
+
+  test('V10 holds each packs block and each target to its own pack’s adapters', () => {
+    expect(problem({ packs: { ts: { checks: { lint: 'golangci-lint' } } } })).toMatch(
+      /packs\.ts\.checks\.lint names 'golangci-lint', which isn't a ts adapter \(ts fills lint with oxlint, biome, eslint\)/,
+    );
+    expect(problem({ packs: { ts: { checks: { test: { use: 'pytest' } } } } })).toMatch(/packs\.ts\.checks\.test names 'pytest'/);
+    expect(problem({ targets: { web: { ...web, checks: { lint: 'shellcheck' } } } })).toMatch(
+      /targets\.web\.checks\.lint names 'shellcheck', which isn't a ts adapter/,
+    );
+    expect(problem({ packs: { ts: { checks: { links: false } } } })).toMatch(
+      /packs\.ts\.checks\.links configures links, a repo-scope slot that runs once for the whole repo/,
+    );
+    expect(problem({ targets: { web: { ...web, checks: { unclaimed: false } } } })).toMatch(/configures unclaimed, a repo-scope slot/);
+    expect(problem({ packs: { repo: {} } })).toMatch(/packs has 'repo', which isn't a pack/);
+    expect(problem({ packs: { ts: { check: {} } } })).toMatch(/packs\.ts has an unknown key 'check' \(expected checks, note\)/);
+  });
+
+  test('V12 lets a defaults file vouch with static, and holds skipExitCode to command entries everywhere', () => {
+    expect(defaults({ checks: { licenses: { command: 'node', static: true }, lint: { use: 'oxlint', static: false } } })).toBeNull();
+    expect(defaults({ checks: { licenses: { command: 'node', static: 'yes' } } })).toMatch(/'licenses' static must be true or false/);
+    expect(problem({ packs: { ts: { checks: { lint: { use: 'oxlint', static: true } } } } })).toMatch(
+      /'packs\.ts\.checks\.lint' sets static/,
+    );
+    expect(problem({ targets: { web: { ...web, checks: { gen: { command: 'node', skipExitCode: 0 } } } } })).toMatch(
+      /'targets\.web\.checks\.gen' skipExitCode must be an integer from 1 to 255 \(got 0\)/,
+    );
+    expect(problem({ checks: { lint: { optIn: true, skipExitCode: 77 } } })).toMatch(
+      /'lint' skipExitCode applies only to a custom check \(\{ command \}\)$/,
+    );
+  });
+
+  test('a target names a pack, holds only known keys, and its note is a string', () => {
+    expect(problem({ targets: { web: { root: 'apps/web' } } })).toMatch(/targets\.web has no lang: name its pack \(packs: ts\)/);
+    expect(problem({ targets: { web: { lang: 'cobol', root: 'apps/web' } } })).toMatch(/targets\.web\.lang "cobol" isn't a pack/);
+    expect(problem({ targets: { web: { lang: 'repo', root: 'apps/web' } } })).toMatch(/targets\.web\.lang "repo" isn't a pack/);
+    expect(problem({ targets: { web: { ...web, rot: '.' } } })).toMatch(/targets\.web has an unknown key 'rot'/);
+    expect(problem({ targets: { web: { ...web, note: 3 } } })).toMatch(/'targets\.web' note must be a string/);
+    expect(problem({ targets: { web: 'apps/web' } })).toMatch(/targets\.web must be an object with lang and root/);
+    expect(problem({ targets: ['web'] })).toMatch(/targets must be an object of named targets/);
+  });
+
+  test('requirePins is a boolean, and unclaimed holds only an ignore list', () => {
+    expect(problem({ requirePins: 'yes' })).toMatch(/requirePins must be true or false \(got "yes"\)/);
+    expect(problem({ unclaimed: ['x'] })).toMatch(/unclaimed must be an object/);
+    expect(problem({ unclaimed: { ignore: 'x' } })).toMatch(/unclaimed\.ignore must be an array of globs/);
+    expect(problem({ unclaimed: { ignored: ['x'] } })).toMatch(/unclaimed has an unknown key 'ignored' \(expected ignore\)/);
+  });
+
+  test('--config reads target roots against the repo, not the config file’s directory', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-outside-'));
+    try {
+      const path = join(outside, 'review.json');
+      await writeFile(path, JSON.stringify({ targets: { web } }));
+      expect(loadConfigFile(path, dir).targets).toEqual({ web });
+      expect(() => loadConfigFile(path, outside)).toThrow(/targets\.web\.root "apps\/web" doesn't exist in the repo/);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('configuredSlots reads what a validated config names, and stays null on a broken one', async () => {
+    await write({ targets: { web }, checks: { spell: false, lint: false, licenses: { command: 'node' } } });
+    expect(configuredSlots(dir)).toEqual(['licenses']);
+    await write({ targets: {} });
+    expect(configuredSlots(dir)).toBeNull();
+  });
+});
+
 describe('published JSON Schema', () => {
   const schemaPath = join(
     dirname(fileURLToPath(import.meta.url)),
@@ -872,6 +1186,11 @@ describe('published JSON Schema', () => {
     expect(validate({ checks: { test: { use: 'vitest', bogus: 1 } } })).toBe(false);
   });
 
+  test('accepts an entry that only tunes a detected slot, and nothing more without use or command', () => {
+    expect(validate({ checks: { lint: { optIn: true, timeout: 60, order: 'first', note: 'why' } } })).toBe(true);
+    expect(validate({ checks: { lint: { timeout: 60, args: ['--quiet'] } } })).toBe(false);
+  });
+
   test('rejects a custom check with no command', () => {
     expect(validate({ checks: { licenses: { args: ['x'] } } })).toBe(false);
   });
@@ -928,6 +1247,58 @@ describe('published JSON Schema', () => {
   test('rejects a non-string/array extends', () => {
     expect(validate({ extends: 123 })).toBe(false);
     expect(validate({ extends: [1, 2] })).toBe(false);
+  });
+
+  test('accepts targets, packs, requirePins and unclaimed', () => {
+    const config: CheckrideConfig = {
+      requirePins: false,
+      unclaimed: { ignore: ['tools/legacy/**'] },
+      targets: {
+        web: { lang: 'ts', root: 'apps/web', note: 'storefront', checks: { lint: 'biome', e2e: { command: 'node' } } },
+        'api-2': { lang: 'ts', root: '.' },
+      },
+      packs: { ts: { note: 'all ts', checks: { test: { use: 'vitest', timeout: 0 }, format: false } } },
+      checks: { lint: { optIn: true, timeout: 60 } },
+    };
+    expect(validate(config)).toBe(true);
+  });
+
+  test('rejects what V1, V2, V3 and V9 rule out, where a schema can say it', () => {
+    const at = (name: string, root = 'apps/web'): boolean => validate({ targets: { [name]: { lang: 'ts', root } } });
+    expect(at('Web')).toBe(false);
+    expect(at(`a${'b'.repeat(32)}`)).toBe(false);
+    for (const slot of ['lint', 'links', 'schema', 'unclaimed']) expect(at(slot), slot).toBe(false);
+    for (const root of ['/abs', '..', '../x', 'a/../b', 'a/..', '']) expect(at('web', root), root).toBe(false);
+    for (const root of ['.', 'a..b', 'apps/web', './apps']) expect(at('web', root), root).toBe(true);
+    expect(validate({ targets: {} })).toBe(false);
+  });
+
+  test('rejects an unknown pack, a target missing lang or root, and unknown keys in the new blocks', () => {
+    expect(validate({ targets: { web: { lang: 'cobol', root: '.' } } })).toBe(false);
+    expect(validate({ targets: { web: { root: '.' } } })).toBe(false);
+    expect(validate({ targets: { web: { lang: 'ts' } } })).toBe(false);
+    expect(validate({ targets: { web: { lang: 'ts', root: '.', rot: '.' } } })).toBe(false);
+    expect(validate({ packs: { go: {} } })).toBe(false);
+    expect(validate({ packs: { ts: { check: {} } } })).toBe(false);
+    expect(validate({ requirePins: 'yes' })).toBe(false);
+    expect(validate({ unclaimed: { ignore: 'x' } })).toBe(false);
+    expect(validate({ unclaimed: { ignored: [] } })).toBe(false);
+  });
+
+  /** A definition's `enum`, read out of the schema file. */
+  const definitionEnum = (path: readonly string[]): unknown => {
+    let node: unknown = schema;
+    for (const key of ['definitions', ...path]) node = isRecord(node) ? node[key] : undefined;
+    return isRecord(node) ? node['enum'] : undefined;
+  };
+
+  test('the pack names it accepts are the language packs PACKS holds', () => {
+    const languagePacks = Object.keys(PACKS).filter((name) => name !== 'repo');
+    expect(definitionEnum(['packName'])).toEqual(languagePacks);
+  });
+
+  test('the target names it reserves are every slot name, plus schema and unclaimed', () => {
+    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'unclaimed']);
   });
 });
 

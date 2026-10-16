@@ -150,6 +150,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `fixtures` joins `node_modules`, `dist` and the tool caches in the built-in
   exclude set. `checks.links.exclude` only adds to that set, so a repo can't
   opt a `fixtures/` directory back in; keep docs you want checked elsewhere.
+- **A few config mistakes that used to be ignored now exit 2.** A `static`
+  key on a check entry, a `skipExitCode` on an entry with no `command`, and a
+  `schemas` rule whose `schema` is a URL or an absolute path each fail the run
+  with `invalid checkride.config.json: <reason>`. The published JSON Schema
+  already rejected the first two. Each is one of the rules that arrive with
+  the `targets` and `packs` keys (see Contract).
 
 ### Fixed
 
@@ -239,6 +245,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Each `SLOTS` entry gains `scope` (`target` or `repo`), and the exported
   `Slot` type an optional `scope`. All four exports are plain data that
   survive a JSON round trip, held by `exports.contract.test.ts`.
+- Additive: the config keys `targets`, `packs`, `requirePins` and
+  `unclaimed`, in the JSON Schema and the exported `CheckrideConfig` type,
+  with the rules `docs/contract.md` lists. A config that breaks one exits 2
+  before anything runs, and `schema` and `unclaimed` are reserved as target
+  names ahead of their slots. The schema's slot entry also takes an object
+  that only tunes a detected slot (`optIn`, `timeout`, `order`, `note`),
+  which the loader always accepted. `ts` is the only pack so far, and no run
+  acts on the new keys yet, so a config without them resolves as before.
 
 ### Internal
 
@@ -268,6 +282,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `templates/`, `schema/` and `skills/`, and a new structural rule,
   `read-bundled-through-resources`, keeps it that way, so the standalone
   binary can later serve them from embedded assets.
+- The config loader checks `targets`, `packs` and their companion keys
+  through a new `src/targets/` module, which reads the slot catalogue and the
+  pack registry as data. `configuredSlots`, the bundled readers' view of what
+  a repo configures, moved from `src/artifacts/` into `src/config.ts`, so the
+  output-directory module no longer imports the config loader, which now
+  imports the packs.
 
 ## [0.14.0] - 2026-10-09
 

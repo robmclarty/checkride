@@ -474,7 +474,7 @@ function namedConfig(flag: string | undefined, deps: CliDeps): NamedConfig | nul
   if (!existsSync(path)) {
     throw new Error(`${flag === undefined ? CONFIG_ENV : '--config'} names a missing file: ${path}`);
   }
-  return { path, config: loadConfigFile(path) };
+  return { path, config: loadConfigFile(path, deps.cwd) };
 }
 
 /**

@@ -52,7 +52,7 @@ src/
   index.ts          barrel: re-exports the public API (no logic)
   cli.ts            arg parsing, command dispatch (the bin)
   adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
-  config.ts         checkride.config.json loading, resolution, detection
+  config.ts         checkride.config.json loading and validation, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
   doctor.ts
   baseline-command.ts  `checkride baseline` — capture the committed baseline
@@ -75,6 +75,7 @@ src/
   packs/            the language packs' adapter rows, and the tools they run (data-only)
   pm/               the package-manager names, re-exported from launch/
   qa/               bundled-plugin reader: the quality artifacts
+  targets/          named (pack, root) targets, and the rules their config keeps
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
 templates/          per-pack scaffold files (shipped): ts/ (shapes, configs, rules), repo/
@@ -88,9 +89,9 @@ rules/              ast-grep structural rules (dogfooded here)
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Ten modules (`agent-setup/`, `artifacts/`,
+siblings reach only the index. Eleven modules (`agent-setup/`, `artifacts/`,
 `baseline/`, `digest/`, `launch/`, `orchestrator/`, `packs/`, `pm/`, `qa/`,
-`triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
+`targets/`, `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
 same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 

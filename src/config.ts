@@ -1,6 +1,7 @@
 /**
- * Configuration: load `checkride.config.json`, detect installed tools, and
- * resolve each slot to an adapter (or a skip reason).
+ * Configuration: load and validate `checkride.config.json`, detect installed
+ * tools, and resolve each slot to an adapter (or a skip reason). The rules its
+ * `targets` and `packs` blocks keep live in `./targets/`.
  *
  * Resolution rule per slot:
  *   1. config entry wins  — string picks an adapter; `false` disables the slot;
@@ -13,10 +14,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
 import { isRecord } from './json.js';
+import type { Pack } from './packs/index.js';
+import { configProblem, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -125,8 +128,35 @@ export type UseConfig = Noted & {
   optIn?: boolean;
 };
 
-/** Per-slot config: adapter name, `false` to disable, an override, or a custom check. */
-export type SlotConfig = string | false | UseConfig | CustomCheck;
+/**
+ * Tune how a slot runs without picking its tool: detection still chooses the
+ * adapter. Once targets are declared, this and `false` are the only forms a
+ * top-level entry for a target-scope slot takes, since a tool belongs to a pack.
+ */
+type SlotTuning = Noted & { optIn?: boolean; timeout?: number; order?: Order };
+
+/** Per-slot config: adapter name, `false` to disable, an override, a custom check, or tuning alone. */
+export type SlotConfig = string | false | UseConfig | CustomCheck | SlotTuning;
+
+/** A language pack's name: every pack but `repo`, whose slots check the repo as a whole. */
+type PackName = Exclude<Pack['name'], 'repo'>;
+
+/** A named (pack, root) pair: target-scope slots run once per target, from its root. */
+type TargetConfig = Noted & {
+  /** The language pack that checks this target. */
+  lang: PackName;
+  /** The target's directory, relative to the repo root: `.` for the root itself, never absolute or through `..`. */
+  root: string;
+  /** Globs relative to `root` for the files a file-list pack checks. No other pack takes them. */
+  include?: string[];
+  /** Globs relative to `root` that a file-list pack leaves out. */
+  exclude?: string[];
+  /** This target's own slot config and custom checks, over `packs` and the top-level `checks`. */
+  checks?: Record<string, SlotConfig>;
+};
+
+/** Slot config for every target of one pack. */
+type PackConfig = Noted & { checks?: Record<string, SlotConfig> };
 
 /** Shape of `checkride.config.json`. */
 export type CheckrideConfig = Noted & {
@@ -155,6 +185,18 @@ export type CheckrideConfig = Noted & {
   changedBase?: string;
   /** What the stop gate runs, when the full check is too slow to pay per turn. */
   gate?: GateProfile;
+  /**
+   * Named targets. Declaring any switches the repo from one implicit target at
+   * its root to multi-target mode. A preset or a defaults file can't declare
+   * them, because only the repo knows its own.
+   */
+  targets?: Record<string, TargetConfig>;
+  /** Slot config for every target of a pack, keyed by the pack's name. */
+  packs?: Partial<Record<PackName, PackConfig>>;
+  /** When true, a tool that resolves from `PATH` with no pin declaring it fails its check. Default false. */
+  requirePins?: boolean;
+  /** The `unclaimed` check's settings: marker paths it never reports. */
+  unclaimed?: { ignore?: string[] };
 };
 
 /**
@@ -347,17 +389,13 @@ function readOptIn(entry: { optIn?: unknown }, context: string): boolean | undef
 
 /**
  * Read (and validate) a custom check's `skipExitCode`. Returns `undefined` when
- * absent; throws the friendly error on anything but an integer from 1 to 255:
- * 0 already means a pass, and no process exits above 255. `context` names the
- * offending check.
+ * absent; throws the friendly error on anything but an integer from 1 to 255
+ * (see `skipExitCodeProblem`). `context` names the offending check.
  */
-function readSkipExitCode(entry: { skipExitCode?: unknown }, context: string): number | undefined {
-  const code = entry.skipExitCode;
-  if (code === undefined) return undefined;
-  if (typeof code !== 'number' || !Number.isInteger(code) || code < 1 || code > 255) {
-    invalidConfig(`'${context}' skipExitCode must be an integer from 1 to 255 (got ${JSON.stringify(code)})`);
-  }
-  return code;
+function readSkipExitCode(entry: CustomCheck, context: string): number | undefined {
+  const problem = skipExitCodeProblem(entry, context);
+  if (problem !== null) invalidConfig(problem);
+  return entry.skipExitCode;
 }
 
 /** Carry a validated `skipExitCode` onto a resolved custom check, when it declared one. */
@@ -501,6 +539,8 @@ function resolveExtends(
       invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err);
     }
     const base = resolveConfigFile(baseAbs, [...stack, absPath], relative(process.cwd(), baseAbs));
+    const problem = presetProblem(base, spec, label);
+    if (problem !== null) invalidConfig(problem);
     merged = deepMerge(merged, base);
   }
   return merged;
@@ -520,25 +560,74 @@ function resolveConfigFile(
 }
 
 /**
- * Read and resolve `checkride.config.json` from `cwd`, or `null` when absent.
- * Any `extends` presets (file paths or package specifiers) are resolved and
- * merged in — local keys win, arrays replace — with `extends` folded away.
+ * Hold a merged config to the rules its `targets`, `packs` and companion keys
+ * keep (see `configProblem`), with `cwd` as the repo root its target roots
+ * must exist under, and throw the friendly error on the first one it breaks.
+ */
+function validated(config: Record<string, unknown>, cwd: string): CheckrideConfig {
+  const problem = configProblem(config, { cwd, layer: 'repo' });
+  if (problem !== null) invalidConfig(problem);
+  return config;
+}
+
+/**
+ * Read, resolve and validate `checkride.config.json` from `cwd`, or `null`
+ * when absent. Any `extends` presets (file paths or package specifiers) are
+ * resolved and merged in — local keys win, arrays replace — with `extends`
+ * folded away.
  */
 export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  return resolveConfigFile(path, [], CONFIG_FILE);
+  return validated(resolveConfigFile(path, [], CONFIG_FILE), cwd);
 }
 
 /**
  * Read and resolve the config file at an explicit absolute `path` (`--config`,
  * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
  * relative `extends` resolve against that file, while paths inside its values
- * stay relative to the repo being checked. The caller has already confirmed the
- * file exists, since a named file that is missing is a usage error, not "no config".
+ * stay relative to the repo being checked, `cwd`. The caller has already
+ * confirmed the file exists, since a named file that is missing is a usage
+ * error, not "no config".
  */
-export function loadConfigFile(path: string): CheckrideConfig {
-  return resolveConfigFile(path, [], path);
+export function loadConfigFile(path: string, cwd: string): CheckrideConfig {
+  return validated(resolveConfigFile(path, [], path), cwd);
+}
+
+/**
+ * What the repo *declared* it checks — as opposed to what a given run selected.
+ *
+ * The summary records the slots a run selected; it says nothing about the ones
+ * the repo opted into and did not run. Both bundled-plugin readers need that
+ * difference: triage uses it to name the slots a narrow run left uncovered, and
+ * the quality extractor uses it to tell "opted in but not run this time" apart
+ * from "never opted in at all" — three of its four artifacts come from opt-in
+ * slots, so the distinction decides whether a gap is a finding or the repo's
+ * normal state.
+ *
+ * Returns the slots the repo names in `checkride.config.json` and has not
+ * switched off (`false` disables one), sorted. `null` means *unknowable*, never
+ * *empty*: a repo with no config file runs the default catalogue, and neither
+ * reader will guess at it; an unparseable config is the gate's problem to
+ * report, not the reader's to crash on.
+ *
+ * `cwd` is resolved first because `loadConfig` throws outright on a relative
+ * one, and both readers take their `cwd` from a command-line argument. Left
+ * unresolved, `dist/<reader>/cli.js .` would land in the catch below and report
+ * the repo's slots as *unknowable* — a silently degraded answer, which is the
+ * failure mode these readers exist to prevent.
+ */
+export function configuredSlots(cwd: string): string[] | null {
+  try {
+    const checks = loadConfig(resolve(cwd))?.checks;
+    if (!checks) return null;
+    return Object.entries(checks)
+      .filter(([, value]) => value !== false)
+      .map(([slot]) => slot)
+      .toSorted();
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -778,15 +867,14 @@ function skipped(slot: Slot, reason: string, explicit = false): ResolvedCheck {
  */
 function resolveObjectEntry(
   slot: Slot,
-  entry: UseConfig | CustomCheck,
+  entry: UseConfig | CustomCheck | SlotTuning,
   adapters: readonly Adapter[],
   explicit: boolean,
 ): ResolvedCheck | null {
   checkNote(entry, slot.name);
   if ('use' in entry) {
-    if ('skipExitCode' in entry) {
-      invalidConfig(`'${slot.name}' skipExitCode applies only to a custom check ({ command }), not a { use } entry`);
-    }
+    const problem = skipExitCodeProblem(entry, slot.name);
+    if (problem !== null) invalidConfig(problem);
     const base = byName(entry.use, adapters, slot.name);
     return base
       ? active(slot, applyOverrides(base, entry), FROM_CONFIG, explicit)

@@ -16,7 +16,6 @@
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
 import {
-  configuredSlots,
   listArtifacts,
   OUT_ENV,
   outDir,
@@ -26,6 +25,7 @@ import {
   runWindowStart,
   statArtifact,
 } from '../artifacts/index.js';
+import { configuredSlots } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
 import type { DoctorFold } from './doctor-fold.js';

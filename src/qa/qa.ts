@@ -25,7 +25,8 @@
  */
 
 import type { ArtifactFile, SummaryRead } from '../artifacts/index.js';
-import { configuredSlots, outDir, outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
+import { outDir, outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
+import { configuredSlots } from '../config.js';
 import type { DeadExtract } from './dead.js';
 import { extractDead } from './dead.js';
 import type { DupesExtract } from './dupes.js';

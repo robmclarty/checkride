@@ -28,6 +28,35 @@
       "minLength": 1,
       "description": "The git ref --changed measures from, and {base} in changedArgs expands to, when neither --base nor CHECKRIDE_BASE names one. Unset, it's origin/main when that resolves, else HEAD with a warning. A ref named here that doesn't resolve to a commit exits 2."
     },
+    "requirePins": {
+      "type": "boolean",
+      "description": "When true, a tool that resolves from PATH, with no pin declaring its version, fails its check instead of running. Default false."
+    },
+    "unclaimed": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the unclaimed check, which fails when a toolchain marker (package.json, go.mod, Cargo.toml, pyproject.toml, a .tf file) sits outside every target that could check it.",
+      "properties": {
+        "ignore": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs, relative to the repo root, for marker paths the unclaimed check never reports."
+        }
+      }
+    },
+    "targets": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "Named targets, each a language pack checking one directory. Declaring any switches the repo to multi-target mode, where a target-scope slot runs once per target as <target>:<slot>, and a top-level checks entry for one may set only optIn, timeout, order and note (pick its tool under packs or the target's own checks). A preset that extends names, and a defaults file, can't declare targets.",
+      "propertyNames": { "$ref": "#/definitions/targetName" },
+      "additionalProperties": { "$ref": "#/definitions/target" }
+    },
+    "packs": {
+      "type": "object",
+      "description": "Slot config for every target of a pack, keyed by the pack's name. A target's own checks beat it, and it beats the top-level checks.",
+      "propertyNames": { "$ref": "#/definitions/packName" },
+      "additionalProperties": { "$ref": "#/definitions/packConfig" }
+    },
     "gate": {
       "type": "object",
       "additionalProperties": false,
@@ -63,6 +92,66 @@
     }
   },
   "definitions": {
+    "packName": {
+      "description": "A language pack.",
+      "enum": ["ts"]
+    },
+    "targetName": {
+      "type": "string",
+      "description": "A target's name: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. Slot names, schema and unclaimed included, are reserved, and so is every custom check's name, so a selection token means one thing.",
+      "pattern": "^[a-z][a-z0-9-]{0,31}$",
+      "not": {
+        "enum": [
+          "types", "format", "lint", "struct", "dead", "dupes", "health", "test", "docs", "links", "spell",
+          "prose", "mutation", "security", "build", "publint", "attw", "pack", "smoke", "snippets",
+          "schema", "unclaimed"
+        ]
+      }
+    },
+    "target": {
+      "type": "object",
+      "description": "A named (pack, root) pair.",
+      "required": ["lang", "root"],
+      "additionalProperties": false,
+      "properties": {
+        "lang": { "$ref": "#/definitions/packName" },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))",
+          "description": "The target's directory, relative to the repo root (. for the root itself). It must exist, can't be absolute or pass through .., and two targets of one pack can't share or nest their roots."
+        },
+        "include": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs, relative to root, for the files a file-list pack checks. A pack that checks its root rejects it."
+        },
+        "exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Globs, relative to root, for files a file-list pack leaves out. A pack that checks its root rejects it."
+        },
+        "checks": {
+          "type": "object",
+          "description": "This target's own slot config and custom checks, beating packs and the top-level checks. An adapter named here must belong to the target's pack, and repo-scope slots (struct, docs, links, spell, prose) belong in the top-level checks.",
+          "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+        },
+        "note": { "$ref": "#/definitions/note" }
+      }
+    },
+    "packConfig": {
+      "type": "object",
+      "description": "Slot config for every target of one pack.",
+      "additionalProperties": false,
+      "properties": {
+        "checks": {
+          "type": "object",
+          "description": "Slot config and custom checks for every target of this pack. An adapter named here must belong to the pack, and repo-scope slots belong in the top-level checks.",
+          "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+        },
+        "note": { "$ref": "#/definitions/note" }
+      }
+    },
     "note": {
       "type": "string",
       "description": "Internal documentation for whoever reads this config next. Never rendered in the CLI output or written to .check/summary.json — use description for the user-facing text a run prints beside the check."
@@ -79,8 +168,23 @@
           "description": "Disable this slot (skipped, not failed)."
         },
         { "$ref": "#/definitions/useConfig" },
-        { "$ref": "#/definitions/customCheck" }
+        { "$ref": "#/definitions/customCheck" },
+        { "$ref": "#/definitions/slotTuning" }
       ]
+    },
+    "slotTuning": {
+      "type": "object",
+      "description": "Keep the tool detection picks and tune only how the slot runs. Once targets are declared, this and false are the only forms a top-level entry for a target-scope slot takes; pick its tool under packs or a target's own checks.",
+      "additionalProperties": false,
+      "properties": {
+        "optIn": {
+          "type": "boolean",
+          "description": "Override the slot's opt-in status. true configures the slot without opting it into the default run (reach it with --all/--include); false forces it into the default run."
+        },
+        "timeout": { "type": "number", "minimum": 0 },
+        "order": { "$ref": "#/definitions/order" },
+        "note": { "$ref": "#/definitions/note" }
+      }
     },
     "useConfig": {
       "type": "object",

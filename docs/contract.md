@@ -5,7 +5,8 @@ opposed to today's incidental behavior. Every surface listed here is backed by
 a test that fails the build if it drifts — most in
 [`test/contract/`](../test/contract/); the timeout and crash-consistency
 promises are exercised where the machinery lives, in the suites named in
-[their section](#timeouts-and-interrupts) below. Anything *not* listed here is
+[their section](#timeouts-and-interrupts) below, and so are the config rules,
+in the suite their [paragraph](#cli) names. Anything *not* listed here is
 internal by definition and may change in any release.
 
 Consumers of these promises include coding agents reading `.check/`, CI
@@ -552,6 +553,41 @@ red repo never looks like a broken reader.
 error names the bad slot and the valid set (the catalogue slots plus any config
 custom-check names). A typo like `--only lints` must never quietly disable the
 gate.
+
+**A config's targets and packs are validated before anything runs.**
+`checkride.config.json` takes `targets` (named targets, each a `lang` pack and
+a `root` directory), `packs` (slot config for every target of one pack),
+`requirePins` and `unclaimed` beside the keys it already took. A config that
+breaks one of these rules exits 2 with `invalid checkride.config.json: <reason>`,
+naming the target, pack or entry at fault, before any check runs or any artifact
+is written:
+
+- A target name is a lowercase letter and up to 31 more lowercase letters,
+  digits and hyphens. It's never a slot's name, `schema` and `unclaimed`
+  included, nor a top-level custom check's, so a selection token means one
+  thing.
+- A root is an existing directory, given relative to the repo root, never
+  absolute or through `..`. Two targets of one pack never share or nest their
+  roots; targets of different packs may.
+- `include` and `exclude` belong only to a pack that checks a list of files.
+- Once targets are declared, a top-level entry for a target-scope slot is
+  `false` or sets only `optIn`, `timeout`, `order` and `note`. An entry that
+  picks a tool belongs under `packs.<pack>.checks` or a target's own `checks`,
+  and the message names both.
+- A preset that `extends` names never declares targets, and `targets` is never
+  empty.
+- A `packs` key names a pack, and every adapter a `packs` block or a target
+  names belongs to that pack. A repo-scope slot is configured only at the top
+  level.
+- A `schemas` rule's `schema` is never a URL or an absolute path, because a
+  check never fetches.
+- `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
+  sets `static`.
+
+`ts` is the only pack so far, and no run acts on `targets`, `packs`,
+`requirePins`, `unclaimed` or `schemas` yet. A config without them resolves
+exactly as before. [`config.test.ts`](../src/__tests__/config.test.ts) holds
+each rule, its message and its exit code.
 
 **Stream discipline:** stdout carries machine output only (the summary JSON
 under `--json`; otherwise nothing). Human-readable progress and warnings go to

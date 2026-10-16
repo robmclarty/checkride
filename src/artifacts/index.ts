@@ -12,8 +12,6 @@
  * file inside it.
  */
 
-export { configuredSlots } from './configured.js';
-
 export { formatBytes, formatDuration, tail } from './format.js';
 
 export { classifyFreshness, runWindowStart } from './freshness.js';

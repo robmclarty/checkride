@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 24 — chore(dev): pin every e2e toolchain in a dev mise.toml
+**Current step:** 25 — feat(config): accept targets and packs blocks with their validation
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -46,7 +46,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 21. refactor(packs): split the adapter registry into ts and repo packs
 - ☑ 22. refactor(launch): resolve tool argv through a pin-source launcher
 - ☑ 23. refactor(resources): read bundled files through one module
-- ☐ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
+- ☑ 24. chore(dev): pin every e2e toolchain in a dev mise.toml
 - ☐ 25. feat(config): accept targets and packs blocks with their validation
 - ☐ 26. feat(select): select checks with the target token grammar
 - ☐ 27. feat(run): run target-scope slots once per target
@@ -122,7 +122,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] src/pm/index.ts is now a re-export of launch/ kept so pm.test.ts passes unchanged; point gate, init, doctor, agent-setup, snippets, pack, baseline-command and triage/gate at launch/, move pm.test.ts under src/launch/__tests__/, and delete src/pm/
 - [x] built-ins pack (packInvocation in src/pack.ts) and snippets (tsc via translateExec) still build their own package-manager argv instead of asking launchCheck; route them through the launcher once step 30 records pin_source
 - [x] checkride fix never pre-flights: under npm or bun, npx/bunx --no-install can run a cached copy of a fixer the repo never installed, the defect the run path refuses; decide whether launchFix should refuse too
-- [ ] publish.yaml runs pnpm test:e2e with no mise toolchains and no CHECKRIDE_REQUIRE_TOOLCHAINS, so once pack e2e cases land, a release would publish with them skipped; give it the same jdx/mise-action step as ci.yml
+- [x] publish.yaml runs pnpm test:e2e with no mise toolchains and no CHECKRIDE_REQUIRE_TOOLCHAINS, so once pack e2e cases land, a release would publish with them skipped; give it the same jdx/mise-action step as ci.yml
+- [ ] R2.3: a config error from a --config file (and later --defaults/--pins) should name that path in place of checkride.config.json; invalidConfig in src/config.ts hardcodes the repo file name today, even for resolve-time errors that never see the path
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -158,6 +159,7 @@ Harvest results this boundary:
 - After step 22: "src/pm/index.ts is now a re-export of launch/..." → **tangent**, deferred to step 35 (the re-export blocks nothing, since both paths reach the same code; step 35's `entry.ts` already edits `src/init.ts`, `src/agent-setup/` and `src/doctor.ts`, most of the importers, and the gate's `runScript` and `launchRefusal` are its entry-command concern; `src/gate.ts`, `src/triage/gate.ts`, `src/snippets.ts`, `src/pack.ts` and `src/baseline-command.ts` sit outside its seam, so add them via `/plumbbob:step 35` or accept a five-file stray; moving `pm.test.ts` under `src/launch/__tests__/` rides the same edit).
 - After step 22: "built-ins pack (packInvocation in src/pack.ts) and snippets..." → **tangent**, deferred to step 30 (their argv can't differ yet, because the ts pack's chain is `[js-lockfile]` in every mode per R5.3; step 30 makes every spawned check record `pin_source`, so it decides whether a built-in's helper process counts as one, and the park dies there if not; `src/pack.ts` and `src/snippets.ts` sit outside its seam, so add them via `/plumbbob:step 30` or accept a two-file stray).
 - After step 22: "checkride fix never pre-flights..." → **tangent**, deferred to step 30 (the run path still refuses the undeclared tool, so the gate can't go green on it, and the gap is only a fix writing with a cached copy; step 30 rewrites resolution around R6.2's no-fall-through rule in `src/launch/`, where `launchFix` lives, so it decides whether the fix path walks the same chain and refuses the same way).
+- After step 24: "publish.yaml runs pnpm test:e2e with no mise toolchains..." → **tangent**, deferred to step 39 (nothing can skip until a pack has e2e cases, and CI on `main` already requires every toolchain on the same commit before the tag, so the publish run is a second proof, not the only one; step 39 adds the first pack e2e cases and closes Phase 6, the first release that would publish with them skipped, so it gives `publish.yaml` the same `jdx/mise-action` step and `CHECKRIDE_REQUIRE_TOOLCHAINS: '1'` as `ci.yml`; `.github/workflows/publish.yaml` sits outside step 39's seam, so add it via `/plumbbob:step 39` or accept a one-file stray).
 
 ## Log
 
@@ -1426,3 +1428,50 @@ folder, so it rides the branch into the PR.)*
   **5.** init reads package.json through readResource, which step 69 inherits
 
   `productVersion()` used `TEMPLATES_DIR/../package.json`. It now calls `readResource('package.json')`, so `init.ts` doesn't locate the package itself. R14.1.2 embeds only `templates/`, `schema/` and `skills/`, so in binary mode this read throws and `productVersion` falls back to `0.1.0`, which would stamp a wrong `$schema` URL. Step 69 has to embed `package.json` or compile the version in. That's already part of its job, since `cli.ts --version` reads the same file.
+
+- 2026-10-16 — step 24 checkpointed · 598f510d5 — chore(dev): pin every e2e toolchain in a dev mise.toml (1 drift, 114m)
+
+  **Summary**: A root `mise.toml` now pins all fourteen e2e toolchains at exact versions, and `mise install` succeeds here (14 of 14). CI installs them with mise-action before the e2e step and requires them there, while a new helper lets a laptop that lacks a pack's tools skip that pack's cases with the reason on stderr. This repo's own run resolves the same checks as before.
+
+  1. The pins are exact, and two of them match versions this repo already tests
+  2. The helper skips a pack whose tools don't run and throws under the require flag, and its test is the one path outside the seam
+  3. CI installs the toolchains after `pnpm check`, so this repo's own run sees the same PATH
+  4. A `mise exec` probe auto-installed rustup into `~/.cargo`, and at your call I moved it into mise's own directories
+  5. Parked: publish.yaml's e2e run gets no toolchains
+
+  **Readout**: Step 24 - chore(dev): pin every e2e toolchain in a dev mise.toml
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → test/integration/toolchains.test.ts
+  diff         +257 -0 across 5 files
+  spent        114 min · 3 turns · 27s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land step 24. The pins install, the gate is tested, and CI's new e2e shape passed here end to end.
+
+  **1.** The pins are exact, and two of them match versions this repo already tests
+
+  Go 1.27.2, Rust 1.99.0 (minimal profile plus clippy and rustfmt, which the rust pack's `lint` and `format` need), Python 3.14.8, uv 0.13.1, shellcheck 0.11.0, shfmt 3.14.1, golangci-lint 2.14.0, typos 1.51.1, rumdl 0.2.79, vale 3.24.0, ast-grep 0.45.3, OpenTofu 1.13.1, tflint 0.64.0 and trivy 0.76.0. vale and ast-grep match the npm copies `package.json` pins (ast-grep's newest is 0.51.0), so the Node-free chain step 32 adds runs the same version the parsers will be proven against (C9 (real-fixtures)). Python is the newest 3.14 patch rather than the brand-new 3.15.0. Node stays out on purpose: pinning it would override CI's node matrix on PATH. Every version clears C8 (platforms)'s floors.
+
+  **2.** The helper skips a pack whose tools don't run and throws under the require flag, and its test is the one path outside the seam
+
+  `test/helpers/toolchains.ts` maps each pack (bash, go, rust, python, terraform, and repo for the Node-free alternates) to the tools its cases spawn. `describeWithToolchain(<pack>)` returns `describe` when every probe exits 0 and `describe.skip` otherwise, with the reason on stderr. Under `CHECKRIDE_REQUIRE_TOOLCHAINS=1` (exactly `1`) a missing tool throws, which fails the whole file. Probes run from `os.tmpdir()`, where the e2e cases run their copies, so a mise shim that only resolves inside this repo counts as missing rather than failing every case. On this machine's bare PATH, bash, go, terraform and repo skip and rust and python run; under `mise exec` all six run. `test/integration/toolchains.test.ts` holds the helper's tool list equal to `mise.toml`'s `[tools]` keys, requires exact x.y.z pins, and covers run, skip, throw and the collection-time skip with a fake probe. That test is the seam row's stray. With no pack e2e cases yet, nothing else imports the helper, so fallow's `unused-files` rule would fail `dead` without it. Steps 39, 47, 61 and 65 add the real callers.
+
+  **3.** CI installs the toolchains after `pnpm check`, so this repo's own run sees the same PATH
+
+  There is no separate e2e job: the `check` job's `pnpm test:e2e` step is the e2e run. `jdx/mise-action` (SHA-pinned at v5.1.2, the release before today's v5.2.0) goes right before it, after `pnpm check`. The action exports the install directories to later steps, so the CLI under test finds the tools from temp copies, not only through shims. The e2e step sets `CHECKRIDE_REQUIRE_TOOLCHAINS: '1'`. Locally, `doctor --json` is byte-identical with `mise.toml`, without it and under `mise exec`. The full `pnpm test:e2e` also passes under `mise exec` with the require flag, which is CI's new shape, including `examples/polyglot` on mise's Python 3.14.8.
+
+  **4.** A `mise exec` probe auto-installed rustup into `~/.cargo`, and at your call I moved it into mise's own directories
+
+  mise's `exec_auto_install` defaults to on, so my first `mise exec` installed the missing Rust pin. Without rustup on the machine, it ran rustup-init into `~/.cargo` and `~/.rustup`, which shadowed Homebrew's cargo 1.94.0 globally. Your shell profiles were never touched. You chose the move. I removed the rustup proxies and `~/.cargo/env*` (keeping `naga` and the registry) and deleted `~/.rustup`. Then I set `rust.cargo_home` and `rust.rustup_home` under `~/.local/share/mise/rust/` in `~/.config/mise/config.toml` and reinstalled. Global `cargo` is Homebrew's 1.94.0 again, and inside the repo it's 1.99.0 with clippy and rustfmt. CONTRIBUTING's new "E2e toolchains" section warns about this and gives the two settings, and a memory records it so it isn't repeated.
+
+  **5.** Parked: publish.yaml's e2e run gets no toolchains
+
+  `publish.yaml` also runs `pnpm test:e2e`, but it sits outside this seam. Once pack e2e cases land, a release would publish with them skipped. I parked giving it the same mise-action step.
