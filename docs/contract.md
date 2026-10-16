@@ -408,6 +408,17 @@ back to `HEAD` with a warning on stderr. Outside `--changed` the base is never
 resolved, and `gate` strips `CHECKRIDE_BASE` from the check it spawns, as it does
 `CHECKRIDE_CONFIG`.
 
+**With `targets`, `--changed` skips the targets nothing changed under.** The
+changed paths are every path that differs between the work tree and the merge
+base of the base and `HEAD`, committed, staged or not, plus the untracked files
+git doesn't ignore. A rename counts as both its paths, and with no merge base
+the base itself stands in. Each check of a target with no changed path under
+its root is recorded as skipped, with the reason `no changes under <root>`.
+Repo-scope and top-level checks run as before, and an affected target's checks
+get their `changedArgs`. When git can't list the paths, as outside a git
+repository, no target is skipped and stderr says so. A repo without `targets`
+narrows through `changedArgs` alone, as it always did.
+
 **`--out <dir>` and `CHECKRIDE_OUT` move a run's artifacts.** The summary, the
 raw files and `digest.md` are written to that directory instead of
 `<cwd>/.check`, and `output_file` stays relative to it. The flag beats the
@@ -618,7 +629,9 @@ tokens:
 
 Naming a slot opts it in, so `--only format` runs `format` even though it's
 opt-in. A target token names no slot, so `--only api` leaves `api`'s opt-in
-slots out unless `--all` or an `--include` token lets them in. A token that
+slots out unless `--all` or an `--include` token lets them in. `--skip`
+narrows `--only`, so `--only api --skip api:test` runs every check of `api`
+but its tests, and a check both lists name sits out. A token that
 selects no check is a **usage error (exit 2)**, not a silently empty selection,
 and so is an empty list: the error names the bad token and every valid one. A
 typo like `--only lints` must never quietly disable the gate. The gate checks

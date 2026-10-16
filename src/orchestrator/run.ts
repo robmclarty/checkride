@@ -17,13 +17,13 @@ import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratch
 import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
-import { GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
+import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { Target } from '../targets/index.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
-import { selectChecks, validateSelection } from './select.js';
+import { selectChecks, skipUnchanged, validateSelection } from './select.js';
 import { resetInterrupt } from './spawn.js';
 import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
@@ -141,6 +141,19 @@ async function changedBaseFor(options: RunOptions, ctx: RunContext): Promise<Cha
   return base;
 }
 
+/**
+ * The paths a `--changed` run skips targets by, or `null` when it skips none:
+ * off `--changed`, in implicit mode, which narrows through the base alone, and
+ * when git can't list them, which says so on stderr (R10.2).
+ */
+async function changedPathsFor(ctx: RunContext, base: ChangedBase | null): Promise<string[] | null> {
+  if (base === null || ctx.targets === null) return null;
+  const listed = await changedPaths(realGit(ctx.cwd), base);
+  if (listed.ok) return listed.paths;
+  writeLine(ctx.stderr, `--changed: can't list the changed paths (${listed.why}), so no target is skipped`);
+  return null;
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
@@ -153,13 +166,14 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // Asked as the run starts and awaited once the checks finish, so git's
   // answer costs the run no wall-clock time unless git is the slower of the two.
   const gitQuery = readGitState(realGit(base.cwd, GIT_STATE_TIMEOUT_MS));
+  const changed = await changedPathsFor(base, changedBase);
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;
   // clear it, and nothing the previous summary didn't list as a target (R9).
   await pruneDroppedTargets(base.out, base.cwd, (base.targets ?? []).map((t) => t.name));
 
-  const selected = selectChecks(resolved, options);
+  const selected = skipUnchanged(selectChecks(resolved, options), changed);
   // The status-line column is sized once the selection is known, so a long
   // custom-check name widens the column instead of overflowing it.
   const ctx: RunContext = { ...base, nameWidth: nameWidth(selected), changedBase };

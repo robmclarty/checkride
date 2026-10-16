@@ -638,7 +638,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/artifacts/targets.ts`, `src/__tests__/artifacts.test.ts`,
       `test/contract/targets.contract.test.ts`, `docs/contract.md`, `CHANGELOG.md`
     - model: sonnet (a narrower delete, held by the existing prune tests)
-28. [ ] feat(run): never overlap checks that share a lock key, **done when:** checks whose resolved `lock` keys are equal never run at once, and a wait doesn't count against the timeout (F4 and F5, with a fake spawner that records intervals)
+28. [x] feat(run): never overlap checks that share a lock key, **done when:** checks whose resolved `lock` keys are equal never run at once, and a wait doesn't count against the timeout (F4 and F5, with a fake spawner that records intervals)
     - seam: `src/orchestrator/execute.ts`, `src/orchestrator/__tests__/orchestrator.test.ts`
     - model: sonnet
 29. [ ] feat(changed): skip unaffected targets under --changed, **done when:** changed paths come from the resolved base's merge base (R10.2); unaffected targets' checks skip with `no changes under <root>`; repo-scope checks still run; with no git or no base nothing is skipped and stderr warns (S10, F19)

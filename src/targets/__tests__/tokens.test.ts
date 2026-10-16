@@ -104,6 +104,9 @@ describe('S2: --skip and --include take the same tokens', () => {
     [{ include: ['web'] }, [...DEFAULT_RUN.slice(0, 4), 'web:format', ...DEFAULT_RUN.slice(4)]],
     [{ include: ['api:security'] }, [...DEFAULT_RUN.slice(0, 3), 'api:security', ...DEFAULT_RUN.slice(3)]],
     [{ include: ['format'] }, MULTI.filter((c) => c.slot !== 'security').map(checkName)],
+    // --skip narrows --only: a target but one of its checks, or a slot but one target's.
+    [{ only: ['api'], skip: ['api:test'] }, ['api:types', 'api:lint']],
+    [{ only: ['lint'], skip: ['web'] }, ['api:lint', 'scripts:lint']],
   ];
   for (const [flags, selected] of rows) {
     test(JSON.stringify(flags), () => {
@@ -121,8 +124,9 @@ describe('S2: implicit mode reads a token as a slot or custom-check name', () =>
     [{ only: ['lint', 'types'] }, ['types', 'lint']],
     [{ skip: ['lint'] }, ['types', 'licenses']],
     [{ include: ['format'] }, ['types', 'format', 'lint', 'licenses']],
-    // --only wins over --skip, as it always has.
-    [{ only: ['lint'], skip: ['lint'] }, ['lint']],
+    // --skip narrows --only, so a check both name sits out.
+    [{ only: ['lint', 'types'], skip: ['lint'] }, ['types']],
+    [{ only: ['lint'], skip: ['lint'] }, []],
   ];
   for (const [flags, selected] of rows) {
     test(JSON.stringify(flags), () => {

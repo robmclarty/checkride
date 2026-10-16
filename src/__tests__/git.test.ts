@@ -1,7 +1,12 @@
-import { describe, expect, test } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { GitResult, GitRunner } from '../git.js';
-import { DEFAULT_BASE, gitFailureError, readGitState, resolveChangedBase } from '../git.js';
+import { changedPaths, DEFAULT_BASE, gitFailureError, readGitState, realGit, resolveChangedBase } from '../git.js';
 
 const SHA = 'a'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
@@ -131,5 +136,91 @@ describe('readGitState', () => {
 
   test('a runner that rejects reads as no answer, never as a rejection', async () => {
     expect(await readGitState(() => Promise.reject(new Error('spawn EBADF')))).toBeNull();
+  });
+});
+
+/** A git that answers each subcommand (`merge-base`, `diff`, `ls-files`) from `answers`, recording every call. */
+function listingGit(answers: Record<string, GitResult | string>): GitRunner & { calls: string[][] } {
+  const calls: string[][] = [];
+  const runner = (args: readonly string[]): Promise<GitResult> => {
+    calls.push([...args]);
+    return Promise.resolve(answered(answers[args[0] ?? ''] ?? ''));
+  };
+  return Object.assign(runner, { calls });
+}
+
+const MERGE_BASE = 'c'.repeat(40);
+
+describe('changedPaths', () => {
+  test('lists the diff from the merge base and the untracked files, NUL-separated, each once and sorted', async () => {
+    const git = listingGit({
+      'merge-base': `${MERGE_BASE}\n`,
+      diff: 'web/a.ts\0api/odd name\nwith newline.go\0',
+      'ls-files': 'web/new.ts\0web/a.ts\0',
+    });
+    expect(await changedPaths(git, { ref: 'main', sha: SHA })).toEqual({
+      ok: true,
+      paths: ['api/odd name\nwith newline.go', 'web/a.ts', 'web/new.ts'],
+    });
+    expect(git.calls).toEqual([
+      ['merge-base', SHA, 'HEAD'],
+      ['diff', '--name-only', '-z', '--no-renames', '--relative', MERGE_BASE, '--'],
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+    ]);
+  });
+
+  test('with no merge base, the diff runs from the base itself', async () => {
+    const git = listingGit({ 'merge-base': { ok: false, error: 'failed', detail: 'git merge-base failed' } });
+    expect(await changedPaths(git, { ref: 'main', sha: SHA })).toEqual({ ok: true, paths: [] });
+    expect(git.calls[1]).toContain(SHA);
+  });
+
+  test('a base with no commit lists nothing, and asks git nothing', async () => {
+    const git = listingGit({});
+    expect(await changedPaths(git, { ref: 'HEAD', sha: null })).toEqual({ ok: false, why: 'HEAD names no commit' });
+    expect(git.calls).toEqual([]);
+  });
+
+  test('a git that can’t answer lists nothing, and says why', async () => {
+    const outside: GitResult = { ok: false, error: 'not-a-repo', detail: 'fatal: not a git repository' };
+    const slow: GitResult = { ok: false, error: 'timeout', detail: 'git diff timed out (>10s)' };
+    const broken: GitResult = { ok: false, error: 'failed', detail: 'fatal: bad object' };
+    expect(await changedPaths(listingGit({ 'merge-base': outside }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'fatal: not a git repository' });
+    expect(await changedPaths(listingGit({ diff: slow }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'git diff timed out (>10s)' });
+    expect(await changedPaths(listingGit({ 'ls-files': broken }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'fatal: bad object' });
+  });
+});
+
+/** Is a real git usable here? The real-repository case skips without it. */
+const gitAvailable = ((): boolean => {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+describe.skipIf(!gitAvailable)('changedPaths in a real repository', () => {
+  let dir: string;
+  const gitIn = (...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd: dir, encoding: 'utf8', stdio: 'pipe' });
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-paths-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('from a subdirectory, paths are relative to it, and nothing outside it is listed', async () => {
+    gitIn('init', '-q', '-b', 'main');
+    await mkdir(join(dir, 'proj/web'), { recursive: true });
+    await writeFile(join(dir, 'proj/web/a.ts'), 'a\n');
+    await writeFile(join(dir, 'outside.md'), 'o\n');
+    await writeFile(join(dir, '.gitignore'), '*.log\n');
+    gitIn('add', '.');
+    gitIn('commit', '-q', '-m', 'one');
+    const sha = gitIn('rev-parse', 'HEAD').trim();
+    await writeFile(join(dir, 'proj/web/a.ts'), 'a2\n');
+    await writeFile(join(dir, 'proj/web/new.ts'), 'n\n');
+    await writeFile(join(dir, 'proj/web/debug.log'), 'ignored\n');
+    await writeFile(join(dir, 'outside.md'), 'o2\n');
+    expect(await changedPaths(realGit(join(dir, 'proj')), { ref: 'main', sha })).toEqual({ ok: true, paths: ['web/a.ts', 'web/new.ts'] });
   });
 });

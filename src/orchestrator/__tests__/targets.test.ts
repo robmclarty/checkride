@@ -3,10 +3,12 @@
  * target's check runs from its root with `{out}` its own directory, masks
  * against its `<target>:<slot>` baseline entry with its paths joined onto the
  * root (D50), and feeds the ratchet under that name; `fix` runs a target's
- * fixer from its root.
+ * fixer from its root; and under `--changed` a target nothing changed under
+ * sits out (R10.3).
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,9 +16,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Baseline } from '../../baseline/index.js';
 import { runBaseline } from '../../baseline-command.js';
-import type { CheckrideConfig } from '../../config.js';
-import type { CheckRunner, Out } from '../index.js';
+import type { CheckrideConfig, ResolvedCheck } from '../../config.js';
+import type { CheckRunner, Out, RunResult } from '../index.js';
 import { runChecks, runFix } from '../index.js';
+import { skipUnchanged } from '../select.js';
 
 function sink(): { out: Out; text: () => string } {
   let text = '';
@@ -125,5 +128,155 @@ describe('runFix with targets', () => {
     expect(ran).toEqual(['oxlint@/repo/apps/web', 'oxlint@/repo/apps/api']);
     expect(err.text()).toContain('✔ web:lint');
     expect(err.text()).toContain('✔ api:lint');
+  });
+});
+
+/** A selected check of `slot`, in `target` when given, skipped with `skip` when given. */
+function check(slot: string, target?: { name: string; root: string }, skip: string | null = null): ResolvedCheck {
+  return { slot, optIn: false, adapter: null, skip, ...(target ? { target: target.name, root: target.root } : {}) };
+}
+
+describe('skipUnchanged', () => {
+  const web = { name: 'web', root: 'apps/web' };
+  const api = { name: 'api', root: 'apps/api' };
+
+  test("a target with nothing changed under its root sits out, naming the root, and keeps its place", () => {
+    const selected = [check('lint', web), check('lint', api), check('links')];
+    expect(skipUnchanged(selected, ['apps/web/src/a.ts']).map((r) => r.skip)).toEqual([null, 'no changes under apps/api', null]);
+  });
+
+  test('a repo-scope or top-level check runs with nothing changed at all', () => {
+    expect(skipUnchanged([check('links'), check('licenses')], []).map((r) => r.skip)).toEqual([null, null]);
+  });
+
+  test('a check resolution already skipped keeps its own reason', () => {
+    expect(skipUnchanged([check('test', api, 'no adapter detected')], [])[0]?.skip).toBe('no adapter detected');
+  });
+
+  test('null skips nothing', () => {
+    const selected = [check('lint', web), check('lint', api)];
+    expect(skipUnchanged(selected, null)).toEqual(selected);
+  });
+});
+
+/** Is a real git usable here? The `--changed` suites skip without it. */
+const gitAvailable = ((): boolean => {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const gitIn = (cwd: string, ...args: string[]): void => {
+  execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', ...args], { cwd, stdio: 'pipe' });
+};
+
+/** Write `files` under `dir`, making their directories. */
+async function writeFiles(dir: string, files: Record<string, string>): Promise<void> {
+  for (const [path, text] of Object.entries(files)) {
+    // oxlint-disable-next-line no-await-in-loop -- a handful of fixture files; sequential keeps each directory made before its file.
+    await mkdir(join(dir, path, '..'), { recursive: true });
+    // oxlint-disable-next-line no-await-in-loop -- as above.
+    await writeFile(join(dir, path), text);
+  }
+}
+
+/** A runner whose every check passes with nothing to say. */
+const passing: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+/** The checks a run ran, sorted by name, since a pool finishes them in any order. */
+function ranNames(result: RunResult): string[] {
+  return result.summary.checks.filter((c) => c.skipped !== true).map((c) => c.name).toSorted();
+}
+
+/** A frontend and an api target, each with a lint, plus a top-level custom check of the whole repo. */
+const changedConfig: CheckrideConfig = {
+  targets: {
+    web: { lang: 'ts', root: 'frontend', checks: { lint: 'oxlint' } },
+    api: { lang: 'ts', root: 'api', checks: { lint: 'oxlint' } },
+  },
+  checks: { tally: { command: 'node' } },
+};
+
+describe.skipIf(!gitAvailable)('runChecks --changed with targets (S10)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-changed-'));
+    gitIn(dir, 'init', '-q', '-b', 'main');
+    await writeFiles(dir, { '.gitignore': '.check/\n', 'frontend/a.ts': 'a\n', 'api/main.go': 'm\n', 'README.md': 'r\n' });
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'one');
+    gitIn(dir, 'checkout', '-q', '-b', 'feature');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const runChanged = (stderr: Out = sink().out): Promise<RunResult> =>
+    runChecks({ cwd: dir, config: changedConfig, runner: passing, baseline: null, changed: true, base: { ref: 'main', from: '--base' }, stderr });
+
+  test("a change only under frontend/ skips api's checks with their reason, and runs web's and the repo's", async () => {
+    await writeFile(join(dir, 'frontend/a.ts'), 'a2\n');
+    gitIn(dir, 'commit', '-q', '-am', 'web change');
+    const err = sink();
+    const result = await runChanged(err.out);
+    expect(ranNames(result)).toEqual(['links', 'tally', 'web:lint']);
+    expect(result.summary.checks.find((c) => c.name === 'api:lint')).toMatchObject({
+      skipped: true, ok: true, exit_code: null, reason: 'no changes under api', target: 'api',
+    });
+    expect(result.summary.checks_run).toBe(3);
+    expect(err.text()).toMatch(/○ api:lint\s+skip {2}no changes under api/);
+    expect(result.exitCode).toBe(0);
+  });
+
+  test('changes are measured from the merge base, so what main changed since is not this change (R10.2)', async () => {
+    gitIn(dir, 'checkout', '-q', 'main');
+    await writeFile(join(dir, 'api/main.go'), 'm2\n');
+    gitIn(dir, 'commit', '-q', '-am', 'api change on main');
+    gitIn(dir, 'checkout', '-q', 'feature');
+    await writeFile(join(dir, 'frontend/a.ts'), 'a2\n');
+    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'web:lint']);
+  });
+
+  test('an untracked file affects its target, and an unstaged edit does too', async () => {
+    await writeFile(join(dir, 'api/new.go'), 'n\n');
+    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally']);
+    await rm(join(dir, 'api/new.go'));
+    await writeFile(join(dir, 'frontend/a.ts'), 'a2\n');
+    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'web:lint']);
+  });
+
+  test('a file moved between targets affects both', async () => {
+    gitIn(dir, 'mv', 'api/main.go', 'frontend/main.go');
+    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally', 'web:lint']);
+  });
+
+  test('with nothing changed, every target sits out and the repo-scope checks still run', async () => {
+    const result = await runChanged();
+    expect(ranNames(result)).toEqual(['links', 'tally']);
+    expect(result.summary.checks.filter((c) => c.reason?.startsWith('no changes') === true).map((c) => `${c.name}: ${c.reason}`)).toEqual([
+      'web:lint: no changes under frontend',
+      'api:lint: no changes under api',
+    ]);
+  });
+});
+
+describe('runChecks --changed outside a git repository (F19)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-nogit-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('no target is skipped, and stderr says so', async () => {
+    const err = sink();
+    const result = await runChecks({ cwd: dir, config: changedConfig, runner: passing, baseline: null, changed: true, json: true, stdout: sink().out, stderr: err.out });
+    expect(ranNames(result)).toEqual(['api:lint', 'links', 'tally', 'web:lint']);
+    expect(result.summary.checks.filter((c) => c.reason?.startsWith('no changes') === true)).toEqual([]);
+    expect(err.text()).toContain("--changed: can't list the changed paths (HEAD names no commit), so no target is skipped");
+  });
+
+  test('a repo without targets has nothing to skip, and says nothing more', async () => {
+    const err = sink();
+    await runChecks({ cwd: dir, config: { checks: { tally: { command: 'node' } } }, runner: passing, baseline: null, changed: true, json: true, stdout: sink().out, stderr: err.out });
+    expect(err.text()).not.toContain('no target is skipped');
   });
 });

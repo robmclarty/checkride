@@ -113,6 +113,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   valid when a later release moves where tools are run from. `checkride fix`
   runs a target's fixers from its root. Selection tokens such as `--only web`
   and `--only web:lint` now select these checks.
+- **`--changed` skips the targets your change didn't touch.** With
+  `targets`, a `--changed` run lists the paths that differ from the merge
+  base of its base and `HEAD`, committed, staged, unstaged or untracked, and
+  each check of a target with none under its root is skipped with
+  `no changes under <root>`. `struct`, `docs`, `links`, `spell`, `prose` and
+  top-level custom checks still run, and an affected target's checks get
+  their `changedArgs` as before. Measuring from the merge base means work
+  that landed on the base after your branch began doesn't count as your
+  change. When git can't list the paths, as outside a git repository, every
+  target runs and stderr says why. A repo without `targets` is unchanged.
 
 ### Changed
 
@@ -191,6 +201,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of `unknown slot`, because the same flags name targets and
   `<target>:<slot>` checks too (see Contract). The exit code and the list of
   valid names in a repo without targets are unchanged.
+- **`--skip` now narrows `--only`.** `--only api --skip api:test` runs every
+  check of target `api` but its tests, and `gate.only` with `gate.skip` does
+  the same in a gate profile. Until now `--only` ignored `--skip` whenever both
+  were given, so a profile with both keys ran the checks its `without` clause
+  said it didn't. A check that both lists name now sits out, recorded as
+  `skipped by --skip`.
 
 ### Fixed
 

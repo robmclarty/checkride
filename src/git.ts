@@ -1,7 +1,8 @@
 /**
  * Git plumbing every command shares: one runner that classifies a failed
  * invocation for user-facing messages, the base a `--changed` run measures
- * from, and the head and dirtiness a run records. Everything here is read-only
+ * from and the paths changed since it, and the head and dirtiness a run
+ * records. Everything here is read-only
  * toward git. Baseline history (`recover`, `baseline diff`, the red-run hint)
  * builds on the runner in `./baseline/history.ts`.
  */
@@ -109,6 +110,39 @@ export async function resolveChangedBase(git: GitRunner, named: NamedBase | null
     base: { ref: 'HEAD', sha: head.ok ? head.stdout.trim() : null },
     warning: `--changed: ${DEFAULT_BASE} doesn't resolve, so changes are measured from HEAD${why}; name a base with --base, ${BASE_ENV} or changedBase`,
   };
+}
+
+/** The paths a `--changed` run counts as changed, or why git couldn't list them. */
+export type ChangedPaths = { ok: true; paths: string[] } | { ok: false; why: string };
+
+/** NUL-separated git output (`-z`) as its entries, so no path is quoted or split on a newline. */
+function entries(stdout: string): string[] {
+  return stdout.split('\0').filter((p) => p.length > 0);
+}
+
+/**
+ * The paths a `--changed` run measures targets by (R10.2): every path that
+ * differs between the merge base of `base` and `HEAD` and the work tree,
+ * committed, staged or not, plus the untracked files git doesn't ignore. With
+ * no merge base, as in a shallow clone, the base itself stands in. Paths are
+ * relative to the directory git runs in, and only the ones under it are
+ * listed. A rename lists its old path and its new one, since the directory a
+ * file left changed too. `ok: false` when the base names no commit or git
+ * can't answer, and then the run skips no target.
+ */
+export async function changedPaths(git: GitRunner, base: ChangedBase): Promise<ChangedPaths> {
+  if (base.sha === null) return { ok: false, why: `${base.ref} names no commit` };
+  const mergeBase = await git(['merge-base', base.sha, 'HEAD']);
+  // `failed` is git's exit 1 for histories that share no commit.
+  if (!mergeBase.ok && mergeBase.error !== 'failed') return { ok: false, why: mergeBase.detail };
+  const from = mergeBase.ok ? mergeBase.stdout.trim() : base.sha;
+  const [diff, untracked] = await Promise.all([
+    git(['diff', '--name-only', '-z', '--no-renames', '--relative', from, '--']),
+    git(['ls-files', '--others', '--exclude-standard', '-z']),
+  ]);
+  if (!diff.ok) return { ok: false, why: diff.detail };
+  if (!untracked.ok) return { ok: false, why: untracked.detail };
+  return { ok: true, paths: [...new Set([...entries(diff.stdout), ...entries(untracked.stdout)])].toSorted() };
 }
 
 /** Why `HEAD` names no commit, in a clause: a repository with no commits yet fails with nothing on stderr. */

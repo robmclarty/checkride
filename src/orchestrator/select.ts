@@ -1,12 +1,12 @@
 /**
  * Which resolved checks a run touches: the only/skip/include selection by
- * token (R5.2's grammar, in `../targets/`), and the usage-error guard that
- * rejects a selection naming nothing a check answers to. Shared by
- * `runChecks` and `runFix`.
+ * token (R5.2's grammar, in `../targets/`), the usage-error guard that
+ * rejects a selection naming nothing a check answers to, and the `--changed`
+ * skip of targets nothing changed under. Shared by `runChecks` and `runFix`.
  */
 
 import type { ResolvedCheck } from '../config.js';
-import { namedBy, selectedBy, tokenProblem } from '../targets/index.js';
+import { changedUnder, namedBy, noChangesReason, selectedBy, tokenProblem } from '../targets/index.js';
 import type { RunFlags } from './types.js';
 
 /**
@@ -16,7 +16,8 @@ import type { RunFlags } from './types.js';
  * it, when it was explicitly configured in `checks` (`r.explicit`), or when an
  * `--only` token names it — naming a slot is opting in. A target token names no
  * slot, so `--only web` leaves `web`'s opt-in slots out unless one of the others
- * lets them in.
+ * lets them in. `--skip` narrows `--only` too, so `--only web --skip web:test`
+ * runs every check of `web` but its tests.
  */
 export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags): ResolvedCheck[] {
   const only = flags.only ?? null;
@@ -24,9 +25,27 @@ export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags
   const include = flags.include ?? [];
   const all = flags.all ?? false;
   return resolved.filter((r) => {
+    if (selectedBy(skip, r)) return false;
     const optedIn = !r.optIn || all || r.explicit === true || selectedBy(include, r);
     if (only) return selectedBy(only, r) && (optedIn || namedBy(only, r));
-    return !selectedBy(skip, r) && optedIn;
+    return optedIn;
+  });
+}
+
+/**
+ * Under `--changed` in multi-target mode, skip each check of a target with no
+ * changed path under its root, with `no changes under <root>` (R10.3). The
+ * checks keep their places, so each still prints and records its skipped row.
+ * `changed` is the run's changed paths, relative to the repo root, or `null`
+ * to skip nothing: off `--changed`, in implicit mode, or when git couldn't
+ * list them. Repo-scope and top-level checks always run, and a check that
+ * resolution already skipped keeps its own reason.
+ */
+export function skipUnchanged(selected: readonly ResolvedCheck[], changed: readonly string[] | null): ResolvedCheck[] {
+  if (changed === null) return [...selected];
+  return selected.map((r) => {
+    if (r.target === undefined || r.root === undefined || r.skip !== null) return r;
+    return changedUnder(changed, r.root) ? r : { ...r, skip: noChangesReason(r.root) };
   });
 }
 

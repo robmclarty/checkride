@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 28 — feat(run): never overlap checks that share a lock key
+**Current step:** 29 — feat(changed): skip unaffected targets under --changed
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -51,7 +51,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 26. feat(select): select checks with the target token grammar
 - ☑ 27. feat(run): run target-scope slots once per target
 - ☑ 75. fix(artifacts): delete only checkride's own files from a dropped target's directory
-- ☐ 28. feat(run): never overlap checks that share a lock key
+- ☑ 28. feat(run): never overlap checks that share a lock key
 - ☐ 29. feat(changed): skip unaffected targets under --changed
 - ☐ 30. feat(launch): resolve tools through mise and PATH and record the pin
 - ☐ 31. feat(packs): add the bash pack with file lists
@@ -131,7 +131,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] without targets, a packs block (a preset's included) applies to nothing: R3 ranks packs above top-level checks, so reading it in implicit mode would let a preset's pack default beat the repo's own checks entry; decide whether implicit mode reads packs below checks or ignores it (step 53's defaults layer resolves its own packs block and needs the same answer)
 - [x] a target named doc-snippets rooted at '.' shares <repo>/.check/doc-snippets/ with the snippets scratch under the default --out, and checkSnippets clears that directory each run; reserve the name in V2 or move the scratch
 - [x] a folder already under --out that shares a target's name gets that target's artifacts written into it, and when the target is dropped the prune deletes the whole folder, the user's files included; R9 promises checkride never deletes what it didn't write, so delete only the files the previous summary's checks name, then the folder once empty
-- [ ] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
+- [x] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -175,6 +175,7 @@ Harvest results this boundary:
 - After step 27: "without targets, a packs block (a preset's included) applies to nothing..." → **tangent**, deferred to step 53 (no config can be broken by it yet, since `packs` is new in this build and `docs/contract.md` now says it applies only to targets; read literally, R3 ranks the implicit target's `packs.<pack>.checks` above the repo's own top-level `checks`, which step 27 deliberately doesn't do, because a preset's pack default would then beat the repo's explicit entry; step 53's defaults layer is the first to resolve a `packs` block outside a target, R3's fifth layer reads its `packs` before its `checks`, and its seam holds `src/config.ts` and `docs/contract.md`, so it settles implicit mode's rule for both files at once).
 - After step 27: "a target named doc-snippets rooted at '.'..." → **tangent**, deferred to step 36 (it needs a target literally named `doc-snippets` at the repo root, and the cost is that target's artifacts and the snippets scratch sharing one directory; moving the scratch would change the snippets argv the invariance golden pins, so the fix is reserving the name in V2's `nameProblem` with its own message; `target add` is the first command that mints target names, but `src/targets/resolve.ts` and the S3 case in `src/__tests__/config.test.ts` sit outside step 36's seam, so add them via `/plumbbob:step 36` or accept a two-file stray).
 - After step 27: "a folder already under --out that shares a target's name..." → **blocker**, handled now: folded into `intent.md` as D57 (prune-own-files), which amends R9's prune to delete only the files the previous summary's checks of a dropped target name by convention and then the directory once it's empty, and as step 75, ordered to build next (R9 promises checkride never deletes what it didn't write, and step 27's prune breaks that for any folder under `--out` a target wrote into).
+- After step 28: "R6.5's cargo:global key when CARGO_TARGET_DIR is set..." → **tangent**, deferred to step 45 (no adapter carries a lock until its rust rows exist, and without the key cargo's own build-directory lock still serializes the runs, so the cost is a wait counted against a timeout, never a false green; step 45 expresses it as pure data, for instance a key placeholder that reads the variable and falls back to the root, such as `cargo:{env:CARGO_TARGET_DIR|root}`, which groups checks by the directory they really share, or drops it and amends R6.5's sentence; the placeholder's expansion lives in `lockKey` in `src/orchestrator/execute.ts`, which sits outside step 45's seam, so add it via `/plumbbob:step 45` or accept a one-file stray).
 
 ## Log
 
@@ -1807,3 +1808,79 @@ folder, so it rides the branch into the PR.)*
   - `plumbbob order 75` put it ahead of step 28.
 
   Its `model:` line says Sonnet. You asked for the fix now, so it ran on Opus.
+
+- 2026-10-16 — step 28 checkpointed · d1cf4a1fb — feat(run): never overlap checks that share a lock key (1 drift, 26m)
+
+  **Summary**: Checks whose adapters name the same `lock` key no longer run at the same time. A pool worker skips a locked check and takes the next free one, and the locked check starts only once its key comes free, so its timeout and `duration_ms` never count the wait. `{root}` in a key expands to the check's target root. That keeps `cargo:{root}` checks apart within one target while two targets' run side by side, and a key without `{root}`, like `golangci-lint`, holds across targets. No shipped adapter declares a key yet, so every existing run schedules exactly as before; the go and rust packs (steps 42 and 45) are the first users.
+
+  1. The pool takes the first queued check whose key is free, so a lock holds back only the check that would overlap
+  2. Five fake-spawner tests cover F4 and F5, and each one fails when the lock is taken away
+  3. The flaky completion-order test parked at step 16 now finishes in a fixed order with no timers
+  4. Three files sit outside the seam: `src/adapters.ts` for the field, plus the contract doc and CHANGELOG under C11 (docs-in-step)
+  5. One gap is parked: R6.5's `cargo:global` key when `CARGO_TARGET_DIR` is set
+
+  **Readout**: Step 28 - feat(run): never overlap checks that share a lock key
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  12 of 12 honored
+  seam         strayed: 3 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - src/adapters.ts
+  diff         +222 -26 across 5 files
+  spent        26 min · 1 turn · 27s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint step 28. Both done-when clauses have fake-spawner tests that fail without the lock, `pnpm check` is green, and the only strays are the type field steps 42 and 45 depend on and the docs C11 (docs-in-step) asks for.
+
+  **1.** The pool takes the first queued check whose key is free, so a lock holds back only the check that would overlap
+
+  `runPool` in `src/orchestrator/execute.ts` now keeps a queue and the set of keys running checks hold. Each worker takes the first queued item whose key is free (`takeRunnable`). When every queued item is locked, the worker waits on a promise that settles the next time a key comes free, then looks again. The waiting check hasn't been handed to the runner, so it prints no `▸` line, its timer hasn't started, and its `duration_ms` window hasn't opened.
+
+  `lockKey` gives each check its key: the adapter's `lock` with `{root}` replaced by the check's root, or `.` when it has none (implicit mode, and repo-scope checks). Roots are already normalized by `src/targets/resolve.ts`, so equal roots give equal keys.
+
+  I dropped the simpler idea of one sequential lane per key. A lane would reorder a wave even at `--concurrency 1`: with `types` and `lint` sharing a key and `docs` between them, lanes run `types, lint, docs` where selection order is `types, docs, lint`. The greedy pool never holds anything back when nothing else is running, so at a width of 1, or with no keys, checks start in selection order exactly as before.
+
+  Other details:
+
+  - A held key is released in a `finally`, so a check that throws can't strand the workers waiting on it.
+  - `--bail` already runs one check at a time, so locks change nothing there.
+  - `checkride fix` already runs fixers in sequence, so it needed no change.
+  - `Promise.withResolvers` is ES2024, which `tsconfig.base.json` targets and Node 22 ships.
+
+  **2.** Five fake-spawner tests cover F4 and F5, and each one fails when the lock is taken away
+
+  A new `describe('runChecks (lock keys)')` in `src/orchestrator/__tests__/orchestrator.test.ts` uses `intervalRunner`, a fake spawner that records `start:<name>` and `end:<name>` events in order, with `<target>:<slot>` names for a target's checks. `overlapped` reads two checks' intervals off the events, which makes the never-overlap assertions independent of timing.
+
+  - **F4, overlap:** `cargo-check` and `clippy` with `cargo:{root}`, plus an unlocked `rumdl`, in one wave. The cargo pair never overlaps, and `rumdl` runs alongside `cargo-check`, so the lock didn't serialize the pool.
+  - **F4, timeout:** `clippy`, with a 0.2s timeout, waits out a 300ms `cargo-check`. Events show it started only after `cargo-check` ended. Its `duration_ms` (the window its timeout caps) stays under 200 while the wait ran past 200, and its `▸` line prints after `cargo-check`'s `✔` line.
+  - **`--concurrency 1`:** a lock changes nothing, and the checks keep selection order. This is the guard against the lane design.
+  - **F5:** two go targets whose `golangci-lint` carries a key without `{root}` never overlap.
+  - **`cargo:{root}` across targets:** each target's two cargo checks stay apart, and the two targets' checks overlap.
+
+  No pack row carries a lock yet, so resolution can't produce a locked target check. The two multi-target cases therefore hand-build target checks and call `executeChecks` directly, with a context from `resolveRunContext`. The implicit-mode cases go through `runChecks`.
+
+  I checked that the tests have teeth. With `lockKey` forced to `null`, four of the five fail; the `--concurrency 1` test still passes, as it should. With `{root}` left unexpanded, the cross-target test fails.
+
+  **3.** The flaky completion-order test parked at step 16 now finishes in a fixed order with no timers
+
+  At step 16's harvest you sent this flake here: "summary array order is deterministic under randomized completion" relied on timers 10ms apart, and under coverage load two of them swapped. `delayedRunner` is replaced by `reversedRunner`, under which each check finishes only once the one selected after it has. Completion is exactly reversed however loaded the machine is, and the assertions are unchanged. That park item was already checked off at that harvest, so nothing in the park list moves.
+
+  **4.** Three files sit outside the seam: `src/adapters.ts` for the field, plus the contract doc and CHANGELOG under C11 (docs-in-step)
+
+  - `src/adapters.ts`: the `Adapter` type gains an optional `lock`, with a doc comment. The scheduler needs the field to read, and steps 42 and 45 write `lock` on their rows without this file in their seams, so the field lands here. It's a plain string, so `PACKS` still survives a JSON round trip (C5 (pure-data)), and the scheduler never looks at a pack's name.
+  - `docs/contract.md`: a **Locks.** paragraph under "Check ordering and concurrency" covers equal keys, `{root}`, that a held check isn't started, and that `--concurrency 1` and `--bail` are unaffected. It says nothing about which adapters carry keys, so step 42 won't leave it stale.
+  - `CHANGELOG.md`: one **Contract** entry ("Additive: the exported `Adapter` type gains an optional `lock`"). There's no **Added** entry, since nothing a user runs behaves differently yet. No JSON Schema or contract test covers adapter fields, so C1 (additive-contract) leaves only the doc and the entry to move.
+
+  The invariance golden passed unchanged inside `pnpm check`, which holds C2 (legacy-invariance). The step names no e2e file and isn't the phase's last, so D52 (e2e-cadence) asks for no e2e run.
+
+  **5.** One gap is parked: R6.5's `cargo:global` key when `CARGO_TARGET_DIR` is set
+
+  R6.5 says Rust locks on `cargo:<root>`, or `cargo:global` when `CARGO_TARGET_DIR` is set, because then every target shares one build directory. No step's done-when names it, and a branch in the scheduler would break C5 (pure-data). It's parked for step 45, which writes the rust rows, to decide how the data expresses it or to drop it. Without it, cargo's own build-directory lock still serializes those runs, but that wait would count against their timeouts.
+
+  The step's `model:` line says Sonnet; it ran on Opus.
