@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 38 — feat(readers): teach digest, triage and qa target directories and jsonl
+**Current step:** 39 — test(examples): add polyglot-ts-bash with plants
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -61,7 +61,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
 - ☑ 36. feat(cli): add target add to declare and convert targets
 - ☑ 37. feat(init): discover targets in existing mode
-- ☐ 38. feat(readers): teach digest, triage and qa target directories and jsonl
+- ☑ 38. feat(readers): teach digest, triage and qa target directories and jsonl
 - ☐ 39. test(examples): add polyglot-ts-bash with plants
 - ☐ 40. feat(capture): add jsonl capture and the failOnOutput verdict
 - ☐ 41. feat(launch): pin Go tools by tool directive and harden the Go env
@@ -2102,3 +2102,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 35 checkpointed · 7f3431d24 — feat(entry): resolve the entry command for the stanza, hooks and skills (1 drift, 11m)
 - 2026-10-17 — step 36 checkpointed · 06db9e1f2 — feat(cli): add target add to declare and convert targets (1 drift, 8m)
 - 2026-10-17 — step 37 checkpointed · b5007f1f8 — feat(init): discover targets in existing mode (1 drift, 7m)
+- 2026-10-17 — step 38 checkpointed · b52e5da3a — feat(readers): teach digest, triage and qa target directories and jsonl (1 drift, 7m)

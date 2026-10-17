@@ -1,0 +1,14 @@
+{
+  "name": "checkride-example-polyglot-ts-bash",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A TypeScript app and its shell scripts checked as two targets, with unclaimed catching code no target reads.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "checkride": "link:../..",
+    "typescript": "6.0.3"
+  }
+}

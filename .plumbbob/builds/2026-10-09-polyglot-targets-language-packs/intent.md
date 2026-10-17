@@ -689,7 +689,7 @@ reference rules and porting trap apply as written there.
 37. [x] feat(init): discover targets in existing mode, **done when:** existing-mode `init` runs R11.4's discovery and, when it finds more than one pack or a marker below the root, prints the proposed `targets` block and writes it unless `--dry-run`; a single root pack stays implicit
     - seam: `src/targets/discover.ts`, `src/init.ts`
     - model: sonnet
-38. [ ] feat(readers): teach digest, triage and qa target directories and jsonl, **done when:** the digest, `triage` and `qa` read `<out>/<target>/` and `.jsonl` artifacts, and their reports name `<target>:<slot>` checks; the plugin readers' e2e passes
+38. [x] feat(readers): teach digest, triage and qa target directories and jsonl, **done when:** the digest, `triage` and `qa` read `<out>/<target>/` and `.jsonl` artifacts, and their reports name `<target>:<slot>` checks; the plugin readers' e2e passes
     - seam: `src/digest/`, `src/triage/`, `src/qa/`, `test/e2e/plugin-readers.e2e.test.ts`
     - model: sonnet
 39. [ ] test(examples): add polyglot-ts-bash with plants, **done when:** `examples/polyglot-ts-bash` (a TypeScript app and bash scripts as targets) is green, and each plant fails the expected check: an SC2086 fails `scripts:lint`, a type error fails `web:types`, and a new `tools/x/package.json` fails `unclaimed`; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))

@@ -1,0 +1,7 @@
+{
+  "targets": {
+    "web": { "lang": "ts", "root": "web" },
+    "scripts": { "lang": "bash", "root": "scripts" }
+  },
+  "unclaimed": { "ignore": ["package.json"] }
+}

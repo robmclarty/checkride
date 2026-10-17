@@ -1,0 +1,32 @@
+{
+  "description": "A TypeScript app and its shell scripts as two targets: tsc checks web/, shellcheck checks scripts/ over its file list, and unclaimed fails on a package no target checks.",
+  "args": [],
+  "requires": ["shellcheck"],
+  "exitCode": 0,
+  "checks": {
+    "web:types": { "ok": true, "skipped": false },
+    "scripts:lint": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false },
+    "web:lint": { "ok": true, "skipped": true, "reason": "no tool detected for slot" }
+  },
+  "violations": [
+    {
+      "name": "an unquoted variable in a script (SC2086)",
+      "edits": [{ "file": "scripts/deploy.sh", "find": "\"$target\"", "replace": "$target" }],
+      "exitCode": 1,
+      "failing": ["scripts:lint"]
+    },
+    {
+      "name": "a type error in the app",
+      "edits": [{ "file": "web/src/app.ts", "find": "greeting('world').length", "replace": "greeting('world')" }],
+      "exitCode": 1,
+      "failing": ["web:types"]
+    },
+    {
+      "name": "a package no target checks",
+      "edits": [{ "file": "tools/x/package.json", "contents": "{ \"name\": \"x\" }\n" }],
+      "exitCode": 1,
+      "failing": ["unclaimed"]
+    }
+  ]
+}

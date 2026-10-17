@@ -1,0 +1,7 @@
+# This example is a standalone project, not a member of the checkride repo's
+# workspace. Without this file, pnpm would walk up to the repo root, find its
+# `pnpm-workspace.yaml`, and install *that* project instead — leaving this
+# directory with no `node_modules` and no obvious sign anything went wrong.
+#
+# Its presence stops the walk here, so `pnpm install` in this directory does
+# what it looks like it does. Every example carries one for the same reason.

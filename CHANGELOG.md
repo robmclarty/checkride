@@ -238,6 +238,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   target its own ledger row and section. `docs/plugin.md` now says that `qa`
   reads `mutation.json` only where the repo's stryker `jsonReporter.fileName`
   writes it into the output directory.
+- **`examples/polyglot-ts-bash` and `docs/targets.md`.** A TypeScript app and
+  its shell scripts checked as two targets, run end to end: tsc from `web/`,
+  shellcheck over `scripts/`'s file list, and `unclaimed` failing on a new
+  package no target checks. `docs/targets.md` covers declaring targets, what
+  each runs, the bash pack and `unclaimed`.
 
 ### Changed
 
@@ -534,6 +539,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Internal
 
+- The publish workflow installs every pack's e2e toolchain with
+  `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, as CI does, so
+  a release can't publish with a pack's e2e cases skipped.
 - `src/pm/`, which had only re-exported `src/launch/` since the launcher
   took its code, is gone: every importer reads `launch/`, and `pm.test.ts`
   moved under `src/launch/__tests__/`.

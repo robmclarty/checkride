@@ -1,0 +1,6 @@
+#!/bin/sh
+# Print the version a release would tag, read from package.json.
+set -eu
+
+version=$(node -p "require('./package.json').version")
+printf 'release %s\n' "$version"

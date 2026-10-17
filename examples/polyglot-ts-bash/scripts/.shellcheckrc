@@ -1,0 +1,2 @@
+# Read by shellcheck for every script under scripts/, and the signal that
+# turns on the scripts target's lint slot. Nothing to configure yet.

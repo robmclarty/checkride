@@ -88,8 +88,17 @@ jobs:
       - name: pnpm check
         run: pnpm check
 
+      # Every pack's toolchain at the version the root mise.toml pins, as in
+      # ci.yml, so a release proves each pack's e2e cases rather than skipping
+      # them where a tool is missing. Installed after `pnpm check` so this
+      # repo's own run sees the same PATH as before.
+      - name: Install e2e toolchains
+        uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+
       - name: pnpm test:e2e
         run: pnpm test:e2e
+        env:
+          CHECKRIDE_REQUIRE_TOOLCHAINS: '1'
 
       # npm (not pnpm) publish: the OIDC token exchange is an npm CLI flow.
       # prepublishOnly (tsc --build && vitest run) reruns as a safety net inside

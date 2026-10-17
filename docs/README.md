@@ -16,6 +16,9 @@ Start here:
 - **[Tools and installation](./tools.md)** — what each pipeline slot runs, and
   how to install a missing tool (fallow, ast-grep, oxlint, …) when `doctor`
   reports one as not installed.
+- **[Targets](./targets.md)** — checking a repo with more than one language,
+  or one language in more than one place: declaring targets, what each runs,
+  the bash pack's file lists, and `unclaimed`.
 - **[Packs and pins](./packs.md)** — how a check's tool resolves to the copy
   that runs: each pack's pin chain, the `js-lockfile`, `mise` and `path`
   sources, `requirePins`, and the spawn environment that keeps a check from
