@@ -16,7 +16,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
 import { applyBaseline, fingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { isAvailableUnder, pinChain } from '../launch/index.js';
+import { isAvailableUnder, offlineHint, packEnv, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
@@ -96,16 +96,19 @@ type MaskResult = {
 };
 
 /**
- * The one line a could-not-verify outcome (`exit_code: -1`) owes the terminal.
- * A red slot otherwise prints only its status line — the tool's output is in
- * `.check/` — but -1 means the tool never reached a verdict, and the reader's
- * next move (fix the network, raise the timeout) depends on why. A built-in
- * states its cause on a `check-<slot>:` line; `spawnCheck` appends its
- * `timed out after Ns` / `Failed to spawn` note *last*, after whatever the tool
- * managed to print. Any other outcome prints nothing extra.
+ * The one line a failed outcome owes the terminal, when it owes one. A red
+ * slot otherwise prints only its status line — the tool's output is in
+ * `.check/` — but -1 (could not verify) means the tool never reached a
+ * verdict, and the reader's next move (fix the network, raise the timeout)
+ * depends on why. A built-in states its cause on a `check-<slot>:` line;
+ * `spawnCheck` appends its `timed out after Ns` / `Failed to spawn` note
+ * *last*, after whatever the tool managed to print. A tool that exited on its
+ * own prints the move a pack's download block asks for, when its output shows
+ * one stopped it (`offlineHint`). Any other outcome prints nothing extra.
  */
-function couldNotVerifyReason(outcome: CheckOutcome): string | null {
-  if (outcome.ok || outcome.exit_code !== -1) return null;
+function failureLine(outcome: CheckOutcome): string | null {
+  if (outcome.ok) return null;
+  if (outcome.exit_code !== -1) return offlineHint(outcome);
   const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
   return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
 }
@@ -138,9 +141,9 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
   const current = keys !== null ? fingerprint(adapter.name, outcome.stdout, argv, scope.root) : null;
   if (keys !== null && current !== null) {
     const adj = applyBaseline(current, keys, outcome.ok);
-    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: couldNotVerifyReason(outcome), observed: current };
+    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: failureLine(outcome), observed: current };
   }
-  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: couldNotVerifyReason(outcome), observed: null };
+  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: failureLine(outcome), observed: null };
 }
 
 /**
@@ -225,8 +228,8 @@ type CheckResult = {
 
 /**
  * What a {@link CheckRunner} is handed: `base` only under `--changed`,
- * `timeout` only when the config sets one, and the pin chain of the check's
- * pack.
+ * `timeout` only when the config sets one, and the pin chain and spawn
+ * variables of the check's pack.
  */
 function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Parameters<CheckRunner>[1] {
   return {
@@ -239,6 +242,7 @@ function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Paramet
     repo: ctx.cwd,
     pins: pinChain(r.pack),
     requirePins: ctx.requirePins,
+    packEnv: packEnv(r.pack, r.adapter?.network),
   };
 }
 

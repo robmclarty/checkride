@@ -196,7 +196,8 @@ export type CheckRunner = (
    * declared nearest the check's directory. `repo` is the repo root, where a
    * pin search stops, `pins` the check's pin chain and `requirePins` the
    * config's switch; omitted, they read as `cwd`, the `js-lockfile` source
-   * alone, and off.
+   * alone, and off. `packEnv` holds the variables the check's pack sets over
+   * the user's own (R6.4); omitted, it sets none.
    */
   ctx: {
     cwd: string;
@@ -208,6 +209,7 @@ export type CheckRunner = (
     repo?: string;
     pins?: readonly PinSourceName[];
     requirePins?: boolean;
+    packEnv?: Readonly<Record<string, string>>;
   },
 ) => Promise<RunnerOutcome>;
 

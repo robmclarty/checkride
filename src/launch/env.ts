@@ -1,0 +1,54 @@
+/**
+ * The spawn environment a check runs with (R6.4): the variables its pack sets
+ * over the user's own, so no launcher downloads a toolchain, a module or a
+ * crate on a check's behalf (D14). A pack's variables apply to every check of
+ * that pack that spawns, a target's custom checks included, and they come from
+ * the pack's own data in `PACKS`, so a new pack is a new row here, not a new
+ * branch.
+ *
+ * A check whose tool needs the network, an advisory scan, runs without the
+ * variables that block downloads and keeps the rest. And when a tool fails
+ * because one of those variables stopped it, the message it prints names the
+ * variable but not the way out, so a red check gets one line that does.
+ */
+
+import { PACKS } from '../packs/index.js';
+
+/**
+ * The variables that stop a tool reaching the network, which a check whose
+ * adapter is marked `network: true` runs without. The others a pack sets, the
+ * ones that pin a toolchain or switch off an install, it keeps.
+ */
+const NETWORK_BLOCKING: ReadonlySet<string> = new Set(['GOPROXY', 'CARGO_NET_OFFLINE', 'PIP_NO_INDEX', 'UV_OFFLINE']);
+
+/**
+ * The variables a check of `pack` spawns with, over the user's own: the
+ * pack's `env`, less the network-blocking ones when `network` is set. A check
+ * with no pack, every check in a repo without targets, sets none.
+ */
+export function packEnv(pack: string | undefined, network = false): Readonly<Record<string, string>> {
+  const env = (pack === undefined ? undefined : Object.values(PACKS).find((p) => p.name === pack)?.env) ?? {};
+  return network ? Object.fromEntries(Object.entries(env).filter(([name]) => !NETWORK_BLOCKING.has(name))) : env;
+}
+
+/**
+ * What a tool prints when a variable that blocks downloads stopped it, and the
+ * line a red check prints beneath its status to say what to run first. The
+ * tool's own message names the variable, not the way out.
+ */
+const OFFLINE_HINTS: readonly { printed: string; hint: string }[] = [
+  {
+    // Go 1.27.2, a module missing from the module cache under GOPROXY=off.
+    printed: 'module lookup disabled by GOPROXY=off',
+    hint: 'a Go module is missing from the module cache, and checks never download one: run `go mod download` first',
+  },
+];
+
+/**
+ * The line a failed check prints to say what to run before it can pass, when
+ * its output shows a variable that blocks downloads stopped it, or `null`. The
+ * raw output is left as the tool wrote it; this only reads it.
+ */
+export function offlineHint(outcome: { stdout: string; stderr: string }): string | null {
+  return OFFLINE_HINTS.find((h) => outcome.stdout.includes(h.printed) || outcome.stderr.includes(h.printed))?.hint ?? null;
+}

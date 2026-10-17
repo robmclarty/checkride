@@ -5,6 +5,18 @@
 
 import type { Tool } from './types.js';
 
+/**
+ * The Go toolchain, which runs a tool a `go.mod` `tool` directive declares as
+ * `go tool <bin>`. A `mise.toml` may pin it; otherwise it comes from `PATH`,
+ * and the `go` line in `go.mod` sets the oldest version it accepts. It joins
+ * `TOOLS` with the first adapter that runs it.
+ */
+export const GO_TOOLCHAIN: Tool = {
+  bin: 'go',
+  mise: ['go', 'core:go'],
+  install: 'install Go 1.24 or later (https://go.dev/dl), or pin it with `mise use go@<version>`',
+};
+
 /** One row per tool, by executable name. */
 export const TOOLS: readonly Tool[] = [
   {

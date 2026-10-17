@@ -254,6 +254,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `exit_code: 0`, and says `<adapter> exited 0 but reported findings on
   stdout`. No adapter checkride ships does either yet; the Go and Rust packs
   will.
+- **Go targets, with Go's downloads switched off.** A target can declare
+  `"lang": "go"`, with a root that holds a `go.mod` or `go.work`. Every check
+  of a go target, the target's own custom checks included, runs with
+  `GOTOOLCHAIN=local` and `GOPROXY=off` over the user's own values: a
+  `go.mod` that asks for a newer Go fails naming that version instead of
+  fetching it, and a module missing from the module cache fails at once,
+  offline, with a line under the red check that says to run
+  `go mod download` first. `GOFLAGS` is left alone, so a vendored module
+  still builds with an empty module cache. A Go tool that `go.mod` declares
+  in a `tool` directive runs as `go tool <bin>`, through the `go` a
+  `mise.toml` pins or else the one on `PATH`. The go pack's own adapters
+  arrive in a later release; see `docs/packs.md`.
 
 ### Changed
 
@@ -555,6 +567,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   doc and `summary.contract.test.ts`. The exported `Adapter` type gains an
   optional `failOnOutput`. A check that declares no `outputFile` writes
   `<name>.stdout.txt` whatever it prints, as before.
+- Additive: `PACKS` gains `go` (markers `go.mod` and `go.work`, the pin
+  chain `go-mod-tool`, `mise`, `path`, the environment `GOTOOLCHAIN=local`
+  and `GOPROXY=off`, and no adapter rows yet), the exported `Pack` type's
+  `name` takes `go`, and the config schema's pack names take `go`. The
+  exported `Tool` type gains an optional `goTool` (the package a `go.mod`
+  `tool` directive names), and `Adapter` an optional `network`, which drops
+  the variables that block downloads from its check's environment. The
+  `CheckRunner` context gains an optional `packEnv`, the variables the
+  check's pack sets, which every check of that pack spawns with. `TOOLS` and
+  `ADAPTERS` are unchanged, so no run writes `pin_source: "go-mod-tool"` yet.
 
 ### Internal
 

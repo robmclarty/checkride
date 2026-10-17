@@ -1775,13 +1775,13 @@ describe('runFix', () => {
     }
   });
 
-  test("the fix runner gets the check's repo root, pin chain and requirePins", async () => {
+  test("the fix runner gets the check's repo root, pin chain, requirePins and pack variables", async () => {
     const seen: unknown[] = [];
     await runFix({
       cwd: '/work', slots: [{ name: 'lint' }], adapters: [fixable], config: { requirePins: true }, pm: 'pnpm', stderr: sink().out,
       fixRunner: (_a, ctx) => { seen.push(ctx); return Promise.resolve({ ok: true, exit_code: 0 }); },
     });
-    expect(seen).toEqual([{ cwd: '/work', pm: 'pnpm', repo: '/work', pins: ['js-lockfile'], requirePins: true }]);
+    expect(seen).toEqual([{ cwd: '/work', pm: 'pnpm', repo: '/work', pins: ['js-lockfile'], requirePins: true, packEnv: {} }]);
   });
 
   test('reports a custom check whose fix exits its skipExitCode as skipped, not failed', async () => {

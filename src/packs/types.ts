@@ -28,7 +28,7 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo' | 'bash';
+  name: 'ts' | 'repo' | 'bash' | 'go';
   /**
    * Files whose presence marks a directory as holding this pack's code. The
    * repo pack has none, since its slots check the repo as a whole, and neither
@@ -57,6 +57,11 @@ export type Tool = {
   bin: string;
   /** The npm package that provides `bin`. */
   npm?: string;
+  /**
+   * The package path a `go.mod` `tool` directive names to declare `bin`, such
+   * as `golang.org/x/tools/cmd/deadcode`, which runs as `go tool <bin>`.
+   */
+  goTool?: string;
   /**
    * The `[tools]` keys that declare it in a `mise.toml`, such as `shellcheck`
    * or `aqua:koalaman/shellcheck`. Omitted, the executable's own name.

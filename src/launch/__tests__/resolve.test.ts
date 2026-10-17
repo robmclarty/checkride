@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { PACKS } from '../../packs/index.js';
+import type { Tool } from '../../packs/index.js';
 import type { Launch, LaunchContext, PackageManager } from '../index.js';
 import { installCommand, isReadableSource, launchCheck, pinChain } from '../index.js';
 
@@ -380,8 +381,8 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
   test("a source the launcher can't read stops the walk, rather than pass over a pin it can't see", () =>
     withScratch(async (s) => {
       await s.tool('golangci-lint');
-      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: ['go-mod-tool', 'path'] }));
-      expect(refusalOf(launch)).toContain("through the `go-mod-tool` pin source, which this checkride can't read");
+      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: ['uv-lock', 'path'] }));
+      expect(refusalOf(launch)).toContain("through the `uv-lock` pin source, which this checkride can't read");
     }));
 
   test('a custom command spawns as written whatever the chain', () =>
@@ -393,3 +394,164 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
     }));
 });
 
+
+/** The go pack's chain (R6.1). */
+const GO_CHAIN = ['go-mod-tool', 'mise', 'path'] as const;
+
+/** A Go tool row, swapped in for `TOOLS` until the go pack's adapters bring their own. */
+const DEADCODE: Tool = { bin: 'deadcode', goTool: 'golang.org/x/tools/cmd/deadcode', install: 'go get -tool golang.org/x/tools/cmd/deadcode' };
+
+const RUN_DEADCODE = ['exec', 'deadcode', '-test', './...'];
+
+/** A module that declares deadcode as a tool and requires the module that provides it. */
+const GO_MOD_WITH_TOOL = [
+  'module example.com/api',
+  '',
+  'go 1.24',
+  '',
+  'tool golang.org/x/tools/cmd/deadcode',
+  '',
+  'require golang.org/x/tools v0.30.0 // indirect',
+  '',
+].join('\n');
+
+describe('the go-mod-tool source (R6.1)', () => {
+  test('a tool directive declares the tool, which runs as go tool <bin>, with the version go.mod requires', () =>
+    withScratch(async (s) => {
+      await s.file('api/go.mod', GO_MOD_WITH_TOOL);
+      await s.tool('go');
+      await s.tool('deadcode');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('api', { pins: GO_CHAIN, tools: [DEADCODE] }))).toEqual({
+        command: 'go',
+        args: ['tool', 'deadcode', '-test', './...'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'go-mod-tool', version: 'v0.30.0' },
+      });
+    }));
+
+  test('a tool block declares each tool it lists', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', 'module example.com/api\n\ngo 1.24\n\ntool (\n\thonnef.co/go/tools/cmd/staticcheck\n\tgolang.org/x/tools/cmd/deadcode // reachability\n)\n');
+      await s.tool('go');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({
+        command: 'go',
+        args: ['tool', 'deadcode', '-test', './...'],
+        pin: { source: 'go-mod-tool' },
+      });
+    }));
+
+  test('a go.mod without the directive passes the tool on down the chain', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', 'module example.com/api\n\ngo 1.24\n');
+      await s.tool('go');
+      await s.tool('deadcode');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({
+        command: 'deadcode',
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('a tool TOOLS gives no goTool path is never declared by go.mod', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', 'module example.com/api\n\ngo 1.24\n\ntool github.com/golangci/golangci-lint/v2/cmd/golangci-lint\n');
+      await s.tool('golangci-lint');
+      expect(launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: GO_CHAIN }))).toMatchObject({
+        command: 'golangci-lint',
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('the go.mod nearest the check declares, and one above the repo root declares nothing', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('api/go.mod', 'module example.com/api\n\ngo 1.24\n');
+      await writeFile(join(s.repo, '..', 'go.mod'), GO_MOD_WITH_TOOL);
+      await s.tool('go');
+      await s.tool('deadcode');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('api', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({ pin: { source: 'path' } });
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({ pin: { source: 'go-mod-tool' } });
+    }));
+
+  test('go runs through mise when a mise.toml pins it', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('mise.toml', '[tools]\ngo = "1.27.2"\n');
+      await s.tool('mise');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toEqual({
+        command: 'mise',
+        args: ['exec', '--', 'go', 'tool', 'deadcode', '-test', './...'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'go-mod-tool', version: 'v0.30.0' },
+      });
+    }));
+
+  test('a go mise pins but mise is missing fails, and never falls back to a go on PATH', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('mise.toml', '[tools]\ngo = "1.27.2"\n');
+      await s.tool('go');
+      const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
+      expect(refusal).toContain("the `dead` slot's `go` is pinned through mise, but `mise` isn't on PATH");
+      expect(refusal).toContain('declared in: mise.toml ([tools] go)');
+    }));
+
+  test('a go mise pins at a version it has not installed fails, naming mise', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('mise.toml', '[tools]\ngo = "1.99.0"\n');
+      await s.tool('mise', 'echo "mise ERROR go@1.99.0 is not installed" >&2; exit 1');
+      const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
+      expect(refusal).toContain("mise can't run the copy it pins");
+      expect(refusal).toContain('mise which go: go@1.99.0 is not installed');
+    }));
+
+  test('a declared tool fails, naming how to install Go, when go is not on PATH', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.tool('deadcode');
+      const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
+      expect(refusal).toContain('the `dead` slot runs `deadcode` through `go`, which isn\'t on PATH');
+      expect(refusal).toContain('install Go 1.24 or later');
+    }));
+
+  test('under requirePins, a declared tool runs, and so does a go from PATH', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.tool('go');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE], requirePins: true }))).toMatchObject({
+        command: 'go',
+        pin: { source: 'go-mod-tool' },
+      });
+    }));
+});
+
+describe("a pack's variables join every spawn its checks launch (R6.4)", () => {
+  const GO_VARS = { GOTOOLCHAIN: 'local', GOPROXY: 'off' };
+
+  test('a tool resolved through the chain carries them beneath its source\'s own', () =>
+    withScratch(async (s) => {
+      await s.tool('shellcheck');
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH, packEnv: GO_VARS }))).toMatchObject({
+        env: { GOTOOLCHAIN: 'local', GOPROXY: 'off', MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+      });
+    }));
+
+  test('a command spawned as written carries them, as a target\'s custom check does', () =>
+    withScratch(async (s) => {
+      expect(launchCheck('types', 'go', ['build', '-json', './...'], s.at('.', { pins: GO_CHAIN, packEnv: GO_VARS }))).toEqual({
+        command: 'go',
+        args: ['build', '-json', './...'],
+        env: GO_VARS,
+      });
+    }));
+
+  test('a check of a pack that sets none spawns exactly as before', () =>
+    withScratch(async (s) => {
+      expect(launchCheck('lint', 'bash', ['scripts/lint.sh'], s.at('.', { packEnv: {} }))).toEqual({ command: 'bash', args: ['scripts/lint.sh'] });
+    }));
+
+  test('a refusal stays a refusal', () =>
+    withScratch(async (s) => {
+      expect(refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH, packEnv: GO_VARS })))).not.toBeNull();
+    }));
+});

@@ -70,9 +70,16 @@ describe('findUnclaimed', () => {
       ['svc/go.mod', 'go'],
       ['svc/go.work', 'go'],
     ]);
-    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['crates', 'infra', 'py'] });
+    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'infra', 'py'] });
+    expect(red.stderr).toContain('unclaimed: crates/a/Cargo.toml marks rust code that no rust target checks.');
+    expect(red.stderr).toContain('no rust pack ships yet, so list it in unclaimed.ignore until one does');
+  });
+
+  test('suggests a target for the markers of a pack that ships', async () => {
+    await put('svc/go.mod');
+    const red = await checkUnclaimed(repo, { targets: [root] });
     expect(red.stderr).toContain('unclaimed: svc/go.mod marks go code that no go target checks.');
-    expect(red.stderr).toContain('no go pack ships yet, so list it in unclaimed.ignore until one does');
+    expect(red.stderr).toContain('claim it: "svc": { "lang": "go", "root": "svc" } under targets, or list it in unclaimed.ignore');
   });
 
   test('never reports installed dependencies, build output, environments, test data or checkride’s own artifacts', async () => {

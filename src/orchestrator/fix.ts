@@ -11,7 +11,7 @@ import type { Adapter, Slot } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
 import type { Launch, LaunchContext, PackageManager } from '../launch/index.js';
-import { launchCheck, pinChain } from '../launch/index.js';
+import { launchCheck, packEnv, pinChain } from '../launch/index.js';
 import { checkName, configuredTargets } from '../targets/index.js';
 import { packageManagerAt, resolveCommonOptions } from './context.js';
 import { checkCwd } from './place.js';
@@ -121,7 +121,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
     writeLine(stderr, `  ▸ fix ${checkName(r).padEnd(width)} (${adapter.name})`);
     const dir = checkCwd(cwd, r);
     // oxlint-disable-next-line no-await-in-loop -- fixers mutate the working tree; running them sequentially prevents two (for example oxlint --fix and prettier --write) racing on the same files.
-    const outcome = await fixRunner(adapter, { cwd: dir, pm: pmAt(dir), repo: cwd, pins: pinChain(r.pack), requirePins });
+    const outcome = await fixRunner(adapter, { cwd: dir, pm: pmAt(dir), repo: cwd, pins: pinChain(r.pack), requirePins, packEnv: packEnv(r.pack, adapter.network) });
     const result = reportFix(stderr, r, outcome);
     if (result !== 'skipped') ran.push(adapter.name);
     if (result === 'failed') ok = false;

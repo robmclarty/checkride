@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 40 — feat(capture): add jsonl capture and the failOnOutput verdict
+**Current step:** 41 — feat(launch): pin Go tools by tool directive and harden the Go env
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -63,7 +63,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 37. feat(init): discover targets in existing mode
 - ☑ 38. feat(readers): teach digest, triage and qa target directories and jsonl
 - ☑ 39. test(examples): add polyglot-ts-bash with plants
-- ☐ 40. feat(capture): add jsonl capture and the failOnOutput verdict
+- ☑ 40. feat(capture): add jsonl capture and the failOnOutput verdict
 - ☐ 41. feat(launch): pin Go tools by tool directive and harden the Go env
 - ☐ 42. feat(packs): add the go pack
 - ☐ 43. feat(changed): narrow Go packages to affected workspace modules
@@ -2111,3 +2111,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 37 checkpointed · b5007f1f8 — feat(init): discover targets in existing mode (1 drift, 7m)
 - 2026-10-17 — step 38 checkpointed · b52e5da3a — feat(readers): teach digest, triage and qa target directories and jsonl (1 drift, 7m)
 - 2026-10-17 — step 39 checkpointed · 4132d4921 — test(examples): add polyglot-ts-bash with plants (1 drift, 10m)
+- 2026-10-17 — step 40 checkpointed · 20593aa80 — feat(capture): add jsonl capture and the failOnOutput verdict (1 drift, 10m)

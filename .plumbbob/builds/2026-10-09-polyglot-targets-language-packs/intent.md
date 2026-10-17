@@ -717,7 +717,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 7: Go and Rust
 
-40. [ ] feat(capture): add jsonl capture and the failOnOutput verdict, **done when:** capture follows R11.1 (json, then jsonl, then text, with no bytes changed), a custom check without an `outputFile` that prints JSON lines still writes `<name>.stdout.txt` ([D45 (capture-gate)](#d45)), and a `failOnOutput` adapter that exits 0 with stdout is `ok: false` with `exit_code: 0` and a reason (S9, F13, F14)
+40. [x] feat(capture): add jsonl capture and the failOnOutput verdict, **done when:** capture follows R11.1 (json, then jsonl, then text, with no bytes changed), a custom check without an `outputFile` that prints JSON lines still writes `<name>.stdout.txt` ([D45 (capture-gate)](#d45)), and a `failOnOutput` adapter that exits 0 with stdout is `ok: false` with `exit_code: 0` and a reason (S9, F13, F14)
     - seam: `src/orchestrator/execute.ts`, `src/tool-json.ts`, `src/artifacts/raw.ts`
     - model: sonnet
 41. [ ] feat(launch): pin Go tools by tool directive and harden the Go env, **done when:** the `go-mod-tool` source reads single-line and block `tool` directives and runs `go tool <bin>`; the go pack's environment applies R6.4, leaving `GOFLAGS` alone ([D54 (go-mod-readonly)](#d54)); F1 and F2 pass, and a vendored-module fixture passes with an empty module cache

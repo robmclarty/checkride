@@ -139,6 +139,13 @@ export type Adapter = {
    */
   failOnOutput?: boolean;
   /**
+   * The tool needs the network, as a vulnerability scan that reads an
+   * advisory feed does, so its check runs without the variables its pack sets
+   * to block downloads (R6.4). It keeps the ones that pin a toolchain or
+   * switch off an install.
+   */
+  network?: boolean;
+  /**
    * Appended to `args` under `--changed`. `{base}` in any of them expands to the
    * base ref the run measures changes from (see `resolveChangedBase`).
    */

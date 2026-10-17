@@ -240,8 +240,8 @@ async function spawnTool(launch: Spawn, cwd: string, timeoutSec: number): Promis
 
 /**
  * What the launcher reads to resolve a check's tool: where it runs, the repo
- * root a pin search stops at, its package manager and pin chain, and whether
- * an unpinned tool fails.
+ * root a pin search stops at, its package manager and pin chain, whether an
+ * unpinned tool fails, and the variables its pack sets.
  */
 function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
   return {
@@ -250,6 +250,7 @@ function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
     ...(ctx.repo !== undefined ? { repo: ctx.repo } : {}),
     ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}),
     ...(ctx.requirePins !== undefined ? { requirePins: ctx.requirePins } : {}),
+    ...(ctx.packEnv !== undefined ? { packEnv: ctx.packEnv } : {}),
   };
 }
 

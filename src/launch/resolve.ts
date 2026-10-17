@@ -20,7 +20,9 @@
 import { relative } from 'node:path';
 
 import type { PinSourceName, Tool } from '../packs/index.js';
-import { PACKS, TOOLS } from '../packs/index.js';
+import { GO_TOOLCHAIN, PACKS, TOOLS } from '../packs/index.js';
+import type { GoModDeclaration } from './go-mod.js';
+import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
 import type { MiseDeclaration } from './mise.js';
 import { MISE_NO_INSTALL, miseCanRun, miseDeclaration } from './mise.js';
@@ -61,6 +63,10 @@ export type LaunchContext = {
   requirePins?: boolean;
   /** The environment whose `PATH` is searched. Omitted, this process's own. */
   env?: Readonly<Record<string, string | undefined>>;
+  /** The variables the check's pack sets over the user's own (R6.4), which every spawn it launches carries. */
+  packEnv?: Readonly<Record<string, string>>;
+  /** The tool rows a tool is looked up in: `TOOLS` unless a test swaps it. */
+  tools?: readonly Tool[];
 };
 
 /**
@@ -94,8 +100,8 @@ type ToolRequest = {
   env: Readonly<Record<string, string | undefined>>;
 };
 
-/** What declared a tool, for a refusal to name: the mise config and key, when it was mise. */
-type Declared = { mise?: MiseDeclaration };
+/** What declared a tool, for a refusal or detection to name: the mise config and key, or the `go.mod` and its version. */
+type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration };
 
 /**
  * A pin source the launcher can read: whether it declares a tool, and how it
@@ -137,25 +143,69 @@ const MISE: Source = {
   },
 };
 
+/**
+ * The `go-mod-tool` source: a tool the `go.mod` nearest the check declares in
+ * a `tool` directive, run as `go tool <bin>` through the Go toolchain, with the
+ * version `go.mod` requires for its module (R6.1, R6.3). A tool `TOOLS` gives
+ * no `goTool` path is never declared here.
+ */
+const GO_MOD_TOOL: Source = {
+  declares: (req) => {
+    const goMod = req.tool.goTool === undefined ? null : goModDeclaration(req.cwd, req.repo, req.tool.goTool);
+    return goMod === null ? null : { goMod };
+  },
+  run: (req, declared) => {
+    const launch = viaToolchain(req, GO_TOOLCHAIN, ['tool', req.tool.bin, ...req.args]);
+    if ('refusal' in launch) return launch;
+    const version = declared?.goMod?.version;
+    return { ...launch, pin: { source: 'go-mod-tool', ...(version !== undefined ? { version } : {}) } };
+  },
+};
+
 /** The sources the launcher reads, by name. `path` declares nothing, so it has no row; a name without one isn't readable yet. */
 const SOURCES: { readonly [K in PinSourceName]?: Source } = {
   'js-lockfile': JS_LOCKFILE,
+  'go-mod-tool': GO_MOD_TOOL,
   mise: MISE,
 };
+
+/**
+ * Launch `args` through a toolchain, such as `go`, which resolves its own
+ * executable (R6.2): through mise, as `mise exec -- <bin>`, when a `mise.toml`
+ * up to the repo root pins it and mise can run that copy, else from `PATH`. A
+ * toolchain from `PATH` isn't refused under `requirePins`, since the
+ * project's own files set the oldest version it accepts, and the pack's
+ * environment stops it fetching another. It records no pin; the caller names
+ * the source that declared the tool it runs.
+ */
+function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]): Spawn | { refusal: string } {
+  const asked = { ...req, tool: toolchain };
+  const declared = miseDeclaration(req.cwd, req.repo, toolchain.mise ?? [toolchain.bin]);
+  if (declared === null) {
+    if (findOnPath(toolchain.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, toolchain) };
+    return { command: toolchain.bin, args: [...args], env: MISE_NO_INSTALL };
+  }
+  const mise = findOnPath('mise', req.env);
+  if (mise === null) return { refusal: miseMissingRefusal(asked, declared) };
+  const can = miseCanRun(mise, toolchain.bin, req.cwd, req.env);
+  if (!can.ok) return { refusal: miseInactiveRefusal(asked, declared, can.detail) };
+  return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL };
+}
 
 /** True for a pin source the launcher can read, `path` included. */
 export function isReadableSource(name: PinSourceName): boolean {
   return name === 'path' || SOURCES[name] !== undefined;
 }
 
-/** The `TOOLS` row for `bin`, or a bare row for a tool it doesn't describe. */
-function toolRow(bin: string): Tool {
-  return TOOLS.find((t) => t.bin === bin) ?? { bin, install: `install ${bin}, or pin it in mise.toml` };
+/** The row for `bin` in `tools`, `TOOLS` by default, or a bare row for a tool it doesn't describe. */
+function toolRow(bin: string, tools: readonly Tool[] = TOOLS): Tool {
+  return tools.find((t) => t.bin === bin) ?? { bin, install: `install ${bin}, or pin it in mise.toml` };
 }
 
 /** Where a source declared a tool, as detection names it: the pin file and the key in it. */
 function declarationSignal(declared: Declared, tool: Tool): string {
   if (declared.mise !== undefined) return `${declared.mise.file}: ${declared.mise.id}`;
+  if (declared.goMod !== undefined) return `${declared.goMod.file}: ${tool.goTool ?? tool.bin}`;
   return `package.json: ${tool.npm ?? tool.bin}`;
 }
 
@@ -197,15 +247,32 @@ export function pinDeclaration(bin: string, at: PinQuery): string | null {
  * Launch the tool a check's `command` and `args` declare, for the check
  * filling `slot` from `ctx.cwd`. `args` arrive with their placeholders already
  * expanded. A fix launches the same way, so it runs the copy the check runs
- * and is refused where the check would be.
+ * and is refused where the check would be. Whatever it spawns carries the
+ * variables the check's pack sets (R6.4), a command spawned as written
+ * included.
  */
 export function launchCheck(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
+  return withPackEnv(resolveLaunch(slot, command, args, ctx), ctx.packEnv ?? {});
+}
+
+/**
+ * `launch` with the pack's variables under the ones its source sets, or as it
+ * was when it's a refusal or the pack sets none, so a check of no pack spawns
+ * exactly as before.
+ */
+function withPackEnv(launch: Launch, packEnv: Readonly<Record<string, string>>): Launch {
+  if ('refusal' in launch || Object.keys(packEnv).length === 0) return launch;
+  return { ...launch, env: { ...packEnv, ...launch.env } };
+}
+
+/** Resolve the process a check's invocation launches as, through its pin chain, before the pack's variables join it. */
+function resolveLaunch(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
   const tool = execTool(command, args);
   if (tool === null) return passThrough(command, args, ctx.pm);
   const chain = ctx.pins !== undefined && ctx.pins.length > 0 ? ctx.pins : IMPLICIT_CHAIN;
   const req: ToolRequest = {
     slot,
-    tool: toolRow(tool),
+    tool: toolRow(tool, ctx.tools),
     args: args.slice(2),
     cwd: ctx.cwd,
     repo: ctx.repo ?? ctx.cwd,
@@ -309,6 +376,16 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
     `The \`${req.slot}\` slot would run whatever copy of ${bin} this machine has,`,
     'and requirePins is on, so a tool no pin source declares fails its check',
     'instead of running.',
+    '',
+  ].join('\n');
+}
+
+/** The refusal for a tool a source declares that runs through a toolchain `PATH` doesn't have. */
+function toolchainMissingRefusal(req: ToolRequest, toolchain: Tool): string {
+  return [
+    `checkride: the \`${req.slot}\` slot runs \`${req.tool.bin}\` through \`${toolchain.bin}\`, which isn't on PATH.`,
+    '',
+    `  ${toolchain.install}`,
     '',
   ].join('\n');
 }
