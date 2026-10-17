@@ -12,15 +12,17 @@
  * declared, which is how `[js-lockfile]` keeps 0.13's behavior exactly.
  *
  * Any other `pnpm …` is a package-manager subcommand (`run`, `audit`, `pack`)
- * that the `js-lockfile` source translates for the detected manager. Anything
- * else, such as a custom check's own `node scripts/x.mjs`, spawns as written,
- * through no pin source.
+ * that the `js-lockfile` source translates for the detected manager. A
+ * toolchain's own executable, such as `go` or `gofmt`, resolves through the
+ * toolchain's pin in a chain that reads `mise`. Anything else, such as a
+ * custom check's own `node scripts/x.mjs`, spawns as written, through no pin
+ * source.
  */
 
 import { relative } from 'node:path';
 
 import type { PinSourceName, Tool } from '../packs/index.js';
-import { GO_TOOLCHAIN, PACKS, TOOLS } from '../packs/index.js';
+import { GO_TOOLCHAIN, PACKS, TOOLCHAINS, TOOLS } from '../packs/index.js';
 import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
@@ -175,21 +177,21 @@ const SOURCES: { readonly [K in PinSourceName]?: Source } = {
  * up to the repo root pins it and mise can run that copy, else from `PATH`. A
  * toolchain from `PATH` isn't refused under `requirePins`, since the
  * project's own files set the oldest version it accepts, and the pack's
- * environment stops it fetching another. It records no pin; the caller names
- * the source that declared the tool it runs.
+ * environment stops it fetching another. It records the pin it resolved
+ * through, which a caller running a tool another source declared replaces.
  */
-function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]): Spawn | { refusal: string } {
+function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]): Launch {
   const asked = { ...req, tool: toolchain };
   const declared = miseDeclaration(req.cwd, req.repo, toolchain.mise ?? [toolchain.bin]);
   if (declared === null) {
     if (findOnPath(toolchain.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, toolchain) };
-    return { command: toolchain.bin, args: [...args], env: MISE_NO_INSTALL };
+    return { command: toolchain.bin, args: [...args], env: MISE_NO_INSTALL, pin: { source: 'path' } };
   }
   const mise = findOnPath('mise', req.env);
   if (mise === null) return { refusal: miseMissingRefusal(asked, declared) };
   const can = miseCanRun(mise, toolchain.bin, req.cwd, req.env);
   if (!can.ok) return { refusal: miseInactiveRefusal(asked, declared, can.detail) };
-  return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL };
+  return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
 }
 
 /** True for a pin source the launcher can read, `path` included. */
@@ -267,13 +269,22 @@ function withPackEnv(launch: Launch, packEnv: Readonly<Record<string, string>>):
 
 /** Resolve the process a check's invocation launches as, through its pin chain, before the pack's variables join it. */
 function resolveLaunch(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
-  const tool = execTool(command, args);
-  if (tool === null) return passThrough(command, args, ctx.pm);
   const chain = ctx.pins !== undefined && ctx.pins.length > 0 ? ctx.pins : IMPLICIT_CHAIN;
-  const req: ToolRequest = {
+  const tool = execTool(command, args);
+  if (tool === null) {
+    const toolchain = TOOLCHAINS.find((t) => t.bin === command);
+    if (toolchain === undefined || !chain.includes('mise')) return passThrough(command, args, ctx.pm);
+    return viaToolchain(toolRequest(slot, toolchain, args, chain, ctx), toolchain, args);
+  }
+  return walkChain(toolRequest(slot, toolRow(tool, ctx.tools), args.slice(2), chain, ctx));
+}
+
+/** What a source reads to resolve `tool`, run with `args`, for the check filling `slot`. */
+function toolRequest(slot: string, tool: Tool, args: readonly string[], chain: readonly PinSourceName[], ctx: LaunchContext): ToolRequest {
+  return {
     slot,
-    tool: toolRow(tool, ctx.tools),
-    args: args.slice(2),
+    tool,
+    args,
     cwd: ctx.cwd,
     repo: ctx.repo ?? ctx.cwd,
     pm: ctx.pm,
@@ -281,7 +292,6 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
     requirePins: ctx.requirePins ?? false,
     env: ctx.env ?? process.env,
   };
-  return walkChain(req);
 }
 
 /**
@@ -380,10 +390,11 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
   ].join('\n');
 }
 
-/** The refusal for a tool a source declares that runs through a toolchain `PATH` doesn't have. */
+/** The refusal for a toolchain `PATH` doesn't have, run itself or to run a tool a source declares. */
 function toolchainMissingRefusal(req: ToolRequest, toolchain: Tool): string {
+  const running = req.tool.bin === toolchain.bin ? '' : ` to run \`${req.tool.bin}\``;
   return [
-    `checkride: the \`${req.slot}\` slot runs \`${req.tool.bin}\` through \`${toolchain.bin}\`, which isn't on PATH.`,
+    `checkride: the \`${req.slot}\` slot needs \`${toolchain.bin}\`${running}, which isn't on PATH.`,
     '',
     `  ${toolchain.install}`,
     '',

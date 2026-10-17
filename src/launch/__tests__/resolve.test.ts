@@ -510,7 +510,7 @@ describe('the go-mod-tool source (R6.1)', () => {
       await s.file('go.mod', GO_MOD_WITH_TOOL);
       await s.tool('deadcode');
       const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
-      expect(refusal).toContain('the `dead` slot runs `deadcode` through `go`, which isn\'t on PATH');
+      expect(refusal).toContain('the `dead` slot needs `go` to run `deadcode`, which isn\'t on PATH');
       expect(refusal).toContain('install Go 1.24 or later');
     }));
 
@@ -538,9 +538,9 @@ describe("a pack's variables join every spawn its checks launch (R6.4)", () => {
 
   test('a command spawned as written carries them, as a target\'s custom check does', () =>
     withScratch(async (s) => {
-      expect(launchCheck('types', 'go', ['build', '-json', './...'], s.at('.', { pins: GO_CHAIN, packEnv: GO_VARS }))).toEqual({
-        command: 'go',
-        args: ['build', '-json', './...'],
+      expect(launchCheck('types', 'make', ['check'], s.at('.', { pins: GO_CHAIN, packEnv: GO_VARS }))).toEqual({
+        command: 'make',
+        args: ['check'],
         env: GO_VARS,
       });
     }));
@@ -553,5 +553,41 @@ describe("a pack's variables join every spawn its checks launch (R6.4)", () => {
   test('a refusal stays a refusal', () =>
     withScratch(async (s) => {
       expect(refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH, packEnv: GO_VARS })))).not.toBeNull();
+    }));
+});
+
+describe("a toolchain's own executables resolve through its pin (R6.2)", () => {
+  test('go runs from PATH, recorded as unpinned, when nothing pins it', () =>
+    withScratch(async (s) => {
+      await s.tool('go');
+      expect(launchCheck('types', 'go', ['build', '-json', './...'], s.at('.', { pins: GO_CHAIN }))).toEqual({
+        command: 'go',
+        args: ['build', '-json', './...'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('gofmt runs through mise when a mise.toml pins go', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\ngo = "1.27.2"\n');
+      await s.tool('mise');
+      expect(launchCheck('format', 'gofmt', ['-l', '.'], s.at('.', { pins: GO_CHAIN }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'gofmt', '-l', '.'],
+        pin: { source: 'mise' },
+      });
+    }));
+
+  test('a missing toolchain fails naming how to install it', () =>
+    withScratch(async (s) => {
+      const refusal = refusalOf(launchCheck('types', 'go', ['build', './...'], s.at('.', { pins: GO_CHAIN }))) ?? '';
+      expect(refusal).toContain("the `types` slot needs `go`, which isn't on PATH");
+      expect(refusal).toContain('install Go 1.24 or later');
+    }));
+
+  test('a chain that reads no mise spawns the command as written, as every check in implicit mode does', () =>
+    withScratch(async (s) => {
+      expect(launchCheck('custom', 'go', ['vet', './...'], s.at('.'))).toEqual({ command: 'go', args: ['vet', './...'] });
     }));
 });

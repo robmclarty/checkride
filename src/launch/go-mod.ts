@@ -7,16 +7,20 @@
  *
  * Only what the source needs is read: `tool` and `require` directives, in
  * their one-line and block forms, with `//` comments dropped. Go owns the rest
- * of the file's meaning, `replace` included.
+ * of the file's meaning, `replace` included. A `go.work`'s `use` directives,
+ * read the same way, say which packages `{go-packages}` names.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, posix, relative } from 'node:path';
 
 import { dirsUpTo } from './walk.js';
 
 /** The file a Go module declares itself in. */
 const GO_MOD = 'go.mod';
+
+/** The file a Go workspace lists its modules in. */
+const GO_WORK = 'go.work';
 
 /** One directive: its verb (`tool`, `require`) and its arguments, a block's lines each under the block's verb. */
 type Directive = { verb: string; args: string[] };
@@ -110,4 +114,37 @@ export function goModDeclaration(cwd: string, repo: string, goTool: string): GoM
   if (path === null || text === null || !goModTools(text).includes(goTool)) return null;
   const version = goModRequiredVersion(text, goTool);
   return { file: relative(repo, path) || GO_MOD, ...(version !== undefined ? { version } : {}) };
+}
+
+/** The argument a Go adapter takes its packages through: one argument per pattern. */
+const GO_PACKAGES_PLACEHOLDER = '{go-packages}';
+
+/** True for an argument list that takes Go package patterns. */
+export function takesGoPackages(args: readonly string[] | undefined): boolean {
+  return args?.includes(GO_PACKAGES_PLACEHOLDER) ?? false;
+}
+
+/** `args` with each `{go-packages}` argument replaced by `patterns`, one argument each. */
+export function expandGoPackages(args: readonly string[], patterns: readonly string[]): string[] {
+  return args.flatMap((arg) => (arg === GO_PACKAGES_PLACEHOLDER ? [...patterns] : [arg]));
+}
+
+/** The pattern that names every package under a `use` directory, relative to the `go.work` that names it. */
+function usePattern(dir: string): string {
+  const rel = posix.normalize(dir).replace(/\/$/, '');
+  if (rel === '.') return './...';
+  return rel.startsWith('../') || posix.isAbsolute(rel) ? `${rel}/...` : `./${rel}/...`;
+}
+
+/**
+ * The package patterns `{go-packages}` expands to for a check run from `root`
+ * (R5.5): `./<dir>/...` for each `use` directive of a `go.work` there, in its
+ * order, one-line and block forms alike, since a workspace root's own `./...`
+ * matches none of its modules; `./...` for a module root, or a `go.work` with
+ * no `use` it can read.
+ */
+export function goPackagePatterns(root: string): string[] {
+  const work = readText(join(root, GO_WORK));
+  const uses = work === null ? [] : directives(work).filter((d) => d.verb === 'use').flatMap((d) => d.args.slice(0, 1));
+  return uses.length === 0 ? ['./...'] : uses.map(usePattern);
 }

@@ -8,14 +8,27 @@ import type { Tool } from './types.js';
 /**
  * The Go toolchain, which runs a tool a `go.mod` `tool` directive declares as
  * `go tool <bin>`. A `mise.toml` may pin it; otherwise it comes from `PATH`,
- * and the `go` line in `go.mod` sets the oldest version it accepts. It joins
- * `TOOLS` with the first adapter that runs it.
+ * and the `go` line in `go.mod` sets the oldest version it accepts.
  */
 export const GO_TOOLCHAIN: Tool = {
   bin: 'go',
   mise: ['go', 'core:go'],
   install: 'install Go 1.24 or later (https://go.dev/dl), or pin it with `mise use go@<version>`',
 };
+
+/**
+ * The executables a toolchain ships, which an adapter runs directly rather
+ * than as a tool: each resolves through the toolchain's own pin, the `go` a
+ * `mise.toml` declares running both `go` and `gofmt`.
+ */
+export const TOOLCHAINS: readonly Tool[] = [
+  GO_TOOLCHAIN,
+  {
+    bin: 'gofmt',
+    mise: ['go', 'core:go'],
+    install: 'gofmt ships with Go: install Go 1.24 or later (https://go.dev/dl), or pin it with `mise use go@<version>`',
+  },
+];
 
 /** One row per tool, by executable name. */
 export const TOOLS: readonly Tool[] = [
@@ -28,8 +41,25 @@ export const TOOLS: readonly Tool[] = [
   { bin: 'attw', npm: '@arethetypeswrong/cli', install: 'add @arethetypeswrong/cli to devDependencies' },
   { bin: 'biome', npm: '@biomejs/biome', install: 'add @biomejs/biome to devDependencies' },
   { bin: 'cspell', npm: 'cspell', install: 'add cspell to devDependencies' },
+  {
+    bin: 'deadcode',
+    goTool: 'golang.org/x/tools/cmd/deadcode',
+    mise: ['go:golang.org/x/tools/cmd/deadcode'],
+    install: 'declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`',
+  },
   { bin: 'eslint', npm: 'eslint', install: 'add eslint to devDependencies' },
   { bin: 'fallow', npm: 'fallow', install: 'add fallow to devDependencies' },
+  {
+    bin: 'golangci-lint',
+    mise: ['golangci-lint', 'aqua:golangci/golangci-lint'],
+    install: 'pin it with `mise use golangci-lint@<version>`, or install golangci-lint v2 (https://golangci-lint.run)',
+  },
+  {
+    bin: 'govulncheck',
+    goTool: 'golang.org/x/vuln/cmd/govulncheck',
+    mise: ['go:golang.org/x/vuln/cmd/govulncheck'],
+    install: 'declare it in go.mod with `go get -tool golang.org/x/vuln/cmd/govulncheck`',
+  },
   { bin: 'jest', npm: 'jest', install: 'add jest to devDependencies' },
   { bin: 'knip', npm: 'knip', install: 'add knip to devDependencies' },
   { bin: 'markdownlint-cli2', npm: 'markdownlint-cli2', install: 'add markdownlint-cli2 to devDependencies' },
@@ -50,6 +80,12 @@ export const TOOLS: readonly Tool[] = [
     bin: 'shfmt',
     mise: ['shfmt', 'aqua:mvdan/sh'],
     install: 'pin it with `mise use shfmt@<version>`, or install shfmt (https://github.com/mvdan/sh)',
+  },
+  {
+    bin: 'staticcheck',
+    goTool: 'honnef.co/go/tools/cmd/staticcheck',
+    mise: ['staticcheck', 'aqua:dominikh/go-tools/staticcheck', 'go:honnef.co/go/tools/cmd/staticcheck'],
+    install: 'declare it in go.mod with `go get -tool honnef.co/go/tools/cmd/staticcheck`, or pin it with `mise use staticcheck@<version>`',
   },
   { bin: 'stryker', npm: '@stryker-mutator/core', install: 'add @stryker-mutator/core to devDependencies' },
   { bin: 'tsc', npm: 'typescript', install: 'add typescript to devDependencies' },

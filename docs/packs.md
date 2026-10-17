@@ -4,10 +4,10 @@ A pack is one language's adapters, together with where its tools are pinned
 and the environment its checks run with. Four packs ship so far: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts, and
-`go`, whose targets run their own custom checks under Go's spawn environment
-until its adapters arrive. This page covers how a check's tool resolves to the
-copy that runs, what the summary records about that copy, the bash pack and
-the file lists its checks run over, and the spawn environment each pack sets.
+`go`, which checks Go modules and workspaces. This page covers how a check's
+tool resolves to the copy that runs, what the summary records about that copy,
+the bash pack and the file lists its checks run over, the go pack, and the
+spawn environment each pack sets.
 Packs for Rust, Python and Terraform arrive in later releases, and the rows
 below that belong to them say so.
 
@@ -62,15 +62,19 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 The summary's `pin_source` names four more sources, `override`,
 `rust-toolchain`, `uv-lock` and `tf-version`. They arrive with the packs and
 the `--pins` flag that use them, and no run writes them yet. `go-mod-tool`
-declares a tool only when `TOOLS` gives its Go package, and those rows arrive
-with the go pack's adapters, so no run writes it yet either.
+declares a tool only when `TOOLS` gives its Go package, which it does for
+staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
+never as a `go tool`.
 
-A tool `go-mod-tool` declares runs through the Go toolchain, which resolves
-its own executable: `mise exec -- go` when a `mise.toml` up to the repo root
-pins `go`, and the `go` on `PATH` otherwise. A pinned `go` that mise can't run
-fails the check, as any mise pin does, and a `go` from `PATH` runs even under
+A toolchain resolves its own executables, `go` and `gofmt` for Go, in a pack
+whose chain reads `mise`: `mise exec -- go` when a `mise.toml` up to the repo
+root pins `go`, recorded as `pin_source: "mise"`, and the `go` on `PATH`
+otherwise, recorded as `path`. A tool `go-mod-tool` declares runs through the
+same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
+the check, as any mise pin does, and a `go` from `PATH` runs even under
 `requirePins`, since `go.mod`'s `go` line sets the oldest version it accepts
-and `GOTOOLCHAIN=local` stops Go fetching a newer one.
+and `GOTOOLCHAIN=local` stops Go fetching a newer one. In a repo without
+targets, a custom check's `go` spawns as written, as it always has.
 Every search stops at the repo root: a `mise.toml` or a `node_modules` above
 the checkout isn't the repo's pin.
 
@@ -157,6 +161,61 @@ matches nothing records its checks as skipped with `no files matched`, rather
 than failed. A list that would take a check's argv past 200,000 bytes stops
 the run with exit 2 before anything runs; narrow `include`, or add `exclude`
 globs.
+
+## The go pack
+
+A go target checks a Go module, or a workspace, from the directory that holds
+its `go.mod` or `go.work`:
+
+```json
+{
+  "targets": {
+    "api": { "lang": "go", "root": "services/api" }
+  }
+}
+```
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `types` | `go-build` | `go build -o /dev/null -json {go-packages}` | `go.mod`, `go.work` | `types.jsonl` |
+| `format` (opt-in) | `gofmt` | `gofmt -l .`, which fails on any file it lists, and `gofmt -w .` under `checkride fix` | `go.mod`, `go.work` | `format.stdout.txt` |
+| `lint` | `golangci-lint` | `golangci-lint run --output.json.path=stdout --show-stats=false --allow-serial-runners {go-packages}`, and `run --fix` under `checkride fix` | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json` | `lint.json` |
+| `lint` | `staticcheck` | `staticcheck -f json {go-packages}` | a pin | `lint.jsonl` |
+| `dead` | `deadcode` | `deadcode -test {go-packages}`, which fails on any function it lists | a pin | `dead.stdout.txt` |
+| `test` | `go-test` | `go test -json {go-packages}` | `go.mod`, `go.work` | `test.jsonl` |
+| `security` (opt-in) | `govulncheck` | `govulncheck {go-packages}`, with the network | a pin | `security.stdout.txt` |
+
+`{go-packages}` stands for `./...` at a module root, and for `./<dir>/...` for
+each `use` directive at a `go.work` root, in `go.work`'s order, since a
+workspace root's own `./...` matches none of its modules. golangci-lint takes
+the same patterns, because it misses a workspace's modules without them.
+
+A pin is the repo's word that a Go tool should run: a `tool` directive in the
+target's `go.mod`, such as one `go get -tool honnef.co/go/tools/cmd/staticcheck`
+writes, or a `mise.toml` key. The summary records it as `detected_by`, such as
+`api/go.mod: honnef.co/go/tools/cmd/staticcheck`, and a `tool` directive's tool
+records the version `go.mod` requires as `tool_version`. Where golangci-lint's
+config and a staticcheck pin both sit, golangci-lint fills `lint`. Two
+golangci-lint runs never overlap, in one target or across several, and the one
+that waits isn't started, so its timeout doesn't count the wait.
+
+Each row was checked against Go 1.27.2 and golangci-lint 2.14.0, the versions
+this repo's `mise.toml` pins, and against staticcheck 0.8.2, deadcode from
+x/tools 0.52.0 and govulncheck 1.9.0. A few flags differ from what a reader
+might expect:
+
+- `go build -o /dev/null` discards the binary a module with one main package
+  would otherwise write into the checkout.
+- `--show-stats=false` keeps golangci-lint's per-linter tally off stdout,
+  where it would follow the JSON and leave `lint.json` unwritten.
+- `gofmt -l` and `deadcode` list what they find and exit 0, so each fails its
+  check on any output, with `exit_code: 0` and a `reason`.
+- `govulncheck` prints text, because with `-format json` it exits 0 even when
+  the code calls a vulnerable function. Text exits 3. Its JSON is a stream of
+  objects, not one value or JSON lines, so it would land in
+  `security.stdout.txt` either way.
+- deadcode reads reachability from `main` packages and tests, so a library
+  with neither fails with `deadcode: no main packages`.
 
 ## The entry command
 

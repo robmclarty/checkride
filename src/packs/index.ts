@@ -7,5 +7,5 @@
  */
 
 export { PACKS } from './packs.js';
-export { GO_TOOLCHAIN, TOOLS } from './tools.js';
+export { GO_TOOLCHAIN, TOOLCHAINS, TOOLS } from './tools.js';
 export type { Pack, PinSourceName, Tool } from './types.js';

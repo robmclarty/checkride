@@ -12,6 +12,7 @@ import type { Baseline } from '../../baseline/index.js';
 import { resolveChecks } from '../../config.js';
 import type { ResolvedCheck } from '../../config.js';
 import { detectPackageManager } from '../../launch/index.js';
+import { PACKS } from '../../packs/index.js';
 import type { Target } from '../../targets/index.js';
 import { resolveRunContext } from '../context.js';
 import { executeChecks } from '../execute.js';
@@ -634,11 +635,7 @@ describe('runChecks (lock keys)', () => {
       json: true, stdout: sink().out, stderr: sink().out, ...extra,
     });
 
-  /**
-   * Hand `selected` straight to the scheduler, as a multi-target run does. No
-   * pack fills a slot with a locked adapter yet, so resolution can't make
-   * these checks.
-   */
+  /** Hand `selected` straight to the scheduler, as a multi-target run does. */
   const executeTargets = (targets: Target[], selected: ResolvedCheck[], runner: CheckRunner): Promise<unknown> => {
     const ctx = resolveRunContext({
       cwd: dir, config: null, runner, pm: 'pnpm', baseline: null, concurrency: 4, json: true,
@@ -680,7 +677,8 @@ describe('runChecks (lock keys)', () => {
   });
 
   test('two go targets each running golangci-lint never overlap (F5)', async () => {
-    const golangci = fakeAdapter({ name: 'golangci-lint', slot: 'lint', lock: 'golangci-lint' });
+    const golangci = PACKS.go.adapters.find((a) => a.name === 'golangci-lint');
+    if (golangci === undefined) throw new Error('the go pack has no golangci-lint row');
     const api = { name: 'api', pack: 'go', root: 'services/api' };
     const worker = { name: 'worker', pack: 'go', root: 'services/worker' };
     const rec = intervalRunner({ 'api:lint': 50, 'worker:lint': 50 });

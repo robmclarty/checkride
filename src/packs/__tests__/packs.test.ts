@@ -65,3 +65,80 @@ describe('TOOLS', () => {
     }
   });
 });
+
+/** The go pack's row named `name`. */
+const goRow = (name: string): Adapter | undefined => PACKS.go.adapters.find((a) => a.name === name);
+
+/** The Go package `TOOLS` gives `bin`, for a `go.mod` `tool` directive to declare. */
+const goToolOf = (bin: string): string | undefined => TOOLS.find((t) => t.bin === bin)?.goTool;
+
+describe('the go pack (R5.5)', () => {
+
+  test('is marked by go.mod or go.work, pins through go.mod tools, then mise, then PATH, and switches downloads off', () => {
+    expect(PACKS.go.markers).toEqual(['go.mod', 'go.work']);
+    expect(PACKS.go.pins).toEqual(['go-mod-tool', 'mise', 'path']);
+    // GOFLAGS stays the user's own (D54).
+    expect(PACKS.go.env).toEqual({ GOTOOLCHAIN: 'local', GOPROXY: 'off' });
+  });
+
+  test('fills each slot R5.5 names, golangci-lint first in lint', () => {
+    expect(PACKS.go.adapters.map((a) => [a.slot, a.name])).toEqual([
+      ['types', 'go-build'],
+      ['format', 'gofmt'],
+      ['lint', 'golangci-lint'],
+      ['lint', 'staticcheck'],
+      ['dead', 'deadcode'],
+      ['test', 'go-test'],
+      ['security', 'govulncheck'],
+    ]);
+    const scopeOf = new Map(SLOTS.map((s) => [s.name, s.scope]));
+    for (const a of PACKS.go.adapters) expect(scopeOf.get(a.slot), a.name).toBe('target');
+  });
+
+  test('captures each tool in the form it prints', () => {
+    expect(PACKS.go.adapters.map((a) => [a.name, a.outputFile])).toEqual([
+      ['go-build', 'types.jsonl'],
+      ['gofmt', null],
+      ['golangci-lint', 'lint.json'],
+      ['staticcheck', 'lint.jsonl'],
+      ['deadcode', null],
+      ['go-test', 'test.jsonl'],
+      ['govulncheck', null],
+    ]);
+  });
+
+  test('fails gofmt -l and deadcode on what they print, since both exit 0', () => {
+    expect(PACKS.go.adapters.filter((a) => a.failOnOutput === true).map((a) => a.name)).toEqual(['gofmt', 'deadcode']);
+  });
+
+  test('never runs two golangci-lints at once, across every target', () => {
+    expect(PACKS.go.adapters.filter((a) => a.lock !== undefined).map((a) => [a.name, a.lock])).toEqual([['golangci-lint', 'golangci-lint']]);
+  });
+
+  test('runs govulncheck alone with the network, and every other check offline', () => {
+    expect(PACKS.go.adapters.filter((a) => a.network === true).map((a) => a.name)).toEqual(['govulncheck']);
+  });
+
+  test('names packages through {go-packages} everywhere but gofmt, which walks its root', () => {
+    for (const a of PACKS.go.adapters) {
+      expect(a.args.includes('{go-packages}'), a.name).toBe(a.name !== 'gofmt');
+    }
+    expect(goRow('golangci-lint')?.fixArgs).toContain('{go-packages}');
+  });
+
+  test('detects the toolchain adapters by go.mod or go.work, golangci-lint by its config, and the go tools by a pin', () => {
+    for (const name of ['go-build', 'gofmt', 'go-test']) expect(goRow(name)?.detect, name).toEqual(['go.mod', 'go.work']);
+    expect(goRow('golangci-lint')?.detect).toEqual(['.golangci.yml', '.golangci.yaml', '.golangci.toml', '.golangci.json']);
+    for (const name of ['staticcheck', 'deadcode', 'govulncheck']) {
+      expect(goRow(name)?.detect, name).toEqual([]);
+      expect(goRow(name)?.detectPin, name).toBe(name);
+    }
+  });
+
+  test('gives each tool a go.mod tool directive can declare its package, and golangci-lint none, since it pins as a binary', () => {
+    expect(goToolOf('staticcheck')).toBe('honnef.co/go/tools/cmd/staticcheck');
+    expect(goToolOf('deadcode')).toBe('golang.org/x/tools/cmd/deadcode');
+    expect(goToolOf('govulncheck')).toBe('golang.org/x/vuln/cmd/govulncheck');
+    expect(goToolOf('golangci-lint')).toBeUndefined();
+  });
+});

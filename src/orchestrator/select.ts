@@ -2,13 +2,17 @@
  * Which resolved checks a run touches: the only/skip/include selection by
  * token (R5.2's grammar, in `../targets/`), the usage-error guard that
  * rejects a selection naming nothing a check answers to, the `--changed`
- * skip of targets nothing changed under, and the file lists a file-list
- * target's checks run over. Shared by `runChecks` and `runFix`.
+ * skip of targets nothing changed under, the file lists a file-list
+ * target's checks run over, and the Go packages a Go check names. Shared by
+ * `runChecks` and `runFix`.
  */
+
+import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
+import { expandGoPackages, goPackagePatterns, takesGoPackages } from '../launch/index.js';
 import type { Target } from '../targets/index.js';
 import {
   argvBytes,
@@ -134,6 +138,25 @@ export async function withFileLists(
       return { ...r, adapter: withFiles(checkName(r), r.adapter, files, target) };
     }),
   );
+}
+
+/**
+ * Hand each check that takes `{go-packages}` the package patterns its root
+ * holds (R5.5): `./...` for a module root, and `./<dir>/...` for each `use`
+ * directive of a `go.work` root, in its args and fix args alike, so the
+ * summary's `argv` names each pattern. The root is the check's target root, or
+ * the repo root for a check of none. A check resolution or `--changed` already
+ * skipped reads nothing.
+ */
+export function withGoPackages(selected: readonly ResolvedCheck[], repo: string): ResolvedCheck[] {
+  return selected.map((r) => {
+    const adapter = r.adapter;
+    if (r.skip !== null || adapter === null) return r;
+    if (!takesGoPackages(adapter.args) && !takesGoPackages(adapter.fixArgs)) return r;
+    const patterns = goPackagePatterns(join(repo, r.root ?? '.'));
+    const fixArgs = adapter.fixArgs === undefined ? {} : { fixArgs: expandGoPackages(adapter.fixArgs, patterns) };
+    return { ...r, adapter: { ...adapter, args: expandGoPackages(adapter.args, patterns), ...fixArgs } };
+  });
 }
 
 /**

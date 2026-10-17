@@ -16,7 +16,7 @@ import { checkName, configuredTargets } from '../targets/index.js';
 import { packageManagerAt, resolveCommonOptions } from './context.js';
 import { checkCwd } from './place.js';
 import { nameWidth, writeLine } from './report.js';
-import { selectChecks, validateSelection, withFileLists } from './select.js';
+import { selectChecks, validateSelection, withFileLists, withGoPackages } from './select.js';
 import type { Out, RunFlags } from './types.js';
 
 /**
@@ -99,7 +99,7 @@ export async function runFix(options: FixOptions): Promise<FixResult> {
 
   const resolved = resolveChecks({ slots, adapters, config, cwd });
   validateSelection(resolved, options);
-  const selected = await withFileLists(selectChecks(resolved, options), cwd, configuredTargets(config));
+  const selected = withGoPackages(await withFileLists(selectChecks(resolved, options), cwd, configuredTargets(config)), cwd);
   const fixable = selected.filter((r) => r.adapter?.fixArgs);
 
   if (fixable.length === 0) {

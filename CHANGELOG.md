@@ -264,8 +264,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `go mod download` first. `GOFLAGS` is left alone, so a vendored module
   still builds with an empty module cache. A Go tool that `go.mod` declares
   in a `tool` directive runs as `go tool <bin>`, through the `go` a
-  `mise.toml` pins or else the one on `PATH`. The go pack's own adapters
-  arrive in a later release; see `docs/packs.md`.
+  `mise.toml` pins or else the one on `PATH`. See `docs/packs.md`.
+- **The go pack checks Go code.** A go target runs `go build` (`types`),
+  `gofmt -l` (`format`, opt-in), golangci-lint or staticcheck (`lint`),
+  deadcode (`dead`), `go test` (`test`) and govulncheck (`security`,
+  opt-in), each from the target's root. A workspace root names each module
+  its `go.work` uses, so `go build` and golangci-lint read them all. `go` and
+  `gofmt` run through the `go` a `mise.toml` pins, and a staticcheck,
+  deadcode or govulncheck that `go.mod` declares as a tool runs as
+  `go tool <bin>`, recording the version `go.mod` requires. Two golangci-lint
+  runs never overlap. `go build` writes no binary into the checkout, and
+  govulncheck prints text, since its JSON output exits 0 even when your code
+  calls a vulnerable function. Each tool's flags were checked against the
+  versions this repo pins; `docs/packs.md` has the table.
 
 ### Changed
 
@@ -575,8 +586,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tool` directive names), and `Adapter` an optional `network`, which drops
   the variables that block downloads from its check's environment. The
   `CheckRunner` context gains an optional `packEnv`, the variables the
-  check's pack sets, which every check of that pack spawns with. `TOOLS` and
-  `ADAPTERS` are unchanged, so no run writes `pin_source: "go-mod-tool"` yet.
+  check's pack sets, which every check of that pack spawns with.
+- Additive: `PACKS.go` gains its adapter rows (`go-build`, `gofmt`,
+  `golangci-lint`, `staticcheck`, `deadcode`, `go-test` and `govulncheck`),
+  and `TOOLS` gains `golangci-lint`, `staticcheck`, `deadcode` and
+  `govulncheck`, the last three with their `goTool` package. `ADAPTERS` is
+  unchanged. An argument that is exactly `{go-packages}` expands to a Go
+  check's package patterns. A run now writes `pin_source: "go-mod-tool"`,
+  with `tool_version` from `go.mod`, and a `go` or `gofmt` a go target's check
+  spawns records `mise` or `path`, in the JSON Schema's descriptions and the
+  contract doc.
 
 ### Internal
 
