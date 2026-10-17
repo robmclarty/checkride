@@ -274,6 +274,7 @@ function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, writte
     output_file: written.file === null ? null : `${written.place.prefix}${written.file}`,
     ...provenanceFields(r),
     ...spawnedFields(run.outcome),
+    ...(r.narrowed !== undefined ? { narrowed: r.narrowed } : {}),
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
   };
 }

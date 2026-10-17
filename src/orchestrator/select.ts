@@ -12,10 +12,11 @@ import { join } from 'node:path';
 import type { Adapter } from '../adapters.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
-import { expandGoPackages, goPackagePatterns, takesGoPackages } from '../launch/index.js';
+import { expandGoPackages, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from '../launch/index.js';
 import type { Target } from '../targets/index.js';
 import {
   argvBytes,
+  changedGoModules,
   changedUnder,
   checkName,
   expandFiles,
@@ -24,6 +25,8 @@ import {
   namedBy,
   NO_FILES_REASON,
   noChangesReason,
+  noGoModuleChangedReason,
+  pathsUnder,
   selectedBy,
   takesFiles,
   targetFiles,
@@ -140,22 +143,62 @@ export async function withFileLists(
   );
 }
 
+/** What a Go check runs over: its package patterns, with what it narrowed to under `--changed`, or the reason it sits out. */
+type GoPackages = { patterns: string[]; narrowed?: { units: string[]; total: number } } | { skip: string };
+
+/**
+ * The modules a narrowing check runs under `--changed` at the workspace root
+ * `dir` (R10.4): those the run's `changed` paths touch and every module that
+ * depends on one of them, or `null` to run them all, because the root holds no
+ * workspace, a file of it can't be read, or a path changed the module graph.
+ */
+function narrowedPackages(dir: string, root: string, changed: readonly string[]): GoPackages | null {
+  const workspace = readGoWorkspace(dir);
+  if (workspace === null || workspace === 'unreadable' || workspace.modules.length === 0) return null;
+  const touched = changedGoModules(workspace.modules.map((m) => m.dir), pathsUnder(changed, root));
+  if (touched === null) return null;
+  const units = withDependents(workspace, touched).map((i) => usePattern(workspace.modules[i]?.dir ?? '.'));
+  if (units.length === 0) return { skip: noGoModuleChangedReason(root) };
+  return { patterns: units, narrowed: { units, total: workspace.modules.length } };
+}
+
+/**
+ * The patterns `{go-packages}` expands to for a check whose root is `root`
+ * (R5.5): every package it holds, unless the check narrows under `--changed`
+ * and R10.4 narrows it. `changed` is the run's changed paths, relative to the
+ * repo root, or `null` off `--changed` or when git couldn't list them.
+ */
+function goPackagesFor(adapter: Adapter, repo: string, root: string, changed: readonly string[] | null): GoPackages {
+  const dir = join(repo, root);
+  const narrowed = changed !== null && adapter.narrowsUnderChanged === true ? narrowedPackages(dir, root, changed) : null;
+  return narrowed ?? { patterns: goPackagePatterns(dir) };
+}
+
+/** `r` once its Go packages are known: skipped with their reason, or its adapter's `{go-packages}` expanded, with what it narrowed to. */
+function withPackages(r: ResolvedCheck, adapter: Adapter, packages: GoPackages): ResolvedCheck {
+  if ('skip' in packages) return { ...r, skip: packages.skip };
+  const fixArgs = adapter.fixArgs === undefined ? {} : { fixArgs: expandGoPackages(adapter.fixArgs, packages.patterns) };
+  const expanded = { ...adapter, args: expandGoPackages(adapter.args, packages.patterns), ...fixArgs };
+  return { ...r, adapter: expanded, ...(packages.narrowed !== undefined ? { narrowed: packages.narrowed } : {}) };
+}
+
 /**
  * Hand each check that takes `{go-packages}` the package patterns its root
  * holds (R5.5): `./...` for a module root, and `./<dir>/...` for each `use`
  * directive of a `go.work` root, in its args and fix args alike, so the
  * summary's `argv` names each pattern. The root is the check's target root, or
- * the repo root for a check of none. A check resolution or `--changed` already
- * skipped reads nothing.
+ * the repo root for a check of none. Under `--changed`, a check whose adapter
+ * narrows runs only the workspace modules a change touched and those that
+ * depend on them, records what it narrowed to, and sits out with
+ * `no Go module changed under <root>` when the change touched none (R10.4). A
+ * check resolution or `--changed` already skipped reads nothing.
  */
-export function withGoPackages(selected: readonly ResolvedCheck[], repo: string): ResolvedCheck[] {
+export function withGoPackages(selected: readonly ResolvedCheck[], repo: string, changed: readonly string[] | null = null): ResolvedCheck[] {
   return selected.map((r) => {
     const adapter = r.adapter;
     if (r.skip !== null || adapter === null) return r;
     if (!takesGoPackages(adapter.args) && !takesGoPackages(adapter.fixArgs)) return r;
-    const patterns = goPackagePatterns(join(repo, r.root ?? '.'));
-    const fixArgs = adapter.fixArgs === undefined ? {} : { fixArgs: expandGoPackages(adapter.fixArgs, patterns) };
-    return { ...r, adapter: { ...adapter, args: expandGoPackages(adapter.args, patterns), ...fixArgs } };
+    return withPackages(r, adapter, goPackagesFor(adapter, repo, r.root ?? '.', changed));
   });
 }
 

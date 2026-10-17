@@ -9,7 +9,7 @@
 
 export { addTarget } from './add.js';
 export type { TargetChange } from './add.js';
-export { changedUnder, noChangesReason } from './changed.js';
+export { changedGoModules, changedUnder, noChangesReason, noGoModuleChangedReason, pathsUnder } from './changed.js';
 export { discoverTargets, isImplicit } from './discover.js';
 export type { ProposedTarget } from './discover.js';
 export { argvBytes, expandFiles, isFileListPack, MAX_FILES_ARGV_BYTES, NO_FILES_REASON, takesFiles, targetFiles } from './files.js';

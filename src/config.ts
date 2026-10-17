@@ -332,6 +332,12 @@ export type ResolvedCheck = {
    * unless a token names it (D53).
    */
   inactive?: true;
+  /**
+   * Under `--changed`, the Go package patterns a check narrowed to (R10.4):
+   * `units`, the patterns it runs over, and `total`, the workspace's module
+   * count. Absent on a check that didn't narrow.
+   */
+  narrowed?: { units: string[]; total: number };
 };
 
 const CONFIG_FILE = 'checkride.config.json';

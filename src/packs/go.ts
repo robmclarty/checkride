@@ -3,7 +3,10 @@
  * holds a `go.mod` or `go.work` (R5.5). Every adapter that names packages
  * takes them through `{go-packages}`, which a run expands to `./...` for a
  * module root and to `./<dir>/...` for each `use` directive at a `go.work`
- * root, since a workspace root's `./...` matches none of its modules.
+ * root, since a workspace root's `./...` matches none of its modules. Under
+ * `--changed`, `go build` and `go test` narrow a workspace to the modules a
+ * change touched and their dependents (R10.4); the whole-program analyses
+ * never narrow.
  *
  * `go` and `gofmt` are the toolchain's own, run through the `go` a `mise.toml`
  * pins, else the one on `PATH`. A Go tool resolves through the `go.mod` `tool`
@@ -44,6 +47,7 @@ export const GO_PACK: Pack = {
       // package would otherwise write into the checkout.
       args: ['build', '-o', '/dev/null', '-json', '{go-packages}'],
       outputFile: 'types.jsonl',
+      narrowsUnderChanged: true,
       devDeps: {},
     },
     {
@@ -110,6 +114,7 @@ export const GO_PACK: Pack = {
       command: 'go',
       args: ['test', '-json', '{go-packages}'],
       outputFile: 'test.jsonl',
+      narrowsUnderChanged: true,
       devDeps: {},
     },
     {

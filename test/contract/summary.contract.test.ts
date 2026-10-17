@@ -224,6 +224,33 @@ describe('summary.json shape', () => {
   });
 
   /**
+   * Contract: a Go check narrowed under `--changed` records `narrowed` as
+   * `{ units, total }`, and the summary still validates (R10.4).
+   */
+  test('a narrowed Go check records the patterns it ran and the workspace module count', async () => {
+    git(dir, 'init', '-q', '-b', 'main');
+    await mkdir(join(dir, 'ws', 'a'), { recursive: true });
+    await mkdir(join(dir, 'ws', 'b'), { recursive: true });
+    await writeFile(join(dir, 'ws', 'go.work'), 'go 1.24\n\nuse (\n\t./a\n\t./b\n)\n');
+    await writeFile(join(dir, 'ws', 'a', 'go.mod'), 'module example.com/a\n\ngo 1.24\n');
+    await writeFile(join(dir, 'ws', 'b', 'go.mod'), 'module example.com/b\n\ngo 1.24\n');
+    await writeFile(join(dir, '.gitignore'), '.check/\n');
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'base');
+    await writeFile(join(dir, 'ws', 'b', 'b.go'), 'package b\n');
+    await runChecks({
+      cwd: dir, config: { targets: { ws: { lang: 'go', root: 'ws', checks: { test: 'go-test' } } } }, changed: true,
+      base: { ref: 'main', from: '--base' }, only: ['ws:test'], json: true, stdout: sink(), stderr: sink(),
+      runner: () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }),
+    });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: { name: string }[] };
+    const valid = validate(summary);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
+    expect(summary.checks.find((c) => c.name === 'ws:test')).toMatchObject({ narrowed: { units: ['./b/...'], total: 2 } });
+  });
+
+  /**
    * Contract: an adapter that declares `failOnOutput` fails on stdout behind
    * a clean exit, keeping `exit_code: 0` and recording `reason` (R8.3).
    */

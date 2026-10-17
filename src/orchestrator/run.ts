@@ -170,7 +170,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file list too long for one argv is a usage error too, so the lists are
   // read before the output directory is touched.
   const listed = await withFileLists(skipUnchanged(selectChecks(resolved, options), changed), base.cwd, base.targets);
-  const selected = withGoPackages(listed, base.cwd);
+  const selected = withGoPackages(listed, base.cwd, changed);
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;

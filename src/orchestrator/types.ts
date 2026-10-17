@@ -58,6 +58,11 @@ export type SummaryCheck = {
   pack?: string;
   /** The directory the check ran from, relative to the repo root, when it isn't the root. Additive field; `schema_version` holds. */
   cwd?: string;
+  /**
+   * Under `--changed`, the Go package patterns the check narrowed to and the
+   * workspace's module count (R10.4). Additive field; `schema_version` holds.
+   */
+  narrowed?: { units: string[]; total: number };
   adapter: string | null;
   description: string;
   ok: boolean;

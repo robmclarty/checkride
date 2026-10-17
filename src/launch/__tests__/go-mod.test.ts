@@ -1,10 +1,10 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { expandGoPackages, goModRequiredVersion, goModTools, goPackagePatterns, takesGoPackages } from '../go-mod.js';
+import { expandGoPackages, goModRequiredVersion, goModTools, goPackagePatterns, readGoWorkspace, takesGoPackages, withDependents } from '../go-mod.js';
 
 /** A go.mod as `go get -tool` leaves it, with both directive forms and comments. */
 const GO_MOD = [
@@ -101,5 +101,49 @@ describe('expandGoPackages', () => {
     expect(takesGoPackages(['-l', '.'])).toBe(false);
     expect(takesGoPackages(undefined)).toBe(false);
     expect(expandGoPackages(['test', '-json', '{go-packages}'], ['./a/...', './b/...'])).toEqual(['test', '-json', './a/...', './b/...']);
+  });
+});
+
+describe('readGoWorkspace', () => {
+  const WORK = {
+    'go.work': 'go 1.24\n\nuse (\n\t./a\n\t./b\n)\n\nreplace example.com/x => ./b\n',
+  };
+
+  test('reads each used module, its requires and its local replaces, in use order', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'checkride-go-ws-'));
+    try {
+      await mkdir(join(root, 'a'));
+      await mkdir(join(root, 'b'));
+      await writeFile(join(root, 'go.work'), WORK['go.work']);
+      await writeFile(join(root, 'a', 'go.mod'), 'module example.com/a\n\nrequire (\n\texample.com/x v1.0.0\n)\n\nreplace example.com/y v1.0.0 => ../b\n');
+      await writeFile(join(root, 'b', 'go.mod'), 'module example.com/b\n');
+      const ws = readGoWorkspace(root);
+      expect(ws).toEqual({
+        modules: [
+          { dir: 'a', path: 'example.com/a', requires: ['example.com/x'], replacedBy: ['b'] },
+          { dir: 'b', path: 'example.com/b', requires: [], replacedBy: [] },
+        ],
+        replaces: new Map([['example.com/x', 'b']]),
+      });
+      if (ws === null || ws === 'unreadable') throw new Error('no workspace');
+      expect(withDependents(ws, new Set([1]))).toEqual([0, 1]);
+      expect(withDependents(ws, new Set([0]))).toEqual([0]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('is null at a module root, and unreadable when a used module has no go.mod or a block never closes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'checkride-go-ws-'));
+    try {
+      await writeFile(join(root, 'go.mod'), 'module m\n');
+      expect(readGoWorkspace(root)).toBeNull();
+      await writeFile(join(root, 'go.work'), 'go 1.24\n\nuse ./missing\n');
+      expect(readGoWorkspace(root)).toBe('unreadable');
+      await writeFile(join(root, 'go.work'), 'go 1.24\n\nuse (\n\t.\n');
+      expect(readGoWorkspace(root)).toBe('unreadable');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

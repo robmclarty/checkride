@@ -156,6 +156,7 @@ required ones, so a field can't reach the schema without a row here.
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
 | `pin_source` | `js-lockfile`, `go-mod-tool`, `mise` or `path`; also `override`, `rust-toolchain`, `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
+| `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
 
 **Every check says why it's in the run.** `origin` is `config` when
@@ -462,6 +463,20 @@ Repo-scope and top-level checks run as before, and an affected target's checks
 get their `changedArgs`. When git can't list the paths, as outside a git
 repository, no target is skipped and stderr says so. A repo without `targets`
 narrows through `changedArgs` alone, as it always did.
+
+**A Go workspace narrows to the modules a change touched.** At a go target
+whose root holds a `go.work`, `go build` and `go test` run only the modules
+that hold a changed path, the deepest `use` directory winning, and every
+module that depends on one of them, transitively, where a module depends on
+another by requiring its module path or replacing a module with its
+directory, in its `go.mod` or the `go.work`. Their argv names
+`./<dir>/...` for each, in `go.work` order, and the entry records
+`narrowed: { units, total }`. A change to `go.work`, `go.work.sum` or any
+`go.mod`, or a workspace file checkride can't read, runs every module and
+records no `narrowed`; a change under none of the modules skips both checks
+with the reason `no Go module changed under <root>`. deadcode and govulncheck
+read the whole program, so they never narrow, and a single module has
+nothing to narrow.
 
 **With `targets`, `unclaimed` reports the code no target checks.** It's a
 repo-scope slot that runs in every multi-target run. A marker is a file that

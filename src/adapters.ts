@@ -146,6 +146,12 @@ export type Adapter = {
    */
   network?: boolean;
   /**
+   * Under `--changed`, `{go-packages}` narrows to the workspace modules a
+   * change touched and those that depend on them (R10.4). Omitted, the check
+   * names every package, as a whole-program analysis must.
+   */
+  narrowsUnderChanged?: boolean;
+  /**
    * Appended to `args` under `--changed`. `{base}` in any of them expands to the
    * base ref the run measures changes from (see `resolveChangedBase`).
    */

@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { changedUnder, noChangesReason } from '../changed.js';
+import { changedGoModules, changedUnder, noChangesReason, pathsUnder } from '../changed.js';
 
 describe('changedUnder', () => {
   test('a path below the root affects it, at any depth', () => {
@@ -36,5 +36,30 @@ describe('noChangesReason', () => {
   test('names the root, as the summary records it', () => {
     expect(noChangesReason('apps/api')).toBe('no changes under apps/api');
     expect(noChangesReason('.')).toBe('no changes under .');
+  });
+});
+
+describe('changedGoModules (R10.4)', () => {
+  const DIRS = ['.', 'svc', 'svc/inner', 'lib'];
+
+  test('a path belongs to the deepest use directory it lies under', () => {
+    expect(changedGoModules(DIRS, ['svc/inner/x.go'])).toEqual(new Set([2]));
+    expect(changedGoModules(DIRS, ['svc/main.go', 'lib/l.go'])).toEqual(new Set([1, 3]));
+    expect(changedGoModules(DIRS, ['root.go'])).toEqual(new Set([0]));
+  });
+
+  test('a path under no module is ignored', () => {
+    expect(changedGoModules(['a', 'b'], ['README.md', 'docs/x.md'])).toEqual(new Set());
+  });
+
+  test('a change to go.work, go.work.sum or any go.mod moves the graph, so every module runs', () => {
+    for (const path of ['go.work', 'go.work.sum', 'lib/go.mod', 'tools/go.mod']) expect(changedGoModules(DIRS, [path]), path).toBeNull();
+  });
+});
+
+describe('pathsUnder', () => {
+  test('keeps the paths under a root, made relative to it, and every path under the repo root', () => {
+    expect(pathsUnder(['ws/a/a.go', 'ws2/x', 'web/b.ts'], 'ws')).toEqual(['a/a.go']);
+    expect(pathsUnder(['a.go', 'x/y'], '.')).toEqual(['a.go', 'x/y']);
   });
 });

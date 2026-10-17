@@ -277,6 +277,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   govulncheck prints text, since its JSON output exits 0 even when your code
   calls a vulnerable function. Each tool's flags were checked against the
   versions this repo pins; `docs/packs.md` has the table.
+- **`--changed` narrows a Go workspace to the modules a change touched.** At
+  a go target whose root holds a `go.work`, `go build` and `go test` run only
+  the modules a changed path lies in and every module that depends on them,
+  read offline from `go.work` and each `go.mod`, and the summary records what
+  they ran as `narrowed`. A change to `go.work`, `go.work.sum` or a `go.mod`
+  runs every module, and a change under none of them skips both checks with
+  `no Go module changed under <root>`. deadcode and govulncheck always read
+  the whole program.
 
 ### Changed
 
@@ -596,6 +604,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with `tool_version` from `go.mod`, and a `go` or `gofmt` a go target's check
   spawns records `mise` or `path`, in the JSON Schema's descriptions and the
   contract doc.
+- Additive: per-check summary field `narrowed` (`{ units, total }`: the
+  package patterns a Go check ran and the workspace's module count), present
+  when `--changed` narrowed it, in the JSON Schema, the contract doc's field
+  table and `summary.contract.test.ts`. The exported `SummaryCheck` and
+  `ResolvedCheck` types gain an optional `narrowed`, and `Adapter` an
+  optional `narrowsUnderChanged`. A skipped Go check under `--changed` may
+  carry the new reason `no Go module changed under <root>`.
 
 ### Internal
 

@@ -190,6 +190,21 @@ each `use` directive at a `go.work` root, in `go.work`'s order, since a
 workspace root's own `./...` matches none of its modules. golangci-lint takes
 the same patterns, because it misses a workspace's modules without them.
 
+Under `--changed`, `go build` and `go test` at a workspace root narrow to the
+modules a change touched, each changed path counting toward the deepest `use`
+directory it lies under, plus every module that depends on one of them,
+transitively. A module depends on another when its `go.mod` requires the
+other's module path or replaces a module with the other's directory, or when
+it requires a module the `go.work` replaces that way; edges to modules outside
+the workspace don't count, and nothing is fetched to read them. The summary
+records `narrowed: { units, total }`. A change to `go.work`, `go.work.sum` or
+any `go.mod`, or a workspace file checkride can't read, runs every module, and
+a change under none of the modules skips the two checks with
+`no Go module changed under <root>`. golangci-lint, staticcheck, deadcode and
+govulncheck always run every module, and a single module has nothing to
+narrow. `go test` caches results per package, so a sandbox that keeps
+`GOCACHE` between runs recovers much of what narrowing saves.
+
 A pin is the repo's word that a Go tool should run: a `tool` directive in the
 target's `go.mod`, such as one `go get -tool honnef.co/go/tools/cmd/staticcheck`
 writes, or a `mise.toml` key. The summary records it as `detected_by`, such as
