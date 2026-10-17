@@ -17,12 +17,24 @@ export const GO_TOOLCHAIN: Tool = {
 };
 
 /**
+ * cargo, the Rust toolchain's driver, which runs a rustup component a
+ * `rust-toolchain.toml` pins, such as `cargo clippy`. rustup's `cargo` reads
+ * that file and runs the toolchain it names.
+ */
+export const CARGO_TOOLCHAIN: Tool = {
+  bin: 'cargo',
+  mise: ['rust', 'core:rust'],
+  install: 'install Rust with rustup (https://rustup.rs), or pin it with `mise use rust@<version>`',
+};
+
+/**
  * The executables a toolchain ships, which an adapter runs directly rather
  * than as a tool: each resolves through the toolchain's own pin, the `go` a
  * `mise.toml` declares running both `go` and `gofmt`.
  */
 export const TOOLCHAINS: readonly Tool[] = [
   GO_TOOLCHAIN,
+  CARGO_TOOLCHAIN,
   {
     bin: 'gofmt',
     mise: ['go', 'core:go'],

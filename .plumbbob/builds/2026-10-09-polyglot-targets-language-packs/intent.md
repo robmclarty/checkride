@@ -726,7 +726,7 @@ reference rules and porting trap apply as written there.
 42. [x] feat(packs): add the go pack, **done when:** a `go` target runs `go-build`, `gofmt` (opt-in), `golangci-lint` or `staticcheck`, `deadcode`, `go-test` and `govulncheck` (opt-in) per R5.5, with `{go-packages}` expanding per `go.work`; golangci-lint runs never overlap; the Go plants in S4 fail as expected
     - seam: `src/packs/go.ts`, `src/packs/tools.ts`, `src/launch/`
     - model: opus (each tool's real flags and JSON must be verified at the pinned versions)
-43. [ ] feat(changed): narrow Go packages to affected workspace modules, **done when:** under `--changed`, `go-build` and `go-test` expand `{go-packages}` per R10.4 (changed modules plus transitive dependents, read offline); `deadcode` and `govulncheck` never narrow; a `go.work` or `go.mod` change, or an unreadable graph, expands fully; the check records `narrowed`; a six-module fixture covers a leaf change, a shared-module change and every fallback (F33, F34)
+43. [x] feat(changed): narrow Go packages to affected workspace modules, **done when:** under `--changed`, `go-build` and `go-test` expand `{go-packages}` per R10.4 (changed modules plus transitive dependents, read offline); `deadcode` and `govulncheck` never narrow; a `go.work` or `go.mod` change, or an unreadable graph, expands fully; the check records `narrowed`; a six-module fixture covers a leaf change, a shared-module change and every fallback (F33, F34)
     - seam: `src/launch/go-mod.ts`, `src/targets/changed.ts`, `src/packs/go.ts`,
       `schema/checkride.summary.schema.json`, `docs/packs.md`
     - model: opus (transitive dependents and the fallbacks are where it goes wrong)

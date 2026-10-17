@@ -1,15 +1,16 @@
 # Packs and pins
 
 A pack is one language's adapters, together with where its tools are pinned
-and the environment its checks run with. Four packs ship so far: `ts`, which
+and the environment its checks run with. Five packs ship so far: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
-`docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts, and
-`go`, which checks Go modules and workspaces. This page covers how a check's
-tool resolves to the copy that runs, what the summary records about that copy,
-the bash pack and the file lists its checks run over, the go pack, and the
-spawn environment each pack sets.
-Packs for Rust, Python and Terraform arrive in later releases, and the rows
-below that belong to them say so.
+`docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
+`go`, which checks Go modules and workspaces, and `rust`, whose targets run
+their own custom checks under Rust's spawn environment until its adapters
+arrive. This page covers how a check's tool resolves to the copy that runs,
+what the summary records about that copy, the bash pack and the file lists its
+checks run over, the go pack, and the spawn environment each pack sets.
+Packs for Python and Terraform arrive in later releases, and the rows below
+that belong to them say so.
 
 ## Pin chains
 
@@ -22,6 +23,7 @@ order.
 | `repo` | `js-lockfile`, then `mise`, then `path` |
 | `bash` | `mise`, then `path` |
 | `go` | `go-mod-tool`, then `mise`, then `path` |
+| `rust` | `rust-toolchain`, then `mise`, then `path` |
 
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
@@ -56,18 +58,21 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 | --- | --- | --- | --- |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
+| `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component (rustfmt and clippy) | `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
-The summary's `pin_source` names four more sources, `override`,
-`rust-toolchain`, `uv-lock` and `tf-version`. They arrive with the packs and
-the `--pins` flag that use them, and no run writes them yet. `go-mod-tool`
+The summary's `pin_source` names three more sources, `override`, `uv-lock`
+and `tf-version`. They arrive with the packs and the `--pins` flag that use
+them, and no run writes them yet. `rust-toolchain` declares only a tool that
+`TOOLS` names as a rustup component, and those rows arrive with the rust
+pack's adapters, so no run writes it yet either. `go-mod-tool`
 declares a tool only when `TOOLS` gives its Go package, which it does for
 staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
 never as a `go tool`.
 
-A toolchain resolves its own executables, `go` and `gofmt` for Go, in a pack
-whose chain reads `mise`: `mise exec -- go` when a `mise.toml` up to the repo
+A toolchain resolves its own executables, `go` and `gofmt` for Go and `cargo`
+for Rust, in a pack whose chain reads `mise`: `mise exec -- go` when a `mise.toml` up to the repo
 root pins `go`, recorded as `pin_source: "mise"`, and the `go` on `PATH`
 otherwise, recorded as `path`. A tool `go-mod-tool` declares runs through the
 same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
@@ -272,8 +277,9 @@ and each row's `target` and `pinSource`.
 
 A pack's variables apply to every check of that pack that spawns, the
 target's custom checks included, and override the user's own values for those
-variables only. The go rows apply today, and so do the mise variables, which
-checkride sets on every check whose tool resolves through `mise` or `path`,
+variables only. The go and rust rows apply today, and so do the mise
+variables, which checkride sets on every check whose tool resolves through
+`mise` or `path`,
 since a tool on `PATH` may be one of mise's shims. The other rows apply once
 their pack ships. No row touches `GOFLAGS`: Go 1.24 already refuses to rewrite
 `go.mod` during a build, and an explicit `-mod=readonly` would make Go ignore
@@ -282,10 +288,18 @@ marked `network: true` gets none of the variables that block the network
 (`GOPROXY`, `CARGO_NET_OFFLINE`, `PIP_NO_INDEX` and `UV_OFFLINE`), and keeps
 the ones that pin a toolchain or switch off an install.
 
-A tool stopped by one of these variables names the variable, not the way out.
-When a Go check fails on `module lookup disabled by GOPROXY=off`, its status
-line is followed by one that says to run `go mod download` first. The raw
-output keeps the tool's own words.
+A tool stopped by one of these variables names the variable, not the way out,
+so a red check's status line is followed by the command to run first: `go mod
+download` for Go's `module lookup disabled by GOPROXY=off`, `cargo fetch` for
+an offline cargo's missing crate, and `rustup toolchain install <toolchain>`
+for rustup's `toolchain '<toolchain>' is not installed`. The raw output keeps
+the tool's own words.
+
+Where a `rust-toolchain.toml` or `rust-toolchain` pins the toolchain, every
+spawn of a rust check also clears `RUSTUP_TOOLCHAIN`, which rustup 1.29.1 reads
+as unset when it's empty. mise exports that variable for its own Rust, and it
+would otherwise override the toolchain the repo's file names, so the verdict
+would depend on the shell that ran it.
 
 Each variable below was checked on 2026-10-16 against the version of its tool
 that this repo's `mise.toml` pins, or against upstream source for a tool it

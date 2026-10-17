@@ -285,6 +285,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runs every module, and a change under none of them skips both checks with
   `no Go module changed under <root>`. deadcode and govulncheck always read
   the whole program.
+- **Rust targets, offline, on the toolchain the repo pins.** A target can
+  declare `"lang": "rust"`, with a root that holds a `Cargo.toml`. Every check
+  of a rust target, the target's own custom checks included, runs with
+  `CARGO_NET_OFFLINE=true`, `RUSTUP_AUTO_INSTALL=0` and
+  `CARGO_TERM_COLOR=never`, and where a `rust-toolchain.toml` or
+  `rust-toolchain` pins the toolchain, with `RUSTUP_TOOLCHAIN` cleared, so a
+  version a shell exported, as mise does for its own Rust, can't override the
+  repo's. A channel that isn't installed fails the check, installs nothing,
+  and the line under the red check names the `rustup toolchain install` to
+  run; a crate missing from cargo's cache names `cargo fetch`. rustfmt and
+  clippy resolve through the toolchain file, then a `mise.toml` pin, then
+  `PATH`, and run as `cargo fmt` and `cargo clippy`. The rust pack's own
+  adapters arrive in a later release; see `docs/packs.md`.
 
 ### Changed
 
@@ -611,6 +624,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ResolvedCheck` types gain an optional `narrowed`, and `Adapter` an
   optional `narrowsUnderChanged`. A skipped Go check under `--changed` may
   carry the new reason `no Go module changed under <root>`.
+- Additive: `PACKS` gains `rust` (marker `Cargo.toml`, the pin chain
+  `rust-toolchain`, `mise`, `path`, the environment `CARGO_NET_OFFLINE`,
+  `RUSTUP_AUTO_INSTALL` and `CARGO_TERM_COLOR`, and no adapter rows yet), the
+  exported `Pack` type's `name` takes `rust`, and the config schema's pack
+  names take `rust`. The exported `Tool` type gains optional `run` (the argv
+  a tool runs as, such as `cargo clippy`) and `component` (the rustup
+  component that provides it). `TOOLS` and `ADAPTERS` are unchanged, so no
+  run writes `pin_source: "rust-toolchain"` yet.
 
 ### Internal
 

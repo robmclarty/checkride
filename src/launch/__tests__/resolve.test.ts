@@ -591,3 +591,113 @@ describe("a toolchain's own executables resolve through its pin (R6.2)", () => {
       expect(launchCheck('custom', 'go', ['vet', './...'], s.at('.'))).toEqual({ command: 'go', args: ['vet', './...'] });
     }));
 });
+
+/** The rust pack's chain (R6.1). */
+const RUST_CHAIN = ['rust-toolchain', 'mise', 'path'] as const;
+
+/** clippy as the rust pack's tool row describes it, swapped in for `TOOLS`. */
+const CLIPPY: Tool = { bin: 'cargo-clippy', run: ['cargo', 'clippy'], component: 'clippy', mise: ['rust'], install: 'rustup component add clippy' };
+
+/** A plugin that isn't a toolchain component. */
+const MACHETE: Tool = { bin: 'cargo-machete', run: ['cargo', 'machete'], install: 'cargo install cargo-machete' };
+
+const RUN_CLIPPY = ['exec', 'cargo-clippy', '--workspace', '--', '-D', 'warnings'];
+
+describe('the rust-toolchain source (R6.1)', () => {
+  test('a toolchain file declares clippy, which runs as cargo clippy, recording an exact channel', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo');
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toEqual({
+        command: 'cargo',
+        args: ['clippy', '--workspace', '--', '-D', 'warnings'],
+        // An outer shell's RUSTUP_TOOLCHAIN can't override the file's.
+        env: { RUSTUP_TOOLCHAIN: '', MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'rust-toolchain', version: '1.85.0' },
+      });
+    }));
+
+  test('a legacy rust-toolchain file above the check declares it too, and a channel name records no version', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain', 'stable\n');
+      await s.tool('cargo');
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('crates/core', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toMatchObject({
+        command: 'cargo',
+        pin: { source: 'rust-toolchain' },
+      });
+      const launch = launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('crates/core', { pins: RUST_CHAIN, tools: [CLIPPY] }));
+      expect('pin' in launch ? launch.pin : undefined).not.toHaveProperty('version');
+    }));
+
+  test('without a toolchain file, a mise pin runs the component through mise', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nrust = "1.99.0"\n');
+      await s.tool('mise');
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'cargo', 'clippy', '--workspace', '--', '-D', 'warnings'],
+        pin: { source: 'mise' },
+      });
+    }));
+
+  test('with neither, the component runs from PATH, found by its own executable', () =>
+    withScratch(async (s) => {
+      await s.tool('cargo-clippy');
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toMatchObject({
+        command: 'cargo',
+        args: ['clippy', '--workspace', '--', '-D', 'warnings'],
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('a declared component fails naming how to install Rust when cargo is not on PATH', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))) ?? '';
+      expect(refusal).toContain("the `lint` slot needs `cargo` to run `cargo-clippy`, which isn't on PATH");
+      expect(refusal).toContain('install Rust with rustup');
+    }));
+
+  test('a toolchain file never declares a tool that is not a toolchain component', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo-machete');
+      expect(launchCheck('dead', 'pnpm', ['exec', 'cargo-machete'], s.at('.', { pins: RUST_CHAIN, tools: [MACHETE] }))).toEqual({
+        command: 'cargo',
+        args: ['machete'],
+        env: { RUSTUP_TOOLCHAIN: '', MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('cargo itself resolves as a toolchain: through mise when a mise.toml pins rust, else from PATH', () =>
+    withScratch(async (s) => {
+      await s.tool('cargo');
+      expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({ command: 'cargo', pin: { source: 'path' } });
+      await s.file('mise.toml', '[tools]\nrust = "1.99.0"\n');
+      await s.tool('mise');
+      expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'cargo', 'check'],
+        pin: { source: 'mise' },
+      });
+    }));
+});
+
+describe('a toolchain file picks the toolchain over one the shell exported', () => {
+  test('clears RUSTUP_TOOLCHAIN on every spawn of a chain that reads rust-toolchain, where a file pins it', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo');
+      expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({ env: { RUSTUP_TOOLCHAIN: '' } });
+      expect(launchCheck('custom', 'make', ['check'], s.at('.', { pins: RUST_CHAIN }))).toEqual({ command: 'make', args: ['check'], env: { RUSTUP_TOOLCHAIN: '' } });
+    }));
+
+  test("leaves it alone with no file, and in a chain that doesn't read rust-toolchain", () =>
+    withScratch(async (s) => {
+      await s.tool('cargo');
+      expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).not.toHaveProperty('env.RUSTUP_TOOLCHAIN');
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      expect(launchCheck('custom', 'make', ['check'], s.at('.', { pins: GO_CHAIN }))).toEqual({ command: 'make', args: ['check'] });
+    }));
+});

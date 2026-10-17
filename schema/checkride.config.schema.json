@@ -93,8 +93,8 @@
   },
   "definitions": {
     "packName": {
-      "description": "A language pack: ts checks TypeScript code from its root, bash checks a list of shell scripts under its root, and go checks a Go module or workspace from its root.",
-      "enum": ["ts", "bash", "go"]
+      "description": "A language pack: ts checks TypeScript code from its root, bash checks a list of shell scripts under its root, go checks a Go module or workspace from its root, and rust checks a Cargo package or workspace from its root.",
+      "enum": ["ts", "bash", "go", "rust"]
     },
     "targetName": {
       "type": "string",

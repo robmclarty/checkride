@@ -33,14 +33,25 @@ export function packEnv(pack: string | undefined, network = false): Readonly<Rec
 
 /**
  * What a tool prints when a variable that blocks downloads stopped it, and the
- * line a red check prints beneath its status to say what to run first. The
- * tool's own message names the variable, not the way out.
+ * line a red check prints beneath its status to say what to run first, from
+ * what the message matched. The tool's own message names the variable or the
+ * missing piece, not the command that fetches it.
  */
-const OFFLINE_HINTS: readonly { printed: string; hint: string }[] = [
+const OFFLINE_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) => string }[] = [
   {
     // Go 1.27.2, a module missing from the module cache under GOPROXY=off.
-    printed: 'module lookup disabled by GOPROXY=off',
-    hint: 'a Go module is missing from the module cache, and checks never download one: run `go mod download` first',
+    printed: /module lookup disabled by GOPROXY=off/,
+    hint: () => 'a Go module is missing from the module cache, and checks never download one: run `go mod download` first',
+  },
+  {
+    // rustup 1.29.1, under RUSTUP_AUTO_INSTALL=0, names the toolchain with its host.
+    printed: /toolchain '([^']+)' is not installed/,
+    hint: ([, toolchain = '']) => `the toolchain the repo pins isn't installed, and checks never install one: run \`rustup toolchain install ${toolchain}\` first`,
+  },
+  {
+    // cargo 1.99.0, a crate missing from cargo's cache under CARGO_NET_OFFLINE.
+    printed: /offline mode \(via `--offline`\)/,
+    hint: () => "a crate is missing from cargo's cache, and checks never fetch one: run `cargo fetch` first",
   },
 ];
 
@@ -50,5 +61,9 @@ const OFFLINE_HINTS: readonly { printed: string; hint: string }[] = [
  * raw output is left as the tool wrote it; this only reads it.
  */
 export function offlineHint(outcome: { stdout: string; stderr: string }): string | null {
-  return OFFLINE_HINTS.find((h) => outcome.stdout.includes(h.printed) || outcome.stderr.includes(h.printed))?.hint ?? null;
+  for (const { printed, hint } of OFFLINE_HINTS) {
+    const match = printed.exec(outcome.stderr) ?? printed.exec(outcome.stdout);
+    if (match !== null) return hint(match);
+  }
+  return null;
 }

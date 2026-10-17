@@ -884,7 +884,7 @@ public and semver-bound:
 `InitResult`, `Shape`).
 
 The four registry exports are plain data, and each survives a JSON round trip
-unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`) to its adapter
+unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`) to its adapter
 rows, root markers, pin sources and environment. `ADAPTERS` is the `ts` and
 `repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
 each external tool every pack runs, with the npm package that provides it or

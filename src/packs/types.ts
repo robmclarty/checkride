@@ -28,7 +28,7 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo' | 'bash' | 'go';
+  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust';
   /**
    * Files whose presence marks a directory as holding this pack's code. The
    * repo pack has none, since its slots check the repo as a whole, and neither
@@ -62,6 +62,16 @@ export type Tool = {
    * as `golang.org/x/tools/cmd/deadcode`, which runs as `go tool <bin>`.
    */
   goTool?: string;
+  /**
+   * The argv the tool runs as when it isn't its own executable, its arguments
+   * after: `cargo clippy` for `cargo-clippy`. Omitted, the executable itself.
+   */
+  run?: readonly string[];
+  /**
+   * The rustup component that provides the tool, such as `clippy`, which a
+   * `rust-toolchain.toml` pins along with the toolchain it names.
+   */
+  component?: string;
   /**
    * The `[tools]` keys that declare it in a `mise.toml`, such as `shellcheck`
    * or `aqua:koalaman/shellcheck`. Omitted, the executable's own name.

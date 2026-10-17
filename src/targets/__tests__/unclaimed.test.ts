@@ -70,9 +70,9 @@ describe('findUnclaimed', () => {
       ['svc/go.mod', 'go'],
       ['svc/go.work', 'go'],
     ]);
-    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'infra', 'py'] });
-    expect(red.stderr).toContain('unclaimed: crates/a/Cargo.toml marks rust code that no rust target checks.');
-    expect(red.stderr).toContain('no rust pack ships yet, so list it in unclaimed.ignore until one does');
+    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'infra', 'crates'] });
+    expect(red.stderr).toContain('unclaimed: py/pyproject.toml marks python code that no python target checks.');
+    expect(red.stderr).toContain('no python pack ships yet, so list it in unclaimed.ignore until one does');
   });
 
   test('suggests a target for the markers of a pack that ships', async () => {

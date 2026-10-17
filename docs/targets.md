@@ -43,6 +43,7 @@ nothing changed under.
 | `ts` | a root and everything under it | the project's package manager, as before |
 | `bash` | a list of shell files under its root | shellcheck (`lint`) and shfmt (`format`, opt-in), through `mise` then `PATH` |
 | `go` | a Go module or workspace from its root | go build, gofmt (opt-in), golangci-lint or staticcheck, deadcode, go test and govulncheck (opt-in), with Go's downloads switched off |
+| `rust` | a Cargo package or workspace from its root | the target's own custom checks, offline, with the toolchain its `rust-toolchain.toml` names; the Rust adapters arrive in a later release |
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`

@@ -22,7 +22,7 @@
 import { relative } from 'node:path';
 
 import type { PinSourceName, Tool } from '../packs/index.js';
-import { GO_TOOLCHAIN, PACKS, TOOLCHAINS, TOOLS } from '../packs/index.js';
+import { CARGO_TOOLCHAIN, GO_TOOLCHAIN, PACKS, TOOLCHAINS, TOOLS } from '../packs/index.js';
 import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
@@ -30,6 +30,8 @@ import type { MiseDeclaration } from './mise.js';
 import { MISE_NO_INSTALL, miseCanRun, miseDeclaration } from './mise.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
+import type { RustToolchainDeclaration } from './rust-toolchain.js';
+import { isExactChannel, rustToolchainDeclaration, toolchainFileEnv } from './rust-toolchain.js';
 import { translateExec } from './translate.js';
 
 /**
@@ -102,8 +104,16 @@ type ToolRequest = {
   env: Readonly<Record<string, string | undefined>>;
 };
 
-/** What declared a tool, for a refusal or detection to name: the mise config and key, or the `go.mod` and its version. */
-type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration };
+/**
+ * What declared a tool, for a refusal or detection to name: the mise config
+ * and key, the `go.mod` and its version, or the toolchain file and its channel.
+ */
+type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration; toolchain?: RustToolchainDeclaration };
+
+/** The argv a tool runs as, its arguments after: its `run` form, such as `cargo clippy`, else its own executable. */
+function argvOf(tool: Tool, args: readonly string[]): string[] {
+  return [...(tool.run ?? [tool.bin]), ...args];
+}
 
 /**
  * A pin source the launcher can read: whether it declares a tool, and how it
@@ -141,7 +151,7 @@ const MISE: Source = {
     if (mise === null) return { refusal: miseMissingRefusal(req, declared?.mise ?? null) };
     const can = miseCanRun(mise, req.tool.bin, req.cwd, req.env);
     if (!can.ok) return { refusal: miseInactiveRefusal(req, declared?.mise ?? null, can.detail) };
-    return { command: 'mise', args: ['exec', '--', req.tool.bin, ...req.args], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
+    return { command: 'mise', args: ['exec', '--', ...argvOf(req.tool, req.args)], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
   },
 };
 
@@ -164,10 +174,33 @@ const GO_MOD_TOOL: Source = {
   },
 };
 
+/**
+ * The `rust-toolchain` source: a rustup component, such as clippy, that a
+ * `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to
+ * the repo root pins with the toolchain it names, run through rustup's `cargo`
+ * from `PATH`, which reads that file (R6.1). It records the file's channel
+ * when it names one exact release (R6.3). A tool that isn't a component is
+ * never declared here.
+ */
+const RUST_TOOLCHAIN: Source = {
+  declares: (req) => {
+    const toolchain = req.tool.component === undefined ? null : rustToolchainDeclaration(req.cwd, req.repo);
+    return toolchain === null ? null : { toolchain };
+  },
+  run: (req, declared) => {
+    if (findOnPath(CARGO_TOOLCHAIN.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, CARGO_TOOLCHAIN) };
+    const [command = CARGO_TOOLCHAIN.bin, ...args] = argvOf(req.tool, req.args);
+    const channel = declared?.toolchain?.channel;
+    const version = channel !== undefined && isExactChannel(channel) ? { version: channel } : {};
+    return { command, args, env: MISE_NO_INSTALL, pin: { source: 'rust-toolchain', ...version } };
+  },
+};
+
 /** The sources the launcher reads, by name. `path` declares nothing, so it has no row; a name without one isn't readable yet. */
 const SOURCES: { readonly [K in PinSourceName]?: Source } = {
   'js-lockfile': JS_LOCKFILE,
   'go-mod-tool': GO_MOD_TOOL,
+  'rust-toolchain': RUST_TOOLCHAIN,
   mise: MISE,
 };
 
@@ -208,6 +241,7 @@ function toolRow(bin: string, tools: readonly Tool[] = TOOLS): Tool {
 function declarationSignal(declared: Declared, tool: Tool): string {
   if (declared.mise !== undefined) return `${declared.mise.file}: ${declared.mise.id}`;
   if (declared.goMod !== undefined) return `${declared.goMod.file}: ${tool.goTool ?? tool.bin}`;
+  if (declared.toolchain !== undefined) return `${declared.toolchain.file}: ${tool.component ?? tool.bin}`;
   return `package.json: ${tool.npm ?? tool.bin}`;
 }
 
@@ -251,10 +285,12 @@ export function pinDeclaration(bin: string, at: PinQuery): string | null {
  * expanded. A fix launches the same way, so it runs the copy the check runs
  * and is refused where the check would be. Whatever it spawns carries the
  * variables the check's pack sets (R6.4), a command spawned as written
- * included.
+ * included, and, in a chain that reads `rust-toolchain`, the ones that let a
+ * toolchain file there pick the toolchain.
  */
 export function launchCheck(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
-  return withPackEnv(resolveLaunch(slot, command, args, ctx), ctx.packEnv ?? {});
+  const pinned = ctx.pins?.includes('rust-toolchain') === true ? toolchainFileEnv(ctx.cwd, ctx.repo ?? ctx.cwd) : {};
+  return withPackEnv(resolveLaunch(slot, command, args, ctx), { ...ctx.packEnv, ...pinned });
 }
 
 /**
@@ -322,7 +358,8 @@ function fromPath(req: ToolRequest): Launch {
   const found = findOnPath(req.tool.bin, req.env);
   if (found === null) return { refusal: notFoundRefusal(req) };
   if (req.requirePins) return { refusal: unpinnedRefusal(req, found) };
-  return { command: req.tool.bin, args: [...req.args], env: MISE_NO_INSTALL, pin: { source: 'path' } };
+  const [command = req.tool.bin, ...args] = argvOf(req.tool, req.args);
+  return { command, args, env: MISE_NO_INSTALL, pin: { source: 'path' } };
 }
 
 /**
