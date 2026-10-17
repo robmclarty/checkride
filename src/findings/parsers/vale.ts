@@ -1,11 +1,12 @@
 /**
- * vale `--output=JSON`: `{ "<path>": [{ Check, Message, Severity }] }`.
+ * vale `--output=JSON`: `{ "<path>": [{ Check, Message, Severity, Line, Span }] }`,
+ * its `Line` and the column `Span` opens on 1-based.
  */
 
 import { isRecord } from '../../json.js';
 import { findingKey } from '../key.js';
 import { rebasePath } from '../paths.js';
-import { parseJson, str } from '../read.js';
+import { asArray, located, oneBased, parseJson, str } from '../read.js';
 import type { KeyedFinding, Parser } from '../types.js';
 
 /**
@@ -39,7 +40,7 @@ function isValeAlertReport(payload: unknown): payload is Record<string, Record<s
  */
 export const valeParser: Parser = {
   stream: 'artifact',
-  parse: (raw, { root }) => {
+  parse: (raw, context) => {
     const payload = parseJson(raw);
     if (!isValeAlertReport(payload)) return null;
     const findings: KeyedFinding[] = [];
@@ -49,9 +50,10 @@ export const valeParser: Parser = {
         if (!file || !message) continue;
         const severity = str(a['Severity']);
         const rule = str(a['Check']);
-        const path = rebasePath(root, file);
+        const path = rebasePath(context, file);
         findings.push({
           file: path,
+          ...located(oneBased(a['Line'], 1), oneBased(asArray(a['Span'])[0], 1)),
           rule,
           message,
           ...(severity ? { severity } : {}),

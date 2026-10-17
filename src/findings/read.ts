@@ -34,3 +34,17 @@ export function asArray(value: unknown): readonly unknown[] {
 export function runsTool(argv: readonly string[], tools: readonly string[]): boolean {
   return argv.some((arg) => tools.some((tool) => arg === tool || arg.endsWith(`/${tool}`)));
 }
+
+/**
+ * A tool's line or column number as a 1-based one: `value` counted from
+ * `base`, or `undefined` when the tool gave no whole number at or above it.
+ */
+export function oneBased(value: unknown, base: 0 | 1): number | undefined {
+  const n = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return typeof n === 'number' && Number.isInteger(n) && n >= base ? n - base + 1 : undefined;
+}
+
+/** The `line` and `column` fields of a finding, each left out when unknown. */
+export function located(line: number | undefined, column: number | undefined): { line?: number; column?: number } {
+  return { ...(line !== undefined ? { line } : {}), ...(column !== undefined ? { column } : {}) };
+}

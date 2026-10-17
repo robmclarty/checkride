@@ -1,11 +1,12 @@
 /**
- * ast-grep `--json=compact`: an array of `{ file, ruleId, message, severity }`.
+ * ast-grep `--json=compact`: an array of `{ file, ruleId, message, severity,
+ * range: { start: { line, column } } }`, its line and column 0-based.
  */
 
 import { isRecord } from '../../json.js';
 import { findingKey } from '../key.js';
 import { rebasePath } from '../paths.js';
-import { asArray, parseJson, runsTool, str } from '../read.js';
+import { asArray, located, oneBased, parseJson, runsTool, str } from '../read.js';
 import type { Argv, KeyedFinding, Parser } from '../types.js';
 
 /** ast-grep severities that never fail a scan on their own; any other value gates. */
@@ -32,15 +33,21 @@ function astGrepRaised(argv: Argv): ReadonlySet<string> | 'all' {
   return rules;
 }
 
+/** Where a match starts, or `{}` when it carries no range. */
+function rangeStart(m: Record<string, unknown>): Record<string, unknown> {
+  const range = m['range'];
+  return isRecord(range) && isRecord(range['start']) ? range['start'] : {};
+}
+
 /**
  * Every match that names a file and a message. One that can only advise is
  * marked as not gating, for the reason the oxlint parser gives.
  */
 export const astGrepParser: Parser = {
   stream: 'artifact',
-  parse: (raw, { argv, root }) => {
+  parse: (raw, context) => {
     const findings: KeyedFinding[] = [];
-    const raised = astGrepRaised(argv);
+    const raised = astGrepRaised(context.argv);
     for (const m of asArray(parseJson(raw))) {
       if (!isRecord(m)) continue;
       const file = str(m['file']);
@@ -48,9 +55,11 @@ export const astGrepParser: Parser = {
       if (!file || !message) continue;
       const rule = str(m['ruleId']);
       const severity = str(m['severity']);
-      const path = rebasePath(root, file);
+      const path = rebasePath(context, file);
+      const start = rangeStart(m);
       findings.push({
         file: path,
+        ...located(oneBased(start['line'], 0), oneBased(start['column'], 0)),
         rule,
         message,
         ...(severity ? { severity } : {}),

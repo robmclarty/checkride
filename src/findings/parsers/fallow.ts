@@ -11,12 +11,15 @@
  * report, so the verdict fails loudly rather than passing silently.
  *
  * The JSON is fallow's `schema_version` >= 7 shape (fallow >= 3.5; fallow 2.x
- * was schema 4 with a different layout and is no longer supported).
+ * was schema 4 with a different layout and is no longer supported). Its lines
+ * are 1-based and its columns 0-based.
  */
 
 import { isRecord } from '../../json.js';
 import { parseToolJson } from '../../tool-json.js';
+import type { PathBase } from '../paths.js';
 import { rebasePath } from '../paths.js';
+import { located, oneBased } from '../read.js';
 import type { KeyedFinding, Parser } from '../types.js';
 
 /**
@@ -55,13 +58,25 @@ function str(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** The slot each report kind fills. */
+const KIND_SLOTS: Readonly<Record<string, string>> = { 'dead-code': 'dead', dupes: 'dupes', health: 'health' };
+
+/** What a counted finding names beside its key: its file, rule and message, and where it sits. */
+type FindingFields = { file: string; line?: number; column?: number; rule: string; message: string; key: string };
+
 /**
- * A counted fallow finding. Every one gates, since the verdict counts it;
- * `severity` is the item's own, verbatim, when it carries one.
+ * A counted fallow finding from a report of `kind`. Every one gates, since the
+ * verdict counts it; `severity` is the item's own, verbatim, when it carries
+ * one.
  */
-function finding(item: Record<string, unknown>, fields: { file: string; rule: string; message: string; key: string }): KeyedFinding {
+function finding(kind: string, item: Record<string, unknown>, fields: FindingFields): KeyedFinding {
   const severity = str(item['severity']);
-  return { ...fields, ...(severity ? { severity } : {}), gates: true };
+  return { ...fields, ...(severity ? { severity } : {}), gates: true, slot: KIND_SLOTS[kind] ?? kind };
+}
+
+/** Where an item sits: its `line` (1-based) and `col` (0-based), as 1-based numbers. */
+function at(item: Record<string, unknown>, line: string, col: string): { line?: number; column?: number } {
+  return located(oneBased(item[line], 1), oneBased(item[col], 0));
 }
 
 /**
@@ -142,20 +157,20 @@ const STABLE_IDENTIFIER = /^[A-Za-z_$][\w$.]*$/;
 /**
  * A cross-file finding (circular_dependencies, re_export_cycles), keyed on its
  * sorted file membership — a list of files/segments rather than one location.
- * Returns `null` when the item carries no such list. Each file is joined onto
- * `root`, the check's root, as every path in a key is.
+ * Returns `null` when the item carries no such list. Each file is rebased from
+ * `base`, as every path in a key is.
  */
-function cycleFinding(category: string, item: Record<string, unknown>, root: string | undefined): KeyedFinding | null {
+function cycleFinding(category: string, item: Record<string, unknown>, base: PathBase): KeyedFinding | null {
   for (const field of ['cycle', 'files', 'chain']) {
     const arr = item[field];
     if (!Array.isArray(arr)) continue;
     const files = arr
       .map((x) => (typeof x === 'string' ? x : isRecord(x) ? str(x['path']) || str(x['file']) : ''))
       .filter(Boolean)
-      .map((file) => rebasePath(root, file))
+      .map((file) => rebasePath(base, file))
       .toSorted();
     if (files.length > 0) {
-      return finding(item, { file: files[0] ?? '', rule: category, message: files.join(' -> '), key: `dead-code:${category}:${files.join('->')}` });
+      return finding('dead-code', item, { file: files[0] ?? '', rule: category, message: files.join(' -> '), key: `dead-code:${category}:${files.join('->')}` });
     }
   }
   return null;
@@ -172,17 +187,19 @@ function cycleFinding(category: string, item: Record<string, unknown>, root: str
  * Returns `null` when no stable identity can be read — the finding still
  * counts toward `issueCount`, it just can't be individually grandfathered
  * (which keeps the slot conservatively red, never silently green). Its file is
- * joined onto `root`, the check's root.
+ * rebased from `base`.
  */
-function deadFinding(category: string, item: unknown, root: string | undefined): KeyedFinding | null {
+function deadFinding(category: string, item: unknown, base: PathBase): KeyedFinding | null {
   if (!isRecord(item)) return null;
-  const file = rebasePath(root, str(item['path']) || str(item['file']));
+  const file = rebasePath(base, str(item['path']) || str(item['file']));
   const symbol = symbolIdentity(item);
+  const where = at(item, 'line', 'col');
   if (symbol) {
-    return finding(item, { file, rule: category, message: symbol, key: `dead-code:${category}:${[file, symbol].filter(Boolean).join(':')}` });
+    const key = `dead-code:${category}:${[file, symbol].filter(Boolean).join(':')}`;
+    return finding('dead-code', item, { file, ...where, rule: category, message: symbol, key });
   }
-  if (file) return finding(item, { file, rule: category, message: '', key: withPosition(`dead-code:${category}:${file}`, item) });
-  return cycleFinding(category, item, root);
+  if (file) return finding('dead-code', item, { file, ...where, rule: category, message: '', key: withPosition(`dead-code:${category}:${file}`, item) });
+  return cycleFinding(category, item, base);
 }
 
 /**
@@ -208,13 +225,13 @@ const UNCOUNTED_ARRAYS = new Set<string>([
  * collision stays visible to the caller's tracking check — and how many items
  * carried no stable identity to key on.
  */
-function collectDeadFindings(j: Record<string, unknown>, root: string | undefined): { findings: KeyedFinding[]; unkeyed: number } {
+function collectDeadFindings(j: Record<string, unknown>, base: PathBase): { findings: KeyedFinding[]; unkeyed: number } {
   const findings: KeyedFinding[] = [];
   let unkeyed = 0;
   for (const [category, value] of Object.entries(j)) {
     if (!Array.isArray(value) || UNCOUNTED_ARRAYS.has(category)) continue;
     for (const item of value) {
-      const found = deadFinding(category, item, root);
+      const found = deadFinding(category, item, base);
       if (found === null) unkeyed += 1;
       else findings.push(found);
     }
@@ -235,13 +252,13 @@ function collectDeadFindings(j: Record<string, unknown>, root: string | undefine
  * no stable identity simply isn't fingerprinted; it still counts toward
  * `total_issues`, so the slot stays red (never masked) until it's fixed.
  */
-function parseDeadCode(j: Record<string, unknown>, root: string | undefined): FallowReport {
+function parseDeadCode(j: Record<string, unknown>, base: PathBase): FallowReport {
   const summary = isRecord(j['summary']) ? j['summary'] : {};
   const total = summary['total_issues'] ?? j['total_issues'];
   if (typeof total !== 'number') {
     return { ok: false, reason: 'fallow dead-code JSON missing summary.total_issues' };
   }
-  const { findings, unkeyed } = collectDeadFindings(j, root);
+  const { findings, unkeyed } = collectDeadFindings(j, base);
   // Two independent ways the keys can fail to cover the findings, both required
   // because either alone has a blind spot. Counting the items we could not key
   // is direct and exact. Comparing against the authoritative `total` catches
@@ -257,9 +274,10 @@ function parseDeadCode(j: Record<string, unknown>, root: string | undefined): Fa
 /**
  * Extract duplication findings. Each clone group carries a content-hash
  * `fingerprint` (`dup:…`) that is stable across line moves — the ideal key,
- * which names no file. The issue count is the number of clone groups.
+ * which names no file. A finding names the group's first instance. The issue
+ * count is the number of clone groups.
  */
-function parseDupes(j: Record<string, unknown>, root: string | undefined): FallowReport {
+function parseDupes(j: Record<string, unknown>, base: PathBase): FallowReport {
   const groups = j['clone_groups'];
   if (!Array.isArray(groups)) {
     return { ok: false, reason: 'fallow dupes JSON missing clone_groups' };
@@ -269,9 +287,10 @@ function parseDupes(j: Record<string, unknown>, root: string | undefined): Fallo
     if (!isRecord(g)) continue;
     const fp = str(g['fingerprint']);
     if (!fp) continue;
-    const first = Array.isArray(g['instances']) ? g['instances'][0] : undefined;
-    const file = rebasePath(root, isRecord(first) ? str(first['file']) : '');
-    findings.push(finding(g, { file, rule: 'code-duplication', message: fp, key: `dupes:${fp}` }));
+    const first: unknown = Array.isArray(g['instances']) ? g['instances'][0] : undefined;
+    const instance = isRecord(first) ? first : {};
+    const file = rebasePath(base, str(instance['file']));
+    findings.push(finding('dupes', g, { file, ...at(instance, 'start_line', 'start_col'), rule: 'code-duplication', message: fp, key: `dupes:${fp}` }));
   }
   return { ok: true, kind: 'dupes', findings, issueCount: groups.length, fullyTracked: findings.length === groups.length };
 }
@@ -281,10 +300,10 @@ function parseDupes(j: Record<string, unknown>, root: string | undefined): Fallo
  * on file + function name. A named function stays line-free so its key survives
  * edits above it; an anonymous placeholder (`<arrow>`, `<anonymous>`) shares its
  * name with every sibling in the file, so it gets a position appended to stay
- * distinct. The issue count is the number of findings. Each path is joined
- * onto `root`, the check's root.
+ * distinct. The issue count is the number of findings. Each path is rebased
+ * from `base`.
  */
-function parseHealth(j: Record<string, unknown>, root: string | undefined): FallowReport {
+function parseHealth(j: Record<string, unknown>, base: PathBase): FallowReport {
   const items = j['findings'];
   if (!Array.isArray(items)) {
     return { ok: false, reason: 'fallow health JSON missing findings' };
@@ -293,9 +312,9 @@ function parseHealth(j: Record<string, unknown>, root: string | undefined): Fall
   for (const f of items) {
     if (!isRecord(f)) continue;
     const name = str(f['name']);
-    const file = rebasePath(root, str(f['path']));
-    const base = `health:${file}:${name}`;
-    findings.push(finding(f, { file, rule: 'complexity', message: name, key: STABLE_IDENTIFIER.test(name) ? base : withPosition(base, f) }));
+    const file = rebasePath(base, str(f['path']));
+    const key = `health:${file}:${name}`;
+    findings.push(finding('health', f, { file, ...at(f, 'line', 'col'), rule: 'complexity', message: name, key: STABLE_IDENTIFIER.test(name) ? key : withPosition(key, f) }));
   }
   return { ok: true, kind: 'health', findings, issueCount: items.length, fullyTracked: findings.length === items.length };
 }
@@ -317,10 +336,10 @@ function fallowSchemaError(j: Record<string, unknown>): string | null {
  * Parse a fallow report into findings + an issue count, or the reason it could
  * not be trusted. Every failure path (bad JSON, missing/old schema, unknown
  * kind, missing count field) is a *loud* failure the verdict turns into a red
- * slot — checkride never treats an unreadable fallow report as "clean". `root`
- * is the check's root, which every path in a key is joined onto.
+ * slot — checkride never treats an unreadable fallow report as "clean". Every
+ * path in a key is rebased from `base`.
  */
-export function parseFallowReport(raw: string, root: string | undefined): FallowReport {
+export function parseFallowReport(raw: string, base: PathBase): FallowReport {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
   // Tolerant of a launcher preamble ahead of the report — see `parseToolJson`.
   const parsed = parseToolJson(raw);
@@ -334,26 +353,26 @@ export function parseFallowReport(raw: string, root: string | undefined): Fallow
   const kind = str(j['kind']);
   switch (kind) {
     case 'dead-code':
-      return parseDeadCode(j, root);
+      return parseDeadCode(j, base);
     case 'dupes':
-      return parseDupes(j, root);
+      return parseDupes(j, base);
     case 'health':
-      return parseHealth(j, root);
+      return parseHealth(j, base);
     default:
       return { ok: false, reason: `unrecognized fallow report kind '${kind || '(missing)'}'` };
   }
 }
 
 /**
- * Fallow's parser: the findings of a recognized, readable report, and an empty
- * array for anything else, which its format can't tell from a clean run here.
- * The fallow verdict is where an unreadable report becomes a failure; capture
- * and masking only need the keys.
+ * Fallow's parser: the findings of a recognized, readable report, and `null`
+ * for anything else, since its format can tell an unreadable report from a
+ * clean one. The fallow verdict is where an unreadable report becomes a
+ * failure; a capture records nothing for it, as for vale's runtime error.
  */
 export const fallowParser: Parser = {
   stream: 'artifact',
-  parse: (raw, { root }) => {
-    const report = parseFallowReport(raw, root);
-    return report.ok ? report.findings : [];
+  parse: (raw, context) => {
+    const report = parseFallowReport(raw, context);
+    return report.ok ? report.findings : null;
   },
 };

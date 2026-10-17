@@ -1,11 +1,12 @@
 /**
- * oxlint `--format=json`: `{ diagnostics: [{ filename, code, message, severity }] }`.
+ * oxlint `--format=json`: `{ diagnostics: [{ filename, code, message, severity,
+ * labels: [{ span: { line, column } }] }] }`, its line and column 1-based.
  */
 
 import { isRecord } from '../../json.js';
 import { findingKey } from '../key.js';
 import { rebasePath } from '../paths.js';
-import { asArray, parseJson, runsTool, str } from '../read.js';
+import { asArray, located, oneBased, parseJson, runsTool, str } from '../read.js';
 import type { Argv, KeyedFinding, Parser } from '../types.js';
 
 /** oxlint severities that never fail a run on their own; any other value gates. */
@@ -24,6 +25,12 @@ function oxlintWarningsGate(argv: Argv): boolean {
   return argv.some((arg) => arg === '--deny-warnings' || arg === '--max-warnings' || arg.startsWith('--max-warnings='));
 }
 
+/** A diagnostic's first labelled span, where oxlint places it, or `{}` when it has none. */
+function firstSpan(d: Record<string, unknown>): Record<string, unknown> {
+  const [label] = asArray(d['labels']);
+  return isRecord(label) && isRecord(label['span']) ? label['span'] : {};
+}
+
 /**
  * Every diagnostic that names a file and a message. One that can only advise
  * is marked as not gating, so the baseline doesn't key it: an advisory
@@ -32,9 +39,9 @@ function oxlintWarningsGate(argv: Argv): boolean {
  */
 export const oxlintParser: Parser = {
   stream: 'artifact',
-  parse: (raw, { argv, root }) => {
+  parse: (raw, context) => {
     const findings: KeyedFinding[] = [];
-    const all = oxlintWarningsGate(argv);
+    const all = oxlintWarningsGate(context.argv);
     const payload = parseJson(raw);
     const diagnostics = isRecord(payload) ? asArray(payload['diagnostics']) : [];
     for (const d of diagnostics) {
@@ -44,9 +51,11 @@ export const oxlintParser: Parser = {
       if (!file || !message) continue;
       const severity = str(d['severity']);
       const rule = str(d['code']);
-      const path = rebasePath(root, file);
+      const path = rebasePath(context, file);
+      const span = firstSpan(d);
       findings.push({
         file: path,
+        ...located(oneBased(span['line'], 1), oneBased(span['column'], 1)),
         rule,
         message,
         ...(severity ? { severity } : {}),

@@ -62,7 +62,7 @@ export type FallowVerdict = {
  * joined onto, as fallow's parser joins them for its fingerprint.
  */
 export function fallowVerdict(raw: string, baselineKeys: readonly string[] | null, root?: string): FallowVerdict {
-  const parsed = parseFallowReport(raw, root);
+  const parsed = parseFallowReport(raw, { root });
   if (!parsed.ok) {
     return { ok: false, baselined: 0, newKeys: [], findings: new Set(), observed: false, reason: parsed.reason };
   }

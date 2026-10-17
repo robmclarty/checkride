@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 48 — refactor(baseline): derive fingerprints from one parser per format
+**Current step:** 49 — feat(findings): export parseFindings with severity, gates and slot
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -71,7 +71,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 45. feat(packs): add the rust pack
 - ☑ 46. feat(init): scaffold Go and Rust projects with init --lang
 - ☑ 47. test(examples): add the Go, Rust and mixed-stack examples
-- ☐ 48. refactor(baseline): derive fingerprints from one parser per format
+- ☑ 48. refactor(baseline): derive fingerprints from one parser per format
 - ☐ 49. feat(findings): export parseFindings with severity, gates and slot
 - ☐ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☐ 51. feat(findings): parse docs, spell and type-checker output
@@ -2127,3 +2127,53 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 45 checkpointed · a5ef832df — feat(packs): add the rust pack (1 drift, 9m)
 - 2026-10-17 — step 46 checkpointed · 7439cea26 — feat(init): scaffold Go and Rust projects with init --lang (1 drift, 14m)
 - 2026-10-17 — step 47 checkpointed · 35668889e — test(examples): add the Go, Rust and mixed-stack examples (1 drift, 9m)
+- 2026-10-17 — step 48 checkpointed · ecc491814 — refactor(baseline): derive fingerprints from one parser per format (1 drift, 20m)
+
+  **Summary**: Baseline fingerprints now come from five parsers under `src/findings/parsers/`, one per tool format. Each parser returns every finding with its key and a `gates` flag, and declares the stream it reads. A golden test pins every fixture's keys: 0.13's form, step 4's gating change, and step 27's target keys.
+
+  1. One parser per format now feeds the baseline
+  2. The baseline hands each parser the stream it declares
+  3. The golden was recorded from the old code before the refactor
+  4. Three files outside the seam had to change
+  5. Fallow findings got provisional fields for step 49
+
+  **Readout**: Step 48 - refactor(baseline): derive fingerprints from one parser per format
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    4 of 4 honored
+  constraints  12 of 12 honored
+  seam         strayed: 5 paths outside the seam
+               - AGENTS.md
+               - src/baseline/index.ts
+               - src/baseline/rebase.ts
+               - src/digest/digest.ts
+               - src/__tests__/fixtures/baseline-keys.golden.json
+  diff         +1233 -614 across 23 files
+  spent        20 min · 2 turns · 32s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it and go on to step 49. The keys are held byte-identical by a golden recorded from the pre-refactor code, and the gate is green.
+
+  **1.** One parser per format now feeds the baseline
+
+  The oxlint, ast-grep, cspell, vale and fallow extractors moved out of `src/baseline/fingerprint.ts` and `src/baseline/fallow.ts` into `src/findings/parsers/`. Each parser returns every finding it read (file, rule, message, verbatim severity, `gates`, key) rather than a bare key set. `fingerprint()` keeps only the gating findings' keys. A finding whose parser can't tell keys as gating, the same false-red side D27 takes. Fallow's report parsing moved too. Its verdict stays in `src/baseline/fallow.ts`, built on `parseFallowReport`, so the verdict and the fingerprint read one parse. `rebasePath` moved to `src/findings/paths.ts`, so the D50 join now happens inside each parser.
+
+  **2.** The baseline hands each parser the stream it declares
+
+  Each parser declares `artifact`, `stdout` or `stderr` (D49). `findingText(adapter, outcome)` in the baseline picks that stream, and every caller that fingerprints a run now goes through it: masking and the fallow verdict in `execute.ts`, `checkride baseline`, and the digest. Today every parser reads stdout or the artifact captured from stdout, so nothing changes yet. markdownlint-cli2 in step 51 is the first stderr reader.
+
+  **3.** The golden was recorded from the old code before the refactor
+
+  `src/__tests__/fixtures/baseline-keys.golden.json` was generated before any code moved. Its `keys` column came from running v0.14.0's extractors (unchanged from 0.13) over every fixture. Its `gating` column (registry args, listed only where step 4 departs) and its `target` column (rooted at `apps/web`) came from HEAD. The test also checks that step 4's departure covers only the oxlint and ast-grep fixtures. A second test runs `checkride baseline` over two targets plus a repo-scope `struct`, replaying the real captures, and matches the written slots to the step-27 column. I broke the gating rule and the stream pick on purpose to confirm the tests fail. A stryker run limited to `src/findings/` and the two baseline files scored 89.42% (the floor is 68).
+
+  **4.** Three files outside the seam had to change
+
+  `AGENTS.md` names `findings/` in its folder-module list and layout tree; `test/integration/conventions.test.ts` fails without it. `src/digest/digest.ts` now reads keys through `findingText`, so the digest lists the same findings the baseline keys once a stderr parser lands. `src/baseline/index.ts` re-exports `findingText`.
+
+  **5.** Fallow findings got provisional fields for step 49
+
+  A fallow finding's rule is its dead-code category, `code-duplication` or `complexity`. Its message is the symbol, the clone fingerprint or the function name. A clone group names its first instance's file. None of this feeds a key. Step 49 settles what `checkride/findings` shows a reader.

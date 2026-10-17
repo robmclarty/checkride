@@ -332,6 +332,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   variable, a broken link in a skill and a Go module no target checks. An
   example's `expected.json` can now list `setup` commands, such as
   `go mod download`, that run before its checks.
+- **Read a run's findings with `checkride/findings`.** The new subpath
+  exports `parseFindings`, which parses one adapter's raw output, and
+  `findingsFor`, which takes a `summary.json` check entry and the output
+  directory and opens that check's own artifact. `isParseable` says which
+  adapters it can read: oxlint, ast-grep, cspell, vale and fallow so far.
+  Each finding names its adapter and slot, the file from the repo root, a
+  1-based line and column, the rule, the message, the tool's own severity,
+  and whether it can fail the check under the argv that ran. A reviewer or an
+  agent can comment on lines without reimplementing checkride's parsers, and
+  the findings come from the same parsers the baseline keys with. It never
+  writes under the output directory or decides a verdict (#6). See
+  `docs/contract.md`.
 
 ### Changed
 
@@ -457,6 +469,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tool detection picks, and an `order` that isn't a number or a keyword is a
   config error there as everywhere else. A config without such an entry runs
   as before.
+- **`checkride baseline` records nothing for a fallow report it can't read.**
+  A fallow slot whose JSON was missing, malformed or from an unsupported
+  schema was written to `checkride.baseline.json` with an empty list, as if
+  it had been clean. It's now left out, as a vale runtime error already was.
+  The run is still red, and no existing key is pruned.
 
 ### Contract
 
@@ -680,12 +697,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `module`; `init` takes `--lang` and `--module`. A run writes
   `pin_source: "rust-toolchain"` for `cargo` itself where a toolchain file
   pins it, and the JSON Schema's description says so.
+- Additive: the `checkride/findings` subpath in `package.json`'s `exports`,
+  exporting `parseFindings`, `findingsFor` and `isParseable` and the types
+  `Finding`, `ParseOptions` and `FindingsCheck`, in the contract doc and
+  `exports.contract.test.ts`. The package root's exports are unchanged.
 
 ### Internal
 
 - The publish workflow installs every pack's e2e toolchain with
   `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, as CI does, so
   a release can't publish with a pack's e2e cases skipped.
+- Baseline keys now come from one parser per tool format under the new
+  `src/findings/parsers/`, which `checkride/findings` serves too. Each parser
+  declares the stream it reads, and the baseline hands it that stream rather
+  than always stdout. A golden test holds every key each fixture yields to
+  what 0.13 wrote, apart from the warnings the baseline stopped keying above,
+  and holds a target's keys to the repo-root paths this release adds. A new
+  structural rule, `findings-never-imports-orchestrator`, keeps the parse API
+  free of the orchestrator.
 - `src/pm/`, which had only re-exported `src/launch/` since the launcher
   took its code, is gone: every importer reads `launch/`, and `pm.test.ts`
   moved under `src/launch/__tests__/`.

@@ -348,15 +348,16 @@ the file has two top-level fields and no others: `schema_version`, the integer
 `1`, and `slots`, an object from check name to an array of key strings: the
 slot name, or `<target>:<slot>` for a target's check. A slot
 whose adapter can be fingerprinted and had nothing to grandfather is present
-with an empty array; a slot whose adapter has no extractor is absent. Fields
+with an empty array; a slot whose adapter has no parser, or whose output that
+parser can't trust, is absent. Fields
 are added in lockstep with the published schema, never renamed, removed, or
 retyped; a non-additive change bumps `schema_version` and is a breaking
 release. The schema describes what checkride **writes**. What it accepts on
 read is wider — see the tolerance promise below.
 
 **A key names a finding by what it is, not where it sits.** Every key is a
-string the slot's extractor built; a consumer may compare keys, count them, and
-diff them, never parse them. For the four diagnostic extractors — oxlint
+string the slot's parser built; a consumer may compare keys, count them, and
+diff them, never parse them. For the four diagnostic parsers — oxlint
 (`lint`), ast-grep (`struct`), cspell (`spell`), vale (`prose`) — the key is
 `<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
 cspell (`<file>::<message>`). Only a finding that can fail the slot is keyed:
@@ -367,7 +368,7 @@ runs the tool through a wrapper and so hides its flags), in which case every
 finding is keyed. Line and column are never part of these keys, so a
 finding keeps its key when unrelated edits move it — the property the ratchet
 and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
-key on category and symbol instead, in the forms the extractor documents, and
+key on category and symbol instead, in the forms the parser documents, and
 add a position only for a finding with no symbol to name. A file in a key is
 named from the repo root: a target's check prints paths relative to its root,
 and the key joins the root on, so `src/a.ts` from a target at `apps/web` keys
@@ -377,7 +378,7 @@ as `apps/web/src/a.ts`. A check at the repo root keeps the path as printed.
 wording. A tool upgrade that rewords a message, renames a rule, or restructures
 its report re-keys those findings, and they report as new until
 `checkride baseline` recaptures them; a change to one of checkride's own
-extractors does the same (0.6.0 and 0.9.4 were two), and the release notes say
+parsers does the same (0.6.0 and 0.9.4 were two), and the release notes say
 so under that release. What is promised is the notice, never the wording.
 
 **Written canonical, written atomically.** Every writer — `checkride baseline`
@@ -899,8 +900,55 @@ config key it needs before it runs.
 [`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) holds
 each of these promises.
 
-Everything not exported there — internal modules, file layouts, private
-helpers — is not public API, even if technically importable.
+**`checkride/findings` reads a run's findings without reimplementing its
+parsers.** The subpath is public and semver-bound as well, and exports
+`parseFindings`, `findingsFor` and `isParseable`, with the types `Finding`,
+`ParseOptions` and `FindingsCheck`:
+
+- `parseFindings(adapter, raw, options?)` parses one adapter's raw output.
+  `options` names the check's `slot`, its `root` (the summary's `cwd`, `''`
+  for the repo root), the absolute `repoRoot`, and the `argv` that ran.
+- `findingsFor(check, runDir, { repoRoot })` takes a `summary.json` check
+  entry and the output directory its run wrote, and opens that check's own
+  artifact: the `output_file` the entry names, else the `<slot>.stdout.txt` or
+  `<slot>.stderr.txt` its parser reads, under `<target>/` for a target's
+  check. The entry's `cwd`, `argv` and slot decide the rest.
+- `isParseable(adapter)` says whether an adapter has a parser: `oxlint`,
+  `ast-grep`, `cspell`, `vale` and `fallow` today. The set only grows.
+
+Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one
+its report names (`dead`, `dupes` or `health`); `file`, named from the repo
+root with forward slashes; `line` and `column`, 1-based, when the tool reports
+them; `rule`, `''` when the tool names none; `message`; `severity`, the tool's
+own level string, verbatim; and `gates`, whether the finding can fail the
+check under the argv that ran, or under the adapter's registry args when no
+argv is known, absent when that can't be told. A path a tool printed relative
+to a target's root joins that root, and an absolute path inside `repoRoot` is
+made relative to it; one outside stays absolute.
+
+`null` means the adapter has no parser, the check was skipped, its artifact
+can't be read, or its output can't be trusted (vale's runtime-error report, a
+fallow report checkride can't read). An empty array means parsed and clean.
+The API is best-effort: it never writes under the output directory and never
+decides a verdict, so the raw artifact stays authoritative and the check's
+`ok` is still the verdict.
+
+<!-- snippet: check -->
+```ts
+import { readFile } from 'node:fs/promises';
+import type { Summary } from 'checkride';
+import { findingsFor, type Finding } from 'checkride/findings';
+
+const runDir = '.check';
+const summary = JSON.parse(await readFile(`${runDir}/summary.json`, 'utf8')) as Summary;
+const gating: Finding[] = summary.checks
+  .flatMap((check) => findingsFor(check, runDir, { repoRoot: process.cwd() }) ?? [])
+  .filter((finding) => finding.gates === true);
+```
+
+Everything not exported from the package root or `checkride/findings` —
+internal modules, file layouts, private helpers — is not public API, even if
+technically importable.
 
 ## Timeouts and interrupts
 

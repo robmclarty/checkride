@@ -774,7 +774,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 8: findings
 
-48. [ ] refactor(baseline): derive fingerprints from one parser per format, **done when:** `src/findings/parsers/` holds one parser per format, returning findings with their baseline key and declaring the stream it reads, which the baseline hands it ([D49 (text-findings)](#d49)); `fingerprint()` keys gating findings only; a golden test proves every key in every existing fixture is byte-identical, apart from step 4's deliberate change (F46), and a multi-target fixture's keys match step 27's ([D50 (key-rebasing)](#d50))
+48. [x] refactor(baseline): derive fingerprints from one parser per format, **done when:** `src/findings/parsers/` holds one parser per format, returning findings with their baseline key and declaring the stream it reads, which the baseline hands it ([D49 (text-findings)](#d49)); `fingerprint()` keys gating findings only; a golden test proves every key in every existing fixture is byte-identical, apart from step 4's deliberate change (F46), and a multi-target fixture's keys match step 27's ([D50 (key-rebasing)](#d50))
     - seam: `src/findings/`, `src/baseline/fingerprint.ts`, `src/baseline/fallow.ts`,
       `src/__tests__/baseline-fingerprint.test.ts`, `src/orchestrator/execute.ts`,
       `src/baseline-command.ts`

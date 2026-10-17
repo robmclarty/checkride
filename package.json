@@ -34,6 +34,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./findings": {
+      "types": "./dist/findings/api.d.ts",
+      "default": "./dist/findings/api.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

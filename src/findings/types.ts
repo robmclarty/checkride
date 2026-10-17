@@ -1,7 +1,10 @@
 /**
- * The shapes every tool-output parser shares: what it reads, what it is
- * handed beside the raw text, and what it returns.
+ * The shapes every tool-output parser shares — what it reads, what it is
+ * handed beside the raw text, and what it returns — and the public shapes of
+ * `checkride/findings` (R12.1).
  */
+
+import type { PathBase } from './paths.js';
 
 /**
  * The stream a parser reads (D49): the JSON `artifact` a check captured from
@@ -25,25 +28,29 @@ export type Argv = readonly string[] | undefined;
 
 /**
  * What a parser reads besides the raw text: the argv the check ran with, and
- * `root`, the directory it ran from relative to the repo root, which each path
- * the tool printed is joined onto.
+ * the base each path the tool printed is rebased from (R12.4).
  */
-export type ParseContext = { readonly argv: Argv; readonly root: string | undefined };
+export type ParseContext = PathBase & { readonly argv: Argv };
 
 /**
  * One finding a parser read, with the key the baseline records it under.
- * `file` is already joined onto the check's root; `rule` is `''` when the
- * tool names none; `severity` is the tool's own level string, verbatim, when
- * it reports one. `gates` says whether the finding can fail the check under
- * the argv that ran, and is absent when the parser can't tell, which the
- * baseline reads as gating.
+ * `file` is already rebased (R12.4); `line` and `column` are 1-based, and
+ * absent when the tool gives none; `rule` is `''` when the tool names none;
+ * `severity` is the tool's own level string, verbatim, when it reports one.
+ * `gates` says whether the finding can fail the check under the argv that
+ * ran, and is absent when the parser can't tell, which the baseline reads as
+ * gating. `slot` is set only by a parser whose report says which slot it
+ * fills, as fallow's `kind` does.
  */
 export type KeyedFinding = {
   readonly file: string;
+  readonly line?: number;
+  readonly column?: number;
   readonly rule: string;
   readonly message: string;
   readonly severity?: string;
   readonly gates?: boolean;
+  readonly slot?: string;
   readonly key: string;
 };
 
@@ -56,4 +63,53 @@ export type KeyedFinding = {
 export type Parser = {
   readonly stream: FindingStream;
   readonly parse: (raw: string, context: ParseContext) => readonly KeyedFinding[] | null;
+};
+
+/**
+ * One parsed diagnostic, as `checkride/findings` serves it (R12.1). `file` is
+ * repo-root-relative with forward slashes, unless the tool printed an absolute
+ * path outside the repo; `line` and `column` are 1-based; `rule` is `''` when
+ * the tool names none; `severity` is the tool's own level string, verbatim;
+ * `gates` says whether the finding can fail the check under the argv that ran,
+ * and is absent when that can't be known (R12.3).
+ */
+export type Finding = {
+  adapter: string;
+  slot: string;
+  file: string;
+  line?: number;
+  column?: number;
+  rule: string;
+  message: string;
+  severity?: string;
+  gates?: boolean;
+};
+
+/**
+ * What `parseFindings` reads beside the raw text. `slot` defaults to the
+ * adapter's slot (fallow's comes from its report), `root` is the check's
+ * `cwd`, repo-relative and `''` for the repo root, `repoRoot` is absolute and
+ * relativizes a path a tool printed absolute, and `argv` defaults to the
+ * adapter's registry args.
+ */
+export type ParseOptions = {
+  slot?: string;
+  root?: string;
+  repoRoot?: string;
+  argv?: readonly string[];
+};
+
+/**
+ * The fields of a `summary.json` check entry `findingsFor` reads: a parsed
+ * entry, or the exported `SummaryCheck`, fits it.
+ */
+export type FindingsCheck = {
+  readonly name: string;
+  readonly adapter: string | null;
+  readonly target?: string | undefined;
+  readonly slot?: string | undefined;
+  readonly cwd?: string | undefined;
+  readonly argv?: readonly string[] | undefined;
+  readonly output_file: string | null;
+  readonly skipped?: boolean | undefined;
 };

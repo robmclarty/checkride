@@ -4,14 +4,36 @@
  * relative to that root, so each parser joins the root on before keying:
  * `src/a.ts` from `apps/web` keys as `apps/web/src/a.ts`, and the same file
  * keys the same way whichever directory checked it. A check at the repo root
- * keeps every path as printed, so every implicit-mode key is unchanged, and so
- * does an absolute path.
+ * keeps every path as printed, so every implicit-mode key is unchanged. An
+ * absolute path is made relative to the repo root when the caller names it,
+ * which the baseline never does, so its keys keep an absolute path as printed.
  */
 
-import { isAbsolute, posix } from 'node:path';
+import { isAbsolute, posix, relative, sep } from 'node:path';
 
-/** `file` as the baseline keys it, given `root`, the directory its check ran from relative to the repo root. */
-export function rebasePath(root: string | undefined, file: string): string {
-  if (root === undefined || root === '.' || file === '' || isAbsolute(file)) return file;
-  return posix.join(root, file);
+/**
+ * Where a check's paths are rebased from: `root`, the directory it ran from
+ * relative to the repo root, and `repoRoot`, the repo root's absolute path,
+ * when the caller knows it.
+ */
+export type PathBase = { readonly root: string | undefined; readonly repoRoot?: string | undefined };
+
+/**
+ * An absolute `file` relative to `repoRoot`, with forward slashes. A file
+ * outside the repo, or with no `repoRoot` to measure from, stays absolute:
+ * a `../` path would name a file from a directory nobody ran in.
+ */
+function repoRelative(file: string, repoRoot: string | undefined): string {
+  if (repoRoot === undefined) return file;
+  const rel = relative(repoRoot, file);
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return file;
+  return rel.split(sep).join('/');
+}
+
+/** `file` as a finding names it, from where its check ran (`base`). */
+export function rebasePath(base: PathBase, file: string): string {
+  if (file === '') return file;
+  if (isAbsolute(file)) return repoRelative(file, base.repoRoot);
+  if (base.root === undefined || base.root === '.') return file;
+  return posix.join(base.root, file);
 }

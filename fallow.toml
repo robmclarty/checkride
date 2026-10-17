@@ -4,9 +4,12 @@
 # The bundled Claude Code plugin's readers are invoked as
 # `node dist/triage/cli.js` and `node dist/qa/cli.js` from a skill,
 # never imported by src/index.ts or src/cli.ts — so each executable entry
-# module is declared here or `dead` flags it as an unused file.
+# module is declared here or `dead` flags it as an unused file. The
+# `checkride/findings` subpath's entry, src/findings/api.ts, is declared for
+# the same reason: nothing in the package imports it.
 entry = [
   "src/index.ts",
+  "src/findings/api.ts",
   "src/cli.ts",
   "src/triage/cli.ts",
   "src/qa/cli.ts",

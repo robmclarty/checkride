@@ -1,0 +1,17 @@
+id: findings-never-imports-orchestrator
+message: |
+  src/findings/ is the parse API consumers import as `checkride/findings`,
+  so it reads no orchestrator code (A6): it takes a summary entry's fields,
+  not the orchestrator's types, and never runs a check. Read what you need
+  from the entry, or move the shared piece out of src/orchestrator/.
+severity: error
+language: typescript
+files:
+  - src/findings/**/*.ts
+ignores:
+  - '**/__tests__/**'
+rule:
+  any:
+    - kind: import_statement
+    - kind: export_statement
+  regex: "from\\s+['\"](\\.\\./)+orchestrator/"
