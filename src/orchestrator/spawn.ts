@@ -251,6 +251,7 @@ function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
     ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}),
     ...(ctx.requirePins !== undefined ? { requirePins: ctx.requirePins } : {}),
     ...(ctx.packEnv !== undefined ? { packEnv: ctx.packEnv } : {}),
+    ...(ctx.overrides !== undefined ? { overrides: ctx.overrides } : {}),
   };
 }
 

@@ -11,9 +11,12 @@ import type { Adapter } from '../adapters.js';
  * Where a tool's version is declared in a repo: a pin source. `js-lockfile` is
  * the package manager's own, a tool being the copy its lockfile installed under
  * `node_modules/.bin`. `mise` is a `[tools]` key in a `mise.toml`, and `path`
- * declares nothing: it's the copy a machine's `PATH` holds, unpinned. The
- * other five belong to packs and a flag that haven't shipped, and the summary's
- * `pin_source` names all eight so its vocabulary is written once.
+ * declares nothing: it's the copy a machine's `PATH` holds, unpinned.
+ * `override` is a `--pins` file's `[tools]` entry, which heads every chain
+ * when a run names one, and `go-mod-tool` and `rust-toolchain` the go and rust
+ * packs' own. `uv-lock` and `tf-version` belong to packs that haven't shipped,
+ * and the summary's `pin_source` names all eight so its vocabulary is written
+ * once.
  */
 export type PinSourceName =
   | 'override'

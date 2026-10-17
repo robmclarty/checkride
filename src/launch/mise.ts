@@ -5,7 +5,10 @@
  *
  * Only the keys are read. mise owns version resolution (a key's value can be a
  * prefix, `latest`, or a table with options), so checkride asks whether the
- * repo pins a tool, never which version it pins (R6.1).
+ * repo pins a tool, never which version it pins (R6.1). A `--pins` file is the
+ * exception: its versions are read too, since the `override` source runs each
+ * tool as `mise exec <id>@<version>` outside any config mise would find
+ * (R13.3).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -172,18 +175,125 @@ export function miseCanRun(
   bin: string,
   cwd: string,
   env: Readonly<Record<string, string | undefined>>,
-): { ok: true } | { ok: false; detail: string } {
+): MiseAnswer {
+  return askMise(mise, ['which', bin], cwd, { ...env, ...MISE_NO_INSTALL });
+}
+
+/** Whether mise answered yes, or the first line of its error when it didn't. */
+type MiseAnswer = { ok: true } | { ok: false; detail: string };
+
+/**
+ * Ask mise `args` from `cwd` with `env`, waiting at most
+ * {@link MISE_WHICH_TIMEOUT_MS}: a zero exit is yes, and otherwise the detail
+ * is mise's first error line, its `WARN` lines (an update notice, say) passed
+ * over.
+ */
+function askMise(mise: string, args: readonly string[], cwd: string, env: Readonly<Record<string, string | undefined>>): MiseAnswer {
   try {
-    execFileSync(mise, ['which', bin], {
-      cwd,
-      env: { ...env, ...MISE_NO_INSTALL },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: MISE_WHICH_TIMEOUT_MS,
-    });
+    execFileSync(mise, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: MISE_WHICH_TIMEOUT_MS });
     return { ok: true };
   } catch (error) {
     const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr) : '';
-    const line = stderr.split('\n').map((l) => l.replace(/^mise ERROR\s*/, '').trim()).find(Boolean);
-    return { ok: false, detail: line ?? `mise which ${bin} failed` };
+    const lines = stderr.split('\n').filter((l) => !l.startsWith('mise WARN'));
+    const line = lines.map((l) => l.replace(/^mise ERROR\s*/, '').trim()).find(Boolean);
+    return { ok: false, detail: line ?? `mise ${args.join(' ')} failed` };
   }
+}
+
+/**
+ * The variable that names a `--pins` file, the way the flag does (the flag
+ * wins). The CLI reads it and the gate strips it from the check it spawns.
+ */
+export const PINS_ENV = 'CHECKRIDE_PINS';
+
+/**
+ * What a check an override pin runs carries: mise's installs off, as for
+ * every check mise launches, and mise offline, so a version prefix such as
+ * `1.24` resolves against the installed copies rather than a remote list.
+ */
+export const OVERRIDE_ENV: Readonly<Record<string, string>> = { ...MISE_NO_INSTALL, MISE_OFFLINE: '1' };
+
+/** A TOML string literal, basic or literal, as its content, or `null` for anything else. */
+function stringValue(value: string): string | null {
+  const match = /^(["'])(.*)\1$/.exec(value);
+  return match ? (match[2] ?? '') : null;
+}
+
+/** The version a `[tools]` value pins: a string, or an inline table's `version` string. */
+function pinnedVersion(value: string): string | null {
+  const plain = stringValue(value);
+  if (plain !== null) return plain;
+  if (!/^\{.*\}$/.test(value)) return null;
+  const version = /(?:^\{|,)\s*version\s*=\s*("[^"]*"|'[^']*')/.exec(value)?.[1];
+  return version === undefined ? null : stringValue(version);
+}
+
+/** One line of a `--pins` file read into `table` (the header it sits under), as the tool and version it pins, a problem, or nothing. */
+function pinLine(table: string[], raw: string): { tool: string; version: string } | { problem: string } | null {
+  const line = stripComment(raw.trim());
+  if (line === '') return null;
+  const header = headerPath(line);
+  if (header !== null) {
+    table.splice(0, table.length, ...header);
+    const tool = toolOf(header);
+    return tool === null ? null : { problem: `[tools.${tool}] is a table: pin it as ${tool} = "<version>" under [tools]` };
+  }
+  const eq = firstUnquoted(line, '=');
+  const tool = eq <= 0 ? null : toolOf([...table, ...splitKey(line.slice(0, eq))]);
+  if (tool === null) return null;
+  const value = line.slice(eq + 1).trim();
+  const version = pinnedVersion(value);
+  if (version === null || version === '') {
+    return { problem: `[tools] ${tool} must be a version string or an inline table with a version (got ${value})` };
+  }
+  return { tool, version };
+}
+
+/**
+ * The tools a `--pins` file's text pins, by key, each with its version
+ * (R13.3): a string, or an inline table's `version`. Anything else is the
+ * reason the file can't be read, since a pin with no version can't say which
+ * copy runs.
+ */
+export function miseToolVersions(text: string): ReadonlyMap<string, string> | { problem: string } {
+  const table: string[] = [];
+  const pins = new Map<string, string>();
+  for (const raw of text.split(/\r?\n/)) {
+    const read = pinLine(table, raw);
+    if (read === null) continue;
+    if ('problem' in read) return read;
+    pins.set(read.tool, read.version);
+  }
+  return pins;
+}
+
+/**
+ * The pins the `--pins` file at `path` declares, or throw the friendly
+ * `invalid <path>: <reason>` error, a usage error, when it can't be read.
+ */
+export function loadPinsFile(path: string): ReadonlyMap<string, string> {
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    throw new Error(`invalid ${path}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  const pins = miseToolVersions(text);
+  if ('problem' in pins) throw new Error(`invalid ${path}: ${pins.problem}`);
+  return pins;
+}
+
+/**
+ * Whether mise has installed `spec` (`<id>@<version>`), asked through
+ * `mise where` offline and with installs off, which exits 1 for a version it
+ * hasn't installed and downloads nothing, or the first line of mise's answer
+ * when it hasn't.
+ */
+export function miseHasInstalled(
+  mise: string,
+  spec: string,
+  cwd: string,
+  env: Readonly<Record<string, string | undefined>>,
+): MiseAnswer {
+  return askMise(mise, ['where', spec], cwd, { ...env, ...OVERRIDE_ENV });
 }

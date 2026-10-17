@@ -77,6 +77,8 @@ export type RunContext = CommonContext & {
   defaults: CheckrideConfig | null;
   /** True when `--discover` proposed {@link targets} rather than the config declaring them. */
   discovered: boolean;
+  /** The `--pins` file's tools by mise id, with their versions, or `null` without one: an `override` source heads every chain (R13.3). */
+  overrides: ReadonlyMap<string, string> | null;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -190,6 +192,7 @@ export function resolveRunContext(options: RunOptions): RunContext {
     ...flagsOf(options),
     targets: configuredTargets(common.config),
     discovered: false,
+    overrides: options.pins?.tools ?? null,
     nameWidth: 8,
     changedBase: null,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),

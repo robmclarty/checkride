@@ -418,6 +418,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Cargo.toml` with `[workspace]` and each `[package]` manifest outside it. A
   lone root target counts as the implicit one only when its pack is the one
   the root marks, so a Go root with nested modules stays implicit (#7).
+- **Run your own toolbelt over a repo with `--pins <mise.toml>`.** A run reads
+  the named file, or the one `CHECKRIDE_PINS` names, and puts an `override`
+  pin source at the head of every chain: a tool it pins runs as
+  `mise exec <id>@<version> -- <tool>`, ahead of the repo's own pins, offline
+  and with mise's installs off, and records `pin_source: "override"` with
+  that version. A toolchain it pins, such as `go`, runs that copy too. A
+  version mise hasn't installed fails the check, naming the tool and the
+  `mise install` that would fix it, and nothing downloads. An entry with no
+  version string exits 2 naming the file. Detection still reads only the
+  repo, so the file changes which copy runs, never which checks run. A run
+  with it never ratchets the baseline, its summary records `run.pins`, and
+  the stop gate strips the variable. `doctor` refuses the flag for now (#7).
 
 ### Changed
 
@@ -561,6 +573,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Additive: the run and `doctor` flag `--discover`, and the summary's
   `run.discover` and `targets[].discovered`, which a run now writes. The
   exported `RunFlags` type gains an optional `discover`.
+- Additive: the run flag `--pins <mise.toml>`, the variable `CHECKRIDE_PINS`,
+  the `pin_source` value `override` and `run.pins`, which runs now write. The
+  exported `RunOptions` type gains an optional `pins` (`{ path, tools }`), and
+  the `CheckRunner` context an optional `overrides`.
 - Additive: the config schema's custom check entry gains `skipExitCode`
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A

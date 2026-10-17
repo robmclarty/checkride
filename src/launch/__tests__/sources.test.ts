@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { nearestPackageManager } from '../index.js';
-import { miseDeclaration, miseToolKeys } from '../mise.js';
+import { loadPinsFile, miseDeclaration, miseToolKeys, miseToolVersions } from '../mise.js';
 import { findOnPath } from '../path.js';
 import { dirsUpTo } from '../walk.js';
 
@@ -140,5 +140,42 @@ describe('nearestPackageManager', () => {
       await writeFile(join(repo, 'tools', 'package.json'), JSON.stringify({ packageManager: 'bun@1.2.0' }));
       expect(nearestPackageManager(join(repo, 'tools'), repo)).toBe('bun');
       expect(nearestPackageManager(repo, repo)).toBe('pnpm');
+    }));
+});
+
+describe('miseToolVersions reads what a --pins file pins (R13.3)', () => {
+  test('a string, or an inline table’s version, under [tools] or as a dotted key, comments aside', () => {
+    const text = [
+      'tools.shfmt = "3.14.1" # dotted',
+      '[env]',
+      'FOO = "bar"',
+      '[tools]',
+      '# a comment',
+      'shellcheck = "0.11.0"',
+      '"aqua:rvben/rumdl" = { version = \'0.2.79\', os = ["linux"] }',
+      'go = { os = ["macos"], version = "1.27" }',
+    ].join('\n');
+    expect(miseToolVersions(text)).toEqual(new Map([['shfmt', '3.14.1'], ['shellcheck', '0.11.0'], ['aqua:rvben/rumdl', '0.2.79'], ['go', '1.27']]));
+  });
+
+  test.each([
+    ['[tools]\nnode = ["20", "22"]', '[tools] node must be a version string or an inline table with a version (got ["20", "22"])'],
+    ['[tools]\nnode = { os = ["linux"] }', '[tools] node must be a version string or an inline table with a version'],
+    ['[tools]\nnode = ""', '[tools] node must be a version string'],
+    ['[tools.node]\nversion = "22"', '[tools.node] is a table: pin it as node = "<version>" under [tools]'],
+  ])('anything else is a problem: %s', (text, problem) => {
+    const read = miseToolVersions(text);
+    expect(read).toHaveProperty('problem');
+    expect('problem' in read ? read.problem : '').toContain(problem);
+  });
+
+  test('loadPinsFile names the file in its error', () =>
+    inTemp(async (dir) => {
+      const path = join(dir, 'pins.toml');
+      await writeFile(path, '[tools]\nnode = 22\n');
+      expect(() => loadPinsFile(path)).toThrow(`invalid ${path}: [tools] node must be a version string`);
+      expect(() => loadPinsFile(join(dir, 'gone.toml'))).toThrow(`invalid ${join(dir, 'gone.toml')}:`);
+      await writeFile(path, '[tools]\nnode = "22"\n');
+      expect(loadPinsFile(path)).toEqual(new Map([['node', '22']]));
     }));
 });

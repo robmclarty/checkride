@@ -28,7 +28,8 @@ order.
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
 every tool through its package manager as it always has. The `repo` pack's
-own chain applies once a repo declares targets.
+own chain applies once a repo declares targets. A run given `--pins` puts the
+`override` source at the head of every chain, that one included.
 
 ## The repo pack without Node
 
@@ -56,15 +57,21 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 
 | Source | Declares a tool when | Runs it as | `tool_version` |
 | --- | --- | --- | --- |
+| `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline and with installs off, once `mise where <id>@<version>` confirms that version is installed | the version the file gives |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
 | `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
-The summary's `pin_source` names three more sources, `override`, `uv-lock`
-and `tf-version`. They arrive with the packs and the `--pins` flag that use
-them, and no run writes them yet. `rust-toolchain` declares only a tool that
+The summary's `pin_source` names two more sources, `uv-lock` and
+`tf-version`. They arrive with the packs that use them, and no run writes them
+yet. `override` is the consumer's, not the repo's: a review agent's own
+`mise.toml`, named with `--pins` or `CHECKRIDE_PINS`, runs its toolbelt over a
+checkout it can't write to. Each entry is a version string or an inline
+table's `version`; anything else exits 2. It changes which copy of a tool
+runs, never which checks run, since detection reads only the repo. A toolchain
+it names, such as `go`, runs that copy in any pack, a `go tool` included. `rust-toolchain` declares only a tool that
 `TOOLS` names as a rustup component: `cargo` itself, rustfmt and clippy. Only
 rustup reads a toolchain file, so a component the file pins fails its check
 when `rustup` isn't on `PATH`, rather than run a `cargo` that ignores the
@@ -110,6 +117,13 @@ A custom check's own command, such as `node scripts/x.mjs`, spawns as written
 through no pin source, and records `argv` but no `pin_source`. `checkride fix`
 launches each fixer the way its check is launched, so a fixer runs the same
 copy and is refused where the check would be.
+
+**Why the `override` source asks `mise where` first.** For the same reason:
+`mise exec <id>@<version>` falls back to `PATH` for a version mise lacks.
+`mise where` exits 1 for one, downloads nothing, and runs offline
+(`MISE_OFFLINE=1`), so a prefix such as `1.24` resolves against the installed
+copies rather than a remote list. A version it doesn't find fails the check,
+naming the tool and the `mise install <id>@<version>` that would fix it.
 
 **Why the `mise` source asks `mise which` first.** With auto-install off, mise
 given a pinned version it hasn't installed prints a warning and runs whatever

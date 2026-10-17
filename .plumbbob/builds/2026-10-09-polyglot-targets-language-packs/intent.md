@@ -817,7 +817,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/config.ts`, `src/cli.ts`, `src/orchestrator/report.ts`, `src/gate.ts`,
       `src/orchestrator/run.ts`, `schema/checkride.summary.schema.json`, `docs/contract.md`
     - model: opus (a new resolution layer)
-54. [ ] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; the summary records `run.discover`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); discovery proposes go and rust targets by R11.4's rules, and a lone root target counts as implicit only when its pack is the root's R2.1 pack ([D68 (discover-go-rust)](#d68)); nothing is written
+54. [x] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; the summary records `run.discover`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); discovery proposes go and rust targets by R11.4's rules, and a lone root target counts as implicit only when its pack is the root's R2.1 pack ([D68 (discover-go-rust)](#d68)); nothing is written
     - seam: `src/targets/discover.ts`, `src/targets/add.ts`, `src/cli.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet (reuses discovery and the conversion)

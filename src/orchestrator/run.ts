@@ -56,10 +56,11 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
 }
 
 /** The files and directory a run was pointed at, each as an absolute path, and nothing for one it wasn't. */
-function pathsRecord(options: RunOptions, cwd: string): Pick<SummaryRun, 'config' | 'defaults' | 'out'> {
+function pathsRecord(options: RunOptions, cwd: string): Pick<SummaryRun, 'config' | 'defaults' | 'pins' | 'out'> {
   return {
     ...(options.configPath !== undefined ? { config: resolve(cwd, options.configPath) } : {}),
     ...(options.defaults !== undefined ? { defaults: resolve(cwd, options.defaults.path) } : {}),
+    ...(options.pins !== undefined ? { pins: resolve(cwd, options.pins.path) } : {}),
     ...(options.out !== undefined ? { out: resolve(cwd, options.out) } : {}),
   };
 }
@@ -93,6 +94,7 @@ function targetsRecord(targets: readonly Target[] | null, discovered: boolean): 
 function consumerCause(options: RunOptions, cwd: string): string | null {
   if (options.defaults !== undefined) return '--defaults';
   if (options.discover === true) return '--discover';
+  if (options.pins !== undefined) return '--pins';
   if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
   if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;

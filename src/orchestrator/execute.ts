@@ -243,9 +243,11 @@ function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Paramet
     pm: place.pm,
     ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
     repo: ctx.cwd,
-    pins: pinChain(r.pack),
+    // Under `--pins`, the override source heads every chain (R13.3).
+    pins: ctx.overrides === null ? pinChain(r.pack) : ['override', ...pinChain(r.pack)],
     requirePins: ctx.requirePins,
     packEnv: packEnv(r.pack, r.adapter?.network),
+    ...(ctx.overrides !== null ? { overrides: ctx.overrides } : {}),
   };
 }
 

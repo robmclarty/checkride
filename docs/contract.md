@@ -107,7 +107,7 @@ required ones, so a field can't reach the schema without a row here.
 | `discover` | `true` | `--discover` was given |
 | `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
 | `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` named the defaults file |
-| `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` was given; checkride has no such flag yet |
+| `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` named the pins file |
 | `out` | string, an absolute path | `--out` or `CHECKRIDE_OUT` named the output directory |
 
 **`git` fields.**
@@ -154,7 +154,7 @@ required ones, so a field can't reach the schema without a row here.
 | `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
-| `pin_source` | `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `mise` or `path`; also `override`, `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, or `path` for a tool nothing declared |
+| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `mise` or `path`; also `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
@@ -452,7 +452,7 @@ run flags:
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
---out <dir>  --defaults <path>  --discover
+--out <dir>  --defaults <path>  --discover  --pins <mise.toml>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -506,6 +506,24 @@ that doesn't exist is exit 2. A run with it never ratchets and never writes
 `checkride.baseline.json`, wherever the file sits, and its summary records the
 file as `run.defaults`. `gate` strips `CHECKRIDE_DEFAULTS` from the check it
 spawns.
+
+**`--pins <mise.toml>` and `CHECKRIDE_PINS` override the repo's pins.** A
+run reads the named file's `[tools]` entries with their versions, each a
+string or an inline table's `version`; an entry with no version, a
+`[tools.<id>]` table, or a missing file exits 2, naming the file. The file
+becomes an `override` source at the head of every pack's pin chain, ahead of
+the repo's own pins: a tool whose mise id it names runs as
+`mise exec <id>@<version> -- <bin>`, offline and with mise's installs off, and
+records `pin_source: "override"` with that version as its `tool_version`. A
+toolchain it names, such as `go`, runs that copy too. A version mise hasn't
+installed, as `mise where` reports it, fails the check naming the tool and the
+`mise install` that would fix it, and nothing downloads. It changes which copy
+runs, never which checks run, so detection still reads only the repo's files.
+The flag beats the variable, an empty variable counts as unset, and a relative
+path resolves against the working directory. A run with it never ratchets and
+never writes `checkride.baseline.json`, its summary records the file as
+`run.pins`, and `gate` strips `CHECKRIDE_PINS` from the check it spawns.
+`doctor` refuses the flag for now, exit 2, rather than probe the wrong copies.
 
 **`--discover` checks the targets the repo's files propose.** Run and
 `doctor` take the targets discovery proposes, the ones existing-mode `init`

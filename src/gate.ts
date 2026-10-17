@@ -47,6 +47,7 @@ import type { CheckrideConfig, GateProfile } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, resolveChecks } from './config.js';
 import { DIGEST_FILE } from './digest/index.js';
 import { BASE_ENV } from './git.js';
+import { PINS_ENV } from './launch/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
 import type { Out, SummaryCheck } from './orchestrator/index.js';
@@ -609,7 +610,7 @@ function announceAlignment(
  * is the repo's own verdict, so the check it spawns must read the repo's config
  * whatever a consumer left exported in the hook's environment.
  */
-const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV]);
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV]);
 
 /** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
 function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {

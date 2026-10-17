@@ -27,7 +27,7 @@ import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
 import type { MiseDeclaration } from './mise.js';
-import { MISE_NO_INSTALL, miseCanRun, miseDeclaration } from './mise.js';
+import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, OVERRIDE_ENV } from './mise.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
 import type { RustToolchainDeclaration } from './rust-toolchain.js';
@@ -63,6 +63,12 @@ export type LaunchContext = {
   repo?: string;
   /** The pin chain the tool resolves through. Omitted, the `js-lockfile` source alone. */
   pins?: readonly PinSourceName[];
+  /**
+   * The `--pins` file's tools, by mise id, each with its version (R13.3),
+   * which the `override` source at the head of `pins` reads. Omitted, it
+   * declares nothing.
+   */
+  overrides?: ReadonlyMap<string, string>;
   /** Fail a tool that resolves from `PATH` with no pin, instead of running it. */
   requirePins?: boolean;
   /** The environment whose `PATH` is searched. Omitted, this process's own. */
@@ -102,13 +108,52 @@ type ToolRequest = {
   chain: readonly PinSourceName[];
   requirePins: boolean;
   env: Readonly<Record<string, string | undefined>>;
+  overrides: ReadonlyMap<string, string>;
 };
 
 /**
  * What declared a tool, for a refusal or detection to name: the mise config
  * and key, the `go.mod` and its version, or the toolchain file and its channel.
  */
-type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration; toolchain?: RustToolchainDeclaration };
+type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration; toolchain?: RustToolchainDeclaration; override?: Override };
+
+/** A tool the `--pins` file pins: the key that names it, and the version. */
+type Override = { id: string; version: string };
+
+/** The pin the `--pins` file gives `tool`, under the first of its mise ids the file names, or `null`. */
+function overrideOf(req: ToolRequest, tool: Tool): Override | null {
+  const id = (tool.mise ?? [tool.bin]).find((candidate) => req.overrides.has(candidate));
+  const version = id === undefined ? undefined : req.overrides.get(id);
+  return id === undefined || version === undefined ? null : { id, version };
+}
+
+/**
+ * Run `argv` as the copy of `req.tool` the `--pins` file pins, `mise exec
+ * <id>@<version> -- <argv>`, offline and with installs off, once `mise where`
+ * says that version is installed (F38). `mise exec` alone can't be trusted
+ * with this: with installs off it runs whatever is on `PATH` for a version it
+ * lacks, which is the substitution a pin rules out (D12).
+ */
+function runOverride(req: ToolRequest, pinned: Override, argv: readonly string[]): Launch {
+  const spec = `${pinned.id}@${pinned.version}`;
+  const mise = findOnPath('mise', req.env);
+  if (mise === null) return { refusal: overrideRefusal(req, spec, "`mise` isn't on PATH") };
+  const has = miseHasInstalled(mise, spec, req.cwd, req.env);
+  if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`) };
+  return { command: 'mise', args: ['exec', spec, '--', ...argv], env: OVERRIDE_ENV, pin: { source: 'override', version: pinned.version } };
+}
+
+/** The `override` source (R13.3): the copy the `--pins` file pins, ahead of every source the repo declares. */
+const OVERRIDE: Source = {
+  declares: (req) => {
+    const override = overrideOf(req, req.tool);
+    return override === null ? null : { override };
+  },
+  run: (req, declared) => {
+    const pinned = declared?.override ?? null;
+    return pinned === null ? { refusal: notFoundRefusal(req) } : runOverride(req, pinned, argvOf(req.tool, req.args));
+  },
+};
 
 /** The argv a tool runs as, its arguments after: its `run` form, such as `cargo clippy`, else its own executable. */
 function argvOf(tool: Tool, args: readonly string[]): string[] {
@@ -200,6 +245,7 @@ const RUST_TOOLCHAIN: Source = {
 
 /** The sources the launcher reads, by name. `path` declares nothing, so it has no row; a name without one isn't readable yet. */
 const SOURCES: { readonly [K in PinSourceName]?: Source } = {
+  override: OVERRIDE,
   'js-lockfile': JS_LOCKFILE,
   'go-mod-tool': GO_MOD_TOOL,
   'rust-toolchain': RUST_TOOLCHAIN,
@@ -217,6 +263,8 @@ const SOURCES: { readonly [K in PinSourceName]?: Source } = {
  */
 function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]): Launch {
   const asked = { ...req, tool: toolchain };
+  const pinned = overrideOf(req, toolchain);
+  if (pinned !== null) return runOverride(asked, pinned, [toolchain.bin, ...args]);
   const declared = miseDeclaration(req.cwd, req.repo, toolchain.mise ?? [toolchain.bin]);
   if (declared === null) {
     if (findOnPath(toolchain.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, toolchain) };
@@ -244,6 +292,7 @@ function declarationSignal(declared: Declared, tool: Tool): string {
   if (declared.mise !== undefined) return `${declared.mise.file}: ${declared.mise.id}`;
   if (declared.goMod !== undefined) return `${declared.goMod.file}: ${tool.goTool ?? tool.bin}`;
   if (declared.toolchain !== undefined) return `${declared.toolchain.file}: ${tool.component ?? tool.bin}`;
+  if (declared.override !== undefined) return `--pins: ${declared.override.id}`;
   return `package.json: ${tool.npm ?? tool.bin}`;
 }
 
@@ -260,7 +309,7 @@ type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[] };
  */
 export function pinResolution(bin: string, at: PinQuery): { source: PinSourceName; declaredBy: string | null } | null {
   const tool = toolRow(bin);
-  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {} };
+  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {}, overrides: new Map() };
   const sources = at.pins.filter((n) => n !== 'path');
   for (const name of sources) {
     const source = SOURCES[name];
@@ -311,11 +360,16 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
   const tool = execTool(command, args);
   if (tool === null) {
     const toolchain = TOOLCHAINS.find((t) => t.bin === command);
-    if (toolchain === undefined || !chain.includes('mise')) return passThrough(command, args, ctx.pm);
+    if (toolchain === undefined) return passThrough(command, args, ctx.pm);
+    const request = toolRequest(slot, toolchain, args, chain, ctx);
+    // A toolchain the `--pins` file pins runs that copy, in any chain (R13.3).
+    const pinned = chain.includes('override') ? overrideOf(request, toolchain) : null;
+    if (pinned !== null) return runOverride(request, pinned, [toolchain.bin, ...args]);
+    if (!chain.includes('mise')) return passThrough(command, args, ctx.pm);
     // A toolchain walks its pack's chain like a tool, so a toolchain file pins
     // cargo itself; from PATH it runs even under requirePins, since the
     // project's own files set the version it accepts (R6.2).
-    return walkChain({ ...toolRequest(slot, toolchain, args, chain, ctx), requirePins: false });
+    return walkChain({ ...request, requirePins: false });
   }
   return walkChain(toolRequest(slot, toolRow(tool, ctx.tools), args.slice(2), chain, ctx));
 }
@@ -332,6 +386,7 @@ function toolRequest(slot: string, tool: Tool, args: readonly string[], chain: r
     chain,
     requirePins: ctx.requirePins ?? false,
     env: ctx.env ?? process.env,
+    overrides: chain.includes('override') ? (ctx.overrides ?? new Map()) : new Map(),
   };
 }
 
@@ -428,6 +483,21 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
     `The \`${req.slot}\` slot would run whatever copy of ${bin} this machine has,`,
     'and requirePins is on, so a tool no pin source declares fails its check',
     'instead of running.',
+    '',
+  ].join('\n');
+}
+
+/** The refusal for a tool the `--pins` file pins at a version mise can't run here (F38). */
+function overrideRefusal(req: ToolRequest, spec: string, detail: string): string {
+  return [
+    `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by --pins to ${spec}, which mise can't run here.`,
+    '',
+    `  ${detail}`,
+    '',
+    'checkride never installs a tool, and it won\'t run another copy in place',
+    'of the pinned one. Install that version, then re-run:',
+    '',
+    `  mise install ${spec}`,
     '',
   ].join('\n');
 }

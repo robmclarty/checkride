@@ -316,6 +316,59 @@ describe('CLI defaults layer (--defaults / CHECKRIDE_DEFAULTS)', () => {
 });
 
 /**
+ * Contract: `--pins <mise.toml>` and `CHECKRIDE_PINS` name an override pin
+ * file (R13.3). The summary records it as `run.pins`, the flag beats the
+ * variable, a missing file or an entry with no version is exit 2 naming the
+ * file, and `doctor` refuses the flag rather than ignore it.
+ */
+describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-pins-flag-'));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { probe: { command: process.execPath, args: ['-e', ''] } } }));
+    await writeFile(join(dir, 'pins.toml'), '[tools]\nshellcheck = "0.11.0"\n');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const deps = (stderr = capture(), env: Record<string, string> = {}, stdout = capture()): CliDeps => ({ cwd: dir, stdout, stderr, env });
+
+  test('--pins <mise.toml> parses to its raw value', () => {
+    expect(parseCliArgs(['--pins', 'agent.toml']).pins).toBe('agent.toml');
+    expect(parseCliArgs([]).pins).toBeUndefined();
+  });
+
+  test('run.pins records the file, from the flag or the variable', async () => {
+    const stdout = capture();
+    expect(await runCli(['--only', 'probe', '--pins', 'pins.toml', '--json'], deps(capture(), {}, stdout))).toBe(0);
+    expect((JSON.parse(stdout.text()) as { run: unknown }).run).toEqual({ partial: true, only: ['probe'], pins: join(dir, 'pins.toml') });
+    const fromVar = capture();
+    expect(await runCli(['--only', 'probe', '--json'], deps(capture(), { CHECKRIDE_PINS: 'pins.toml' }, fromVar))).toBe(0);
+    expect((JSON.parse(fromVar.text()) as { run: { pins?: string } }).run.pins).toBe(join(dir, 'pins.toml'));
+  });
+
+  test('a missing file, or an entry with no version, exits 2 naming the file, and the flag beats the variable', async () => {
+    const missing = capture();
+    expect(await runCli(['--pins', 'nope.toml'], deps(missing))).toBe(2);
+    expect(missing.text()).toContain('--pins names a missing file');
+    const variable = capture();
+    expect(await runCli([], deps(variable, { CHECKRIDE_PINS: 'nope.toml' }))).toBe(2);
+    expect(variable.text()).toContain('CHECKRIDE_PINS names a missing file');
+    await writeFile(join(dir, 'bad.toml'), '[tools]\nshellcheck = 11\n');
+    const bad = capture();
+    expect(await runCli(['--pins', 'bad.toml'], deps(bad))).toBe(2);
+    expect(bad.text()).toContain(`invalid ${join(dir, 'bad.toml')}: [tools] shellcheck must be a version string`);
+    expect(await runCli(['--only', 'probe', '--pins', 'pins.toml'], deps(capture(), { CHECKRIDE_PINS: 'bad.toml' }))).toBe(0);
+    expect(existsSync(join(dir, '.check', 'summary.json'))).toBe(true);
+  });
+
+  test('doctor refuses --pins rather than probe copies the run wouldn’t use', async () => {
+    const stderr = capture();
+    expect(await runCli(['doctor', '--pins', 'pins.toml'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain("--pins applies to a run; doctor doesn't read it yet");
+  });
+});
+
+/**
  * Contract: `--discover` checks the targets the repo's files propose, applied
  * in memory (R13.2). The summary marks each `discovered: true` and records
  * `run.discover`; nothing is written; a config that declares `targets` is exit

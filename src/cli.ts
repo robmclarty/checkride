@@ -30,6 +30,7 @@ import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
 import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator/index.js';
+import { loadPinsFile, PINS_ENV } from './launch/index.js';
 import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
@@ -60,6 +61,7 @@ const RUN_OPTIONS = {
   base: { type: 'string' },
   out: { type: 'string' },
   defaults: { type: 'string' },
+  pins: { type: 'string' },
 } as const;
 
 /** `baseline` takes only `--config` and `--out`; anything else is a usage error. */
@@ -184,6 +186,9 @@ Run options:
   --defaults <path>  Fill the slots the repo's config and detection leave empty
                    from this config file (or set CHECKRIDE_DEFAULTS; also on
                    doctor). A run with it never ratchets the baseline.
+  --pins <mise.toml>  Run each tool this file's [tools] pins as that version,
+                   through mise, ahead of the repo's own pins (or set
+                   CHECKRIDE_PINS). Never installs; never ratchets the baseline.
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -483,11 +488,12 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 
 /**
  * Parse argv into a command name, the run flags, and the raw `--config`,
- * `--base`, `--out` and `--defaults` values (each absent when not passed;
- * {@link namedConfig}, {@link namedBase}, `namedOut` and {@link namedDefaults}
- * resolve them against their variables).
+ * `--base`, `--out`, `--defaults` and `--pins` values (each absent when not
+ * passed; {@link namedConfig}, {@link namedBase}, `namedOut`,
+ * {@link namedDefaults} and {@link namedPins} resolve them against their
+ * variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -513,6 +519,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     ...(values.base !== undefined ? { base: values.base } : {}),
     ...(values.out !== undefined ? { out: values.out } : {}),
     ...(values.defaults !== undefined ? { defaults: values.defaults } : {}),
+    ...(values.pins !== undefined ? { pins: values.pins } : {}),
   };
 }
 
@@ -554,6 +561,17 @@ function namedFile(flag: string, value: string | undefined, variable: string, de
 function namedDefaults(flag: string | undefined, deps: CliDeps): NamedConfig | null {
   const path = namedFile('--defaults', flag, DEFAULTS_ENV, deps);
   return path === null ? null : { path, config: loadDefaultsFile(path, deps.cwd) };
+}
+
+/**
+ * The override pins a run reads (R13.3): the `mise.toml` `--pins` names, else
+ * `CHECKRIDE_PINS`, with each `[tools]` entry's version, or `null` when
+ * neither names a file. A missing file, or an entry with no version, is a
+ * usage error.
+ */
+function namedPins(flag: string | undefined, deps: CliDeps): { path: string; tools: ReadonlyMap<string, string> } | null {
+  const path = namedFile('--pins', flag, PINS_ENV, deps);
+  return path === null ? null : { path, tools: loadPinsFile(path) };
 }
 
 /**
@@ -673,15 +691,17 @@ function outOption(flag: string | undefined, deps: CliDeps): { out?: string } {
 }
 
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base, out, defaults } = parseCliArgs(argv);
+  const { flags, config, base, out, defaults, pins } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
   const changedBase = namedBase(base, deps);
   const layer = namedDefaults(defaults, deps);
+  const overrides = namedPins(pins, deps);
   const result = await runChecks({
     ...flags,
     ...(named ? { config: named.config, configPath: named.path } : {}),
     ...(changedBase ? { base: changedBase } : {}),
     ...(layer ? { defaults: layer } : {}),
+    ...(overrides ? { pins: overrides } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
@@ -706,7 +726,9 @@ async function doctorConfig(discover: boolean, named: NamedConfig | null, cwd: s
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, out, defaults } = parseCliArgs(argv);
+  const { flags, config, out, defaults, pins } = parseCliArgs(argv);
+  // Refused rather than ignored: doctor's probes don't read an override yet.
+  if (pins !== undefined) throw new Error("--pins applies to a run; doctor doesn't read it yet");
   const named = namedConfig(config, deps);
   const layer = namedDefaults(defaults, deps);
   const result = await runDoctor({

@@ -707,14 +707,14 @@ describe('runGate — aligning to the repo’s Node pin', () => {
     expect(path()).toBe('/usr/bin');
   });
 
-  test('strips CHECKRIDE_CONFIG, CHECKRIDE_BASE and CHECKRIDE_DEFAULTS, so the check reads the repo’s own config, base and nothing below it', async () => {
+  test('strips CHECKRIDE_CONFIG, CHECKRIDE_BASE, CHECKRIDE_DEFAULTS and CHECKRIDE_PINS, so the check reads the repo’s own config, base and pins', async () => {
     let seen: Record<string, string | undefined> = {};
     await runGate({
       cwd: dir,
       spawn: (_command, _args, opts) => { seen = opts.env; return Promise.resolve(0); },
       stdout: capture(),
       stderr: capture(),
-      env: { PATH: '/usr/bin', CHECKRIDE_CONFIG: '/agent/ci.json', CHECKRIDE_BASE: 'origin/pr-base', CHECKRIDE_DEFAULTS: '/agent/defaults.json' },
+      env: { PATH: '/usr/bin', CHECKRIDE_CONFIG: '/agent/ci.json', CHECKRIDE_BASE: 'origin/pr-base', CHECKRIDE_DEFAULTS: '/agent/defaults.json', CHECKRIDE_PINS: '/agent/mise.toml' },
       pinEnv: pinEnv(),
     });
     expect(seen).toEqual({ PATH: '/usr/bin' });

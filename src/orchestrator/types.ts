@@ -121,9 +121,8 @@ export type SummaryCheck = {
 
 /**
  * What a run selected (R8.1): `partial`, plus each selection or mode flag the
- * run was given and nothing for one it wasn't. `static_only` and `pins`
- * belong to flags checkride doesn't have yet, so no run writes them. Paths
- * are absolute.
+ * run was given and nothing for one it wasn't. `static_only` belongs to a
+ * flag checkride doesn't have yet, so no run writes it. Paths are absolute.
  */
 export type SummaryRun = {
   /**
@@ -223,6 +222,8 @@ export type CheckRunner = (
     pins?: readonly PinSourceName[];
     requirePins?: boolean;
     packEnv?: Readonly<Record<string, string>>;
+    /** The `--pins` file's tools by mise id, each with its version, which the `override` source at the head of `pins` reads (R13.3). */
+    overrides?: ReadonlyMap<string, string>;
   },
 ) => Promise<RunnerOutcome>;
 
@@ -262,6 +263,14 @@ export type RunOptions = RunFlags & {
    * consumer run, which never ratchets the baseline.
    */
   defaults?: { path: string; config: CheckrideConfig };
+  /**
+   * The `--pins` or `CHECKRIDE_PINS` file (R13.3): its absolute `path`, which
+   * the summary records as `run.pins`, and the `tools` it pins, by mise id,
+   * each with its version. They form an `override` source at the head of
+   * every pin chain, run as `mise exec <id>@<version>`, and record
+   * `pin_source: "override"`. A run with it never ratchets the baseline.
+   */
+  pins?: { path: string; tools: ReadonlyMap<string, string> };
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

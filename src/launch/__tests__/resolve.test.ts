@@ -745,3 +745,100 @@ describe('a toolchain file picks the toolchain over one the shell exported', () 
       expect(launchCheck('custom', 'make', ['check'], s.at('.', { pins: GO_CHAIN }))).toEqual({ command: 'make', args: ['check'] });
     }));
 });
+
+/** A fake mise whose `where` knows one installed copy, `shellcheck@0.11.0` or `go@1.27`, and fails any other the way mise does. */
+const FAKE_MISE = [
+  'if [ "$1" = where ]; then',
+  '  case "$2" in shellcheck@0.11.0|go@1.27) exit 0 ;; esac',
+  '  echo "mise WARN  mise version 2026.10.12 available" >&2',
+  '  echo "mise ERROR $2 not installed" >&2',
+  '  exit 1',
+  'fi',
+].join('\n');
+
+/** The override chain a bash target runs under `--pins`. */
+const OVERRIDE_CHAIN = ['override', 'mise', 'path'] as const;
+
+describe('the override source (R13.3)', () => {
+  test('heads the chain: a tool the --pins file names runs as that version through mise, over the repo’s own pin', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nshellcheck = "0.10.0"\n');
+      await s.tool('mise', FAKE_MISE);
+      const overrides = new Map([['shellcheck', '0.11.0']]);
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides }))).toEqual({
+        command: 'mise',
+        args: ['exec', 'shellcheck@0.11.0', '--', 'shellcheck', '-f', 'json1', 'run.sh'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false', MISE_OFFLINE: '1' },
+        pin: { source: 'override', version: '0.11.0' },
+      });
+    }));
+
+  test('matches any of the tool’s mise ids, as the file spells it', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE.replace('shellcheck@0.11.0', 'aqua:koalaman/shellcheck@0.11.0'));
+      const overrides = new Map([['aqua:koalaman/shellcheck', '0.11.0']]);
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides }))).toMatchObject({
+        args: ['exec', 'aqua:koalaman/shellcheck@0.11.0', '--', 'shellcheck', '-f', 'json1', 'run.sh'],
+      });
+    }));
+
+  test('a tool TOOLS doesn’t describe matches by its executable’s name', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE.replace('shellcheck@0.11.0', 'my-linter@2.0.0'));
+      const at = s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map([['my-linter', '2.0.0']]) });
+      expect(launchCheck('lint', 'pnpm', ['exec', 'my-linter', '.'], at)).toMatchObject({
+        command: 'mise',
+        args: ['exec', 'my-linter@2.0.0', '--', 'my-linter', '.'],
+        pin: { source: 'override', version: '2.0.0' },
+      });
+    }));
+
+  // F38
+  test('a version mise hasn’t installed fails naming the tool and the install, and nothing else runs', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE);
+      await s.tool('shellcheck');
+      const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.0.1']]) }));
+      expect(launch).toHaveProperty('refusal');
+      const refusal = 'refusal' in launch ? launch.refusal : '';
+      expect(refusal).toContain("the `lint` slot's `shellcheck` is pinned by --pins to shellcheck@0.0.1");
+      expect(refusal).toContain('mise where shellcheck@0.0.1: shellcheck@0.0.1 not installed');
+      expect(refusal).toContain('mise install shellcheck@0.0.1');
+    }));
+
+  test('without mise on PATH it fails rather than run the PATH copy', () =>
+    withScratch(async (s) => {
+      await s.tool('shellcheck');
+      const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) }));
+      expect('refusal' in launch ? launch.refusal : '').toContain("`mise` isn't on PATH");
+    }));
+
+  test('a tool the file doesn’t name resolves as before, and the source reads nothing outside the override chain', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE);
+      const overrides = new Map([['shfmt', '3.14.1']]);
+      expect(launchCheck('types', 'pnpm', ['exec', 'tsc'], s.at('.', { pins: ['override', 'js-lockfile'], overrides }))).toMatchObject({ command: 'pnpm', pin: { source: 'js-lockfile' } });
+      const shellcheck = new Map([['shellcheck', '0.11.0']]);
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: ['js-lockfile'], overrides: shellcheck }))).toMatchObject({ command: 'pnpm' });
+    }));
+
+  test('a toolchain the file names runs that copy in any chain, and one it doesn’t runs as written', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE);
+      const at = s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map([['go', '1.27']]) });
+      expect(launchCheck('vet', 'go', ['vet', './...'], at)).toMatchObject({ command: 'mise', args: ['exec', 'go@1.27', '--', 'go', 'vet', './...'], pin: { source: 'override', version: '1.27' } });
+      expect(launchCheck('vet', 'go', ['vet', './...'], s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map() }))).toEqual({ command: 'go', args: ['vet', './...'] });
+    }));
+
+  test('a go.mod tool runs through the Go copy the file pins, and keeps its own pin source', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', FAKE_MISE);
+      await s.file('go.mod', 'module example.com/app\n\ngo 1.24\n\ntool honnef.co/go/tools/cmd/staticcheck\n');
+      const at = s.at('.', { pins: ['override', ...pinChain('go')], overrides: new Map([['go', '1.27']]) });
+      expect(launchCheck('lint', 'pnpm', ['exec', 'staticcheck', './...'], at)).toMatchObject({
+        command: 'mise',
+        args: ['exec', 'go@1.27', '--', 'go', 'tool', 'staticcheck', './...'],
+        pin: { source: 'go-mod-tool' },
+      });
+    }));
+});
