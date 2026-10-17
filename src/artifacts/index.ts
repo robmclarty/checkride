@@ -22,7 +22,7 @@ export { asNumberOrNull, asRecord, asRecordArray, asStringOrNull, isRecord, pars
 
 export { CHECK_DIR, isInside, namedOut, OUT_ENV, outDir, outLabel, prepareScratch, scratchDir, SUMMARY_FILE } from './out.js';
 
-export { listArtifacts, resolveRawOutput, statArtifact } from './raw.js';
+export { artifactStem, listArtifacts, resolveRawOutput, statArtifact } from './raw.js';
 export type { ArtifactFile, RawOutput } from './raw.js';
 
 export { parseSummary, readSummary, SUPPORTED_SCHEMA_VERSION } from './summary.js';

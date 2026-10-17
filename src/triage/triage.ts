@@ -15,16 +15,7 @@
  */
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import {
-  listArtifacts,
-  OUT_ENV,
-  outDir,
-  outLabel,
-  readSummary,
-  resolveRawOutput,
-  runWindowStart,
-  statArtifact,
-} from '../artifacts/index.js';
+import { artifactStem, listArtifacts, OUT_ENV, outDir, outLabel, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { configuredSlots } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
@@ -117,7 +108,7 @@ async function buildRow(checkDir: string, check: SummaryCheck, windowStart: numb
   // A skipped slot produced no output; any file under its name is a leftover
   // from an earlier run, and offering it would be the stale read this module
   // exists to prevent.
-  const raw = check.skipped === true ? null : await resolveRawOutput(checkDir, check.name, check.output_file, windowStart);
+  const raw = check.skipped === true ? null : await resolveRawOutput(checkDir, artifactStem(check), check.output_file, windowStart);
   return {
     slot: check.name,
     adapter: check.adapter,
@@ -130,9 +121,10 @@ async function buildRow(checkDir: string, check: SummaryCheck, windowStart: numb
   };
 }
 
-function buildCoverage(cwd: string, rows: readonly SlotRow[]): Coverage {
+function buildCoverage(cwd: string, rows: readonly SlotRow[], checks: readonly SummaryCheck[]): Coverage {
   const configured = configuredSlots(cwd);
-  const present = new Set(rows.map((r) => r.slot));
+  // A slot configured at the top level is covered by any target's check of it.
+  const present = new Set([...rows.map((r) => r.slot), ...checks.flatMap((c) => (c.slot === undefined ? [] : [c.slot]))]);
   return {
     ran: rows.filter((r) => r.status !== 'skipped').map((r) => r.slot),
     skipped: rows.filter((r) => r.status === 'skipped').map((r) => r.slot),
@@ -164,6 +156,8 @@ type Artifacts = {
   rows: SlotRow[];
   digest: ArtifactFile | null;
   checkDir: ArtifactFile[] | null;
+  /** The summary's checks, which name the slot each target's check fills. */
+  checks: readonly SummaryCheck[];
 };
 
 /**
@@ -190,7 +184,7 @@ async function readArtifacts(checkDir: string, gate: GateOutcome): Promise<Artif
     statArtifact(checkDir, DIGEST_FILE, anchor),
     parsed ? Promise.resolve(null) : listArtifacts(checkDir, anchor),
   ]);
-  return { summary, windowStart, rows, digest, checkDir: listing };
+  return { summary, windowStart, rows, digest, checkDir: listing, checks };
 }
 
 function isVacuous(summary: SummaryRead): boolean {
@@ -210,7 +204,7 @@ export async function triage(cwd: string, env: TriageEnv, out: string | null = n
   const vars: Record<string, string> = out === null ? {} : { [OUT_ENV]: out };
   const gate = await runGate(cwd, env, { dir, vars });
   const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env, vars) : null;
-  const { summary, windowStart, rows, digest, checkDir } = await readArtifacts(dir, gate);
+  const { summary, windowStart, rows, digest, checkDir, checks } = await readArtifacts(dir, gate);
   return {
     cwd,
     outLabel: outLabel(cwd, dir),
@@ -221,7 +215,7 @@ export async function triage(cwd: string, env: TriageEnv, out: string | null = n
     windowStart,
     rows,
     failing: rows.filter((r) => r.status === 'fail'),
-    coverage: buildCoverage(cwd, rows),
+    coverage: buildCoverage(cwd, rows, checks),
     vacuous: isVacuous(summary),
     digest,
     stale: collectStale(rows, digest),

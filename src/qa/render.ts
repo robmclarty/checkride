@@ -25,7 +25,7 @@ import type { DeadExtract } from './dead.js';
 import type { DupesExtract } from './dupes.js';
 import type { HealthExtract } from './health.js';
 import type { MutationExtract } from './mutation.js';
-import type { LedgerEntry, QaReport } from './qa.js';
+import type { LedgerEntry, QaFold, QaReport } from './qa.js';
 
 /** Matches `--digest`'s ceiling: a report that reads in one gulp. */
 export const QA_MAX_BYTES = 8000;
@@ -105,25 +105,38 @@ function healthHeadline(extract: HealthExtract): string {
   return `${extract.score === null ? '—' : extract.score.toFixed(1)}/${extract.grade} · ${over} function(s) over threshold`;
 }
 
-function headlineFor(report: QaReport, slot: string): string {
-  if (slot === 'mutation') return report.mutation === null ? '—' : mutationHeadline(report.mutation);
-  if (slot === 'dead') return report.dead === null ? '—' : deadHeadline(report.dead);
-  if (slot === 'dupes') return report.dupes === null ? '—' : dupesHeadline(report.dupes);
-  return report.health === null ? '—' : healthHeadline(report.health);
+/** A fold's one-line headline, by the report it folded. */
+function foldHeadline(fold: QaFold): string {
+  switch (fold.slot) {
+    case 'mutation':
+      return mutationHeadline(fold.extract);
+    case 'dead':
+      return deadHeadline(fold.extract);
+    case 'dupes':
+      return dupesHeadline(fold.extract);
+    default:
+      return healthHeadline(fold.extract);
+  }
+}
+
+/** The headline of the fold the entry's check wrote, or `—` when nothing folded. */
+function headlineFor(report: QaReport, entry: LedgerEntry): string {
+  const fold = report.folds.find((f) => f.name === entry.name);
+  return fold === undefined ? '—' : foldHeadline(fold);
 }
 
 function ledgerRow(report: QaReport, entry: LedgerEntry): string {
   const size = entry.file === null ? '—' : formatBytes(entry.file.bytes);
-  return `| \`${report.outLabel}/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry.slot)} |`;
+  return `| \`${report.outLabel}/${entry.artifact}\` | ${stateOf(entry)} | ${size} | ${ageOf(entry)} | ${headlineFor(report, entry)} |`;
 }
 
 /** Where this artifact came from, when that is not "the run described above". */
 function provenanceReason(entry: LedgerEntry): string | null {
   if (entry.optedIn === false) {
-    return `\`${entry.slot}\` is not named in \`checkride.config.json\`, so no \`checkride\` run produces it`;
+    return `\`${entry.name}\` is not named in \`checkride.config.json\`, so no \`checkride\` run produces it`;
   }
   if (!entry.ranThisRun) {
-    return `\`${entry.slot}\` has no entry in the summary on disk, so nothing here is from that run`;
+    return `\`${entry.name}\` has no entry in the summary on disk, so nothing here is from that run`;
   }
   return null;
 }
@@ -155,7 +168,7 @@ function ledgerNote(entry: LedgerEntry): string | null {
   const why = [provenanceReason(entry), stalenessReason(entry), problemReason(entry)].filter(
     (reason): reason is string => reason !== null,
   );
-  return why.length === 0 ? null : `**${entry.slot}** — ${why.join('; ')}. ${entry.remedy}`;
+  return why.length === 0 ? null : `**${entry.name}** — ${why.join('; ')}. ${entry.remedy}`;
 }
 
 function renderLedger(report: QaReport): string {
@@ -219,9 +232,7 @@ function sampleLine(sample: MutationExtract['samples'][number]): string {
   return `${where} — ${sample.mutator} → ${code(sample.replacement)} (${sample.status})`;
 }
 
-function renderMutation(report: QaReport): string {
-  const m = report.mutation;
-  if (m === null) return '';
+function renderMutation(m: MutationExtract): string {
   const counts =
     `Score **${pct(m.score, 2)}** (detected ÷ tested — stryker's own headline), ${pct(m.scoreCovered, 2)} ` +
     `counting only mutants a test reaches.\n\n` +
@@ -240,9 +251,7 @@ function renderMutation(report: QaReport): string {
   return `${counts}\n\n${table(['file', 'score', 'survived', 'no-cov', 'tested', 'top undetected mutators'], rows)}\n${ranking}\n${mutators}${samples}`;
 }
 
-function renderDead(report: QaReport): string {
-  const d = report.dead;
-  if (d === null) return '';
+function renderDead(d: DeadExtract): string {
   const head = `${count(d.totalIssues)} issue(s) across ${count(d.entryPoints)} entry point(s).`;
   if (d.buckets.length === 0) return `${head} No finding bucket is non-empty.`;
   const rows = d.buckets.map((b) => `| ${b.name} | ${b.count} | ${b.samples.map((s) => `\`${s}\``).join(', ')} |`);
@@ -250,9 +259,7 @@ function renderDead(report: QaReport): string {
   return `${head}\n\n${table(['bucket', 'count', 'first few'], rows)}${omitted}`;
 }
 
-function renderDupes(report: QaReport): string {
-  const d = report.dupes;
-  if (d === null) return '';
+function renderDupes(d: DupesExtract): string {
   const head =
     `${pct(d.duplicationPercentage)} duplicated — ${count(d.duplicatedLines)} of ${count(d.totalLines)} line(s) ` +
     `across ${count(d.totalFiles)} file(s); ${d.cloneGroups} clone group(s) in ${d.totalFamilies} families.`;
@@ -285,9 +292,7 @@ function healthFindings(h: HealthExtract): string {
   );
 }
 
-function renderHealth(report: QaReport): string {
-  const h = report.health;
-  if (h === null) return '';
+function renderHealth(h: HealthExtract): string {
   const penalties =
     h.penalties.length === 0
       ? 'No penalty is non-zero.'
@@ -352,13 +357,23 @@ function fit(frame: Frame, sections: readonly Section[], maxBytes: number): stri
   return assemble(frame, sections, kept, maxBytes);
 }
 
+/** A fold's section body, by the report it folded. */
+function renderFold(fold: QaFold): string {
+  switch (fold.slot) {
+    case 'mutation':
+      return renderMutation(fold.extract);
+    case 'dead':
+      return renderDead(fold.extract);
+    case 'dupes':
+      return renderDupes(fold.extract);
+    default:
+      return renderHealth(fold.extract);
+  }
+}
+
 /** Render the whole report. Deterministic: same report in, same bytes out. */
 export function renderQa(report: QaReport, maxBytes: number = QA_MAX_BYTES): string {
-  const sections: Section[] = [
-    { title: 'mutation', body: renderMutation(report) },
-    { title: 'dead', body: renderDead(report) },
-    { title: 'dupes', body: renderDupes(report) },
-    { title: 'health', body: renderHealth(report) },
-  ].filter((section) => section.body !== '');
+  // One section per fold, titled for the check that wrote it (`web:dead` in a target).
+  const sections: Section[] = report.folds.map((fold) => ({ title: fold.name, body: renderFold(fold) }));
   return fit({ head: renderHead(report), footer: readingThis(report.outLabel) }, sections, maxBytes);
 }

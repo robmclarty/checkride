@@ -183,6 +183,24 @@ dead code, then structure, then its own reading of the source, and it stops
 where the evidence stops. A short report is a strong one; there is no fixed-size
 finding list, and zero findings is a legitimate answer.
 
+`mutation.json` is stryker's own file, written wherever the repo's stryker
+config's `jsonReporter.fileName` puts it, not an artifact checkride captures. So
+`qa` reports mutation only when that path lands in the output directory it
+reads: `.check/` by default, the directory under `qa --out`, and in a target,
+the target's own directory, relative to the target's root. checkride routes no
+stryker output; point `jsonReporter.fileName` there to have `qa` read it.
+
+## Targets
+
+In a repo with `targets`, a target's checks write under `<out>/<target>/`, and
+the readers follow them. `triage` names each check `<target>:<slot>` and finds
+its raw output in its target's directory, a `.jsonl` artifact among the
+candidates. The digest heads each failing check's section with that name and
+points at the same file. `qa` reads each target's `dead.json`, `dupes.json`,
+`health.json` and `mutation.json` from its directory and gives each its own
+ledger row and section, named for the check, while a slot no target ran keeps
+its one row at the root.
+
 ## How the readers decide an artifact is stale
 
 `.check/` is a flat directory of last-write-wins files, and a run only writes

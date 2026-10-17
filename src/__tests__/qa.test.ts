@@ -218,7 +218,7 @@ describe('the artifact ledger', () => {
       artifacts: { 'dead.json': { text: '{ not json' } },
     });
     expect(rowFor(report, 'dead').problem).toBe('unreadable');
-    expect(report.dead).toBeNull();
+    expect(report.folds.find((f) => f.slot === 'dead')).toBeUndefined();
     expect(text).toContain('not a JSON object');
   });
 
@@ -231,7 +231,7 @@ describe('the artifact ledger', () => {
     });
     expect(rowFor(report, 'dead').problem).toBe('unrecognized');
     expect(rowFor(report, 'dupes').problem).toBe('unrecognized');
-    expect(report.dead).toBeNull();
+    expect(report.folds.find((f) => f.slot === 'dead')).toBeUndefined();
     expect(text).toContain('is not the report this slot writes');
     expect(text).not.toContain('0 issue(s)');
   });

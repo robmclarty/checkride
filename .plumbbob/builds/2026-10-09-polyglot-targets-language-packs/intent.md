@@ -686,7 +686,7 @@ reference rules and porting trap apply as written there.
 36. [x] feat(cli): add target add to declare and convert targets, **done when:** `checkride target add` works per R7.4; converting an implicit repo names its target (default `app`), lifts top-level target-scope entries, rewrites baseline keys and prints each change (S11, F22); `--dry-run` writes nothing
     - seam: `src/targets/add.ts`, `src/cli.ts`, `src/baseline/store.ts`
     - model: opus (the conversion rewrites three files consistently)
-37. [ ] feat(init): discover targets in existing mode, **done when:** existing-mode `init` runs R11.4's discovery and, when it finds more than one pack or a marker below the root, prints the proposed `targets` block and writes it unless `--dry-run`; a single root pack stays implicit
+37. [x] feat(init): discover targets in existing mode, **done when:** existing-mode `init` runs R11.4's discovery and, when it finds more than one pack or a marker below the root, prints the proposed `targets` block and writes it unless `--dry-run`; a single root pack stays implicit
     - seam: `src/targets/discover.ts`, `src/init.ts`
     - model: sonnet
 38. [ ] feat(readers): teach digest, triage and qa target directories and jsonl, **done when:** the digest, `triage` and `qa` read `<out>/<target>/` and `.jsonl` artifacts, and their reports name `<target>:<slot>` checks; the plugin readers' e2e passes

@@ -21,8 +21,7 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Adapter } from '../adapters.js';
-import { CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
+import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import { fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
@@ -53,28 +52,20 @@ export type DigestTarget = { dir: string; label: string };
  */
 const DEFAULT_BUDGET: DigestBudget = { maxItemsPerSlot: 10, maxBytes: 8000 };
 
-/** Whether a string parses as JSON (mirrors the orchestrator's persist rule). */
-function isJson(raw: string): boolean {
-  try {
-    JSON.parse(raw);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * The output-directory path holding the bytes this section excerpts, under
  * `label` as an agent would type it (`.check/lint.json`), and matched to how
- * `persistOutput` in `../orchestrator/execute.ts` persisted them: an
- * adapter's JSON output lands in `<outputFile>`, everything else in
- * `<slot>.stdout.txt` / `<slot>.stderr.txt`. Points the agent at exactly what
- * to read for the full diagnostics.
+ * `persistOutput` in `../orchestrator/execute.ts` persisted them: the file the
+ * summary names as `output_file` when the run wrote one, everything else in
+ * `<slot>.stdout.txt` / `<slot>.stderr.txt`, a target's check under its
+ * `<target>/` directory. Points the agent at exactly what to read for the full
+ * diagnostics.
  */
-function rawPointer(adapter: Adapter, outcome: CheckOutcome, label: string): string {
-  if (adapter.outputFile && isJson(outcome.stdout)) return `${label}/${adapter.outputFile}`;
-  if (outcome.stdout.trim()) return `${label}/${adapter.slot}.stdout.txt`;
-  if (outcome.stderr.trim()) return `${label}/${adapter.slot}.stderr.txt`;
+function rawPointer(check: SummaryCheck, outcome: CheckOutcome, label: string): string {
+  if (check.output_file !== null) return `${label}/${check.output_file}`;
+  const stem = artifactStem(check);
+  if (outcome.stdout.trim()) return `${label}/${stem}.stdout.txt`;
+  if (outcome.stderr.trim()) return `${label}/${stem}.stderr.txt`;
   return `${label}/${SUMMARY_FILE}`;
 }
 
@@ -89,12 +80,13 @@ function contentLines(text: string): string[] {
  * back to the last N lines of raw text — where a compiler or test runner puts
  * its summary. Either way the section is capped and points at the raw file.
  */
-function renderSection(run: CheckRun, maxItems: number, label: string): string {
-  const { slot, adapter, outcome } = run;
-  const raw = rawPointer(adapter, outcome, label);
-  const heading = `## ${slot} — ${adapter.name}`;
+function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, label: string): string {
+  const { adapter, outcome } = run;
+  const raw = rawPointer(check, outcome, label);
+  const heading = `## ${check.name} — ${adapter.name}`;
 
-  const keys = fingerprint(adapter.name, outcome.stdout, [adapter.command, ...adapter.args]);
+  // Keyed as the baseline keys them, a target's paths from the repo root.
+  const keys = fingerprint(adapter.name, outcome.stdout, [adapter.command, ...adapter.args], run.root);
   if (keys && keys.size > 0) {
     const all = [...keys];
     const shown = all.slice(0, maxItems);
@@ -136,7 +128,7 @@ export function buildDigest(
   const failing = checks.filter((c) => !c.ok && !c.skipped);
   if (failing.length === 0) return null;
 
-  const runBySlot = new Map(runs.map((r) => [r.slot, r]));
+  const runByName = new Map(runs.map((r) => [r.name, r]));
   const summaryPointer = `${label}/${SUMMARY_FILE}`;
   let out =
     `# checkride failure digest\n\n` +
@@ -146,11 +138,11 @@ export function buildDigest(
 
   let rendered = 0;
   for (const check of failing) {
-    const run = runBySlot.get(check.name);
+    const run = runByName.get(check.name);
     // A failing non-skipped check always has a run; keep a minimal fallback so a
     // future code path that summarizes a failure without a run can't crash here.
     const section = run
-      ? `\n${renderSection(run, budget.maxItemsPerSlot, label)}`
+      ? `\n${renderSection(run, check, budget.maxItemsPerSlot, label)}`
       : `\n## ${check.name} — ${check.adapter ?? 'unknown'}\n\nRaw: \`${summaryPointer}\` — exited ${check.exit_code}\n`;
 
     // Byte budget: once a section would overflow, stop and name what's left —

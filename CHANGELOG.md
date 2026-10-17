@@ -229,6 +229,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `target add` does, moving entries and baseline keys into the root target,
   unless `--dry-run`. A repo with a root `package.json` and nothing else stays
   as it is, and a config that already declares targets is left alone.
+- **The readers follow targets.** The digest, `checkride triage` and
+  `checkride qa` read a target's artifacts from `<out>/<target>/` and name its
+  checks `<target>:<slot>`. `triage` also finds a `.jsonl` artifact as raw
+  output, and the digest points at the file the summary names as
+  `output_file`, so a tool that printed a preamble before its JSON no longer
+  sends the reader to a text file that was never written. `qa` gives each
+  target its own ledger row and section. `docs/plugin.md` now says that `qa`
+  reads `mutation.json` only where the repo's stryker `jsonReporter.fileName`
+  writes it into the output directory.
 
 ### Changed
 

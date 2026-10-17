@@ -4,8 +4,9 @@
  *
  * `output_file` is populated only when a tool emits JSON on stdout, so most
  * slots carry `null` there while their real output sits in `.check/` under the
- * documented convention (`<slot>.json`, else `<slot>.stdout.txt` /
- * `<slot>.stderr.txt`). On a full run of this repo, 8 of 17 checks name no file
+ * documented convention (`<slot>.json` or `<slot>.jsonl`, else
+ * `<slot>.stdout.txt` / `<slot>.stderr.txt`), a target's check under its
+ * `<target>/` directory. On a full run of this repo, 8 of 17 checks name no file
  * — `test` among them, the slot most likely to need triage. A reader that
  * reported "no output" for those would be wrong about the one thing it exists
  * to get right, so it owns the convention as a fallback.
@@ -83,12 +84,21 @@ export async function listArtifacts(checkDir: string, windowStart: number | null
 }
 
 /**
- * The convention, in priority order: what the summary named, then the JSON file,
- * then the captured streams. Deduped, because `output_file` is usually
- * `<slot>.json` when it is set at all.
+ * Where a check's artifacts sit in the output directory, less the extension:
+ * `lint`, or `web/lint` for a target's check, which a multi-target run writes
+ * under `<target>/`.
  */
-function candidateNames(slot: string, outputFile: string | null): string[] {
-  const names = [outputFile, `${slot}.json`, `${slot}.stdout.txt`, `${slot}.stderr.txt`];
+export function artifactStem(check: { name: string; target?: string | undefined; slot?: string | undefined }): string {
+  return check.target !== undefined && check.slot !== undefined ? `${check.target}/${check.slot}` : check.name;
+}
+
+/**
+ * The convention, in priority order: what the summary named, then the JSON
+ * file, the JSON-lines file, then the captured streams. Deduped, because
+ * `output_file` is usually `<slot>.json` when it is set at all.
+ */
+function candidateNames(stem: string, outputFile: string | null): string[] {
+  const names = [outputFile, `${stem}.json`, `${stem}.jsonl`, `${stem}.stdout.txt`, `${stem}.stderr.txt`];
   return [...new Set(names.filter((name): name is string => name !== null))];
 }
 
@@ -105,18 +115,18 @@ function chooseRaw(first: ArtifactFile, rest: readonly ArtifactFile[]): Artifact
 }
 
 /**
- * Resolve a slot's raw output under `checkDir`, freshness-gating whatever it
- * finds — a stale candidate is labelled, not dropped. `null` only when the slot
- * genuinely wrote nothing.
+ * Resolve a check's raw output under `checkDir`, from its {@link artifactStem},
+ * freshness-gating whatever it finds — a stale candidate is labelled, not
+ * dropped. `null` only when the check genuinely wrote nothing.
  */
 export async function resolveRawOutput(
   checkDir: string,
-  slot: string,
+  stem: string,
   outputFile: string | null,
   windowStart: number | null,
 ): Promise<RawOutput | null> {
   const found = await Promise.all(
-    candidateNames(slot, outputFile).map((name) => statArtifact(checkDir, name, windowStart)),
+    candidateNames(stem, outputFile).map((name) => statArtifact(checkDir, name, windowStart)),
   );
   const [first, ...rest] = found.filter((c): c is ArtifactFile => c !== null);
   if (first === undefined) return null;

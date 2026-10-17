@@ -44,9 +44,15 @@ export type LedgerProblem = 'absent' | 'too-large' | 'unreadable' | 'unrecognize
 /** One artifact's standing — the honest four-state answer D14 asks for. */
 export type LedgerEntry = {
   slot: string;
-  /** File name within the output directory. */
+  /** The check that writes it: the slot, or `<target>:<slot>` for a target's. */
+  name: string;
+  /** Path within the output directory: `dead.json`, or `web/dead.json` for a target's check. */
   artifact: string;
-  /** Named in `checkride.config.json`; `null` when the repo has no config. */
+  /**
+   * Named in `checkride.config.json`; `null` when the repo has no config, and
+   * for a target's check, whose entry may sit in its target's or its pack's
+   * block rather than the top level this reads.
+   */
   optedIn: boolean | null;
   /** Whether the slot has an entry in the summary on disk. */
   ranThisRun: boolean;
@@ -75,13 +81,18 @@ export type QaReport = {
   skipped: string[];
   configured: string[] | null;
   ledger: LedgerEntry[];
-  mutation: MutationExtract | null;
-  health: HealthExtract | null;
-  dead: DeadExtract | null;
-  dupes: DupesExtract | null;
+  /** Each artifact folded, in ledger order: one per ledger entry whose file held the report it should. */
+  folds: QaFold[];
 };
 
-type ArtifactSpec = { slot: string; artifact: string; remedy: string };
+/** One artifact folded, named for the check that wrote it. */
+export type QaFold =
+  | { name: string; slot: 'mutation'; extract: MutationExtract }
+  | { name: string; slot: 'dead'; extract: DeadExtract }
+  | { name: string; slot: 'dupes'; extract: DupesExtract }
+  | { name: string; slot: 'health'; extract: HealthExtract };
+
+type ArtifactSpec = { slot: QaFold['slot']; artifact: string; remedy: string };
 
 /**
  * The four artifacts, in the order the skill reasons about them: surviving
@@ -136,23 +147,62 @@ function detailOf(read: ArtifactRead): string | null {
 
 type SlotContext = { configured: string[] | null; ran: Set<string> };
 
+/** One artifact a check wrote: its spec, the check's name, and its path in the output directory. */
+type Instance = { spec: ArtifactSpec; name: string; artifact: string };
+
+/**
+ * Where each artifact is: one per target's check the summary lists for its
+ * slot, under `<target>/`, and otherwise the one at the output directory's
+ * root, which is every artifact in a repo without targets.
+ *
+ * A target's `mutation.json` is where its stryker config's
+ * `jsonReporter.fileName` puts it, relative to the target's root, so it's read
+ * here only when that path lands in the target's output directory; checkride
+ * routes no file of stryker's own.
+ */
+function instancesOf(spec: ArtifactSpec, summary: SummaryRead): Instance[] {
+  const checks = summary.state === 'ok' ? summary.summary.checks.filter((c) => c.target !== undefined && c.slot === spec.slot) : [];
+  if (checks.length === 0) return [{ spec, name: spec.slot, artifact: spec.artifact }];
+  return checks.map((c) => ({ spec, name: c.name, artifact: `${c.target ?? ''}/${spec.artifact}` }));
+}
+
+/** Fold one artifact's parsed bytes by its slot's extractor, or `null` when they aren't that report. */
+function foldOf(name: string, slot: ArtifactSpec['slot'], value: Record<string, unknown>): QaFold | null {
+  switch (slot) {
+    case 'mutation': {
+      const extract = extractMutation(value);
+      return extract === null ? null : { name, slot, extract };
+    }
+    case 'dead': {
+      const extract = extractDead(value);
+      return extract === null ? null : { name, slot, extract };
+    }
+    case 'dupes': {
+      const extract = extractDupes(value);
+      return extract === null ? null : { name, slot, extract };
+    }
+    default: {
+      const extract = extractHealth(value);
+      return extract === null ? null : { name, slot, extract };
+    }
+  }
+}
+
 /**
  * One ledger row. `recognized` is false when the bytes parsed but the fold did
  * not find the report it expected — a distinct state from unreadable, because
  * the file is fine and it is the *kind* that is wrong.
  */
-function entryFor(
-  spec: ArtifactSpec,
-  read: ArtifactRead,
-  context: SlotContext,
-  recognized: boolean,
-): LedgerEntry {
+function entryFor(instance: Instance, read: ArtifactRead, context: SlotContext, recognized: boolean): LedgerEntry {
+  const { spec, name } = instance;
   const problem = problemOf(read);
+  const targets = name !== spec.slot;
   return {
     slot: spec.slot,
-    artifact: spec.artifact,
-    optedIn: context.configured === null ? null : context.configured.includes(spec.slot),
-    ranThisRun: context.ran.has(spec.slot),
+    name,
+    artifact: instance.artifact,
+    optedIn: context.configured === null || targets ? null : context.configured.includes(spec.slot),
+    ranThisRun: context.ran.has(name),
     file: read.file,
     problem: problem === null && !recognized ? 'unrecognized' : problem,
     detail: detailOf(read),
@@ -190,34 +240,14 @@ export async function qaExtract(cwd: string, now: () => number = Date.now, out: 
   const { covered, skipped } = coverage(summary);
   const context: SlotContext = { configured: configuredSlots(cwd), ran: new Set(covered) };
 
-  const reads = new Map(
-    await Promise.all(
-      ARTIFACTS.map(
-        async (spec) => [spec.slot, await readJsonArtifact(checkDir, spec.artifact, windowStart)] as const,
-      ),
-    ),
+  const instances = ARTIFACTS.flatMap((spec) => instancesOf(spec, summary));
+  const read = await Promise.all(
+    instances.map(async (instance) => {
+      const artifact = await readJsonArtifact(checkDir, instance.artifact, windowStart);
+      const fold = artifact.state === 'ok' ? foldOf(instance.name, instance.spec.slot, artifact.value) : null;
+      return { instance, artifact, fold };
+    }),
   );
-
-  const MISSING: ArtifactRead = { state: 'missing', file: null };
-  const readOf = (slot: string): ArtifactRead => reads.get(slot) ?? MISSING;
-  /** Fold a slot's parsed bytes, or `null` when there are none to fold. */
-  const fold = <T>(slot: string, extract: (value: Record<string, unknown>) => T | null): T | null => {
-    const read = readOf(slot);
-    return read.state === 'ok' ? extract(read.value) : null;
-  };
-
-  // Named one by one rather than dispatched: each artifact has its own fold
-  // with its own return type, and there are exactly four of them.
-  const mutation = fold('mutation', extractMutation);
-  const dead = fold('dead', extractDead);
-  const dupes = fold('dupes', extractDupes);
-  const health = fold('health', extractHealth);
-  const recognized: Readonly<Record<string, boolean>> = {
-    mutation: mutation !== null,
-    dead: dead !== null,
-    dupes: dupes !== null,
-    health: health !== null,
-  };
 
   return {
     cwd,
@@ -228,12 +258,7 @@ export async function qaExtract(cwd: string, now: () => number = Date.now, out: 
     covered,
     skipped,
     configured: context.configured,
-    ledger: ARTIFACTS.map((spec) =>
-      entryFor(spec, readOf(spec.slot), context, recognized[spec.slot] ?? false),
-    ),
-    mutation,
-    health,
-    dead,
-    dupes,
+    ledger: read.map(({ instance, artifact, fold }) => entryFor(instance, artifact, context, fold !== null)),
+    folds: read.flatMap(({ fold }) => (fold === null ? [] : [fold])),
   };
 }
