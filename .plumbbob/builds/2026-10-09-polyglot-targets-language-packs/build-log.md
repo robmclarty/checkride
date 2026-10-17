@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 35 — feat(entry): resolve the entry command for the stanza, hooks and skills
+**Current step:** 36 — feat(cli): add target add to declare and convert targets
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -58,7 +58,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 32. feat(packs): give repo-scope slots Node-free alternates
 - ☑ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
 - ☑ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
-- ☐ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
+- ☑ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
 - ☐ 36. feat(cli): add target add to declare and convert targets
 - ☐ 37. feat(init): discover targets in existing mode
 - ☐ 38. feat(readers): teach digest, triage and qa target directories and jsonl
@@ -2098,3 +2098,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-16 — step 32 checkpointed · b547c5ed6 — feat(packs): give repo-scope slots Node-free alternates (1 drift, 6m)
 - 2026-10-17 — step 33 checkpointed · fdae80244 — feat(unclaimed): fail when a toolchain marker sits outside every target (1 drift, 17m)
 - 2026-10-17 — step 34 checkpointed · 78349fa7b — feat(doctor): report the mode, targets, pin sources and unpinned tools (1 drift, 8m)
+- 2026-10-17 — step 35 checkpointed · 7f3431d24 — feat(entry): resolve the entry command for the stanza, hooks and skills (1 drift, 11m)

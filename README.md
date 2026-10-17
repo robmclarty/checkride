@@ -182,6 +182,11 @@ checkride recover      Rebuild checkride.baseline.json candidates from git histo
   --exact      write the picked snapshot verbatim instead of the union
   --dry-run    preview the per-slot delta; write nothing
   --depth <n>  commits of file history to walk (default 25)
+checkride target add <name> --lang <pack> --root <dir>
+                       Declare a target; a repo without targets converts, its
+                       implicit ts target becoming app at . (--root-name <n>).
+  --add <a,b>  name the blessed tool (a ts target also gets its config)
+  --dry-run    print the changes; write nothing
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip the hooks (write only the stanza)

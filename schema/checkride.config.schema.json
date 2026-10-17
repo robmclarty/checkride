@@ -104,7 +104,7 @@
         "enum": [
           "types", "format", "lint", "struct", "dead", "dupes", "health", "test", "docs", "links", "spell",
           "prose", "mutation", "security", "build", "publint", "attw", "pack", "smoke", "snippets",
-          "unclaimed", "schema"
+          "unclaimed", "schema", "doc-snippets"
         ]
       }
     },

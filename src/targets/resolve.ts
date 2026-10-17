@@ -79,6 +79,14 @@ const REPO_PACK = 'repo';
 /** V1: a target name is a short lowercase word, so it reads well as `<target>:<slot>`. */
 const TARGET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 
+/**
+ * Names V2 reserves for directories checkride writes under the output
+ * directory: the `snippets` built-ins' scratch sits at `.check/doc-snippets/`,
+ * which a target named `doc-snippets` would share with its own artifacts, and
+ * which the built-in clears on every run.
+ */
+const RESERVED_TARGET_NAMES: readonly string[] = ['doc-snippets'];
+
 const TARGET_KEYS: readonly string[] = ['lang', 'root', 'include', 'exclude', 'checks', 'note'];
 const PACK_KEYS: readonly string[] = ['checks', 'note'];
 const UNCLAIMED_KEYS: readonly string[] = ['ignore'];
@@ -226,6 +234,9 @@ function nameProblem(name: string, config: Record<string, unknown>, cat: Catalog
   if (cat.slotNames.has(name)) {
     return `target name '${name}' is reserved: it's a slot's name, and a token like --only ${name} has to mean one thing`;
   }
+  if (RESERVED_TARGET_NAMES.includes(name)) {
+    return `target name '${name}' is reserved: the snippets check keeps its scratch files in .check/${name}/, where this target's artifacts would land`;
+  }
   const home = customHome(name, config);
   if (home !== null) {
     return `target name '${name}' is taken by the custom check ${home}, and a token like --only ${name} has to mean one thing`;
@@ -234,7 +245,7 @@ function nameProblem(name: string, config: Record<string, unknown>, cat: Catalog
 }
 
 /** A root as one path: no `./`, no doubled or trailing slash, and `.` for the repo root. */
-function normalizeRoot(root: string): string {
+export function normalizeRoot(root: string): string {
   const normal = posix.normalize(root).replace(/\/+$/, '');
   return normal === '' ? '.' : normal;
 }

@@ -161,6 +161,21 @@ export function ratchet(baseline: Baseline, observed: ReadonlyMap<string, Finger
   return { schema_version: baseline.schema_version, slots };
 }
 
+/**
+ * `baseline` with each entry `renames` names moved to its new name, keys
+ * untouched: what `target add` does when a repo's implicit target takes a
+ * name, and `lint` becomes `app:lint`. An entry already under a new name keeps
+ * its keys, with the moved ones added.
+ */
+export function renameBaselineSlots(baseline: Baseline, renames: ReadonlyMap<string, string>): Baseline {
+  const slots: Record<string, string[]> = {};
+  for (const [name, keys] of Object.entries(baseline.slots)) {
+    const to = renames.get(name) ?? name;
+    slots[to] = [...(slots[to] ?? []), ...keys];
+  }
+  return { schema_version: baseline.schema_version, slots };
+}
+
 /** Total grandfathered diagnostics across every slot. */
 export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);

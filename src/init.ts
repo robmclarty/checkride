@@ -407,9 +407,14 @@ function productVersion(): string {
   }
 }
 
+/** The version-pinned `$schema` URL a generated `checkride.config.json` names. */
+export function generatedSchemaUrl(): string {
+  return configSchemaUrl(productVersion());
+}
+
 /** A generated `checkride.config.json`, in either mode: the version-pinned `$schema` pointer, then `checks`. */
 function configFile(checks: Record<string, SlotConfig>): string {
-  return `${JSON.stringify({ $schema: configSchemaUrl(productVersion()), checks }, null, 2)}\n`;
+  return `${JSON.stringify({ $schema: generatedSchemaUrl(), checks }, null, 2)}\n`;
 }
 
 /** The root package.json's devDependencies: every scaffolded adapter's, plus checkride itself. */
@@ -1172,6 +1177,19 @@ async function addConfigs(w: Writer, add: readonly string[], skipped: string[]):
       else await put(w, to, readTemplate(from));
     }
   }
+}
+
+/**
+ * Scaffold `--add`'s blessed-default configs for `slots` into `dir`, a
+ * target's root as well as the repo's, never over a file that's there. The
+ * configs are the ts pack's. Returns what it wrote and what it left, each
+ * relative to `dir`.
+ */
+export async function scaffoldSlotConfigs(dir: string, slots: readonly string[], dryRun: boolean): Promise<{ written: string[]; skipped: string[] }> {
+  const w: Writer = { cwd: dir, dryRun, written: [], removed: [] };
+  const skipped: string[] = [];
+  await addConfigs(w, slots, skipped);
+  return { written: w.written, skipped };
 }
 
 /** Add the `check: checkride` alias to an existing package.json (never overwrites). */

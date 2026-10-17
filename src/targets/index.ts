@@ -7,9 +7,11 @@
  * `../targets/index.js`, never from a file inside it.
  */
 
+export { addTarget } from './add.js';
+export type { TargetChange } from './add.js';
 export { changedUnder, noChangesReason } from './changed.js';
 export { argvBytes, expandFiles, isFileListPack, MAX_FILES_ARGV_BYTES, NO_FILES_REASON, takesFiles, targetFiles } from './files.js';
-export { configProblem, configuredTargets, presetProblem, skipExitCodeProblem } from './resolve.js';
+export { configProblem, configuredTargets, normalizeRoot, presetProblem, skipExitCodeProblem } from './resolve.js';
 export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';
 export { checkUnclaimed, findUnclaimed } from './unclaimed.js';

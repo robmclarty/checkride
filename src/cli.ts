@@ -33,6 +33,7 @@ import type { Out, RunFlags } from './orchestrator/index.js';
 import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
+import { runTargetAdd } from './target-command.js';
 import { realEnv, renderTriage, triage } from './triage/index.js';
 
 /**
@@ -100,6 +101,15 @@ const GATE_OPTIONS = {
   harness: { type: 'string' },
 } as const;
 
+/** `target add <name>` takes these; anything else is a usage error. */
+const TARGET_ADD_OPTIONS = {
+  lang: { type: 'string' },
+  root: { type: 'string' },
+  add: { type: 'string' },
+  'root-name': { type: 'string' },
+  'dry-run': { type: 'boolean', default: false },
+} as const;
+
 const RECOVER_OPTIONS = {
   pick: { type: 'string' },
   exact: { type: 'boolean', default: false },
@@ -125,6 +135,8 @@ Commands:
                    since <ref> (default HEAD).
   recover          Rebuild checkride.baseline.json candidates from git history
                    and restore one (a merge that dropped entries fails closed).
+  target           Declare a target: \`target add <name> --lang <pack> --root
+                   <dir>\` (a repo with none yet becomes multi-target).
   agent-setup      Add the AGENTS.md stanza + agent hooks to an existing repo
                    (--hook <a,b> to select; --no-hook to skip them all;
                    --remove-hook <a,b> to tear installed ones back out;
@@ -331,8 +343,37 @@ commit, git is missing, or either copy can't be parsed.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const TARGET_HELP_TEXT = `checkride target — declare the targets a repo is checked as
+
+Usage: checkride target add <name> --lang <pack> --root <dir>
+                           [--add <a,b>] [--root-name <n>] [--dry-run]
+
+Adds a target to checkride.config.json, creating the file when there's none.
+The target adopts the tools its root already configures, naming each in its
+checks. In a repo that declares no targets yet, the repo's implicit ts target
+becomes an explicit one named --root-name (default app), rooted at .: the
+top-level checks entries for target-scope slots move into its checks, and
+checkride.baseline.json's entries move from lint to app:lint. A ts target
+rooted at . takes the implicit one over instead. Each change is printed.
+
+Options:
+  --lang <pack>       The target's pack: ts or bash
+  --root <dir>        Its directory, relative to the repo root (. for the root)
+  --add <a,b>         Name the blessed tool for these slots, and for a ts
+                      target scaffold its config under the root
+  --root-name <n>     The name a converted repo's implicit target takes
+  --dry-run           Print the changes; write nothing
+  -h, --help          Show this help
+
+Exit codes: 0 once the target is declared (or the dry run printed); 2 on a
+usage error or a config the change would break, having written nothing.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
 const COMMAND_HELP: Record<string, string> = {
+  target: TARGET_HELP_TEXT,
   init: INIT_HELP_TEXT,
   gate: GATE_HELP_TEXT,
   hooks: HOOKS_HELP_TEXT,
@@ -675,6 +716,28 @@ async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
+/** `target add <name> --lang <pack> --root <dir> …`: the one subcommand, the name its one positional. */
+async function dispatchTarget(argv: string[], deps: CliDeps): Promise<number> {
+  const { rest } = detectCommand(argv);
+  if (rest[0] !== 'add') throw new Error(`target takes one subcommand, add (got ${rest[0] === undefined ? 'none' : JSON.stringify(rest[0])})`);
+  const { values, positionals } = parseArgs({ args: rest.slice(1), allowPositionals: true, options: TARGET_ADD_OPTIONS });
+  const [name, ...extra] = positionals;
+  if (name === undefined || extra.length > 0) throw new Error(`target add takes one target name, got ${positionals.length}`);
+  if (values.lang === undefined || values.root === undefined) throw new Error('target add needs --lang <pack> and --root <dir>');
+  const add = parseList(values.add, 'add');
+  const result = await runTargetAdd({
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    name,
+    lang: values.lang,
+    root: values.root,
+    ...(add !== null ? { add } : {}),
+    ...(values['root-name'] !== undefined ? { rootName: values['root-name'] } : {}),
+    dryRun: values['dry-run'],
+  });
+  return result.exitCode;
+}
+
 async function dispatchAgentSetup(argv: string[], deps: CliDeps): Promise<number> {
   const parsed = parseInitArgs(argv);
   const opts: AgentSetupOptions = { cwd: deps.cwd, stdout: deps.stdout };
@@ -766,6 +829,7 @@ const DISPATCH: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
   fix: dispatchFix,
   baseline: dispatchBaseline,
   recover: dispatchRecover,
+  target: dispatchTarget,
   'agent-setup': dispatchAgentSetup,
   hooks: dispatchHooks,
   gate: dispatchGate,

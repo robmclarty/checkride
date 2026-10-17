@@ -383,7 +383,8 @@ an agent's edits to the file, so a change to it arrives as a reviewed diff.
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
-`recover`, `agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the run flags:
+`recover`, `target`, `agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the
+run flags:
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
@@ -474,6 +475,22 @@ so `--only unclaimed` or `--include unclaimed` records one skipped entry with
 the reason `runs only when checkride.config.json declares targets`. A config
 entry that picks a tool for the slot, such as a custom check of the same
 name, runs either way.
+
+**`checkride target add` declares a target and converts a repo that has
+none.** `checkride target add <name> --lang <pack> --root <dir>` adds the
+target to `checkride.config.json`, creating the file when it's absent, and
+names in its `checks` each non-opt-in tool detection finds under its root.
+`--add <a,b>` names the blessed tool for those slots too, and for a ts target
+scaffolds its config under the root. In a repo that declares no targets, the
+implicit ts target becomes an explicit one named `--root-name` (default `app`),
+rooted at `.`: the top-level `checks` entries for target-scope slots move into
+its `checks`, and `checkride.baseline.json`'s entries move from `<slot>` to
+`<name>:<slot>` with their keys unchanged, so the next full run masks exactly
+what the last one did. A ts target rooted at `.` takes the implicit one over
+instead. Every change is printed; `--dry-run` prints them and writes nothing.
+The new config is merged and validated first, so a change that breaks a rule
+(a ts target nesting under the converted root, for one) exits 2 having written
+nothing, as does a baseline that can't be parsed.
 
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files
@@ -721,7 +738,8 @@ is written:
 - A target name is a lowercase letter and up to 31 more lowercase letters,
   digits and hyphens. It's never a slot's name, `schema` and `unclaimed`
   included, nor any custom check's, at the top level or in a target's or a
-  pack's `checks`, so a selection token means one thing.
+  pack's `checks`, so a selection token means one thing. Nor is it
+  `doc-snippets`, the directory the `snippets` check keeps its scratch in.
 - A root is an existing directory, given relative to the repo root, never
   absolute or through `..`. Two targets of one pack never share or nest their
   roots; targets of different packs may.

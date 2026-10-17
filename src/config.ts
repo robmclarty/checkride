@@ -613,6 +613,19 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
 }
 
 /**
+ * Resolve and validate `raw` as though it were the config file at `path`: its
+ * `extends` resolve against that file, and the merged result keeps every rule
+ * {@link loadConfig} holds a file to. For a command that edits a config before
+ * writing it (`target add`), so a change that would break the file stops,
+ * with the same exit-2 error, before anything lands.
+ */
+export function validateConfigObject(raw: Record<string, unknown>, path: string, cwd: string): CheckrideConfig {
+  const { extends: ext, ...own } = raw;
+  const label = relative(cwd, path) === CONFIG_FILE ? CONFIG_FILE : path;
+  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, [], label), own), cwd);
+}
+
+/**
  * Read and resolve the config file at an explicit absolute `path` (`--config`,
  * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
  * relative `extends` resolve against that file, while paths inside its values

@@ -953,6 +953,12 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     );
   });
 
+  test('V2 reserves doc-snippets, the directory the snippets check keeps its scratch in', () => {
+    expect(problem({ targets: { 'doc-snippets': web } })).toMatch(
+      /target name 'doc-snippets' is reserved: the snippets check keeps its scratch files in \.check\/doc-snippets\/, where this target's artifacts would land/,
+    );
+  });
+
   test("V2 holds a target's name apart from every custom check, a target's or a pack's included", () => {
     const api = { lang: 'ts', root: 'apps/api' };
     expect(problem({ targets: { web, api: { ...api, checks: { web: { command: 'node' } } } } })).toMatch(
@@ -1311,8 +1317,8 @@ describe('published JSON Schema', () => {
     expect(definitionEnum(['packName'])).toEqual(languagePacks);
   });
 
-  test('the target names it reserves are every slot name, unclaimed included, plus schema', () => {
-    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema']);
+  test('the target names it reserves are every slot name, unclaimed included, plus schema and doc-snippets', () => {
+    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'doc-snippets']);
   });
 });
 

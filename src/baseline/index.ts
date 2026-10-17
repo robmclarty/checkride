@@ -29,5 +29,6 @@ export {
   parseBaseline,
   ratchet,
   readBaselineStatus,
+  renameBaselineSlots,
   writeBaseline,
 } from './store.js';

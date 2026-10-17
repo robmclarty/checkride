@@ -209,6 +209,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `npm:checkride` or `github:robmclarty/checkride`; and the `checkride` on
   `PATH` otherwise, which `doctor` reports as the harness unpinned. The
   stanza lists a target's checks as `<target>:<slot>`. See `docs/packs.md`.
+- **Declare a target with `checkride target add`.**
+  `checkride target add scripts --lang bash --root scripts` adds the target to
+  `checkride.config.json`, creating the file if needed, and names each tool
+  its root already configures. `--add <a,b>` names the blessed tool for more
+  slots, scaffolding a ts target's config under its root. In a repo with no
+  targets yet, the implicit ts target becomes `app` (or `--root-name`) at
+  `.`, the top-level entries for target-scope slots move into it, and
+  `checkride.baseline.json`'s entries move from `lint` to `app:lint`, so the
+  next run masks exactly what the last one did. Each change is printed, and
+  `--dry-run` writes nothing. A change that would break the config, such as a
+  ts target nesting under `app`, exits 2 before anything is written. See
+  `docs/contract.md`.
 
 ### Changed
 
@@ -495,6 +507,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `<target>:<slot>` in a target. In a repo with no `package.json`, a
   `harness` row names the entry command: `ok` for mise's pinned copy,
   `outdated` for the one on `PATH`.
+- Additive: the command `target add <name> --lang <pack> --root <dir>
+  [--add <a,b>] [--root-name <n>] [--dry-run]`, which exits 0 once the target
+  is declared and 2 on a usage error or a config the change would break. V2
+  reserves the target name `doc-snippets`, which the config schema's reserved
+  names now list.
 
 ### Internal
 
