@@ -492,6 +492,19 @@ The new config is merged and validated first, so a change that breaks a rule
 (a ts target nesting under the converted root, for one) exits 2 having written
 nothing, as does a baseline that can't be parsed.
 
+**`init` in an existing repo proposes the targets its files suggest.** It
+reads the repo's files as `unclaimed` does and proposes a ts target at the root
+when the root holds a `package.json` or `pnpm-workspace.yaml`, claiming every
+nested package, and otherwise one for each top-most `package.json`. Shell files
+outside every other proposed target's root propose one bash target, at the
+deepest directory holding them all, named `scripts` when that's `scripts` and
+`shell` otherwise. Names come from each root's last segment, `.` becoming
+`app`, with a number added on a collision. One ts target at the root is the
+mode the repo already runs in, so nothing changes. Anything more is printed as
+a `targets` block and written the way `target add` writes it, unless
+`--dry-run`. A config that already declares `targets` is left alone. Each pack
+that ships later adds its own proposals.
+
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files
 under the target's root that git lists, tracked or untracked but not ignored,

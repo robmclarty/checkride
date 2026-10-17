@@ -229,6 +229,11 @@ function included(path: string, abs: string, include: readonly RegExp[] | null):
   return posix.extname(path) === '' && hasShellShebang(abs);
 }
 
+/** True for a file a bash target keeps with no `include` (R11.2): a `.sh` or `.bash` file, or an extensionless one with a shell shebang, read at `abs`. */
+export function isDefaultShellFile(path: string, abs: string): boolean {
+  return included(path, abs, null);
+}
+
 /**
  * The files `target` checks, relative to its root and sorted, from the repo at
  * `repo`. An empty list means the check has nothing to run over, which skips

@@ -32,8 +32,11 @@ import type { Out } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
 import type { EntryLike, PackageManager } from './launch/index.js';
 import { detectPackageManager, entryCheckride, entryText, resolveEntry } from './launch/index.js';
+import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
-import { checkName } from './targets/index.js';
+import { readRawConfig, writeTargetChange } from './target-files.js';
+import type { ProposedTarget, TargetChange } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, isImplicit } from './targets/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -83,6 +86,11 @@ export type InitOptions = {
   baseline?: boolean;
   /** Existing mode + `--baseline`: capture the committed baseline (injectable). */
   captureBaseline?: (cwd: string) => Promise<void>;
+  /**
+   * Discovery for existing mode (R11.4); injectable so tests can propose
+   * targets a real tree's packs can't yet. Defaults to `discoverTargets`.
+   */
+  discoverTargets?: (cwd: string) => Promise<ProposedTarget[]>;
 };
 
 export type InitResult = {
@@ -1327,6 +1335,46 @@ function reportExisting(
   }
 }
 
+/** What existing-mode discovery proposed and changed, or `null` when the repo stays as it is. */
+type Discovery = { proposed: ProposedTarget[]; changes: string[] };
+
+/** The target-scope slots, whose top-level entries a converted repo's root target takes. */
+const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !== 'repo').map((s) => s.name));
+
+/**
+ * Existing mode's discovery (R11.4, R7.5): when the repo's files propose more
+ * than its one implicit target, declare them, converting the config the way
+ * `target add` does (the root target takes the top-level slot entries and the
+ * baseline's entries), unless `--dry-run`. A config that already declares
+ * targets has made its choice, and is left alone.
+ */
+async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
+  const raw = readRawConfig(cwd, () => ({}));
+  if (raw['targets'] !== undefined) return null;
+  const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
+  if (isImplicit(proposed)) return null;
+  // The root target first, so it takes the implicit target over rather than nesting beside one.
+  const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
+  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: PACKS.ts.name, targetSlots: TARGET_SLOTS };
+  let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
+  for (const target of ordered) {
+    const next = addTarget(change.config, target, rules);
+    change = { config: next.config, renames: new Map([...change.renames, ...next.renames]), changes: [...change.changes, ...next.changes] };
+  }
+  const files = await writeTargetChange(cwd, change, { dryRun: w.dryRun, command: 'init' });
+  w.written.push(...files.files.map((file) => `${file} (targets)`));
+  return { proposed, changes: [...change.changes, ...files.changes] };
+}
+
+/** Print the `targets` block discovery proposed, and each change it made, or would have. */
+function reportDiscovery(stdout: Out, discovery: Discovery | null, dryRun: boolean): void {
+  if (discovery === null) return;
+  const block = Object.fromEntries(discovery.proposed.map(({ name, lang, root }) => [name, { lang, root }]));
+  const json = `"targets": ${JSON.stringify(block, null, 2)}`.split('\n').map((line) => `    ${line}`).join('\n');
+  stdout.write(`  discovered targets${dryRun ? ' (not written: --dry-run)' : ''}:\n${json}\n`);
+  for (const line of discovery.changes) stdout.write(`    ${line}\n`);
+}
+
 /**
  * Plan the publish-ready bundle for existing-repo init. Only meaningful
  * when a config will actually be written: `writeExistingConfig` never clobbers an
@@ -1392,6 +1440,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   if (bundle.snippetsPointer) skipped.push(bundle.snippetsPointer);
 
   await writeExistingConfig(w, cwd, adopted, new Set(disabled), bundle.checks, skipped);
+  const discovery = await applyDiscovery(w, cwd, options);
   await ensureGitignore(w, cwd, skipped);
   // package.json: add the `check: checkride` alias if missing.
   await addCheckAlias(w, skipped);
@@ -1405,6 +1454,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
 
   if (options.stdout) {
     reportExisting(options.stdout, pm, adopted, w, grandfathered, disabled);
+    reportDiscovery(options.stdout, discovery, w.dryRun);
     reportInitBundle(options.stdout, bundle);
   }
   return {

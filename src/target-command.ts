@@ -14,20 +14,15 @@
  * nothing. Every change is printed, and `--dry-run` prints them and stops.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
-import { writeFileAtomic } from './atomic.js';
-import type { Baseline } from './baseline/index.js';
-import { BASELINE_FILE, parseBaseline, renameBaselineSlots, writeBaseline } from './baseline/index.js';
-import { resolveChecks, validateConfigObject } from './config.js';
+import { resolveChecks } from './config.js';
 import { generatedSchemaUrl, scaffoldSlotConfigs } from './init.js';
-import { isRecord } from './json.js';
 import type { Out } from './orchestrator/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
-import type { TargetChange } from './targets/index.js';
+import { readRawConfig, writeTargetChange } from './target-files.js';
 import { addTarget, normalizeRoot } from './targets/index.js';
 
 export type TargetAddOptions = {
@@ -47,27 +42,11 @@ export type TargetAddOptions = {
 
 export type TargetAddResult = { exitCode: number; changes: string[]; written: string[] };
 
-const CONFIG_FILE = 'checkride.config.json';
-
 /** The name a converted repo's implicit target takes by default. */
 const DEFAULT_ROOT_NAME = 'app';
 
 /** The slots a target's pack fills, the repo-scope ones being the repo's. */
 const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !== 'repo').map((s) => s.name));
-
-/** The repo's config as written, or a fresh one naming the schema when there is none. */
-function readRawConfig(cwd: string): Record<string, unknown> {
-  const path = join(cwd, CONFIG_FILE);
-  if (!existsSync(path)) return { $schema: generatedSchemaUrl() };
-  let raw: unknown;
-  try {
-    raw = JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    throw new Error(`invalid ${CONFIG_FILE}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
-  }
-  if (!isRecord(raw)) throw new Error(`invalid ${CONFIG_FILE}: ${CONFIG_FILE} is not a JSON object`);
-  return raw;
-}
 
 /** A pack a target can name: every pack but `repo`, whose slots check the repo as a whole. */
 type TargetPack = Pack & { name: Exclude<Pack['name'], 'repo'> };
@@ -106,26 +85,6 @@ function adopted(cwd: string, name: string, pack: TargetPack, root: string): Rec
   );
 }
 
-/** The committed baseline, `null` when there's none, and a usage error when it can't be parsed. */
-function readBaseline(cwd: string): Baseline | null {
-  const path = join(cwd, BASELINE_FILE);
-  if (!existsSync(path)) return null;
-  const baseline = parseBaseline(readFileSync(path, 'utf8'));
-  if (baseline === null) {
-    throw new Error(`target add: ${BASELINE_FILE} can't be parsed, so its keys can't follow the renamed checks; run checkride recover first`);
-  }
-  return baseline;
-}
-
-/** The baseline with `renames` applied, and a line for each entry that moved, or `null` when nothing moves. */
-function renamedBaseline(baseline: Baseline | null, renames: TargetChange['renames']): { baseline: Baseline; changes: string[] } | null {
-  if (baseline === null) return null;
-  const moved = Object.entries(baseline.slots).filter(([slot]) => renames.has(slot));
-  if (moved.length === 0) return null;
-  const changes = moved.map(([slot, keys]) => `${BASELINE_FILE}: ${slot} renamed ${renames.get(slot)} (${keys.length} key${keys.length === 1 ? '' : 's'})`);
-  return { baseline: renameBaselineSlots(baseline, renames), changes };
-}
-
 /** Print the changes, and what was written, or that nothing was. */
 function report(stdout: Out, heading: string, changes: readonly string[], written: readonly string[], dryRun: boolean): void {
   stdout.write(`\ncheckride target add: ${heading}\n\n`);
@@ -142,22 +101,18 @@ export async function runTargetAdd(options: TargetAddOptions): Promise<TargetAdd
   const root = normalizeRoot(options.root);
   const add = options.add ?? [];
   const checks = { ...adopted(cwd, options.name, pack, root), ...blessedFor(pack, add) };
-  const change = addTarget(readRawConfig(cwd), { name: options.name, lang: pack.name, root, checks }, {
+  const raw = readRawConfig(cwd, () => ({ $schema: generatedSchemaUrl() }));
+  const change = addTarget(raw, { name: options.name, lang: pack.name, root, checks }, {
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
     implicitPack: PACKS.ts.name,
     targetSlots: TARGET_SLOTS,
   });
-  validateConfigObject(change.config, join(cwd, CONFIG_FILE), cwd);
-  const baseline = renamedBaseline(readBaseline(cwd), change.renames);
+  const files = await writeTargetChange(cwd, change, { dryRun, command: 'target add' });
   // The blessed configs are the ts pack's; another pack names its tool and scaffolds nothing yet.
   const scaffold = pack.name === PACKS.ts.name ? await scaffoldSlotConfigs(join(cwd, root), add, dryRun) : { written: [], skipped: [] };
-  const scaffolded = scaffold.written.map((file) => `${posix.join(root, file)} written (--add)`);
-  const changes = [...change.changes, ...(baseline?.changes ?? []), ...scaffolded];
-  const written = [CONFIG_FILE, ...(baseline !== null ? [BASELINE_FILE] : []), ...scaffold.written.map((file) => posix.join(root, file))];
-  if (!dryRun) {
-    await writeFileAtomic(join(cwd, CONFIG_FILE), `${JSON.stringify(change.config, null, 2)}\n`);
-    if (baseline !== null) await writeBaseline(cwd, baseline.baseline);
-  }
+  const scaffolded = scaffold.written.map((file) => posix.join(root, file));
+  const changes = [...change.changes, ...files.changes, ...scaffolded.map((file) => `${file} written (--add)`)];
+  const written = [...files.files, ...scaffolded];
   report(stdout, `${options.name} (${pack.name} at ${root})`, changes, written, dryRun);
   return { exitCode: 0, changes, written: dryRun ? [] : written };
 }

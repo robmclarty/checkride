@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 36 — feat(cli): add target add to declare and convert targets
+**Current step:** 37 — feat(init): discover targets in existing mode
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -59,7 +59,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
 - ☑ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
 - ☑ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
-- ☐ 36. feat(cli): add target add to declare and convert targets
+- ☑ 36. feat(cli): add target add to declare and convert targets
 - ☐ 37. feat(init): discover targets in existing mode
 - ☐ 38. feat(readers): teach digest, triage and qa target directories and jsonl
 - ☐ 39. test(examples): add polyglot-ts-bash with plants
@@ -139,6 +139,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] unclaimed reports a workspace's root package.json above its ts targets (R11.3 as written), and since V4 forbids nesting ts targets the only fix is unclaimed.ignore; weigh, before step 39's polyglot-ts-bash example, whether a marker directly above same-pack targets should count as claimed
 - [ ] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
 - [ ] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
+- [ ] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2099,3 +2100,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 33 checkpointed · fdae80244 — feat(unclaimed): fail when a toolchain marker sits outside every target (1 drift, 17m)
 - 2026-10-17 — step 34 checkpointed · 78349fa7b — feat(doctor): report the mode, targets, pin sources and unpinned tools (1 drift, 8m)
 - 2026-10-17 — step 35 checkpointed · 7f3431d24 — feat(entry): resolve the entry command for the stanza, hooks and skills (1 drift, 11m)
+- 2026-10-17 — step 36 checkpointed · 06db9e1f2 — feat(cli): add target add to declare and convert targets (1 drift, 8m)

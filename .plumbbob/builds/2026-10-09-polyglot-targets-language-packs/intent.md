@@ -683,7 +683,7 @@ reference rules and porting trap apply as written there.
 35. [x] feat(entry): resolve the entry command for the stanza, hooks and skills, **done when:** the entry command resolves per R6.6, an `npm:checkride` or `github:robmclarty/checkride` key counting as declaring checkride ([D46 (checkride-pin)](#d46)); the AGENTS.md stanza, the generated hook scripts and the plugin skills use it; a fixture with no `package.json` gets `mise exec -- checkride` or `checkride`; `doctor` reports `harness unpinned` for the `PATH` case
     - seam: `src/launch/entry.ts`, `src/init.ts`, `src/agent-setup/`, `skills/`, `src/doctor.ts`
     - model: sonnet
-36. [ ] feat(cli): add target add to declare and convert targets, **done when:** `checkride target add` works per R7.4; converting an implicit repo names its target (default `app`), lifts top-level target-scope entries, rewrites baseline keys and prints each change (S11, F22); `--dry-run` writes nothing
+36. [x] feat(cli): add target add to declare and convert targets, **done when:** `checkride target add` works per R7.4; converting an implicit repo names its target (default `app`), lifts top-level target-scope entries, rewrites baseline keys and prints each change (S11, F22); `--dry-run` writes nothing
     - seam: `src/targets/add.ts`, `src/cli.ts`, `src/baseline/store.ts`
     - model: opus (the conversion rewrites three files consistently)
 37. [ ] feat(init): discover targets in existing mode, **done when:** existing-mode `init` runs R11.4's discovery and, when it finds more than one pack or a marker below the root, prints the proposed `targets` block and writes it unless `--dry-run`; a single root pack stays implicit

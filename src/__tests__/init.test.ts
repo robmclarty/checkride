@@ -515,6 +515,10 @@ describe('new-project generation (flat)', () => {
 
 const noFailures = (): Promise<string[]> => Promise.resolve([]);
 
+/** Discovery proposing a bash target ahead of the root one, as a repo's packs can't yet. */
+const scriptsFirst = (): Promise<{ name: string; lang: string; root: string }[]> =>
+  Promise.resolve([{ name: 'scripts', lang: 'bash', root: 'scripts' }, { name: 'app', lang: 'ts', root: '.' }]);
+
 describe('existing-project adoption (idempotent)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-existing-')); });
@@ -528,6 +532,52 @@ describe('existing-project adoption (idempotent)', () => {
     const lines = out.text().split('\n');
     expect(lines[0]).toMatch(/^checkride init: adopted \d+ slot\(s\); wrote \d+ file\(s\)\.$/);
     expect(lines[1]).toBe('  package manager: npm (detected)');
+  });
+
+  test('discovery that proposes only the root target keeps the repo implicit, and says nothing (R11.4)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\n');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, stdout: out });
+    expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).not.toHaveProperty('targets');
+    expect(out.text()).not.toContain('discovered targets');
+  });
+
+  test('discovered targets are printed and written, the root target taking the adopted entries and the baseline’s keys', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: ['a.ts:no-x:bad'] } }));
+    const out = sink();
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, stdout: out, discoverTargets: scriptsFirst });
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    expect(cfg['targets']).toEqual({
+      app: { lang: 'ts', root: '.', checks: { lint: 'oxlint' } },
+      scripts: { lang: 'bash', root: 'scripts' },
+    });
+    expect((cfg['checks'] as Record<string, unknown>)['lint']).toBeUndefined();
+    expect(JSON.parse(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).slots).toEqual({ 'app:lint': ['a.ts:no-x:bad'] });
+    expect(out.text()).toMatch(/discovered targets:\n {4}"targets": \{\n {6}"scripts": \{/);
+    expect(out.text()).toContain('checkride.baseline.json: lint renamed app:lint (1 key)');
+    expect(result.written).toContain('checkride.config.json (targets)');
+    // The stanza lists the checks as the config now names them.
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('app:lint');
+  });
+
+  test('--dry-run prints the discovered targets and writes nothing, and a config that already declares targets is left alone', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await mkdir(join(dir, 'scripts'));
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, stdout: out, discoverTargets: scriptsFirst, dryRun: true });
+    expect(out.text()).toContain('discovered targets (not written: --dry-run):');
+    expect(existsSync(join(dir, 'checkride.config.json'))).toBe(false);
+
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { web: { lang: 'ts', root: '.' } } }));
+    const kept = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, stdout: kept, discoverTargets: scriptsFirst });
+    expect(kept.text()).not.toContain('discovered targets');
+    expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).toEqual({ targets: { web: { lang: 'ts', root: '.' } } });
   });
 
   test('adopts detected tools and refreshes idempotently', async () => {

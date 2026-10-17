@@ -221,6 +221,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--dry-run` writes nothing. A change that would break the config, such as a
   ts target nesting under `app`, exits 2 before anything is written. See
   `docs/contract.md`.
+- **`init` in an existing repo proposes targets.** It reads the repo's files
+  and proposes a ts target per top-most `package.json` (one at the root when
+  the root has a `package.json` or `pnpm-workspace.yaml`) and a bash target
+  where shell files outside the others gather. When that's more than the one
+  ts project at the root, it prints the `targets` block and writes it the way
+  `target add` does, moving entries and baseline keys into the root target,
+  unless `--dry-run`. A repo with a root `package.json` and nothing else stays
+  as it is, and a config that already declares targets is left alone.
 
 ### Changed
 
@@ -512,6 +520,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is declared and 2 on a usage error or a config the change would break. V2
   reserves the target name `doc-snippets`, which the config schema's reserved
   names now list.
+- Additive: the exported `InitOptions` type gains an optional
+  `discoverTargets`, the discovery existing mode runs, injectable for tests.
 
 ### Internal
 
