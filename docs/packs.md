@@ -232,6 +232,14 @@ might expect:
   would otherwise write into the checkout.
 - `--show-stats=false` keeps golangci-lint's per-linter tally off stdout,
   where it would follow the JSON and leave `lint.json` unwritten.
+- golangci-lint prints each path relative to the directory of the config it
+  found, and checkride reads it as relative to the target's root, where it
+  detects that config. A config further up the tree, or a
+  `relative-path-mode` other than `cfg`, misnames every path and every
+  baseline key with it. `--path-mode=abs` isn't the fix: golangci-lint builds
+  the absolute path from the shell's `PWD`, so in a checkout reached through a
+  symlink, such as macOS's `/tmp`, the paths fall outside the repo's real root
+  and the keys would keep them absolute.
 - `gofmt -l` and `deadcode` list what they find and exit 0, so each fails its
   check on any output, with `exit_code: 0` and a `reason`.
 - `govulncheck` prints text, because with `-format json` it exits 0 even when

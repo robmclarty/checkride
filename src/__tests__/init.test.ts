@@ -605,6 +605,35 @@ describe('existing-project adoption (idempotent)', () => {
     expect(existsSync(join(dir, 'package.json'))).toBe(false);
   });
 
+  test('a go.mod root with no package.json announces no package manager', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    expect(out.text()).toMatch(/^checkride init: adopted \d+ slot\(s\)/);
+    expect(out.text()).not.toContain('package manager');
+  });
+
+  test('--add refuses a ts pack config in a go.mod root, and writes nothing', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await expect(runInit({ cwd: dir, add: ['spell', 'lint', 'publish'], probeFailures: noFailures, hook: false })).rejects.toThrow(
+      "init: --add lint, publish scaffolds the ts pack's config, and this root's pack is go; --add takes docs, spell, prose here",
+    );
+    expect(await readdir(dir)).toEqual(['go.mod']);
+  });
+
+  test('--add scaffolds a repo-scope config in a go.mod root', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await runInit({ cwd: dir, add: ['spell'], probeFailures: noFailures, hook: false });
+    expect(existsSync(join(dir, 'cspell.json'))).toBe(true);
+  });
+
+  test('--add keeps scaffolding the ts pack’s configs where a package.json sits beside a go.mod', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await runInit({ cwd: dir, add: ['lint'], probeFailures: noFailures, hook: false });
+    expect(existsSync(join(dir, '.oxlintrc.json'))).toBe(true);
+  });
+
   test('discovery beside a go.mod root converts the implicit target as a go one', async () => {
     await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
     await mkdir(join(dir, 'scripts'));

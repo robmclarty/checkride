@@ -88,7 +88,9 @@ installs tools, above ts targets in their own directories, goes in
 - `checkride init` in an existing repo, one whose root holds a `package.json`,
   `go.mod`, `go.work` or `Cargo.toml`, adopts the tools it finds through the
   implicit pack, proposes the targets its files suggest, and writes them when
-  there's more than the one project at the root.
+  there's more than the one project at the root. Where that pack isn't `ts`,
+  `--add` takes only `docs`, `spell` and `prose`, and exits 2 on a slot whose
+  blessed config is the ts pack's.
 - `checkride doctor` names the mode and the implicit pack, lists the targets,
   and reports each check's pin source and the markers no target claims.
 

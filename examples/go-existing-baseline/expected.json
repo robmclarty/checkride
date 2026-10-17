@@ -1,0 +1,26 @@
+{
+  "description": "A Go module with no package.json, green while carrying three grandfathered golangci-lint findings; red the moment a fourth appears.",
+  "args": [],
+  "requires": ["go", "golangci-lint"],
+  "exitCode": 0,
+  "checks": {
+    "types": { "ok": true, "skipped": false },
+    "lint": { "ok": true, "baselined": 3 },
+    "test": { "ok": true, "skipped": false },
+    "links": { "ok": true }
+  },
+  "ratchet": {
+    "newFinding": {
+      "file": "internal/report/prune.go",
+      "contents": "package report\n\nimport \"os\"\n\n// Prune removes a stale report.\nfunc Prune() {\n\tos.Remove(\"stale\")\n}\n",
+      "exitCode": 1
+    },
+    "fix": {
+      "file": "internal/report/report.go",
+      "find": "var legacyPadding = \"   \"\n\n",
+      "replace": "",
+      "exitCode": 0,
+      "baselineKeysAfter": 2
+    }
+  }
+}

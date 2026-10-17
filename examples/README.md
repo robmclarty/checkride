@@ -12,6 +12,7 @@ which is the only reason to trust anything written here.
 | ------- | ----- | ----- |
 | [`agent-loop/`](./agent-loop/) | What an agent reads when the gate is red — `summary.json`, the token-bounded `digest.md`, the Claude Code Stop hook that blocks it from finishing anyway | `1` (on purpose) |
 | [`existing-repo-baseline/`](./existing-repo-baseline/) | Adopting checkride on a repo that already has findings: grandfather today's debt, fail on anything new, ratchet down as it is fixed | `0` |
+| [`go-existing-baseline/`](./go-existing-baseline/) | The same adoption in a Go module with no `package.json`: `init --baseline` grandfathers golangci-lint's findings, and the go pack runs under bare slot names | `0` |
 | [`custom-checks/`](./custom-checks/) | The escape hatch: a bespoke formatter running ahead of the built-ins, `detect`-gated checks that stand down, and a rule no off-the-shelf linter could express | `0` |
 | [`shared-preset/`](./shared-preset/) | One versioned preset package carrying org-wide policy across a fleet — two tiers, deep-merged local overrides, and `detect` keeping it safe in repos with different toolchains | `0` |
 | [`go-module/`](./go-module/) | A Go module as one go target: go build, golangci-lint, deadcode pinned as a `go.mod` tool, and go test, all offline | `0` |
@@ -46,6 +47,10 @@ Each example carries its own `pnpm-workspace.yaml`. That is load-bearing:
 without it, pnpm walks up to the repo root, finds *that* workspace, and installs
 the root project instead — leaving the example with no `node_modules` and no
 error to explain why.
+
+`go-existing-baseline` is the one exception: it has no `package.json` and no
+`pnpm-workspace.yaml`, because a root `package.json` would make it a
+TypeScript repo. Run it with `node ../../dist/cli.js` from its directory.
 
 Example lockfiles are not committed (they are gitignored), so the first install
 resolves fresh against the exact versions pinned in each `package.json`.

@@ -1547,7 +1547,9 @@ function reportExisting(
   stdout.write(
     `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
   );
-  stdout.write(`  package manager: ${pm} (detected)\n`);
+  // A root with no package.json, such as a Go module's, has no package
+  // manager in play, and detection would only name its pnpm default.
+  if (existsSync(join(w.cwd, 'package.json'))) stdout.write(`  package manager: ${pm} (detected)\n`);
   if (grandfathered.length > 0) {
     stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
   }
@@ -1730,11 +1732,32 @@ function langProblem(options: InitOptions, marker: string | null): string | null
   return null;
 }
 
+/** Whether `--add <name>` scaffolds or enables something only the ts pack runs: a `templates/ts/` config, or the publish bundle. */
+function addsTsOnly(name: string): boolean {
+  if (PUBLISH_BUNDLE_ALIASES.has(name) || (PUBLISH_BUNDLE_SLOTS as readonly string[]).includes(name)) return true;
+  return (ADD_CONFIGS[name] ?? []).some(([from]) => from.startsWith('ts/'));
+}
+
+/**
+ * The usage error for an `--add` in a root whose implicit pack (R2.1) isn't
+ * `ts`, when it names a slot whose blessed config is the ts pack's: an
+ * `.oxlintrc.json` or a `tsconfig.json` beside a `go.mod` configures a tool
+ * the root's pack never runs. `null` when every name fits, as it always does
+ * in a new project's empty directory, whose pack is `ts`.
+ */
+function addProblem(options: InitOptions, cwd: string): string | null {
+  const pack = implicitPack((file) => existsSync(join(cwd, file)));
+  const refused = pack === PACKS.ts.name ? [] : (options.add ?? []).filter(addsTsOnly);
+  if (refused.length === 0) return null;
+  const fits = Object.keys(ADD_CONFIGS).filter((name) => !addsTsOnly(name));
+  return `init: --add ${refused.join(', ')} scaffolds the ts pack's config, and this root's pack is ${pack}; --add takes ${fits.join(', ')} here`;
+}
+
 /** Run `checkride init` against `cwd`. */
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
   const marker = existingMarker(cwd);
-  const problem = langProblem(options, marker);
+  const problem = langProblem(options, marker) ?? addProblem(options, cwd);
   if (problem !== null) throw new Error(problem);
   if (marker !== null) return initExisting(options, cwd);
   return (options.lang ?? 'ts') === 'ts' ? initNew(options, cwd) : initNewLang(options, cwd);

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "slots": {
+    "lint": [
+      "internal/parse/parse.go:unused:var legacyLocale is unused",
+      "internal/report/report.go:unused:var legacyPadding is unused",
+      "internal/report/report.go:unused:var staleTimestampFormat is unused"
+    ]
+  }
+}

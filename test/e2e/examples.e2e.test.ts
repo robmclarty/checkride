@@ -111,9 +111,19 @@ async function runCli(cwd: string, args: readonly string[]): Promise<number> {
   }
 }
 
+/**
+ * Whether an example is a Node package. One with no `package.json` stands for
+ * a repo of another language, where a root `package.json` would make the
+ * implicit pack `ts` (R2.1); it has nothing to install or link.
+ */
+function isPackage(dir: string): boolean {
+  return existsSync(join(dir, 'package.json'));
+}
+
 /** Copy an example to `dir` and install its own dependencies there. */
 async function prepare(name: string, dir: string): Promise<void> {
   await cp(join(EXAMPLES, name), dir, { recursive: true, filter: (src) => !NOT_COPIED.test(src) });
+  if (!isPackage(dir)) return;
 
   const pkgPath = join(dir, 'package.json');
   const pkg = await readJson<{ devDependencies?: Record<string, string> }>(pkgPath);
@@ -287,8 +297,14 @@ describe('examples', () => {
   // the copies strip the `link:../..` devDependency, so nothing else would
   // notice if an example stopped pointing at the working tree.
   test('every example is a standalone package linking the working tree', async () => {
+    for (const name of names) {
+      for (const file of ['README.md', 'expected.json']) {
+        expect(existsSync(join(EXAMPLES, name, file)), `${name}/${file} is missing`).toBe(true);
+      }
+    }
+
     const manifests = await Promise.all(
-      names.map(async (name) => ({
+      names.filter((name) => isPackage(join(EXAMPLES, name))).map(async (name) => ({
         name,
         pkg: await readJson<{ private?: boolean; devDependencies?: Record<string, string> }>(
           join(EXAMPLES, name, 'package.json'),
@@ -298,9 +314,7 @@ describe('examples', () => {
 
     for (const { name, pkg } of manifests) {
       const dir = join(EXAMPLES, name);
-      for (const file of ['README.md', 'expected.json', 'pnpm-workspace.yaml']) {
-        expect(existsSync(join(dir, file)), `${name}/${file} is missing`).toBe(true);
-      }
+      expect(existsSync(join(dir, 'pnpm-workspace.yaml')), `${name}/pnpm-workspace.yaml is missing`).toBe(true);
 
       // An example that runs oxlint needs its own config for isolation, not
       // style: without one it inherits the repo root's through ancestor

@@ -493,6 +493,14 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   and a misspelled file name, which brief prints as a bare `error: <message>`, kept as a gating
   finding with no file, *because* R12.2 first said jsonl, which nothing runs, and step 73 folds
   R12 into the docs (settled at step 51's harvest, from step 51's park).
+- <a id="d68"></a>**D68 (discover-go-rust)**: R11.4's go and rust rules (each `go.work` directory
+  a go target claiming its `use` modules, then each unclaimed `go.mod`; each `Cargo.toml` with
+  `[workspace]` a rust target, then each unclaimed `[package]` manifest) are built in step 54,
+  alongside `--discover`, and a lone proposed target at the root is implicit only when its pack
+  is the one R2.1 picks there, *because* step 37 shipped only the ts and bash rules on the
+  premise that each pack's release would add its own, steps 42 and 45 didn't, and without them
+  `--discover` over a mixed repo, the run #7 and [D24 (discover)](#d24) want, proposes no target
+  for its Go or Rust code (settled at step 76's harvest, from step 76's park).
 
 ## Constraints
 
@@ -795,7 +803,7 @@ reference rules and porting trap apply as written there.
 51. [x] feat(findings): parse docs, spell and type-checker output, **done when:** markdownlint-cli2, rumdl, typos, tsc and `go build -json` parse real fixtures; the docs and spell parsers feed the baseline, and the type-checker parsers don't ([D31 (types-parse-only)](#d31), [D32 (docs-baselined)](#d32)); markdownlint-cli2's parser reads stderr, and a repo adopted with `init --baseline` grandfathers its markdown findings ([D49 (text-findings)](#d49))
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`, `CHANGELOG.md`
     - model: sonnet
-76. [ ] feat(config): pick the implicit pack from the root's markers, **done when:** with no `targets` and no `--discover`, the implicit target's pack follows R2.1, in its order, among the packs that ship: a root `package.json` or `tsconfig.json` picks `ts` exactly as 0.13 did, held by the invariance golden ([C2 (legacy-invariance)](#c2)), a root `go.mod` or `go.work` picks `go` and a root `Cargo.toml` picks `rust`, and nothing picks `ts`; a root Go module with no config runs the go pack's checks under their bare slot names, and its summary records `pack` ([D66 (implicit-pack)](#d66)); `init` in a directory with no `package.json` but another shipped pack's root marker runs existing mode; `doctor` names the implicit pack; `docs/targets.md` and `CHANGELOG.md` say so
+76. [x] feat(config): pick the implicit pack from the root's markers, **done when:** with no `targets` and no `--discover`, the implicit target's pack follows R2.1, in its order, among the packs that ship: a root `package.json` or `tsconfig.json` picks `ts` exactly as 0.13 did, held by the invariance golden ([C2 (legacy-invariance)](#c2)), a root `go.mod` or `go.work` picks `go` and a root `Cargo.toml` picks `rust`, and nothing picks `ts`; a root Go module with no config runs the go pack's checks under their bare slot names, and its summary records `pack` ([D66 (implicit-pack)](#d66)); `init` in a directory with no `package.json` but another shipped pack's root marker runs existing mode; `doctor` names the implicit pack; `docs/targets.md` and `CHANGELOG.md` say so
     - seam: `src/targets/resolve.ts`, `src/config.ts`, `src/init.ts`, `src/doctor.ts`,
       `docs/targets.md`
     - model: opus (0.13's invariance, and every caller that reads the implicit target)
@@ -809,7 +817,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/config.ts`, `src/cli.ts`, `src/orchestrator/report.ts`, `src/gate.ts`,
       `src/orchestrator/run.ts`, `schema/checkride.summary.schema.json`, `docs/contract.md`
     - model: opus (a new resolution layer)
-54. [ ] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; the summary records `run.discover`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); nothing is written
+54. [ ] feat(run): discover targets at run time with --discover, **done when:** `--discover` applies R11.4's proposed targets in memory per R13.2, lifting top-level entries as `target add` does; it exits 2 when the config already declares `targets` (F37); summary `targets` entries carry `discovered: true`; the summary records `run.discover`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); discovery proposes go and rust targets by R11.4's rules, and a lone root target counts as implicit only when its pack is the root's R2.1 pack ([D68 (discover-go-rust)](#d68)); nothing is written
     - seam: `src/targets/discover.ts`, `src/targets/add.ts`, `src/cli.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet (reuses discovery and the conversion)

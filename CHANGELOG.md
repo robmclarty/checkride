@@ -373,8 +373,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment and `packs.<pack>.checks` block, and each summary entry records
   its `pack`. `init` in a directory with no `package.json` but a `go.mod`,
   `go.work` or `Cargo.toml` adopts it as an existing repo, so `--lang go|rust`
-  there exits 2 naming that file. `checkride target add` and `init`'s
-  discovery convert such a repo's implicit target as one of its pack, and
+  there exits 2 naming that file. There it announces no package manager, and
+  an `--add` whose blessed config is the ts pack's (`types`, `lint`, the
+  publish bundle and the rest) exits 2 naming the ones that fit: `docs`,
+  `spell` and `prose`. `init --baseline` grandfathers a Go root's
+  golangci-lint findings, as `examples/go-existing-baseline` shows.
+  `checkride target add` and `init`'s discovery convert such a repo's
+  implicit target as one of its pack, and
   `checkride doctor` names the implicit pack (`mode: implicit (the repo is one
   go project at its root)`). See `docs/targets.md`.
 

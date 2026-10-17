@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 76 — feat(config): pick the implicit pack from the root's markers
+**Current step:** 52 — test(examples): adopt a Go repo with --baseline and ratchet it
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -75,7 +75,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 49. feat(findings): export parseFindings with severity, gates and slot
 - ☑ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☑ 51. feat(findings): parse docs, spell and type-checker output
-- ☐ 76. feat(config): pick the implicit pack from the root's markers
+- ☑ 76. feat(config): pick the implicit pack from the root's markers
 - ☐ 52. test(examples): adopt a Go repo with --baseline and ratchet it
 - ☐ 53. feat(config): layer a defaults file below detection with --defaults
 - ☐ 54. feat(run): discover targets at run time with --discover
@@ -147,10 +147,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg), so a parent .golangci.yml or a gomod/gitroot mode double-joins the target root in keys
 - [x] cargo spans are relative to the workspace root, so a rust target declared at a member crate (not the workspace root) keys its clippy paths under the wrong root
 - [x] R12.2 lists typos as jsonl, but the adapter runs --format brief, which drops the path of a misspelled file name; switch the adapter to --format json?
-- [ ] R11.4's go and rust discovery rules (go.work/go.mod targets, Cargo [workspace]/[package] targets) were never built, discover.ts proposes only ts and bash, and isImplicit treats only a ts root target as implicit; step 54 (--discover, seam holds discover.ts) should add both rules and compare a lone root target against the root's implicit pack
-- [ ] doctor's install row stays required in a root with no package.json (a Go or Rust root, or an init --lang go|rust scaffold), so doctor exits 1 there for a missing Node lockfile the repo never needs
-- [ ] existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs, where a tsconfig.json would flip the implicit pack back to ts on the next run
-- [ ] D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed; decide whether the scaffolds now write an implicit-mode config (bare check names) or keep the explicit target
+- [x] R11.4's go and rust discovery rules (go.work/go.mod targets, Cargo [workspace]/[package] targets) were never built, discover.ts proposes only ts and bash, and isImplicit treats only a ts root target as implicit; step 54 (--discover, seam holds discover.ts) should add both rules and compare a lone root target against the root's implicit pack
+- [x] doctor's install row stays required in a root with no package.json (a Go or Rust root, or an init --lang go|rust scaffold), so doctor exits 1 there for a missing Node lockfile the repo never needs
+- [x] existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs, where a tsconfig.json would flip the implicit pack back to ts on the next run
+- [x] D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed; decide whether the scaffolds now write an implicit-mode config (bare check names) or keep the explicit target
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -214,6 +214,10 @@ Harvest results this boundary:
 - After step 50: "cargo spans are relative to the workspace root, so a rust target declared at a member crate..." → **tangent**, deferred to step 73 (R11.4's discovery declares only workspace roots and claims their members, so only a hand-declared member-crate target hits it, and the cost is misnamed paths, never a false green; step 73 documents in `docs/targets.md` that a rust target's root is its workspace root).
 - After step 51: "R12.2 lists typos as jsonl, but the adapter runs --format brief..." → **blocker**, handled now: folded into `intent.md` as D67 (typos-brief), which amends R12.2's typos row to text (`--format brief`), the format step 32 shipped and step 51's parser reads (step 73 folds R12 into the docs and would document a format nothing runs).
 - After step 51: step 49's harvest deferred a cspell recapture to step 51, which step 51 didn't do (not parked; found at this harvest) → **tangent**, deferred to step 60 (keys already keep cspell 10.3.6's ` fix: (<word>)` suffix verbatim, so nothing is wrong, only unproven against a real capture; step 60's seam holds `src/findings/parsers/` and `src/__tests__/fixtures/`, so it adds a new `findings-cspell.txt` captured at the pinned cspell with a suffixed line, per C9, and leaves `baseline-cspell.txt` and `baseline-keys.golden.json` alone, since recapturing that fixture would rewrite the golden that proves step 48's refactor kept every key).
+- After step 76: "R11.4's go and rust discovery rules ... were never built" → **blocker**, handled now: folded into `intent.md` as D68 (discover-go-rust), and step 54's done-when now names both rules and the `isImplicit` fix (no step built them, since step 37 left each pack's rule to its release and steps 42 and 45 didn't add one; step 54's seam already holds `src/targets/discover.ts`, so no new step and no reorder).
+- After step 76: "doctor's install row stays required in a root with no package.json..." → **tangent**, deferred to step 69 (step 69's seam holds `src/doctor.ts`, and a binary-only repo is exactly the no-`package.json` case it must handle; nothing gates on `doctor`'s exit code, so the cost is a red diagnostic, never a false green, though the Phase 8 release ships with it).
+- After step 76: "existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs..." → **tangent**, deferred to step 52 (step 52 runs `init` in a Go root and sees the output; it drops the package-manager line where the root has no `package.json` and refuses an `--add` the root's pack has no blessed config for; `src/init.ts` sits outside step 52's seam, so add it via `/plumbbob:step 52` or accept a one-file stray).
+- After step 76: "D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed..." → **tangent**, killed: the scaffolds keep the explicit `app` target (a later `target add` then only adds, never renaming `types` to `app:types` or rewriting baseline keys, the scaffolds, the `shapes` e2e and the examples already pin it, and R7.5 doesn't ask for implicit mode), so D66's "until it lands" is settled as "stays explicit" and step 73 should read it that way.
 
 ## Log
 
@@ -2252,3 +2256,69 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-10-17 — step 50 checkpointed · 3153cdcb4 — feat(findings): parse Go, Rust and shell tool output with path rebasing (1 drift, 15m)
 - 2026-10-17 — step 51 checkpointed · 74b793769 — feat(findings): parse docs, spell and type-checker output (1 drift, 11m)
+- 2026-10-17 — step 76 checkpointed · 2e0ffdf47 — feat(config): pick the implicit pack from the root's markers (1 drift, 531m)
+
+  **Summary**: A repo with no `targets` is now checked as one project of the pack its root marks, in R2.1's order among the shipped packs: `package.json` or `tsconfig.json` picks ts exactly as 0.13 did, `go.mod` or `go.work` picks go, `Cargo.toml` picks rust, and nothing picks ts. A Go or Rust root runs its pack's checks under bare slot names, and each summary entry records its `pack`. `init`, `target add` and `doctor` follow the same pack, and `docs/targets.md`, the contract doc and the CHANGELOG say so.
+
+  1. A repo with no targets now takes its pack from its root's markers, in R2.1's order
+  2. A Go or Rust root resolves as a declared target of its pack at `.` would, under bare names
+  3. ts roots keep 0.13's path, and the invariance golden holds both halves
+  4. `init`, `target add` and `doctor` follow the implicit pack, which changed one init test's premise
+  5. Strays outside the seam, one asymmetry, and four parks
+
+  **Readout**: Step 76 - feat(config): pick the implicit pack from the root's markers
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 16 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - docs/getting-started.md
+               - docs/packs.md
+               - schema/checkride.summary.schema.json
+               - src/__tests__/config-targets.test.ts
+               - src/__tests__/doctor.test.ts
+               - src/__tests__/init.test.ts
+               - src/__tests__/target-command.test.ts
+               - src/cli.ts
+               - src/orchestrator/__tests__/targets.test.ts
+               - src/orchestrator/report.ts
+               - src/orchestrator/types.ts
+               - src/target-command.ts
+               - src/targets/index.ts
+               - test/contract/summary.contract.test.ts
+  diff         +396 -86 across 21 files
+  spent        8h 51m · 1 turn · 32s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve step 76 with `looks good`, then run `/plumbbob:build 52`. Step 52 is the Go adoption this step was ordered to unblock, and two of the parks (the pm line and `--add` in a Go root) sit on its path, so it's the natural place to see whether either needs settling first.
+
+  **1.** A repo with no targets now takes its pack from its root's markers, in R2.1's order
+
+  `implicitPack(atRoot)` in `src/targets/resolve.ts` holds R2.1's order as data (`ts`, `go`, `rust`, `python`, `terraform`), keeps only the packs in `PACKS`, and returns the first whose markers the root holds, else ts. Python and Terraform join on their own once their packs ship. Every shipped marker is a plain file name, so a file-exists answer is enough. Terraform's `*.tf` will need a directory listing when step 63 adds it. The function is exported through the targets barrel. `resolveChecks` in `src/config.ts` calls it once per implicit run, and the same check now feeds `unclaimed`'s implicit claim, which was hard-wired to ts.
+
+  **2.** A Go or Rust root resolves as a declared target of its pack at `.` would, under bare names
+
+  A non-ts implicit root goes through the multi-target resolver with one nameless target, `{ pack, root: '.' }`. Then `untargeted` strips `target` and `root` from each check (D66). That gives it everything a declared target has: the pack's adapters only, so there's no `build` or `publint` row in a Go repo; `packs.go.checks` above the top level (D10); and the top level unrestricted, since V6 only applies once targets are declared. Repo-scope slots and top-level custom checks take the `repo` pack, so they use the full `[js-lockfile, mise, path]` chain, as R6.1 says they should outside implicit ts. The orchestrator needed no change. It already keys the pin chain, `packEnv`, `{go-packages}` and lock keys off each check's `pack` and `root`, and it places a check with no target in `.check/`. `checkIdentity` in `src/orchestrator/report.ts` now adds `pack` in implicit mode when a check has one (R8.2). I also built `dist/` and ran the CLI over a copy of `examples/go-module` with no `package.json` and no config. It ran `types`, `lint`, `dead` and `test` as `pack: go`, ran `links` as `pack: repo`, resolved deadcode through `go.mod`'s tool directive, and wrote no `targets`.
+
+  **3.** ts roots keep 0.13's path, and the invariance golden holds both halves
+
+  The ts branch is the old `implicitChecks` body, unchanged, and its checks still carry no `pack`, so they keep the `[js-lockfile]` chain and their summaries don't change (C2 (legacy-invariance)). The contract half of the golden runs in `pnpm check`. I ran the e2e half separately, and all 13 cases pass, alongside `existing`, `shapes`, and, under the dev `mise.toml` with `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, `go-pack`, `rust-pack` and `go-env` (15 of 15). Per C1 (additive-contract), the contract change is additive. The `pack` row in `docs/contract.md` and the JSON Schema's description add the implicit case, a new `summary.contract.test.ts` case validates an implicit Go run, and the CHANGELOG has a Contract entry. No existing contract test was edited.
+
+  **4.** `init`, `target add` and `doctor` follow the implicit pack, which changed one init test's premise
+
+  `init` now runs existing mode when the root holds a `package.json` or another shipped pack's marker. In a Go root it adopts `go-build`, `golangci-lint` and `go-test` and writes no `package.json`. `--lang go|rust` there exits 2, naming the file (`this directory has a go.mod`). Discovery's conversion and `target add` (`src/target-command.ts`) both name the implicit target as a target of the root's pack; before this, a Go repo with `scripts/` would have been converted into a ts `app`. `doctor` prints `mode: implicit (the repo is one go project at its root)` and adds `pack` to `--json`, and its claims and its other-languages hint use the same pack. One unit test changed premise: it used a `go.mod` to make `init --lang go --force` overwrite a file, and that `go.mod` now means existing mode. It now collides on `.golangci.yml`, and a new test pins the `go.mod` refusal. This is unreleased behavior from step 46.
+
+  **5.** Strays outside the seam, one asymmetry, and four parks
+
+  Outside the declared seam, the step touched files that show the change rather than widen it: `report.ts` and `types.ts` (summary identity), `target-command.ts` (the hard-wired ts), the init help in `cli.ts`, the summary schema, and `contract.md`, `packs.md` and `getting-started.md`. The asymmetry is that an implicit Go root honors `packs.go.checks` (per R3), while an implicit ts root still ignores `packs.ts.checks`, as it did before this step. Changing that would touch the ts path C2 holds, so I left it. I parked four items:
+
+  - Go and Rust discovery rules (R11.4) were never built, and `isImplicit` knows only ts. These go to step 54.
+  - `doctor`'s `install` row stays required in a root with no `package.json`, so it exits 1 there.
+  - Existing-mode `init` in a Go root prints `package manager: pnpm (detected)`, and its `--add` scaffolds ts configs. A `tsconfig.json` from `--add` would flip the repo back to ts.
+  - Whether `init --lang go|rust` should now write an implicit config rather than D66's interim explicit `app` target.
