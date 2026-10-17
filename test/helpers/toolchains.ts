@@ -38,6 +38,7 @@ export const TOOLCHAINS = {
   rust: [
     { name: 'cargo clippy', mise: 'rust', probe: ['cargo', 'clippy', '--version'] },
     { name: 'cargo fmt', mise: 'rust', probe: ['cargo', 'fmt', '--version'] },
+    { name: 'cargo-machete', mise: 'ubi:bnjbvr/cargo-machete', probe: ['cargo-machete', '--version'] },
   ],
   python: [
     { name: 'python3', mise: 'python', probe: ['python3', '--version'] },

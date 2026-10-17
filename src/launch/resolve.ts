@@ -178,9 +178,10 @@ const GO_MOD_TOOL: Source = {
  * The `rust-toolchain` source: a rustup component, such as clippy, that a
  * `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to
  * the repo root pins with the toolchain it names, run through rustup's `cargo`
- * from `PATH`, which reads that file (R6.1). It records the file's channel
- * when it names one exact release (R6.3). A tool that isn't a component is
- * never declared here.
+ * from `PATH`, which reads that file (R6.1). Only rustup reads it, so without
+ * rustup on `PATH` the check fails rather than run a `cargo` that ignores the
+ * pin. It records the file's channel when it names one exact release (R6.3).
+ * A tool that isn't a component is never declared here.
  */
 const RUST_TOOLCHAIN: Source = {
   declares: (req) => {
@@ -188,6 +189,7 @@ const RUST_TOOLCHAIN: Source = {
     return toolchain === null ? null : { toolchain };
   },
   run: (req, declared) => {
+    if (findOnPath(RUSTUP, req.env) === null) return { refusal: rustupMissingRefusal(req, declared?.toolchain ?? null) };
     if (findOnPath(CARGO_TOOLCHAIN.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, CARGO_TOOLCHAIN) };
     const [command = CARGO_TOOLCHAIN.bin, ...args] = argvOf(req.tool, req.args);
     const channel = declared?.toolchain?.channel;
@@ -423,6 +425,22 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
     `The \`${req.slot}\` slot would run whatever copy of ${bin} this machine has,`,
     'and requirePins is on, so a tool no pin source declares fails its check',
     'instead of running.',
+    '',
+  ].join('\n');
+}
+
+/** The toolchain manager whose `cargo` reads a `rust-toolchain.toml`. */
+const RUSTUP = 'rustup';
+
+/** The refusal for a component a toolchain file pins when rustup, the only reader of that file, isn't on `PATH`. */
+function rustupMissingRefusal(req: ToolRequest, declared: RustToolchainDeclaration | null): string {
+  return [
+    `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by a toolchain file, but \`rustup\` isn't on PATH.`,
+    '',
+    ...(declared !== null ? [`  declared in: ${declared.file}${declared.channel !== undefined ? ` (channel ${declared.channel})` : ''}`, ''] : []),
+    'Only rustup reads that file, so a `cargo` without it would run whatever',
+    'toolchain it came with instead of the pinned one. Install rustup',
+    '(https://rustup.rs), or remove the file.',
     '',
   ].join('\n');
 }

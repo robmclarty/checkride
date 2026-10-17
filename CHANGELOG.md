@@ -296,8 +296,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the line under the red check names the `rustup toolchain install` to
   run; a crate missing from cargo's cache names `cargo fetch`. rustfmt and
   clippy resolve through the toolchain file, then a `mise.toml` pin, then
-  `PATH`, and run as `cargo fmt` and `cargo clippy`. The rust pack's own
-  adapters arrive in a later release; see `docs/packs.md`.
+  `PATH`, and run as `cargo fmt` and `cargo clippy`. See `docs/packs.md`.
+- **The rust pack checks Rust code.** A rust target runs `cargo check`
+  (`types`), `cargo fmt --check` (`format`, opt-in), clippy with warnings
+  failing (`lint`), cargo-machete (`dead`), nextest or `cargo test` (`test`),
+  the doctests (`snippets`, opt-in), cargo-deny (`security`, opt-in) and
+  cargo-mutants (`mutation`, opt-in), each from the target's root. One
+  target's cargo runs never overlap. A component the toolchain file pins
+  fails its check when `rustup` isn't on `PATH`, rather than run a `cargo`
+  that would ignore the pin, and cargo-mutants writes its report into the
+  check's own artifact directory. Each tool's flags were checked against the
+  versions this repo pins; `docs/packs.md` has the table.
 
 ### Changed
 
@@ -632,6 +641,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a tool runs as, such as `cargo clippy`) and `component` (the rustup
   component that provides it). `TOOLS` and `ADAPTERS` are unchanged, so no
   run writes `pin_source: "rust-toolchain"` yet.
+- Additive: `PACKS.rust` gains its adapter rows (`cargo-check`, `rustfmt`,
+  `clippy`, `cargo-machete`, `nextest`, `cargo-test`, `cargo-doctest`,
+  `cargo-deny` and `cargo-mutants`), each with `lock: "cargo:{root}"`, and
+  `TOOLS` gains `cargo-fmt` and `cargo-clippy` as rustup components and
+  `cargo-machete`, `cargo-nextest`, `cargo-deny` and `cargo-mutants` as cargo
+  plugins. `ADAPTERS` is unchanged. A run now writes
+  `pin_source: "rust-toolchain"`, with the channel as `tool_version`, and a
+  `cargo` a rust target's check spawns records `mise` or `path`, in the JSON
+  Schema's descriptions and the contract doc.
 
 ### Internal
 

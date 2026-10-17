@@ -4,11 +4,11 @@ A pack is one language's adapters, together with where its tools are pinned
 and the environment its checks run with. Five packs ship so far: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
-`go`, which checks Go modules and workspaces, and `rust`, whose targets run
-their own custom checks under Rust's spawn environment until its adapters
-arrive. This page covers how a check's tool resolves to the copy that runs,
-what the summary records about that copy, the bash pack and the file lists its
-checks run over, the go pack, and the spawn environment each pack sets.
+`go`, which checks Go modules and workspaces, and `rust`, which checks Cargo
+packages and workspaces. This page covers how a check's tool resolves to the
+copy that runs, what the summary records about that copy, the bash pack and
+the file lists its checks run over, the go and rust packs, and the spawn
+environment each pack sets.
 Packs for Python and Terraform arrive in later releases, and the rows below
 that belong to them say so.
 
@@ -65,8 +65,9 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 The summary's `pin_source` names three more sources, `override`, `uv-lock`
 and `tf-version`. They arrive with the packs and the `--pins` flag that use
 them, and no run writes them yet. `rust-toolchain` declares only a tool that
-`TOOLS` names as a rustup component, and those rows arrive with the rust
-pack's adapters, so no run writes it yet either. `go-mod-tool`
+`TOOLS` names as a rustup component: rustfmt and clippy. Only rustup reads a
+toolchain file, so a component the file pins fails its check when `rustup`
+isn't on `PATH`, rather than run a `cargo` that ignores the pin. `go-mod-tool`
 declares a tool only when `TOOLS` gives its Go package, which it does for
 staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
 never as a `go tool`.
@@ -236,6 +237,53 @@ might expect:
   `security.stdout.txt` either way.
 - deadcode reads reachability from `main` packages and tests, so a library
   with neither fails with `deadcode: no main packages`.
+
+## The rust pack
+
+A rust target checks a Cargo package, or a workspace, from the directory that
+holds its `Cargo.toml`:
+
+```json
+{
+  "targets": {
+    "core": { "lang": "rust", "root": "crates" }
+  }
+}
+```
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `types` | `cargo-check` | `cargo check --workspace --all-targets --message-format=json` | `Cargo.toml` | `types.jsonl` |
+| `format` (opt-in) | `rustfmt` | `cargo fmt --all --check`, and `cargo fmt --all` under `checkride fix` | `Cargo.toml` | `format.stdout.txt` |
+| `lint` | `clippy` | `cargo clippy --workspace --all-targets --message-format=json -- -D warnings`, and `--fix` under `checkride fix` | `Cargo.toml` | `lint.jsonl` |
+| `dead` | `cargo-machete` | `cargo machete` | a pin | `dead.stdout.txt` |
+| `test` | `nextest` | `cargo nextest run --workspace --no-fail-fast` | `.config/nextest.toml` | `test.stderr.txt` |
+| `test` | `cargo-test` | `cargo test --workspace --no-fail-fast` | `Cargo.toml` | `test.stdout.txt` |
+| `snippets` (opt-in) | `cargo-doctest` | `cargo test --doc --workspace` | `Cargo.toml` | `snippets.stdout.txt` |
+| `security` (opt-in) | `cargo-deny` | `cargo deny --format json check`, with the network | `deny.toml` | `security.stderr.txt` |
+| `mutation` (opt-in) | `cargo-mutants` | `cargo mutants --output {out}` | a pin | `mutants.out/` in the check's directory |
+
+`cargo` itself resolves as a toolchain, through a `mise.toml` pin of `rust`,
+else `PATH`. rustfmt and clippy resolve through the toolchain file first, as
+rustup components, and cargo-machete, cargo-nextest, cargo-deny and
+cargo-mutants are cargo plugins, each its own binary that a `mise.toml` pins,
+such as `"ubi:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. Clippy's
+`-D warnings` fails the check on a warning, rustc's `dead_code` lint among
+them, which is why `dead` looks for unused dependencies instead. nextest
+doesn't run doctests, so a Rust repo names `snippets` to opt the doctests in.
+
+Every row takes the lock `cargo:{root}`, so one target's cargo runs never
+overlap and the one that waits isn't started, while another target's run
+beside them. Targets that share one build directory through
+`CARGO_TARGET_DIR` still serialize, on cargo's own lock on that directory,
+and that wait does count against their timeouts.
+
+Each row was checked against Rust 1.99.0, cargo-machete 0.9.2,
+cargo-nextest 0.9.148, cargo-deny 0.20.2 and cargo-mutants 27.1.0. cargo-deny
+prints its JSON lines on stderr, so they land in `security.stderr.txt`, and
+nextest reports on stderr too. cargo-mutants writes its `mutants.out/` into
+the check's artifact directory through `--output`, rather than the source
+tree.
 
 ## The entry command
 

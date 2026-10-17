@@ -142,3 +142,55 @@ describe('the go pack (R5.5)', () => {
     expect(goToolOf('golangci-lint')).toBeUndefined();
   });
 });
+
+/** The `TOOLS` row for `bin`. */
+const toolRow = (bin: string): (typeof TOOLS)[number] | undefined => TOOLS.find((t) => t.bin === bin);
+
+describe('the rust pack (R5.6)', () => {
+  test('is marked by Cargo.toml, pins through the toolchain file, then mise, then PATH, and runs offline', () => {
+    expect(PACKS.rust.markers).toEqual(['Cargo.toml']);
+    expect(PACKS.rust.pins).toEqual(['rust-toolchain', 'mise', 'path']);
+    expect(PACKS.rust.env).toEqual({ CARGO_NET_OFFLINE: 'true', RUSTUP_AUTO_INSTALL: '0', CARGO_TERM_COLOR: 'never' });
+  });
+
+  test('fills each slot R5.6 names, nextest first in test', () => {
+    expect(PACKS.rust.adapters.map((a) => [a.slot, a.name])).toEqual([
+      ['types', 'cargo-check'],
+      ['format', 'rustfmt'],
+      ['lint', 'clippy'],
+      ['dead', 'cargo-machete'],
+      ['test', 'nextest'],
+      ['test', 'cargo-test'],
+      ['snippets', 'cargo-doctest'],
+      ['security', 'cargo-deny'],
+      ['mutation', 'cargo-mutants'],
+    ]);
+    const scopeOf = new Map(SLOTS.map((s) => [s.name, s.scope]));
+    for (const a of PACKS.rust.adapters) expect(scopeOf.get(a.slot), a.name).toBe('target');
+  });
+
+  test("locks every row on its target's root, so one target's cargo runs never overlap", () => {
+    for (const a of PACKS.rust.adapters) expect(a.lock, a.name).toBe('cargo:{root}');
+  });
+
+  test('captures cargo check and clippy as JSON lines, and the rest as text', () => {
+    expect(PACKS.rust.adapters.filter((a) => a.outputFile !== null).map((a) => [a.name, a.outputFile])).toEqual([
+      ['cargo-check', 'types.jsonl'],
+      ['clippy', 'lint.jsonl'],
+    ]);
+  });
+
+  test('fails clippy on warnings, and runs cargo-deny alone with the network', () => {
+    expect(PACKS.rust.adapters.find((a) => a.name === 'clippy')?.args.slice(-3)).toEqual(['--', '-D', 'warnings']);
+    expect(PACKS.rust.adapters.filter((a) => a.network === true).map((a) => a.name)).toEqual(['cargo-deny']);
+  });
+
+  test('runs rustfmt and clippy as toolchain components a rust-toolchain file pins, and the plugins as cargo subcommands', () => {
+    expect(toolRow('cargo-fmt')).toMatchObject({ run: ['cargo', 'fmt'], component: 'rustfmt' });
+    expect(toolRow('cargo-clippy')).toMatchObject({ run: ['cargo', 'clippy'], component: 'clippy' });
+    for (const plugin of ['machete', 'nextest', 'deny', 'mutants']) {
+      expect(toolRow(`cargo-${plugin}`)?.run, plugin).toEqual(['cargo', plugin]);
+      expect(toolRow(`cargo-${plugin}`)?.component, plugin).toBeUndefined();
+    }
+  });
+});

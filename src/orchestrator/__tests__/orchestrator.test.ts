@@ -619,13 +619,20 @@ describe('runChecks (wave scheduler)', () => {
   });
 });
 
+/** The rust pack's row named `name`, its real lock key kept, detected anywhere so implicit mode runs it. */
+function rustRow(name: string): Adapter {
+  const row = PACKS.rust.adapters.find((a) => a.name === name);
+  if (row === undefined) throw new Error(`the rust pack has no ${name} row`);
+  return { ...row, detect: [] };
+}
+
 describe('runChecks (lock keys)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-lock-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  const cargoCheck = fakeAdapter({ name: 'cargo-check', slot: 'types', lock: 'cargo:{root}' });
-  const clippy = fakeAdapter({ name: 'clippy', slot: 'lint', lock: 'cargo:{root}' });
+  const cargoCheck = rustRow('cargo-check');
+  const clippy = rustRow('clippy');
   const rumdl = fakeAdapter({ name: 'rumdl', slot: 'docs' });
 
   /** Run `adapters` in implicit mode as one `'any'` wave, in the order given, through `runner`. */

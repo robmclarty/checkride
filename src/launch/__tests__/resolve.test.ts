@@ -608,6 +608,7 @@ describe('the rust-toolchain source (R6.1)', () => {
     withScratch(async (s) => {
       await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
       await s.tool('cargo');
+      await s.tool('rustup');
       expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toEqual({
         command: 'cargo',
         args: ['clippy', '--workspace', '--', '-D', 'warnings'],
@@ -621,6 +622,7 @@ describe('the rust-toolchain source (R6.1)', () => {
     withScratch(async (s) => {
       await s.file('rust-toolchain', 'stable\n');
       await s.tool('cargo');
+      await s.tool('rustup');
       expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('crates/core', { pins: RUST_CHAIN, tools: [CLIPPY] }))).toMatchObject({
         command: 'cargo',
         pin: { source: 'rust-toolchain' },
@@ -650,9 +652,19 @@ describe('the rust-toolchain source (R6.1)', () => {
       });
     }));
 
+  test('a declared component fails, naming the file, when rustup is not on PATH, and never runs a cargo that ignores the pin', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo');
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))) ?? '';
+      expect(refusal).toContain("the `lint` slot's `cargo-clippy` is pinned by a toolchain file, but `rustup` isn't on PATH");
+      expect(refusal).toContain('declared in: rust-toolchain.toml (channel 1.85.0)');
+    }));
+
   test('a declared component fails naming how to install Rust when cargo is not on PATH', () =>
     withScratch(async (s) => {
       await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('rustup');
       const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_CLIPPY, s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }))) ?? '';
       expect(refusal).toContain("the `lint` slot needs `cargo` to run `cargo-clippy`, which isn't on PATH");
       expect(refusal).toContain('install Rust with rustup');

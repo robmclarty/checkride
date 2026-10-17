@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 44 — feat(launch): pin Rust by rust-toolchain and harden the cargo env
+**Current step:** 45 — feat(packs): add the rust pack
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -67,7 +67,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 41. feat(launch): pin Go tools by tool directive and harden the Go env
 - ☑ 42. feat(packs): add the go pack
 - ☑ 43. feat(changed): narrow Go packages to affected workspace modules
-- ☐ 44. feat(launch): pin Rust by rust-toolchain and harden the cargo env
+- ☑ 44. feat(launch): pin Rust by rust-toolchain and harden the cargo env
 - ☐ 45. feat(packs): add the rust pack
 - ☐ 46. feat(init): scaffold Go and Rust projects with init --lang
 - ☐ 47. test(examples): add the Go, Rust and mixed-stack examples
@@ -2115,3 +2115,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 41 checkpointed · 6e8630e90 — feat(launch): pin Go tools by tool directive and harden the Go env (1 drift, 17m)
 - 2026-10-17 — step 42 checkpointed · 72ca9ea4f — feat(packs): add the go pack (1 drift, 13m)
 - 2026-10-17 — step 43 checkpointed · c3cb2ab6b — feat(changed): narrow Go packages to affected workspace modules (1 drift, 6m)
+- 2026-10-17 — step 44 checkpointed · c7ce1a7d2 — feat(launch): pin Rust by rust-toolchain and harden the cargo env (1 drift, 8m)

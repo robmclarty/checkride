@@ -18,14 +18,15 @@ import { describeWithToolchain, TOOLCHAINS, toolchainGate } from '../helpers/too
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
-/** `[tools]` keys to versions: a bare string, or an inline table's `version`. */
+/** `[tools]` keys, bare or quoted as a backend id is, to versions: a bare string, or an inline table's `version`. */
 function misePins(): Map<string, string> {
   const text = readFileSync(join(ROOT, 'mise.toml'), 'utf8');
   const section = text.split(/^\[tools\]$/m)[1]?.split(/^\[/m)[0] ?? '';
   const pins = new Map<string, string>();
   for (const line of section.split('\n')) {
-    const match = /^([\w-]+)\s*=\s*(?:"([^"]*)"|\{.*\bversion\s*=\s*"([^"]*)")/.exec(line);
-    const [, key, bare, table] = match ?? [];
+    const match = /^(?:"([^"]+)"|([\w-]+))\s*=\s*(?:"([^"]*)"|\{.*\bversion\s*=\s*"([^"]*)")/.exec(line);
+    const [, quoted, bareKey, bare, table] = match ?? [];
+    const key = quoted ?? bareKey;
     if (key !== undefined) pins.set(key, bare ?? table ?? '');
   }
   return pins;

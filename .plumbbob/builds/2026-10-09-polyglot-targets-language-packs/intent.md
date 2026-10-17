@@ -730,7 +730,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/launch/go-mod.ts`, `src/targets/changed.ts`, `src/packs/go.ts`,
       `schema/checkride.summary.schema.json`, `docs/packs.md`
     - model: opus (transitive dependents and the fallbacks are where it goes wrong)
-44. [ ] feat(launch): pin Rust by rust-toolchain and harden the cargo env, **done when:** the `rust-toolchain` source declares rustfmt and clippy when `rust-toolchain.toml` or `rust-toolchain` exists at or above the root; the rust pack's environment applies R6.4; F3 passes
+44. [x] feat(launch): pin Rust by rust-toolchain and harden the cargo env, **done when:** the `rust-toolchain` source declares rustfmt and clippy when `rust-toolchain.toml` or `rust-toolchain` exists at or above the root; the rust pack's environment applies R6.4; F3 passes
     - seam: `src/launch/`, `src/launch/env.ts`
     - model: sonnet
 45. [ ] feat(packs): add the rust pack, **done when:** a `rust` target runs every R5.6 adapter with `lock: cargo:{root}`, and S5's plants fail as expected
