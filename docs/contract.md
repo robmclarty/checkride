@@ -106,7 +106,7 @@ required ones, so a field can't reach the schema without a row here.
 | `static_only` | `true` | `--static-only` was given; checkride has no such flag yet |
 | `discover` | `true` | `--discover` was given; checkride has no such flag yet |
 | `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
-| `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` was given; checkride has no such flag yet |
+| `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` named the defaults file |
 | `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` was given; checkride has no such flag yet |
 | `out` | string, an absolute path | `--out` or `CHECKRIDE_OUT` named the output directory |
 
@@ -151,7 +151,7 @@ required ones, so a field can't reach the schema without a row here.
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
-| `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
+| `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
 | `pin_source` | `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `mise` or `path`; also `override`, `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, or `path` for a tool nothing declared |
@@ -163,13 +163,15 @@ required ones, so a field can't reach the schema without a row here.
 `checkride.config.json` names the slot, presets it `extends` included, since
 the two can't be told apart once folded. It's `detected` when no entry named
 the slot and a detection signal chose the adapter, `built-in` when detection
-chose an adapter that needs no signal (`links`, for one), and `custom` for a
-custom check keyed by a name outside the catalogue. A check that sat out
+chose an adapter that needs no signal (`links`, for one), `custom` for a
+custom check keyed by a name outside the catalogue, and `defaults` when a
+`--defaults` file filled a slot the repo's config and detection left empty, or
+added a custom check of its own. A check that sat out
 keeps the `origin` of the adapter that would have run, so a slot `--only` left
 out, or a custom check that skipped itself, still says why it was selected.
 The status line each executed check prints on stderr ends with the same fact
-as a tag: `[config]`, `[detected: <detected_by>]`, `[built-in]` or `[custom]`,
-and `checkride doctor` ends its slot rows the same way.
+as a tag: `[config]`, `[detected: <detected_by>]`, `[built-in]`, `[custom]` or
+`[defaults]`, and `checkride doctor` ends its slot rows the same way.
 
 **A custom check can skip itself.** One that exits its declared
 `skipExitCode` records the same entry as a slot with no tool: `skipped: true`,
@@ -266,14 +268,17 @@ clearing what those targets left when the config has just dropped its
 **Without `targets`, the repo is one target of the pack its root marks.** The
 pack is the first match: a root `package.json` or `tsconfig.json` picks `ts`, a
 root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, and
-nothing picks `ts`. A ts root runs exactly as 0.13 did, and its entries carry no
+nothing picks `ts`. The top-level `checks` are that target's own entries, so
+for a target-scope slot or a custom check they rank above
+`packs.<pack>.checks`, as they will once `target add` moves them into the
+target, and the pack block is read for the root's pack alone. A ts root runs
+exactly as 0.13 did when its config has no `packs`, and its entries carry no
 `pack`. Any other root resolves as a target of its pack rooted at `.` would,
-its `packs.<pack>.checks` block, pin chain and spawn environment included, and
-the repo-scope slots and top-level custom checks as the `repo` pack, but every
-check keeps its bare name, runs from the repo root, writes into the output
-directory, and records its `pack`, with no `target`, `slot` or `cwd`. A
-top-level entry may pick a target-scope slot's tool, since only one pack fills
-it. `init` adopts such a root as an existing repo, and refuses `--lang` there.
+its pin chain and spawn environment included, and the repo-scope slots and
+top-level custom checks as the `repo` pack, but every check keeps its bare
+name, runs from the repo root, writes into the output directory, and records
+its `pack`, with no `target`, `slot` or `cwd`. A top-level entry may pick a
+target-scope slot's tool, since only one pack fills it. `init` adopts such a root as an existing repo, and refuses `--lang` there.
 
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,
@@ -447,7 +452,7 @@ run flags:
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
---out <dir>
+--out <dir>  --defaults <path>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -474,6 +479,33 @@ A file inside the repo, and the `baseline` command wherever its file sits,
 behave as they do without the flag. `gate` takes neither: it strips
 `CHECKRIDE_CONFIG` from the check it spawns, which always reads the repo's own
 config.
+
+**`--defaults <path>` and `CHECKRIDE_DEFAULTS` layer a config below
+detection.** Run and `doctor` read the named file as a defaults layer, which
+fills only what the repo leaves empty. A slot that no entry of the repo's
+decides and detection leaves without a tool takes one from the file's
+`packs.<pack>.checks`, then its `checks`; its entry records
+`origin: "defaults"`, and its status line ends `[defaults]`. A tool detection
+found, a repo entry that picks a tool or says `false`, and an inactive slot
+stay as they are. A defaults `false`, or an entry naming an adapter the
+check's pack doesn't have, fills nothing, so a ts linter at the file's top
+level never lands on a go target. A filled slot keeps the opt-in status the
+repo gives it, so an opt-in slot still needs `--include`, and the repo's
+`optIn`, `timeout` and `order` apply over the file's. A custom check of the
+file's joins only under a name the repo's config declares in none of its
+blocks, a `false` included, and records `origin: "defaults"` too. The file's
+top-level `timeout` and `requirePins` apply only where the repo's config sets
+neither. The file holds only `checks`, `packs`, `extends`, `timeout`,
+`requirePins` and `schemas`: `targets`, or any other key, exits 2. So does an
+entry that breaks a rule resolution holds entries to, or a top-level entry
+naming an adapter no pack has, whether or not it fills a slot in this repo,
+and every such error names the file. The flag beats the variable, an empty
+variable counts as unset, a relative path resolves against the working
+directory, the file's own `extends` resolve against the file, and a named file
+that doesn't exist is exit 2. A run with it never ratchets and never writes
+`checkride.baseline.json`, wherever the file sits, and its summary records the
+file as `run.defaults`. `gate` strips `CHECKRIDE_DEFAULTS` from the check it
+spawns.
 
 **`--changed` measures from one base ref.** It resolves from `--base <ref>`,
 then `CHECKRIDE_BASE` (an empty variable counts as unset), then the config's
@@ -817,8 +849,9 @@ a repo without `targets`, no check has a target, so a target name or
 a `root` directory), `packs` (slot config for every target of one pack),
 `requirePins` and `unclaimed` beside the keys it already took. A config that
 breaks one of these rules exits 2 with `invalid checkride.config.json: <reason>`,
-naming the target, pack or entry at fault, before any check runs or any artifact
-is written:
+or the `--config` or `--defaults` path in place of the file name, naming the
+target, pack or entry at fault, before any check runs or any artifact is
+written:
 
 - A target name is a lowercase letter and up to 31 more lowercase letters,
   digits and hyphens. It's never a slot's name, `schema` and `unclaimed`
@@ -842,15 +875,17 @@ is written:
 - A `schemas` rule's `schema` is never a URL or an absolute path, because a
   check never fetches.
 - `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
-  sets `static`.
+  sets `static`, which only a defaults file may.
+- A defaults file declares no `targets`, and nor does anything it `extends`.
 
 `ts` is the only pack so far. A run checks each declared target as the
 [summary section](#checksummaryjson) describes, while no run acts on
 `unclaimed` or `schemas` yet. `requirePins` fails a check whose tool resolves
 from `PATH` with no pin, but the `ts` and `repo` packs resolve every tool
 through the project's package manager, so no shipped check reaches `PATH` yet. A config without `targets`
-resolves exactly as before: `packs` configures targets, so without them it
-applies to nothing. [`config.test.ts`](../src/__tests__/config.test.ts) holds
+reads `packs` for the pack its root marks alone, below its top-level `checks`,
+so a 0.13 config, which has no `packs`, resolves exactly as before.
+[`config.test.ts`](../src/__tests__/config.test.ts) holds
 each rule, its message and its exit code.
 
 **Stream discipline:** stdout carries machine output only (the summary JSON

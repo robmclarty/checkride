@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 52 — test(examples): adopt a Go repo with --baseline and ratchet it
+**Current step:** 53 — feat(config): layer a defaults file below detection with --defaults
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -76,7 +76,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☑ 51. feat(findings): parse docs, spell and type-checker output
 - ☑ 76. feat(config): pick the implicit pack from the root's markers
-- ☐ 52. test(examples): adopt a Go repo with --baseline and ratchet it
+- ☑ 52. test(examples): adopt a Go repo with --baseline and ratchet it
 - ☐ 53. feat(config): layer a defaults file below detection with --defaults
 - ☐ 54. feat(run): discover targets at run time with --discover
 - ☐ 55. feat(launch): let an outside mise.toml override pins with --pins
@@ -151,6 +151,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] doctor's install row stays required in a root with no package.json (a Go or Rust root, or an init --lang go|rust scaffold), so doctor exits 1 there for a missing Node lockfile the repo never needs
 - [x] existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs, where a tsconfig.json would flip the implicit pack back to ts on the next run
 - [x] D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed; decide whether the scaffolds now write an implicit-mode config (bare check names) or keep the explicit target
+- [ ] step 66's schema slot must read a defaults file's schemas when the repo's config sets none (R13.1); step 53 loads and validates the key but nothing consumes it yet
+- [ ] a defaults custom check whose name matches one of the repo's targets isn't rejected, so a token like --only web could name both (V2 holds only within one config)
+- [ ] fix parses the shared run flags, so fix --defaults (like fix --out and --base) is accepted and ignored, where R7.2 says fix takes none of them
+- [ ] a full pnpm mutation fails its dry run at HEAD: test/integration/dogfood-config.test.ts runs git ls-files from inside the gitignored .stryker-tmp sandbox and gets nothing; only --mutate runs whose related tests skip it get through
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2322,3 +2326,54 @@ folder, so it rides the branch into the PR.)*
   - `doctor`'s `install` row stays required in a root with no `package.json`, so it exits 1 there.
   - Existing-mode `init` in a Go root prints `package manager: pnpm (detected)`, and its `--add` scaffolds ts configs. A `tsconfig.json` from `--add` would flip the repo back to ts.
   - Whether `init --lang go|rust` should now write an implicit config rather than D66's interim explicit `app` target.
+- 2026-10-17 — step 52 checkpointed · fe986916e — test(examples): adopt a Go repo with --baseline and ratchet it (1 drift, 147m)
+
+  **Summary**: A new example, `examples/go-existing-baseline`, is a Go module with three grandfathered golangci-lint findings and no `package.json`. A new e2e case adopts a pre-adoption copy with `init --baseline`, checks that it writes exactly the committed baseline, then proves the debt is masked, a new `errcheck` finding fails, and fixing one finding ratchets the baseline from 3 keys to 2. The whole `pnpm test:e2e` is green with toolchains required (16 files, 142 tests), and so is the gate. The two parks deferred to this step are settled, which puts six files outside the seam.
+
+  1. A Go version of the baseline example, with no package.json
+  2. The adoption e2e reproduces the committed baseline, then masks, fails and ratchets
+  3. Six files sit outside the seam: one the example needs, five from the two parks
+  4. golangci-lint keeps relative paths, and the docs name the limit
+  5. An early experiment ran init in this repo, and I reverted it
+
+  **Readout**: Step 52 - test(examples): adopt a Go repo with --baseline and ratchet it
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 6 paths outside the seam
+               - CHANGELOG.md
+               - docs/packs.md
+               - docs/targets.md
+               - src/__tests__/init.test.ts
+               - src/init.ts
+               - test/e2e/examples.e2e.test.ts
+  diff         +423 -10 across 16 files
+  spent        2h 27m · 1 turn · 30s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve with `looks good`, accepting the six files outside the seam. One is the examples-suite change a Go-only example can't exist without, and the other five settle the two parks the harvest deferred to this step, so nothing new was invented. This step closes Phase 8, which D52 (e2e-cadence) makes a release point, so a `/version` call after it lands is yours to make.
+
+  **1.** A Go version of the baseline example, with no package.json
+
+  The example mirrors `existing-repo-baseline`: three abandoned variables (`legacyPadding`, `staleTimestampFormat`, `legacyLocale`) across two packages, which golangci-lint's `unused` linter reports, and a committed `checkride.baseline.json` keyed `file:linter:message`. It has no `package.json` on purpose. R2.1 puts `package.json` first, so one at the root would make the implicit pack `ts` and the Go code would go unchecked. With only `go.mod`, the go pack runs under bare slot names (`types`, `lint`, `test`), which is the step 76 path this step was ordered after. Its `expected.json` carries the same `ratchet` block as the TypeScript example: a new `internal/report/prune.go` that ignores `os.Remove`'s error, and the removal of `legacyPadding`. The README explains the layout, how adoption produced the baseline, and where Go differs: no warning tier, and `types` and `test` are never baselined. `examples/README.md` lists the example and says it runs as `node ../../dist/cli.js`.
+
+  **2.** The adoption e2e reproduces the committed baseline, then masks, fails and ratchets
+
+  `test/e2e/existing.e2e.test.ts` gains a go-gated case. It copies the example without its baseline, README and `expected.json` (the README links the baseline, so `links` would fail before adoption and `init` would disable it), then runs `init --baseline`. It asserts the following. `init` grandfathers `lint`, disables no slot, prints no package-manager line and writes no `package.json`. The baseline deep-equals the committed one, so the example can't drift from what `init` writes. The run is green with `baselined: 3`. The new finding exits 1 with the baseline left at 3 keys. The fix exits 0 at 2 keys. The edits come from the example's own `expected.json` and are never restated. The examples suite runs the same ratchet against the committed copy. Its first run caught real bugs: the README linked a sibling example by relative path, which a copied example can't resolve, so those links are now GitHub URLs, as `existing-repo-baseline` does it.
+
+  **3.** Six files sit outside the seam: one the example needs, five from the two parks
+
+  `test/e2e/examples.e2e.test.ts`: the suite required every example to be a linked Node package. An example with no `package.json` now skips the install and the link checks but must still carry `README.md` and `expected.json`. A Go-only example can't exist without this change. `src/init.ts`, `src/__tests__/init.test.ts`, `CHANGELOG.md` and `docs/targets.md` are the step 76 park deferred here. In a root with no `package.json`, existing-mode `init` no longer prints `package manager: pnpm (detected)`. An `--add` whose blessed config is the ts pack's (`types`, `lint`, `struct`'s TS rule, `test`, the fallow slots, the publish bundle) now exits 2 before any write and names what fits there: `docs, spell, prose`. It's a usage error rather than a skip because the CLI never prints init's `skipped` list, so a skip would be silent. A root with a `package.json` beside a `go.mod` still picks `ts` and is unchanged, which C2 (legacy-invariance) needs and a unit test pins. The CHANGELOG change extends step 76's unreleased entry rather than adding a Fixed line, since the behavior never shipped. `docs/packs.md` is the step 50 park; see 4. Stryker over the new `init.ts` lines killed 28 mutants; the two that survived are equivalent (an array literal that `addsTsOnly` filters out, and a destructured `'S'`). A dead `marker === null` guard that stryker exposed is gone. The overall score is 74.34, above the 68 floor.
+
+  **4.** golangci-lint keeps relative paths, and the docs name the limit
+
+  The step 50 park left a choice between adding `--path-mode=abs` and documenting the limit. I measured it here. golangci-lint builds absolute paths from the shell's `PWD` (`/tmp/x/...`), while Node's root is the physical path (`/private/tmp/x`). In any checkout reached through a symlink, the paths would fall outside the repo root and the baseline keys would stay absolute. So the argv is unchanged, and `docs/packs.md` gains a bullet: paths are relative to the directory of the config golangci-lint found, which is the target root where checkride detects it. A config further up the tree, or another `relative-path-mode`, would misname paths and keys. This step's real capture keys `internal/report/report.go:unused:...` correctly.
+
+  **5.** An early experiment ran init in this repo, and I reverted it
+
+  My first trial used `mise exec -C <repo>`, which also changed the working directory, so `init --baseline` ran against checkride itself rather than the temp Go module. It appended the checkride stanza to `AGENTS.md` and created `.claude/settings.json` and `.claude/hooks/checkride-gate.sh`. It kept the existing `checkride.config.json` and wrote no baseline, and its probe found nothing failing. I confirmed the session-start status listed neither `.claude` path, restored `AGENTS.md` with `git checkout`, and deleted the two files. `git status` then matched the snapshot. Every later trial exported mise's environment and ran from inside a temp directory.

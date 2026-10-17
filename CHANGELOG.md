@@ -371,7 +371,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing picks `ts`. A Go or Rust root runs its pack's checks under their
   bare slot names (`types`, `lint`, `test`), with the pack's pin chain, spawn
   environment and `packs.<pack>.checks` block, and each summary entry records
-  its `pack`. `init` in a directory with no `package.json` but a `go.mod`,
+  its `pack`. In any repo without targets, a ts root's included, the top-level
+  `checks` are the implicit target's own entries and rank above the root
+  pack's block, the order `target add` keeps when it moves them into a target,
+  so a preset's `packs` block fills what the repo leaves open; a config
+  without `packs` resolves as before. `init` in a directory with no `package.json` but a `go.mod`,
   `go.work` or `Cargo.toml` adopts it as an existing repo, so `--lang go|rust`
   there exits 2 naming that file. There it announces no package manager, and
   an `--add` whose blessed config is the ts pack's (`types`, `lint`, the
@@ -382,6 +386,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   implicit target as one of its pack, and
   `checkride doctor` names the implicit pack (`mode: implicit (the repo is one
   go project at its root)`). See `docs/targets.md`.
+- **Fill the slots a repo leaves empty with `--defaults <path>`.** Run and
+  `doctor` read the named config, or the one `CHECKRIDE_DEFAULTS` names, as a
+  layer below detection. A slot that the repo's config leaves open and
+  detection finds no tool for takes one from the file's `packs.<pack>.checks`,
+  then its `checks`, and records `origin: "defaults"`, tagged `[defaults]` on
+  its status line. A tool the repo detects always wins, as does the repo's own
+  entry, `false` included. A defaults pick that the check's pack can't run
+  fills nothing, so one file serves ts and Go repos alike. A filled slot keeps
+  its opt-in status, so an opt-in slot still needs `--include`. The file's
+  custom checks join under names the repo doesn't use, and its `timeout` and
+  `requirePins` apply where the repo sets neither. It holds only `checks`,
+  `packs`, `extends`, `timeout`, `requirePins` and `schemas`. `targets`, any
+  other key, a typo in any entry, or an adapter no pack has exits 2 naming
+  the file, whether or not that entry fills a slot in this repo. A run with
+  it never ratchets the baseline, its summary records the file as
+  `run.defaults`, and the stop gate strips `CHECKRIDE_DEFAULTS` from the check
+  it runs (#7). A config error from a `--config` file now names that file
+  too, where it used to say `checkride.config.json`.
 
 ### Changed
 
@@ -515,6 +537,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+- Additive: the run and `doctor` flag `--defaults <path>`, the variable
+  `CHECKRIDE_DEFAULTS`, the per-check `origin` value `defaults` (in the JSON
+  Schema and the contract doc's field table), and `run.defaults`, which a run
+  now writes. The exported `ResolvedCheck` and `SummaryCheck` types' `origin`
+  gains `'defaults'`; `RunOptions` gains an optional `defaults` (`{ path, config }`),
+  `DoctorOptions` an optional `defaults`, and `resolveChecks`'s input an
+  optional `defaults` config.
 - Additive: the config schema's custom check entry gains `skipExitCode`
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A

@@ -15,7 +15,12 @@
  * its own root, and its entry comes from the target, then `packs`, then the top
  * level (D10). Without them, a repo whose root marks a pack other than ts
  * (R2.1) resolves the same way, as one target of that pack at its root whose
- * checks keep their bare names.
+ * checks keep their bare names, and the top level ranks above `packs`, as the
+ * implicit target's own entry.
+ *
+ * A defaults file (`--defaults`, R13.1) sits below detection: its entries fill
+ * only a slot the repo's entries and detection leave empty, and its custom
+ * checks join only where the repo declares none of that name.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -23,6 +28,7 @@ import { createRequire } from 'node:module';
 import { join, posix, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
+import { SLOTS } from './adapters.js';
 import { isRecord } from './json.js';
 import { pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
@@ -266,9 +272,11 @@ export function configSchemaUrl(version: string): string {
  * Why a check is in the run: `config` when `checks` names its slot (presets
  * folded in by `extends` included), `detected` when a detection signal chose
  * its adapter, `built-in` when detection chose an adapter that needs no signal,
- * and `custom` for a config-only custom check keyed by a non-catalogue name.
+ * `custom` for a config-only custom check keyed by a non-catalogue name, and
+ * `defaults` when the defaults file filled a slot the repo left empty or added
+ * a custom check of its own.
  */
-export type CheckOrigin = 'config' | 'detected' | 'built-in' | 'custom';
+export type CheckOrigin = 'config' | 'detected' | 'built-in' | 'custom' | 'defaults';
 
 /** A slot resolved to a concrete adapter, or marked skipped with a reason. */
 export type ResolvedCheck = {
@@ -353,6 +361,21 @@ const CONFIG_FILE = 'checkride.config.json';
 export const CONFIG_ENV = 'CHECKRIDE_CONFIG';
 
 /**
+ * The variable that names a defaults file, the way `--defaults` does (the flag
+ * wins). The CLI reads it and the gate strips it from the check it spawns;
+ * {@link loadDefaultsFile} never consults it.
+ */
+export const DEFAULTS_ENV = 'CHECKRIDE_DEFAULTS';
+
+/**
+ * The top-level keys a defaults file may hold (R13.1), `extends` aside, which
+ * folds away as it loads. The rest belong to the repo alone: `targets`, which
+ * only the repo knows, and `gate`, `changedBase` and `unclaimed`, which shape
+ * the repo's own gate and history.
+ */
+const DEFAULTS_KEYS: ReadonlySet<string> = new Set(['$schema', 'note', 'checks', 'packs', 'timeout', 'requirePins', 'schemas']);
+
+/**
  * Recursive deep-merge with local-wins semantics: plain objects merge key by
  * key; arrays, scalars, and type mismatches from `over` replace `base` (arrays
  * are never concatenated).
@@ -369,9 +392,39 @@ function deepMerge(
   return out;
 }
 
-/** Throw the friendly `invalid checkride.config.json: <reason>` error. */
-function invalidConfig(reason: string, cause?: unknown): never {
-  throw new Error(`invalid ${CONFIG_FILE}: ${reason}`, cause ? { cause } : undefined);
+/**
+ * Throw the friendly `invalid <file>: <reason>` error, where `file` is the
+ * config the reason is about: `checkride.config.json` unless the caller knows
+ * the file came from `--config` or `--defaults`. The reason rides on the error
+ * too, so {@link relabeled} can name the file for a check that only finds the
+ * problem while resolving.
+ */
+function invalidConfig(reason: string, cause?: unknown, file: string = CONFIG_FILE): never {
+  throw Object.assign(new Error(`invalid ${file}: ${reason}`, cause ? { cause } : undefined), { configReason: reason });
+}
+
+/**
+ * The file each config loaded from a path other than `checkride.config.json`
+ * came from, so an error found while resolving it names that file. A config
+ * loaded from the repo's own file, or built by hand, has none.
+ */
+const LABELS = new WeakMap<object, string>();
+
+/** The file a config error about `config` names. */
+function labelOf(config: object | null | undefined): string {
+  return (config ? LABELS.get(config) : undefined) ?? CONFIG_FILE;
+}
+
+/** Run `fn`, so a config error it throws names `file` in place of `checkride.config.json`. */
+function relabeled<T>(file: string, fn: () => T): T {
+  if (file === CONFIG_FILE) return fn();
+  try {
+    return fn();
+  } catch (err) {
+    const reason: unknown = isRecord(err) ? err['configReason'] : undefined;
+    if (typeof reason === 'string') invalidConfig(reason, err, file);
+    throw err;
+  }
 }
 
 /**
@@ -383,7 +436,7 @@ export function configChangedBase(config: CheckrideConfig | null): string | null
   const base: unknown = config?.changedBase;
   if (base === undefined) return null;
   if (typeof base !== 'string' || base.length === 0) {
-    invalidConfig(`changedBase must be a non-empty string (got ${JSON.stringify(base)})`);
+    invalidConfig(`changedBase must be a non-empty string (got ${JSON.stringify(base)})`, undefined, labelOf(config));
   }
   return base;
 }
@@ -535,22 +588,30 @@ function applyOptIn(check: ResolvedCheck, entry: SlotConfig | undefined, context
 }
 
 /**
- * Read, parse, and fully resolve a config file's `extends` chain into a single
- * merged object. `stack` holds the absolute paths currently being resolved, so
- * a config that (transitively) extends itself is caught as a cycle. `label`
- * names the file in error messages — the root config's own filename for the
- * entry point, or a repo-relative path for an inherited base.
+ * Where one file sits as an `extends` chain resolves: `stack`, the absolute
+ * paths above it, so a config that (transitively) extends itself is caught as
+ * a cycle; `label`, how a message names this file, the root's name for the
+ * root itself or a path relative to the working directory for an inherited
+ * base; and `root`, the file the chain started from, which every error's
+ * `invalid <file>:` prefix names.
  */
+type Chain = { stack: readonly string[]; label: string; root: string };
+
+/** The chain a root config file starts, named `file` in every error. */
+function rootChain(file: string): Chain {
+  return { stack: [], label: file, root: file };
+}
+
 /** Read and parse a config file into an object, or throw a friendly error. */
-function parseConfigJson(absPath: string, label: string): Record<string, unknown> {
+function parseConfigJson(absPath: string, chain: Chain): Record<string, unknown> {
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(absPath, 'utf8'));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    invalidConfig(label === CONFIG_FILE ? reason : `${reason} (in ${label})`, err);
+    invalidConfig(chain.label === chain.root ? reason : `${reason} (in ${chain.label})`, err, chain.root);
   }
-  if (!isRecord(raw)) invalidConfig(`${label} is not a JSON object`);
+  if (!isRecord(raw)) invalidConfig(`${chain.label} is not a JSON object`, undefined, chain.root);
   return raw;
 }
 
@@ -559,53 +620,52 @@ function normalizeExtends(ext: unknown): unknown[] {
   return ext === undefined ? [] : Array.isArray(ext) ? ext : [ext];
 }
 
-/** Resolve and left-to-right merge every base config named in `specs`. */
-function resolveExtends(
-  specs: readonly unknown[],
-  absPath: string,
-  stack: readonly string[],
-  label: string,
-): Record<string, unknown> {
+/** Resolve and left-to-right merge every base config named in `specs`, which the file at `absPath` extends. */
+function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain): Record<string, unknown> {
+  const { label, root } = chain;
   const require = createRequire(absPath);
   let merged: Record<string, unknown> = {};
   for (const spec of specs) {
-    if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${label})`);
+    if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${label})`, undefined, root);
     let baseAbs: string;
     try {
       baseAbs = require.resolve(spec);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err);
+      invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err, root);
     }
-    const base = resolveConfigFile(baseAbs, [...stack, absPath], relative(process.cwd(), baseAbs));
+    const base = resolveConfigFile(baseAbs, { stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs), root });
     const problem = presetProblem(base, spec, label);
-    if (problem !== null) invalidConfig(problem);
+    if (problem !== null) invalidConfig(problem, undefined, root);
     merged = deepMerge(merged, base);
   }
   return merged;
 }
 
-function resolveConfigFile(
-  absPath: string,
-  stack: readonly string[],
-  label: string,
-): Record<string, unknown> {
-  if (stack.includes(absPath)) {
-    invalidConfig(`circular extends: ${[...stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`);
+/**
+ * Read, parse, and fully resolve a config file's `extends` chain into a single
+ * merged object, with `extends` folded away.
+ */
+function resolveConfigFile(absPath: string, chain: Chain): Record<string, unknown> {
+  if (chain.stack.includes(absPath)) {
+    invalidConfig(`circular extends: ${[...chain.stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`, undefined, chain.root);
   }
-  const { extends: ext, ...own } = parseConfigJson(absPath, label);
-  const merged = resolveExtends(normalizeExtends(ext), absPath, stack, label);
+  const { extends: ext, ...own } = parseConfigJson(absPath, chain);
+  const merged = resolveExtends(normalizeExtends(ext), absPath, chain);
   return deepMerge(merged, own);
 }
 
 /**
  * Hold a merged config to the rules its `targets`, `packs` and companion keys
  * keep (see `configProblem`), with `cwd` as the repo root its target roots
- * must exist under, and throw the friendly error on the first one it breaks.
+ * must exist under, and throw the friendly error, naming `file`, on the first
+ * one it breaks. A config from a file other than the repo's own remembers its
+ * name, for the errors resolution finds later.
  */
-function validated(config: Record<string, unknown>, cwd: string): CheckrideConfig {
+function validated(config: Record<string, unknown>, cwd: string, file: string): CheckrideConfig {
   const problem = configProblem(config, { cwd, layer: 'repo' });
-  if (problem !== null) invalidConfig(problem);
+  if (problem !== null) invalidConfig(problem, undefined, file);
+  if (file !== CONFIG_FILE) LABELS.set(config, file);
   return config;
 }
 
@@ -618,7 +678,7 @@ function validated(config: Record<string, unknown>, cwd: string): CheckrideConfi
 export function loadConfig(cwd: string): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  return validated(resolveConfigFile(path, [], CONFIG_FILE), cwd);
+  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE)), cwd, CONFIG_FILE);
 }
 
 /**
@@ -631,19 +691,77 @@ export function loadConfig(cwd: string): CheckrideConfig | null {
 export function validateConfigObject(raw: Record<string, unknown>, path: string, cwd: string): CheckrideConfig {
   const { extends: ext, ...own } = raw;
   const label = relative(cwd, path) === CONFIG_FILE ? CONFIG_FILE : path;
-  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, [], label), own), cwd);
+  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, rootChain(label)), own), cwd, label);
 }
 
 /**
  * Read and resolve the config file at an explicit absolute `path` (`--config`,
  * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
  * relative `extends` resolve against that file, while paths inside its values
- * stay relative to the repo being checked, `cwd`. The caller has already
+ * stay relative to the repo being checked, `cwd`. Every error it raises, and
+ * every one resolving it raises later, names `path`. The caller has already
  * confirmed the file exists, since a named file that is missing is a usage
  * error, not "no config".
  */
 export function loadConfigFile(path: string, cwd: string): CheckrideConfig {
-  return validated(resolveConfigFile(path, [], path), cwd);
+  return validated(resolveConfigFile(path, rootChain(path)), cwd, path);
+}
+
+/** The first top-level key a defaults file can't hold, as a problem, or `null`. */
+function defaultsKeyProblem(config: Record<string, unknown>): string | null {
+  const key = Object.keys(config).find((k) => !DEFAULTS_KEYS.has(k));
+  if (key === undefined) return null;
+  return `a defaults file can't set ${key}: it may hold checks, packs, extends, timeout, requirePins and schemas, and the rest belongs to the repo's own config`;
+}
+
+/** Every adapter of every pack, which a defaults file's top-level `checks` may name. */
+const PACK_ADAPTERS: readonly Adapter[] = Object.values(PACKS).flatMap((p) => p.adapters);
+
+/** The adapter a top-level defaults entry names, when it names one. */
+function namedAdapter(entry: SlotConfig): string | null {
+  if (typeof entry === 'string') return entry;
+  return isEntryObject(entry) && 'use' in entry ? entry.use : null;
+}
+
+/**
+ * Hold every entry of a defaults file to the rules resolution holds an entry
+ * to, by resolving each one dry: an entry that fills a slot in only some repos
+ * would otherwise keep its typo until the day it fills one. A top-level entry
+ * that names an adapter no pack has is an error here, since a defaults entry
+ * that can't run anywhere fills nothing, silently.
+ */
+function checkDefaultsEntries(config: CheckrideConfig): void {
+  const slots = new Map(SLOTS.map((s) => [s.name, s]));
+  const blocks = [config.checks ?? {}, ...Object.values(config.packs ?? {}).map((p) => p?.checks ?? {})];
+  for (const [name, entry] of blocks.flatMap((block) => Object.entries(block))) {
+    if (isEntryObject(entry)) layerTuning([entry], name);
+    const slot = slots.get(name);
+    if (slot === undefined) {
+      customCheckEntry(name, entry, () => true);
+      continue;
+    }
+    const adapter = namedAdapter(entry);
+    if (adapter !== null && byName(adapter, PACK_ADAPTERS, name) === null) {
+      invalidConfig(`'${name}' names '${adapter}', which isn't an adapter of any pack`);
+    }
+    resolveOne(slot, entry, PACK_ADAPTERS, NO_DETECTION);
+  }
+}
+
+/**
+ * Read, resolve and validate the defaults file at an absolute `path`
+ * (`--defaults`, `CHECKRIDE_DEFAULTS`, R13.1): its relative `extends` resolve
+ * against it, it may hold only {@link DEFAULTS_KEYS}, never `targets` (V11),
+ * and every entry it declares is held to resolution's rules now, whether or
+ * not it fills a slot in this repo. Every error names `path`. The caller has
+ * already confirmed the file exists.
+ */
+export function loadDefaultsFile(path: string, cwd: string): CheckrideConfig {
+  const config = resolveConfigFile(path, rootChain(path));
+  const problem = configProblem(config, { cwd, layer: 'defaults' }) ?? defaultsKeyProblem(config);
+  if (problem !== null) invalidConfig(problem, undefined, path);
+  relabeled(path, () => checkDefaultsEntries(config));
+  return config;
 }
 
 /**
@@ -730,6 +848,9 @@ function hasAnySignal(a: Adapter): boolean {
  * when nothing but `PATH` would provide it).
  */
 type Detection = { fileExists: (file: string) => boolean; manifest: Manifest; pinned: (bin: string) => string | null };
+
+/** Detection that finds nothing, so a dry resolution runs only the entry's own rules. */
+const NO_DETECTION: Detection = { fileExists: () => false, manifest: EMPTY_MANIFEST, pinned: () => null };
 
 /**
  * What made an adapter's detection fire: a named signal, given in the summary's
@@ -1044,22 +1165,57 @@ function customCheckEntry(
 }
 
 /**
+ * How {@link foldCustomChecks} reads a block beyond its own entries: `below`,
+ * a lower block whose entry of the same name the block's own resolves over
+ * (the pack block, under the top level of a repo without targets), and
+ * `taken`, the names it leaves out.
+ */
+type FoldOptions = { below?: Readonly<Record<string, SlotConfig>>; taken?: ReadonlySet<string> };
+
+/**
  * Resolve every config-only custom check (config key order preserved), skipping
  * any name that fills a catalogue slot. Order is baked onto each resolved check;
  * `resolveChecks` sorts the combined list.
  */
 function foldCustomChecks(
-  checks: Record<string, SlotConfig>,
+  checks: Readonly<Record<string, SlotConfig>>,
   catalogueNames: ReadonlySet<string>,
   fileExists: (file: string) => boolean,
+  { below = {}, taken = new Set() }: FoldOptions = {},
 ): ResolvedCheck[] {
   const customs: ResolvedCheck[] = [];
-  for (const [name, entry] of Object.entries(checks)) {
-    if (catalogueNames.has(name)) continue;
-    const resolved = customCheckEntry(name, entry, fileExists);
+  for (const [name, own] of Object.entries(checks)) {
+    if (catalogueNames.has(name) || taken.has(name)) continue;
+    const entry = below[name] === undefined ? own : layeredEntry([own, below[name]], name);
+    const resolved = entry === undefined ? null : customCheckEntry(name, entry, fileExists);
     if (resolved !== null) customs.push(resolved);
   }
   return customs;
+}
+
+/** A check the defaults layer added, marked as theirs; one that stood down has no origin to mark. */
+function fromDefaults(check: ResolvedCheck): ResolvedCheck {
+  return check.adapter === null ? check : { ...check, origin: 'defaults' };
+}
+
+/**
+ * Every check name the repo's config declares, in any block: a custom check of
+ * the defaults layer joins only under a name outside it (R13.1), so the
+ * repo's own `false` keeps one out too.
+ */
+function declaredNames(config: CheckrideConfig | null): ReadonlySet<string> {
+  const blocks = [
+    config?.checks,
+    ...Object.values(config?.targets ?? {}).map((t) => t.checks),
+    ...Object.values(config?.packs ?? {}).map((p) => p?.checks),
+  ];
+  return new Set(blocks.flatMap((block) => Object.keys(block ?? {})));
+}
+
+/** A config's `packs.<pack>.checks`, or an empty block when it has none. */
+function packBlock(config: CheckrideConfig | null | undefined, pack: string): Readonly<Record<string, SlotConfig>> {
+  const packs: Readonly<Record<string, PackConfig | undefined>> = config?.packs ?? {};
+  return packs[pack]?.checks ?? {};
 }
 
 /** Group rank in the scheduling sequence: firsts (0), the numeric line incl. `'any'`/`'middle'` (1), singles (2), lasts (3). */
@@ -1085,6 +1241,13 @@ type ResolveInput = {
    */
   adapters: readonly Adapter[];
   config: CheckrideConfig | null;
+  /**
+   * The defaults layer (`--defaults`, R13.1), as {@link loadDefaultsFile}
+   * reads it: its entries fill only a slot `config` and detection leave
+   * empty, and its custom checks join only under names `config` doesn't
+   * declare. Omitted or `null`, there's none.
+   */
+  defaults?: CheckrideConfig | null;
   cwd?: string;
   /** Answers for a path relative to the repo root, a target's files included. */
   fileExists?: (file: string) => boolean;
@@ -1131,10 +1294,59 @@ function inactiveCheck(slot: Slot, entry: SlotConfig | undefined, config: Checkr
   return { ...skipped(slot, `runs only when checkride.config.json declares ${key}`), inactive: true };
 }
 
-/** A repo-scope slot at the repo root: inactive, or resolved from its entry and detection. */
-function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection): ResolvedCheck {
-  const entry = input.config?.checks?.[slot.name];
-  return inactiveCheck(slot, entry, input.config) ?? resolveOne(slot, entry, input.adapters, detection);
+/** One layer's entry for a check, or `undefined` where that layer has none. */
+type Layer = SlotConfig | undefined;
+
+/**
+ * What the defaults layer fills a check from once the repo's layers and
+ * detection leave it empty: the repo's layers (`repo`, highest first), whose
+ * tuning still applies; the defaults layer's own entries, highest first (its
+ * `packs.<pack>.checks`, then its `checks`, R3); and what the check resolves
+ * against.
+ */
+type Fallback = {
+  slot: Slot;
+  repo: readonly Layer[];
+  defaults: readonly Layer[];
+  adapters: readonly Adapter[];
+  detection: Detection;
+};
+
+/**
+ * `resolved`, or, when the repo's layers and detection left it empty, the
+ * check the defaults layer fills it with, marked `defaults` (R3, R13.1). The
+ * defaults never beat a tool detection found or a repo entry that decides the
+ * slot (a `false`, or a pick the registry lacks, included), and never wake an
+ * inactive slot. A defaults `false`, or a pick this check can't run (a ts
+ * linter, for a go target), leaves the gap as it was. A slot the defaults fill
+ * keeps the opt-in status the repo gave it, since the defaults pick a tool and
+ * the flags pick the run, and the repo's tuning applies over theirs.
+ */
+function filledByDefaults(resolved: ResolvedCheck, entry: Layer, fallback: Fallback): ResolvedCheck {
+  if (resolved.adapter !== null || resolved.inactive === true || decides(entry)) return resolved;
+  // Without a defaults entry that decides, resolving again would only repeat the detection that just failed.
+  if (!fallback.defaults.some(decides)) return resolved;
+  const layered = layeredEntry([...fallback.repo, ...fallback.defaults], fallback.slot.name);
+  const filled = resolveOne(fallback.slot, layered, fallback.adapters, fallback.detection);
+  // A `false`, a pick the check's adapters lack, and a script-gated tool with no script all fill nothing.
+  if (filled.adapter === null) return resolved;
+  return { ...filled, origin: 'defaults', explicit: resolved.explicit === true };
+}
+
+/**
+ * A slot at the repo root: inactive, or resolved from its top-level entry,
+ * then detection, then the defaults layer's top-level entry. In a repo without
+ * targets, `below` holds the pack block's entry for a target-scope slot, the
+ * repo's under its top level and the defaults' over theirs.
+ */
+function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection, below?: { repo: Layer; defaults: Layer }): ResolvedCheck {
+  const top = input.config?.checks?.[slot.name];
+  const repo = [top, below?.repo];
+  // An entry with nothing under it resolves as written, as it always has.
+  const entry = below?.repo === undefined ? top : layeredEntry(repo, slot.name);
+  const resolved = inactiveCheck(slot, entry, input.config) ?? resolveOne(slot, entry, input.adapters, detection);
+  const defaults = [below?.defaults, input.defaults?.checks?.[slot.name]];
+  return filledByDefaults(resolved, entry, { slot, repo, defaults, adapters: input.adapters, detection });
 }
 
 /**
@@ -1161,21 +1373,61 @@ function untargeted(check: ResolvedCheck): ResolvedCheck {
 }
 
 /**
- * Implicit mode: the repo is one target at its root. A ts root resolves as
- * 0.13 did: every catalogue slot, then every custom check, against `adapters`
- * through the implicit pin chain, with no pack. Any other pack resolves as a
- * declared target of it rooted at `.` would, its pack block, chain and
+ * The custom checks of a repo without targets, whose top level is the
+ * implicit target's own entry: under `top`, each top-level custom check over
+ * the pack block's entry of its name, then the ones only the pack block
+ * declares, under `pack`. The repo's come first, then the defaults layer's,
+ * each under a name the repo declares nowhere.
+ */
+function implicitCustomChecks(
+  input: ResolveInput,
+  pack: string,
+  catalogueNames: ReadonlySet<string>,
+  fileExists: (file: string) => boolean,
+): { top: ResolvedCheck[]; pack: ResolvedCheck[] } {
+  const layer = (config: CheckrideConfig | null | undefined, taken: ReadonlySet<string>) => {
+    const top = config?.checks ?? {};
+    const below = packBlock(config, pack);
+    return {
+      top: foldCustomChecks(top, catalogueNames, fileExists, { below, taken }),
+      pack: foldCustomChecks(below, catalogueNames, fileExists, { taken: new Set([...taken, ...Object.keys(top)]) }),
+    };
+  };
+  const repo = layer(input.config, new Set());
+  const defaults = layer(input.defaults, declaredNames(input.config));
+  return {
+    top: [...repo.top, ...defaults.top.map(fromDefaults)],
+    pack: [...repo.pack, ...defaults.pack.map(fromDefaults)],
+  };
+}
+
+/**
+ * Implicit mode: the repo is one target at its root, and its top-level
+ * entries rank as that target's own, above its pack block. A ts root resolves
+ * as 0.13 did: every catalogue slot, then every custom check, against
+ * `adapters` through the implicit pin chain, with no pack. Any other pack
+ * resolves as a declared target of it rooted at `.` would, its chain and
  * variables included, with each check named by its slot alone (D66).
  */
 function implicitChecks(input: ResolveInput, pack: string, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
-  if (pack !== PACKS.ts.name) return targetChecks(input, [{ name: '', pack, root: '.' }], catalogueNames).map(untargeted);
+  if (pack !== PACKS.ts.name) {
+    const target: Target = { name: '', pack, root: '.' };
+    const detection = detectionAt(input, '.', PACKS.repo.name);
+    const customs = implicitCustomChecks(input, pack, catalogueNames, detection.fileExists);
+    const catalogue = catalogueChecks(input, [targetScope(input, target, true)], detection);
+    return [...catalogue, ...customs.top.map(inRepo), ...customs.pack.map((c) => inTarget(c, target))].map(untargeted);
+  }
   const detection = detectionAt(input, '.');
-  const checks = input.config?.checks ?? {};
-  const catalogue = input.slots.map((slot) => repoSlotCheck(slot, input, detection));
-  return [...catalogue, ...foldCustomChecks(checks, catalogueNames, detection.fileExists)];
+  const repoPack = packBlock(input.config, pack);
+  const defaultsPack = packBlock(input.defaults, pack);
+  const catalogue = input.slots.map((slot) =>
+    repoSlotCheck(slot, input, detection, slot.scope === 'repo' ? undefined : { repo: repoPack[slot.name], defaults: defaultsPack[slot.name] }),
+  );
+  const customs = implicitCustomChecks(input, pack, catalogueNames, detection.fileExists);
+  return [...catalogue, ...customs.top, ...customs.pack];
 }
 
-/** One target as resolution reads it: its pack's adapters, the two blocks above the top level, and detection at its root. */
+/** One target as resolution reads it: its pack's adapters, the blocks that configure it, and detection at its root. */
 type TargetScope = {
   target: Target;
   adapters: readonly Adapter[];
@@ -1183,17 +1435,26 @@ type TargetScope = {
   own: Readonly<Record<string, SlotConfig>>;
   /** `packs.<pack>.checks`, below the target's own and above the top level. */
   pack: Readonly<Record<string, SlotConfig>>;
+  /**
+   * True for the one target of a repo without targets, whose top-level
+   * entries rank as its own, above its pack block, as they will once
+   * `target add` moves them into it.
+   */
+  implicit: boolean;
+  /** The defaults layer's `packs.<pack>.checks`, which ranks below detection and above the defaults' top level. */
+  defaultsPack: Readonly<Record<string, SlotConfig>>;
   detection: Detection;
 };
 
-function targetScope(input: ResolveInput, target: Target): TargetScope {
-  const packs: Readonly<Record<string, PackConfig | undefined>> = input.config?.packs ?? {};
+function targetScope(input: ResolveInput, target: Target, implicit = false): TargetScope {
   const rows = Object.values(PACKS).find((p) => p.name === target.pack);
   return {
     target,
     adapters: rows?.adapters ?? [],
     own: input.config?.targets?.[target.name]?.checks ?? {},
-    pack: packs[target.pack]?.checks ?? {},
+    pack: packBlock(input.config, target.pack),
+    implicit,
+    defaultsPack: packBlock(input.defaults, target.pack),
     detection: detectionAt(input, target.root, target.pack),
   };
 }
@@ -1250,49 +1511,74 @@ function inTarget(check: ResolvedCheck, target: Target): ResolvedCheck {
 
 /**
  * The target's check for catalogue slot `slot`, or `null` when it has none:
- * its pack fills no such slot, and neither the target nor the pack configures
- * one. The top-level entry, which V6 holds to `false` or tuning, reaches only
- * the targets whose pack fills the slot. Detection reads the target's root.
+ * its pack fills no such slot, and neither the target nor either pack block
+ * configures one. The top-level entry, which V6 holds to `false` or tuning
+ * once targets are declared, reaches only the targets whose pack fills the
+ * slot, and the defaults' top-level entry (`defaultsTop`) the same. Detection
+ * reads the target's root, and the defaults fill only what it leaves empty.
  */
-function targetSlotCheck(slot: Slot, scope: TargetScope, top: SlotConfig | undefined): ResolvedCheck | null {
+function targetSlotCheck(slot: Slot, scope: TargetScope, top: Layer, defaultsTop: Layer): ResolvedCheck | null {
   const own = scope.own[slot.name];
   const pack = scope.pack[slot.name];
-  if (own === undefined && pack === undefined && !scope.adapters.some((a) => a.slot === slot.name)) return null;
-  const entry = layeredEntry([own, pack, top], slot.name);
-  return inTarget(resolveOne(slot, entry, scope.adapters, scope.detection), scope.target);
+  const defaultsPack = scope.defaultsPack[slot.name];
+  const fills = scope.adapters.some((a) => a.slot === slot.name);
+  if (own === undefined && pack === undefined && defaultsPack === undefined && !fills) return null;
+  const repo = scope.implicit ? [top, pack] : [own, pack, top];
+  const entry = layeredEntry(repo, slot.name);
+  const resolved = resolveOne(slot, entry, scope.adapters, scope.detection);
+  const fallback = { slot, repo, defaults: [defaultsPack, defaultsTop], adapters: scope.adapters, detection: scope.detection };
+  return inTarget(filledByDefaults(resolved, entry, fallback), scope.target);
 }
 
 /**
  * The target's custom checks: each name outside the catalogue that its pack's
  * block or its own declares, pack names first, each resolved from the target's
- * entry over its pack's as a slot is. A `detect` gate reads the target's root.
+ * entry over its pack's as a slot is, then the defaults' pack block's, each
+ * under a name the repo declares nowhere (`taken`). A `detect` gate reads the
+ * target's root.
  */
-function targetCustomChecks(scope: TargetScope, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+function targetCustomChecks(scope: TargetScope, catalogueNames: ReadonlySet<string>, taken: ReadonlySet<string>): ResolvedCheck[] {
   const names = Object.keys({ ...scope.pack, ...scope.own }).filter((name) => !catalogueNames.has(name));
-  return names.flatMap((name) => {
+  const repo = names.flatMap((name) => {
     const entry = layeredEntry([scope.own[name], scope.pack[name]], name);
     const check = entry === undefined ? null : customCheckEntry(name, entry, scope.detection.fileExists);
-    return check === null ? [] : [inTarget(check, scope.target)];
+    return check === null ? [] : [check];
   });
+  const defaults = foldCustomChecks(scope.defaultsPack, catalogueNames, scope.detection.fileExists, { taken }).map(fromDefaults);
+  return [...repo, ...defaults].map((check) => inTarget(check, scope.target));
+}
+
+/**
+ * Each repo-scope slot once at the repo root, read through `detection`, and
+ * each target-scope slot once for every scope that has it, in scope order.
+ */
+function catalogueChecks(input: ResolveInput, scopes: readonly TargetScope[], detection: Detection): ResolvedCheck[] {
+  const top = input.config?.checks ?? {};
+  const defaultsTop = input.defaults?.checks ?? {};
+  return input.slots.flatMap((slot) =>
+    slot.scope === 'repo'
+      ? [inRepo(repoSlotCheck(slot, input, detection))]
+      : scopes.flatMap((scope) => targetSlotCheck(slot, scope, top[slot.name], defaultsTop[slot.name]) ?? []),
+  );
 }
 
 /**
  * Multi-target mode: each repo-scope slot once at the repo root, each
  * target-scope slot once for every target that has it, in target order, then
- * the top-level custom checks at the repo root, then each target's own. That
- * natural order is the tie-break the group sort keeps (R8.4).
+ * the top-level custom checks at the repo root, the repo's and then the
+ * defaults', then each target's own. That natural order is the tie-break the
+ * group sort keeps (R8.4).
  */
 function targetChecks(input: ResolveInput, targets: readonly Target[], catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
   const detection = detectionAt(input, '.', PACKS.repo.name);
-  const checks = input.config?.checks ?? {};
   const scopes = targets.map((target) => targetScope(input, target));
-  const catalogue = input.slots.flatMap((slot) =>
-    slot.scope === 'repo'
-      ? [inRepo(repoSlotCheck(slot, input, detection))]
-      : scopes.flatMap((scope) => targetSlotCheck(slot, scope, checks[slot.name]) ?? []),
-  );
-  const customs = foldCustomChecks(checks, catalogueNames, detection.fileExists).map(inRepo);
-  return [...catalogue, ...customs, ...scopes.flatMap((scope) => targetCustomChecks(scope, catalogueNames))];
+  const taken = declaredNames(input.config);
+  const customs = [
+    ...foldCustomChecks(input.config?.checks ?? {}, catalogueNames, detection.fileExists),
+    ...foldCustomChecks(input.defaults?.checks ?? {}, catalogueNames, detection.fileExists, { taken }).map(fromDefaults),
+  ].map(inRepo);
+  const targetCustoms = scopes.flatMap((scope) => targetCustomChecks(scope, catalogueNames, taken));
+  return [...catalogueChecks(input, scopes, detection), ...customs, ...targetCustoms];
 }
 
 /** Sort into the group sequence, keeping the given order within a group. */
@@ -1326,14 +1612,22 @@ function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
  * catalogue checks then sit in target order within a slot, and the top-level
  * custom checks before each target's own (R8.4). Without `targets`, the repo
  * is one target of the pack its root marks (R2.1), resolved as 0.13 did when
- * that's ts.
+ * that's ts, with its top-level entries over its pack block.
+ *
+ * `defaults` ranks below detection (R3): a slot the repo's entries and
+ * detection leave empty takes its tool from the defaults' pack block, then
+ * their top level, with `origin: 'defaults'`, and the defaults' custom checks
+ * follow the repo's wherever the repo declares no check of that name. A config
+ * error found here names the file the config came from.
  */
 export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
-  const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
-    sortByGroup(checks.map((check) => withClaims(check, targets, input.config)));
-  const declared = configuredTargets(input.config);
-  if (declared !== null) return claimed(targetChecks(input, declared, catalogueNames), declared);
-  const pack = implicitPackOf(input);
-  return claimed(implicitChecks(input, pack, catalogueNames), [{ name: '', pack, root: '.' }]);
+  return relabeled(labelOf(input.config), () => {
+    const catalogueNames = new Set(input.slots.map((s) => s.name));
+    const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
+      sortByGroup(checks.map((check) => withClaims(check, targets, input.config)));
+    const declared = configuredTargets(input.config);
+    if (declared !== null) return claimed(targetChecks(input, declared, catalogueNames), declared);
+    const pack = implicitPackOf(input);
+    return claimed(implicitChecks(input, pack, catalogueNames), [{ name: '', pack, root: '.' }]);
+  });
 }

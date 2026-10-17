@@ -807,7 +807,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/targets/resolve.ts`, `src/config.ts`, `src/init.ts`, `src/doctor.ts`,
       `docs/targets.md`
     - model: opus (0.13's invariance, and every caller that reads the implicit target)
-52. [ ] test(examples): adopt a Go repo with --baseline and ratchet it, **done when:** a Go version of `examples/existing-repo-baseline` adopts with `init --baseline`, masks its grandfathered findings, fails on a new one, and ratchets a fixed one away; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+52. [x] test(examples): adopt a Go repo with --baseline and ratchet it, **done when:** a Go version of `examples/existing-repo-baseline` adopts with `init --baseline`, masks its grandfathered findings, fails on a new one, and ratchets a fixed one away; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/`, `test/e2e/existing.e2e.test.ts`
     - model: sonnet
 

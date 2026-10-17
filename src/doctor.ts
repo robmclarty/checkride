@@ -170,6 +170,8 @@ export type DoctorOptions = {
   pinEnv?: PinEnv;
   /** The output directory `--out` or `CHECKRIDE_OUT` named, which the workspace row probes instead of `<cwd>/.check`. */
   out?: string;
+  /** The defaults layer `--defaults` or `CHECKRIDE_DEFAULTS` named, whose entries fill the slots the repo leaves empty, as in a run. */
+  defaults?: CheckrideConfig | null;
 };
 
 type Semver = { major: number; minor: number; patch: number; raw: string };
@@ -918,17 +920,39 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
  * (`unclaimed` without targets) isn't one this repo runs, so it has no row.
  */
 async function checkRows(
-  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null },
+  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; defaults: CheckrideConfig | null },
   pm: PackageManager,
   env: DoctorEnv,
 ): Promise<DoctorCheck[]> {
-  const { cwd, slots, adapters, config } = common;
-  const resolved = resolveChecks({ slots, adapters, config, cwd }).filter((r) => r.inactive !== true);
+  const { cwd, slots, adapters, config, defaults } = common;
+  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd }).filter((r) => r.inactive !== true);
   const defaultActive = new Set(selectChecks(resolved, {}).map(checkName));
   const pmAt = (dir: string): PackageManager => (dir === cwd ? pm : nearestPackageManager(dir, cwd));
   // Independent per-check probes: run them concurrently, `map` preserves order.
   const rows = await Promise.all(resolved.map((r) => classifySlot(r, { repo: cwd, defaultActive, adapters, pmAt, env })));
-  return [...rows, ...unpinnedRows(unpinnedTools(resolved, cwd, defaultActive), config?.requirePins === true)];
+  return [...rows, ...unpinnedRows(unpinnedTools(resolved, cwd, defaultActive), (config?.requirePins ?? defaults?.requirePins) === true)];
+}
+
+/**
+ * The repo's mode as the report gives it (its targets, or the implicit pack
+ * its root marks, and the markers no target claims) and the row that names
+ * those markers, when there is one.
+ */
+async function modeOf(
+  cwd: string,
+  config: CheckrideConfig | null,
+  out: string | undefined,
+): Promise<{ fields: Pick<DoctorReport, 'mode' | 'pack' | 'targets' | 'unclaimed'>; row: DoctorCheck | null }> {
+  const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
+  const implicit = targets === null ? implicitPack((marker) => existsSync(join(cwd, marker))) : null;
+  const unclaimed = await unclaimedMarkers(cwd, config, targets ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], out);
+  const fields = {
+    mode: targets === null ? 'implicit' : 'multi-target',
+    ...(implicit !== null ? { pack: implicit } : {}),
+    ...(targets !== null ? { targets } : {}),
+    ...(typeof unclaimed === 'string' ? {} : { unclaimed }),
+  } as const;
+  return { fields, row: markersRow(unclaimed, implicit) };
 }
 
 /** Run the doctor against `cwd`; render and return the report. */
@@ -940,28 +964,16 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
 
   const checks: DoctorCheck[] = [
     ...(await environmentRows(cwd, pm, env, options.pinEnv ?? realPinEnv)),
-    ...(await checkRows(common, pm, env)),
+    ...(await checkRows({ ...common, defaults: options.defaults ?? null }, pm, env)),
     await checkWritable(cwd, options.out, env),
   ];
   const baselineRow = checkBaseline(cwd, env);
   if (baselineRow !== null) checks.push(baselineRow);
-  const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
-  const implicit = targets === null ? implicitPack((marker) => existsSync(join(cwd, marker))) : null;
-  const unclaimed = await unclaimedMarkers(cwd, config, targets ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], options.out);
-  const markers = markersRow(unclaimed, implicit);
-  if (markers !== null) checks.push(markers);
+  const mode = await modeOf(cwd, config, options.out);
+  if (mode.row !== null) checks.push(mode.row);
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
-  const report: DoctorReport = {
-    ok,
-    platform: env.platform(),
-    packageManager: pm,
-    mode: targets === null ? 'implicit' : 'multi-target',
-    ...(implicit !== null ? { pack: implicit } : {}),
-    ...(targets !== null ? { targets } : {}),
-    ...(typeof unclaimed === 'string' ? {} : { unclaimed }),
-    checks,
-  };
+  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, checks };
 
   if (options.json === true) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);

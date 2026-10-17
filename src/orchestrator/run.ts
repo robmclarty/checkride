@@ -50,6 +50,7 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
     ...(options.all === true ? { all: true } : {}),
     ...(options.changed === true ? { changed: true } : {}),
     ...(options.configPath !== undefined ? { config: resolve(cwd, options.configPath) } : {}),
+    ...(options.defaults !== undefined ? { defaults: resolve(cwd, options.defaults.path) } : {}),
     ...(options.out !== undefined ? { out: resolve(cwd, options.out) } : {}),
   };
 }
@@ -74,9 +75,10 @@ function targetsRecord(targets: readonly Target[] | null): SummaryTarget[] | nul
  * it is the repo's own. A consumer run doesn't represent the repo's gate, so it
  * never rewrites `checkride.baseline.json`. A `--config` or `--out` inside the
  * repo is the repo speaking for itself, and ratchets as if no flag had been
- * passed.
+ * passed; `--defaults` never is, wherever its file sits (R13.5).
  */
 function consumerCause(options: RunOptions, cwd: string): string | null {
+  if (options.defaults !== undefined) return '--defaults';
   if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
   if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;
@@ -159,7 +161,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
   resetInterrupt();
   const base = resolveRunContext(options);
-  const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, cwd: base.cwd });
+  const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, defaults: base.defaults, cwd: base.cwd });
   // A usage error before any side effect: no output dir, no run, exit 2.
   validateSelection(resolved, options);
   const changedBase = await changedBaseFor(options, base);

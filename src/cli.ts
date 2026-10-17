@@ -22,7 +22,7 @@ import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff } from './baseline-command.js';
 import type { CheckrideConfig } from './config.js';
-import { CONFIG_ENV, loadConfigFile } from './config.js';
+import { CONFIG_ENV, DEFAULTS_ENV, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import type { NamedBase } from './git.js';
@@ -57,6 +57,7 @@ const RUN_OPTIONS = {
   config: { type: 'string' },
   base: { type: 'string' },
   out: { type: 'string' },
+  defaults: { type: 'string' },
 } as const;
 
 /** `baseline` takes only `--config` and `--out`; anything else is a usage error. */
@@ -175,6 +176,9 @@ Run options:
                    ./.check (or set CHECKRIDE_OUT; also on baseline, triage and
                    qa, and doctor probes it). A directory outside the repo never
                    ratchets the baseline.
+  --defaults <path>  Fill the slots the repo's config and detection leave empty
+                   from this config file (or set CHECKRIDE_DEFAULTS; also on
+                   doctor). A run with it never ratchets the baseline.
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -474,10 +478,11 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 
 /**
  * Parse argv into a command name, the run flags, and the raw `--config`,
- * `--base` and `--out` values (each absent when not passed; {@link namedConfig},
- * {@link namedBase} and `namedOut` resolve them against their variables).
+ * `--base`, `--out` and `--defaults` values (each absent when not passed;
+ * {@link namedConfig}, {@link namedBase}, `namedOut` and {@link namedDefaults}
+ * resolve them against their variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -501,6 +506,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     ...(values.config !== undefined ? { config: values.config } : {}),
     ...(values.base !== undefined ? { base: values.base } : {}),
     ...(values.out !== undefined ? { out: values.out } : {}),
+    ...(values.defaults !== undefined ? { defaults: values.defaults } : {}),
   };
 }
 
@@ -515,15 +521,33 @@ type NamedConfig = { path: string; config: CheckrideConfig };
  * falling back to the repo's config would check against rules nobody asked for.
  */
 function namedConfig(flag: string | undefined, deps: CliDeps): NamedConfig | null {
-  if (flag === '') throw new Error('--config was passed with no path');
-  const variable = (deps.env ?? process.env)[CONFIG_ENV];
-  const named = flag ?? (variable === '' ? undefined : variable);
+  const path = namedFile('--config', flag, CONFIG_ENV, deps);
+  return path === null ? null : { path, config: loadConfigFile(path, deps.cwd) };
+}
+
+/**
+ * The file a flag or, in its absence, its variable names (an empty variable
+ * counts as unset), resolved against `cwd`, or `null` when neither names one.
+ * A flag with no path and a named file that is missing are usage errors.
+ */
+function namedFile(flag: string, value: string | undefined, variable: string, deps: CliDeps): string | null {
+  if (value === '') throw new Error(`${flag} was passed with no path`);
+  const set = (deps.env ?? process.env)[variable];
+  const named = value ?? (set === '' ? undefined : set);
   if (named === undefined) return null;
   const path = resolve(deps.cwd, named);
-  if (!existsSync(path)) {
-    throw new Error(`${flag === undefined ? CONFIG_ENV : '--config'} names a missing file: ${path}`);
-  }
-  return { path, config: loadConfigFile(path, deps.cwd) };
+  if (!existsSync(path)) throw new Error(`${value === undefined ? variable : flag} names a missing file: ${path}`);
+  return path;
+}
+
+/**
+ * The defaults layer a run reads (R13.1): `--defaults`, else
+ * `CHECKRIDE_DEFAULTS`, read and validated, or `null` when neither names a
+ * file. A missing file is a usage error, as it is for `--config`.
+ */
+function namedDefaults(flag: string | undefined, deps: CliDeps): NamedConfig | null {
+  const path = namedFile('--defaults', flag, DEFAULTS_ENV, deps);
+  return path === null ? null : { path, config: loadDefaultsFile(path, deps.cwd) };
 }
 
 /**
@@ -643,13 +667,15 @@ function outOption(flag: string | undefined, deps: CliDeps): { out?: string } {
 }
 
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base, out } = parseCliArgs(argv);
+  const { flags, config, base, out, defaults } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
   const changedBase = namedBase(base, deps);
+  const layer = namedDefaults(defaults, deps);
   const result = await runChecks({
     ...flags,
     ...(named ? { config: named.config, configPath: named.path } : {}),
     ...(changedBase ? { base: changedBase } : {}),
+    ...(layer ? { defaults: layer } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
@@ -664,11 +690,13 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, out } = parseCliArgs(argv);
+  const { flags, config, out, defaults } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
+  const layer = namedDefaults(defaults, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
     ...(named ? { config: named.config } : {}),
+    ...(layer ? { defaults: layer.config } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,

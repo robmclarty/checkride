@@ -73,6 +73,8 @@ export type RunContext = CommonContext & {
   outArg: string;
   /** The targets the config declares, in config order, or `null` in implicit mode. */
   targets: readonly Target[] | null;
+  /** The defaults layer's config (`--defaults`, R13.1), or `null` when the run names none. */
+  defaults: CheckrideConfig | null;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -92,7 +94,10 @@ export type RunContext = CommonContext & {
    * runs under it, or the caller's for every check when it named one.
    */
   pmAt: (dir: string) => PackageManager;
-  /** The config's `requirePins`: a tool that resolves from `PATH` with no pin fails its check. */
+  /**
+   * The config's `requirePins`, else the defaults layer's: a tool that
+   * resolves from `PATH` with no pin fails its check.
+   */
   requirePins: boolean;
   baseline: Baseline | null;
   /**
@@ -135,6 +140,37 @@ export function packageManagerAt(named: PackageManager | undefined, repo: string
   };
 }
 
+/** Where a run writes its artifacts, how its lines name that directory, and what `{out}` expands to. */
+function outputOf(options: RunOptions, cwd: string): Pick<RunContext, 'out' | 'outLabel' | 'outArg'> {
+  const named = options.out === undefined ? null : resolve(cwd, options.out);
+  const out = named ?? outDir(cwd);
+  return { out, outLabel: outLabel(cwd, out), outArg: named ?? CHECK_DIR };
+}
+
+/**
+ * The defaults layer, and the two top-level keys a run reads from the repo's
+ * config or, where it sets neither, from the defaults layer's (R13.1).
+ */
+function layeredKeys(config: CheckrideConfig | null, options: RunOptions): Pick<RunContext, 'defaults' | 'timeout' | 'requirePins'> {
+  const defaults = options.defaults?.config ?? null;
+  return {
+    defaults,
+    timeout: config?.timeout ?? defaults?.timeout,
+    requirePins: (config?.requirePins ?? defaults?.requirePins) === true,
+  };
+}
+
+/** The run's flags, each with its default applied. */
+function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bail' | 'changed' | 'concurrency'> {
+  return {
+    runner: options.runner ?? defaultRunner,
+    json: options.json ?? false,
+    bail: options.bail ?? false,
+    changed: options.changed ?? false,
+    concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),
+  };
+}
+
 /**
  * Apply every run default: the common options plus the output directory (and
  * how to name and pass it), runner, flags, PM, and baseline. `nameWidth` is a
@@ -145,26 +181,17 @@ export function packageManagerAt(named: PackageManager | undefined, repo: string
 export function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
   const read = resolveBaselineRead(options, common.cwd);
-  const named = options.out === undefined ? null : resolve(common.cwd, options.out);
-  const out = named ?? outDir(common.cwd);
   return {
     ...common,
-    out,
-    outLabel: outLabel(common.cwd, out),
-    outArg: named ?? CHECK_DIR,
+    ...outputOf(options, common.cwd),
+    ...layeredKeys(common.config, options),
+    ...flagsOf(options),
     targets: configuredTargets(common.config),
     nameWidth: 8,
-    runner: options.runner ?? defaultRunner,
-    json: options.json ?? false,
-    bail: options.bail ?? false,
-    changed: options.changed ?? false,
     changedBase: null,
-    timeout: common.config?.timeout,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
     pmAt: packageManagerAt(options.pm, common.cwd),
-    requirePins: common.config?.requirePins === true,
     baseline: read.baseline,
     baselineState: read.state,
-    concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),
   };
 }

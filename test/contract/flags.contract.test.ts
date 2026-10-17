@@ -207,6 +207,114 @@ describe('CLI output directory (--out / CHECKRIDE_OUT)', () => {
   }, 30_000);
 });
 
+/** A custom check that exits with `code`, as a config entry. */
+const exits = (code: number): unknown => ({ command: process.execPath, args: ['-e', `process.exit(${code})`] });
+
+/**
+ * Contract: `--defaults <path>` and `CHECKRIDE_DEFAULTS` name a defaults layer
+ * that run and `doctor` read below detection (R13.1). It fills only a slot the
+ * repo's config and detection leave empty, recorded as `origin: "defaults"`
+ * and tagged `[defaults]`, and the summary records the file as `run.defaults`.
+ * The flag beats the variable. A missing file, or one that declares
+ * `targets`, is exit 2 naming the file, and a run with it never ratchets the
+ * baseline.
+ */
+describe('CLI defaults layer (--defaults / CHECKRIDE_DEFAULTS)', () => {
+  let dir: string;
+  let outside: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-defaults-flag-'));
+    outside = await mkdtemp(join(tmpdir(), 'checkride-defaults-flag-outside-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  function deps(stderr: CliDeps['stderr'] = capture(), env: Record<string, string> = {}, stdout = capture()): CliDeps {
+    return { cwd: dir, stdout, stderr, env };
+  }
+
+  /** Write a defaults file outside the repo and return its path. */
+  async function defaultsFile(name: string, body: unknown): Promise<string> {
+    const path = join(outside, name);
+    await writeFile(path, JSON.stringify(body));
+    return path;
+  }
+
+  test('--defaults <path> parses to its raw value', () => {
+    expect(parseCliArgs(['--defaults', 'agent.json']).defaults).toBe('agent.json');
+    expect(parseCliArgs([]).defaults).toBeUndefined();
+  });
+
+  for (const command of [[], ['doctor']] as const) {
+    const label = command[0] ?? 'run';
+    test(`${label}: a missing --defaults file exits 2, naming the flag`, async () => {
+      const stderr = capture();
+      expect(await runCli([...command, '--defaults', 'nope.json'], deps(stderr))).toBe(2);
+      expect(stderr.text()).toContain('--defaults names a missing file');
+    });
+
+    test(`${label}: a missing CHECKRIDE_DEFAULTS file exits 2, naming the variable`, async () => {
+      const stderr = capture();
+      expect(await runCli([...command], deps(stderr, { CHECKRIDE_DEFAULTS: 'nope.json' }))).toBe(2);
+      expect(stderr.text()).toContain('CHECKRIDE_DEFAULTS names a missing file');
+    });
+  }
+
+  test('the file fills a slot the repo leaves empty, marked defaults, and run.defaults records it', async () => {
+    const path = await defaultsFile('defaults.json', { checks: { lint: exits(0) } });
+    const stdout = capture();
+    expect(await runCli(['--only', 'lint', '--defaults', path, '--json'], deps(capture(), {}, stdout))).toBe(0);
+    const summary = JSON.parse(stdout.text()) as { run: Record<string, unknown>; checks: { name: string; origin?: string }[] };
+    expect(summary.run).toEqual({ partial: true, only: ['lint'], defaults: path });
+    expect(summary.checks.find((c) => c.name === 'lint')).toMatchObject({ origin: 'defaults', ok: true });
+    const stderr = capture();
+    await runCli(['--only', 'lint', '--defaults', path], deps(stderr));
+    expect(stderr.text()).toMatch(/lint .*\[defaults\]/);
+  });
+
+  test('CHECKRIDE_DEFAULTS does the same, and the flag beats it', async () => {
+    const pass = await defaultsFile('pass.json', { checks: { lint: exits(0) } });
+    const fail = await defaultsFile('fail.json', { checks: { lint: exits(1) } });
+    expect(await runCli(['--only', 'lint'], deps(capture(), { CHECKRIDE_DEFAULTS: fail }))).toBe(1);
+    expect(await runCli(['--only', 'lint', '--defaults', pass], deps(capture(), { CHECKRIDE_DEFAULTS: fail }))).toBe(0);
+  });
+
+  test('the repo’s own entry beats the file, and keeps its own origin', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { lint: exits(0) } }));
+    const path = await defaultsFile('defaults.json', { checks: { lint: exits(1) } });
+    const stdout = capture();
+    expect(await runCli(['--only', 'lint', '--defaults', path, '--json'], deps(capture(), {}, stdout))).toBe(0);
+    expect((JSON.parse(stdout.text()) as { checks: { origin?: string }[] }).checks[0]?.origin).toBe('config');
+  });
+
+  test('a defaults file that declares targets exits 2, naming the file, before anything is written (F36)', async () => {
+    const path = await defaultsFile('defaults.json', { targets: { app: { lang: 'ts', root: '.' } } });
+    const stderr = capture();
+    expect(await runCli(['--defaults', path], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain(`invalid ${path}: a defaults file can't declare targets`);
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('a run with --defaults masks with the baseline but never prunes it, wherever the file sits', async () => {
+    const report = JSON.stringify({ diagnostics: [{ filename: 'a.ts', code: 'no-x', message: 'bad', severity: 'error' }] });
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        links: false,
+        lint: { name: 'oxlint', command: process.execPath, args: ['-e', `process.stdout.write(${JSON.stringify(report)}); process.exit(1)`], outputFile: 'lint.json' },
+      },
+    }));
+    const baseline = `${JSON.stringify({ schema_version: 1, slots: { lint: ['a.ts:no-x:bad', 'b.ts:no-y:worse'] } }, null, 2)}\n`;
+    await writeFile(join(dir, 'checkride.baseline.json'), baseline);
+    await writeFile(join(dir, 'defaults.json'), '{}');
+    const stderr = capture();
+    expect(await runCli(['--defaults', 'defaults.json'], deps(stderr))).toBe(0);
+    expect(stderr.text()).toContain('not ratcheted, because a run with --defaults never writes checkride.baseline.json');
+    expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(baseline);
+  });
+});
+
 /**
  * A custom check that passes only when its one `changedArgs` argument, `{base}`
  * expanded, is the ref it expects.

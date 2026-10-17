@@ -49,8 +49,9 @@ export function checkIdentity(r: ResolvedCheck, multiTarget: boolean): Pick<Summ
 
 /**
  * Why a check is in the run, as the bracket tag its status line ends with:
- * `[config]`, `[detected: <signal>]`, `[built-in]` or `[custom]`, and `''` for a
- * check with no origin. `doctor` renders its rows with the same rule.
+ * `[config]`, `[detected: <signal>]`, `[built-in]`, `[custom]` or `[defaults]`,
+ * and `''` for a check with no origin. `doctor` renders its rows with the same
+ * rule.
  */
 export function provenanceTag(origin: CheckOrigin | undefined, detectedBy: string | undefined): string {
   if (origin === undefined) return '';

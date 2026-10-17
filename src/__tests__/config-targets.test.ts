@@ -328,15 +328,29 @@ describe('a repo without targets at a Go or Rust root is one target of that pack
     expect(checks.has('rust:types')).toBe(false);
   });
 
-  test('a top-level entry picks the tool, the pack block sits above it, and custom checks keep bare names', () => {
+  test('a top-level entry is the implicit target’s own, over the pack block, and custom checks keep bare names', () => {
     const checks = repoSlots(present('go.mod'), {
       checks: { lint: 'staticcheck', test: 'go-test', licenses: { command: 'true' } },
-      packs: { go: { checks: { test: false, generate: { command: 'go', args: ['generate', './...'] } } } },
+      packs: { go: { checks: { test: false, dead: false, generate: { command: 'go', args: ['generate', './...'] } } } },
     });
     expect(check(checks, 'lint')).toMatchObject({ pack: 'go', adapter: { name: 'staticcheck' }, origin: 'config' });
-    expect(check(checks, 'test')).toMatchObject({ adapter: null, skip: 'disabled in checkride.config.json' });
+    expect(check(checks, 'test')).toMatchObject({ adapter: { name: 'go-test' }, origin: 'config' });
+    expect(check(checks, 'dead')).toMatchObject({ adapter: null, skip: 'disabled in checkride.config.json' });
     expect(check(checks, 'licenses')).toMatchObject({ pack: 'repo', origin: 'custom' });
     expect(check(checks, 'generate')).toMatchObject({ pack: 'go', origin: 'custom' });
+  });
+
+  test('a custom check both blocks name runs once, from the top level over the pack block', () => {
+    const checks = resolveChecks({
+      slots: SLOTS,
+      adapters: ADAPTERS,
+      config: { checks: { gen: { timeout: 5 } }, packs: { go: { checks: { gen: { command: 'go', args: ['generate'] } } } } },
+      fileExists: present('go.mod'),
+      manifest: NO_MANIFEST,
+    });
+    const gens = checks.filter((c) => c.slot === 'gen');
+    expect(gens).toHaveLength(1);
+    expect(gens[0]).toMatchObject({ pack: 'repo', adapter: { command: 'go', timeout: 5 } });
   });
 
   test('unclaimed, when an entry picks it, claims the markers of the implicit pack', () => {

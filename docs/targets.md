@@ -32,11 +32,15 @@ the first that matches:
 A Go or Rust root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
 pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
-spawn environment, its `packs.<pack>.checks` block, and no check for a slot
-the pack doesn't fill. A top-level entry may still pick the tool, since there's
-only one pack to pick from, and each check's summary entry records its `pack`.
-A ts root records none, as before. A Python or Terraform root joins this list
-when its pack ships.
+spawn environment, and no check for a slot the pack doesn't fill. A top-level
+entry may still pick the tool, since there's only one pack to pick from, and
+each check's summary entry records its `pack`. A ts root records none, as
+before. A Python or Terraform root joins this list when its pack ships.
+
+In any repo without targets, the top-level `checks` are the implicit target's
+own entries, so they rank above the `packs.<pack>.checks` block of the root's
+pack, the same order they keep once `target add` moves them into a target. A
+preset's pack block then fills what the repo's own entries leave open.
 
 ## What a target runs
 

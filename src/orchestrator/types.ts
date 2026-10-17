@@ -114,9 +114,9 @@ export type SummaryCheck = {
 
 /**
  * What a run selected (R8.1): `partial`, plus each selection or mode flag the
- * run was given and nothing for one it wasn't. `static_only`, `discover`,
- * `defaults` and `pins` belong to flags checkride doesn't have yet, so no run
- * writes them. Paths are absolute.
+ * run was given and nothing for one it wasn't. `static_only`, `discover` and
+ * `pins` belong to flags checkride doesn't have yet, so no run writes them.
+ * Paths are absolute.
  */
 export type SummaryRun = {
   /**
@@ -246,6 +246,15 @@ export type RunOptions = RunFlags & {
    * never ratchets the baseline.
    */
   out?: string;
+  /**
+   * The defaults layer `--defaults` or `CHECKRIDE_DEFAULTS` named (R13.1): the
+   * file's absolute `path`, which the summary records as `run.defaults`, and
+   * its `config`, as `loadDefaultsFile` read it. Its entries fill only the
+   * slots `config` and detection leave empty, and its `timeout` and
+   * `requirePins` apply where `config` sets neither. A run with it is a
+   * consumer run, which never ratchets the baseline.
+   */
+  defaults?: { path: string; config: CheckrideConfig };
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;
