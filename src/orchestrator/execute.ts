@@ -19,7 +19,7 @@ import type { ResolvedCheck } from '../config.js';
 import { isAvailableUnder, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
-import { parseToolJson } from '../tool-json.js';
+import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
 import type { RunContext } from './context.js';
 import type { Place } from './place.js';
 import { placeOf } from './place.js';
@@ -28,11 +28,24 @@ import { runtimeArgs } from './spawn.js';
 import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types.js';
 
 /**
- * Persist raw output atomically into the output directory `dir`: JSON to
- * `<outputFile>`, else stdout text — and stderr text on either path. A slot that produced a JSON artifact
- * can still have explained itself on stderr (a built-in's `check-<slot>:` line,
- * a launcher warning), and that explanation must not vanish because the JSON
- * won: `security` against an unreachable registry used to lose its reason here.
+ * The text a declared `outputFile` holds this run, or `null` when stdout doesn't
+ * take the file's form: JSON lines for a `.jsonl` file, one JSON value for any
+ * other (R11.1). Either read tolerates a launcher preamble and returns the
+ * tool's own bytes from the first JSON character on, so the artifact parses.
+ */
+function capturedJson(outputFile: string, stdout: string): string | null {
+  return (outputFile.endsWith('.jsonl') ? parseToolJsonLines(stdout) : parseToolJson(stdout))?.text ?? null;
+}
+
+/**
+ * Persist raw output atomically into the output directory `dir`: JSON or JSON
+ * lines to `<outputFile>`, else stdout text — and stderr text on either path.
+ * Only a check that declares an `outputFile` gets JSON capture; one that
+ * declares none keeps its stdout as text whatever it prints (D45). A slot that
+ * produced a JSON artifact can still have explained itself on stderr (a
+ * built-in's `check-<slot>:` line, a launcher warning), and that explanation
+ * must not vanish because the JSON won: `security` against an unreachable
+ * registry used to lose its reason here.
  *
  * Returns the JSON file it wrote, or `null` when it fell through to text — the
  * summary's `output_file` is that return value, never the adapter's
@@ -44,11 +57,9 @@ import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types
 async function persistOutput(dir: string, adapter: Adapter, outcome: CheckOutcome): Promise<string | null> {
   if (outcome.stderr.trim()) await writeFileAtomic(join(dir, `${adapter.slot}.stderr.txt`), outcome.stderr);
   if (adapter.outputFile && outcome.stdout.trim()) {
-    // Tolerates a launcher preamble ahead of the JSON; writes the tool's own
-    // bytes from the first JSON character on, so the artifact actually parses.
-    const parsed = parseToolJson(outcome.stdout);
-    if (parsed) {
-      await writeFileAtomic(join(dir, adapter.outputFile), parsed.text);
+    const text = capturedJson(adapter.outputFile, outcome.stdout);
+    if (text !== null) {
+      await writeFileAtomic(join(dir, adapter.outputFile), text);
       return adapter.outputFile;
     }
   }
@@ -133,6 +144,19 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
 }
 
 /**
+ * A check's outcome after its adapter's `failOnOutput` verdict, and the reason
+ * that verdict failed it (R8.3). A tool such as `gofmt -l` reports what it found
+ * by printing it and exits 0 anyway, so an adapter that declares `failOnOutput`
+ * fails on any non-whitespace stdout behind a clean exit, keeping the tool's
+ * `exit_code: 0`. Any other outcome passes through with no reason: a non-zero
+ * exit already fails on its own.
+ */
+function outputVerdict<T extends CheckOutcome>(adapter: Adapter, outcome: T): { outcome: T; reason: string | null } {
+  if (adapter.failOnOutput !== true || outcome.exit_code !== 0 || outcome.stdout.trim() === '') return { outcome, reason: null };
+  return { outcome: { ...outcome, ok: false }, reason: `${adapter.name} exited 0 but reported findings on stdout` };
+}
+
+/**
  * The skip reason for a custom check that exited its declared `skipExitCode`:
  * the check's own last stderr line, then `(exit N)`. `null` when the check
  * declares none or exited with anything else, including the `-1` of a spawn
@@ -170,11 +194,12 @@ function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContex
   return entry;
 }
 
-/** Print one check's status line, its baselined count, and any new (non-grandfathered) findings. */
+/** Print one check's status line, its baselined count, why it failed when it says, and any new (non-grandfathered) findings. */
 function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number): void {
   writeLine(stderr, formatStatusLine(entry, width));
   if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
-  if (!entry.ok && mask.reason) writeLine(stderr, `           ${mask.reason}`);
+  const reason = entry.reason ?? mask.reason;
+  if (!entry.ok && reason) writeLine(stderr, `           ${reason}`);
   if (!entry.ok && mask.newKeys.length > 0) {
     writeLine(stderr, `           ${mask.newKeys.length} new, not in baseline:`);
     for (const k of mask.newKeys) writeLine(stderr, `             ${k}`);
@@ -223,16 +248,23 @@ function checkRun(r: ResolvedCheck, adapter: Adapter, outcome: CheckOutcome): Ch
 }
 
 /**
- * The entry an executed check records: what it is, how it ended after the
- * baseline's masking, and the file it wrote, named relative to the output
- * directory, `<target>/` included.
+ * What an executed check produced beyond its outcome: the file it wrote, its
+ * duration, and the reason a `failOnOutput` verdict failed it, if one did.
  */
-function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: { file: string | null; place: Place; durationMs: number }, multiTarget: boolean): SummaryCheck {
+type Produced = { file: string | null; place: Place; durationMs: number; reason: string | null };
+
+/**
+ * The entry an executed check records: what it is, how it ended after the
+ * baseline's masking, why it failed when its tool exited 0 (R8.3), and the file
+ * it wrote, named relative to the output directory, `<target>/` included.
+ */
+function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: Produced, multiTarget: boolean): SummaryCheck {
   return {
     ...checkIdentity(r, multiTarget),
     adapter: run.adapter.name,
     description: run.adapter.description,
     ok: mask.ok,
+    ...(!mask.ok && written.reason !== null ? { reason: written.reason } : {}),
     exit_code: run.outcome.exit_code,
     duration_ms: written.durationMs,
     output_file: written.file === null ? null : `${written.place.prefix}${written.file}`,
@@ -261,12 +293,13 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   // the tool writes during *this* run (for example `test.json`) survives.
   await clearSlotOutputs(place.dir, adapter);
   const start = performance.now();
-  const outcome = await ctx.runner(r, runnerContext(r, ctx, place));
+  const ran = await ctx.runner(r, runnerContext(r, ctx, place));
   const durationMs = Math.round(performance.now() - start);
-  const skipReason = outcome.skip ?? selfSkipReason(r, outcome);
+  const skipReason = ran.skip ?? selfSkipReason(r, ran);
   if (skipReason !== null) {
     return { entry: handleSkip({ ...r, skip: skipReason }, null, ctx), run: null, observed: null, newKeys: [] };
   }
+  const { outcome, reason } = outputVerdict(adapter, ran);
   const file = await persistOutput(place.dir, adapter, outcome);
 
   // Masking is always on (even under a partial run); only the ratchet is gated.
@@ -274,7 +307,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   // pass/fail verdict, never the authoritative output.
   const mask = maskOutcome(adapter, outcome, ctx.baseline, { key: name, root: r.root, base: ctx.changedBase?.ref ?? null, out: place.outArg });
   const run = checkRun(r, adapter, outcome);
-  const entry = executedEntry(r, run, mask, { file, place, durationMs }, ctx.targets !== null);
+  const entry = executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null);
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
   return { entry, run, observed: mask.observed !== null ? { key: name, fp: mask.observed } : null, newKeys: mask.newKeys };
 }

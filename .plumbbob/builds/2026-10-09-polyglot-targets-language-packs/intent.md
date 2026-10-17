@@ -440,6 +440,25 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   `snippets-dist` built-ins record neither `argv` nor `pin_source`, and their helper processes
   don't go through the launcher, *because* a built-in's verdict is checkride's own, not a pinned
   tool's, as step 9 ruled for `argv` (settled at step 30 and its harvest, from step 22's park).
+- <a id="d61"></a>**D61 (shebang-sniff)**: R11.2's shebang sniff keeps an extensionless file whose
+  first line names `bash`, `sh`, `dash` or `ksh` as its interpreter, directly by path or through
+  `env` with any `env` flags (`#!/bin/sh`, `#!/usr/bin/env bash`, `#!/usr/bin/env -S dash -e`),
+  matched in `src/targets/files.ts` as
+  `^#!\s*(?:\S*/)?(?:env\s+(?:-\S+\s+)*)?(?:bash|sh|dash|ksh)(?:\s|$)`, *because* the regex R11.2
+  first gave only matched `#!bash` and `#!/usr/bin/env bash`, which misses `#!/bin/bash` and
+  `#!/bin/sh`, the commonest shebangs (settled at step 31 and its harvest).
+- <a id="d62"></a>**D62 (entry-package-json)**: R6.6's entry command keeps `<pm> run check` for any
+  repo whose root has a `package.json`, with or without a `check` script, and reaches mise's
+  pinned checkride or the one on `PATH` only in a repo with no `package.json`, *because* a 0.13
+  repo without a check script ran `<pm> run check` from its gate, and triage reports it as "gate
+  not run" ([C2 (legacy-invariance)](#c2)), while D40's motivating case, a binary-only repo, has
+  no `package.json` at all (settled at step 35 and its harvest).
+- <a id="d63"></a>**D63 (qa-mutation-path)**: `qa` reads a check's `mutation.json` only where the
+  repo's stryker `jsonReporter.fileName` writes it into the output directory, a target's own
+  directory for a target's check, checkride routes no stryker file, and `docs/plugin.md` says so,
+  *because* that path comes from the repo's stryker config, not from argv checkride builds, and
+  `mutation` is opt-in and too slow for a review agent's run (settled at step 38 and its harvest,
+  from the Ranges section's step 38 lean).
 
 ## Constraints
 
@@ -692,7 +711,7 @@ reference rules and porting trap apply as written there.
 38. [x] feat(readers): teach digest, triage and qa target directories and jsonl, **done when:** the digest, `triage` and `qa` read `<out>/<target>/` and `.jsonl` artifacts, and their reports name `<target>:<slot>` checks; the plugin readers' e2e passes
     - seam: `src/digest/`, `src/triage/`, `src/qa/`, `test/e2e/plugin-readers.e2e.test.ts`
     - model: sonnet
-39. [ ] test(examples): add polyglot-ts-bash with plants, **done when:** `examples/polyglot-ts-bash` (a TypeScript app and bash scripts as targets) is green, and each plant fails the expected check: an SC2086 fails `scripts:lint`, a type error fails `web:types`, and a new `tools/x/package.json` fails `unclaimed`; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+39. [x] test(examples): add polyglot-ts-bash with plants, **done when:** `examples/polyglot-ts-bash` (a TypeScript app and bash scripts as targets) is green, and each plant fails the expected check: an SC2086 fails `scripts:lint`, a type error fails `web:types`, and a new `tools/x/package.json` fails `unclaimed`; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/polyglot-ts-bash/`, `test/e2e/examples.e2e.test.ts`, `docs/targets.md`
     - model: sonnet
 
@@ -896,7 +915,7 @@ What each range should watch for:
   network, and it records whatever the day's advisory feed says.
 
 **Leans to settle before the ranges.** Each one is a call parked for a step in a range that
-would otherwise stop there to ask. Once approved, each folds into Decisions as D61 onward and
+would otherwise stop there to ask. Once approved, each folds into Decisions as D64 onward and
 amends its step, the way D55 to D57 did, so the building agent reads it where it reads every
 other call.
 
@@ -905,10 +924,8 @@ other call.
 - **Step 30, `checkride fix`.** *Folded at step 30's harvest as [D58 (fix-same-chain)](#d58).*
 - **Step 30, a target's own package manager.** *Folded at step 30's harvest as
   [D59 (nearest-pm)](#d59).*
-- **Step 38, `qa` and `mutation.json`.** Document the limit and route nothing: `qa --out` reports
-  mutation only when the repo's stryker `jsonReporter.fileName` writes into that directory, and
-  the docs say so, *because* that path comes from the repo's stryker config, not from argv
-  checkride builds, and `mutation` is opt-in and too slow for a review agent's run.
+- **Step 38, `qa` and `mutation.json`.** *Folded at step 39's harvest as
+  [D63 (qa-mutation-path)](#d63).*
 - **Step 45, `cargo:global`.** Drop it and amend R6.5's sentence: with `CARGO_TARGET_DIR` set,
   cargo's own build-directory lock serializes the runs, and `docs/packs.md` says the wait counts
   against the timeout, *because* a scheduler branch for it breaks [C5 (pure-data)](#c5), several
@@ -1527,10 +1544,12 @@ run lock would otherwise fail a second instance.
 
 The entry command resolves in this order:
 
-1. The root `package.json` has `scripts.check`: `<pm> run check` (0.13 behavior).
+1. The root has a `package.json`: `<pm> run check` (0.13 behavior), whether or not it has
+   `scripts.check` yet ([D62 (entry-package-json)](#d62)).
 2. The root `mise.toml` declares checkride, as `npm:checkride` or `github:robmclarty/checkride`
    ([D46 (checkride-pin)](#d46)): `mise exec -- checkride`.
-3. Otherwise `checkride`, found on `PATH`, which `doctor` reports as `harness unpinned`.
+3. Otherwise, in a repo with no `package.json`, `checkride`, found on `PATH`, which `doctor`
+   reports as `harness unpinned`.
 
 The AGENTS.md stanza, the generated gate hook script and the plugin skills use the entry command.
 The skills learn it from the stanza, which becomes the source of truth for "how do I run the gate
@@ -1761,7 +1780,8 @@ and writes no artifact.
    a git repo, checkride walks the tree, skipping `.git`, `node_modules`, `target` and `vendor`.
 2. Candidates are filtered by the target's `include` and `exclude` globs, relative to its root.
    The default `include` is `["**/*.sh", "**/*.bash"]`, plus shebang sniffing: an extensionless
-   file is included when its first line matches `^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b`.
+   file is included when its first line names `bash`, `sh`, `dash` or `ksh` as its interpreter,
+   directly or through `env` ([D61 (shebang-sniff)](#d61)).
 3. Globs support `**`, `*`, `?` and `{a,b}`, through a matcher in `src/targets/files.ts` with no
    dependency.
 4. Zero matches skip the check with `no files matched`. Skipped is not failed.

@@ -25,7 +25,9 @@ import { Ajv } from 'ajv';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { SCHEMA_VERSION } from '../../src/adapters.js';
+import type { Adapter } from '../../src/adapters.js';
 import { runCli } from '../../src/cli.js';
+import { runChecks } from '../../src/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaPath = join(here, '..', '..', 'schema', 'checkride.summary.schema.json');
@@ -194,6 +196,52 @@ describe('summary.json shape', () => {
       skipped: true,
       reason: 'no files matched',
       exit_code: null,
+    });
+  });
+
+  /**
+   * Contract: `output_file` names a `.jsonl` file when a check declares one and
+   * prints JSON lines, byte for byte, and a check that declares no
+   * `outputFile` keeps the same stream as `<name>.stdout.txt` (R11.1, D45).
+   */
+  test('a declared .jsonl file takes JSON lines, and a check that declares none keeps them as text', async () => {
+    const lines = ['console.log(JSON.stringify({ Action: "start" }))', 'console.log(JSON.stringify({ Action: "pass" }))'].join(';');
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        links: false,
+        events: { command: 'node', args: ['-e', lines], outputFile: 'events.jsonl' },
+        plain: { command: 'node', args: ['-e', lines] },
+      },
+    }));
+    const summary = await runAndValidate([]);
+    const byName = new Map((summary['checks'] as { name: string }[]).map((c) => [c.name, c]));
+    const stream = '{"Action":"start"}\n{"Action":"pass"}\n';
+    expect(byName.get('events')).toMatchObject({ ok: true, output_file: 'events.jsonl' });
+    expect(await readFile(join(dir, '.check', 'events.jsonl'), 'utf8')).toBe(stream);
+    expect(byName.get('plain')).toMatchObject({ ok: true, output_file: null });
+    expect(await readFile(join(dir, '.check', 'plain.stdout.txt'), 'utf8')).toBe(stream);
+  });
+
+  /**
+   * Contract: an adapter that declares `failOnOutput` fails on stdout behind
+   * a clean exit, keeping `exit_code: 0` and recording `reason` (R8.3).
+   */
+  test('a failOnOutput adapter that exits 0 with stdout records ok false, exit_code 0 and a reason', async () => {
+    const gofmt: Adapter = {
+      name: 'gofmt', slot: 'format', description: 'Go formatting', detect: [], command: 'gofmt', args: ['-l', '.'],
+      outputFile: null, failOnOutput: true, devDeps: {},
+    };
+    await runChecks({
+      cwd: dir, slots: [{ name: 'format' }], adapters: [gofmt], json: true, stdout: sink(), stderr: sink(),
+      runner: () => Promise.resolve({ ok: true, exit_code: 0, stdout: 'main.go\n', stderr: '' }),
+    });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: unknown[] };
+    const valid = validate(summary);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
+    expect(summary.checks[0]).toMatchObject({
+      name: 'format', ok: false, reason: 'gofmt exited 0 but reported findings on stdout', exit_code: 0, output_file: null,
     });
   });
 

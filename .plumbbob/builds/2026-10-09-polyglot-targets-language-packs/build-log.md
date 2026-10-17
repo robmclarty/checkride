@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 39 — test(examples): add polyglot-ts-bash with plants
+**Current step:** 40 — feat(capture): add jsonl capture and the failOnOutput verdict
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -62,7 +62,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 36. feat(cli): add target add to declare and convert targets
 - ☑ 37. feat(init): discover targets in existing mode
 - ☑ 38. feat(readers): teach digest, triage and qa target directories and jsonl
-- ☐ 39. test(examples): add polyglot-ts-bash with plants
+- ☑ 39. test(examples): add polyglot-ts-bash with plants
 - ☐ 40. feat(capture): add jsonl capture and the failOnOutput verdict
 - ☐ 41. feat(launch): pin Go tools by tool directive and harden the Go env
 - ☐ 42. feat(packs): add the go pack
@@ -134,12 +134,12 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] R6.5's cargo:global key when CARGO_TARGET_DIR is set has no step and no pure-data shape (C5 forbids a rust branch in the scheduler); step 45 decides how its rows express it, or drops it
 - [x] step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN, which beats rust-toolchain.toml, so the rust-toolchain source must not claim a toolchain file mise overrides (seen with rustup 1.29.1 under mise)
 - [x] step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle when one exists and the embedded checks only on an empty cache, so R5.8's 'uses trivy's embedded checks' holds only on a clean machine (trivy 0.76.0)
-- [ ] shfmt (and any tool that reads FORCE_COLOR's presence, not its value) colors its output under checkride's global FORCE_COLOR=0 spawn env; an empty FORCE_COLOR turns it off (verified shfmt 3.14.1), so decide at step 41's env.ts whether the bash pack's env or the global spawn env should set FORCE_COLOR to empty
-- [ ] R11.2's shebang regex ^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b never matches #!/bin/bash or #!/bin/sh; step 31 matched the interpreter's basename directly or through env (with env flags), so amend R11.2's text to that
-- [ ] unclaimed reports a workspace's root package.json above its ts targets (R11.3 as written), and since V4 forbids nesting ts targets the only fix is unclaimed.ignore; weigh, before step 39's polyglot-ts-bash example, whether a marker directly above same-pack targets should count as claimed
-- [ ] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
-- [ ] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
-- [ ] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
+- [x] shfmt (and any tool that reads FORCE_COLOR's presence, not its value) colors its output under checkride's global FORCE_COLOR=0 spawn env; an empty FORCE_COLOR turns it off (verified shfmt 3.14.1), so decide at step 41's env.ts whether the bash pack's env or the global spawn env should set FORCE_COLOR to empty
+- [x] R11.2's shebang regex ^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b never matches #!/bin/bash or #!/bin/sh; step 31 matched the interpreter's basename directly or through env (with env flags), so amend R11.2's text to that
+- [x] unclaimed reports a workspace's root package.json above its ts targets (R11.3 as written), and since V4 forbids nesting ts targets the only fix is unclaimed.ignore; weigh, before step 39's polyglot-ts-bash example, whether a marker directly above same-pack targets should count as claimed
+- [x] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
+- [x] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
+- [x] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -187,6 +187,13 @@ Harvest results this boundary:
 - After step 30: "step 44: when mise pins rust, mise exports RUSTUP_TOOLCHAIN..." → **tangent**, deferred to step 44 (the cost is a record, never a verdict: with mise pinning `rust` the toolchain file is ignored, so a `rust-toolchain` source that claimed it would record the file's channel as `tool_version` for a copy mise picked, while mise's pin still decides the toolchain; step 44 builds that source and its seam is all of `src/launch/`, so it decides whether the source stands down or records `mise` when mise declares `rust`, and whether toolchains get the `mise which` check the `mise` source runs).
 - After step 30: "step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle..." → **tangent**, deferred to step 63 (no network call happens either way, but a cached bundle makes `security` findings differ between a laptop that ran trivy before and a clean CI runner, the machine-state hole the npx pre-flight closes for npm tools; `security` is opt-in, so nothing is exposed before step 63, which runs on Opus, verifies trivy's flags at the pinned version and owns the adapter row in `src/packs/terraform.ts`, so it decides between pointing `--cache-dir` at scratch under `.check/`, so the embedded checks always run, and rewriting R5.8's note).
 - After step 30: the three step-30 leans in `intent.md`'s Ranges section, which step 30 applied and the human approved with the step → folded into `intent.md` as D58 (fix-same-chain), D59 (nearest-pm) and D60 (builtins-unpinned); the Ranges section's remaining leans now fold as D61 onward once approved.
+- After step 39: "shfmt (and any tool that reads FORCE_COLOR's presence, not its value) colors its output..." → **tangent**, deferred to step 41 (the verdict is right and only `format.stdout.txt` carries ANSI codes, in an opt-in slot; step 41's `src/launch/env.ts` is where a pack's environment first reaches a spawn, so it sets `FORCE_COLOR` to empty in the bash pack's own environment, not the global spawn environment, because chalk and supports-color read an empty `FORCE_COLOR` as color on and would color every Node tool; `src/packs/bash.ts` sits outside step 41's seam, so add it via `/plumbbob:step 41` or accept a one-file stray).
+- After step 39: "R11.2's shebang regex never matches #!/bin/bash..." → **blocker**, handled now: folded into `intent.md` as D61 (shebang-sniff), which amends R11.2's step 2 to the interpreter rule step 31 shipped (the plan's text was wrong, and steps 54 and 73 build from it).
+- After step 39: "unclaimed reports a workspace's root package.json above its ts targets..." → **tangent**, killed (R11.3 stands as written: counting a marker above its pack's targets as claimed would hide root-level code no target checks, a vacuous green, while flagging it fails closed; `unclaimed.ignore` is the documented remedy, which `examples/polyglot-ts-bash` and `docs/targets.md` already show).
+- After step 39: "SLOTS gained unclaimed after snippets at step 33..." → **tangent**, deferred to step 66 (no position moves until `schema` joins `SLOTS`; step 66 appends it after `unclaimed`, so a position a release shipped never moves, and amends R5.1's table order to match).
+- After step 39: "R6.6's rule 3 also caught a package.json repo with no check script..." → **blocker**, handled now: folded into `intent.md` as D62 (entry-package-json), which amends R6.6's rules 1 and 3 to what step 35 shipped (steps 46 and 72 build on R6.6).
+- After step 39: "R11.4's bash rule proposes a bash target only for shell files outside every other target's root..." → **tangent**, deferred to step 54 (nothing before `--discover` is blocked; step 54 decides between letting the bash rule ignore other packs' roots, since packs may nest, so a mixed repo's shell gets checked as D24 and #7 want, and keeping existing-mode `init` conservative, since that rule would convert a TS repo with `scripts/` on a re-run of `init`, renaming `lint` to `app:lint` and moving its baseline keys).
+- After step 39: the Ranges section's step 38 lean, which step 38 applied inside the range the human granted → folded into `intent.md` as D63 (qa-mutation-path); the remaining leans now fold as D64 onward once approved.
 
 ## Log
 
@@ -2103,3 +2110,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 36 checkpointed · 06db9e1f2 — feat(cli): add target add to declare and convert targets (1 drift, 8m)
 - 2026-10-17 — step 37 checkpointed · b5007f1f8 — feat(init): discover targets in existing mode (1 drift, 7m)
 - 2026-10-17 — step 38 checkpointed · b52e5da3a — feat(readers): teach digest, triage and qa target directories and jsonl (1 drift, 7m)
+- 2026-10-17 — step 39 checkpointed · 4132d4921 — test(examples): add polyglot-ts-bash with plants (1 drift, 10m)

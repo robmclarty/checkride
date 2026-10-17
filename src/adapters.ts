@@ -128,8 +128,16 @@ export type Adapter = {
    * exactly `{files}` expands to the target's files, one argument each.
    */
   args: string[];
-  /** `.check/<file>` target when stdout is JSON; `null` if the tool writes its own. */
+  /**
+   * `.check/<file>` target when stdout is JSON, or JSON lines when the file is a
+   * `.jsonl`; `null` if the tool writes its own.
+   */
   outputFile: string | null;
+  /**
+   * Fail the check when the tool exits 0 but prints to stdout, for a tool such
+   * as `gofmt -l` that reports what it found by printing it and exits 0 anyway.
+   */
+  failOnOutput?: boolean;
   /**
    * Appended to `args` under `--changed`. `{base}` in any of them expands to the
    * base ref the run measures changes from (see `resolveChangedBase`).

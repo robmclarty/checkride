@@ -147,10 +147,10 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out |
+| `reason` | string | with `skipped`: why the check sat out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout` |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
-| `output_file` | string or `null` | always: the JSON file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
+| `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in` or `custom` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
@@ -268,18 +268,36 @@ the per-check durations, exactly as before, unless the run waited on git as
 described above.
 
 **Raw output stays authoritative.** The per-tool files beside the summary —
-`.check/<slot>.json` when the tool emits JSON, `<slot>.stdout.txt` /
-`<slot>.stderr.txt` otherwise, under `<target>/` for a target's check — are the
-tool's own bytes, never normalized,
+`.check/<slot>.json` when the tool emits JSON, `<slot>.jsonl` when it emits
+JSON lines, `<slot>.stdout.txt` / `<slot>.stderr.txt` otherwise, under
+`<target>/` for a target's check — are the tool's own bytes, never normalized,
 reshaped, or filtered. The summary is an index; the raw file is the truth.
 This is the product's thesis and will not change.
 
+Only a check that declares an `outputFile` gets a JSON file, and the declared
+extension says which form: a `.json` file takes stdout that parses as one
+JSON value, and a `.jsonl` file takes stdout with at least one non-empty
+line, every one of which parses as JSON on its own. A check that declares no
+`outputFile`, a custom check included, keeps its stdout in
+`<name>.stdout.txt` whatever it prints. JSON lines are a capture format, not
+a normalization: the file holds the same bytes the tool printed.
+
 The one thing dropped is output that is not the tool's. A launcher can print to
 stdout before the tool does — pnpm narrates its dependency check there ahead of
-`exec`/`run` — so a `<slot>.json` is written from the first character of the
-JSON onward, discarding at most ten leading non-JSON lines. Nothing *inside* the
-tool's output is touched, and a slot whose output never parses as JSON keeps
-every byte in `<slot>.stdout.txt` instead.
+`exec`/`run` — so a `<slot>.json` or `<slot>.jsonl` is written from the first
+character of the JSON onward, discarding at most ten leading non-JSON lines.
+Nothing *inside* the tool's output is touched, and a slot whose output doesn't
+take its declared form, JSON lines with a line of text among them included,
+keeps every byte in `<slot>.stdout.txt` instead.
+
+**A tool that reports by printing can still fail its check.** Some tools,
+`gofmt -l` among them, list what they found on stdout and exit 0 anyway. An
+adapter that declares `failOnOutput` fails its check when the tool exits 0
+with anything but whitespace on stdout: the entry is `ok: false`, keeps the
+tool's `exit_code: 0`, and records `reason` as
+`<adapter> exited 0 but reported findings on stdout`. A baseline can still
+mask the check, as it masks any other. No adapter checkride ships declares
+`failOnOutput` yet.
 
 **`output_file` names a file that exists.** It is what the run actually wrote,
 not what the adapter declares it usually writes: a slot that declares

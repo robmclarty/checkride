@@ -243,6 +243,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shellcheck over `scripts/`'s file list, and `unclaimed` failing on a new
   package no target checks. `docs/targets.md` covers declaring targets, what
   each runs, the bash pack and `unclaimed`.
+- **A check can write JSON lines.** A check whose `outputFile` ends in
+  `.jsonl` keeps stdout in that file when every non-empty line parses as JSON
+  on its own, the stream `go test -json` prints, byte for byte after any
+  launcher preamble. A stream that mixes JSON lines and text stays whole in
+  `<name>.stdout.txt`, and so does anything a check prints when it declares
+  no `outputFile`, JSON lines included, as before. An adapter can also fail
+  its check when the tool exits 0 but prints to stdout, the way `gofmt -l`
+  lists unformatted files and exits 0: the check is red, keeps
+  `exit_code: 0`, and says `<adapter> exited 0 but reported findings on
+  stdout`. No adapter checkride ships does either yet; the Go and Rust packs
+  will.
 
 ### Changed
 
@@ -536,6 +547,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   names now list.
 - Additive: the exported `InitOptions` type gains an optional
   `discoverTargets`, the discovery existing mode runs, injectable for tests.
+- Additive: `output_file` may name a `.jsonl` file, written when a check
+  declares one and every non-empty line of its stdout parses as JSON, and an
+  executed check that failed may carry `reason`, the
+  `<adapter> exited 0 but reported findings on stdout` of an adapter that
+  declares `failOnOutput`, in the JSON Schema's descriptions, the contract
+  doc and `summary.contract.test.ts`. The exported `Adapter` type gains an
+  optional `failOnOutput`. A check that declares no `outputFile` writes
+  `<name>.stdout.txt` whatever it prints, as before.
 
 ### Internal
 

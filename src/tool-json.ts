@@ -1,5 +1,5 @@
 /**
- * Tolerant parsing of a tool's stdout as JSON.
+ * Tolerant parsing of a tool's stdout as JSON, or as JSON lines.
  *
  * A tool that emits JSON does not always get stdout to itself: any launcher,
  * wrapper or shell profile can print before it does. checkride suppresses the
@@ -28,6 +28,17 @@ export type ToolJson = {
   /**
    * The JSON text with any preamble removed — what belongs in
    * `.check/<slot>.json`, so the artifact a consumer opens actually parses.
+   */
+  text: string;
+};
+
+/** A tool's stdout parsed as JSON lines: one value per non-empty line, and the exact text they came from. */
+export type ToolJsonLines = {
+  /** The parsed values, one per non-empty line, in order. */
+  values: unknown[];
+  /**
+   * The JSON-lines text with any preamble removed — what belongs in
+   * `.check/<slot>.jsonl`.
    */
   text: string;
 };
@@ -64,4 +75,27 @@ export function parseToolJson(raw: string): ToolJson | null {
     if (value !== undefined) return { value, text: rest };
   }
   return null;
+}
+
+/**
+ * Parse `raw` as JSON lines: at least one non-empty line, and every non-empty
+ * line a JSON value on its own. Up to {@link MAX_PREAMBLE_LINES} leading lines
+ * that don't parse are dropped as a launcher's, as {@link parseToolJson} drops
+ * them; from the first line that parses on, one line that doesn't makes the
+ * whole read `null`, because a stream that mixes JSON and text is the tool's
+ * own, and its caller keeps it whole as text. Returns `null` when nothing
+ * parses.
+ */
+export function parseToolJsonLines(raw: string): ToolJsonLines | null {
+  const lines = raw.split('\n');
+  const start = lines.slice(0, MAX_PREAMBLE_LINES + 1).findIndex((line) => tryParse(line) !== undefined);
+  if (start === -1) return null;
+  const values: unknown[] = [];
+  for (const line of lines.slice(start)) {
+    const value = tryParse(line);
+    if (value !== undefined) values.push(value);
+    else if (line.trim() !== '') return null;
+  }
+  const preamble = lines.slice(0, start).reduce((bytes, line) => bytes + line.length + 1, 0);
+  return { values, text: raw.slice(preamble) };
 }

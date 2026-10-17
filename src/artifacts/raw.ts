@@ -2,8 +2,9 @@
  * Locating a slot's raw output — the bytes the summary indexes but usually does
  * not name.
  *
- * `output_file` is populated only when a tool emits JSON on stdout, so most
- * slots carry `null` there while their real output sits in `.check/` under the
+ * `output_file` is populated only when a tool emits the JSON or JSON lines its
+ * check declares on stdout, so most slots carry `null` there while their real
+ * output sits in `.check/` under the
  * documented convention (`<slot>.json` or `<slot>.jsonl`, else
  * `<slot>.stdout.txt` / `<slot>.stderr.txt`), a target's check under its
  * `<target>/` directory. On a full run of this repo, 8 of 17 checks name no file
