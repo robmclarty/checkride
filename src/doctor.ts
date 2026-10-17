@@ -57,7 +57,7 @@ import { provenanceTag, resolveCommonOptions, selectChecks } from './orchestrato
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
-import { checkName, configuredTargets, findUnclaimed } from './targets/index.js';
+import { checkName, configuredTargets, findUnclaimed, implicitPack } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -99,12 +99,14 @@ export type DoctorReport = {
   packageManager: PackageManager;
   /** `implicit` for a repo checked as one project at its root, `multi-target` once the config declares targets. */
   mode: 'implicit' | 'multi-target';
+  /** In implicit mode, the pack that checks the repo, the one its root marks (R2.1). */
+  pack?: string;
   /** The targets a multi-target repo declares, in config order. */
   targets?: DoctorTarget[];
   /**
    * The markers no target claims, when the repo's files could be listed: in
    * multi-target mode the ones `unclaimed` reports, and without targets the
-   * markers of other languages, which the one implicit ts project leaves
+   * markers of other languages, which the one implicit project leaves
    * unchecked.
    */
   unclaimed?: Unclaimed[];
@@ -618,23 +620,23 @@ function markerList(found: readonly Unclaimed[]): string {
 /**
  * The workspace row for the markers no target claims: in multi-target mode
  * the ones `unclaimed` reports, and without targets, the code of other
- * languages the one implicit ts project leaves unchecked, a row only when
- * there is some. A repo whose files can't be listed says so.
+ * languages the one implicit project, of pack `implicit`, leaves unchecked, a
+ * row only when there is some. A repo whose files can't be listed says so.
  */
-function markersRow(found: readonly Unclaimed[] | string, multiTarget: boolean): DoctorCheck | null {
+function markersRow(found: readonly Unclaimed[] | string, implicit: string | null): DoctorCheck | null {
   const base = { category: 'workspace' as const, required: false, expected: null };
+  const multiTarget = implicit === null;
   const name = multiTarget ? 'unclaimed' : 'other languages';
   if (typeof found === 'string') return multiTarget ? { ...base, name, status: 'unknown', found: null, hint: found } : null;
   if (found.length === 0) return multiTarget ? { ...base, name, status: 'ok', found: 'every marker sits in a target', hint: null } : null;
   const hint = multiTarget
     ? 'The unclaimed check fails until a target claims each one, or unclaimed.ignore lists it.'
-    : `checkride checks this repo as one ${PACKS.ts.name} project, so no check reads that code. Declare targets in checkride.config.json to check each part from its own root.`;
+    : `checkride checks this repo as one ${implicit} project, so no check reads that code. Declare targets in checkride.config.json to check each part from its own root.`;
   return { ...base, name, status: 'outdated', found: markerList(found), hint };
 }
 
-/** The markers no target claims, or why they couldn't be listed. */
-async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, targets: readonly DoctorTarget[] | null, out: string | undefined): Promise<Unclaimed[] | string> {
-  const claims = targets ?? [{ name: '', pack: PACKS.ts.name, root: '.' }];
+/** The markers no target claims, the implicit target's included, or why they couldn't be listed. */
+async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string | undefined): Promise<Unclaimed[] | string> {
   try {
     return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], ...(out !== undefined ? { out } : {}) });
   } catch (error) {
@@ -848,11 +850,11 @@ function renderGroup(
   for (const c of items) renderEnvRow(c, out);
 }
 
-/** The mode line, and in multi-target mode the targets, one per line, their columns aligned. */
+/** The mode line, naming the implicit pack, and in multi-target mode the targets, one per line, their columns aligned. */
 function renderMode(report: DoctorReport, out: Out): void {
   const targets = report.targets ?? [];
   if (report.mode === 'implicit') {
-    out.write(`  mode: implicit (the repo is one ${PACKS.ts.name} project at its root)\n\n`);
+    out.write(`  mode: implicit (the repo is one ${report.pack ?? PACKS.ts.name} project at its root)\n\n`);
     return;
   }
   out.write(`  mode: multi-target (${targets.length} target${targets.length === 1 ? '' : 's'})\n\n  TARGETS\n`);
@@ -944,8 +946,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const baselineRow = checkBaseline(cwd, env);
   if (baselineRow !== null) checks.push(baselineRow);
   const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
-  const unclaimed = await unclaimedMarkers(cwd, config, targets, options.out);
-  const markers = markersRow(unclaimed, targets !== null);
+  const implicit = targets === null ? implicitPack((marker) => existsSync(join(cwd, marker))) : null;
+  const unclaimed = await unclaimedMarkers(cwd, config, targets ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], options.out);
+  const markers = markersRow(unclaimed, implicit);
   if (markers !== null) checks.push(markers);
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
@@ -954,6 +957,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     platform: env.platform(),
     packageManager: pm,
     mode: targets === null ? 'implicit' : 'multi-target',
+    ...(implicit !== null ? { pack: implicit } : {}),
     ...(targets !== null ? { targets } : {}),
     ...(typeof unclaimed === 'string' ? {} : { unclaimed }),
     checks,

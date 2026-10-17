@@ -1,8 +1,8 @@
 /**
  * `checkride target add` (R7.4): declare a target in `checkride.config.json`,
  * creating the file when there's none, and convert a repo that declares no
- * targets yet (see `./targets/add.ts`, which plans the change without reading
- * a file).
+ * targets yet, whose implicit target is of the pack its root marks (R2.1)
+ * (see `./targets/add.ts`, which plans the change without reading a file).
  *
  * The new target adopts the tools its root already configures: each
  * non-opt-in slot detection fills there is named in its `checks`, as `init`
@@ -14,6 +14,7 @@
  * nothing. Every change is printed, and `--dry-run` prints them and stops.
  */
 
+import { existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
@@ -23,7 +24,7 @@ import type { Out } from './orchestrator/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
-import { addTarget, normalizeRoot } from './targets/index.js';
+import { addTarget, implicitPack, normalizeRoot } from './targets/index.js';
 
 export type TargetAddOptions = {
   cwd?: string;
@@ -104,7 +105,7 @@ export async function runTargetAdd(options: TargetAddOptions): Promise<TargetAdd
   const raw = readRawConfig(cwd, () => ({ $schema: generatedSchemaUrl() }));
   const change = addTarget(raw, { name: options.name, lang: pack.name, root, checks }, {
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
-    implicitPack: PACKS.ts.name,
+    implicitPack: implicitPack((marker) => existsSync(join(cwd, marker))),
     targetSlots: TARGET_SLOTS,
   });
   const files = await writeTargetChange(cwd, change, { dryRun, command: 'target add' });

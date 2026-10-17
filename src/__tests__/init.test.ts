@@ -325,6 +325,14 @@ describe('detectMode', () => {
     await writeFile(join(dir, 'package.json'), '{}');
     expect(detectMode(dir)).toBe('existing');
   });
+  test.each(['go.mod', 'go.work', 'Cargo.toml'])('existing when another shipped pack marks the root with %s', async (marker) => {
+    await writeFile(join(dir, marker), '');
+    expect(detectMode(dir)).toBe('existing');
+  });
+  test('new when only a pack that has not shipped marks the root', async () => {
+    await writeFile(join(dir, 'pyproject.toml'), '');
+    expect(detectMode(dir)).toBe('new');
+  });
 });
 
 /** The ast-grep rules new mode ships: four style rules, then the six layout and barrel rules. */
@@ -521,6 +529,10 @@ const noFailures = (): Promise<string[]> => Promise.resolve([]);
 const scriptsFirst = (): Promise<{ name: string; lang: string; root: string }[]> =>
   Promise.resolve([{ name: 'scripts', lang: 'bash', root: 'scripts' }, { name: 'app', lang: 'ts', root: '.' }]);
 
+/** Discovery proposing only a bash target, as a repo whose root no ts target claims would. */
+const scriptsOnly = (): Promise<{ name: string; lang: string; root: string }[]> =>
+  Promise.resolve([{ name: 'scripts', lang: 'bash', root: 'scripts' }]);
+
 describe('existing-project adoption (idempotent)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-existing-')); });
@@ -580,6 +592,28 @@ describe('existing-project adoption (idempotent)', () => {
     await runInit({ cwd: dir, probeFailures: noFailures, stdout: kept, discoverTargets: scriptsFirst });
     expect(kept.text()).not.toContain('discovered targets');
     expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).toEqual({ targets: { web: { lang: 'ts', root: '.' } } });
+  });
+
+  test('a go.mod root with no package.json adopts the go pack’s tools, and writes no package.json (R2.1)', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+    expect(result.mode).toBe('existing');
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    expect(cfg.checks).toMatchObject({ types: 'go-build', lint: 'golangci-lint', test: 'go-test' });
+    expect(cfg).not.toHaveProperty('targets');
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+  });
+
+  test('discovery beside a go.mod root converts the implicit target as a go one', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await mkdir(join(dir, 'scripts'));
+    await runInit({ cwd: dir, probeFailures: noFailures, hook: false, discoverTargets: scriptsOnly });
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    expect(cfg['targets']).toEqual({
+      app: { lang: 'go', root: '.', checks: { types: 'go-build', test: 'go-test' } },
+      scripts: { lang: 'bash', root: 'scripts' },
+    });
   });
 
   test('adopts detected tools and refreshes idempotently', async () => {
@@ -1156,12 +1190,18 @@ describe('new-project generation for another language (--lang)', () => {
     await expect(runInit({ cwd: dir, lang: 'go' })).rejects.toThrow('--lang go scaffolds a new project, and this directory has a package.json');
   });
 
-  test('refuses to overwrite a file it would write, unless --force', async () => {
+  test('refuses --lang go where a go.mod puts init in existing mode, --force or not', async () => {
     await writeFile(join(dir, 'go.mod'), 'module mine\n');
-    await expect(runInit({ cwd: dir, lang: 'go', name: 'demo' })).rejects.toThrow('refusing to overwrite 1 existing file(s)');
+    await expect(runInit({ cwd: dir, lang: 'go', name: 'demo', force: true })).rejects.toThrow('--lang go scaffolds a new project, and this directory has a go.mod');
     expect(await readFile(join(dir, 'go.mod'), 'utf8')).toBe('module mine\n');
+  });
+
+  test('refuses to overwrite a file it would write, unless --force', async () => {
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    await expect(runInit({ cwd: dir, lang: 'go', name: 'demo' })).rejects.toThrow('refusing to overwrite 1 existing file(s)');
+    expect(await readFile(join(dir, '.golangci.yml'), 'utf8')).toBe('version: "2"\n');
     await runInit({ cwd: dir, lang: 'go', name: 'demo', force: true });
-    expect(await readFile(join(dir, 'go.mod'), 'utf8')).toContain('module example.com/demo');
+    expect(await readFile(join(dir, '.golangci.yml'), 'utf8')).not.toBe('version: "2"\n');
   });
 
   test('--dry-run plans every file and writes none', async () => {

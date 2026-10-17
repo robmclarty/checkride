@@ -57,7 +57,7 @@
         "name": { "type": "string", "description": "Slot name (e.g. lint), or a custom check's key; <target>:<slot> (e.g. web:lint) for a target's check in multi-target mode." },
         "target": { "type": "string", "description": "Present in multi-target mode on a target-scope check: the target it belongs to." },
         "slot": { "type": "string", "description": "Present on every check in multi-target mode: the catalogue slot (lint) or custom check name the check fills." },
-        "pack": { "type": "string", "description": "Present on every check in multi-target mode: the pack that fills it, its target's for a target-scope check (ts) and repo for a check of the repo as a whole, a top-level custom check included." },
+        "pack": { "type": "string", "description": "Present on every check in multi-target mode, and in implicit mode when the repo root marks a pack other than ts (go, rust): the pack that fills it, its target's for a target-scope check (ts) and repo for a check of the repo as a whole, a top-level custom check included." },
         "cwd": { "type": "string", "description": "Present when the check ran from a directory other than the repo root, as a target's check does when its root isn't .: that directory, relative to the repo root." },
         "adapter": { "type": ["string", "null"], "description": "Adapter that ran (e.g. oxlint), or null when the slot resolved to nothing." },
         "description": { "type": "string", "description": "Human description of the check." },

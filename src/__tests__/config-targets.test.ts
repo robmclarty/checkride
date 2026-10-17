@@ -2,8 +2,10 @@
  * Resolution in multi-target mode (D10): with `targets` declared, a
  * repo-scope slot resolves once at the repo root, and a target-scope slot once
  * for each target that has it, from the target's entry, then its pack's, then
- * the top level's, then detection at the target's root. Each case injects
- * `fileExists`, which answers for paths relative to the repo root.
+ * the top level's, then detection at the target's root. Without `targets`, a
+ * root that marks a pack other than ts resolves the same way, as one target
+ * of that pack (R2.1, D66). Each case injects `fileExists`, which answers for
+ * paths relative to the repo root.
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -15,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
-import { checkName } from '../targets/index.js';
+import { checkName, implicitPack } from '../targets/index.js';
 
 const NO_MANIFEST = { scripts: new Set<string>(), deps: new Set<string>() };
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);
@@ -284,5 +286,68 @@ describe("the repo pack's Node-free alternates", () => {
     const checks = repoSlots(present('.typos.toml', 'apps/web/rumdl.toml'), { targets: { web } });
     expect(check(checks, 'spell')).toMatchObject({ pack: 'repo', adapter: { name: 'typos' } });
     expect(check(checks, 'docs').adapter).toBeNull();
+  });
+});
+
+describe('the implicit pack follows R2.1 among the packs that ship', () => {
+  test.each([
+    { files: ['package.json'], pack: 'ts' },
+    { files: ['tsconfig.json'], pack: 'ts' },
+    { files: ['go.mod'], pack: 'go' },
+    { files: ['go.work'], pack: 'go' },
+    { files: ['Cargo.toml'], pack: 'rust' },
+    { files: ['go.mod', 'package.json'], pack: 'ts' },
+    { files: ['Cargo.toml', 'tsconfig.json'], pack: 'ts' },
+    { files: ['Cargo.toml', 'go.mod'], pack: 'go' },
+    { files: ['pyproject.toml'], pack: 'ts' },
+    { files: [], pack: 'ts' },
+  ])('a root holding $files is checked as $pack', ({ files, pack }) => {
+    expect(implicitPack(present(...files))).toBe(pack);
+  });
+});
+
+describe('a repo without targets at a Go or Rust root is one target of that pack (D66)', () => {
+  test('a go.mod root runs the go pack’s checks under their bare slot names, each with its pack and no target', () => {
+    const checks = repoSlots(present('go.mod', '.golangci.yml'));
+    expect(check(checks, 'types')).toMatchObject({ slot: 'types', pack: 'go', adapter: { name: 'go-build' }, origin: 'detected', detectedBy: 'go.mod' });
+    expect(check(checks, 'lint')).toMatchObject({ pack: 'go', adapter: { name: 'golangci-lint' } });
+    expect(check(checks, 'test')).toMatchObject({ pack: 'go', adapter: { name: 'go-test' } });
+    expect(check(checks, 'links')).toMatchObject({ pack: 'repo', adapter: { name: 'links' } });
+    for (const c of checks.values()) {
+      expect(c, c.slot).not.toHaveProperty('target');
+      expect(c, c.slot).not.toHaveProperty('root');
+      expect(c.pack, c.slot).toBeDefined();
+    }
+    // A slot the go pack doesn't fill has no check, as in a declared go target.
+    for (const slot of ['build', 'publint', 'snippets']) expect(checks.has(slot), slot).toBe(false);
+  });
+
+  test('a Cargo.toml root runs the rust pack’s checks', () => {
+    const checks = repoSlots(present('Cargo.toml'));
+    expect(check(checks, 'types')).toMatchObject({ pack: 'rust', adapter: { name: 'cargo-check' } });
+    expect(checks.has('rust:types')).toBe(false);
+  });
+
+  test('a top-level entry picks the tool, the pack block sits above it, and custom checks keep bare names', () => {
+    const checks = repoSlots(present('go.mod'), {
+      checks: { lint: 'staticcheck', test: 'go-test', licenses: { command: 'true' } },
+      packs: { go: { checks: { test: false, generate: { command: 'go', args: ['generate', './...'] } } } },
+    });
+    expect(check(checks, 'lint')).toMatchObject({ pack: 'go', adapter: { name: 'staticcheck' }, origin: 'config' });
+    expect(check(checks, 'test')).toMatchObject({ adapter: null, skip: 'disabled in checkride.config.json' });
+    expect(check(checks, 'licenses')).toMatchObject({ pack: 'repo', origin: 'custom' });
+    expect(check(checks, 'generate')).toMatchObject({ pack: 'go', origin: 'custom' });
+  });
+
+  test('unclaimed, when an entry picks it, claims the markers of the implicit pack', () => {
+    const checks = repoSlots(present('go.mod'), { checks: { unclaimed: 'unclaimed' } });
+    expect(check(checks, 'unclaimed').adapter?.options?.unclaimed?.targets).toEqual([{ name: '', pack: 'go', root: '.' }]);
+  });
+
+  test('a package.json beside a go.mod keeps 0.13’s resolution: no check carries a pack', () => {
+    const checks = repoSlots(present('package.json', 'go.mod', '.oxlintrc.json'));
+    expect(check(checks, 'lint').adapter?.name).toBe('oxlint');
+    expect(check(checks, 'build')).toBeDefined();
+    for (const c of checks.values()) expect(c, c.slot).not.toHaveProperty('pack');
   });
 });

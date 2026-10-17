@@ -41,7 +41,8 @@ tool detected). Exit `0` means you are ready to run.
 ## Add checkride to a project
 
 `init` auto-detects whether the current directory is a new or existing project
-by looking for a `package.json`.
+by looking for a `package.json`, or a `go.mod`, `go.work` or `Cargo.toml`,
+which it adopts through the go or rust pack.
 
 ### An existing repository
 

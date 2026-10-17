@@ -3,10 +3,11 @@
  *
  * New-project mode generates a complete, green-out-of-the-box repo for one of
  * three shapes (flat / monorepo / hybrid); the shapes differ only in
- * tsconfig.json, fallow.toml, and pnpm-workspace.yaml. Existing-project mode is
- * additive: it inventories detectable tools, writes only what is missing
- * (checkride.config.json, the AGENTS stanza, the `check` alias) and never
- * touches an existing tool config.
+ * tsconfig.json, fallow.toml, and pnpm-workspace.yaml. Existing-project mode,
+ * for a root with a `package.json` or another shipped pack's marker such as a
+ * `go.mod`, is additive: it inventories detectable tools, writes only what is
+ * missing (checkride.config.json, the AGENTS stanza, the `check` alias) and
+ * never touches an existing tool config.
  *
  * Generation, not transformation: every file is written once; the project owns
  * it afterward.
@@ -36,7 +37,7 @@ import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, isImplicit } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, implicitPack, isImplicit } from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -1564,9 +1565,10 @@ const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !=
 /**
  * Existing mode's discovery (R11.4, R7.5): when the repo's files propose more
  * than its one implicit target, declare them, converting the config the way
- * `target add` does (the root target takes the top-level slot entries and the
- * baseline's entries), unless `--dry-run`. A config that already declares
- * targets has made its choice, and is left alone.
+ * `target add` does (the root target, of the pack the root marks (R2.1),
+ * takes the top-level slot entries and the baseline's entries), unless
+ * `--dry-run`. A config that already declares targets has made its choice,
+ * and is left alone.
  */
 async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
   const raw = readRawConfig(cwd, () => ({}));
@@ -1575,7 +1577,8 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
   if (isImplicit(proposed)) return null;
   // The root target first, so it takes the implicit target over rather than nesting beside one.
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
-  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: PACKS.ts.name, targetSlots: TARGET_SLOTS };
+  const pack = implicitPack((marker) => existsSync(join(cwd, marker)));
+  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS };
   let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
   for (const target of ordered) {
     const next = addTarget(change.config, target, rules);
@@ -1693,24 +1696,36 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
 // Entry
 // ----------------------------------------------------------------------------
 
-/** Detect new vs existing by the presence of a package.json. */
+/**
+ * The root file that makes `cwd` an existing project for init to adopt: a
+ * `package.json`, or a root marker of another pack that ships, such as a
+ * `go.mod` or a `Cargo.toml` (R2.1). `null` for a directory init scaffolds a
+ * new project into.
+ */
+function existingMarker(cwd: string): string | null {
+  const others = Object.values(PACKS).filter((p) => p.name !== PACKS.ts.name).flatMap((p) => p.markers);
+  return ['package.json', ...others].find((marker) => existsSync(join(cwd, marker))) ?? null;
+}
+
+/** Detect new vs existing: existing when the root holds a `package.json` or another shipped pack's marker. */
 export function detectMode(cwd: string): 'new' | 'existing' {
-  return existsSync(join(cwd, 'package.json')) ? 'existing' : 'new';
+  return existingMarker(cwd) === null ? 'new' : 'existing';
 }
 
 /**
  * The usage error for a `--lang` and `--shape` pair that doesn't go
- * together, or a `--lang` other than `ts` where init would run in existing
- * mode, which reads the repo's languages for itself; `null` when they fit.
+ * together, or a `--lang` other than `ts` where `marker` puts init in
+ * existing mode, which reads the repo's languages for itself; `null` when
+ * they fit.
  */
-function langProblem(options: InitOptions, mode: 'new' | 'existing'): string | null {
+function langProblem(options: InitOptions, marker: string | null): string | null {
   const lang = options.lang ?? 'ts';
   const shapes = LANG_SHAPES[lang];
   if (options.shape !== undefined && !shapes.includes(options.shape)) {
     return `init: --lang ${lang} takes --shape ${shapes.join(' | ')}, not '${options.shape}'`;
   }
-  if (mode === 'existing' && lang !== 'ts') {
-    return `init: --lang ${lang} scaffolds a new project, and this directory has a package.json; run it in an empty directory`;
+  if (marker !== null && lang !== 'ts') {
+    return `init: --lang ${lang} scaffolds a new project, and this directory has a ${marker}; run it in an empty directory`;
   }
   return null;
 }
@@ -1718,10 +1733,10 @@ function langProblem(options: InitOptions, mode: 'new' | 'existing'): string | n
 /** Run `checkride init` against `cwd`. */
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const mode = detectMode(cwd);
-  const problem = langProblem(options, mode);
+  const marker = existingMarker(cwd);
+  const problem = langProblem(options, marker);
   if (problem !== null) throw new Error(problem);
-  if (mode === 'existing') return initExisting(options, cwd);
+  if (marker !== null) return initExisting(options, cwd);
   return (options.lang ?? 'ts') === 'ts' ? initNew(options, cwd) : initNewLang(options, cwd);
 }
 

@@ -52,7 +52,8 @@ export type SummaryCheck = {
   slot?: string;
   /**
    * In multi-target mode, the pack that fills the check: its target's, or
-   * `repo` for one that checks the repo as a whole. Additive field;
+   * `repo` for one that checks the repo as a whole. The same in implicit mode
+   * when the repo's root marks a pack other than ts (R2.1). Additive field;
    * `schema_version` holds.
    */
   pack?: string;

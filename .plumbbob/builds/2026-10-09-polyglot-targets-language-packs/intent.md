@@ -487,6 +487,12 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   as `ts`, and step 52's Go adoption, step 54's `--discover` (R11.4's single root target stays
   implicit) and the review agent's runs over checkouts without a config all build on it (settled
   at step 47's harvest, from step 46's park).
+- <a id="d67"></a>**D67 (typos-brief)**: R12.2's `typos` row reads text (`--format brief`), the
+  format the adapter has run since step 32 and the parser reads from step 51: one
+  `./<file>:<line>:<col>: error: <message>` line per misspelling, its `./` dropped from the key,
+  and a misspelled file name, which brief prints as a bare `error: <message>`, kept as a gating
+  finding with no file, *because* R12.2 first said jsonl, which nothing runs, and step 73 folds
+  R12 into the docs (settled at step 51's harvest, from step 51's park).
 
 ## Constraints
 
@@ -786,7 +792,7 @@ reference rules and porting trap apply as written there.
 50. [x] feat(findings): parse Go, Rust and shell tool output with path rebasing, **done when:** golangci-lint, staticcheck, clippy, cargo-check and shellcheck parse real fixtures; paths rebase to repo-root-relative per R12.4; the lint parsers feed the baseline, and cargo-check doesn't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet (one parser per format, against real fixtures)
-51. [ ] feat(findings): parse docs, spell and type-checker output, **done when:** markdownlint-cli2, rumdl, typos, tsc and `go build -json` parse real fixtures; the docs and spell parsers feed the baseline, and the type-checker parsers don't ([D31 (types-parse-only)](#d31), [D32 (docs-baselined)](#d32)); markdownlint-cli2's parser reads stderr, and a repo adopted with `init --baseline` grandfathers its markdown findings ([D49 (text-findings)](#d49))
+51. [x] feat(findings): parse docs, spell and type-checker output, **done when:** markdownlint-cli2, rumdl, typos, tsc and `go build -json` parse real fixtures; the docs and spell parsers feed the baseline, and the type-checker parsers don't ([D31 (types-parse-only)](#d31), [D32 (docs-baselined)](#d32)); markdownlint-cli2's parser reads stderr, and a repo adopted with `init --baseline` grandfathers its markdown findings ([D49 (text-findings)](#d49))
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`, `CHANGELOG.md`
     - model: sonnet
 76. [ ] feat(config): pick the implicit pack from the root's markers, **done when:** with no `targets` and no `--discover`, the implicit target's pack follows R2.1, in its order, among the packs that ship: a root `package.json` or `tsconfig.json` picks `ts` exactly as 0.13 did, held by the invariance golden ([C2 (legacy-invariance)](#c2)), a root `go.mod` or `go.work` picks `go` and a root `Cargo.toml` picks `rust`, and nothing picks `ts`; a root Go module with no config runs the go pack's checks under their bare slot names, and its summary records `pack` ([D66 (implicit-pack)](#d66)); `init` in a directory with no `package.json` but another shipped pack's root marker runs existing mode; `doctor` names the implicit pack; `docs/targets.md` and `CHANGELOG.md` say so
@@ -1999,7 +2005,7 @@ npm-only; the binary doesn't carry it.
 | `fallow` | `dead`, `dupes`, `health` | json | yes |
 | `markdownlint-cli2` | `docs` | text | yes (new) |
 | `rumdl` | `docs` | per the pinned version | yes |
-| `typos` | `spell` | jsonl | yes |
+| `typos` | `spell` | text (`--format brief`, [D67 (typos-brief)](#d67)) | yes |
 | `golangci-lint` | `lint` | json | yes |
 | `staticcheck` | `lint` | jsonl | yes |
 | `clippy` | `lint` | jsonl | yes |

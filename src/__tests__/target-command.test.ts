@@ -98,6 +98,17 @@ describe('runTargetAdd', () => {
     expect(config['targets']).toEqual({ app: { lang: 'ts', root: '.' }, scripts: { lang: 'bash', root: 'scripts' } });
   });
 
+  test('converting a go.mod root names its implicit target a go one, and a go target at . takes it over (R2.1)', async () => {
+    await put('go.mod', 'module example.com/m\n');
+    await put('scripts/a.sh');
+    await add();
+    expect(JSON.parse(await read('checkride.config.json')).targets).toEqual({ app: { lang: 'go', root: '.' }, scripts: { lang: 'bash', root: 'scripts' } });
+
+    await rm(join(dir, 'checkride.config.json'));
+    await add({ name: 'svc', lang: 'go', root: '.' });
+    expect(JSON.parse(await read('checkride.config.json')).targets).toEqual({ svc: { lang: 'go', root: '.', checks: { types: 'go-build', test: 'go-test' } } });
+  });
+
   test('adopts the tools the root configures, and --add names the blessed one and scaffolds a ts target’s config', async () => {
     await put('checkride.config.json', JSON.stringify({ targets: { scripts: { lang: 'bash', root: 'scripts' } } }));
     await put('scripts/a.sh');

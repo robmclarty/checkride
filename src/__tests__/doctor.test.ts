@@ -680,6 +680,7 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     await put('.oxlintrc.json');
     const { report, text } = await doctor(null, {}, false);
     expect(report.mode).toBe('implicit');
+    expect(report.pack).toBe('ts');
     expect(report).not.toHaveProperty('targets');
     expect(report.unclaimed).toEqual([]);
     expect(report.checks.find((c) => c.slot === 'lint')).toMatchObject({ adapter: 'oxlint', pinSource: 'js-lockfile' });
@@ -700,12 +701,24 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(exitCode).toBe(0);
   });
 
+  test('without targets at a go.mod root: the implicit go pack, its checks by slot, and a ts marker below as another language (R2.1)', async () => {
+    await put('go.mod', 'module example.com/m\n');
+    await put('tools/package.json');
+    const { report, text } = await doctor(null, {}, false);
+    expect(report).toMatchObject({ mode: 'implicit', pack: 'go' });
+    expect(report.checks.find((c) => c.slot === 'types')).toMatchObject({ adapter: 'go-build' });
+    expect(report.checks.find((c) => c.name === 'other languages')).toMatchObject({ found: 'tools/package.json (ts)' });
+    expect(text).toContain('mode: implicit (the repo is one go project at its root)');
+    expect(text).toContain('checkride checks this repo as one go project, so no check reads that code.');
+  });
+
   test('with targets: the mode, a targets table, and each check named and probed from its own target', async () => {
     await put('apps/web/.oxlintrc.json');
     await put('scripts/a.sh', '#!/bin/sh\n');
     await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');
     const { report, text } = await doctor(bashTarget, {}, false);
     expect(report.mode).toBe('multi-target');
+    expect(report).not.toHaveProperty('pack');
     expect(report.targets).toEqual([{ name: 'web', pack: 'ts', root: 'apps/web' }, { name: 'scripts', pack: 'bash', root: 'scripts' }]);
     expect(report.checks.find((c) => c.slot === 'web:lint')).toMatchObject({ target: 'web', adapter: 'oxlint', pinSource: 'js-lockfile', name: 'oxlint (web:lint)' });
     expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({

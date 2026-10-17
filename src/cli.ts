@@ -186,9 +186,10 @@ const INIT_HELP_TEXT = `checkride init — set up a project (new or existing, au
 
 Usage: checkride init [options]
 
-New project (no package.json): scaffolds a full project. Refuses to overwrite
-existing files unless --force.
-Existing project: adopts detectable slots; --baseline grandfathers current debt.
+New project (no package.json, go.mod, go.work or Cargo.toml): scaffolds a full
+project. Refuses to overwrite existing files unless --force.
+Existing project: adopts detectable slots, through the go or rust pack at a
+go.mod, go.work or Cargo.toml root; --baseline grandfathers current debt.
 Either mode refuses (exit 2) rather than overwrite an AGENTS.md stanza that has
 been edited since checkride wrote it.
 

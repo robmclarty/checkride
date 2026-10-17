@@ -3,8 +3,8 @@
 A repo with more than one language, or one language in more than one place,
 declares **targets**: named parts of the repo, each checked from its own root
 by the pack that knows its language. A repo without targets is checked as one
-TypeScript project at its root, exactly as before. Declaring any switches it
-to multi-target mode.
+project at its root, by the pack its root marks. Declaring any switches it to
+multi-target mode.
 
 ```json
 {
@@ -17,6 +17,26 @@ to multi-target mode.
 
 [`examples/polyglot-ts-bash`](../examples/polyglot-ts-bash/) runs this config
 end to end.
+
+## A repo without targets
+
+Without `targets`, the repo is one unnamed target at its root, and its pack is
+the first that matches:
+
+1. a root `package.json` or `tsconfig.json` picks `ts`, exactly as before, even
+   when the repo also holds Go or Rust code that custom checks cover;
+2. a root `go.mod` or `go.work` picks `go`;
+3. a root `Cargo.toml` picks `rust`;
+4. anything else picks `ts`, where every slot stands down as it always has.
+
+A Go or Rust root runs its pack's checks under their bare slot names (`types`,
+`lint`, `test`), from the root and into `.check/`, as a declared target of that
+pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
+spawn environment, its `packs.<pack>.checks` block, and no check for a slot
+the pack doesn't fill. A top-level entry may still pick the tool, since there's
+only one pack to pick from, and each check's summary entry records its `pack`.
+A ts root records none, as before. A Python or Terraform root joins this list
+when its pack ships.
 
 ## What a target runs
 
@@ -63,11 +83,13 @@ installs tools, above ts targets in their own directories, goes in
 
 - `checkride target add <name> --lang <pack> --root <dir>` adds one, adopting
   the tools its root already configures. In a repo without targets, the
-  implicit ts project becomes a target named `app` at `.`, and its top-level
-  entries and baseline keys move with it.
-- `checkride init` in an existing repo proposes the targets its files suggest,
-  and writes them when there's more than the one project at the root.
-- `checkride doctor` names the mode, lists the targets, and reports each
-  check's pin source and the markers no target claims.
+  implicit project becomes a target of its pack named `app` at `.`, and its
+  top-level entries and baseline keys move with it.
+- `checkride init` in an existing repo, one whose root holds a `package.json`,
+  `go.mod`, `go.work` or `Cargo.toml`, adopts the tools it finds through the
+  implicit pack, proposes the targets its files suggest, and writes them when
+  there's more than the one project at the root.
+- `checkride doctor` names the mode and the implicit pack, lists the targets,
+  and reports each check's pin source and the markers no target claims.
 
 [The contract](./contract.md) holds the exact rules each of these keeps.

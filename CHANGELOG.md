@@ -364,6 +364,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rule set to `"warning"`; rumdl's findings at or above `--fail-on`, every one
   by default; and every typos misspelling. tsc and `go build -json` are
   parsed too, for `checkride/findings`, and never grandfathered.
+- **A Go or Rust repo runs without declaring a target.** A repo with no
+  `targets` is checked as one project of the pack its root marks: a root
+  `package.json` or `tsconfig.json` picks `ts` exactly as before, a root
+  `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, and
+  nothing picks `ts`. A Go or Rust root runs its pack's checks under their
+  bare slot names (`types`, `lint`, `test`), with the pack's pin chain, spawn
+  environment and `packs.<pack>.checks` block, and each summary entry records
+  its `pack`. `init` in a directory with no `package.json` but a `go.mod`,
+  `go.work` or `Cargo.toml` adopts it as an existing repo, so `--lang go|rust`
+  there exits 2 naming that file. `checkride target add` and `init`'s
+  discovery convert such a repo's implicit target as one of its pack, and
+  `checkride doctor` names the implicit pack (`mode: implicit (the repo is one
+  go project at its root)`). See `docs/targets.md`.
 
 ### Changed
 
@@ -733,6 +746,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the first three, in the contract doc and both contract tests. The
   `exports.contract.test.ts` case for an adapter with no parser now names
   `vitest`, since `tsc` has one.
+- Additive: the per-check summary field `pack` is now also present in a run
+  without `targets` whose root marks a pack other than `ts` (a `go.mod`,
+  `go.work` or `Cargo.toml`), in the JSON Schema's description, the contract
+  doc and `summary.contract.test.ts`; a ts root's entries still carry none.
+  The exported `ResolvedCheck` and `SummaryCheck` types document the same,
+  and `DoctorReport` gains an optional `pack`, present in implicit mode.
 
 ### Internal
 

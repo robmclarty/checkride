@@ -6,7 +6,9 @@
  * Each check returns the first problem it finds, worded as the reason in
  * `invalid checkride.config.json: <reason>`, or `null`; `../config.ts` throws
  * it. The rules read the slot catalogue and the pack registry as data, so a new
- * slot or pack moves them without an edit here.
+ * slot or pack moves them without an edit here. The mode a config selects
+ * lives here too: the targets it declares, or, declaring none, the pack the
+ * repo's root marks (R2.1).
  */
 
 import { existsSync, statSync } from 'node:fs';
@@ -331,6 +333,25 @@ function declaredTargets(targets: unknown): Declared[] {
 export function configuredTargets(config: { readonly targets?: unknown } | null): Target[] | null {
   if (config?.targets === undefined) return null;
   return declaredTargets(config.targets).map(({ name, lang, root, ...globs }) => ({ name, pack: lang, root, ...globs }));
+}
+
+/**
+ * R2.1's order: the packs a repo's root can be checked as without targets,
+ * first match first. The two that haven't shipped join as their packs do.
+ */
+const IMPLICIT_ORDER: readonly string[] = ['ts', 'go', 'rust', 'python', 'terraform'];
+
+/**
+ * The pack of the one target a repo without `targets` is checked as (R2.1):
+ * the first pack, in R2.1's order among the packs that ship, with a marker
+ * `atRoot` says the repo root holds, and `ts` when none does. A root
+ * `package.json` or `tsconfig.json` picks `ts` before any other, as 0.13 did.
+ * `atRoot` answers for one marker, a file name relative to the root.
+ */
+export function implicitPack(atRoot: (marker: string) => boolean): string {
+  const packs = Object.values(PACKS);
+  const shipped = IMPLICIT_ORDER.flatMap((name) => packs.filter((p) => p.name === name));
+  return shipped.find((p) => p.markers.some(atRoot))?.name ?? PACKS.ts.name;
 }
 
 /** True when `inner` sits below `outer`. */

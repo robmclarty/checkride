@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 51 — feat(findings): parse docs, spell and type-checker output
+**Current step:** 76 — feat(config): pick the implicit pack from the root's markers
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -74,7 +74,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 48. refactor(baseline): derive fingerprints from one parser per format
 - ☑ 49. feat(findings): export parseFindings with severity, gates and slot
 - ☑ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
-- ☐ 51. feat(findings): parse docs, spell and type-checker output
+- ☑ 51. feat(findings): parse docs, spell and type-checker output
 - ☐ 76. feat(config): pick the implicit pack from the root's markers
 - ☐ 52. test(examples): adopt a Go repo with --baseline and ratchet it
 - ☐ 53. feat(config): layer a defaults file below detection with --defaults
@@ -144,9 +144,13 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] R2.1's implicit go/rust/python/terraform pack (a root go.mod or Cargo.toml with no targets picks that pack) has no step: config.ts still resolves every implicit repo as ts, so init --lang go|rust writes an explicit app target at the root instead
 - [x] R11.6's bash-strict-mode dialect rule (set -euo pipefail, or a built-in beside shellcheck if ast-grep can't express it) has no step: no bash scaffold ships rules, so step 46 built only the five go and rust rules
 - [x] cspell 10.3.6 appends ' fix: (<word>)' to a line when it has a confident suggestion, so the cspell key's message embeds the suggestion; baseline-cspell.txt predates it (C9), so recapture the fixture and decide whether the key keeps the suffix
-- [ ] golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg), so a parent .golangci.yml or a gomod/gitroot mode double-joins the target root in keys
-- [ ] cargo spans are relative to the workspace root, so a rust target declared at a member crate (not the workspace root) keys its clippy paths under the wrong root
-- [ ] R12.2 lists typos as jsonl, but the adapter runs --format brief, which drops the path of a misspelled file name; switch the adapter to --format json?
+- [x] golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg), so a parent .golangci.yml or a gomod/gitroot mode double-joins the target root in keys
+- [x] cargo spans are relative to the workspace root, so a rust target declared at a member crate (not the workspace root) keys its clippy paths under the wrong root
+- [x] R12.2 lists typos as jsonl, but the adapter runs --format brief, which drops the path of a misspelled file name; switch the adapter to --format json?
+- [ ] R11.4's go and rust discovery rules (go.work/go.mod targets, Cargo [workspace]/[package] targets) were never built, discover.ts proposes only ts and bash, and isImplicit treats only a ts root target as implicit; step 54 (--discover, seam holds discover.ts) should add both rules and compare a lone root target against the root's implicit pack
+- [ ] doctor's install row stays required in a root with no package.json (a Go or Rust root, or an init --lang go|rust scaffold), so doctor exits 1 there for a missing Node lockfile the repo never needs
+- [ ] existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs, where a tsconfig.json would flip the implicit pack back to ts on the next run
+- [ ] D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed; decide whether the scaffolds now write an implicit-mode config (bare check names) or keep the explicit target
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -206,6 +210,10 @@ Harvest results this boundary:
 - After step 47: the Ranges section's step 45 lean, which step 45 applied inside the range the human granted → folded into `intent.md` as D64 (cargo-target-dir-lock), which amends R6.5's sentence; the remaining leans now fold as D67 onward once approved.
 - After step 47: the plan text steps 41 to 46 corrected after running each tool at its pinned version (not parked; recorded in those steps' checkpoint bodies) → **blocker**, handled now: folded into `intent.md` as D65 (verified-argv), which amends R5.5's go-build, golangci-lint and govulncheck rows, R5.6's cargo-deny and cargo-mutants rows, R6.1's go-mod-tool and rust-toolchain rows, R6.2's toolchain rule, R6.4's `RUSTUP_TOOLCHAIN` and offline-hint paragraph, and R6.5's lock sentence (steps 50, 56, 72 and 73 build from that text, and step 73 would otherwise document govulncheck's vacuous `-format json` argv).
 - After step 49: "cspell 10.3.6 appends ' fix: (<word>)' to a line ..." → **tangent**, deferred to step 51 (keys stay stable for one cspell version and dictionary, and the contract treats a tool's wording as the tool's, so the key keeps the suffix verbatim, since stripping it would re-key every suffixed cspell key in today's baselines; step 51 recaptures `baseline-cspell.txt` at the pinned cspell so the fixture carries a suffixed line, per C9).
+- After step 50: "golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg)..." → **tangent**, deferred to step 52 (never a false green, since the keys stay stable, only misnamed, and the adapter is detected by a `.golangci.yml` at the target root, so the default case names files right; step 52 makes the first real golangci-lint capture and is the last step before the Phase 8 release fixes the key form, so it decides between adding `--path-mode=abs`, which the repo-root rebasing step 50 threaded through the run, the capture and the digest already handles, and documenting the limit; `src/packs/go.ts` and `docs/packs.md` sit outside step 52's seam, so add them via `/plumbbob:step 52` or accept a two-file stray).
+- After step 50: "cargo spans are relative to the workspace root, so a rust target declared at a member crate..." → **tangent**, deferred to step 73 (R11.4's discovery declares only workspace roots and claims their members, so only a hand-declared member-crate target hits it, and the cost is misnamed paths, never a false green; step 73 documents in `docs/targets.md` that a rust target's root is its workspace root).
+- After step 51: "R12.2 lists typos as jsonl, but the adapter runs --format brief..." → **blocker**, handled now: folded into `intent.md` as D67 (typos-brief), which amends R12.2's typos row to text (`--format brief`), the format step 32 shipped and step 51's parser reads (step 73 folds R12 into the docs and would document a format nothing runs).
+- After step 51: step 49's harvest deferred a cspell recapture to step 51, which step 51 didn't do (not parked; found at this harvest) → **tangent**, deferred to step 60 (keys already keep cspell 10.3.6's ` fix: (<word>)` suffix verbatim, so nothing is wrong, only unproven against a real capture; step 60's seam holds `src/findings/parsers/` and `src/__tests__/fixtures/`, so it adds a new `findings-cspell.txt` captured at the pinned cspell with a suffixed line, per C9, and leaves `baseline-cspell.txt` and `baseline-keys.golden.json` alone, since recapturing that fixture would rewrite the golden that proves step 48's refactor kept every key).
 
 ## Log
 
@@ -2243,3 +2251,4 @@ folder, so it rides the branch into the PR.)*
   Step 48 landed under your 48-57 grant, but `plumbbob checkpoint 49` refused with "no human turn since this step began". The likely cause is my own: during step 48 I ran stryker in the background with a monitor, and their task notifications went through the prompt hook as turns (`.plumbbob/TURN` counts them). Step 48's checkpoint came after those turns. Step 49 began after the last one, and the latest "prompt" no longer carried the range, so the latch saw no grant. I didn't route around it, and I saved a memory to run long jobs in the foreground during a range. Separately, a task notification counting as a human turn looks like a gap in the latch worth a look on plumbbob's side. The range could only have reached step 51 anyway, because the build order runs step 76 next.
 
 - 2026-10-17 — step 50 checkpointed · 3153cdcb4 — feat(findings): parse Go, Rust and shell tool output with path rebasing (1 drift, 15m)
+- 2026-10-17 — step 51 checkpointed · 74b793769 — feat(findings): parse docs, spell and type-checker output (1 drift, 11m)

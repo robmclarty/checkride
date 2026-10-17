@@ -4,7 +4,8 @@
  * against its `<target>:<slot>` baseline entry with its paths joined onto the
  * root (D50), and feeds the ratchet under that name; `fix` runs a target's
  * fixer from its root; and under `--changed` a target nothing changed under
- * sits out (R10.3).
+ * sits out (R10.3). A Go module root without targets runs as one go target
+ * whose checks keep their bare names (D66).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -324,5 +325,34 @@ describe('runChecks --changed outside a git repository (F19)', () => {
     const err = sink();
     await runChecks({ cwd: dir, config: { checks: { tally: { command: 'node' } } }, runner: passing, baseline: null, changed: true, json: true, stdout: sink().out, stderr: err.out });
     expect(err.text()).not.toContain('no target is skipped');
+  });
+});
+
+describe('runChecks at a Go module root without targets (D66)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-orch-implicit-go-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test("each go check runs from the root as its bare slot, with the go pack's chain, variables and packages", async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/m\n\ngo 1.24\n');
+    const seen: Record<string, { cwd: string; out?: string; pins?: readonly string[]; env?: Readonly<Record<string, string>>; args: readonly string[] }> = {};
+    const runner: CheckRunner = (r, ctx) => {
+      seen[r.slot] = {
+        cwd: ctx.cwd,
+        args: r.adapter?.args ?? [],
+        ...(ctx.out !== undefined ? { out: ctx.out } : {}),
+        ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}),
+        ...(ctx.packEnv !== undefined ? { env: ctx.packEnv } : {}),
+      };
+      return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+    };
+    const status = sink();
+    const result: RunResult = await runChecks({ cwd: dir, runner, baseline: null, only: ['types', 'test'], stdout: status.out, stderr: sink().out });
+    expect(seen['types']).toMatchObject({ cwd: dir, out: '.check', pins: PACKS.go.pins, env: PACKS.go.env });
+    expect(seen['types']?.args.at(-1)).toBe('./...');
+    expect(seen['test']).toMatchObject({ cwd: dir, pins: PACKS.go.pins });
+    expect(result.summary.checks.find((c) => c.name === 'types')).toMatchObject({ pack: 'go', adapter: 'go-build' });
+    expect(result.summary).not.toHaveProperty('targets');
+    expect(status.text()).not.toContain(':types');
   });
 });

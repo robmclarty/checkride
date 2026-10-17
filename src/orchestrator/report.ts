@@ -30,13 +30,14 @@ export function nameWidth(selected: readonly ResolvedCheck[]): number {
 
 /**
  * How a summary entry names its check (R8.2). In implicit mode that's the slot
- * or custom check's name alone. In multi-target mode a target's check is
+ * or custom check's name alone, with the `pack` that fills it when the repo's
+ * root marks a pack other than ts. In multi-target mode a target's check is
  * `<target>:<slot>` and carries its `target`; every check carries its `slot`
  * and the `pack` that fills it, and a check that ran outside the repo root
  * carries that directory as `cwd`.
  */
 export function checkIdentity(r: ResolvedCheck, multiTarget: boolean): Pick<SummaryCheck, 'name' | 'target' | 'slot' | 'pack' | 'cwd'> {
-  if (!multiTarget) return { name: r.slot };
+  if (!multiTarget) return { name: r.slot, ...(r.pack !== undefined ? { pack: r.pack } : {}) };
   return {
     name: checkName(r),
     ...(r.target !== undefined ? { target: r.target } : {}),

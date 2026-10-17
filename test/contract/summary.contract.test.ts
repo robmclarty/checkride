@@ -395,6 +395,31 @@ describe('summary.json shape', () => {
     }
   });
 
+  /**
+   * Contract: a run without targets at a root that marks a pack other than ts
+   * names each check by its slot alone, records no target, slot or cwd, and
+   * records on every check the pack that fills it (R2.1, R8.2, D66).
+   */
+  test('a run without targets at a Go module root records each check by its bare name, with its pack', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/m\n\ngo 1.24\n');
+    await runChecks({
+      cwd: dir, json: true, stdout: sink(), stderr: sink(),
+      runner: () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }),
+    });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as Record<string, unknown>;
+    const valid = validate(summary);
+    expect(validate.errors ?? []).toEqual([]);
+    expect(valid).toBe(true);
+    expect(summary).not.toHaveProperty('targets');
+    const checks = summary['checks'] as Record<string, unknown>[];
+    expect(checks.find((c) => c['name'] === 'types')).toMatchObject({ pack: 'go', adapter: 'go-build' });
+    expect(checks.find((c) => c['name'] === 'links')).toMatchObject({ pack: 'repo' });
+    for (const c of checks) {
+      expect(c, String(c['name'])).toHaveProperty('pack');
+      for (const field of ['target', 'slot', 'cwd']) expect(c, `${String(c['name'])}.${field}`).not.toHaveProperty(field);
+    }
+  });
+
   test('a vacuous (zero-run) summary validates and says so', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false } }));

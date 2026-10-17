@@ -141,7 +141,7 @@ required ones, so a field can't reach the schema without a row here.
 | `name` | string | always: the slot name (`lint`), or the custom check's config key; `<target>:<slot>` (`web:lint`) for a target's check |
 | `target` | string | multi-target mode, on a target's check: the target it belongs to |
 | `slot` | string | multi-target mode, on every check: the catalogue slot or custom check name it fills |
-| `pack` | string | multi-target mode, on every check: the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
+| `pack` | string | multi-target mode, on every check, and implicit mode when the repo root marks a pack other than `ts` (a `go.mod`, `go.work` or `Cargo.toml`): the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
 | `cwd` | string, repo-relative | the check ran from a directory other than the repo root, as a target's check does when its root isn't `.` |
 | `adapter` | string or `null` | always: the adapter that ran or would have run (`oxlint`, or `custom:<key>` for a custom check with no `name`); `null` when the slot resolved to nothing |
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
@@ -262,6 +262,18 @@ previous summary didn't list, a symlink, or a directory that holds the repo or
 that target's own root. Without `targets` the run is unchanged, apart from
 clearing what those targets left when the config has just dropped its
 `targets`.
+
+**Without `targets`, the repo is one target of the pack its root marks.** The
+pack is the first match: a root `package.json` or `tsconfig.json` picks `ts`, a
+root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, and
+nothing picks `ts`. A ts root runs exactly as 0.13 did, and its entries carry no
+`pack`. Any other root resolves as a target of its pack rooted at `.` would,
+its `packs.<pack>.checks` block, pin chain and spawn environment included, and
+the repo-scope slots and top-level custom checks as the `repo` pack, but every
+check keeps its bare name, runs from the repo root, writes into the output
+directory, and records its `pack`, with no `target`, `slot` or `cwd`. A
+top-level entry may pick a target-scope slot's tool, since only one pack fills
+it. `init` adopts such a root as an existing repo, and refuses `--lang` there.
 
 **Array order is deterministic.** The `checks` array is ordered by the run's
 group sequence — `'first'`s, then each numeric wave ascending, then `'single'`s,
@@ -542,12 +554,12 @@ target to `checkride.config.json`, creating the file when it's absent, and
 names in its `checks` each non-opt-in tool detection finds under its root.
 `--add <a,b>` names the blessed tool for those slots too, and for a ts target
 scaffolds its config under the root. In a repo that declares no targets, the
-implicit ts target becomes an explicit one named `--root-name` (default `app`),
-rooted at `.`: the top-level `checks` entries for target-scope slots move into
+implicit target becomes an explicit one of its pack named `--root-name`
+(default `app`), rooted at `.`: the top-level `checks` entries for target-scope slots move into
 its `checks`, and `checkride.baseline.json`'s entries move from `<slot>` to
 `<name>:<slot>` with their keys unchanged, so the next full run masks exactly
-what the last one did. A ts target rooted at `.` takes the implicit one over
-instead. Every change is printed; `--dry-run` prints them and writes nothing.
+what the last one did. A target of the implicit pack rooted at `.` takes the
+implicit one over instead. Every change is printed; `--dry-run` prints them and writes nothing.
 The new config is merged and validated first, so a change that breaks a rule
 (a ts target nesting under the converted root, for one) exits 2 having written
 nothing, as does a baseline that can't be parsed.

@@ -13,7 +13,9 @@
  *
  * With `targets` declared, each target resolves its pack's slots that way from
  * its own root, and its entry comes from the target, then `packs`, then the top
- * level (D10).
+ * level (D10). Without them, a repo whose root marks a pack other than ts
+ * (R2.1) resolves the same way, as one target of that pack at its root whose
+ * checks keep their bare names.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -26,7 +28,7 @@ import { pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
-import { configProblem, configuredTargets, presetProblem, skipExitCodeProblem } from './targets/index.js';
+import { configProblem, configuredTargets, implicitPack, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -323,7 +325,8 @@ export type ResolvedCheck = {
   /**
    * In multi-target mode, the pack that fills the check: its target's for a
    * target-scope check, and `repo` for one that checks the repo as a whole,
-   * a top-level custom check included. Absent in implicit mode.
+   * a top-level custom check included. In implicit mode, the same for a repo
+   * whose root marks a pack other than ts (R2.1), and absent in a ts one.
    */
   pack?: string;
   /**
@@ -1136,18 +1139,36 @@ function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection): R
 
 /**
  * The `unclaimed` built-in with what it checks carried on its options: the
- * targets that claim markers, or the one implicit target at the root in a
- * repo without them, and `unclaimed.ignore`. Any other check passes through.
+ * targets that claim markers, the one implicit target at the root in a repo
+ * without them, and `unclaimed.ignore`. Any other check passes through.
  */
-function withClaims(check: ResolvedCheck, config: CheckrideConfig | null): ResolvedCheck {
+function withClaims(check: ResolvedCheck, targets: readonly Target[], config: CheckrideConfig | null): ResolvedCheck {
   if (check.adapter?.builtin !== 'unclaimed') return check;
-  const targets = configuredTargets(config) ?? [{ name: '', pack: PACKS.ts.name, root: '.' }];
   const claims = { targets: targets.map(({ name, pack, root }) => ({ name, pack, root })), ignore: config?.unclaimed?.ignore ?? [] };
   return { ...check, adapter: withOptions(check.adapter, { unclaimed: claims }) };
 }
 
-/** Implicit mode: every catalogue slot, then every custom check, at the repo root. */
-function implicitChecks(input: ResolveInput, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+/** The pack of a repo without targets (R2.1), from the markers its root holds. */
+function implicitPackOf(input: ResolveInput): string {
+  const cwd = input.cwd ?? process.cwd();
+  return implicitPack(input.fileExists ?? ((marker) => existsSync(join(cwd, marker))));
+}
+
+/** A check of the one implicit target, named by its slot alone, with no target and no root of its own. */
+function untargeted(check: ResolvedCheck): ResolvedCheck {
+  const { target, root, ...rest } = check;
+  return target === undefined && root === undefined ? check : rest;
+}
+
+/**
+ * Implicit mode: the repo is one target at its root. A ts root resolves as
+ * 0.13 did: every catalogue slot, then every custom check, against `adapters`
+ * through the implicit pin chain, with no pack. Any other pack resolves as a
+ * declared target of it rooted at `.` would, its pack block, chain and
+ * variables included, with each check named by its slot alone (D66).
+ */
+function implicitChecks(input: ResolveInput, pack: string, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+  if (pack !== PACKS.ts.name) return targetChecks(input, [{ name: '', pack, root: '.' }], catalogueNames).map(untargeted);
   const detection = detectionAt(input, '.');
   const checks = input.config?.checks ?? {};
   const catalogue = input.slots.map((slot) => repoSlotCheck(slot, input, detection));
@@ -1303,11 +1324,16 @@ function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
  * target's root and against its pack's adapters, in the order D10 sets: the
  * target's entry, then its pack's, then the top level's, then detection. The
  * catalogue checks then sit in target order within a slot, and the top-level
- * custom checks before each target's own (R8.4).
+ * custom checks before each target's own (R8.4). Without `targets`, the repo
+ * is one target of the pack its root marks (R2.1), resolved as 0.13 did when
+ * that's ts.
  */
 export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
   const catalogueNames = new Set(input.slots.map((s) => s.name));
-  const targets = configuredTargets(input.config);
-  const checks = targets === null ? implicitChecks(input, catalogueNames) : targetChecks(input, targets, catalogueNames);
-  return sortByGroup(checks.map((check) => withClaims(check, input.config)));
+  const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
+    sortByGroup(checks.map((check) => withClaims(check, targets, input.config)));
+  const declared = configuredTargets(input.config);
+  if (declared !== null) return claimed(targetChecks(input, declared, catalogueNames), declared);
+  const pack = implicitPackOf(input);
+  return claimed(implicitChecks(input, pack, catalogueNames), [{ name: '', pack, root: '.' }]);
 }

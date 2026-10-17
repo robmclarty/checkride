@@ -308,9 +308,10 @@ before it blocks on a gate that didn't answer.
 
 ## What `doctor` reports
 
-`checkride doctor` names the mode first: `implicit`, where the repo is one ts
-project at its root, or `multi-target`, followed by a table of the targets the
-config declares. Each check gets a row, named `<target>:<slot>` in a target,
+`checkride doctor` names the mode first: `implicit`, where the repo is one
+project at its root, naming the pack its root marks (`ts`, `go` or `rust`, as
+[Targets](./targets.md#a-repo-without-targets) explains), or `multi-target`,
+followed by a table of the targets the config declares. Each check gets a row, named `<target>:<slot>` in a target,
 whose tool is looked for where that check runs from, and the row ends with the
 pin source the tool resolves through (`js-lockfile`, `mise` or `path`), read
 from files alone. A tool `mise.toml` pins reports missing when mise isn't on
@@ -319,10 +320,11 @@ that run it and the `mise use` that would pin it: a warning, or with
 `requirePins: true` a failure (exit 1) when a check that runs by default
 uses it. Last, a **workspace** row lists the markers no target claims, the ones
 the `unclaimed` check reports. A repo without `targets` gets a row only when it
-holds another language's markers, such as a `go.mod`, which the one ts project
-leaves unchecked, as a hint to declare targets. Neither row ever fails
-`doctor`. `doctor --json` carries the same as `mode`, `targets`, `unclaimed`,
-and each row's `target` and `pinSource`.
+holds another language's markers, such as a `go.mod` below a ts root, which
+the one implicit project leaves unchecked, as a hint to declare targets.
+Neither row ever fails `doctor`. `doctor --json` carries the same as `mode`,
+`pack` (implicit mode only), `targets`, `unclaimed`, and each row's `target`
+and `pinSource`.
 
 ## The spawn environment
 
