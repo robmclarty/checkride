@@ -77,6 +77,12 @@ export type LaunchContext = {
   packEnv?: Readonly<Record<string, string>>;
   /** The tool rows a tool is looked up in: `TOOLS` unless a test swaps it. */
   tools?: readonly Tool[];
+  /**
+   * A `--static-only` run (R13.4): the `js-lockfile` source refuses a tool
+   * missing from `node_modules/.bin` under every package manager, so its check
+   * skips as one that needs an install, rather than spawn a launcher that fails.
+   */
+  staticOnly?: boolean;
 };
 
 /**
@@ -109,6 +115,7 @@ type ToolRequest = {
   requirePins: boolean;
   env: Readonly<Record<string, string | undefined>>;
   overrides: ReadonlyMap<string, string>;
+  staticOnly: boolean;
 };
 
 /**
@@ -175,7 +182,7 @@ const JS_LOCKFILE: Source = {
   declares: (req) => (jsLockfileDeclares(req.cwd, req.repo, req.tool.bin) ? {} : null),
   run: (req) => {
     const canonical = ['exec', req.tool.bin, ...req.args];
-    const refusal = missingToolRefusal(req.slot, 'pnpm', canonical, { cwd: req.cwd, pm: req.pm });
+    const refusal = missingToolRefusal(req.slot, 'pnpm', canonical, { cwd: req.cwd, pm: req.pm, everyManager: req.staticOnly });
     if (refusal !== null) return { refusal };
     const version = jsLockfileVersion(req.cwd, req.repo, req.tool.bin);
     return { ...translateExec('pnpm', canonical, req.pm), pin: { source: 'js-lockfile', ...(version !== undefined ? { version } : {}) } };
@@ -309,7 +316,7 @@ type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[] };
  */
 export function pinResolution(bin: string, at: PinQuery): { source: PinSourceName; declaredBy: string | null } | null {
   const tool = toolRow(bin);
-  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {}, overrides: new Map() };
+  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {}, overrides: new Map(), staticOnly: false };
   const sources = at.pins.filter((n) => n !== 'path');
   for (const name of sources) {
     const source = SOURCES[name];
@@ -387,6 +394,7 @@ function toolRequest(slot: string, tool: Tool, args: readonly string[], chain: r
     requirePins: ctx.requirePins ?? false,
     env: ctx.env ?? process.env,
     overrides: chain.includes('override') ? (ctx.overrides ?? new Map()) : new Map(),
+    staticOnly: ctx.staticOnly ?? false,
   };
 }
 

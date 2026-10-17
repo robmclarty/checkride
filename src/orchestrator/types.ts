@@ -27,6 +27,14 @@ export type RunFlags = {
   /** Write a capped failure excerpt to `digest.md` in the output directory. */
   digest?: boolean;
   /**
+   * Keep only the checks that read the repo as data (R13.4): every other
+   * selected check is skipped with a `static-only:` reason, as is one whose
+   * tool would need an install. A best-effort selector for a run before the
+   * repo is installed, never a sandbox. The run is partial, so it never
+   * ratchets the baseline.
+   */
+  staticOnly?: boolean;
+  /**
    * Discover targets at run time (R13.2): the ones the repo's files propose
    * are declared in memory, nothing is written, and the run never ratchets the
    * baseline. A config that already declares targets makes the run a usage
@@ -121,14 +129,13 @@ export type SummaryCheck = {
 
 /**
  * What a run selected (R8.1): `partial`, plus each selection or mode flag the
- * run was given and nothing for one it wasn't. `static_only` belongs to a
- * flag checkride doesn't have yet, so no run writes it. Paths are absolute.
+ * run was given and nothing for one it wasn't. Paths are absolute.
  */
 export type SummaryRun = {
   /**
-   * True when `--only`, `--skip` or `--changed` narrowed the run, or `--bail`
-   * stopped it at a failure: the test that keeps the run from ratcheting the
-   * baseline, so the two always agree.
+   * True when `--only`, `--skip`, `--changed` or `--static-only` narrowed the
+   * run, or `--bail` stopped it at a failure: the test that keeps the run from
+   * ratcheting the baseline, so the two always agree.
    */
   partial: boolean;
   only?: string[];
@@ -224,6 +231,8 @@ export type CheckRunner = (
     packEnv?: Readonly<Record<string, string>>;
     /** The `--pins` file's tools by mise id, each with its version, which the `override` source at the head of `pins` reads (R13.3). */
     overrides?: ReadonlyMap<string, string>;
+    /** Under `--static-only`, a tool that would need an install skips its check, rather than fail it (R6.2). */
+    staticOnly?: boolean;
   },
 ) => Promise<RunnerOutcome>;
 

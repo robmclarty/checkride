@@ -430,6 +430,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   repo, so the file changes which copy runs, never which checks run. A run
   with it never ratchets the baseline, its summary records `run.pins`, and
   the stop gate strips the variable. `doctor` refuses the flag for now (#7).
+- **Run only the checks that read the repo as data with `--static-only`.** A
+  pre-sandbox pass over a checkout nobody has installed keeps a check only
+  when its adapter is marked static (prettier, biome, oxlint, ast-grep,
+  markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt,
+  `links` and `unclaimed`), or a defaults file vouches for it with
+  `static: true`. Its argv has to carry no flag that needs the install, such
+  as oxlint's `--type-aware`. No code config of its own may sit under its
+  directory, such as `.markdownlint-cli2.cjs`, and no config key that loads
+  code may be set, such as `jsPlugins`. Its tool has to resolve without an
+  install. Every other check is skipped with a `static-only: <cause>` reason,
+  and the run is partial, so it never ratchets. It's a best-effort selector,
+  not a sandbox: a tool release can add a way to load code that these sniffs
+  don't know. `doctor` refuses the flag for now (#7).
 
 ### Changed
 
@@ -577,6 +590,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the `pin_source` value `override` and `run.pins`, which runs now write. The
   exported `RunOptions` type gains an optional `pins` (`{ path, tools }`), and
   the `CheckRunner` context an optional `overrides`.
+- Additive: the run flag `--static-only`, the summary's `run.static_only`,
+  which a run now writes, and `run.partial`, now also true under it. Adapter
+  rows gain optional `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys`
+  (the `Adapter` type, and a new exported `CodeKey`), set on the static
+  adapters in `PACKS` and `ADAPTERS`; the config schema's slot and custom
+  check entries gain `static`, which only a defaults file may set. The
+  exported `RunFlags` type gains an optional `staticOnly`, and the
+  `CheckRunner` context an optional `staticOnly`.
 - Additive: the config schema's custom check entry gains `skipExitCode`
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A

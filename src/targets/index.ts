@@ -13,6 +13,7 @@ export { changedGoModules, changedUnder, noChangesReason, noGoModuleChangedReaso
 export { discoverRun, discoverTargets, isImplicit } from './discover.js';
 export type { ProposedTarget } from './discover.js';
 export { argvBytes, expandFiles, isFileListPack, MAX_FILES_ARGV_BYTES, NO_FILES_REASON, takesFiles, targetFiles } from './files.js';
+export { repoFiles } from './markers.js';
 export { configProblem, configuredTargets, implicitPack, normalizeRoot, presetProblem, skipExitCodeProblem } from './resolve.js';
 export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';

@@ -216,6 +216,10 @@
           "type": "boolean",
           "description": "Override the slot's opt-in status. true configures the slot without opting it into the default run (reach it with --all/--include); false forces it into the default run."
         },
+        "static": {
+          "type": "boolean",
+          "description": "Defaults file only (--defaults): this check reads the repo as data, so --static-only may keep it. A repo's own config can't set it."
+        },
         "exclude": {
           "type": "array",
           "items": { "type": "string" },
@@ -277,6 +281,10 @@
         "optIn": {
           "type": "boolean",
           "description": "true holds this custom check out of the default run — it runs only under --all/--include <name>. Absent runs it by default."
+        },
+        "static": {
+          "type": "boolean",
+          "description": "Defaults file only (--defaults): this check reads the repo as data, so --static-only may keep it. A repo's own config can't set it."
         },
         "skipExitCode": {
           "type": "integer",

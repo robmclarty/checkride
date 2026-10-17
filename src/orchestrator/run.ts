@@ -24,7 +24,7 @@ import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
-import { selectChecks, skipUnchanged, validateSelection, withFileLists, withGoPackages } from './select.js';
+import { selectChecks, skipUnchanged, validateSelection, withFileLists, withGoPackages, withStaticOnly } from './select.js';
 import { resetInterrupt } from './spawn.js';
 import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
@@ -34,7 +34,7 @@ import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } fro
  * these: an unobserved diagnostic must not be mistaken for a fixed one.
  */
 function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean): boolean {
-  return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || brokeEarly;
+  return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || options.staticOnly === true || brokeEarly;
 }
 
 /**
@@ -50,6 +50,7 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
     ...(options.include ? { include: [...options.include] } : {}),
     ...(options.all === true ? { all: true } : {}),
     ...(options.changed === true ? { changed: true } : {}),
+    ...(options.staticOnly === true ? { static_only: true } : {}),
     ...(options.discover === true ? { discover: true } : {}),
     ...pathsRecord(options, cwd),
   };
@@ -95,6 +96,7 @@ function consumerCause(options: RunOptions, cwd: string): string | null {
   if (options.defaults !== undefined) return '--defaults';
   if (options.discover === true) return '--discover';
   if (options.pins !== undefined) return '--pins';
+  if (options.staticOnly === true) return '--static-only';
   if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
   if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;
@@ -204,7 +206,8 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file list too long for one argv is a usage error too, so the lists are
   // read before the output directory is touched.
   const listed = await withFileLists(skipUnchanged(selectChecks(resolved, options), changed), base.cwd, base.targets);
-  const selected = withGoPackages(listed, base.cwd, changed);
+  const packaged = withGoPackages(listed, base.cwd, changed);
+  const selected = options.staticOnly === true ? await withStaticOnly(packaged, base.cwd) : packaged;
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;

@@ -27,6 +27,11 @@ export const REPO_PACK: Pack = {
       command: 'pnpm',
       args: ['exec', 'ast-grep', 'scan', '--json=compact'],
       outputFile: 'struct.json',
+      static: true,
+      codeKeys: [
+        { file: 'sgconfig.yml', keys: ['customLanguages'] },
+        { file: 'sgconfig.yaml', keys: ['customLanguages'] },
+      ],
       devDeps: { '@ast-grep/cli': '0.45.3' },
     },
     {
@@ -44,6 +49,12 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'markdownlint-cli2'],
       outputFile: null,
       fixArgs: ['exec', 'markdownlint-cli2', '--fix'],
+      static: true,
+      codeConfigs: ['.markdownlint-cli2.cjs', '.markdownlint-cli2.mjs', '.markdownlint.cjs', '.markdownlint.mjs'],
+      codeKeys: [
+        { file: '.markdownlint-cli2.jsonc', keys: ['customRules', 'markdownItPlugins'] },
+        { file: '.markdownlint-cli2.yaml', keys: ['customRules', 'markdownItPlugins'] },
+      ],
       devDeps: { 'markdownlint-cli2': '0.23.3' },
     },
     {
@@ -57,6 +68,7 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'rumdl', 'check', '--no-cache', '--output-format', 'json', '.'],
       outputFile: 'docs.json',
       fixArgs: ['exec', 'rumdl', 'check', '--no-cache', '--fix', '.'],
+      static: true,
       devDeps: {},
     },
     {
@@ -68,6 +80,7 @@ export const REPO_PACK: Pack = {
       args: [],
       outputFile: 'links.json',
       builtin: 'links',
+      static: true,
       devDeps: {},
     },
     {
@@ -86,6 +99,17 @@ export const REPO_PACK: Pack = {
       command: 'pnpm',
       args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
       outputFile: null,
+      static: true,
+      codeConfigs: ['cspell.config.js', 'cspell.config.cjs', 'cspell.config.mjs'],
+      codeKeys: [
+        { file: 'cspell.json', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: '.cspell.json', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: 'cspell.config.json', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: 'cspell.config.yaml', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: 'cspell.config.yml', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: 'cspell.yaml', keys: ['import'], value: '\\.[cm]?js$' },
+        { file: 'cspell.yml', keys: ['import'], value: '\\.[cm]?js$' },
+      ],
       devDeps: { cspell: '10.3.6' },
     },
     {
@@ -99,6 +123,7 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'typos', '--format', 'brief'],
       outputFile: null,
       fixArgs: ['exec', 'typos', '--write-changes'],
+      static: true,
       devDeps: {},
     },
     {
@@ -118,6 +143,11 @@ export const REPO_PACK: Pack = {
       // `args` with explicit paths — the same way this one already does for lint.
       args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
       outputFile: 'prose.json',
+      static: true,
+      codeKeys: [
+        { file: '.vale/styles/**/*.yml', keys: ['extends'], value: '^script$' },
+        { file: 'styles/**/*.yml', keys: ['extends'], value: '^script$' },
+      ],
       devDeps: { '@vvago/vale': '3.24.0' },
     },
     {
@@ -131,6 +161,7 @@ export const REPO_PACK: Pack = {
       args: [],
       outputFile: 'unclaimed.json',
       builtin: 'unclaimed',
+      static: true,
       devDeps: {},
     },
   ],

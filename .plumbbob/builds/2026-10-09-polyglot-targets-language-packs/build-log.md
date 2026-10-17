@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 55 — feat(launch): let an outside mise.toml override pins with --pins
+**Current step:** 56 — feat(select): keep only checks that need no install with --static-only
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -79,7 +79,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 52. test(examples): adopt a Go repo with --baseline and ratchet it
 - ☑ 53. feat(config): layer a defaults file below detection with --defaults
 - ☑ 54. feat(run): discover targets at run time with --discover
-- ☐ 55. feat(launch): let an outside mise.toml override pins with --pins
+- ☑ 55. feat(launch): let an outside mise.toml override pins with --pins
 - ☐ 56. feat(select): keep only checks that need no install with --static-only
 - ☐ 57. docs(consumers): document running checkride from outside a repo
 - ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
@@ -156,6 +156,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] fix parses the shared run flags, so fix --defaults (like fix --out and --base) is accepted and ignored, where R7.2 says fix takes none of them
 - [ ] a full pnpm mutation fails its dry run at HEAD: test/integration/dogfood-config.test.ts runs git ls-files from inside the gitignored .stryker-tmp sandbox and gets nothing; only --mutate runs whose related tests skip it get through
 - [ ] doctor takes --pins per R7.2, but step 55 has it exit 2: its tool probe, pin rows and unpinned list need the override source (mise where <id>@<version>) before it can report the copies a --pins run uses
+- [ ] doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins: its rows would need withStaticOnly's causes and the every-manager install pre-flight to say which checks a static run keeps
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2381,3 +2382,4 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-10-17 — step 53 checkpointed · 7c47b8c45 — feat(config): layer a defaults file below detection with --defaults (1 drift, 59m)
 - 2026-10-17 — step 54 checkpointed · 75bfd64eb — feat(run): discover targets at run time with --discover (1 drift, 12m)
+- 2026-10-17 — step 55 checkpointed · d030bda47 — feat(launch): let an outside mise.toml override pins with --pins (1 drift, 13m)

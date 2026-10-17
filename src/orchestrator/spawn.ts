@@ -252,6 +252,7 @@ function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
     ...(ctx.requirePins !== undefined ? { requirePins: ctx.requirePins } : {}),
     ...(ctx.packEnv !== undefined ? { packEnv: ctx.packEnv } : {}),
     ...(ctx.overrides !== undefined ? { overrides: ctx.overrides } : {}),
+    ...(ctx.staticOnly === true ? { staticOnly: true } : {}),
   };
 }
 
@@ -269,7 +270,7 @@ type BuiltinCall = {
  */
 function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome> {
   const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
-  if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
+  if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));
   return checkSecurity({ ...base, command: launch.command, args: launch.args });
 }
 
@@ -313,7 +314,15 @@ function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: 
  * surface, and the one the reader has to act on. Reporting it as -1 would tell
  * them to ignore it.
  */
-function refusedOutcome(refusal: string): CheckOutcome {
+/** A refusal's first line, its `checkride: ` prefix and closing period dropped, as a skip reason quotes it. */
+function refusalDetail(refusal: string): string {
+  const first = refusal.split('\n').find((line) => line.trim() !== '') ?? refusal;
+  return first.replace(/^checkride:\s*/, '').replace(/\.$/, '');
+}
+
+function refusedOutcome(refusal: string, ctx: Parameters<CheckRunner>[1]): CheckOutcome {
+  // Under --static-only, a tool that needs an install is a skip, not a failure (R6.2).
+  if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: `static-only: needs an install (${refusalDetail(refusal)})` };
   return { ok: false, exit_code: 1, stdout: '', stderr: refusal };
 }
 
@@ -378,6 +387,6 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
   const launch = launchCheck(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
-  if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
+  if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));
   return spawnTool(launch, ctx.cwd, timeout);
 };

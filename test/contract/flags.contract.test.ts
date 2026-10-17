@@ -369,6 +369,61 @@ describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
 });
 
 /**
+ * Contract: `--static-only` keeps only the checks that read the repo as data
+ * (R13.4). Every other selected check is skipped with a `static-only:` reason,
+ * one whose tool needs an install included, and the run records
+ * `run.static_only` and `run.partial`. `doctor` refuses it for now.
+ */
+describe('CLI static-only (--static-only)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-static-flag-'));
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', cspell: '9.0.0', 'markdownlint-cli2': '0.23.3', typescript: '5.9.3', vitest: '4.0.0' } }),
+      'tsconfig.json': '{}',
+      '.oxlintrc.json': '{}',
+      'cspell.json': '{}',
+      '.markdownlint-cli2.jsonc': '{}',
+      'vitest.config.ts': 'export default {};\n',
+      'README.md': '# x\n',
+      'src/index.ts': 'export const x = 1;\n',
+    };
+    for (const [path, text] of Object.entries(files)) {
+      await mkdir(join(dir, path, '..'), { recursive: true });
+      await writeFile(join(dir, path), text);
+    }
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('--static-only parses to staticOnly', () => {
+    expect(parseCliArgs(['--static-only']).flags.staticOnly).toBe(true);
+    expect(parseCliArgs([]).flags.staticOnly).toBe(false);
+  });
+
+  // F39
+  test('on an uninstalled TypeScript repo only static checks run, each other one skipped with its static-only reason', async () => {
+    const stdout = capture();
+    expect(await runCli(['--static-only', '--json'], { cwd: dir, stdout, stderr: capture(), env: {} })).toBe(0);
+    const summary = JSON.parse(stdout.text()) as { run: Record<string, unknown>; checks: { name: string; skipped?: true; reason?: string; adapter: string | null }[] };
+    expect(summary.run).toEqual({ partial: true, static_only: true });
+    const reason = (name: string): string | undefined => summary.checks.find((c) => c.name === name)?.reason;
+    expect(reason('types')).toBe("static-only: tsc isn't a static check");
+    expect(reason('lint')).toBe('static-only: oxlint runs with --type-aware, which needs the install');
+    expect(reason('test')).toBe("static-only: vitest isn't a static check");
+    expect(reason('docs')).toMatch(/^static-only: needs an install \(the `docs` slot needs `markdownlint-cli2`/);
+    expect(reason('spell')).toMatch(/^static-only: needs an install \(the `spell` slot needs `cspell`/);
+    const ran = summary.checks.filter((c) => c.skipped !== true).map((c) => c.name);
+    expect(ran).toEqual(['links']);
+  });
+
+  test('doctor refuses it rather than report checks a static run wouldn’t keep', async () => {
+    const stderr = capture();
+    expect(await runCli(['doctor', '--static-only'], { cwd: dir, stdout: capture(), stderr, env: {} })).toBe(2);
+    expect(stderr.text()).toContain("--static-only applies to a run; doctor doesn't read it yet");
+  });
+});
+
+/**
  * Contract: `--discover` checks the targets the repo's files propose, applied
  * in memory (R13.2). The summary marks each `discovered: true` and records
  * `run.discover`; nothing is written; a config that declares `targets` is exit

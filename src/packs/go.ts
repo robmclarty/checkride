@@ -62,6 +62,7 @@ export const GO_PACK: Pack = {
       outputFile: null,
       failOnOutput: true,
       fixArgs: ['-w', '.'],
+      static: true,
       devDeps: {},
     },
     {

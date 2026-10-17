@@ -127,15 +127,19 @@ export function jsLockfileVersion(cwd: string, repo: string, tool: string): stri
  * Scoped to the launchers that *have* such a cache ({@link
  * execUsesGlobalCache}): `pnpm exec` and `yarn` resolve from the project tree
  * already, and pre-flighting Yarn PnP — which has no `node_modules/.bin` — would
- * report every tool missing.
+ * report every tool missing. `everyManager` widens it to every manager but a
+ * PnP install, for a `--static-only` run, where a tool missing from the tree
+ * means the repo isn't installed, so its check skips rather than spawn a
+ * launcher that fails (R13.4).
  */
 export function missingToolRefusal(
   slot: string,
   command: string,
   args: readonly string[],
-  ctx: { cwd: string; pm: PackageManager },
+  ctx: { cwd: string; pm: PackageManager; everyManager?: boolean },
 ): string | null {
-  if (!execUsesGlobalCache(ctx.pm)) return null;
+  const preflights = execUsesGlobalCache(ctx.pm) || (ctx.everyManager === true && !isPnPInstall(ctx.cwd));
+  if (!preflights) return null;
   const tool = execTool(command, args);
   if (!tool || resolveSlotTool(ctx.cwd, tool)) return null;
   return [

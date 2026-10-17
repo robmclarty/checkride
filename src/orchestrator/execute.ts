@@ -248,6 +248,7 @@ function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Paramet
     requirePins: ctx.requirePins,
     packEnv: packEnv(r.pack, r.adapter?.network),
     ...(ctx.overrides !== null ? { overrides: ctx.overrides } : {}),
+    ...(ctx.staticOnly ? { staticOnly: true } : {}),
   };
 }
 

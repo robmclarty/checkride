@@ -821,7 +821,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/targets/discover.ts`, `src/targets/add.ts`, `src/cli.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet (reuses discovery and the conversion)
-55. [ ] feat(launch): let an outside mise.toml override pins with --pins, **done when:** `--pins` and `CHECKRIDE_PINS` read the file's `[tools]` versions and put an `override` source first in every chain, run as `mise exec <id>@<version> -- <bin>` with auto-install off (R13.3); such checks record `pin_source: "override"`; the summary records the file as `run.pins`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); an uninstalled version fails naming the tool (F38); the gate strips the variable
+55. [x] feat(launch): let an outside mise.toml override pins with --pins, **done when:** `--pins` and `CHECKRIDE_PINS` read the file's `[tools]` versions and put an `override` source first in every chain, run as `mise exec <id>@<version> -- <bin>` with auto-install off (R13.3); such checks record `pin_source: "override"`; the summary records the file as `run.pins`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); an uninstalled version fails naming the tool (F38); the gate strips the variable
     - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/cli.ts`, `src/gate.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet

@@ -3,16 +3,19 @@
  * token (R5.2's grammar, in `../targets/`), the usage-error guard that
  * rejects a selection naming nothing a check answers to, the `--changed`
  * skip of targets nothing changed under, the file lists a file-list
- * target's checks run over, and the Go packages a Go check names. Shared by
- * `runChecks` and `runFix`.
+ * target's checks run over, the Go packages a Go check names, and the
+ * `--static-only` filter. Shared by `runChecks` and `runFix`.
  */
 
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
+import { realGit } from '../git.js';
 import { expandGoPackages, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from '../launch/index.js';
+import { staticCause } from '../packs/index.js';
 import type { Target } from '../targets/index.js';
 import {
   argvBytes,
@@ -27,6 +30,7 @@ import {
   noChangesReason,
   noGoModuleChangedReason,
   pathsUnder,
+  repoFiles,
   selectedBy,
   takesFiles,
   targetFiles,
@@ -199,6 +203,34 @@ export function withGoPackages(selected: readonly ResolvedCheck[], repo: string,
     if (r.skip !== null || adapter === null) return r;
     if (!takesGoPackages(adapter.args) && !takesGoPackages(adapter.fixArgs)) return r;
     return withPackages(r, adapter, goPackagesFor(adapter, repo, r.root ?? '.', changed));
+  });
+}
+
+/** The prefix every reason `--static-only` gives a check it skips. */
+const STATIC_ONLY = 'static-only';
+
+/**
+ * Under `--static-only`, skip each selected check that may run the repo's
+ * code or need its install (R13.4), with `static-only: <cause>`. A check keeps
+ * its place, so it still prints and records its skipped row, and one already
+ * skipped keeps its own reason. The repo's files are listed once, and only
+ * when a check is left to classify. Whether a kept check's tool resolves
+ * without an install, the last of R13.4's rules, is the runner's to say.
+ */
+export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: string, git: GitRunner = realGit(repo)): Promise<ResolvedCheck[]> {
+  if (!selected.some((r) => r.skip === null && r.adapter !== null)) return [...selected];
+  const files = await repoFiles(repo, git);
+  const read = (path: string): string | null => {
+    try {
+      return readFileSync(join(repo, path), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  return selected.map((r) => {
+    if (r.skip !== null || r.adapter === null) return r;
+    const cause = staticCause(r.adapter, { dir: r.root ?? '.', files, read });
+    return cause === null ? r : { ...r, skip: `${STATIC_ONLY}: ${cause}` };
   });
 }
 

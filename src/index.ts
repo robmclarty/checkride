@@ -8,7 +8,7 @@
  */
 
 export { ADAPTERS, SCHEMA_VERSION, SLOTS } from './adapters.js';
-export type { Adapter, Slot } from './adapters.js';
+export type { Adapter, CodeKey, Slot } from './adapters.js';
 
 export { PACKS, TOOLS } from './packs/index.js';
 export type { Pack, Tool } from './packs/index.js';

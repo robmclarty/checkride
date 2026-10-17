@@ -91,6 +91,12 @@ export type CustomCheck = Noted & {
    * that isn't a finding and an exit 0 that claims a pass it never verified.
    */
   skipExitCode?: number;
+  /**
+   * A defaults file only (V12): this check reads the repo as data, so
+   * `--static-only` may keep it (R13.4). A consumer vouches for its own
+   * checks this way; a repo's config can't vouch for itself.
+   */
+  static?: boolean;
 };
 
 /** Pick an adapter by name, with optional field overrides. */
@@ -141,6 +147,8 @@ export type UseConfig = Noted & {
    * catalogue default (see {@link ResolvedCheck.explicit}).
    */
   optIn?: boolean;
+  /** A defaults file only, as on {@link CustomCheck.static}: `--static-only` may keep the check whatever the registry says. */
+  static?: boolean;
 };
 
 /**
@@ -974,9 +982,20 @@ function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): 
   return withOptions(adapter, { prose: { exemplars } });
 }
 
+/**
+ * The `static` mark an entry sets over its adapter's own (R13.4): the
+ * defaults file's vouch when it gives one, else none for an entry that swaps
+ * the command, which runs a command of the config's, as a custom check does.
+ */
+function staticMark(o: { command?: string; static?: boolean }): Pick<Adapter, 'static'> {
+  if (o.static !== undefined) return { static: o.static };
+  return o.command !== undefined ? { static: false } : {};
+}
+
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
   const merged: Adapter = {
     ...base,
+    ...staticMark(o),
     ...(o.command !== undefined ? { command: o.command } : {}),
     ...(o.args !== undefined ? { args: o.args } : {}),
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),
@@ -1001,6 +1020,7 @@ function customAdapter(slot: string, c: CustomCheck): Adapter {
     args: c.args ?? [],
     outputFile: c.outputFile ?? null,
     ...carriedOverrides(c, slot),
+    ...(c.static === true ? { static: true } : {}),
     devDeps: {},
   };
 }

@@ -842,3 +842,21 @@ describe('the override source (R13.3)', () => {
       });
     }));
 });
+
+describe('under --static-only the js-lockfile source pre-flights every manager (R13.4)', () => {
+  test('pnpm refuses a tool missing from node_modules/.bin, and runs one there', () =>
+    withScratch(async (s) => {
+      await s.file('package.json', JSON.stringify({ devDependencies: { 'markdownlint-cli2': '0.23.3' } }));
+      const missing = launchCheck('docs', 'pnpm', ['exec', 'markdownlint-cli2', '**/*.md'], s.at('.', { staticOnly: true }));
+      expect(refusalOf(missing)).toContain("the `docs` slot needs `markdownlint-cli2`, which is not installed in this project");
+      expect(refusalOf(launchCheck('docs', 'pnpm', ['exec', 'markdownlint-cli2', '**/*.md'], s.at('.')))).toBeNull();
+      await s.file('node_modules/.bin/markdownlint-cli2', '');
+      expect(launchCheck('docs', 'pnpm', ['exec', 'markdownlint-cli2', '**/*.md'], s.at('.', { staticOnly: true }))).toMatchObject({ command: 'pnpm' });
+    }));
+
+  test('a Yarn PnP install, which has no node_modules/.bin, counts as installed', () =>
+    withScratch(async (s) => {
+      await s.file('.pnp.cjs', '');
+      expect(launchCheck('docs', 'pnpm', ['exec', 'markdownlint-cli2'], s.at('.', { staticOnly: true, pm: 'yarn' }))).toMatchObject({ command: 'yarn' });
+    }));
+});

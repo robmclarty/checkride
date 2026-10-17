@@ -57,6 +57,23 @@ export const TS_PACK: Pack = {
       args: ['exec', 'prettier', '--check', '.'],
       outputFile: null,
       fixArgs: ['exec', 'prettier', '--write', '.'],
+      static: true,
+      codeConfigs: [
+        'prettier.config.js',
+        'prettier.config.cjs',
+        'prettier.config.mjs',
+        '.prettierrc.js',
+        '.prettierrc.cjs',
+        '.prettierrc.mjs',
+      ],
+      codeKeys: [
+        { file: '.prettierrc', keys: ['plugins'] },
+        { file: '.prettierrc.json', keys: ['plugins'] },
+        { file: '.prettierrc.json5', keys: ['plugins'] },
+        { file: '.prettierrc.yaml', keys: ['plugins'] },
+        { file: '.prettierrc.yml', keys: ['plugins'] },
+        { file: '.prettierrc.toml', keys: ['plugins'] },
+      ],
       devDeps: { prettier: '3.9.6' },
     },
     {
@@ -68,6 +85,7 @@ export const TS_PACK: Pack = {
       args: ['exec', 'biome', 'format', '.'],
       outputFile: null,
       fixArgs: ['exec', 'biome', 'format', '--write', '.'],
+      static: true,
       devDeps: { '@biomejs/biome': '2.5.6' },
     },
     {
@@ -80,6 +98,9 @@ export const TS_PACK: Pack = {
       args: ['exec', 'oxlint', '--type-aware', '--format=json'],
       outputFile: 'lint.json',
       fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
+      static: true,
+      nonStaticArgs: ['--type-aware'],
+      codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins'] }],
       devDeps: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003' },
     },
     {
@@ -91,6 +112,7 @@ export const TS_PACK: Pack = {
       args: ['exec', 'biome', 'check', '--reporter=json'],
       outputFile: 'lint.json',
       fixArgs: ['exec', 'biome', 'check', '--write'],
+      static: true,
       devDeps: { '@biomejs/biome': '2.5.6' },
     },
     {

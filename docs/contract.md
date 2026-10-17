@@ -97,13 +97,13 @@ required ones, so a field can't reach the schema without a row here.
 
 | Field | Type | Present when |
 | --- | --- | --- |
-| `partial` | boolean | always: true when `--only`, `--skip` or `--changed` narrowed the run, or `--bail` stopped it at a failure |
+| `partial` | boolean | always: true when `--only`, `--skip`, `--changed` or `--static-only` narrowed the run, or `--bail` stopped it at a failure |
 | `only` | array of strings | `--only` was given: the names it listed |
 | `skip` | array of strings | `--skip` was given: the names it listed |
 | `include` | array of strings | `--include` was given: the names it listed |
 | `all` | `true` | `--all` was given |
 | `changed` | `true` | `--changed` was given |
-| `static_only` | `true` | `--static-only` was given; checkride has no such flag yet |
+| `static_only` | `true` | `--static-only` was given |
 | `discover` | `true` | `--discover` was given |
 | `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
 | `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` named the defaults file |
@@ -147,7 +147,7 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout` |
+| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout` |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
@@ -452,7 +452,7 @@ run flags:
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
---out <dir>  --defaults <path>  --discover  --pins <mise.toml>
+--out <dir>  --defaults <path>  --discover  --pins <mise.toml>  --static-only
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -524,6 +524,33 @@ path resolves against the working directory. A run with it never ratchets and
 never writes `checkride.baseline.json`, its summary records the file as
 `run.pins`, and `gate` strips `CHECKRIDE_PINS` from the check it spawns.
 `doctor` refuses the flag for now, exit 2, rather than probe the wrong copies.
+
+**`--static-only` keeps only the checks that read the repo as data.** It's
+a selector for a run before the repo is installed or sandboxed, and it isn't
+a sandbox: it judges each check by names and known config keys, a tool
+release can add a way to load code that judgment doesn't know, and untrusted
+code belongs inside a real sandbox. A selected check stays in only when every
+rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
+
+1. Its adapter is marked static in the registry, or a defaults file's entry
+   vouches for it with `static: true`. A custom check from the repo, or an
+   entry that swaps a static adapter's command, never qualifies.
+2. Its argv carries none of the adapter's flags that need the install, such
+   as oxlint's `--type-aware`, which the blessed oxlint invocation carries.
+3. None of the adapter's code configs, such as `.markdownlint-cli2.cjs` or
+   `prettier.config.js`, sits under the check's directory.
+4. None of the config keys that load code is set in a config file it reads,
+   such as `jsPlugins` in `.oxlintrc.json` or a script in cspell's `import`.
+5. Its tool resolves without an install. A tool whose pin source can't run it
+   here, such as a `pnpm exec` tool missing from `node_modules/.bin`, skips
+   with `static-only: needs an install (<detail>)` instead of failing.
+
+The static adapters are prettier, biome and biome-format, oxlint, ast-grep,
+markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt and gofmt, and
+the `links` and `unclaimed` built-ins; the rest never qualify. The run is
+partial, so `run.partial` and `run.static_only` are `true`, and it never
+ratchets or writes `checkride.baseline.json`. `doctor` refuses the flag for
+now.
 
 **`--discover` checks the targets the repo's files propose.** Run and
 `doctor` take the targets discovery proposes, the ones existing-mode `init`

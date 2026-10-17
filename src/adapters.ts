@@ -178,9 +178,31 @@ export type Adapter = {
    * another target's free. Omitted, the check takes no lock.
    */
   lock?: string;
+  /**
+   * The tool reads the repo as data, so `--static-only` may keep its check
+   * (R13.4), unless one of the three fields below says this run would load
+   * code. Omitted, the check needs the repo's install or runs its code, and
+   * `--static-only` skips it. A best-effort classification, never a sandbox.
+   */
+  static?: boolean;
+  /** Arguments that make a static adapter need the install, such as oxlint's `--type-aware`. */
+  nonStaticArgs?: string[];
+  /** Config files that are code the tool would run, matched by name at any depth under the check's directory. */
+  codeConfigs?: string[];
+  /** Keys in the tool's config files that load code (R13.4). */
+  codeKeys?: CodeKey[];
   /** Pinned versions `init` writes into package.json. */
   devDeps: Record<string, string>;
 };
+
+/**
+ * Config keys that make a static adapter load code: `file`, a name matched at
+ * any depth under the check's directory, or a path glob relative to it when it
+ * holds a `/`; `keys`, any of which, set in such a file, loads code; and
+ * `value`, a regex source that, when given, a string the key holds must match
+ * for it to count, as cspell's `import` loads code only for a script.
+ */
+export type CodeKey = { file: string; keys: string[]; value?: string };
 
 /**
  * Pipeline catalogue in cheapest-first order — the within-wave tie-break and the

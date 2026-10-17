@@ -33,6 +33,7 @@ export const BASH_PACK: Pack = {
       // the older `json` drops the wrapper object and nothing else.
       args: ['exec', 'shellcheck', '-f', 'json1', '{files}'],
       outputFile: 'lint.json',
+      static: true,
       devDeps: {},
     },
     {
@@ -47,6 +48,7 @@ export const BASH_PACK: Pack = {
       args: ['exec', 'shfmt', '-d', '{files}'],
       outputFile: null,
       fixArgs: ['exec', 'shfmt', '-w', '{files}'],
+      static: true,
       devDeps: {},
     },
   ],

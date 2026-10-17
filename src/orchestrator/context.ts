@@ -79,6 +79,8 @@ export type RunContext = CommonContext & {
   discovered: boolean;
   /** The `--pins` file's tools by mise id, with their versions, or `null` without one: an `override` source heads every chain (R13.3). */
   overrides: ReadonlyMap<string, string> | null;
+  /** `--static-only`: a kept check whose tool would need an install skips instead of failing (R13.4). */
+  staticOnly: boolean;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -165,12 +167,13 @@ function layeredKeys(config: CheckrideConfig | null, options: RunOptions): Pick<
 }
 
 /** The run's flags, each with its default applied. */
-function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bail' | 'changed' | 'concurrency'> {
+function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bail' | 'changed' | 'staticOnly' | 'concurrency'> {
   return {
     runner: options.runner ?? defaultRunner,
     json: options.json ?? false,
     bail: options.bail ?? false,
     changed: options.changed ?? false,
+    staticOnly: options.staticOnly ?? false,
     concurrency: Math.max(1, Math.floor(options.concurrency ?? defaultConcurrency())),
   };
 }

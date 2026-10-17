@@ -54,6 +54,7 @@ const RUN_OPTIONS = {
   all: { type: 'boolean', default: false },
   changed: { type: 'boolean', default: false },
   discover: { type: 'boolean', default: false },
+  'static-only': { type: 'boolean', default: false },
   digest: { type: 'boolean', default: false },
   strict: { type: 'boolean', default: false },
   concurrency: { type: 'string' },
@@ -165,6 +166,9 @@ Run options:
   --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
+  --static-only    Keep only checks that read the repo as data, skipping any
+                   that would run its code or need its install. A selector for
+                   a run before the install, not a sandbox; never ratchets.
   --discover       Check the targets the repo's files propose, as if the
                    config declared them (exit 2 when it declares some; also
                    on doctor). Writes nothing and never ratchets the baseline.
@@ -503,6 +507,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     all: values.all,
     changed: values.changed,
     discover: values.discover,
+    staticOnly: values['static-only'],
     digest: values.digest,
     strict: values.strict,
     only: parseList(values.only, 'only'),
@@ -727,8 +732,9 @@ async function doctorConfig(discover: boolean, named: NamedConfig | null, cwd: s
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   const { flags, config, out, defaults, pins } = parseCliArgs(argv);
-  // Refused rather than ignored: doctor's probes don't read an override yet.
+  // Refused rather than ignored: doctor's probes don't read either yet.
   if (pins !== undefined) throw new Error("--pins applies to a run; doctor doesn't read it yet");
+  if (flags.staticOnly === true) throw new Error("--static-only applies to a run; doctor doesn't read it yet");
   const named = namedConfig(config, deps);
   const layer = namedDefaults(defaults, deps);
   const result = await runDoctor({
