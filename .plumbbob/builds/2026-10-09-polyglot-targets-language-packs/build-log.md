@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 33 — feat(unclaimed): fail when a toolchain marker sits outside every target
+**Current step:** 34 — feat(doctor): report the mode, targets, pin sources and unpinned tools
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -56,7 +56,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 30. feat(launch): resolve tools through mise and PATH and record the pin
 - ☑ 31. feat(packs): add the bash pack with file lists
 - ☑ 32. feat(packs): give repo-scope slots Node-free alternates
-- ☐ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
+- ☑ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
 - ☐ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
 - ☐ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
 - ☐ 36. feat(cli): add target add to declare and convert targets
@@ -2095,3 +2095,4 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-10-16 — step 31 checkpointed · 46f9504f7 — feat(packs): add the bash pack with file lists (1 drift, 19m)
 - 2026-10-16 — step 32 checkpointed · b547c5ed6 — feat(packs): give repo-scope slots Node-free alternates (1 drift, 6m)
+- 2026-10-17 — step 33 checkpointed · fdae80244 — feat(unclaimed): fail when a toolchain marker sits outside every target (1 drift, 17m)

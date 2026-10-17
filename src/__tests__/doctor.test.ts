@@ -1,11 +1,12 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
+import type { CheckrideConfig } from '../config.js';
 import type { DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PinEnv } from '../node-pin.js';
@@ -653,5 +654,97 @@ describe('output directory workspace row', () => {
     const result = await runDoctor({ ...baseOpts, out: 'build/check', env, stdout: sink() });
     expect(probed).toEqual(['/repo/build/check']);
     expect(result.report.checks.some((c) => c.name === 'build/check')).toBe(true);
+  });
+});
+
+describe('runDoctor names the mode, the targets, each tool’s pin source and the code no target checks', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-targets-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const put = async (path: string, content = '{}'): Promise<void> => {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), content);
+  };
+  const doctor = (config: CheckrideConfig | null, over: Partial<DoctorEnv> = {}, json = true) => {
+    const std = sink();
+    return runDoctor({ cwd: dir, config, env: fakeEnv(over), stdout: std, json }).then((result) => ({ ...result, text: std.text() }));
+  };
+  const bashTarget: CheckrideConfig = {
+    targets: { web: { lang: 'ts', root: 'apps/web' }, scripts: { lang: 'bash', root: 'scripts', checks: { format: 'shfmt' } } },
+    checks: { links: false },
+  };
+
+  test('without targets: implicit mode, every npm tool through js-lockfile, and no row for other languages when there are none', async () => {
+    await put('.oxlintrc.json');
+    const { report, text } = await doctor(null, {}, false);
+    expect(report.mode).toBe('implicit');
+    expect(report).not.toHaveProperty('targets');
+    expect(report.unclaimed).toEqual([]);
+    expect(report.checks.find((c) => c.slot === 'lint')).toMatchObject({ adapter: 'oxlint', pinSource: 'js-lockfile' });
+    expect(report.checks.find((c) => c.name === 'other languages')).toBeUndefined();
+    expect(text).toContain('mode: implicit (the repo is one ts project at its root)');
+    expect(text.split('\n').find((l) => l.includes(' lint '))).toMatch(/installed +js-lockfile {2}\[detected: \.oxlintrc\.json\]$/);
+  });
+
+  test('without targets, it hints at other languages’ markers it sees, as a warning that never fails it', async () => {
+    await put('svc/go.mod', 'module x\n');
+    await put('infra/main.tf', '');
+    const { report, text, exitCode } = await doctor(null, {}, false);
+    expect(report.unclaimed?.map((u) => u.path)).toEqual(['infra/main.tf', 'svc/go.mod']);
+    expect(report.checks.find((c) => c.name === 'other languages')).toMatchObject({
+      category: 'workspace', required: false, status: 'outdated', found: 'infra/main.tf (terraform), svc/go.mod (go)',
+    });
+    expect(text).toContain('Declare targets in checkride.config.json to check each part from its own root.');
+    expect(exitCode).toBe(0);
+  });
+
+  test('with targets: the mode, a targets table, and each check named and probed from its own target', async () => {
+    await put('apps/web/.oxlintrc.json');
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');
+    const { report, text } = await doctor(bashTarget, {}, false);
+    expect(report.mode).toBe('multi-target');
+    expect(report.targets).toEqual([{ name: 'web', pack: 'ts', root: 'apps/web' }, { name: 'scripts', pack: 'bash', root: 'scripts' }]);
+    expect(report.checks.find((c) => c.slot === 'web:lint')).toMatchObject({ target: 'web', adapter: 'oxlint', pinSource: 'js-lockfile', name: 'oxlint (web:lint)' });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({
+      target: 'scripts', adapter: 'shellcheck', pinSource: 'mise', status: 'ok', found: 'mise (mise.toml: shellcheck)', detectedBy: 'mise.toml: shellcheck',
+    });
+    expect(text).toContain('mode: multi-target (2 targets)');
+    expect(text).toMatch(/TARGETS\n {4}web {6}ts {4}apps\/web\n {4}scripts {2}bash {2}scripts\n/);
+  });
+
+  test('a tool nothing pins is a warning, and a failure under requirePins for a check that runs by default', async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    const warned = await doctor(bashTarget);
+    expect(warned.report.checks.find((c) => c.slot === 'scripts:format')).toMatchObject({ pinSource: 'path', status: 'ok', found: '/usr/bin/shfmt' });
+    expect(warned.report.checks.find((c) => c.category === 'pin')).toMatchObject({
+      name: 'shfmt', required: false, status: 'outdated', found: 'unpinned (from PATH)',
+      hint: 'scripts:format run whatever `shfmt` PATH holds; pin it with: mise use shfmt@<version>.',
+    });
+    expect(warned.exitCode).toBe(0);
+
+    const strict = await doctor({ ...bashTarget, requirePins: true });
+    expect(strict.report.checks.find((c) => c.category === 'pin')).toMatchObject({ name: 'shfmt', required: true, status: 'missing' });
+    expect(strict.report.checks.find((c) => c.category === 'pin')?.hint).toContain('requirePins is on');
+    expect(strict.exitCode).toBe(1);
+  });
+
+  test('a tool mise pins reports missing when mise is not on PATH', async () => {
+    await put('scripts/.shellcheckrc', '');
+    await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');
+    const { report } = await doctor(bashTarget, { which: (cmd: string) => Promise.resolve(cmd === 'mise' ? null : `/usr/bin/${cmd}`) });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({ pinSource: 'mise', status: 'missing', expected: 'pinned in mise.toml: shellcheck' });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')?.hint).toContain('Install mise');
+  });
+
+  test('with targets, a row for the markers unclaimed reports, honoring unclaimed.ignore', async () => {
+    await put('apps/web/package.json');
+    await put('tools/x/package.json');
+    const { report } = await doctor(bashTarget);
+    expect(report.unclaimed?.map((u) => u.path)).toEqual(['tools/x/package.json']);
+    expect(report.checks.find((c) => c.name === 'unclaimed')).toMatchObject({ required: false, status: 'outdated', found: 'tools/x/package.json (ts)' });
+    const quiet = await doctor({ ...bashTarget, unclaimed: { ignore: ['tools'] } });
+    expect(quiet.report.checks.find((c) => c.name === 'unclaimed')).toMatchObject({ status: 'ok', found: 'every marker sits in a target' });
   });
 });

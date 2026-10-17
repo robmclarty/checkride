@@ -2,12 +2,17 @@
  * `checkride doctor` — read-only environment + tooling verification.
  *
  * Verifies node/pnpm/git are present at the required versions, the project has
- * been installed, and `.check/` is writable. It then enumerates *every* catalogue slot — not just the ones the
- * default run executes — and reports each slot's enablement (default / opt-in /
- * disabled / unavailable) alongside its tool presence, so off and opt-in slots
- * are visible instead of silently dropped. Renders a human table (or `--json`)
- * and exits 0 when everything required is present, 1 otherwise. Only slots that
- * run by default are required; opt-in/disabled/unavailable slots never fail it.
+ * been installed, and `.check/` is writable. It names the mode, and the targets
+ * a multi-target repo declares. It then enumerates *every* check — not just the
+ * ones the default run executes — and reports each one's enablement (default /
+ * opt-in / disabled / unavailable) alongside its tool's presence and the pin
+ * source it resolves through, so off and opt-in slots are visible instead of
+ * silently dropped. A tool nothing pins gets a row of its own, a warning, or a
+ * failure under `requirePins`. Last come the markers no target claims: the ones
+ * `unclaimed` reports, or, in a repo checked as one ts project, the other
+ * languages' code no check reads. Renders a human table (or `--json`) and
+ * exits 0 when everything required is present, 1 otherwise. Only checks that
+ * run by default are required; opt-in/disabled/unavailable ones never fail it.
  *
  * One row deliberately describes a shell this process is not in. `doctor` runs
  * in the user's terminal; the gate runs in a hook, which agent harnesses launch
@@ -31,6 +36,7 @@ import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
+import { nearestPackageManager, pinChain, pinResolution } from './launch/index.js';
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator/index.js';
@@ -44,6 +50,10 @@ import {
   isPnPInstall,
   resolveSlotTool,
 } from './pm/index.js';
+import type { PinSourceName } from './packs/index.js';
+import { PACKS, TOOLS } from './packs/index.js';
+import type { Unclaimed } from './targets/index.js';
+import { checkName, configuredTargets, findUnclaimed } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -52,7 +62,8 @@ export type SlotEnablement = 'default' | 'opt-in' | 'disabled' | 'unavailable';
 
 export type DoctorCheck = {
   name: string;
-  category: 'env' | 'install' | 'tool' | 'workspace';
+  /** `pin` rows name a tool nothing pins; the rest group as their names say. */
+  category: 'env' | 'install' | 'tool' | 'pin' | 'workspace';
   required: boolean;
   status: DoctorStatus;
   found: string | null;
@@ -68,13 +79,31 @@ export type DoctorCheck = {
   origin?: CheckOrigin;
   /** With `origin: 'detected'`, the signal that chose the adapter (the summary's `detected_by`). */
   detectedBy?: string;
+  /** In multi-target mode, the target a tool row's check belongs to. */
+  target?: string;
+  /** The pin source a tool row's tool resolves through, read from files alone, for a check that launches one. */
+  pinSource?: PinSourceName;
 };
+
+/** A target as `doctor` lists it: its name, pack and root, relative to the repo root. */
+export type DoctorTarget = { name: string; pack: string; root: string };
 
 export type DoctorReport = {
   ok: boolean;
   platform: { os: string; arch: string };
   /** The package manager checkride detected for this repo. */
   packageManager: PackageManager;
+  /** `implicit` for a repo checked as one project at its root, `multi-target` once the config declares targets. */
+  mode: 'implicit' | 'multi-target';
+  /** The targets a multi-target repo declares, in config order. */
+  targets?: DoctorTarget[];
+  /**
+   * The markers no target claims, when the repo's files could be listed: in
+   * multi-target mode the ones `unclaimed` reports, and without targets the
+   * markers of other languages, which the one implicit ts project leaves
+   * unchecked.
+   */
+  unclaimed?: Unclaimed[];
   checks: DoctorCheck[];
 };
 
@@ -328,7 +357,10 @@ function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
   return { ...base, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
 }
 
-type ToolProbe = { status: DoctorStatus; found: string | null; expected: string | null; hint: string | null };
+type ToolProbe = { status: DoctorStatus; found: string | null; expected: string | null; hint: string | null; pinSource?: PinSourceName };
+
+/** Where a check's tool is looked up: the directory it runs from, the repo root, its pin chain and package manager. */
+type ProbeAt = { cwd: string; repo: string; pins: readonly PinSourceName[]; pm: PackageManager };
 
 /**
  * Where a slot's tool has to be, and whether it is there.
@@ -371,15 +403,52 @@ async function probeExecTool(tool: string, cwd: string, pm: PackageManager, env:
     : missing(`node_modules/.bin/${tool}`);
 }
 
+/** The install hint `TOOLS` gives for `tool`, else a generic one. */
+function installHint(tool: string): string {
+  return TOOLS.find((t) => t.bin === tool)?.install ?? `install ${tool}, or pin it in mise.toml`;
+}
+
+/** A tool a `mise.toml` pins: present when mise is on `PATH` to run it. */
+async function probeMiseTool(tool: string, declaredBy: string | null, env: DoctorEnv): Promise<ToolProbe> {
+  const expected = `pinned in ${declaredBy ?? 'mise.toml'}`;
+  const mise = await env.which('mise');
+  if (mise === null) {
+    return { status: 'missing', found: null, expected, hint: `\`${tool}\` is pinned through mise, which isn't on PATH. Install mise (https://mise.jdx.dev), then run \`mise install\`.` };
+  }
+  return { status: 'ok', found: `mise (${declaredBy ?? tool})`, expected, hint: null };
+}
+
+/** A tool nothing pins, run from `PATH`. */
+async function probePathTool(tool: string, env: DoctorEnv): Promise<ToolProbe> {
+  const path = await env.which(tool);
+  const expected = `${tool} on PATH`;
+  return path ? { status: 'ok', found: path, expected, hint: null } : { status: 'missing', found: null, expected, hint: `${installHint(tool)}.` };
+}
+
+/** Probe a tool where its pin source says it comes from, recording that source. */
+async function probeExecPin(tool: string, at: ProbeAt, env: DoctorEnv): Promise<ToolProbe> {
+  const pin = pinResolution(tool, at);
+  if (pin === null) {
+    return { status: 'unknown', found: null, expected: null, hint: `\`${tool}\` resolves through a pin source this checkride can't read. Upgrade checkride.` };
+  }
+  const probes: { readonly [K in PinSourceName]?: () => Promise<ToolProbe> } = {
+    'js-lockfile': () => probeExecTool(tool, at.cwd, at.pm, env),
+    mise: () => probeMiseTool(tool, pin.declaredBy, env),
+    path: () => probePathTool(tool, env),
+  };
+  const probe = await (probes[pin.source]?.() ?? Promise.resolve<ToolProbe>({ status: 'unknown', found: null, expected: null, hint: null }));
+  return { ...probe, pinSource: pin.source };
+}
+
 /** Presence-only probe: does the adapter's tool resolve? Dispatch by adapter shape. */
-async function probeTool(adapter: Adapter, cwd: string, pm: PackageManager, env: DoctorEnv): Promise<ToolProbe> {
+async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv): Promise<ToolProbe> {
   if (adapter.builtin) {
     return { status: 'ok', found: 'built-in', expected: null, hint: null };
   }
   if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
     const tool = execTool(adapter.command, adapter.args);
     if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
-    return probeExecTool(tool, cwd, pm, env);
+    return probeExecPin(tool, at, env);
   }
   const path = await env.which(adapter.command);
   return path
@@ -403,28 +472,25 @@ function possibilitiesHint(slot: string, adapters: readonly Adapter[]): string |
   return `Enable by adding one of: ${parts.join(', ')}.`;
 }
 
-/** The shared prefix of every `tool`-category doctor row. */
-type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null };
+/** The shared prefix of every `tool`-category doctor row: the check's name in the slot column, and its target. */
+type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null; target?: string };
+
+/** The reason resolution gives a check its config switched off. */
+const DISABLED_REASON = 'disabled in checkride.config.json';
 
 /**
  * A row for a slot that is off but not simply missing its tool — disabled in
  * config, or its adapter can't run under this PM. `null` when neither applies
  * (the caller then handles the no-adapter case and the live probe).
  */
-function offRow(
-  base: ToolRowBase,
-  r: ResolvedCheck,
-  adapter: Adapter | null,
-  config: CheckrideConfig | null,
-  pm: PackageManager,
-): DoctorCheck | null {
-  // Explicitly disabled in config: off by the user's choice.
-  if (config?.checks?.[r.slot] === false) {
-    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'disabled', found: r.skip ?? 'disabled in checkride.config.json', expected: null, hint: null };
+function offRow(base: ToolRowBase, r: ResolvedCheck, adapter: Adapter | null, pm: PackageManager): DoctorCheck | null {
+  // Explicitly disabled in config, at any layer: off by the user's choice.
+  if (adapter === null && r.skip === DISABLED_REASON) {
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'disabled', found: DISABLED_REASON, expected: null, hint: null };
   }
   // Adapter is PM-specific and can't run here — for example `pnpm audit` off pnpm.
   if (adapter && !isAvailableUnder(adapter.command, adapter.args, pm)) {
-    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${adapter.command} ${adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: `unavailable under ${pm}`, expected: null, hint: `\`${adapter.command} ${adapter.args[0]}\` is pnpm-specific; the ${r.slot} slot needs pnpm for now.` };
   }
   return null;
 }
@@ -455,18 +521,19 @@ function toolRow(
   defaultActive: ReadonlySet<string>,
   probe: ToolProbe,
 ): DoctorCheck {
-  const isDefault = defaultActive.has(r.slot);
+  const isDefault = defaultActive.has(base.slot);
   const enablement: SlotEnablement = isDefault ? 'default' : 'opt-in';
   const lead = isDefault
     ? probe.hint
-    : `Opt-in — run with \`--include ${r.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
+    : `Opt-in — run with \`--include ${base.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
   const body = `${lead ?? ''}${inspectsClause(r.slot)}`.trim();
   const hint = body.length > 0 ? body : null;
   const provenance = {
     ...(r.origin !== undefined ? { origin: r.origin } : {}),
     ...(r.detectedBy !== undefined ? { detectedBy: r.detectedBy } : {}),
+    ...(probe.pinSource !== undefined ? { pinSource: probe.pinSource } : {}),
   };
-  return { ...base, name: `${adapter.name} (${r.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint, ...provenance };
+  return { ...base, name: `${adapter.name} (${base.slot})`, required: isDefault, status: probe.status, enablement, found: probe.found, expected: probe.expected, hint, ...provenance };
 }
 
 /**
@@ -474,27 +541,101 @@ function toolRow(
  * Only `default` slots are required; `opt-in`/`disabled`/`unavailable` slots are
  * surfaced for visibility but never fail the report.
  */
-async function classifySlot(
-  r: ResolvedCheck,
-  defaultActive: ReadonlySet<string>,
-  adapters: readonly Adapter[],
-  config: CheckrideConfig | null,
-  cwd: string,
-  env: DoctorEnv,
-  pm: PackageManager,
-): Promise<DoctorCheck> {
-  const base = { category: 'tool' as const, slot: r.slot, adapter: r.adapter?.name ?? null };
-  const { adapter } = r;
+/** What every slot row reads: the repo root, the checks a default run runs, the adapters, the package manager per directory, and the env. */
+type SlotContext = {
+  repo: string;
+  defaultActive: ReadonlySet<string>;
+  adapters: readonly Adapter[];
+  pmAt: (dir: string) => PackageManager;
+  env: DoctorEnv;
+};
 
-  const off = offRow(base, r, adapter, config, pm);
+/** The directory a check runs from: its target's root, else the repo root. */
+function checkDir(repo: string, r: ResolvedCheck): string {
+  return r.root === undefined ? repo : join(repo, r.root);
+}
+
+async function classifySlot(r: ResolvedCheck, ctx: SlotContext): Promise<DoctorCheck> {
+  const base: ToolRowBase = { category: 'tool', slot: checkName(r), adapter: r.adapter?.name ?? null, ...(r.target !== undefined ? { target: r.target } : {}) };
+  const { adapter } = r;
+  const cwd = checkDir(ctx.repo, r);
+  const pm = ctx.pmAt(cwd);
+
+  const off = offRow(base, r, adapter, pm);
   if (off) return off;
   // No adapter fills the slot: nothing to run. Point at what would enable it.
   if (!adapter) {
-    return { ...base, name: r.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, adapters) };
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, ctx.adapters) };
   }
-  // Adapter resolved: probe the tool, classify by default-run membership.
-  const probe = await probeTool(adapter, cwd, pm, env);
-  return toolRow(base, r, adapter, defaultActive, probe);
+  // Adapter resolved: probe the tool where its pin chain finds it, classify by default-run membership.
+  const probe = await probeTool(adapter, { cwd, repo: ctx.repo, pins: pinChain(r.pack), pm }, ctx.env);
+  return toolRow(base, r, adapter, ctx.defaultActive, probe);
+}
+
+/** Each tool that would run from `PATH` with nothing pinning it, with the checks that run it and whether one runs by default. */
+function unpinnedTools(resolved: readonly ResolvedCheck[], repo: string, defaultActive: ReadonlySet<string>): Map<string, { checks: string[]; byDefault: boolean }> {
+  const tools = new Map<string, { checks: string[]; byDefault: boolean }>();
+  for (const r of resolved) {
+    const tool = r.adapter === null || r.adapter.builtin !== undefined ? null : execTool(r.adapter.command, r.adapter.args);
+    if (tool === null || pinResolution(tool, { cwd: checkDir(repo, r), repo, pins: pinChain(r.pack) })?.source !== 'path') continue;
+    const entry = tools.get(tool) ?? { checks: [], byDefault: false };
+    tools.set(tool, { checks: [...entry.checks, checkName(r)], byDefault: entry.byDefault || defaultActive.has(checkName(r)) });
+  }
+  return tools;
+}
+
+/**
+ * A row for each tool nothing pins: a warning, since its verdict depends on
+ * whichever copy a machine's `PATH` holds, and under `requirePins` a failure
+ * for a tool a default check runs, since every such check fails.
+ */
+function unpinnedRows(tools: ReadonlyMap<string, { checks: string[]; byDefault: boolean }>, requirePins: boolean): DoctorCheck[] {
+  return [...tools].map(([tool, { checks, byDefault }]) => {
+    const id = TOOLS.find((t) => t.bin === tool)?.mise?.[0] ?? tool;
+    const fails = requirePins ? ' requirePins is on, so they fail until it is.' : '';
+    return {
+      name: tool,
+      category: 'pin',
+      required: requirePins && byDefault,
+      status: requirePins ? 'missing' : 'outdated',
+      found: 'unpinned (from PATH)',
+      expected: 'a pin in mise.toml',
+      hint: `${checks.join(', ')} run whatever \`${tool}\` PATH holds; pin it with: mise use ${id}@<version>.${fails}`,
+    };
+  });
+}
+
+/** The markers in `found`, as a row names them: the first few, and how many more. */
+function markerList(found: readonly Unclaimed[]): string {
+  const shown = found.slice(0, 3).map((u) => `${u.path} (${u.kind})`);
+  return found.length > 3 ? `${shown.join(', ')} and ${found.length - 3} more` : shown.join(', ');
+}
+
+/**
+ * The workspace row for the markers no target claims: in multi-target mode
+ * the ones `unclaimed` reports, and without targets, the code of other
+ * languages the one implicit ts project leaves unchecked, a row only when
+ * there is some. A repo whose files can't be listed says so.
+ */
+function markersRow(found: readonly Unclaimed[] | string, multiTarget: boolean): DoctorCheck | null {
+  const base = { category: 'workspace' as const, required: false, expected: null };
+  const name = multiTarget ? 'unclaimed' : 'other languages';
+  if (typeof found === 'string') return multiTarget ? { ...base, name, status: 'unknown', found: null, hint: found } : null;
+  if (found.length === 0) return multiTarget ? { ...base, name, status: 'ok', found: 'every marker sits in a target', hint: null } : null;
+  const hint = multiTarget
+    ? 'The unclaimed check fails until a target claims each one, or unclaimed.ignore lists it.'
+    : `checkride checks this repo as one ${PACKS.ts.name} project, so no check reads that code. Declare targets in checkride.config.json to check each part from its own root.`;
+  return { ...base, name, status: 'outdated', found: markerList(found), hint };
+}
+
+/** The markers no target claims, or why they couldn't be listed. */
+async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, targets: readonly DoctorTarget[] | null, out: string | undefined): Promise<Unclaimed[] | string> {
+  const claims = targets ?? [{ name: '', pack: PACKS.ts.name, root: '.' }];
+  try {
+    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], ...(out !== undefined ? { out } : {}) });
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }
 
 /**
@@ -631,11 +772,12 @@ const GROUPS: { key: DoctorCheck['category']; label: string }[] = [
   { key: 'env', label: 'ENVIRONMENT' },
   { key: 'install', label: 'INSTALL' },
   { key: 'tool', label: 'CHECKS' },
+  { key: 'pin', label: 'UNPINNED TOOLS' },
   { key: 'workspace', label: 'WORKSPACE' },
 ];
 
 /** The padding widths for a tool table, measured from the rows it will hold. */
-type ToolWidths = { slot: number; adapter: number; enablement: number; note: number };
+type ToolWidths = { slot: number; adapter: number; enablement: number; note: number; pin: number };
 
 /**
  * Size each column to its widest row, never below the historical minimum.
@@ -653,16 +795,17 @@ function toolWidths(items: readonly DoctorCheck[]): ToolWidths {
     adapter: widest((c) => c.adapter ?? '—', 18),
     enablement: widest((c) => c.enablement ?? '', 12),
     note: widest(slotNote, 0),
+    pin: widest((c) => c.pinSource ?? '', 0),
   };
 }
 
-/** One slot row, ending with the provenance tag a run prints for the same check. */
+/** One slot row: its presence, the pin source its tool resolves through, and the provenance tag a run prints for the same check. */
 function renderToolRow(c: DoctorCheck, w: ToolWidths, out: Out): void {
   const slot = (c.slot ?? c.name).padEnd(w.slot);
   const adapter = (c.adapter ?? '—').padEnd(w.adapter);
   const enablement = (c.enablement ?? '').padEnd(w.enablement);
   const tag = provenanceTag(c.origin, c.detectedBy);
-  const note = tag ? `${slotNote(c).padEnd(w.note)}  ${tag}` : slotNote(c);
+  const note = [slotNote(c).padEnd(w.note), (c.pinSource ?? '').padEnd(w.pin), tag ?? ''].join('  ').trimEnd();
   out.write(`  ${slotMark(c)} ${slot} ${adapter} ${enablement} ${note}\n`);
   if (c.hint) out.write(`      -> ${c.hint}\n`);
 }
@@ -701,50 +844,94 @@ function renderGroup(
   for (const c of items) renderEnvRow(c, out);
 }
 
+/** The mode line, and in multi-target mode the targets, one per line, their columns aligned. */
+function renderMode(report: DoctorReport, out: Out): void {
+  const targets = report.targets ?? [];
+  if (report.mode === 'implicit') {
+    out.write(`  mode: implicit (the repo is one ${PACKS.ts.name} project at its root)\n\n`);
+    return;
+  }
+  out.write(`  mode: multi-target (${targets.length} target${targets.length === 1 ? '' : 's'})\n\n  TARGETS\n`);
+  const name = targets.reduce((n, t) => Math.max(n, t.name.length), 0);
+  const pack = targets.reduce((n, t) => Math.max(n, t.pack.length), 0);
+  for (const t of targets) out.write(`    ${t.name.padEnd(name)}  ${t.pack.padEnd(pack)}  ${t.root}\n`);
+  out.write('\n');
+}
+
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
-  out.write(`  package manager: ${report.packageManager} (detected)\n\n`);
+  out.write(`  package manager: ${report.packageManager} (detected)\n`);
+  renderMode(report, out);
   for (const group of GROUPS) renderGroup(group, report, out);
   out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
 }
 
-/** Run the doctor against `cwd`; render and return the report. */
-export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
-  const { cwd, slots, adapters, config, stdout } = resolveCommonOptions(options);
-  const env = options.env ?? realEnv;
-  const json = options.json ?? false;
-
+/** The environment and install rows: node and its pin, the package manager, git, and the install. */
+async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv): Promise<DoctorCheck[]> {
   const engines = env.readEngines(cwd);
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
-  const pm = env.packageManager(cwd);
-
-  const nodePin = checkNodePin(cwd, engines, options.pinEnv ?? realPinEnv);
-  const checks: DoctorCheck[] = [
+  const nodePin = checkNodePin(cwd, engines, pinEnv);
+  return [
     await checkVersioned('node', 'node', nodeMin, env),
     ...(nodePin === null ? [] : [nodePin]),
     await checkPackageManager(pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
     checkInstall(cwd, pm, env),
   ];
+}
 
-  // Enumerate every catalogue slot so off/opt-in/disabled slots stay visible
-  // instead of silently dropped. The orchestrator decides what runs by default.
-  // A slot the config hasn't activated (`unclaimed` without targets) isn't one
-  // this repo runs, so it has no row.
+/**
+ * A row for every check, so off/opt-in/disabled slots stay visible instead of
+ * silently dropped, then one for each tool nothing pins. The orchestrator
+ * decides what runs by default. A slot the config hasn't activated
+ * (`unclaimed` without targets) isn't one this repo runs, so it has no row.
+ */
+async function checkRows(
+  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null },
+  pm: PackageManager,
+  env: DoctorEnv,
+): Promise<DoctorCheck[]> {
+  const { cwd, slots, adapters, config } = common;
   const resolved = resolveChecks({ slots, adapters, config, cwd }).filter((r) => r.inactive !== true);
-  const defaultActive = new Set(selectChecks(resolved, {}).map((r) => r.slot));
-  // Independent per-slot probes: run them concurrently, `map` preserves order.
-  checks.push(...(await Promise.all(resolved.map((r) => classifySlot(r, defaultActive, adapters, config, cwd, env, pm)))));
+  const defaultActive = new Set(selectChecks(resolved, {}).map(checkName));
+  const pmAt = (dir: string): PackageManager => (dir === cwd ? pm : nearestPackageManager(dir, cwd));
+  // Independent per-check probes: run them concurrently, `map` preserves order.
+  const rows = await Promise.all(resolved.map((r) => classifySlot(r, { repo: cwd, defaultActive, adapters, pmAt, env })));
+  return [...rows, ...unpinnedRows(unpinnedTools(resolved, cwd, defaultActive), config?.requirePins === true)];
+}
 
-  checks.push(await checkWritable(cwd, options.out, env));
+/** Run the doctor against `cwd`; render and return the report. */
+export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
+  const common = resolveCommonOptions(options);
+  const { cwd, config, stdout } = common;
+  const env = options.env ?? realEnv;
+  const pm = env.packageManager(cwd);
+
+  const checks: DoctorCheck[] = [
+    ...(await environmentRows(cwd, pm, env, options.pinEnv ?? realPinEnv)),
+    ...(await checkRows(common, pm, env)),
+    await checkWritable(cwd, options.out, env),
+  ];
   const baselineRow = checkBaseline(cwd, env);
   if (baselineRow !== null) checks.push(baselineRow);
+  const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
+  const unclaimed = await unclaimedMarkers(cwd, config, targets, options.out);
+  const markers = markersRow(unclaimed, targets !== null);
+  if (markers !== null) checks.push(markers);
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
-  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, checks };
+  const report: DoctorReport = {
+    ok,
+    platform: env.platform(),
+    packageManager: pm,
+    mode: targets === null ? 'implicit' : 'multi-target',
+    ...(targets !== null ? { targets } : {}),
+    ...(typeof unclaimed === 'string' ? {} : { unclaimed }),
+    checks,
+  };
 
-  if (json) {
+  if (options.json === true) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
     renderTable(report, stdout);

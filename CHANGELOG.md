@@ -191,6 +191,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nest. A repo without `targets` doesn't run it, even under `--all`, and
   `--only unclaimed` there records it as skipped with the reason. See
   `docs/contract.md`.
+- **`doctor` says how the repo is checked and which copy of each tool
+  runs.** It names the mode (`implicit` or `multi-target`) and lists the
+  targets, names each check's row `<target>:<slot>` and looks for its tool
+  from the target's root, and ends each row with the pin source the tool
+  resolves through. A tool nothing pins gets its own row with the
+  `mise use` that would pin it, a warning, or a failure under
+  `requirePins: true`. A multi-target repo gets a row for the markers
+  `unclaimed` would report, and a repo without targets one for another
+  language's markers it sees, such as a `go.mod`, as a hint to declare
+  targets. A tool a `mise.toml` pins is no longer reported missing from
+  `node_modules`. See `docs/packs.md`.
 
 ### Changed
 
@@ -470,6 +481,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gains `unclaimed` (`targets` and `ignore`), and the config schema's
   catalogue and reserved target names name `unclaimed` as a slot. A repo
   without `targets` resolves, selects and reports exactly as before.
+- Additive: the exported `DoctorReport` type gains `mode` (`implicit` or
+  `multi-target`), `targets` and `unclaimed`, and `DoctorCheck` gains
+  `target`, `pinSource` and a `pin` category for a tool nothing pins, a
+  `required` row under `requirePins`. A tool row's `slot` is
+  `<target>:<slot>` in a target.
 
 ### Internal
 

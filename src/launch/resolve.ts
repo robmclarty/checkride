@@ -159,22 +159,38 @@ function declarationSignal(declared: Declared, tool: Tool): string {
   return `package.json: ${tool.npm ?? tool.bin}`;
 }
 
+/** Where a check's tool is looked up: the directory it runs from, the repo root a search stops at, and its pin chain. */
+type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[] };
+
 /**
- * Where a source in `at.pins` other than `path` declares `bin` for a check in
- * `at.cwd`, as `<file>: <key>`, or `null` when none does: what an adapter's
- * `detectPin` detects by. A source this checkride can't read ends the search
- * with nothing, since it may be the one that declares the tool.
+ * The source a check's tool would resolve through, found by file reads alone,
+ * and where that source declares it (`<file>: <key>`), or `null` when it runs
+ * a tool nothing declared: `path`, unpinned, when the chain ends there, else
+ * the chain's last source. `null` when a source this checkride can't read
+ * comes first, since it may be the one that declares the tool. Unlike a
+ * launch it never asks a source whether it can run the tool.
  */
-export function pinDeclaration(bin: string, at: { cwd: string; repo: string; pins: readonly PinSourceName[] }): string | null {
+export function pinResolution(bin: string, at: PinQuery): { source: PinSourceName; declaredBy: string | null } | null {
   const tool = toolRow(bin);
   const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {} };
-  for (const name of at.pins.filter((n) => n !== 'path')) {
+  const sources = at.pins.filter((n) => n !== 'path');
+  for (const name of sources) {
     const source = SOURCES[name];
     if (source === undefined) return null;
     const declared = source.declares(req);
-    if (declared !== null) return declarationSignal(declared, tool);
+    if (declared !== null) return { source: name, declaredBy: declarationSignal(declared, tool) };
   }
-  return null;
+  const last = at.pins.includes('path') ? 'path' : sources.at(-1);
+  return last === undefined ? null : { source: last, declaredBy: null };
+}
+
+/**
+ * Where a source in `at.pins` other than `path` declares `bin` for a check in
+ * `at.cwd`, as `<file>: <key>`, or `null` when none does: what an adapter's
+ * `detectPin` detects by.
+ */
+export function pinDeclaration(bin: string, at: PinQuery): string | null {
+  return pinResolution(bin, at)?.declaredBy ?? null;
 }
 
 /**
