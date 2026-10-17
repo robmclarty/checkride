@@ -10,7 +10,8 @@
  */
 
 import { gatePreflight, type HarnessName } from '../gate.js';
-import { detectPackageManager, type PackageManager, runScript } from '../pm/index.js';
+import type { EntryLike, PackageManager } from '../launch/index.js';
+import { detectPackageManager, entryText, resolveEntry } from '../launch/index.js';
 import type { HookFile } from './files.js';
 import { dropFile, putFile, putJson } from './files.js';
 import { dirtyScript, gateScript, protectScript } from './scripts.js';
@@ -44,8 +45,8 @@ export const GATE_TIMEOUT_SECONDS = 900;
  * left guessing whether anything is happening at all. Naming the command that
  * is actually running answers that in the one place they are already looking.
  */
-export function gateStatusMessage(pm: PackageManager): string {
-  return `checkride gate — running \`${runScript(pm, 'check')}\``;
+export function gateStatusMessage(entry: EntryLike): string {
+  return `checkride gate — running \`${entryText(entry)}\``;
 }
 
 /**
@@ -81,7 +82,7 @@ export type HarnessSpec<T> = {
    * its own UI (Claude Code's `statusMessage`) needs in the config, not just in
    * the script.
    */
-  apply: (config: T | undefined, names: readonly string[], pm: PackageManager) => T;
+  apply: (config: T | undefined, names: readonly string[], entry: EntryLike) => T;
   /** Strip the named hooks from a parsed config. Must be idempotent. */
   remove: (config: T | undefined, names: readonly string[]) => T;
 };
@@ -114,6 +115,8 @@ export async function writeHarnessHooks<T extends object>(
   opts: WriteOptions,
 ): Promise<HookFile[]> {
   const pm = opts.pm ?? detectPackageManager({ cwd });
+  // The hooks run checkride the way the repo does (R6.6).
+  const entry = resolveEntry(cwd, pm);
   const dryRun = opts.dryRun ?? false;
   const gone = opts.remove ?? [];
   const names = opts.hooks.filter((name) => !gone.includes(name));
@@ -128,7 +131,7 @@ export async function writeHarnessHooks<T extends object>(
     // `dirty` therefore rewrites a surviving gate unguarded, which is why the
     // config merge and the script bodies both read the post-removal selection.
     gate: () =>
-      gateScript(pm, {
+      gateScript(entry, {
         harness: spec.name,
         dirtyGuard: names.includes('dirty'),
         ...(preflight === null ? {} : { preflight }),
@@ -140,7 +143,7 @@ export async function writeHarnessHooks<T extends object>(
   const config = await putJson<T>(
     cwd,
     spec.configFile,
-    (c) => spec.apply(spec.remove(c, gone), names, pm),
+    (c) => spec.apply(spec.remove(c, gone), names, entry),
     { dryRun, skipIfMissing: names.length === 0 },
   );
   // A hook this harness expresses as config has no script to write, and may have

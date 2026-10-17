@@ -52,12 +52,16 @@ import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js'
 import type { Out, SummaryCheck } from './orchestrator/index.js';
 import {
   detectPackageManager,
+  type EntryCommand,
+  entryArgv,
+  entryCheckride,
+  entryText,
   type LaunchRefusal,
   launchRefusal,
   type PackageManager,
-  runScript,
+  resolveEntry,
   SPAWN_FAILED_MARKER,
-} from './pm/index.js';
+} from './launch/index.js';
 import { tokenProblem } from './targets/index.js';
 
 /**
@@ -471,18 +475,37 @@ function headline(verdict: string, glyph: string, elapsedMs: number, detail: str
   return `checkride ${verdict} in ${formatDuration(elapsedMs)} ${glyph}${detail === null ? '' : ` (${detail})`}`;
 }
 
+/**
+ * The triage command a red verdict names: `<pm> exec checkride triage`, as the
+ * gate has always spelled it in a package-manager repo, else the entry
+ * command's own.
+ */
+function triageCommand(entry: EntryCommand): string {
+  return entry.kind === 'script' ? `${entry.pm} exec checkride triage` : entryCheckride(entry, ['triage']);
+}
+
+/**
+ * The argv the gate runs: the repo's entry command (R6.6) as a hard gate,
+ * `--strict` and `--digest`, then the profile's flags. A package-manager repo
+ * runs its `check` script as {@link checkArgs} spells it.
+ */
+function gateArgv(entry: EntryCommand, profile: GateProfile | null): [string, ...string[]] {
+  if (entry.kind === 'script') return [entry.pm, ...checkArgs(entry.pm, profile)];
+  return entryArgv(entry, ['--strict', '--digest', ...profileArgs(profile)]);
+}
+
 /** The sentence a red gate hands the agent, naming what to open first. */
-function redMessage(cwd: string, pm: PackageManager, profile: GateProfile | null): string {
+function redMessage(cwd: string, entry: EntryCommand, profile: GateProfile | null): string {
   const where = existsSync(join(cwd, '.check', DIGEST_FILE)) ? `.check/${DIGEST_FILE}` : SUMMARY_PATH;
   // A narrowed red is still a red, but it is not the whole story: the slots the
   // profile skipped were never asked, so fixing what it names may not be enough.
   const narrowed =
     profile === null
       ? ''
-      : ` This gate ran a profile, not the full check — run \`${runScript(pm, CHECK_SCRIPT)}\` for the rest.`;
+      : ` This gate ran a profile, not the full check — run \`${entryText(entry)}\` for the rest.`;
   return (
     `checkride: the gate is red — read ${where}, fix the failing slot, then finish ` +
-    `(do not stop while checkride is red). Run \`${pm} exec checkride triage\` for full triage.${narrowed}`
+    `(do not stop while checkride is red). Run \`${triageCommand(entry)}\` for full triage.${narrowed}`
   );
 }
 
@@ -543,7 +566,7 @@ const STOOD_DOWN =
  */
 function refusalMessage(
   refusal: LaunchRefusal,
-  context: { alignment: NodeAlignment | null; running: string; pm: PackageManager },
+  context: { alignment: NodeAlignment | null; running: string; entry: EntryCommand },
 ): string {
   const environment = refusal.fixable === 'environment';
   return [
@@ -551,7 +574,7 @@ function refusalMessage(
     'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from ' +
       'this turn and the code is not what to look at.',
     ...(environment ? [nodeClause(context.alignment, context.running), STOOD_DOWN] : []),
-    `Run \`${runScript(context.pm, CHECK_SCRIPT)}\` in a terminal to see the same failure directly.`,
+    `Run \`${entryText(context.entry)}\` in a terminal to see the same failure directly.`,
   ].join(' ');
 }
 
@@ -596,7 +619,7 @@ function withoutConsumerVars(env: Record<string, string | undefined>): Record<st
 /** Everything a failed run needs to say what failed, and whether anything ran at all. */
 type Failure = {
   cwd: string;
-  pm: PackageManager;
+  entry: EntryCommand;
   elapsedMs: number;
   summary: SummaryRead;
   /** Whether the summary on disk was written by this run. */
@@ -620,7 +643,7 @@ function failedVerdict(f: Failure): Verdict {
   if (refusal === null) {
     return {
       status: headline('red', '✘', f.elapsedMs, gateDetail(f.summary, f.fresh, false, f.profile)),
-      instruction: redMessage(f.cwd, f.pm, f.profile),
+      instruction: redMessage(f.cwd, f.entry, f.profile),
       refusal: null,
       standDown: false,
     };
@@ -629,7 +652,7 @@ function failedVerdict(f: Failure): Verdict {
   // is beside the point.
   return {
     status: headline('could not run', '⚠', f.elapsedMs, refusal.cause),
-    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, pm: f.pm }),
+    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, entry: f.entry }),
     refusal: refusal.cause,
     standDown: refusal.fixable === 'environment',
   };
@@ -843,6 +866,8 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   }
 
   const pm = options.pm ?? detectPackageManager({ cwd });
+  // The gate runs the check the way the repo runs it (R6.6).
+  const entry = resolveEntry(cwd, pm);
   const profile = options.profile !== undefined ? options.profile : gateProfile(cwd);
   const startedAt = now();
   const problem = profileProblem(cwd, profile);
@@ -853,7 +878,8 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   const alignment = alignNode(cwd, pinEnv);
   const childEnv = announceAlignment(alignment, withoutConsumerVars(env), stderr);
   const output = recording(stderr);
-  const code = await run(pm, checkArgs(pm, profile), { cwd, stderr: output, env: childEnv });
+  const [command, ...args] = gateArgv(entry, profile);
+  const code = await run(command, args, { cwd, stderr: output, env: childEnv });
   const green = code === 0;
   // The run wrote `<cwd>/.check`, since CHECKRIDE_OUT was stripped above.
   const summary = await readSummary(outDir(cwd));
@@ -867,7 +893,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
 
   const verdict = failedVerdict({
     cwd,
-    pm,
+    entry,
     elapsedMs: now() - startedAt,
     summary,
     fresh,

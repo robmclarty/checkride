@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -7,10 +8,10 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig } from '../config.js';
-import type { DoctorEnv } from '../doctor.js';
+import type { DoctorCheck, DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PinEnv } from '../node-pin.js';
-import type { PackageManager } from '../pm/index.js';
+import type { PackageManager } from '../launch/index.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -746,5 +747,36 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(report.checks.find((c) => c.name === 'unclaimed')).toMatchObject({ required: false, status: 'outdated', found: 'tools/x/package.json (ts)' });
     const quiet = await doctor({ ...bashTarget, unclaimed: { ignore: ['tools'] } });
     expect(quiet.report.checks.find((c) => c.name === 'unclaimed')).toMatchObject({ status: 'ok', found: 'every marker sits in a target' });
+  });
+});
+
+/** An env that reads real files, so the entry command resolves from what's on disk. */
+const onDisk = (): DoctorEnv => fakeEnv({ readText: (path: string) => (existsSync(path) ? readFileSync(path, 'utf8') : null) });
+
+describe('runDoctor reports how hooks run checkride where it is not the check script (R6.6)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-entry-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const harnessRow = async (): Promise<DoctorCheck | undefined> =>
+    (await runDoctor({ cwd: dir, slots: oneSlot, adapters: oneAdapter, config: null, env: onDisk(), stdout: sink(), json: true })).report.checks.find(
+      (c) => c.name === 'harness',
+    );
+
+  test('a package.json repo runs its check script, as always, and gets no row', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' } }));
+    expect(await harnessRow()).toBeUndefined();
+  });
+
+  test('a repo whose mise.toml pins checkride runs mise’s copy', async () => {
+    await writeFile(join(dir, 'mise.toml'), '[tools]\n"npm:checkride" = "0.14.0"\n');
+    expect(await harnessRow()).toMatchObject({ category: 'env', required: false, status: 'ok', found: 'mise exec -- checkride' });
+  });
+
+  test('a repo with neither runs the checkride on PATH, and doctor reports the harness unpinned', async () => {
+    const row = await harnessRow();
+    expect(row).toMatchObject({ status: 'outdated', required: false, found: 'unpinned (`checkride` from PATH)' });
+    expect(row?.hint).toContain('harness unpinned');
+    expect(row?.hint).toContain('mise use npm:checkride@<version>');
   });
 });

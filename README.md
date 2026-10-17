@@ -93,7 +93,10 @@ Cursor. Three of them: a stop gate (a checkride-owned script that runs your
 detected package manager's `run check --strict --digest` and blocks an agent
 from finishing while the pipeline is red), an edit marker so turns that touched
 no files skip the gate, and a guard that denies edits to
-`checkride.baseline.json` and `.check/**`. Select hooks with `--hook <a,b>`
+`checkride.baseline.json` and `.check/**`. In a repo with no `package.json`,
+the gate, the stanza and the skills run `mise exec -- checkride` where a root
+`mise.toml` pins `npm:checkride`, and the `checkride` on `PATH` otherwise,
+which `doctor` reports as the harness unpinned. Select hooks with `--hook <a,b>`
 (gate | dirty | protect), harnesses with `--harness <a,b>` (claude | cursor;
 detected by default), skip the hooks with `--no-hook`, or take an installed one
 back out with `--remove-hook <a,b>`. To add all of this — alias, stanza, hooks,

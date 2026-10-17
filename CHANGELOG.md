@@ -202,6 +202,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   language's markers it sees, such as a `go.mod`, as a hint to declare
   targets. A tool a `mise.toml` pins is no longer reported missing from
   `node_modules`. See `docs/packs.md`.
+- **Gate a repo with no `package.json`.** The stop-hook gate, the hook
+  scripts, the AGENTS.md stanza and the plugin skills now run checkride the
+  way the repo does: `<pm> run check` wherever there's a `package.json`, as
+  before; `mise exec -- checkride` in a repo whose root `mise.toml` pins
+  `npm:checkride` or `github:robmclarty/checkride`; and the `checkride` on
+  `PATH` otherwise, which `doctor` reports as the harness unpinned. The
+  stanza lists a target's checks as `<target>:<slot>`. See `docs/packs.md`.
 
 ### Changed
 
@@ -485,10 +492,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `multi-target`), `targets` and `unclaimed`, and `DoctorCheck` gains
   `target`, `pinSource` and a `pin` category for a tool nothing pins, a
   `required` row under `requirePins`. A tool row's `slot` is
-  `<target>:<slot>` in a target.
+  `<target>:<slot>` in a target. In a repo with no `package.json`, a
+  `harness` row names the entry command: `ok` for mise's pinned copy,
+  `outdated` for the one on `PATH`.
 
 ### Internal
 
+- `src/pm/`, which had only re-exported `src/launch/` since the launcher
+  took its code, is gone: every importer reads `launch/`, and `pm.test.ts`
+  moved under `src/launch/__tests__/`.
 - This repo now keeps the test layout `init` scaffolds. Its `rules/` carries
   the five test-layout rules, copied unchanged from `templates/ts/shared/rules/`,
   so its own `struct` check runs them on every `pnpm check`. The six test

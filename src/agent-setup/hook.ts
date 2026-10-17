@@ -23,7 +23,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { HARNESS_NAMES, type HarnessName } from '../gate.js';
-import type { PackageManager } from '../pm/index.js';
+import type { PackageManager } from '../launch/index.js';
 import { writeClaudeHooks } from './claude.js';
 import { writeCursorHooks } from './cursor.js';
 import type { HookFile } from './files.js';

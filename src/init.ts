@@ -30,9 +30,10 @@ import type { CustomCheck, SlotConfig } from './config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
-import type { PackageManager } from './pm/index.js';
-import { detectPackageManager, execCommand, runScript } from './pm/index.js';
+import type { EntryLike, PackageManager } from './launch/index.js';
+import { detectPackageManager, entryCheckride, entryText, resolveEntry } from './launch/index.js';
 import { readResource } from './resources.js';
+import { checkName } from './targets/index.js';
 
 export type Shape = 'flat' | 'monorepo' | 'hybrid';
 
@@ -259,13 +260,17 @@ function proseSection(exemplars: string): string[] {
 
 /**
  * The agent-facing contract block, parameterized by the active checks and the
- * repo's package manager.
+ * repo's entry command (R6.6): its package manager's `check` script, or, in a
+ * repo with no `package.json`, the checkride `mise.toml` pins or the one on
+ * `PATH`. A bare package manager stands for its `check` script.
  *
- * `pm` is not cosmetic. The stanza is a list of commands an agent is told to
- * run, and `pnpm check` in an npm repo is an instruction that cannot succeed —
- * the agent either invents a substitute or reports the pipeline as broken.
- * Everything here routes through {@link runScript}/{@link execCommand} for that
- * reason; nothing spells a launcher literally.
+ * The entry command is not cosmetic. The stanza is a list of commands an agent
+ * is told to run, and `pnpm check` in an npm repo, or in a Go repo with no
+ * `package.json` at all, is an instruction that cannot succeed — the agent
+ * either invents a substitute or reports the pipeline as broken. Everything
+ * here routes through {@link entryText}/{@link entryCheckride} for that
+ * reason; nothing spells a launcher literally. The skills read their commands
+ * from this stanza.
  *
  * The gate profile is deliberately *not* a parameter. A repo can add `gate` to
  * checkride.config.json without re-running `agent-setup`, so a stanza naming a
@@ -276,11 +281,11 @@ function proseSection(exemplars: string): string[] {
  */
 export function buildStanza(
   activeSlots: readonly string[],
-  pm: PackageManager = 'pnpm',
+  entry: EntryLike = 'pnpm',
   proseExemplars: string | null = null,
 ): string {
-  const check = runScript(pm, 'check');
-  const triage = execCommand(pm, ['checkride', 'triage']);
+  const check = entryText(entry);
+  const triage = entryCheckride(entry, ['triage']);
   return [
     '## Checkride: the definition of done',
     '',
@@ -1020,9 +1025,10 @@ function splitAdd(add: readonly string[], manifest: InitManifest): {
  */
 function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[]): string[] {
   const resolved = resolveChecks({ slots, adapters, config: loadConfig(cwd), cwd });
+  // A target's check is named `<target>:<slot>`, as `--only` takes it.
   return selectChecks(resolved, {})
     .filter((r) => r.adapter !== null)
-    .map((r) => r.slot);
+    .map(checkName);
 }
 
 /**
@@ -1094,7 +1100,7 @@ async function writeAgentsStanza(
 ): Promise<void> {
   const agentsPath = join(cwd, 'AGENTS.md');
   const existing = await readIfExists(agentsPath);
-  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, pm, proseExemplarsDir(cwd)));
+  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, resolveEntry(cwd, pm), proseExemplarsDir(cwd)));
   if (nextAgents !== existing) {
     if (!w.dryRun) await writeFile(agentsPath, nextAgents);
     w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
@@ -1344,7 +1350,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // rather than being clobbered by the refresh below.
   await assertStanzaUnedited(
     cwd,
-    buildStanza(activeCheckSlots(cwd, slots, adapters), pm, proseExemplarsDir(cwd)),
+    buildStanza(activeCheckSlots(cwd, slots, adapters), resolveEntry(cwd, pm), proseExemplarsDir(cwd)),
     options,
   );
 
@@ -1462,7 +1468,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
-  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots, pm, proseExemplarsDir(cwd)), options);
+  await assertStanzaUnedited(cwd, buildStanza(stanzaSlots, resolveEntry(cwd, pm), proseExemplarsDir(cwd)), options);
 
   // The `check` alias the hook's `<pm> run check` resolves to (never clobbers).
   await addCheckAlias(w, skipped);

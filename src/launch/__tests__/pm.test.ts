@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import type { PackageManager } from '../pm/index.js';
+import type { PackageManager } from '../index.js';
 import {
   detectPackageManager,
   execTool,
@@ -16,7 +16,7 @@ import {
   resolveSlotTool,
   SPAWN_FAILED_MARKER,
   translateExec,
-} from '../pm/index.js';
+} from '../index.js';
 
 /** Build a detector whose only present files are the ones listed. */
 function withFiles(present: string[], field?: string) {

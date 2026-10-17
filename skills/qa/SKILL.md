@@ -2,7 +2,7 @@
 name: qa
 description: Read checkride's quality artifacts — surviving mutants, dead code, duplication and the health score — and say what the test suite actually proves. Use when asked how healthy the codebase is, whether the tests are any good, where the risk or the tech debt is, what mutation testing found, or which files need better coverage. Reads a bounded report instead of megabytes of `.check/` artifacts, runs nothing, and reports which quality dimensions were never measured rather than guessing at them.
 argument-hint: "[repo-path]"
-allowed-tools: Read, Grep, Glob, Bash(node *), Bash(pnpm *), Bash(npx checkride*), Bash(yarn *), Bash(bunx *), Bash(wc *), Bash(git log *)
+allowed-tools: Read, Grep, Glob, Bash(node *), Bash(pnpm *), Bash(npx checkride*), Bash(yarn *), Bash(bunx *), Bash(mise exec -- checkride*), Bash(checkride *), Bash(wc *), Bash(git log *)
 ---
 
 # checkride: read the quality signal
@@ -29,8 +29,11 @@ reads what a *past* run left behind and never runs the gate itself.
 pnpm exec checkride qa
 ```
 
-Substitute the repo's package manager (`npx checkride`, `yarn checkride`, `bunx
-checkride`). Pass a repo path as the one optional argument to read somewhere
+Run checkride the way the repo's AGENTS.md stanza does. In a repo with a
+`package.json`, substitute its package manager (`npx checkride`, `yarn
+checkride`, `bunx checkride`). A repo with no `package.json` runs `mise exec --
+checkride qa` where its `mise.toml` pins checkride, and `checkride qa`
+otherwise. Pass a repo path as the one optional argument to read somewhere
 other than the current directory.
 
 If checkride is not a dependency of the target repo, run the copy the plugin

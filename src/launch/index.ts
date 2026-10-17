@@ -6,10 +6,13 @@
  * source, the project's own package manager, spans the rest: detection in
  * `package-manager.ts`, the exec-prefix translation in `translate.ts`, where a
  * tool has to resolve from in `js-lockfile.ts`, and the refusals that mean a
- * package-manager script never launched at all in `refusal.ts`. Siblings
- * import only from here.
+ * package-manager script never launched at all in `refusal.ts`. How a repo
+ * runs checkride itself, its entry command, is `entry.ts`. Siblings import
+ * only from here.
  */
 
+export type { EntryCommand, EntryLike } from './entry.js';
+export { asEntry, entryArgv, entryCheckride, entryText, resolveEntry } from './entry.js';
 export type { PackageManager } from './package-manager.js';
 export { detectPackageManager, nearestPackageManager } from './package-manager.js';
 export type { LaunchRefusal } from './refusal.js';
@@ -17,4 +20,4 @@ export { launchRefusal, SPAWN_FAILED_MARKER } from './refusal.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, Spawn } from './resolve.js';
 export { isReadableSource, launchCheck, pinChain, pinDeclaration, pinResolution } from './resolve.js';
-export { execCommand, isAvailableUnder, runScript, translateExec } from './translate.js';
+export { isAvailableUnder, translateExec } from './translate.js';

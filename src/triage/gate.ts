@@ -24,8 +24,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { outDir, readSummary } from '../artifacts/index.js';
-import type { PackageManager } from '../pm/index.js';
-import { detectPackageManager, launchRefusal } from '../pm/index.js';
+import type { PackageManager } from '../launch/index.js';
+import { detectPackageManager, entryArgv, entryText, launchRefusal, resolveEntry } from '../launch/index.js';
 import type { SpawnOutcome, TriageEnv } from './env.js';
 
 /** How the gate ended, in the reader's vocabulary. */
@@ -109,9 +109,11 @@ function verdictFor(outcome: SpawnOutcome, refusal: string | null): GateVerdict 
 }
 
 /**
- * Run `<pm> run check` in `cwd` and classify the result. Never throws: a repo
- * with no `check` script, a missing package manager and a gate that fails are
- * all outcomes, because each is something the report has to say. `out.vars`
+ * Run the repo's entry command in `cwd` (R6.6), `<pm> run check` in a
+ * package-manager repo, and classify the result. Never throws: a
+ * `package.json` with no `check` script, a missing package manager and a gate
+ * that fails are all outcomes, because each is something the report has to
+ * say. `out.vars`
  * are set in the run's environment, where a triage given `--out` puts
  * `CHECKRIDE_OUT`, since a variable reaches checkride whatever the package
  * manager does with arguments; `out.dir` is where the run writes its summary.
@@ -122,18 +124,21 @@ export async function runGate(
   out: { dir: string; vars: Readonly<Record<string, string>> } = { dir: outDir(cwd), vars: {} },
 ): Promise<GateOutcome> {
   const pm = detectPackageManager({ cwd });
+  const entry = resolveEntry(cwd, pm);
   const script = readCheckScript(cwd);
   const base = {
     script,
-    command: `${pm} run ${CHECK_SCRIPT}`,
+    // The argv as run, quoted the way the report always has for a check script.
+    command: entry.kind === 'script' ? `${pm} run ${CHECK_SCRIPT}` : entryText(entry),
     pm,
     startedMs: env.now(),
     narrowingFlags: NARROWING_FLAGS.filter((flag) => script?.includes(flag) ?? false),
   };
-  if (script === null) {
+  if (entry.kind === 'script' && script === null) {
     return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null, refusal: null };
   }
-  const outcome = await env.spawn(pm, ['run', CHECK_SCRIPT], { cwd, timeoutMs: env.timeoutMs, env: out.vars });
+  const [command, ...args] = entryArgv(entry, []);
+  const outcome = await env.spawn(command, args, { cwd, timeoutMs: env.timeoutMs, env: out.vars });
   const refusal = await refusalFor(outcome, out.dir, base.startedMs);
   return {
     ...base,

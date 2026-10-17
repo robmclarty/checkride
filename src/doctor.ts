@@ -36,20 +36,24 @@ import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
-import { nearestPackageManager, pinChain, pinResolution } from './launch/index.js';
-import type { PinEnv } from './node-pin.js';
-import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
-import type { Out } from './orchestrator/index.js';
-import { provenanceTag, resolveCommonOptions, selectChecks } from './orchestrator/index.js';
-import type { PackageManager } from './pm/index.js';
+import type { PackageManager } from './launch/index.js';
 import {
   detectPackageManager,
+  entryText,
   execTool,
   installCommand,
   isAvailableUnder,
   isPnPInstall,
+  nearestPackageManager,
+  pinChain,
+  pinResolution,
+  resolveEntry,
   resolveSlotTool,
-} from './pm/index.js';
+} from './launch/index.js';
+import type { PinEnv } from './node-pin.js';
+import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
+import type { Out } from './orchestrator/index.js';
+import { provenanceTag, resolveCommonOptions, selectChecks } from './orchestrator/index.js';
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
@@ -866,17 +870,41 @@ function renderTable(report: DoctorReport, out: Out): void {
   out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
 }
 
-/** The environment and install rows: node and its pin, the package manager, git, and the install. */
+/**
+ * How the hooks, the stanza and the skills run checkride here (R6.6), when
+ * it isn't the package manager's `check` script: mise's pinned copy, or the
+ * one on `PATH`, which nothing pins, so a hook runs whatever copy a machine
+ * has. Never required: the gate runs either way. `null` for a `package.json`
+ * repo, whose `check` script is the harness as it always has been.
+ */
+function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCheck | null {
+  const entry = resolveEntry(cwd, pm, env.readText);
+  if (entry.kind === 'script') return null;
+  const base = { name: 'harness', category: 'env' as const, required: false, expected: 'checkride pinned in mise.toml' };
+  if (entry.kind === 'mise') return { ...base, status: 'ok', found: entryText(entry), hint: null };
+  return {
+    ...base,
+    status: 'outdated',
+    found: 'unpinned (`checkride` from PATH)',
+    hint:
+      'harness unpinned: with no package.json, the hooks and the AGENTS.md stanza run whatever `checkride` PATH holds. ' +
+      'Pin it with `mise use npm:checkride@<version>`, and they run `mise exec -- checkride` instead.',
+  };
+}
+
+/** The environment and install rows: node and its pin, the package manager, git, the harness, and the install. */
 async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv): Promise<DoctorCheck[]> {
   const engines = env.readEngines(cwd);
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
   const nodePin = checkNodePin(cwd, engines, pinEnv);
+  const harness = checkHarness(cwd, pm, env);
   return [
     await checkVersioned('node', 'node', nodeMin, env),
     ...(nodePin === null ? [] : [nodePin]),
     await checkPackageManager(pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
+    ...(harness === null ? [] : [harness]),
     checkInstall(cwd, pm, env),
   ];
 }

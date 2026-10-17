@@ -2,7 +2,7 @@
 name: check
 description: Triage a red checkride gate and name one root cause. Use whenever `pnpm check` (or `npm/yarn/bun run check`) fails, a checkride gate is red, CI is failing on the gate, or you need to know what to fix first. Runs the gate itself, reads a bounded report instead of megabytes of `.check/` artifacts, and covers the contract corners a plain summary read gets wrong — exit 2 vs exit 1, vacuous green, narrow green, baselined findings, skipped slots, spawn failures and stale artifacts.
 argument-hint: "[repo-path]"
-allowed-tools: Read, Grep, Glob, Bash(node *), Bash(pnpm *), Bash(npm run *), Bash(yarn *), Bash(bun run *), Bash(npx checkride*), Bash(wc *)
+allowed-tools: Read, Grep, Glob, Bash(node *), Bash(pnpm *), Bash(npm run *), Bash(yarn *), Bash(bun run *), Bash(npx checkride*), Bash(mise exec -- checkride*), Bash(checkride *), Bash(wc *)
 ---
 
 # checkride: triage a red gate
@@ -25,8 +25,11 @@ minutes ago).
 pnpm exec checkride triage
 ```
 
-Substitute the repo's package manager (`npx checkride`, `yarn checkride`, `bunx
-checkride`). Pass a repo path as the one optional argument to triage somewhere
+Run checkride the way the repo's AGENTS.md stanza does. In a repo with a
+`package.json`, substitute its package manager (`npx checkride`, `yarn
+checkride`, `bunx checkride`). A repo with no `package.json` runs `mise exec --
+checkride triage` where its `mise.toml` pins checkride, and `checkride triage`
+otherwise. Pass a repo path as the one optional argument to triage somewhere
 other than the current directory.
 
 If checkride is not a dependency of the target repo, run the copy the plugin
@@ -35,7 +38,8 @@ points render the identical report.
 
 What it does, in order: runs the repo's **own** `check` script (that script is
 the definition of done and may carry deliberate `--only` / `--skip` / `--changed`
-that a direct `checkride` invocation would bypass), branches on the promised
+that a direct `checkride` invocation would bypass), or in a repo with no
+`package.json` the checkride its entry command names, branches on the promised
 0/1/2 exit split, then reads what the run wrote. On exit 2 it also folds in
 `checkride doctor --json`, so the broken-harness branch arrives with its
 diagnosis attached.

@@ -39,7 +39,7 @@ import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { CheckRunner, Out, RunOptions } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
-import type { PackageManager } from './pm/index.js';
+import type { PackageManager } from './launch/index.js';
 
 export type BaselineOptions = {
   cwd?: string;

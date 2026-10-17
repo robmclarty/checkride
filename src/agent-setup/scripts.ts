@@ -17,7 +17,8 @@
  */
 
 import { DIRTY_MARKER, GATE_RETRY_ENV, type HarnessName } from '../gate.js';
-import { execCommand, type PackageManager, runScript } from '../pm/index.js';
+import type { EntryCommand, EntryLike } from '../launch/index.js';
+import { asEntry, entryCheckride, entryText } from '../launch/index.js';
 
 /**
  * The repo root, however the calling harness spells it. Cursor sets
@@ -28,11 +29,13 @@ import { execCommand, type PackageManager, runScript } from '../pm/index.js';
 const PROJECT_DIR = '"${CURSOR_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-.}}"';
 
 /**
- * `<pm> exec checkride <args…>`, spelled for `pm`'s launcher. Quieted: the gate
- * parses this command's stdout, so pnpm's narration must not lead it.
+ * `checkride <args…>` the way the repo's entry command runs it: `<pm> exec
+ * checkride`, spelled for the package manager's launcher, or mise's pinned
+ * checkride, or the one on `PATH`. Quieted: the gate parses this command's
+ * stdout, so pnpm's narration must not lead it.
  */
-function checkrideCommand(pm: PackageManager, args: readonly string[]): string {
-  return execCommand(pm, ['checkride', ...args], { quiet: true });
+function checkrideCommand(entry: EntryCommand, args: readonly string[]): string {
+  return entryCheckride(entry, args, { quiet: true });
 }
 
 /**
@@ -51,9 +54,24 @@ function checkrideCommand(pm: PackageManager, args: readonly string[]): string {
 const NOTHING_RAN =
   'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from this turn.';
 
-/** `<pm> install`, which is how all four package managers spell it. */
-const installFix = (pm: PackageManager): string =>
-  `Run \`${pm} install\` (checkride is a devDependency of this repo), then run \`${runScript(pm, 'check')}\`.`;
+/**
+ * What brings checkride into the repo: `<pm> install`, which is how all four
+ * package managers spell it; `mise install` for the copy mise pins; or, with
+ * nothing pinning one, installing it and pinning it.
+ */
+function installFix(entry: EntryCommand): string {
+  const check = entryText(entry);
+  if (entry.kind === 'script') return `Run \`${entry.pm} install\` (checkride is a devDependency of this repo), then run \`${check}\`.`;
+  if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
+  return 'Install checkride, or pin it in mise.toml with `mise use npm:checkride@<version>`, then run `checkride`.';
+}
+
+/** Why checkride could not be found, by where the entry command looks for it. */
+function notInstalledCause(entry: EntryCommand): string {
+  if (entry.kind === 'mise') return 'checkride: the gate could not run — the checkride mise.toml pins is not installed.';
+  if (entry.kind === 'path') return 'checkride: the gate could not run — checkride is not on PATH, and nothing in this repo pins it.';
+  return 'checkride: the gate could not run — checkride is not installed in this repo.';
+}
 
 /**
  * The repo has no checkride to run, because its dependencies were never
@@ -68,11 +86,11 @@ const installFix = (pm: PackageManager): string =>
  * removing the gate. See `../gate.ts` {@link reportStandDown} for the same
  * judgement one layer down.
  */
-const notInstalled = (pm: PackageManager): string =>
+const notInstalled = (entry: EntryCommand): string =>
   [
-    'checkride: the gate could not run — checkride is not installed in this repo.',
+    notInstalledCause(entry),
     NOTHING_RAN,
-    installFix(pm),
+    installFix(entry),
     'Not blocking: the fix is an install rather than an edit, so blocking would only repeat this ' +
       'message. Nothing was verified this turn.',
   ].join(' ');
@@ -84,12 +102,23 @@ const notInstalled = (pm: PackageManager): string =>
  * known remedy to name, so the honest move is to stop and be looked at. The
  * retry guard in {@link gatePreamble} still bounds it.
  */
-const notAnswering = (pm: PackageManager, harness: HarnessName): string =>
+const notAnswering = (entry: EntryCommand, harness: HarnessName): string =>
   [
     'checkride: the gate could not run — checkride is installed here but `checkride gate` did not answer.',
     NOTHING_RAN,
-    `Run \`${execCommand(pm, ['checkride', 'gate', '--harness', harness])}\` in a terminal to see the failure directly.`,
+    `Run \`${entryCheckride(entry, ['gate', '--harness', harness])}\` in a terminal to see the failure directly.`,
   ].join(' ');
+
+/**
+ * The shell test for whether the entry command's checkride is there to run:
+ * the package manager's install (or a Yarn PnP map), the copy mise pins, or a
+ * `checkride` on `PATH`.
+ */
+function installedTest(entry: EntryCommand): string {
+  if (entry.kind === 'mise') return 'mise which checkride >/dev/null 2>&1';
+  if (entry.kind === 'path') return 'command -v checkride >/dev/null 2>&1';
+  return '[ -e node_modules/.bin/checkride ] || [ -e .pnp.cjs ] || [ -e .pnp.js ]';
+}
 
 /** The harness pointed the hook at a directory that is not there. */
 const noRepo =
@@ -192,7 +221,7 @@ function gatePreamble(harness: HarnessName): string[] {
  * captures under both harnesses: output already streamed past the script cannot
  * be withheld by it.
  */
-function gateTail(harness: HarnessName, pm: PackageManager): string[] {
+function gateTail(harness: HarnessName, entry: EntryCommand): string[] {
   const answered =
     harness === 'cursor'
       ? [
@@ -226,10 +255,10 @@ function gateTail(harness: HarnessName, pm: PackageManager): string[] {
     '',
     "# Neither of checkride's two gate codes: checkride itself never ran. Which of",
     '# the two reasons it was decides whether blocking could accomplish anything.',
-    'if [ -e node_modules/.bin/checkride ] || [ -e .pnp.cjs ] || [ -e .pnp.js ]; then',
-    `  block '${notAnswering(pm, harness)}'`,
+    `if ${installedTest(entry)}; then`,
+    `  block '${notAnswering(entry, harness)}'`,
     'fi',
-    `stand_down '${notInstalled(pm)}'`,
+    `stand_down '${notInstalled(entry)}'`,
   ];
 }
 
@@ -329,8 +358,8 @@ function enterRepo(): string[] {
  * and streams live either way, and stdout carries only the one-line JSON
  * verdict, written at the very end.
  */
-function invokeGate(pm: PackageManager, args: readonly string[]): string[] {
-  return [`body=$(${checkrideCommand(pm, args)})`, 'status=$?'];
+function invokeGate(entry: EntryCommand, args: readonly string[]): string[] {
+  return [`body=$(${checkrideCommand(entry, args)})`, 'status=$?'];
 }
 
 /**
@@ -349,9 +378,10 @@ function invokeGate(pm: PackageManager, args: readonly string[]): string[] {
  * say so on every turn, not only on the ones that edited a file.
  */
 export function gateScript(
-  pm: PackageManager,
+  entryLike: EntryLike,
   opts: { harness: HarnessName; dirtyGuard?: boolean; preflight?: string },
 ): string {
+  const entry = asEntry(entryLike);
   const args = ['gate', '--harness', opts.harness, ...((opts.dirtyGuard ?? true) ? ['--if-dirty'] : [])];
   return [
     '#!/bin/sh',
@@ -370,8 +400,8 @@ export function gateScript(
     ...enterRepo(),
     '',
     ...(opts.preflight === undefined ? [] : [...preflight(opts.preflight), '']),
-    ...invokeGate(pm, args),
-    ...gateTail(opts.harness, pm),
+    ...invokeGate(entry, args),
+    ...gateTail(opts.harness, entry),
     '',
   ].join('\n');
 }

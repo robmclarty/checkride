@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -118,6 +118,30 @@ describe('AGENTS stanza (idempotency)', () => {
     // pnpm's shorthand is real, and stays the default for callers without a repo.
     expect(buildStanza(['types'], 'pnpm')).toContain('`pnpm check` is red');
     expect(buildStanza(['types'])).toBe(buildStanza(['types'], 'pnpm'));
+  });
+
+  test('in a repo with no package.json, every command runs the checkride mise pins, or the one on PATH (R6.6)', () => {
+    const pinned = buildStanza(['types'], { kind: 'mise' });
+    expect(pinned).toContain('`mise exec -- checkride` is the single source of truth');
+    expect(pinned).toContain('`mise exec -- checkride --bail`');
+    expect(pinned).toContain('`mise exec -- checkride triage` runs this procedure');
+    const bare = buildStanza(['types'], { kind: 'path' });
+    expect(bare).toContain('`checkride` is the single source of truth');
+    expect(bare).toContain('`checkride triage` runs this procedure');
+    expect(bare).not.toMatch(/pnpm|npx/);
+  });
+
+  test('names a target’s checks the way --only takes them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-stanza-targets-'));
+    try {
+      await mkdir(join(dir, 'apps', 'web'), { recursive: true });
+      await writeFile(join(dir, 'apps', 'web', '.oxlintrc.json'), '{}');
+      await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { web: { lang: 'ts', root: 'apps/web' } } }));
+      await runAgentSetup({ cwd: dir });
+      expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('Active checks in this repo: web:lint, links, unclaimed.');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('refreshes only the marked region, leaving the rest untouched', () => {

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 34 — feat(doctor): report the mode, targets, pin sources and unpinned tools
+**Current step:** 35 — feat(entry): resolve the entry command for the stanza, hooks and skills
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -57,7 +57,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 31. feat(packs): add the bash pack with file lists
 - ☑ 32. feat(packs): give repo-scope slots Node-free alternates
 - ☑ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
-- ☐ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
+- ☑ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
 - ☐ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
 - ☐ 36. feat(cli): add target add to declare and convert targets
 - ☐ 37. feat(init): discover targets in existing mode
@@ -138,6 +138,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] R11.2's shebang regex ^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b never matches #!/bin/bash or #!/bin/sh; step 31 matched the interpreter's basename directly or through env (with env flags), so amend R11.2's text to that
 - [ ] unclaimed reports a workspace's root package.json above its ts targets (R11.3 as written), and since V4 forbids nesting ts targets the only fix is unclaimed.ignore; weigh, before step 39's polyglot-ts-bash example, whether a marker directly above same-pack targets should count as claimed
 - [ ] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
+- [ ] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2096,3 +2097,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-16 — step 31 checkpointed · 46f9504f7 — feat(packs): add the bash pack with file lists (1 drift, 19m)
 - 2026-10-16 — step 32 checkpointed · b547c5ed6 — feat(packs): give repo-scope slots Node-free alternates (1 drift, 6m)
 - 2026-10-17 — step 33 checkpointed · fdae80244 — feat(unclaimed): fail when a toolchain marker sits outside every target (1 drift, 17m)
+- 2026-10-17 — step 34 checkpointed · 78349fa7b — feat(doctor): report the mode, targets, pin sources and unpinned tools (1 drift, 8m)

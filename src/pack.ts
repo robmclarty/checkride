@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { CheckOutcome } from './links.js';
-import type { PackageManager } from './pm/index.js';
+import type { PackageManager } from './launch/index.js';
 import { parseToolJson } from './tool-json.js';
 
 /** A forbidden path in the tarball, tagged with the deny pattern it matched. */

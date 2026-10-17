@@ -48,8 +48,8 @@ import { join } from 'node:path';
 
 import { prepareScratch } from './artifacts/index.js';
 import type { CheckOutcome } from './links.js';
-import type { PackageManager } from './pm/index.js';
-import { translateExec } from './pm/index.js';
+import type { PackageManager } from './launch/index.js';
+import { translateExec } from './launch/index.js';
 
 /**
  * The opt-in marker: an HTML comment `<!-- snippet: check -->` that must sit on

@@ -400,6 +400,7 @@ describe('runGate', () => {
   });
 
   test('names a reader the agent can actually reach, spelled for the repo’s PM', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' } }));
     const stderr = capture();
     await runGate({ cwd: dir, pm: 'npm', spawn: exits(1), stdout: capture(), stderr });
     expect(stderr.text()).toContain('npm exec checkride triage');
@@ -836,7 +837,26 @@ describe('runGate — the gate profile', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-gate-profile-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  test('with no package.json, runs the checkride mise pins, or the one on PATH, as a hard gate (R6.6)', async () => {
+    let seen: readonly string[] = [];
+    const spawn: GateSpawn = (command, args) => {
+      seen = [command, ...args];
+      return Promise.resolve(1);
+    };
+    await writeFile(join(dir, 'mise.toml'), '[tools]\n"npm:checkride" = "0.14.0"\n');
+    const stderr = capture();
+    await runGate({ cwd: dir, spawn, stdout: capture(), stderr, pinEnv: pinEnv(), profile: { only: ['types'] } });
+    expect(seen).toEqual(['mise', 'exec', '--', 'checkride', '--strict', '--digest', '--only', 'types']);
+    expect(stderr.text()).toContain('Run `mise exec -- checkride triage` for full triage.');
+    expect(stderr.text()).toContain('run `mise exec -- checkride` for the rest');
+
+    await rm(join(dir, 'mise.toml'));
+    await runGate({ cwd: dir, spawn, stdout: capture(), stderr: capture(), pinEnv: pinEnv(), profile: null });
+    expect(seen).toEqual(['checkride', '--strict', '--digest']);
+  });
+
   test('appends the profile after the gate’s own flags, so the profile wins', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' } }));
     const { spawn, args } = capturingArgs();
     await runGate({
       cwd: dir,

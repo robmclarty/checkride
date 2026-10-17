@@ -21,7 +21,7 @@ import { posix } from 'node:path';
 
 import type { HarnessName } from '../gate.js';
 import { DIRTY_MARKER } from '../gate.js';
-import type { PackageManager } from '../pm/index.js';
+import type { EntryLike } from '../launch/index.js';
 import type { HarnessSpec, WriteOptions } from './harness.js';
 import { gateStatusMessage, GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
@@ -171,7 +171,7 @@ const DIRTY_COMMAND =
  * of leaving them to guess whether the model hung. The two guards are fast and
  * invisible, and take the defaults.
  */
-function hookSpecs(pm: PackageManager): HookSpec[] {
+function hookSpecs(entry: EntryLike): HookSpec[] {
   return [
     {
       name: 'gate',
@@ -179,7 +179,7 @@ function hookSpecs(pm: PackageManager): HookSpec[] {
       sentinels: [GATE_SCRIPT_FILE, LEGACY_GATE_SENTINEL],
       command: run('sh', GATE_SCRIPT_FILE),
       timeout: GATE_TIMEOUT_SECONDS,
-      statusMessage: gateStatusMessage(pm),
+      statusMessage: gateStatusMessage(entry),
     },
     {
       name: 'dirty',
@@ -299,7 +299,7 @@ function removeDeny(settings: ClaudeSettings): ClaudeSettings {
 }
 
 /**
- * Merge the selected hooks into parsed settings (see {@link applyHook}). `pm`
+ * Merge the selected hooks into parsed settings (see {@link applyHook}). `entry`
  * only reaches the gate's spinner text, so it defaults to the near-universal
  * `pnpm` for callers (tests, the removal path) that have no repo to detect one from.
  *
@@ -312,9 +312,9 @@ function removeDeny(settings: ClaudeSettings): ClaudeSettings {
 export function applyHooks(
   settings: ClaudeSettings = {},
   names: readonly string[] = HOOK_NAMES,
-  pm: PackageManager = 'pnpm',
+  entry: EntryLike = 'pnpm',
 ): ClaudeSettings {
-  const applied = hookSpecs(pm)
+  const applied = hookSpecs(entry)
     .filter((spec) => names.includes(spec.name))
     .reduce((acc, spec) => applyHook(acc, spec), settings);
   return names.includes(PROTECT) ? applyDeny(removeHook(applied, RETIRED_PROTECT_HOOK)) : applied;

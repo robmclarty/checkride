@@ -146,6 +146,24 @@ than failed. A list that would take a check's argv past 200,000 bytes stops
 the run with exit 2 before anything runs; narrow `include`, or add `exclude`
 globs.
 
+## The entry command
+
+The entry command is how the stop-hook gate, the AGENTS.md stanza and the
+plugin skills run checkride in a repo, chosen from the repo root:
+
+1. A root `package.json`: its `check` script, `<pm> run check`, as every
+   release has run it. `init` writes that script.
+2. No `package.json`, and a root `mise.toml` or `.mise.toml` whose `[tools]`
+   declares `npm:checkride` or `github:robmclarty/checkride`:
+   `mise exec -- checkride`.
+3. Neither: the `checkride` on `PATH`, which nothing pins, so `doctor`
+   reports the harness unpinned.
+
+The gate runs the entry command with `--strict --digest` and the gate
+profile's flags. The hook script tests whether that copy is there to run
+(`node_modules/.bin`, `mise which checkride`, or `command -v checkride`)
+before it blocks on a gate that didn't answer.
+
 ## What `doctor` reports
 
 `checkride doctor` names the mode first: `implicit`, where the repo is one ts

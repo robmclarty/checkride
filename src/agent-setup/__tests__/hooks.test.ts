@@ -751,7 +751,26 @@ describe('writeHooks', () => {
     expect(result.files.map((f) => f.path)).toEqual([...CLAUDE_FILES, ...CURSOR_FILES]);
   });
 
+  test('with no package.json, the gate runs the checkride mise pins, or the one on PATH (R6.6)', async () => {
+    await writeFile(join(dir, 'mise.toml'), '[tools]\n"npm:checkride" = "0.14.0"\n');
+    await writeHooks(dir, { harnesses: ['claude'] });
+    const pinned = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
+    expect(pinned).toContain('body=$(mise exec -- checkride gate --harness claude --if-dirty)');
+    expect(pinned).toContain('if mise which checkride >/dev/null 2>&1; then');
+    expect(pinned).toContain('Run `mise install` (mise.toml pins checkride here), then run `mise exec -- checkride`.');
+    expect(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')).toContain('checkride gate — running `mise exec -- checkride`');
+
+    await rm(join(dir, 'mise.toml'));
+    await writeHooks(dir, { harnesses: ['claude'] });
+    const bare = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
+    expect(bare).toContain('body=$(checkride gate --harness claude --if-dirty)');
+    expect(bare).toContain('if command -v checkride >/dev/null 2>&1; then');
+    expect(bare).toContain('checkride is not on PATH, and nothing in this repo pins it.');
+    expect(bare).not.toMatch(/pnpm|npx|node_modules/);
+  });
+
   test('the script uses the detected package manager (npm lockfile → npx)', async () => {
+    await writeFile(join(dir, 'package.json'), '{}');
     await writeFile(join(dir, 'package-lock.json'), '{}');
     await writeHooks(dir, { harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('npx --no-install checkride gate');
