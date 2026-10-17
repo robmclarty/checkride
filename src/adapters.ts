@@ -47,6 +47,14 @@ export type Slot = {
    * repo pack. Every slot in `SLOTS` declares one.
    */
   scope?: 'target' | 'repo';
+  /**
+   * A `checkride.config.json` key the slot needs before its tool can run:
+   * `unclaimed` needs `targets`. Without the key the slot is inactive, absent
+   * from a run the way an unselected opt-in slot is, even under `--all`,
+   * unless a token names it, which records it as skipped with the reason. A
+   * config entry that picks a tool for the slot runs it either way.
+   */
+  activeWith?: string;
 };
 
 /**
@@ -72,6 +80,13 @@ export type AdapterOptions = {
    * anchor texts, and a config that points at nothing must not stay green.
    */
   prose?: { exemplars: string };
+  /**
+   * Read by the `unclaimed` built-in, from the config rather than a `checks`
+   * entry: the targets that claim markers (the one implicit target at the
+   * root, in a repo without `targets`), and `unclaimed.ignore`, the globs of
+   * marker paths it never reports.
+   */
+  unclaimed?: { targets: { name: string; pack: string; root: string }[]; ignore: string[] };
 };
 
 /** A concrete tool that can fill a slot. */
@@ -174,6 +189,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'pack', scope: 'target', optIn: true, order: 20 },
   { name: 'smoke', scope: 'target', optIn: true, order: 20 },
   { name: 'snippets', scope: 'target', optIn: true },
+  { name: 'unclaimed', scope: 'repo', activeWith: 'targets' },
 ];
 
 /**

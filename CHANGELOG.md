@@ -174,6 +174,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `rumdl check --fix` and `typos --write-changes`. A repo without `targets`
   still resolves every tool through its package manager alone. See
   `docs/packs.md`.
+- **Find the code no target checks with `unclaimed`.** Every run of a repo
+  with `targets` now runs the repo-scope `unclaimed` check, which fails when a
+  toolchain marker sits outside every target of its language, rooted at its
+  directory or above it: `package.json` or `tsconfig.json` for ts, and
+  `go.mod`, `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`,
+  `setup.py`, `.terraform.lock.hcl` or a `.tf` file for the languages whose
+  packs haven't shipped, which says so and points at `unclaimed.ignore`
+  until they do. It writes `unclaimed.json`, listing each such
+  marker with the target that would claim it (`"gen": { "lang": "ts",
+  "root": "tools/gen" }`), and prints the same on stderr. It leaves out
+  `node_modules/`, `vendor/`, `.check/`, the output directory, `testdata/`,
+  `test/fixtures/` and the like, and whatever `unclaimed.ignore` lists. A
+  workspace whose root `package.json` sits above its ts targets needs
+  `"unclaimed": { "ignore": ["package.json"] }`, since two ts targets can't
+  nest. A repo without `targets` doesn't run it, even under `--all`, and
+  `--only unclaimed` there records it as skipped with the reason. See
+  `docs/contract.md`.
 
 ### Changed
 
@@ -440,6 +457,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   check uses once `targets` are declared, while a repo without them still
   resolves through `js-lockfile` alone. `TOOLS` gains `rumdl` and `typos`, and
   its `ast-grep` and `vale` rows gain their `mise` ids.
+- Additive: `SLOTS` gains `unclaimed` (scope `repo`) after `snippets`, and the
+  exported `Slot` type an optional `activeWith`, the config key a slot needs
+  before it runs (`targets` for `unclaimed`). `ADAPTERS` and `PACKS.repo`
+  gain the `unclaimed` built-in, writing `unclaimed.json`, whose format
+  `docs/contract.md` gives. A slot without its key resolves inactive: the
+  exported `ResolvedCheck` type gains an optional `inactive`, `selectChecks`
+  leaves such a check out unless an `--only` or `--include` token names it,
+  and a named one records a skipped entry with a new kind of `reason`. Every
+  multi-target summary gains the `unclaimed` entry, and
+  `targets.contract.test.ts` lists it in R8.4's order. `AdapterOptions`
+  gains `unclaimed` (`targets` and `ignore`), and the config schema's
+  catalogue and reserved target names name `unclaimed` as a slot. A repo
+  without `targets` resolves, selects and reports exactly as before.
 
 ### Internal
 

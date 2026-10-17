@@ -730,7 +730,9 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
 
   // Enumerate every catalogue slot so off/opt-in/disabled slots stay visible
   // instead of silently dropped. The orchestrator decides what runs by default.
-  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  // A slot the config hasn't activated (`unclaimed` without targets) isn't one
+  // this repo runs, so it has no row.
+  const resolved = resolveChecks({ slots, adapters, config, cwd }).filter((r) => r.inactive !== true);
   const defaultActive = new Set(selectChecks(resolved, {}).map((r) => r.slot));
   // Independent per-slot probes: run them concurrently, `map` preserves order.
   checks.push(...(await Promise.all(resolved.map((r) => classifySlot(r, defaultActive, adapters, config, cwd, env, pm)))));

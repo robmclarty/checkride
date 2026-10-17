@@ -153,7 +153,7 @@ export function globRegExp(glob: string): RegExp {
 const DEFAULT_GLOBS: readonly RegExp[] = DEFAULT_INCLUDE.map(globRegExp);
 
 /** True when `path` or a directory above it matches one of `globs`, so excluding `vendor` leaves out what's under it. */
-function excluded(path: string, globs: readonly RegExp[]): boolean {
+export function excluded(path: string, globs: readonly RegExp[]): boolean {
   const segments = path.split('/');
   return segments.some((_, i) => {
     const prefix = segments.slice(0, i + 1).join('/');
@@ -207,16 +207,17 @@ function walk(dir: string, prefix = ''): string[] {
 /**
  * The paths git lists under `root` (tracked, and untracked but not ignored),
  * relative to `root`; every file under it outside a git repo or without git.
- * Any other git failure throws: a list built some other way would check files
- * the repo ignores.
+ * Any other git failure throws, naming `what` was being listed: a list built
+ * some other way would take in files the repo ignores. A path git still
+ * tracks may be gone from disk, so a caller checks before it reads one.
  */
-async function candidates(repo: string, target: FileListTarget, git: GitRunner): Promise<string[]> {
-  const listed = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', target.root]);
+export async function listFiles(repo: string, root: string, git: GitRunner, what: string): Promise<string[]> {
+  const listed = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', root]);
   if (!listed.ok) {
-    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, target.root));
-    throw new Error(`can't list the files of target '${target.name}': ${listed.detail}`);
+    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, root));
+    throw new Error(`can't list the files of ${what}: ${listed.detail}`);
   }
-  const strip = target.root === '.' ? '' : `${target.root}/`;
+  const strip = root === '.' ? '' : `${root}/`;
   const paths = listed.stdout.split('\0').filter((p) => p !== '' && p.startsWith(strip));
   return [...new Set(paths.map((p) => p.slice(strip.length)))];
 }
@@ -237,7 +238,7 @@ export async function targetFiles(repo: string, target: FileListTarget, git: Git
   const root = join(repo, target.root);
   const include = target.include === undefined ? null : target.include.map(globRegExp);
   const exclude = (target.exclude ?? []).map(globRegExp);
-  const kept = (await candidates(repo, target, git)).filter((path) => {
+  const kept = (await listFiles(repo, target.root, git, `target '${target.name}'`)).filter((path) => {
     const abs = join(root, path);
     return !excluded(path, exclude) && isFile(abs) && included(path, abs, include);
   });

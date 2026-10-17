@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 32 — feat(packs): give repo-scope slots Node-free alternates
+**Current step:** 33 — feat(unclaimed): fail when a toolchain marker sits outside every target
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -55,7 +55,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 29. feat(changed): skip unaffected targets under --changed
 - ☑ 30. feat(launch): resolve tools through mise and PATH and record the pin
 - ☑ 31. feat(packs): add the bash pack with file lists
-- ☐ 32. feat(packs): give repo-scope slots Node-free alternates
+- ☑ 32. feat(packs): give repo-scope slots Node-free alternates
 - ☐ 33. feat(unclaimed): fail when a toolchain marker sits outside every target
 - ☐ 34. feat(doctor): report the mode, targets, pin sources and unpinned tools
 - ☐ 35. feat(entry): resolve the entry command for the stanza, hooks and skills
@@ -136,6 +136,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 63: TRIVY_SKIP_CHECK_UPDATE loads a cached checks bundle when one exists and the embedded checks only on an empty cache, so R5.8's 'uses trivy's embedded checks' holds only on a clean machine (trivy 0.76.0)
 - [ ] shfmt (and any tool that reads FORCE_COLOR's presence, not its value) colors its output under checkride's global FORCE_COLOR=0 spawn env; an empty FORCE_COLOR turns it off (verified shfmt 3.14.1), so decide at step 41's env.ts whether the bash pack's env or the global spawn env should set FORCE_COLOR to empty
 - [ ] R11.2's shebang regex ^#!\s*(/usr/bin/env\s+)?(bash|sh|dash|ksh)\b never matches #!/bin/bash or #!/bin/sh; step 31 matched the interpreter's basename directly or through env (with env flags), so amend R11.2's text to that
+- [ ] unclaimed reports a workspace's root package.json above its ts targets (R11.3 as written), and since V4 forbids nesting ts targets the only fix is unclaimed.ignore; weigh, before step 39's polyglot-ts-bash example, whether a marker directly above same-pack targets should count as claimed
+- [ ] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2092,3 +2094,4 @@ folder, so it rides the branch into the PR.)*
   The step names no e2e file and isn't the phase's last, but I ran `pm-quartet`, `invariance` and `out` e2e anyway, since the package manager and fix paths moved. All 20 cases are green.
 
 - 2026-10-16 — step 31 checkpointed · 46f9504f7 — feat(packs): add the bash pack with file lists (1 drift, 19m)
+- 2026-10-16 — step 32 checkpointed · b547c5ed6 — feat(packs): give repo-scope slots Node-free alternates (1 drift, 6m)

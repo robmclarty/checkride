@@ -32,22 +32,31 @@ import type { RunFlags } from './types.js';
  * or `<target>:<slot>`.
  * An opt-in check runs when `--all` is given, when an `--include` token selects
  * it, when it was explicitly configured in `checks` (`r.explicit`), or when an
- * `--only` token names it — naming a slot is opting in. A target token names no
+ * `--only` token names it — naming a slot is opting in. An inactive slot runs
+ * only when an `--only` or `--include` token names it. A target token names no
  * slot, so `--only web` leaves `web`'s opt-in slots out unless one of the others
  * lets them in. `--skip` narrows `--only` too, so `--only web --skip web:test`
  * runs every check of `web` but its tests.
  */
 export function selectChecks(resolved: readonly ResolvedCheck[], flags: RunFlags): ResolvedCheck[] {
-  const only = flags.only ?? null;
   const skip = flags.skip ?? [];
-  const include = flags.include ?? [];
-  const all = flags.all ?? false;
-  return resolved.filter((r) => {
-    if (selectedBy(skip, r)) return false;
-    const optedIn = !r.optIn || all || r.explicit === true || selectedBy(include, r);
-    if (only) return selectedBy(only, r) && (optedIn || namedBy(only, r));
-    return optedIn;
-  });
+  const sel: Selection = { only: flags.only ?? null, include: flags.include ?? [], all: flags.all ?? false };
+  return resolved.filter((r) => !selectedBy(skip, r) && inSelection(r, sel));
+}
+
+/** The selection flags, with their defaults applied. */
+type Selection = { only: readonly string[] | null; include: readonly string[]; all: boolean };
+
+/** True when `r` runs whether or not it's opt-in: it isn't, or `--all`, its config entry or an `--include` token opts it in. */
+function optedIn(r: ResolvedCheck, sel: Selection): boolean {
+  return !r.optIn || sel.all || r.explicit === true || selectedBy(sel.include, r);
+}
+
+/** True when `sel` selects `r`, `--skip` aside. An inactive slot sits out every run, `--all` included, unless named. */
+function inSelection(r: ResolvedCheck, sel: Selection): boolean {
+  if (r.inactive === true) return namedBy(sel.only ?? [], r) || namedBy(sel.include, r);
+  if (sel.only === null) return optedIn(r, sel);
+  return selectedBy(sel.only, r) && (optedIn(r, sel) || namedBy(sel.only, r));
 }
 
 /**

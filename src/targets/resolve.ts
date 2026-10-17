@@ -67,11 +67,11 @@ export type Target = {
 };
 
 /**
- * Repo-scope slots R5.1 appends after `snippets`. Until each joins `SLOTS`, V2
- * reserves its name anyway, so a target named after one doesn't break on the
- * upgrade that adds it (R5.1).
+ * Repo-scope slots R5.1 appends after `snippets` that haven't joined `SLOTS`
+ * yet. V2 reserves each name anyway, so a target named after one doesn't break
+ * on the upgrade that adds it (R5.1).
  */
-const RESERVED_SLOTS: readonly string[] = ['schema', 'unclaimed'];
+export const RESERVED_SLOTS: readonly string[] = ['schema'];
 
 /** The pack whose slots check the repo as a whole; a target or a `packs` key never names it. */
 const REPO_PACK = 'repo';

@@ -440,6 +440,41 @@ get their `changedArgs`. When git can't list the paths, as outside a git
 repository, no target is skipped and stderr says so. A repo without `targets`
 narrows through `changedArgs` alone, as it always did.
 
+**With `targets`, `unclaimed` reports the code no target checks.** It's a
+repo-scope slot that runs in every multi-target run. A marker is a file that
+marks one language's code: `package.json` and `tsconfig.json` for `ts`,
+`go.mod` and `go.work` for `go`, `Cargo.toml` for `rust`, `pyproject.toml`,
+`setup.cfg` and `setup.py` for `python`, and `.terraform.lock.hcl` and every
+`*.tf` file for `terraform`. A marker is claimed when a target of its pack is
+rooted at the marker's directory or above it, so a target at the root of a
+workspace claims every package in it. Until a language's pack ships, no target
+can claim its markers, and the message says to list them in
+`unclaimed.ignore`. Every marker no target claims fails the check (exit 1),
+except one under `node_modules/`,
+`vendor/`, `target/`, `.venv/`, `.terraform/`, `.check/`, the output directory,
+any `testdata/` or any `test/fixtures/`, and one an `unclaimed.ignore` glob
+matches, the glob matching the path or a directory above it. The files it
+reads are the ones git lists, tracked or untracked but not ignored, or every
+file outside a git repository. It writes `unclaimed.json` in the output
+directory, in checkride's own format, even when it passes:
+
+```json
+{ "unclaimed": [ { "path": "tools/gen/package.json", "kind": "ts",
+                   "suggest": { "name": "gen", "lang": "ts", "root": "tools/gen" } } ] }
+```
+
+`suggest` is the target that would claim the marker, named after its
+directory, or `app` at the root, with the kind or a number added when a slot,
+a target or another suggestion holds that name. A root `package.json` above
+ts targets in their own directories is unclaimed, and because two ts targets
+can't nest, the way to quiet it is `unclaimed.ignore: ["package.json"]`.
+Without `targets`, `unclaimed` is **inactive**: absent from `checks`, as an
+unselected opt-in slot is, but under `--all` too. Its name stays a valid token,
+so `--only unclaimed` or `--include unclaimed` records one skipped entry with
+the reason `runs only when checkride.config.json declares targets`. A config
+entry that picks a tool for the slot, such as a custom check of the same
+name, runs either way.
+
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files
 under the target's root that git lists, tracked or untracked but not ignored,
@@ -788,7 +823,8 @@ each external tool every pack runs, with the npm package that provides it or
 the `mise.toml` keys that pin it. Each
 `SLOTS` entry carries a `scope`: `repo` for the slots the repo pack fills,
 which check the repo as a whole, and `target` for the rest, which a language
-pack fills.
+pack fills. The last, `unclaimed`, also carries `activeWith: 'targets'`, the
+config key it needs before it runs.
 [`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) holds
 each of these promises.
 

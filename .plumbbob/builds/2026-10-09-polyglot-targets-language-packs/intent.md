@@ -671,7 +671,7 @@ reference rules and porting trap apply as written there.
 31. [x] feat(packs): add the bash pack with file lists, **done when:** a `bash` target runs shellcheck (`lint`) and shfmt (opt-in `format`) over `{files}` built per R11.2; zero matches skip with `no files matched` (F10); an argv over 200,000 bytes exits 2
     - seam: `src/packs/bash.ts`, `src/targets/files.ts`, `src/launch/`
     - model: sonnet
-32. [ ] feat(packs): give repo-scope slots Node-free alternates, **done when:** outside implicit `ts` mode the repo pack's chain is `[js-lockfile, mise, path]`, so rumdl, typos and the vale and ast-grep binaries resolve through it; implicit `ts` mode still resolves `[js-lockfile]` only, and the invariance golden is unchanged
+32. [x] feat(packs): give repo-scope slots Node-free alternates, **done when:** outside implicit `ts` mode the repo pack's chain is `[js-lockfile, mise, path]`, so rumdl, typos and the vale and ast-grep binaries resolve through it; implicit `ts` mode still resolves `[js-lockfile]` only, and the invariance golden is unchanged
     - seam: `src/packs/repo.ts`, `src/packs/tools.ts`
     - model: sonnet
 33. [ ] feat(unclaimed): fail when a toolchain marker sits outside every target, **done when:** in multi-target mode `unclaimed` reports every R11.3 marker no target claims, writes `<out>/unclaimed.json` with a suggested target, honors `unclaimed.ignore`, and passes on a fully claimed repo (F9); outside multi-target mode `unclaimed` is absent from `checks`, and `--only unclaimed` records one skipped entry with its reason ([D53 (inactive-slots)](#d53))

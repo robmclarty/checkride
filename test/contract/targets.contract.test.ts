@@ -127,9 +127,16 @@ describe('multi-target runs', () => {
   /** The `--out` folder the R9 cases share. */
   const outFolder = (): string => join(dir, 'out');
 
+  /**
+   * Every repo here is a workspace whose root `package.json` sits above its ts
+   * targets, which `unclaimed` reports unless the config leaves it out.
+   */
+  const workspaceRoot = { ignore: ['package.json'] };
+
   const twoTargets = {
     targets: { web: { lang: 'ts', root: 'apps/web' }, api: { lang: 'ts', root: 'apps/api' } },
     checks: { links: false },
+    unclaimed: workspaceRoot,
   };
 
   test('two ts targets each run vitest from their own root, and each report lands where the summary says', async () => {
@@ -165,10 +172,11 @@ describe('multi-target runs', () => {
       targets: { web: { lang: 'ts', root: 'apps/web', checks: { probe: custom } }, api: { lang: 'ts', root: 'apps/api' } },
       packs: { ts: { checks: { e2e: custom } } },
       checks: { licenses: custom },
+      unclaimed: workspaceRoot,
     });
     expect(summary.checks.map((c) => c.name)).toEqual([
       'web:types', 'api:types', 'web:lint', 'api:lint', 'struct', 'web:dead', 'api:dead', 'web:test', 'api:test',
-      'docs', 'links', 'spell', 'licenses', 'web:e2e', 'web:probe', 'api:e2e',
+      'docs', 'links', 'spell', 'unclaimed', 'licenses', 'web:e2e', 'web:probe', 'api:e2e',
     ]);
     expect(summary.targets).toEqual([{ name: 'web', pack: 'ts', root: 'apps/web' }, { name: 'api', pack: 'ts', root: 'apps/api' }]);
   });
@@ -207,8 +215,9 @@ describe('multi-target runs', () => {
         old: { lang: 'ts', root: 'apps/old', checks: { probe: custom } },
       },
       checks: { links: false },
+      unclaimed: workspaceRoot,
     };
-    const webOnly = { targets: { web: withOld.targets.web }, checks: { links: false } };
+    const webOnly = { targets: { web: withOld.targets.web }, checks: { links: false }, unclaimed: workspaceRoot };
 
     beforeEach(async () => {
       await lay({ 'package.json': '{"name":"repo"}', 'apps/web/.keep': '', 'apps/old/.keep': '' });

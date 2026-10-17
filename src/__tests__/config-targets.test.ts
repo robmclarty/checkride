@@ -167,11 +167,12 @@ describe('the order checks resolve in (R8.4)', () => {
     const names = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists: present(), manifest: NO_MANIFEST }).map(checkName);
     expect(names.slice(0, 5)).toEqual(['web:types', 'api:types', 'web:format', 'api:format', 'web:lint']);
     expect(names.indexOf('struct')).toBe(names.indexOf('api:lint') + 1);
-    // The custom checks close the main group, after its last catalogue slot;
-    // the slots on later waves (build, publint, mutation) follow them.
+    // The custom checks close the main group, after its last catalogue slot,
+    // unclaimed; the slots on later waves (build, publint, mutation) follow them.
     const customs = ['licenses', 'web:e2e', 'web:probe', 'api:e2e'];
     const at = names.indexOf('licenses');
-    expect(at).toBe(names.indexOf('api:snippets') + 1);
+    expect(names.indexOf('unclaimed')).toBe(names.indexOf('api:snippets') + 1);
+    expect(at).toBe(names.indexOf('unclaimed') + 1);
     expect(names.slice(at, at + customs.length)).toEqual(customs);
   });
 

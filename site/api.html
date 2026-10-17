@@ -485,9 +485,9 @@ class Component extends DCLogic {
       ['dupes', 'Code duplication', 'fallow (dupes)', '—', true],
       ['health', 'Complexity / maintainability', 'fallow (health)', '—', true],
       ['test', 'Tests + coverage', 'vitest', 'jest', false],
-      ['docs', 'Markdown lint', 'markdownlint-cli2', '—', false],
+      ['docs', 'Markdown lint', 'markdownlint-cli2', 'rumdl', false],
       ['links', 'Relative markdown links resolve', 'built-in', '—', false],
-      ['spell', 'Spelling', 'cspell', '—', false],
+      ['spell', 'Spelling', 'cspell', 'typos', false],
       ['prose', 'Writing style', 'vale', '—', true],
       ['mutation', 'Mutation testing', 'stryker', '—', true],
       ['security', 'Dependency audit', 'pnpm audit', '—', true],
@@ -497,6 +497,7 @@ class Component extends DCLogic {
       ['pack', 'Tarball ships the right files', 'built-in', '—', true],
       ['smoke', 'Built package imports cleanly', 'built-in', '—', true],
       ['snippets', 'Tagged doc fences type-check', 'built-in (tsc)', 'snippets-dist', true],
+      ['unclaimed', 'Every toolchain marker sits in a target', 'built-in', '—', false],
     ].map(([slot, role, tool, alts, optIn], i) => ({ slot, role, tool, alts, def: optIn ? '○' : '✅', accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 
     // ---- programmatic exports ----

@@ -366,7 +366,8 @@ export function inventory(input: {
     ...(input.cwd !== undefined ? { cwd: input.cwd } : {}),
     ...(input.fileExists !== undefined ? { fileExists: input.fileExists } : {}),
   });
-  return resolved.map((r) => ({
+  // An inactive slot isn't one this repo runs, so it's neither adopted nor empty.
+  return resolved.filter((r) => r.inactive !== true).map((r) => ({
     slot: r.slot,
     status: r.adapter ? 'adopted' : 'empty',
     adapter: r.adapter?.name ?? null,
@@ -713,8 +714,10 @@ function record(w: Writer, files: readonly HookFile[], skipped?: string[]): void
  * project runs.
  */
 function scaffoldedAdapters(adapters: readonly Adapter[], slots: readonly Slot[]): Adapter[] {
+  // A slot that needs a config key the scaffold doesn't write (`unclaimed`
+  // needs `targets`) is inactive here, and naming it would force it on.
   return slots
-    .filter((slot) => slot.optIn !== true)
+    .filter((slot) => slot.optIn !== true && slot.activeWith === undefined)
     .flatMap((slot) => adapters.find((a) => a.slot === slot.name) ?? []);
 }
 

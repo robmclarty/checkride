@@ -402,6 +402,7 @@ class Component extends DCLogic {
       ['pack',     'Tarball ships the right files',          'built-in',          true,  'Fails if a required file is missing or src/, tests, or .ts sources leak in.'],
       ['smoke',    'Built package imports cleanly',          'built-in',          true,  'Loads every exports entry through real resolution; asserts exports are live.'],
       ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    true,  'Type-checks fenced examples tagged <!-- snippet: check --> in README + docs.'],
+      ['unclaimed', 'Every toolchain marker sits in a target', 'built-in',          false, 'Runs once the config declares targets: fails on a toolchain marker no target claims.'],
     ];
 
     const sel = this.state.slot;

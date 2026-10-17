@@ -1311,8 +1311,8 @@ describe('published JSON Schema', () => {
     expect(definitionEnum(['packName'])).toEqual(languagePacks);
   });
 
-  test('the target names it reserves are every slot name, plus schema and unclaimed', () => {
-    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'unclaimed']);
+  test('the target names it reserves are every slot name, unclaimed included, plus schema', () => {
+    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema']);
   });
 });
 

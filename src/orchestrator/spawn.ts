@@ -23,6 +23,7 @@ import { KILL_GRACE_SECONDS, killGroup } from '../proc.js';
 import { checkSecurity } from '../security.js';
 import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
+import { checkUnclaimed } from '../targets/index.js';
 import type { CheckRunner, RunnerOutcome } from './types.js';
 
 /** The placeholder in `changedArgs` that expands to the base ref a `--changed` run measures from. */
@@ -252,34 +253,51 @@ function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
   };
 }
 
+/** What a built-in runs with: its adapter, the runner's context, and the spawn and timeout its subprocesses go through. */
+type BuiltinCall = {
+  adapter: Adapter;
+  ctx: Parameters<CheckRunner>[1];
+  base: { cwd: string; spawn: typeof spawnCheck; timeoutSec: number };
+};
+
+/**
+ * `security` runs the adapter's own args, launched like any check's: its
+ * `--audit-level` doubles as the threshold the evaluator enforces, since
+ * pnpm's JSON-mode exit code ignores the level.
+ */
+function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome> {
+  const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
+  if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
+  return checkSecurity({ ...base, command: launch.command, args: launch.args });
+}
+
+/**
+ * Every built-in that spawns or reads in-process, by its `builtin` id, apart
+ * from `links`, which the runner calls first. The snippets pair shares one
+ * execution path, differing only in mode, and `unclaimed` checks against the
+ * targets its options carry, leaving out what it writes under `{out}`.
+ */
+const BUILTINS: ReadonlyMap<string, (call: BuiltinCall) => Promise<CheckOutcome>> = new Map([
+  ['pack', ({ ctx, base }) => checkPack({ ...base, pm: ctx.pm })],
+  ['smoke', ({ base }) => checkSmoke(base)],
+  ['security', runSecurity],
+  ['snippets', ({ ctx, base }) => checkSnippets({ ...base, mode: 'src', pm: ctx.pm })],
+  ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, mode: 'dist', pm: ctx.pm })],
+  [
+    'unclaimed',
+    ({ adapter, ctx }) => checkUnclaimed(ctx.cwd, { targets: [], ...adapter.options?.unclaimed, ...(ctx.out !== undefined ? { out: ctx.out } : {}) }),
+  ],
+]);
+
 /**
  * Dispatch a built-in check, or `null` when the adapter spawns a real tool.
  * Every built-in that runs a subprocess goes through `spawnCheck`, so its
  * child registers in `liveChecks` and inherits the timeout + reaping like any
- * other check. `security` alone runs the adapter's own args, launched like
- * any check's — its `--audit-level` doubles as the threshold the evaluator
- * enforces, since pnpm's JSON-mode exit code ignores the level. The snippets
- * pair shares one execution path, differing only in mode.
+ * other check.
  */
 function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: number): Promise<CheckOutcome> | null {
-  const base = { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout };
-  switch (adapter.builtin) {
-    case 'pack':
-      return checkPack({ ...base, pm: ctx.pm });
-    case 'smoke':
-      return checkSmoke(base);
-    case 'security': {
-      const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
-      if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal));
-      return checkSecurity({ ...base, command: launch.command, args: launch.args });
-    }
-    case 'snippets':
-      return checkSnippets({ ...base, mode: 'src', pm: ctx.pm });
-    case 'snippets-dist':
-      return checkSnippets({ ...base, mode: 'dist', pm: ctx.pm });
-    default:
-      return null;
-  }
+  const run = adapter.builtin === undefined ? undefined : BUILTINS.get(adapter.builtin);
+  return run === undefined ? null : run({ adapter, ctx, base: { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout } });
 }
 
 /**

@@ -138,6 +138,7 @@ check between two later without shifting the others.
 | `pack` | Tarball ships the right files | built-in | opt-in |
 | `smoke` | Built package imports cleanly | built-in | opt-in |
 | `snippets` | Tagged doc fences type-check | built-in (`tsc`) | opt-in |
+| `unclaimed` | Every toolchain marker sits in a target | built-in | with `targets` |
 
 The last four are the **publish-ready bundle** — opt-in library slots that check
 the shipped artifact (see [Tools](./tools.md#the-publish-ready-bundle)). `build`

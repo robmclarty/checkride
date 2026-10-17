@@ -41,8 +41,8 @@ describe('registry invariants', () => {
     }
   });
 
-  test('the repo-scope slots are struct, docs, links, spell and prose; the rest are target-scope', () => {
-    expect(SLOTS.filter((s) => s.scope === 'repo').map((s) => s.name)).toEqual(['struct', 'docs', 'links', 'spell', 'prose']);
+  test('the repo-scope slots are struct, docs, links, spell, prose and unclaimed; the rest are target-scope', () => {
+    expect(SLOTS.filter((s) => s.scope === 'repo').map((s) => s.name)).toEqual(['struct', 'docs', 'links', 'spell', 'prose', 'unclaimed']);
     expect(SLOTS.filter((s) => s.scope !== 'repo').every((s) => s.scope === 'target')).toBe(true);
   });
 
@@ -55,7 +55,7 @@ describe('registry invariants', () => {
       'struct:ast-grep', 'dead:fallow', 'dead:knip', 'dupes:fallow', 'health:fallow', 'test:vitest', 'test:jest',
       'docs:markdownlint-cli2', 'docs:rumdl', 'links:links', 'spell:cspell', 'spell:typos', 'prose:vale', 'mutation:stryker',
       'security:pnpm-audit', 'build:build', 'publint:publint', 'attw:attw', 'pack:pack', 'smoke:smoke',
-      'snippets:snippets', 'snippets:snippets-dist',
+      'snippets:snippets', 'snippets:snippets-dist', 'unclaimed:unclaimed',
     ]);
   });
 
@@ -66,6 +66,7 @@ describe('registry invariants', () => {
       docs: 'markdownlint-cli2', links: 'links', spell: 'cspell', prose: 'vale',
       mutation: 'stryker', security: 'pnpm-audit',
       build: 'build', publint: 'publint', attw: 'attw', pack: 'pack', smoke: 'smoke', snippets: 'snippets',
+      unclaimed: 'unclaimed',
     };
     for (const slot of SLOTS) {
       const first = ADAPTERS.find((a) => a.slot === slot.name);
@@ -114,7 +115,10 @@ describe('registry invariants', () => {
     expect(SLOTS.filter((s) => s.optIn).map((s) => s.name)).toEqual([
       'format', 'dupes', 'health', 'prose', 'mutation', 'security', 'build', 'publint', 'attw', 'pack', 'smoke', 'snippets',
     ]);
-    expect(SLOTS.slice(-5).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke', 'snippets']);
+    // The publish bundle closes the 0.13 catalogue; the slots appended after
+    // it (R5.1) aren't opt-in, they're inactive until the config needs them.
+    expect(SLOTS.slice(-6, -1).map((s) => s.name)).toEqual(['publint', 'attw', 'pack', 'smoke', 'snippets']);
+    expect(SLOTS.at(-1)).toEqual({ name: 'unclaimed', scope: 'repo', activeWith: 'targets' });
   });
 
   test('the library-publishing slots are opt-in with JSON-capturing attw', () => {
@@ -138,9 +142,9 @@ describe('registry invariants', () => {
     expect(prettier?.fixArgs).toEqual(['exec', 'prettier', '--write', '.']);
   });
 
-  test('links, pnpm-audit, pack, smoke, and the two snippets adapters are the built-ins', () => {
+  test('links, pnpm-audit, pack, smoke, the two snippets adapters and unclaimed are the built-ins', () => {
     const builtins = ADAPTERS.filter((a) => a.builtin);
-    expect(builtins.map((a) => a.name)).toEqual(['links', 'pnpm-audit', 'pack', 'smoke', 'snippets', 'snippets-dist']);
+    expect(builtins.map((a) => a.name)).toEqual(['links', 'pnpm-audit', 'pack', 'smoke', 'snippets', 'snippets-dist', 'unclaimed']);
   });
 
   test('the smoke slot is an opt-in wave-20 built-in on a node liveness probe (D9)', () => {

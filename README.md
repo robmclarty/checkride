@@ -228,6 +228,7 @@ generates config for the blessed default.
 | `pack`     | Tarball ships the right files (opt-in) | built-in            | —                |
 | `smoke`    | Built package imports cleanly (opt-in) | built-in            | —                |
 | `snippets` | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
+| `unclaimed` | Every toolchain marker sits in a target (with `targets`) | built-in | — |
 
 Most of these tools you already know. The one unfamiliar name, `fallow`, is a
 Rust-native codebase-analysis tool covering dead code, duplication, and
@@ -246,6 +247,13 @@ check it didn't ask for. Turn one on with `--include <slot>` (or `--all`), or by
 it in `checks`**: an explicit entry like `"format": "prettier"` opts the slot into every
 run. `checkride fix` then runs its write form (for example `prettier --write`) alongside the
 other fixers. `format` sits before `lint` so the tree is tidy before the linters look.
+
+`unclaimed` isn't opt-in but **inactive** until the config declares `targets`:
+then it fails when a toolchain marker, such as a `package.json` or a
+`go.mod`, sits outside every target of its language, a directory of code no
+check reads. Without `targets` it stays out of
+every run, `--all` included, and naming it with `--only unclaimed` records it
+as skipped with the reason.
 
 To **configure a slot without opting it in** — say, give `attw` a `--profile` but keep it
 in the full sweep only — add `"optIn": true` to its entry: it stays out of the default run

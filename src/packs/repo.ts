@@ -120,5 +120,18 @@ export const REPO_PACK: Pack = {
       outputFile: 'prose.json',
       devDeps: { '@vvago/vale': '3.24.0' },
     },
+    {
+      name: 'unclaimed',
+      slot: 'unclaimed',
+      description: 'Every toolchain marker sits inside a target that checks it',
+      // Always available once the slot is active, which takes `targets`: a
+      // marker outside every target is code no check reads.
+      detect: [],
+      command: 'node',
+      args: [],
+      outputFile: 'unclaimed.json',
+      builtin: 'unclaimed',
+      devDeps: {},
+    },
   ],
 };

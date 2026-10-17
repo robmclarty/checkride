@@ -233,7 +233,11 @@ function ranNames(result: RunResult): string[] {
   return result.summary.checks.filter((c) => c.skipped !== true).map((c) => c.name).toSorted();
 }
 
-/** A frontend and an api target, each with a lint, plus a top-level custom check of the whole repo. */
+/**
+ * A frontend and an api target, each with a lint, plus a top-level custom
+ * check of the whole repo; `unclaimed`, which every multi-target run has,
+ * runs as a repo-scope check too.
+ */
 const changedConfig: CheckrideConfig = {
   targets: {
     web: { lang: 'ts', root: 'frontend', checks: { lint: 'oxlint' } },
@@ -262,11 +266,11 @@ describe.skipIf(!gitAvailable)('runChecks --changed with targets (S10)', () => {
     gitIn(dir, 'commit', '-q', '-am', 'web change');
     const err = sink();
     const result = await runChanged(err.out);
-    expect(ranNames(result)).toEqual(['links', 'tally', 'web:lint']);
+    expect(ranNames(result)).toEqual(['links', 'tally', 'unclaimed', 'web:lint']);
     expect(result.summary.checks.find((c) => c.name === 'api:lint')).toMatchObject({
       skipped: true, ok: true, exit_code: null, reason: 'no changes under api', target: 'api',
     });
-    expect(result.summary.checks_run).toBe(3);
+    expect(result.summary.checks_run).toBe(4);
     expect(err.text()).toMatch(/○ api:lint\s+skip {2}no changes under api/);
     expect(result.exitCode).toBe(0);
   });
@@ -277,25 +281,25 @@ describe.skipIf(!gitAvailable)('runChecks --changed with targets (S10)', () => {
     gitIn(dir, 'commit', '-q', '-am', 'api change on main');
     gitIn(dir, 'checkout', '-q', 'feature');
     await writeFile(join(dir, 'frontend/a.ts'), 'a2\n');
-    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'web:lint']);
+    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'unclaimed', 'web:lint']);
   });
 
   test('an untracked file affects its target, and an unstaged edit does too', async () => {
     await writeFile(join(dir, 'api/new.go'), 'n\n');
-    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally']);
+    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally', 'unclaimed']);
     await rm(join(dir, 'api/new.go'));
     await writeFile(join(dir, 'frontend/a.ts'), 'a2\n');
-    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'web:lint']);
+    expect(ranNames(await runChanged())).toEqual(['links', 'tally', 'unclaimed', 'web:lint']);
   });
 
   test('a file moved between targets affects both', async () => {
     gitIn(dir, 'mv', 'api/main.go', 'frontend/main.go');
-    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally', 'web:lint']);
+    expect(ranNames(await runChanged())).toEqual(['api:lint', 'links', 'tally', 'unclaimed', 'web:lint']);
   });
 
   test('with nothing changed, every target sits out and the repo-scope checks still run', async () => {
     const result = await runChanged();
-    expect(ranNames(result)).toEqual(['links', 'tally']);
+    expect(ranNames(result)).toEqual(['links', 'tally', 'unclaimed']);
     expect(result.summary.checks.filter((c) => c.reason?.startsWith('no changes') === true).map((c) => `${c.name}: ${c.reason}`)).toEqual([
       'web:lint: no changes under frontend',
       'api:lint: no changes under api',
@@ -311,7 +315,7 @@ describe('runChecks --changed outside a git repository (F19)', () => {
   test('no target is skipped, and stderr says so', async () => {
     const err = sink();
     const result = await runChecks({ cwd: dir, config: changedConfig, runner: passing, baseline: null, changed: true, json: true, stdout: sink().out, stderr: err.out });
-    expect(ranNames(result)).toEqual(['api:lint', 'links', 'tally', 'web:lint']);
+    expect(ranNames(result)).toEqual(['api:lint', 'links', 'tally', 'unclaimed', 'web:lint']);
     expect(result.summary.checks.filter((c) => c.reason?.startsWith('no changes') === true)).toEqual([]);
     expect(err.text()).toContain("--changed: can't list the changed paths (HEAD names no commit), so no target is skipped");
   });

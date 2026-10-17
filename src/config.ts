@@ -326,6 +326,12 @@ export type ResolvedCheck = {
    * a top-level custom check included. Absent in implicit mode.
    */
   pack?: string;
+  /**
+   * True for a slot the config hasn't activated (see `Slot.activeWith`): it's
+   * skipped with the reason, and a run leaves it out, `--all` included,
+   * unless a token names it (D53).
+   */
+  inactive?: true;
 };
 
 const CONFIG_FILE = 'checkride.config.json';
@@ -1091,11 +1097,41 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
   return { fileExists, manifest, pinned };
 }
 
+/**
+ * The inactive check for `slot` when the config lacks the key the slot needs
+ * (`Slot.activeWith`) and no entry picks its tool, or `null` when the slot is
+ * active. An entry that picks a tool, a repo's own custom check of that name
+ * among them, runs it either way.
+ */
+function inactiveCheck(slot: Slot, entry: SlotConfig | undefined, config: CheckrideConfig | null): ResolvedCheck | null {
+  const key = slot.activeWith;
+  if (key === undefined || decides(entry) || (config !== null && Object.hasOwn(config, key))) return null;
+  return { ...skipped(slot, `runs only when checkride.config.json declares ${key}`), inactive: true };
+}
+
+/** A repo-scope slot at the repo root: inactive, or resolved from its entry and detection. */
+function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection): ResolvedCheck {
+  const entry = input.config?.checks?.[slot.name];
+  return inactiveCheck(slot, entry, input.config) ?? resolveOne(slot, entry, input.adapters, detection);
+}
+
+/**
+ * The `unclaimed` built-in with what it checks carried on its options: the
+ * targets that claim markers, or the one implicit target at the root in a
+ * repo without them, and `unclaimed.ignore`. Any other check passes through.
+ */
+function withClaims(check: ResolvedCheck, config: CheckrideConfig | null): ResolvedCheck {
+  if (check.adapter?.builtin !== 'unclaimed') return check;
+  const targets = configuredTargets(config) ?? [{ name: '', pack: PACKS.ts.name, root: '.' }];
+  const claims = { targets: targets.map(({ name, pack, root }) => ({ name, pack, root })), ignore: config?.unclaimed?.ignore ?? [] };
+  return { ...check, adapter: withOptions(check.adapter, { unclaimed: claims }) };
+}
+
 /** Implicit mode: every catalogue slot, then every custom check, at the repo root. */
 function implicitChecks(input: ResolveInput, catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
   const detection = detectionAt(input, '.');
   const checks = input.config?.checks ?? {};
-  const catalogue = input.slots.map((slot) => resolveOne(slot, checks[slot.name], input.adapters, detection));
+  const catalogue = input.slots.map((slot) => repoSlotCheck(slot, input, detection));
   return [...catalogue, ...foldCustomChecks(checks, catalogueNames, detection.fileExists)];
 }
 
@@ -1212,7 +1248,7 @@ function targetChecks(input: ResolveInput, targets: readonly Target[], catalogue
   const scopes = targets.map((target) => targetScope(input, target));
   const catalogue = input.slots.flatMap((slot) =>
     slot.scope === 'repo'
-      ? [inRepo(resolveOne(slot, checks[slot.name], input.adapters, detection))]
+      ? [inRepo(repoSlotCheck(slot, input, detection))]
       : scopes.flatMap((scope) => targetSlotCheck(slot, scope, checks[slot.name]) ?? []),
   );
   const customs = foldCustomChecks(checks, catalogueNames, detection.fileExists).map(inRepo);
@@ -1253,5 +1289,6 @@ function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
 export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
   const catalogueNames = new Set(input.slots.map((s) => s.name));
   const targets = configuredTargets(input.config);
-  return sortByGroup(targets === null ? implicitChecks(input, catalogueNames) : targetChecks(input, targets, catalogueNames));
+  const checks = targets === null ? implicitChecks(input, catalogueNames) : targetChecks(input, targets, catalogueNames);
+  return sortByGroup(checks.map((check) => withClaims(check, input.config)));
 }

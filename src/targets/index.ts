@@ -12,3 +12,4 @@ export { argvBytes, expandFiles, isFileListPack, MAX_FILES_ARGV_BYTES, NO_FILES_
 export { configProblem, configuredTargets, presetProblem, skipExitCodeProblem } from './resolve.js';
 export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';
+export { checkUnclaimed } from './unclaimed.js';

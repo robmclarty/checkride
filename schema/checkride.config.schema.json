@@ -35,12 +35,12 @@
     "unclaimed": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Settings for the unclaimed check, which fails when a toolchain marker (package.json, go.mod, Cargo.toml, pyproject.toml, a .tf file) sits outside every target that could check it.",
+      "description": "Settings for the unclaimed check, which runs once targets are declared and fails when a toolchain marker (package.json, go.mod, Cargo.toml, pyproject.toml, a .tf file) sits outside every target of its language.",
       "properties": {
         "ignore": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Globs, relative to the repo root, for marker paths the unclaimed check never reports."
+          "description": "Globs, relative to the repo root, for marker paths the unclaimed check never reports; a glob that matches a directory leaves out every marker under it."
         }
       }
     },
@@ -85,7 +85,7 @@
     },
     "checks": {
       "type": "object",
-      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, prose, mutation, security, build, publint, attw, pack, smoke, snippets) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, prose, mutation, security, build, publint, attw, pack, smoke, snippets) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
+      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, prose, mutation, security, build, publint, attw, pack, smoke, snippets, unclaimed) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, prose, mutation, security, build, publint, attw, pack, smoke, snippets) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
       "additionalProperties": {
         "$ref": "#/definitions/slotConfig"
       }
@@ -104,7 +104,7 @@
         "enum": [
           "types", "format", "lint", "struct", "dead", "dupes", "health", "test", "docs", "links", "spell",
           "prose", "mutation", "security", "build", "publint", "attw", "pack", "smoke", "snippets",
-          "schema", "unclaimed"
+          "unclaimed", "schema"
         ]
       }
     },
