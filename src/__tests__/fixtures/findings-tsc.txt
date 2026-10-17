@@ -1,0 +1,7 @@
+src/app.ts(1,17): error TS2305: Module '"./greet.js"' has no exported member 'missing'.
+src/app.ts(8,7): error TS2741: Property 'age' is missing in type '{ name: string; }' but required in type 'User'.
+src/app.ts(9,7): error TS2345: Argument of type 'number' is not assignable to parameter of type 'string'.
+src/app.ts(15,11): error TS2345: Argument of type '{ retry: { count: string; }; }' is not assignable to parameter of type '{ retry: { count: number; }; }'.
+  The types of 'retry.count' are incompatible between these types.
+    Type 'string' is not assignable to type 'number'.
+src/greet.ts(5,14): error TS2322: Type 'string' is not assignable to type 'number'.

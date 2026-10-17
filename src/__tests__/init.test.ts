@@ -8,9 +8,11 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
+import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
+import type { CheckRunner } from '../orchestrator/index.js';
 import { selectChecks } from '../orchestrator/index.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
@@ -650,6 +652,30 @@ describe('existing-project adoption (idempotent)', () => {
     expect(captured).toBe(false); // no fingerprintable debt → no baseline written
     expect(result.grandfathered).toEqual([]);
     expect(result.disabled).toEqual(['types']);
+  });
+
+  test('--baseline grandfathers failing markdown instead of disabling docs (D32)', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.markdownlint-cli2.jsonc'), '{}'); // docs → markdownlint-cli2
+    // markdownlint-cli2 0.23.3's real report, on stderr where it prints it (D49).
+    const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+    const stderr = await readFile(join(fixtures, 'findings-markdownlint-cli2.stderr.txt'), 'utf8');
+    const runner: CheckRunner = (r) =>
+      Promise.resolve(r.slot === 'docs' ? { ok: false, exit_code: 1, stdout: '', stderr } : { ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      probeFailures: () => Promise.resolve(['docs']),
+      captureBaseline: (at) => runBaseline({ cwd: at, runner, stderr: { write: () => true } }).then(() => undefined),
+    });
+
+    expect(result.grandfathered).toEqual(['docs']);
+    expect(result.disabled).toEqual([]);
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['docs']).toBe('markdownlint-cli2');
+    const baseline = JSON.parse(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')) as { slots: Record<string, string[]> };
+    expect(baseline.slots['docs']).toHaveLength(9); // its ten findings less the one warning
   });
 
   test('--baseline --dry-run reports grandfathering but never writes the baseline', async () => {

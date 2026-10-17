@@ -1,0 +1,3 @@
+{"ImportPath":"github.com/nope/missing","Action":"build-output","Output":"internal/remote/remote.go:3:8: no required module provides package github.com/nope/missing; to add it:\n"}
+{"ImportPath":"github.com/nope/missing","Action":"build-output","Output":"\tgo get github.com/nope/missing\n"}
+{"ImportPath":"github.com/nope/missing","Action":"build-fail"}

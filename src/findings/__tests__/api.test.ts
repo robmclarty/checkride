@@ -35,15 +35,18 @@ function entry(name: string, adapter: string | null, extra: Partial<FindingsChec
 
 describe('isParseable', () => {
   test('names the adapters with a parser, and no others', () => {
-    const parseable = ['oxlint', 'ast-grep', 'cspell', 'vale', 'fallow', 'golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck'];
+    const parseable = [
+      'oxlint', 'ast-grep', 'cspell', 'vale', 'fallow', 'golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck',
+      'markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build',
+    ];
     for (const adapter of parseable) expect(isParseable(adapter), adapter).toBe(true);
-    for (const adapter of ['tsc', 'vitest', 'knip', 'biome', 'constructor']) expect(isParseable(adapter), adapter).toBe(false);
+    for (const adapter of ['vitest', 'knip', 'biome', 'constructor']) expect(isParseable(adapter), adapter).toBe(false);
   });
 });
 
 describe('parseFindings', () => {
   test('an adapter with no parser returns null (F45)', () => {
-    expect(parseFindings('tsc', 'src/a.ts(1,1): error TS2322: nope')).toBeNull();
+    expect(parseFindings('vitest', 'FAIL src/a.test.ts')).toBeNull();
     expect(parseFindings('knip', '[]')).toBeNull();
   });
 
@@ -140,6 +143,6 @@ describe('findingsFor', () => {
     expect(findingsFor(entry('lint', 'oxlint', { output_file: 'lint.json' }), dir, { repoRoot: '/repo' })).toBeNull();
     expect(findingsFor(entry('lint', 'oxlint', { skipped: true }), dir, { repoRoot: '/repo' })).toBeNull();
     expect(findingsFor(entry('links', null), dir, { repoRoot: '/repo' })).toBeNull();
-    expect(findingsFor(entry('types', 'tsc'), dir, { repoRoot: '/repo' })).toBeNull();
+    expect(findingsFor(entry('test', 'vitest'), dir, { repoRoot: '/repo' })).toBeNull();
   });
 });

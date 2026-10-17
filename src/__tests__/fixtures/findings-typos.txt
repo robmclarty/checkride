@@ -1,0 +1,5 @@
+./docs/notes.md:3:9: error: `teh` should be `the`
+./docs/notes.md:3:23: error: `recieve` should be `receive`
+./docs/notes.md:3:40: error: `seperate` should be `separate`
+error: `seperate` should be `separate`
+./docs/sample.ts:1:4: error: `Calcualte` should be `Calculate`

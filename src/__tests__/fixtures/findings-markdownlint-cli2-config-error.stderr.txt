@@ -1,0 +1,13 @@
+Error: Unable to use configuration file '/private/tmp/crfx/mdbad/.markdownlint-cli2.jsonc'; Unable to parse JSONC content, InvalidSymbol (offset 34, length 5), PropertyNameExpected (offset 39, length 1), ValueExpected (offset 43, length 0), CloseBraceExpected (offset 43, length 0)
+    at throwForConfigurationFile (file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2.mjs:52:9)
+    at file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2.mjs:380:11
+    at async Promise.all (index 0)
+    ... 2 lines matching cause stack trace ...
+    at async file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2-bin.mjs:14:22 {
+  [cause]: Error: Unable to parse JSONC content, InvalidSymbol (offset 34, length 5), PropertyNameExpected (offset 39, length 1), ValueExpected (offset 43, length 0), CloseBraceExpected (offset 43, length 0)
+      at jsoncParse (file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/parsers/jsonc-parse.mjs:17:11)
+      at async Promise.all (index 0)
+      at async getBaseOptions (file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2.mjs:416:3)
+      at async main (file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2.mjs:1018:19)
+      at async file:///Users/robmclarty/Projects/checkride/code/checkride/node_modules/.pnpm/markdownlint-cli2@0.23.3/node_modules/markdownlint-cli2/markdownlint-cli2-bin.mjs:14:22
+}

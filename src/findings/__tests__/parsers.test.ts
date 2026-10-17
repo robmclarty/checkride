@@ -37,7 +37,7 @@ describe('parserFor', () => {
   });
 
   test('an adapter with no parser, or a name only an object prototype carries, has none', () => {
-    for (const adapter of ['tsc', 'knip', 'biome', 'constructor', 'toString', '__proto__']) {
+    for (const adapter of ['vitest', 'knip', 'biome', 'constructor', 'toString', '__proto__']) {
       expect(parserFor(adapter), adapter).toBeUndefined();
     }
   });

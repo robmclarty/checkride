@@ -13,10 +13,15 @@ import { astGrepParser } from './parsers/ast-grep.js';
 import { cargoCheckParser, clippyParser } from './parsers/cargo.js';
 import { cspellParser } from './parsers/cspell.js';
 import { fallowParser } from './parsers/fallow.js';
+import { goBuildParser } from './parsers/go-build.js';
 import { golangciLintParser } from './parsers/golangci-lint.js';
+import { markdownlintCli2Parser } from './parsers/markdownlint-cli2.js';
 import { oxlintParser } from './parsers/oxlint.js';
+import { rumdlParser } from './parsers/rumdl.js';
 import { shellcheckParser } from './parsers/shellcheck.js';
 import { staticcheckParser } from './parsers/staticcheck.js';
+import { tscParser } from './parsers/tsc.js';
+import { typosParser } from './parsers/typos.js';
 import { valeParser } from './parsers/vale.js';
 import type { Parser } from './types.js';
 
@@ -37,6 +42,11 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   clippy: clippyParser,
   'cargo-check': cargoCheckParser,
   shellcheck: shellcheckParser,
+  'markdownlint-cli2': markdownlintCli2Parser,
+  rumdl: rumdlParser,
+  typos: typosParser,
+  tsc: tscParser,
+  'go-build': goBuildParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

@@ -194,6 +194,18 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('shellcheck', shellcheck, ['shellcheck', '-f', 'json1', '--severity=warning'])).toEqual(new Set());
   });
 
+  test('the docs and spell tools key as <file>:<rule>:<message>, and no type checker keys', () => {
+    // markdownlint-cli2 prints on stderr; a rule set to "warning" can't fail the slot.
+    const markdownlint = 'docs/a.md:1:1 error MD018/no-missing-space-atx No space after hash\nREADME.md:8:1 warning MD033/no-inline-html Inline HTML\n';
+    expect(fingerprint('markdownlint-cli2', markdownlint)).toEqual(new Set(['docs/a.md:MD018:No space after hash']));
+    const rumdl = JSON.stringify([{ file: 'docs/a.md', line: 6, column: 1, rule: 'MD040', message: 'Code block missing language', severity: 'warning' }]);
+    expect(fingerprint('rumdl', rumdl, ['rumdl', 'check', '--output-format', 'json', '.'])).toEqual(new Set(['docs/a.md:MD040:Code block missing language']));
+    expect(fingerprint('rumdl', rumdl, ['rumdl', 'check', '--fail-on', 'error', '--output-format', 'json', '.'])).toEqual(new Set());
+    expect(fingerprint('typos', './docs/a.md:3:9: error: `teh` should be `the`\n')).toEqual(new Set(['docs/a.md::`teh` should be `the`']));
+    expect(fingerprint('tsc', "src/a.ts(1,1): error TS2322: Type 'string' is not assignable to type 'number'.\n")).toBeNull();
+    expect(fingerprint('go-build', '{"ImportPath":"x","Action":"build-output","Output":"a.go:1:1: undefined: y\\n"}\n')).toBeNull();
+  });
+
   test.each<{ label: string; raw: string; expected: Baseline | null }>([
     { label: 'an unknown top-level field is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, extra: true }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a missing schema_version reads as 1', raw: JSON.stringify({ slots: { lint: ['a'] } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },

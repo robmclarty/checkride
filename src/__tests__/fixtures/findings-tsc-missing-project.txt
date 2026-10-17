@@ -1,0 +1,1 @@
+error TS6053: File '/tmp/fixture-repo/api/tsconfig.json' not found.

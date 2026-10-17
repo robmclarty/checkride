@@ -355,6 +355,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   are parsed too, for `checkride/findings`, but never grandfathered, as tsc's
   aren't. staticcheck prints absolute paths, which a key names from the repo
   root, so a baseline captured on one machine masks on another.
+- **Markdown and typos findings join the baseline.** checkride now parses
+  markdownlint-cli2, read from stderr where it prints its findings, rumdl and
+  typos, so `checkride baseline` grandfathers `docs` and `typos` findings.
+  `init --baseline` on a repo whose markdown fails now grandfathers those
+  findings and keeps `docs` on, where it used to write `docs: false`. Each
+  keys only what can fail its check: markdownlint-cli2's `error` lines, not a
+  rule set to `"warning"`; rumdl's findings at or above `--fail-on`, every one
+  by default; and every typos misspelling. tsc and `go build -json` are
+  parsed too, for `checkride/findings`, and never grandfathered.
 
 ### Changed
 
@@ -719,6 +728,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `baseline.contract.test.ts` and `exports.contract.test.ts`. A key's
   absolute path inside the repo is now named from the repo root; the
   0.13 tools print relative paths, so no existing key changes.
+- Additive: `isParseable` answers `true` for `markdownlint-cli2`, `rumdl`,
+  `typos`, `tsc` and `go-build`, and `checkride.baseline.json` takes keys for
+  the first three, in the contract doc and both contract tests. The
+  `exports.contract.test.ts` case for an adapter with no parser now names
+  `vitest`, since `tsc` has one.
 
 ### Internal
 

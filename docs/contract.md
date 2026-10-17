@@ -357,25 +357,34 @@ read is wider — see the tolerance promise below.
 
 **A key names a finding by what it is, not where it sits.** Every key is a
 string the slot's parser built; a consumer may compare keys, count them, and
-diff them, never parse them. For the diagnostic parsers — oxlint
-(`lint`), ast-grep (`struct`), cspell (`spell`), vale (`prose`), and the go,
-rust and bash packs' `lint` tools golangci-lint, staticcheck, clippy and
-shellcheck — the key is `<file>:<rule>:<message>`: the message
-whitespace-collapsed, the rule empty for cspell (`<file>::<message>`). Only a
-finding that can fail the slot is keyed: vale's error-severity alerts, and
-oxlint's and ast-grep's error-severity findings, unless the check's argv lets a
-warning fail too (oxlint's `--deny-warnings` or `--max-warnings`, ast-grep's
-`--error`, or an argv that runs the tool through a wrapper and so hides its
-flags), in which case every finding is keyed; every golangci-lint issue;
-every staticcheck problem but an `ignored` one; clippy's `error`-level
-diagnostics, which the rust pack's `-D warnings` makes every one; and
-shellcheck's comments at or above the argv's `--severity`, every one by
-default. A finding that fails the slot but names no file, such as
-staticcheck's `compile` problem, keys with an empty file. cargo check's type
-errors are parsed for `checkride/findings` but never keyed, as tsc's aren't.
-Line and column are never part of these keys, so a
-finding keeps its key when unrelated edits move it — the property the ratchet
-and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
+diff them, never parse them. For the diagnostic parsers — oxlint and the go,
+rust and bash packs' golangci-lint, staticcheck, clippy and shellcheck
+(`lint`), ast-grep (`struct`), markdownlint-cli2 and rumdl (`docs`), cspell
+and typos (`spell`), and vale (`prose`) — the key is
+`<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
+cspell and typos (`<file>::<message>`). Only a finding that can fail the slot
+is keyed:
+
+- oxlint's and ast-grep's error-severity findings, unless the check's argv
+  lets a warning fail too (oxlint's `--deny-warnings` or `--max-warnings`,
+  ast-grep's `--error`, or an argv that runs the tool through a wrapper and so
+  hides its flags), in which case every finding is keyed;
+- vale's error-severity alerts, and markdownlint-cli2's `error` lines, read
+  from stderr where it prints them: a rule set to `"warning"` prints but can't
+  fail the slot;
+- every cspell, typos and golangci-lint finding;
+- every staticcheck problem but an `ignored` one;
+- clippy's `error`-level diagnostics, which the rust pack's `-D warnings`
+  makes every one;
+- shellcheck's comments at or above the argv's `--severity`, and rumdl's at or
+  above its `--fail-on`, every one by default.
+
+A finding that fails the slot but names no file, such as staticcheck's
+`compile` problem or a typos misspelling in a file name, keys with an empty
+file. Type errors, tsc's, go build's and cargo check's, are parsed for
+`checkride/findings` but never keyed. Line and column are never part of these
+keys, so a finding keeps its key when unrelated edits move it — the property
+the ratchet and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the parser documents, and
 add a position only for a finding with no symbol to name. A file in a key is
 named from the repo root: a target's check prints paths relative to its root,
@@ -925,7 +934,8 @@ parsers.** The subpath is public and semver-bound as well, and exports
   check. The entry's `cwd`, `argv` and slot decide the rest.
 - `isParseable(adapter)` says whether an adapter has a parser: `oxlint`,
   `ast-grep`, `cspell`, `vale`, `fallow`, `golangci-lint`, `staticcheck`,
-  `clippy`, `cargo-check` and `shellcheck` today. The set only grows.
+  `clippy`, `cargo-check`, `shellcheck`, `markdownlint-cli2`, `rumdl`,
+  `typos`, `tsc` and `go-build` today. The set only grows.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one
 its report names (`dead`, `dupes` or `health`); `file`, named from the repo
@@ -940,7 +950,9 @@ made relative to it; one outside stays absolute.
 `null` means the adapter has no parser, the check was skipped, its artifact
 can't be read, or its output can't be trusted (vale's runtime-error report, a
 fallow report checkride can't read, a golangci-lint or shellcheck report with
-no findings list, a cargo build that never printed `build-finished`). An empty array means parsed and clean.
+no findings list, a rumdl report that isn't an array, markdownlint-cli2
+stderr that holds text but no finding, a cargo build that never printed
+`build-finished`). An empty array means parsed and clean.
 The API is best-effort: it never writes under the output directory and never
 decides a verdict, so the raw artifact stays authoritative and the check's
 `ok` is still the verdict.

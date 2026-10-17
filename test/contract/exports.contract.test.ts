@@ -118,9 +118,13 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('the docs, spell and type-checker output is parseable', () => {
+    for (const adapter of ['markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
   test('an adapter with no parser returns null (F45)', () => {
-    expect(findings.isParseable('tsc')).toBe(false);
-    expect(findings.parseFindings('tsc', 'src/a.ts(1,1): error TS2322')).toBeNull();
+    expect(findings.isParseable('vitest')).toBe(false);
+    expect(findings.parseFindings('vitest', 'FAIL src/a.test.ts')).toBeNull();
   });
 
   test("findingsFor reads each summary entry's own artifact out of the run's output directory", async () => {

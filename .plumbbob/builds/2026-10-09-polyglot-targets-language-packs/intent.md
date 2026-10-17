@@ -783,7 +783,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/findings/index.ts`, `package.json`, `test/contract/exports.contract.test.ts`,
       `docs/contract.md`, `CHANGELOG.md`
     - model: opus (a new public surface)
-50. [ ] feat(findings): parse Go, Rust and shell tool output with path rebasing, **done when:** golangci-lint, staticcheck, clippy, cargo-check and shellcheck parse real fixtures; paths rebase to repo-root-relative per R12.4; the lint parsers feed the baseline, and cargo-check doesn't
+50. [x] feat(findings): parse Go, Rust and shell tool output with path rebasing, **done when:** golangci-lint, staticcheck, clippy, cargo-check and shellcheck parse real fixtures; paths rebase to repo-root-relative per R12.4; the lint parsers feed the baseline, and cargo-check doesn't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet (one parser per format, against real fixtures)
 51. [ ] feat(findings): parse docs, spell and type-checker output, **done when:** markdownlint-cli2, rumdl, typos, tsc and `go build -json` parse real fixtures; the docs and spell parsers feed the baseline, and the type-checker parsers don't ([D31 (types-parse-only)](#d31), [D32 (docs-baselined)](#d32)); markdownlint-cli2's parser reads stderr, and a repo adopted with `init --baseline` grandfathers its markdown findings ([D49 (text-findings)](#d49))

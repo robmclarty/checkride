@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 50 — feat(findings): parse Go, Rust and shell tool output with path rebasing
+**Current step:** 51 — feat(findings): parse docs, spell and type-checker output
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -73,7 +73,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 47. test(examples): add the Go, Rust and mixed-stack examples
 - ☑ 48. refactor(baseline): derive fingerprints from one parser per format
 - ☑ 49. feat(findings): export parseFindings with severity, gates and slot
-- ☐ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
+- ☑ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☐ 51. feat(findings): parse docs, spell and type-checker output
 - ☐ 76. feat(config): pick the implicit pack from the root's markers
 - ☐ 52. test(examples): adopt a Go repo with --baseline and ratchet it
@@ -146,6 +146,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] cspell 10.3.6 appends ' fix: (<word>)' to a line when it has a confident suggestion, so the cspell key's message embeds the suggestion; baseline-cspell.txt predates it (C9), so recapture the fixture and decide whether the key keeps the suffix
 - [ ] golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg), so a parent .golangci.yml or a gomod/gitroot mode double-joins the target root in keys
 - [ ] cargo spans are relative to the workspace root, so a rust target declared at a member crate (not the workspace root) keys its clippy paths under the wrong root
+- [ ] R12.2 lists typos as jsonl, but the adapter runs --format brief, which drops the path of a misspelled file name; switch the adapter to --format json?
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2240,3 +2241,5 @@ folder, so it rides the branch into the PR.)*
   **5.** The range stopped here because the checkpoint latch refused step 49
 
   Step 48 landed under your 48-57 grant, but `plumbbob checkpoint 49` refused with "no human turn since this step began". The likely cause is my own: during step 48 I ran stryker in the background with a monitor, and their task notifications went through the prompt hook as turns (`.plumbbob/TURN` counts them). Step 48's checkpoint came after those turns. Step 49 began after the last one, and the latest "prompt" no longer carried the range, so the latch saw no grant. I didn't route around it, and I saved a memory to run long jobs in the foreground during a range. Separately, a task notification counting as a human turn looks like a gap in the latch worth a look on plumbbob's side. The range could only have reached step 51 anyway, because the build order runs step 76 next.
+
+- 2026-10-17 — step 50 checkpointed · 3153cdcb4 — feat(findings): parse Go, Rust and shell tool output with path rebasing (1 drift, 15m)

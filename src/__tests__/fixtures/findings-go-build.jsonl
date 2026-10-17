@@ -1,0 +1,6 @@
+{"ImportPath":"example.com/svc/internal/extra","Action":"build-output","Output":"# example.com/svc/internal/extra\n"}
+{"ImportPath":"example.com/svc/internal/extra","Action":"build-output","Output":"internal/extra/extra.go:5:9: cannot use \"big\" (untyped string constant) as int value in return statement\n"}
+{"ImportPath":"example.com/svc/internal/extra","Action":"build-fail"}
+{"ImportPath":"example.com/svc/cmd/app","Action":"build-output","Output":"# example.com/svc/cmd/app\n"}
+{"ImportPath":"example.com/svc/cmd/app","Action":"build-output","Output":"cmd/app/main.go:11:2: declared and not used: x\n"}
+{"ImportPath":"example.com/svc/cmd/app","Action":"build-fail"}

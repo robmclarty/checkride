@@ -572,3 +572,55 @@ describe('fingerprint — the go, rust and bash packs (step 50)', () => {
     });
   });
 });
+
+// cspell:ignore recieve seperate Calcualte
+describe('fingerprint — the docs, spell and type-checker parsers (step 51)', () => {
+  // Real captures: markdownlint-cli2 0.23.3 and rumdl 0.2.79 over one pair of
+  // Markdown files, typos 1.51.1 in `--format brief`, tsc 7.0.2 and go build
+  // from Go 1.27.2.
+  const MARKDOWNLINT = read('findings-markdownlint-cli2.stderr.txt');
+  const BANNER = 'markdownlint-cli2 v0.23.3 (markdownlint v0.41.1)\nFinding: **/*.md\nLinting: 2 files\nSummary: 10 issues in 2 files\n';
+  /** A markdownlint-cli2 run that failed on the captured report, printed where the tool prints it. */
+  const markdownRun: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: BANNER, stderr: MARKDOWNLINT });
+
+  test("markdownlint-cli2's findings are read from stderr, and only its errors key (D32, D49)", () => {
+    const output = { stdout: BANNER, stderr: MARKDOWNLINT };
+    expect(findingText('markdownlint-cli2', output)).toBe(MARKDOWNLINT);
+    const keys = fingerprint('markdownlint-cli2', findingText('markdownlint-cli2', output));
+    expect(keys?.size).toBe(9);
+    expect([...(keys ?? [])].some((k) => k.includes(':MD033:'))).toBe(false);
+  });
+
+  test("rumdl's and typos' findings key the baseline", () => {
+    expect(fingerprint('rumdl', read('findings-rumdl.json'), registryArgv('rumdl'))?.size).toBe(8);
+    expect(fingerprint('typos', read('findings-typos.txt'), registryArgv('typos'))).toEqual(
+      new Set([
+        'docs/notes.md::`teh` should be `the`',
+        'docs/notes.md::`recieve` should be `receive`',
+        'docs/notes.md::`seperate` should be `separate`',
+        '::`seperate` should be `separate`',
+        'docs/sample.ts::`Calcualte` should be `Calculate`',
+      ]),
+    );
+  });
+
+  test("tsc's and go build's type errors are never keyed (D31)", () => {
+    expect(fingerprint('tsc', read('findings-tsc.txt'))).toBeNull();
+    expect(fingerprint('go-build', read('findings-go-build.jsonl'))).toBeNull();
+  });
+
+  describe('through capture and masking', () => {
+    let dir: string;
+    beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-docs-baseline-')); });
+    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+    test('a capture grandfathers the markdown findings on stderr, and a later run masks them', async () => {
+      const config: CheckrideConfig = { checks: { docs: 'markdownlint-cli2' } };
+      const quiet = { write: () => true };
+      const { baseline } = await runBaseline({ cwd: dir, config, runner: markdownRun, stderr: quiet });
+      expect(baseline.slots['docs']).toHaveLength(9);
+      const run = await runChecks({ cwd: dir, config, runner: markdownRun, baseline, only: ['docs'], stderr: quiet });
+      expect(run.summary.checks.find((c) => c.name === 'docs')).toMatchObject({ ok: true, baselined: 9 });
+    });
+  });
+});
