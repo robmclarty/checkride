@@ -1,11 +1,17 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS } from '../adapters.js';
-import { applyBaseline, fingerprint } from '../baseline/index.js';
+import type { Fingerprint } from '../baseline/index.js';
+import { applyBaseline, findingText, fingerprint } from '../baseline/index.js';
+import { runBaseline } from '../baseline-command.js';
+import type { CheckrideConfig } from '../config.js';
+import type { CheckRunner } from '../orchestrator/index.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
@@ -70,6 +76,94 @@ function withAstGrep(raw: string, severity: string): string {
   const parsed = JSON.parse(raw) as unknown[];
   return JSON.stringify([...parsed, { file: 'src/init.ts', ruleId: 'no-var', severity, message: 'prefer const or let' }]);
 }
+
+/**
+ * F46's golden: every key each baseline fixture yields, pinned before the
+ * fingerprints moved onto `../findings`' parsers. `keys` is the keying with no
+ * argv, recorded by running 0.14.0's extractors (0.13's, unchanged) over each
+ * fixture, so every key there is 0.13's, byte for byte. `gating` is the keying
+ * under the adapter's registry args, listed only where step 4's deliberate
+ * change (D27, keying only what can fail) departs from `keys`. `target` is the
+ * keying under the registry args from a target rooted at `apps/web`, recorded
+ * from step 27's extractors (D50).
+ */
+type GoldenEntry = { adapter: string; keys: string[] | null; gating?: string[] | null; target: string[] | null };
+const GOLDEN_FILE = 'baseline-keys.golden.json';
+const GOLDEN = JSON.parse(read(GOLDEN_FILE)) as Record<string, GoldenEntry>;
+const GOLDEN_ENTRIES = Object.entries(GOLDEN);
+
+/** One golden entry by fixture name, failing loudly when the golden lacks it. */
+function golden(file: string): GoldenEntry {
+  const entry = GOLDEN[file];
+  if (!entry) throw new Error(`no golden entry for ${file}`);
+  return entry;
+}
+
+/** A fingerprint as the golden records it: its keys sorted, or `null`. */
+function sortedKeys(fp: Fingerprint | null): string[] | null {
+  return fp === null ? null : [...fp].toSorted();
+}
+
+describe('fingerprint — every fixture keys as it did before the parsers (F46)', () => {
+  test('the golden covers every baseline fixture', () => {
+    const fixtures = readdirSync(FIXTURES).filter((f) => f.startsWith('baseline-') && f !== GOLDEN_FILE);
+    expect(GOLDEN_ENTRIES.map(([file]) => file).toSorted()).toEqual(fixtures.toSorted());
+  });
+
+  test.each(GOLDEN_ENTRIES)('%s keys byte-identically to 0.13 with no argv', (file, entry) => {
+    expect(sortedKeys(fingerprint(entry.adapter, read(file)))).toEqual(entry.keys);
+  });
+
+  test.each(GOLDEN_ENTRIES)('%s departs from 0.13 under its registry args only by step 4', (file, entry) => {
+    const expected = entry.gating === undefined ? entry.keys : entry.gating;
+    expect(sortedKeys(fingerprint(entry.adapter, read(file), registryArgv(entry.adapter)))).toEqual(expected);
+  });
+
+  test("step 4's departure touches the oxlint and ast-grep fixtures alone", () => {
+    const departed = GOLDEN_ENTRIES.filter(([, entry]) => entry.gating !== undefined).map(([, entry]) => entry.adapter);
+    expect(new Set(departed)).toEqual(new Set(['oxlint', 'ast-grep']));
+  });
+
+  test.each(GOLDEN_ENTRIES)("%s keys from a target's root as step 27 did (D50)", (file, entry) => {
+    expect(sortedKeys(fingerprint(entry.adapter, read(file), registryArgv(entry.adapter), 'apps/web'))).toEqual(entry.target);
+  });
+});
+
+describe('fingerprint — a multi-target capture keys as step 27 did (D50)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-golden-targets-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('checkride baseline over two targets and a repo-scope check writes the golden keys', async () => {
+    const config: CheckrideConfig = {
+      checks: { struct: 'ast-grep' },
+      targets: {
+        web: { lang: 'ts', root: 'apps/web', checks: { lint: 'oxlint', dead: 'fallow', health: 'fallow' } },
+        api: { lang: 'ts', root: 'apps/api', checks: { lint: 'oxlint' } },
+      },
+    };
+    // Each check replays a real capture, as its tool printed it from where it ran.
+    const replay: Record<string, string> = {
+      'web:lint': read('baseline-oxlint.json'),
+      'web:dead': read('baseline-fallow-dead-code.json'),
+      'web:health': read('baseline-fallow-health.json'),
+      'api:lint': '{"diagnostics":[]}',
+      struct: read('baseline-ast-grep-severities.json'),
+    };
+    const runner: CheckRunner = (r) => {
+      const stdout = replay[r.target !== undefined ? `${r.target}:${r.slot}` : r.slot] ?? '';
+      return Promise.resolve({ ok: true, exit_code: 0, stdout, stderr: '' });
+    };
+    const result = await runBaseline({ cwd: dir, config, runner, stderr: { write: () => true } });
+    expect(result.baseline.slots).toEqual({
+      'web:lint': golden('baseline-oxlint.json').target,
+      'web:dead': golden('baseline-fallow-dead-code.json').target,
+      'web:health': golden('baseline-fallow-health.json').target,
+      'api:lint': [],
+      struct: golden('baseline-ast-grep-severities.json').gating,
+    });
+  });
+});
 
 describe('fingerprint — extraction', () => {
   test('oxlint keys on file + rule (code) + message (no argv, so every diagnostic)', () => {
@@ -410,6 +504,11 @@ describe('fingerprint — support boundary', () => {
     for (const adapter of ['knip', 'biome', 'eslint', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
       expect(fingerprint(adapter, '[]')).toBeNull();
     }
+  });
+
+  test('findingText hands each parser the stream it declares, and stdout when there is none (D49)', () => {
+    const output = { stdout: 'out', stderr: 'err' };
+    for (const adapter of ['oxlint', 'cspell', 'fallow', 'tsc']) expect(findingText(adapter, output), adapter).toBe('out');
   });
 
   test('malformed output fingerprints to an empty set, never throws', () => {

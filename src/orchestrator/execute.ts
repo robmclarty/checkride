@@ -14,7 +14,7 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
-import { applyBaseline, fingerprint, reportVerdict } from '../baseline/index.js';
+import { applyBaseline, findingText, fingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { isAvailableUnder, offlineHint, packEnv, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
@@ -127,18 +127,20 @@ type MaskScope = { key: string; root: string | undefined; base: string | null; o
  * pass/fail from the parsed report, since its exit code doesn't reliably gate;
  * everything else masks the adapter's fingerprint, keyed under the argv the
  * check ran with (`scope` fills its placeholders, and under `--changed` its
- * `base` adds the `changedArgs`). `observed` is non-null only when the run's
- * findings could be read — the ratchet must never prune from an unreadable run.
+ * `base` adds the `changedArgs`). Either reads the stream the adapter's parser
+ * declares (D49). `observed` is non-null only when the run's findings could be
+ * read — the ratchet must never prune from an unreadable run.
  */
 function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
   const verdict = reportVerdict(adapter.name);
   const keys = baseline ? (baseline.slots[scope.key] ?? []) : null;
+  const raw = findingText(adapter.name, outcome);
   if (verdict) {
-    const v = verdict(outcome.stdout, keys, scope.root);
+    const v = verdict(raw, keys, scope.root);
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
   const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
-  const current = keys !== null ? fingerprint(adapter.name, outcome.stdout, argv, scope.root) : null;
+  const current = keys !== null ? fingerprint(adapter.name, raw, argv, scope.root) : null;
   if (keys !== null && current !== null) {
     const adj = applyBaseline(current, keys, outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: failureLine(outcome), observed: current };

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 47 — test(examples): add the Go, Rust and mixed-stack examples
+**Current step:** 48 — refactor(baseline): derive fingerprints from one parser per format
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -70,11 +70,12 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 44. feat(launch): pin Rust by rust-toolchain and harden the cargo env
 - ☑ 45. feat(packs): add the rust pack
 - ☑ 46. feat(init): scaffold Go and Rust projects with init --lang
-- ☐ 47. test(examples): add the Go, Rust and mixed-stack examples
+- ☑ 47. test(examples): add the Go, Rust and mixed-stack examples
 - ☐ 48. refactor(baseline): derive fingerprints from one parser per format
 - ☐ 49. feat(findings): export parseFindings with severity, gates and slot
 - ☐ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☐ 51. feat(findings): parse docs, spell and type-checker output
+- ☐ 76. feat(config): pick the implicit pack from the root's markers
 - ☐ 52. test(examples): adopt a Go repo with --baseline and ratchet it
 - ☐ 53. feat(config): layer a defaults file below detection with --defaults
 - ☐ 54. feat(run): discover targets at run time with --discover
@@ -140,8 +141,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
 - [x] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
 - [x] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
-- [ ] R2.1's implicit go/rust/python/terraform pack (a root go.mod or Cargo.toml with no targets picks that pack) has no step: config.ts still resolves every implicit repo as ts, so init --lang go|rust writes an explicit app target at the root instead
-- [ ] R11.6's bash-strict-mode dialect rule (set -euo pipefail, or a built-in beside shellcheck if ast-grep can't express it) has no step: no bash scaffold ships rules, so step 46 built only the five go and rust rules
+- [x] R2.1's implicit go/rust/python/terraform pack (a root go.mod or Cargo.toml with no targets picks that pack) has no step: config.ts still resolves every implicit repo as ts, so init --lang go|rust writes an explicit app target at the root instead
+- [x] R11.6's bash-strict-mode dialect rule (set -euo pipefail, or a built-in beside shellcheck if ast-grep can't express it) has no step: no bash scaffold ships rules, so step 46 built only the five go and rust rules
+- [ ] cspell 10.3.6 appends ' fix: (<word>)' to a line when it has a confident suggestion, so the cspell key's message embeds the suggestion; baseline-cspell.txt predates it (C9), so recapture the fixture and decide whether the key keeps the suffix
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -196,6 +198,10 @@ Harvest results this boundary:
 - After step 39: "R6.6's rule 3 also caught a package.json repo with no check script..." → **blocker**, handled now: folded into `intent.md` as D62 (entry-package-json), which amends R6.6's rules 1 and 3 to what step 35 shipped (steps 46 and 72 build on R6.6).
 - After step 39: "R11.4's bash rule proposes a bash target only for shell files outside every other target's root..." → **tangent**, deferred to step 54 (nothing before `--discover` is blocked; step 54 decides between letting the bash rule ignore other packs' roots, since packs may nest, so a mixed repo's shell gets checked as D24 and #7 want, and keeping existing-mode `init` conservative, since that rule would convert a TS repo with `scripts/` on a re-run of `init`, renaming `lint` to `app:lint` and moving its baseline keys).
 - After step 39: the Ranges section's step 38 lean, which step 38 applied inside the range the human granted → folded into `intent.md` as D63 (qa-mutation-path); the remaining leans now fold as D64 onward once approved.
+- After step 47: "R2.1's implicit go/rust/python/terraform pack ... has no step" → **blocker**, handled now: folded into `intent.md` as D66 (implicit-pack) and as step 76, ordered to build after step 51 and before step 52 (no step built R2.1, `config.ts` still resolves every implicit repo as `ts`, and step 52's Go adoption, step 54's `--discover` and the review agent's runs over checkouts without a config build on it).
+- After step 47: "R11.6's bash-strict-mode dialect rule ... has no step" → **tangent**, deferred to step 73 (no scaffold ships bash rules, so nothing loses coverage; step 73 folds the spec into the docs and decides whether to drop that row from the documented dialect rules or keep it as unbuilt).
+- After step 47: the Ranges section's step 45 lean, which step 45 applied inside the range the human granted → folded into `intent.md` as D64 (cargo-target-dir-lock), which amends R6.5's sentence; the remaining leans now fold as D67 onward once approved.
+- After step 47: the plan text steps 41 to 46 corrected after running each tool at its pinned version (not parked; recorded in those steps' checkpoint bodies) → **blocker**, handled now: folded into `intent.md` as D65 (verified-argv), which amends R5.5's go-build, golangci-lint and govulncheck rows, R5.6's cargo-deny and cargo-mutants rows, R6.1's go-mod-tool and rust-toolchain rows, R6.2's toolchain rule, R6.4's `RUSTUP_TOOLCHAIN` and offline-hint paragraph, and R6.5's lock sentence (steps 50, 56, 72 and 73 build from that text, and step 73 would otherwise document govulncheck's vacuous `-format json` argv).
 
 ## Log
 
@@ -2120,3 +2126,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 44 checkpointed · c7ce1a7d2 — feat(launch): pin Rust by rust-toolchain and harden the cargo env (1 drift, 8m)
 - 2026-10-17 — step 45 checkpointed · a5ef832df — feat(packs): add the rust pack (1 drift, 9m)
 - 2026-10-17 — step 46 checkpointed · 7439cea26 — feat(init): scaffold Go and Rust projects with init --lang (1 drift, 14m)
+- 2026-10-17 — step 47 checkpointed · 35668889e — test(examples): add the Go, Rust and mixed-stack examples (1 drift, 9m)

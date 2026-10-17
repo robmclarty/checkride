@@ -23,7 +23,7 @@ import { join } from 'node:path';
 
 import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
-import { fingerprint } from '../baseline/index.js';
+import { findingText, fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
@@ -85,8 +85,9 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
   const raw = rawPointer(check, outcome, label);
   const heading = `## ${check.name} — ${adapter.name}`;
 
-  // Keyed as the baseline keys them, a target's paths from the repo root.
-  const keys = fingerprint(adapter.name, outcome.stdout, [adapter.command, ...adapter.args], run.root);
+  // Keyed as the baseline keys them, from the stream it reads, a target's paths
+  // from the repo root.
+  const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root);
   if (keys && keys.size > 0) {
     const all = [...keys];
     const shown = all.slice(0, maxItems);

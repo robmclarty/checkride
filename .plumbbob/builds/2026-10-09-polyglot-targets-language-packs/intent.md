@@ -459,6 +459,34 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   *because* that path comes from the repo's stryker config, not from argv checkride builds, and
   `mutation` is opt-in and too slow for a review agent's run (settled at step 38 and its harvest,
   from the Ranges section's step 38 lean).
+- <a id="d64"></a>**D64 (cargo-target-dir-lock)**: Rust rows lock on `cargo:{root}` alone, with no
+  `cargo:global` key; targets that share one `CARGO_TARGET_DIR` serialize on cargo's own
+  build-directory lock, and `docs/packs.md` says that wait counts against their timeouts,
+  *because* a scheduler branch for it breaks [C5 (pure-data)](#c5), several rust targets sharing
+  one target directory is rare, and the cost is a slow red, never a false green; a data form such
+  as `cargo:{env:CARGO_TARGET_DIR|root}` can follow if a repo hits it (settled at step 45 and its
+  harvest, from the Ranges section's step 45 lean).
+- <a id="d65"></a>**D65 (verified-argv)**: R5.5, R5.6, R6.1, R6.2 and R6.4 read as steps 41 to 46
+  shipped them after running each tool at the version the dev `mise.toml` pins: `go build` takes
+  `-o /dev/null`; golangci-lint takes `--show-stats=false` and `{go-packages}`; govulncheck runs
+  in text mode; cargo-deny's JSON lines land in `security.stderr.txt`; cargo-mutants takes
+  `--output {out}`; the `rust-toolchain` source pins `cargo` itself, rustfmt and clippy, and
+  refuses without `rustup` on `PATH`; `go-mod-tool` reads, at a `go.work` root with no `go.mod`,
+  the tool directives of the modules the workspace uses; a toolchain walks its pack's chain and
+  isn't refused under `requirePins`; and a rust check clears `RUSTUP_TOOLCHAIN` where a toolchain
+  file pins the toolchain, *because* the plan's argv wrote a binary into a single-main module,
+  left `lint.json` unwritten behind golangci-lint's tally, missed every module of a workspace,
+  and made Go's `security` a vacuous green, since `govulncheck -format json` exits 0 on a called
+  vulnerability, while mise's exported `RUSTUP_TOOLCHAIN` overrode a repo's pinned channel, and
+  steps 50, 56, 72 and 73 build from this text (settled at step 47's harvest, from steps 41 to
+  46).
+- <a id="d66"></a>**D66 (implicit-pack)**: R2.1's implicit pack, a root `go.mod`, `Cargo.toml`,
+  Python or Terraform marker picking that pack when no `targets` is configured, is built as
+  step 76, ordered before step 52; until it lands, `init --lang go|rust` writes an explicit `app`
+  target at the root, *because* no step built it, `config.ts` still resolves every implicit repo
+  as `ts`, and step 52's Go adoption, step 54's `--discover` (R11.4's single root target stays
+  implicit) and the review agent's runs over checkouts without a config all build on it (settled
+  at step 47's harvest, from step 46's park).
 
 ## Constraints
 
@@ -515,7 +543,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 5. Pack groundwork | 20 to 23 | the invariance golden, packs, the launcher, `resources.ts`, with no behavior change (draft M1) |
 | 6. Targets, bash and mise | 24 to 39, 75 | targets, tokens, locks, pins, `unclaimed`, the bash pack, `target add`, discovery (draft M2) |
 | 7. Go and Rust | 40 to 47 | the go and rust packs, Go narrowing, `init --lang` (draft M3) |
-| 8. Findings | 48 to 52 | one parser per format, `checkride/findings`, a Go baseline (draft M6) |
+| 8. Findings | 48 to 52, 76 | one parser per format, `checkride/findings`, the implicit pack, a Go baseline (draft M6) |
 | 9. Consumer mode | 53 to 57 | `--defaults`, `--discover`, `--pins`, `--static-only`, the consumer guide |
 | 10. Python | 58 to 61 | the python pack |
 | 11. Terraform | 62 to 65 | the terraform pack |
@@ -740,7 +768,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/init.ts`, `templates/go/`, `templates/rust/`, `templates/repo/`,
       `test/e2e/shapes.e2e.test.ts`
     - model: opus (four shapes and six dialect rules, each with fixtures)
-47. [ ] test(examples): add the Go, Rust and mixed-stack examples, **done when:** `examples/go-module`, `examples/go-workspace`, `examples/rust-workspace` and `examples/polyglot-stack` are green, and every plant in S4 (apart from the `schema` plants, which arrive in Phase 12) and S5 fails with the expected check name; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+47. [x] test(examples): add the Go, Rust and mixed-stack examples, **done when:** `examples/go-module`, `examples/go-workspace`, `examples/rust-workspace` and `examples/polyglot-stack` are green, and every plant in S4 (apart from the `schema` plants, which arrive in Phase 12) and S5 fails with the expected check name; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/`, `test/e2e/examples.e2e.test.ts`
     - model: sonnet
 
@@ -761,6 +789,10 @@ reference rules and porting trap apply as written there.
 51. [ ] feat(findings): parse docs, spell and type-checker output, **done when:** markdownlint-cli2, rumdl, typos, tsc and `go build -json` parse real fixtures; the docs and spell parsers feed the baseline, and the type-checker parsers don't ([D31 (types-parse-only)](#d31), [D32 (docs-baselined)](#d32)); markdownlint-cli2's parser reads stderr, and a repo adopted with `init --baseline` grandfathers its markdown findings ([D49 (text-findings)](#d49))
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`, `CHANGELOG.md`
     - model: sonnet
+76. [ ] feat(config): pick the implicit pack from the root's markers, **done when:** with no `targets` and no `--discover`, the implicit target's pack follows R2.1, in its order, among the packs that ship: a root `package.json` or `tsconfig.json` picks `ts` exactly as 0.13 did, held by the invariance golden ([C2 (legacy-invariance)](#c2)), a root `go.mod` or `go.work` picks `go` and a root `Cargo.toml` picks `rust`, and nothing picks `ts`; a root Go module with no config runs the go pack's checks under their bare slot names, and its summary records `pack` ([D66 (implicit-pack)](#d66)); `init` in a directory with no `package.json` but another shipped pack's root marker runs existing mode; `doctor` names the implicit pack; `docs/targets.md` and `CHANGELOG.md` say so
+    - seam: `src/targets/resolve.ts`, `src/config.ts`, `src/init.ts`, `src/doctor.ts`,
+      `docs/targets.md`
+    - model: opus (0.13's invariance, and every caller that reads the implicit target)
 52. [ ] test(examples): adopt a Go repo with --baseline and ratchet it, **done when:** a Go version of `examples/existing-repo-baseline` adopts with `init --baseline`, masks its grandfathered findings, fails on a new one, and ratchets a fixed one away; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/`, `test/e2e/existing.e2e.test.ts`
     - model: sonnet
@@ -865,7 +897,7 @@ reference rules and porting trap apply as written there.
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-75, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+48, 49, 50, 51, 76, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
 
 ## Ranges
 
@@ -915,7 +947,7 @@ What each range should watch for:
   network, and it records whatever the day's advisory feed says.
 
 **Leans to settle before the ranges.** Each one is a call parked for a step in a range that
-would otherwise stop there to ask. Once approved, each folds into Decisions as D64 onward and
+would otherwise stop there to ask. Once approved, each folds into Decisions as D67 onward and
 amends its step, the way D55 to D57 did, so the building agent reads it where it reads every
 other call.
 
@@ -926,11 +958,8 @@ other call.
   [D59 (nearest-pm)](#d59).*
 - **Step 38, `qa` and `mutation.json`.** *Folded at step 39's harvest as
   [D63 (qa-mutation-path)](#d63).*
-- **Step 45, `cargo:global`.** Drop it and amend R6.5's sentence: with `CARGO_TARGET_DIR` set,
-  cargo's own build-directory lock serializes the runs, and `docs/packs.md` says the wait counts
-  against the timeout, *because* a scheduler branch for it breaks [C5 (pure-data)](#c5), several
-  rust targets sharing one target directory is rare, and the cost is a slow red, never a false
-  green. A data form such as `cargo:{env:CARGO_TARGET_DIR|root}` can follow if a repo hits it.
+- **Step 45, `cargo:global`.** *Folded at step 47's harvest as
+  [D64 (cargo-target-dir-lock)](#d64).*
 - **Step 53, the file a config error names.** Every config error names the file it came from.
   Load-time errors already hold the path, resolve-time errors read it from a label recorded on
   each loaded layer, and step 55's `--pins` reuses the label, *because* F36's error helps only
@@ -1384,13 +1413,13 @@ Requires Go 1.24 or later, for the `tool` directive and `go build -json`. Marker
 
 | Slot | Adapter | Invocation | Detect | Capture | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `types` | `go-build` | `go build -json {go-packages}` | `go.mod`, `go.work` | jsonl | Narrows under `--changed`. Test files compile under `test`. |
+| `types` | `go-build` | `go build -o /dev/null -json {go-packages}` | `go.mod`, `go.work` | jsonl | Narrows under `--changed`. Test files compile under `test`. `-o /dev/null` discards the binary a single-main module would write ([D65 (verified-argv)](#d65)). |
 | `format` (opt-in) | `gofmt` | `gofmt -l .`, `failOnOutput`; fix: `gofmt -w .` | `go.mod`, `go.work` | txt | Ships with the toolchain. |
-| `lint` | `golangci-lint` | tool: `golangci-lint run --output.json.path=stdout --allow-serial-runners`; fix: `run --fix` | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json` | json | `lock: golangci-lint` across every target. v2 config. Pinned as a binary, not a `go tool`. If `run` at a `go.work` root misses `use` modules, pass `{go-packages}`. |
+| `lint` | `golangci-lint` | tool: `golangci-lint run --output.json.path=stdout --show-stats=false --allow-serial-runners {go-packages}`; fix: `run --fix --allow-serial-runners {go-packages}` | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json` | json | `lock: golangci-lint` across every target. v2 config. Pinned as a binary, not a `go tool`. `--show-stats=false` keeps the tally off stdout, and a `go.work` root's own `./...` misses every `use` module ([D65 (verified-argv)](#d65)). |
 | `lint` (alt) | `staticcheck` | tool: `staticcheck -f json {go-packages}` | `detectPin: staticcheck` | jsonl | |
 | `dead` | `deadcode` | tool: `deadcode -test {go-packages}`, `failOnOutput` | `detectPin: deadcode` | txt | Whole-program reachability, so it never narrows. |
 | `test` | `go-test` | `go test -json {go-packages}` | `go.mod`, `go.work` | jsonl | Narrows under `--changed`. |
-| `security` (opt-in) | `govulncheck` | tool: `govulncheck -format json {go-packages}` | `detectPin: govulncheck` | json or txt | `network: true`. Never narrows. |
+| `security` (opt-in) | `govulncheck` | tool: `govulncheck {go-packages}` | `detectPin: govulncheck` | txt | `network: true`. Never narrows. Text mode exits 3 on a called vulnerability; `-format json` exits 0 ([D65 (verified-argv)](#d65)). |
 
 `{go-packages}` expands to `./...` for a module root, and to `./<dir>/...` for each `use`
 directive at a `go.work` root. R10.4 narrows it.
@@ -1409,8 +1438,8 @@ Requires stable Rust 1.85 or later. Marker: `Cargo.toml`. Pin chain:
 | `test` | `nextest` | plugin `nextest`: `cargo nextest run --workspace --no-fail-fast` | `.config/nextest.toml` | txt | |
 | `test` (alt) | `cargo-test` | `cargo test --workspace --no-fail-fast` | `Cargo.toml` | txt | |
 | `snippets` (opt-in) | `cargo-doctest` | `cargo test --doc --workspace` | `Cargo.toml` | txt | nextest doesn't run doctests, so Rust scaffolds name this slot, which opts it in. |
-| `security` (opt-in) | `cargo-deny` | plugin `deny`: `cargo deny --format json check` | `deny.toml` | json or txt | `network: true`. |
-| `mutation` (opt-in) | `cargo-mutants` | plugin `mutants`: `cargo mutants` | `detectPin: cargo-mutants` | tool-written | Order `single`, as `stryker` is today. |
+| `security` (opt-in) | `cargo-deny` | plugin `deny`: `cargo deny --format json check` | `deny.toml` | txt | `network: true`. Its JSON lines go to stderr, so they land in `security.stderr.txt` ([D65 (verified-argv)](#d65)). |
+| `mutation` (opt-in) | `cargo-mutants` | plugin `mutants`: `cargo mutants --output {out}` | `detectPin: cargo-mutants` | tool-written | Order `single`, as `stryker` is today. `--output` puts `mutants.out/` in the check's artifact directory, not the source tree ([D65 (verified-argv)](#d65)). |
 
 #### R5.7 The python pack
 
@@ -1455,8 +1484,8 @@ No markers: bash targets are declared or discovered. Pin chain: `[mise, path]`. 
 | --- | --- | --- |
 | `override` | the `--pins` file's `[tools]` has a key in `Tool.mise` | `mise exec <id>@<version> -- <bin>` |
 | `js-lockfile` | `Tool.npm` is in the nearest `package.json` at or above the working directory, up to the repo root | 0.13's `<pm> exec`, `node_modules/.bin` lookup and Yarn PnP handling |
-| `go-mod-tool` | the target's `go.mod` has a `tool` directive for `Tool.goTool` | `go tool <bin>` |
-| `rust-toolchain` | `rust-toolchain.toml` or `rust-toolchain` exists at or above the root (rustfmt and clippy only) | `cargo fmt`, `cargo clippy` |
+| `go-mod-tool` | the target's `go.mod` has a `tool` directive for `Tool.goTool`, or, at a `go.work` root with no `go.mod` up to the repo root, a module the workspace uses does ([D65 (verified-argv)](#d65)) | `go tool <bin>` |
+| `rust-toolchain` | `rust-toolchain.toml` or `rust-toolchain` exists at or above the root (the rustup components only: `cargo`, rustfmt and clippy), and `rustup` is on `PATH`, else the check fails ([D65 (verified-argv)](#d65)) | `cargo`, `cargo fmt`, `cargo clippy` through rustup's `cargo` |
 | `uv-lock` | `uv.lock` lists `Tool.pypi` | `<root>/.venv/bin/<bin>`, or `$UV_PROJECT_ENVIRONMENT/bin/<bin>` |
 | `tf-version` | `.terraform-version` or `.opentofu-version` exists at or above the root (the CLI only) | `terraform` or `tofu` from `PATH`, version-checked |
 | `mise` | a `mise.toml` or `.mise.toml` from the working directory up to the repo root has a `[tools]` key in `Tool.mise` | `mise exec -- <bin>` |
@@ -1484,9 +1513,11 @@ resolution. For `--pins` it also reads versions: a string, or an inline table's 
    record `pin_source: "path"`. Under `requirePins`, fail instead with
    `<tool> is not pinned; pin it with: mise use <id>@<version>`. If not found, fail with
    `Tool.install`, as 0.13 does for a missing tool.
-4. **Toolchains** (`go`, `cargo`, `terraform` or `tofu`) resolve their own executable the same
-   way. When `mise.toml` declares the toolchain, argv is prefixed with `mise exec --`. Otherwise
-   the toolchain comes from `PATH`, with R6.4's version enforcement.
+4. **Toolchains** (`go`, `gofmt`, `cargo`, `terraform` or `tofu`) resolve their own executable
+   the same way, walking their pack's chain: a toolchain file pins `cargo`, and when `mise.toml`
+   declares the toolchain, argv is prefixed with `mise exec --`. Otherwise the toolchain comes
+   from `PATH`, with R6.4's version enforcement, and isn't refused under `requirePins`
+   ([D65 (verified-argv)](#d65)).
 
 #### R6.3 Version recording
 
@@ -1532,13 +1563,22 @@ Adapters with `network: true` receive none of the network-blocking variables (`G
 `CARGO_NET_OFFLINE`, `PIP_NO_INDEX`, `UV_OFFLINE`). They keep the ones that pin a toolchain or
 switch off auto-install.
 
+Where a `rust-toolchain.toml` or `rust-toolchain` pins the toolchain, every spawn of a check
+whose chain reads `rust-toolchain` also sets `RUSTUP_TOOLCHAIN` empty, which rustup reads as
+unset, so a version an outer shell exported, as mise does for its own Rust, can't override the
+repo's pin. A tool these variables stop names the variable, not the way out, so a red check
+prints one line after its status naming the step to run first: `go mod download`,
+`rustup toolchain install <toolchain>` or `cargo fetch` ([D65 (verified-argv)](#d65)).
+
 #### R6.5 Scheduling and locks
 
 The wave model and effective-order resolution are unchanged. Two checks whose resolved `lock`
 keys are equal never run at the same time. A check waiting on a lock isn't started, and its
-timeout starts only when it spawns. Rust uses `cargo:<root>`, or `cargo:global` when
-`CARGO_TARGET_DIR` is set. golangci-lint uses `golangci-lint` across all targets, because its own
-run lock would otherwise fail a second instance.
+timeout starts only when it spawns. Rust uses `cargo:<root>`; targets that share one
+`CARGO_TARGET_DIR` serialize on cargo's own build-directory lock instead, and that wait counts
+against their timeouts ([D64 (cargo-target-dir-lock)](#d64)). golangci-lint uses
+`golangci-lint` across all targets, because its own run lock would otherwise fail a second
+instance.
 
 #### R6.6 Entry command
 

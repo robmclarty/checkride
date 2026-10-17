@@ -2,15 +2,15 @@
  * The `checkride baseline` command.
  *
  * Runs the normal pipeline, fingerprints every fingerprintable slot's raw output
- * via the per-adapter extractors, and writes the result to
+ * via the per-adapter parsers, and writes the result to
  * `checkride.baseline.json` at repo root — beside `checkride.config.json`,
  * committed, NOT under the gitignored `.check/`. The file grandfathers a
  * repo's existing diagnostics so a baseline-aware run can subtract them and
  * fail only on genuinely new findings.
  *
- * Only slots whose adapter has an extractor participate: a supported-but-clean
+ * Only slots whose adapter has a parser participate: a supported-but-clean
  * slot records an empty array (it opted in and had nothing to grandfather),
- * while a slot with no extractor (tsc, links, …) simply never appears — exactly
+ * while a slot with no parser (tsc, links, …) simply never appears — exactly
  * the "supported vs. unsupported" distinction the fingerprint contract draws.
  * The fallow slots (dead/dupes/health) are fingerprintable, so `checkride
  * baseline` grandfathers their findings like any other. Running each check under
@@ -29,6 +29,7 @@ import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
   diffBaselines,
+  findingText,
   fingerprint,
   readBaselineAt,
   readBaselineStatus,
@@ -90,10 +91,12 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
 
   // A capture run is never `--changed`, so each check ran its declared args.
   // Keys go under the check's name, `<target>:<slot>` for a target's check, with
-  // its paths joined onto the target's root, as a run masks with them.
+  // its paths joined onto the target's root, as a run masks with them, read
+  // from the stream the adapter's parser declares.
   const slots: Record<string, string[]> = {};
   for (const run of result.runs) {
-    const keys = fingerprint(run.adapter.name, run.outcome.stdout, [run.adapter.command, ...run.adapter.args], run.root);
+    const { adapter, outcome } = run;
+    const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root);
     if (keys === null) continue;
     slots[run.name] = [...keys].toSorted();
   }

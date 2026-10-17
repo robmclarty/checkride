@@ -1,0 +1,129 @@
+{
+  "baseline-oxlint.json": {
+    "adapter": "oxlint",
+    "keys": [
+      "src/config.ts:typescript(no-unused-vars):Variable is assigned a value but never used.",
+      "src/doctor.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop.",
+      "src/init.ts:eslint(no-await-in-loop):Unexpected `await` inside a loop."
+    ],
+    "gating": [
+      "src/config.ts:typescript(no-unused-vars):Variable is assigned a value but never used."
+    ],
+    "target": [
+      "apps/web/src/config.ts:typescript(no-unused-vars):Variable is assigned a value but never used."
+    ]
+  },
+  "baseline-oxlint-deny-warnings.json": {
+    "adapter": "oxlint",
+    "keys": [
+      "src/report.ts:eslint(eqeqeq):Expected === and instead saw ==",
+      "src/runner.ts:eslint(eqeqeq):Expected === and instead saw ==",
+      "src/runner.ts:eslint(no-debugger):`debugger` statement is not allowed",
+      "src/runner.ts:eslint(no-unused-vars):Variable 'retries' is declared but never used. Unused variables should start with a '_'."
+    ],
+    "gating": [
+      "src/runner.ts:eslint(no-debugger):`debugger` statement is not allowed"
+    ],
+    "target": [
+      "apps/web/src/runner.ts:eslint(no-debugger):`debugger` statement is not allowed"
+    ]
+  },
+  "baseline-ast-grep.json": {
+    "adapter": "ast-grep",
+    "keys": [
+      "src/cli.ts:no-default-export:avoid default exports",
+      "src/config.ts:no-class:no classes"
+    ],
+    "target": [
+      "apps/web/src/cli.ts:no-default-export:avoid default exports",
+      "apps/web/src/config.ts:no-class:no classes"
+    ]
+  },
+  "baseline-ast-grep-severities.json": {
+    "adapter": "ast-grep",
+    "keys": [
+      "src/cli.ts:no-console:route output through the reporter",
+      "src/cli.ts:no-var:prefer const or let",
+      "src/config.ts:no-class:no classes"
+    ],
+    "gating": [
+      "src/config.ts:no-class:no classes"
+    ],
+    "target": [
+      "apps/web/src/config.ts:no-class:no classes"
+    ]
+  },
+  "baseline-cspell.txt": {
+    "adapter": "cspell",
+    "keys": [
+      "src/cli.ts::Unknown word (oxlint)",
+      "src/config.ts::Unknown word (vitest)",
+      "src/init.ts::Unknown word (cspell)"
+    ],
+    "target": [
+      "apps/web/src/cli.ts::Unknown word (oxlint)",
+      "apps/web/src/config.ts::Unknown word (vitest)",
+      "apps/web/src/init.ts::Unknown word (cspell)"
+    ]
+  },
+  "baseline-vale.json": {
+    "adapter": "vale",
+    "keys": [
+      "docs/tools.md:Repo.Latin:Use 'for example' instead of 'e.g. '.",
+      "docs/tools.md:Repo.LyHyphen:'newly-created': an adverb ending in '-ly' takes no hyphen.",
+      "docs/tools.md:Repo.ThereIs:'There is' postpones the subject — name the thing that acts, then act.",
+      "docs/tools.md:Vale.Repetition:'a' is repeated!",
+      "src/runner.ts:Repo.Latin:Use 'that is' instead of 'i.e. '.",
+      "src/runner.ts:Repo.LyHyphen:'deliberately-wrapped': an adverb ending in '-ly' takes no hyphen.",
+      "src/runner.ts:Repo.ThereIs:'There is' postpones the subject — name the thing that acts, then act."
+    ],
+    "target": [
+      "apps/web/docs/tools.md:Repo.Latin:Use 'for example' instead of 'e.g. '.",
+      "apps/web/docs/tools.md:Repo.LyHyphen:'newly-created': an adverb ending in '-ly' takes no hyphen.",
+      "apps/web/docs/tools.md:Repo.ThereIs:'There is' postpones the subject — name the thing that acts, then act.",
+      "apps/web/docs/tools.md:Vale.Repetition:'a' is repeated!",
+      "apps/web/src/runner.ts:Repo.Latin:Use 'that is' instead of 'i.e. '.",
+      "apps/web/src/runner.ts:Repo.LyHyphen:'deliberately-wrapped': an adverb ending in '-ly' takes no hyphen.",
+      "apps/web/src/runner.ts:Repo.ThereIs:'There is' postpones the subject — name the thing that acts, then act."
+    ]
+  },
+  "baseline-vale-warnings.json": {
+    "adapter": "vale",
+    "keys": [],
+    "target": []
+  },
+  "baseline-vale-error.json": {
+    "adapter": "vale",
+    "keys": null,
+    "target": null
+  },
+  "baseline-fallow-dead-code.json": {
+    "adapter": "fallow",
+    "keys": [
+      "dead-code:unused_exports:src/extras.ts:extraExport",
+      "dead-code:unused_files:src/unused.ts"
+    ],
+    "target": [
+      "dead-code:unused_exports:apps/web/src/extras.ts:extraExport",
+      "dead-code:unused_files:apps/web/src/unused.ts"
+    ]
+  },
+  "baseline-fallow-dupes.json": {
+    "adapter": "fallow",
+    "keys": [
+      "dupes:dup:0d3e33a3"
+    ],
+    "target": [
+      "dupes:dup:0d3e33a3"
+    ]
+  },
+  "baseline-fallow-health.json": {
+    "adapter": "fallow",
+    "keys": [
+      "health:src/complex.ts:tangled"
+    ],
+    "target": [
+      "health:apps/web/src/complex.ts:tangled"
+    ]
+  }
+}

@@ -6,7 +6,7 @@
  */
 
 export type { Fingerprint } from './fingerprint.js';
-export { fingerprint, isFingerprintable, reportVerdict } from './fingerprint.js';
+export { findingText, fingerprint, isFingerprintable, reportVerdict } from './fingerprint.js';
 export { fallowVerdict } from './fallow.js';
 export type { BaselineDelta, Candidate, HistoryScan } from './history.js';
 export {
