@@ -7,6 +7,6 @@
  */
 
 export { parseFallowReport } from './parsers/fallow.js';
-export { parserFor } from './registry.js';
+export { baselineParserFor, parserFor } from './registry.js';
 export { streamText } from './stream.js';
 export type { CheckOutput, KeyedFinding } from './types.js';

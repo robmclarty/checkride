@@ -114,6 +114,10 @@ describe('the checkride/findings subpath', () => {
     expect(manifest.exports['./findings']).toEqual({ types: './dist/findings/api.d.ts', default: './dist/findings/api.js' });
   });
 
+  test('the go, rust and bash packs\' lint and cargo check output is parseable', () => {
+    for (const adapter of ['golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
   test('an adapter with no parser returns null (F45)', () => {
     expect(findings.isParseable('tsc')).toBe(false);
     expect(findings.parseFindings('tsc', 'src/a.ts(1,1): error TS2322')).toBeNull();

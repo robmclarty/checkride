@@ -41,9 +41,11 @@ export type DigestBudget = {
 /**
  * Where the digest goes: the output directory `dir`, absolute, and `label`,
  * the way the run names that directory in text (`.check` by default; see
- * `outLabel`), which every raw pointer in the digest starts with.
+ * `outLabel`), which every raw pointer in the digest starts with. `repoRoot`,
+ * the repo root's absolute path, names an absolute path in a key from the
+ * repo root, as the baseline does.
  */
-export type DigestTarget = { dir: string; label: string };
+export type DigestTarget = { dir: string; label: string; repoRoot?: string };
 
 /**
  * Conservative defaults: ~10 findings a slot and an 8 KB ceiling keep even a
@@ -80,14 +82,14 @@ function contentLines(text: string): string[] {
  * back to the last N lines of raw text — where a compiler or test runner puts
  * its summary. Either way the section is capped and points at the raw file.
  */
-function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, label: string): string {
+function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, label: string, repoRoot?: string): string {
   const { adapter, outcome } = run;
   const raw = rawPointer(check, outcome, label);
   const heading = `## ${check.name} — ${adapter.name}`;
 
   // Keyed as the baseline keys them, from the stream it reads, a target's paths
   // from the repo root.
-  const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root);
+  const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, repoRoot);
   if (keys && keys.size > 0) {
     const all = [...keys];
     const shown = all.slice(0, maxItems);
@@ -125,6 +127,7 @@ export function buildDigest(
   checks: readonly SummaryCheck[],
   budget: DigestBudget = DEFAULT_BUDGET,
   label: string = CHECK_DIR,
+  repoRoot?: string,
 ): string | null {
   const failing = checks.filter((c) => !c.ok && !c.skipped);
   if (failing.length === 0) return null;
@@ -143,7 +146,7 @@ export function buildDigest(
     // A failing non-skipped check always has a run; keep a minimal fallback so a
     // future code path that summarizes a failure without a run can't crash here.
     const section = run
-      ? `\n${renderSection(run, check, budget.maxItemsPerSlot, label)}`
+      ? `\n${renderSection(run, check, budget.maxItemsPerSlot, label, repoRoot)}`
       : `\n## ${check.name} — ${check.adapter ?? 'unknown'}\n\nRaw: \`${summaryPointer}\` — exited ${check.exit_code}\n`;
 
     // Byte budget: once a section would overflow, stop and name what's left —
@@ -173,7 +176,7 @@ export async function writeDigest(
   budget: DigestBudget = DEFAULT_BUDGET,
 ): Promise<boolean> {
   const path = join(target.dir, DIGEST_FILE);
-  const digest = buildDigest(runs, checks, budget, target.label);
+  const digest = buildDigest(runs, checks, budget, target.label, target.repoRoot);
   if (digest === null) {
     await rm(path, { force: true });
     return false;

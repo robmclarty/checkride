@@ -1,0 +1,2 @@
+{"code":"S1003","severity":"error","location":{"file":"/tmp/fixture-repo/svc/internal/store/store.go","line":16,"column":5},"end":{"file":"/tmp/fixture-repo/svc/internal/store/store.go","line":16,"column":39},"message":"should use strings.Contains(parts[0], \"x\") instead"}
+{"code":"S1025","severity":"error","location":{"file":"/tmp/fixture-repo/svc/internal/store/store.go","line":17,"column":10},"end":{"file":"/tmp/fixture-repo/svc/internal/store/store.go","line":17,"column":37},"message":"the argument is already a string, there's no need to use fmt.Sprintf"}

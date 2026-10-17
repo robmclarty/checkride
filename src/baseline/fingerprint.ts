@@ -10,7 +10,8 @@
  * This is deliberately NOT a normalized diagnostic schema: the raw
  * `.check/<slot>.json` stays authoritative. Every key comes from the adapter's
  * parser in `../findings` (D28), one per tool output format, so the baseline
- * and the findings a reader sees never drift apart; an adapter with no parser
+ * and the findings a reader sees never drift apart; an adapter with no parser,
+ * or one whose parser serves only `checkride/findings` (a type checker's, D31),
  * returns `null` — baseline is unsupported for that slot. A fingerprint keys
  * only the findings that can fail the check, so a finding that can only advise
  * never blocks masking, and each parser has already joined the check's root
@@ -23,7 +24,7 @@
  */
 
 import type { CheckOutput, KeyedFinding } from '../findings/index.js';
-import { parserFor, streamText } from '../findings/index.js';
+import { baselineParserFor, parserFor, streamText } from '../findings/index.js';
 import type { FallowVerdict } from './fallow.js';
 import { fallowVerdict } from './fallow.js';
 
@@ -76,8 +77,8 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
 
 /**
  * Fingerprint one adapter's raw output — the text {@link findingText} picks —
- * or `null` when the adapter has no parser (baseline unsupported for that
- * slot). Keyed on adapter name, so an alternate tool that shares a slot with a
+ * or `null` when the adapter has no parser the baseline keys with (baseline
+ * unsupported for that slot). Keyed on adapter name, so an alternate tool that shares a slot with a
  * supported default (biome/eslint for `lint`, knip for `dead`) opts out until
  * it grows its own parser. A supported adapter with zero findings returns an
  * empty set, never `null` — "supported but clean" and "not observed" are
@@ -97,20 +98,31 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * target's root in multi-target mode. Each path a key carries is joined onto
  * it, so the key names the file from the repo root. Omitted, or `.`, the paths
  * stay as the tool printed them.
+ *
+ * `repoRoot` is the repo root's absolute path. A path a tool printed absolute
+ * (staticcheck prints no other kind) is made relative to it, so the key names
+ * the file the same way on every machine (R12.4). Omitted, an absolute path
+ * stays as printed.
  */
-export function fingerprint(adapter: string, raw: string, argv?: readonly string[], root?: string): Fingerprint | null {
-  const findings = parserFor(adapter)?.parse(raw, { argv, root });
+export function fingerprint(
+  adapter: string,
+  raw: string,
+  argv?: readonly string[],
+  root?: string,
+  repoRoot?: string,
+): Fingerprint | null {
+  const findings = baselineParserFor(adapter)?.parse(raw, { argv, root, repoRoot });
   return findings === undefined || findings === null ? null : gatingKeys(findings);
 }
 
 /**
- * Whether an adapter can be fingerprinted (has a parser), decided by name
- * without needing its output. `init --baseline` uses this to tell which failing
- * slots the baseline can grandfather from those that must still fall back to a
- * `false` disable. It answers for the adapter, not for a particular run: a
+ * Whether an adapter can be fingerprinted (has a parser the baseline keys
+ * with), decided by name without needing its output. `init --baseline` uses
+ * this to tell which failing slots the baseline can grandfather from those
+ * that must still fall back to a `false` disable. It answers for the adapter, not for a particular run: a
  * fingerprintable adapter can still yield `null` on output it can't trust, in
  * which case that run simply grandfathers nothing.
  */
 export function isFingerprintable(adapter: string): boolean {
-  return parserFor(adapter) !== undefined;
+  return baselineParserFor(adapter) !== undefined;
 }

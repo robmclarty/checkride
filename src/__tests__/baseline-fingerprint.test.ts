@@ -12,6 +12,7 @@ import { applyBaseline, findingText, fingerprint } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
@@ -515,5 +516,59 @@ describe('fingerprint — support boundary', () => {
     expect(fingerprint('oxlint', 'not json at all')).toEqual(new Set());
     expect(fingerprint('oxlint', '{"diagnostics":"nope"}')).toEqual(new Set());
     expect(fingerprint('ast-grep', '{"not":"an array"}')).toEqual(new Set());
+  });
+});
+
+describe('fingerprint — the go, rust and bash packs (step 50)', () => {
+  // Real captures from a scratch repo at /tmp/fixture-repo: golangci-lint
+  // 2.14.0 and staticcheck 0.8.2 over a module in svc/, clippy and cargo check
+  // from Rust 1.99.0 over a workspace in rs/, and shellcheck 0.11.0 in scripts/.
+  const STATICCHECK = read('findings-staticcheck.jsonl');
+
+  test("each linter's gating findings key the baseline, its paths from the repo root", () => {
+    expect(fingerprint('golangci-lint', read('findings-golangci-lint.json'), undefined, 'svc')?.size).toBe(4);
+    expect(fingerprint('clippy', read('findings-clippy.jsonl'), undefined, 'rs')).toEqual(
+      new Set([
+        'rs/crates/core/src/lib.rs:clippy::needless_return:unneeded `return` statement',
+        'rs/crates/core/src/lib.rs:clippy::ptr_arg:writing `&Vec` instead of `&[_]` involves a new object where a slice will do',
+      ]),
+    );
+    // SC2086 fires twice in deploy.sh, and both key alike.
+    expect(fingerprint('shellcheck', read('findings-shellcheck.json'), undefined, 'scripts')?.size).toBe(11);
+  });
+
+  test("staticcheck's absolute paths key from the repo root, so a baseline reads the same on every machine", () => {
+    expect(fingerprint('staticcheck', STATICCHECK, undefined, 'svc', '/tmp/fixture-repo')).toEqual(
+      new Set([
+        'svc/internal/store/store.go:S1003:should use strings.Contains(parts[0], "x") instead',
+        "svc/internal/store/store.go:S1025:the argument is already a string, there's no need to use fmt.Sprintf",
+      ]),
+    );
+  });
+
+  test('clippy warnings that -D warnings would not fail key nothing: supported, but clean', () => {
+    expect(fingerprint('clippy', read('findings-clippy-warnings.jsonl'))).toEqual(new Set());
+  });
+
+  test("cargo check's type errors are never keyed (D31)", () => {
+    expect(fingerprint('cargo-check', read('findings-cargo-check.jsonl'))).toBeNull();
+  });
+
+  describe('through capture and masking', () => {
+    let dir: string;
+    beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-staticcheck-')); });
+    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+    test('a capture keys staticcheck from the repo root, and a later run masks with those keys', async () => {
+      const config: CheckrideConfig = { targets: { svc: { lang: 'go', root: 'svc', checks: { lint: 'staticcheck' } } } };
+      // staticcheck prints absolute paths, so the replay names files under this repo.
+      const stdout = STATICCHECK.replaceAll('/tmp/fixture-repo', dir);
+      const runner: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout, stderr: '' });
+      const quiet = { write: () => true };
+      const { baseline } = await runBaseline({ cwd: dir, config, runner, stderr: quiet });
+      expect(baseline.slots['svc:lint']).toEqual([...(fingerprint('staticcheck', STATICCHECK, undefined, 'svc', '/tmp/fixture-repo') ?? [])].toSorted());
+      const run = await runChecks({ cwd: dir, config, runner, baseline, only: ['svc:lint'], stderr: quiet });
+      expect(run.summary.checks.find((c) => c.name === 'svc:lint')).toMatchObject({ ok: true, baselined: 2 });
+    });
   });
 });

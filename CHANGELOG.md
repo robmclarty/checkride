@@ -344,6 +344,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the findings come from the same parsers the baseline keys with. It never
   writes under the output directory or decides a verdict (#6). See
   `docs/contract.md`.
+- **Go, Rust and shell lint findings join the baseline.** checkride now
+  parses golangci-lint, staticcheck, clippy and shellcheck, so
+  `checkride baseline` and `init --baseline` grandfather a go, rust or bash
+  target's `lint` findings instead of leaving the slot red or disabling it,
+  and the digest lists them by key. Each keys only what can fail its check:
+  every golangci-lint issue, every staticcheck problem but an ignored one,
+  clippy's errors (every warning, under the rust pack's `-D warnings`), and
+  shellcheck's comments at or above `--severity`. cargo check's type errors
+  are parsed too, for `checkride/findings`, but never grandfathered, as tsc's
+  aren't. staticcheck prints absolute paths, which a key names from the repo
+  root, so a baseline captured on one machine masks on another.
 
 ### Changed
 
@@ -701,6 +712,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exporting `parseFindings`, `findingsFor` and `isParseable` and the types
   `Finding`, `ParseOptions` and `FindingsCheck`, in the contract doc and
   `exports.contract.test.ts`. The package root's exports are unchanged.
+- Additive: `isParseable` answers `true` for `golangci-lint`, `staticcheck`,
+  `clippy`, `cargo-check` and `shellcheck`, and `checkride.baseline.json`
+  takes keys for the first four in the `<file>:<rule>:<message>` form, with
+  an empty file for a failing finding that names none, in the contract doc,
+  `baseline.contract.test.ts` and `exports.contract.test.ts`. A key's
+  absolute path inside the repo is now named from the repo root; the
+  0.13 tools print relative paths, so no existing key changes.
 
 ### Internal
 

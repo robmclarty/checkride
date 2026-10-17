@@ -325,6 +325,11 @@ describe('isFingerprintable', () => {
     expect(isFingerprintable('tsc')).toBe(false);
     expect(isFingerprintable('knip')).toBe(false);
   });
+
+  test("the Go, Rust and shell linters' parsers feed the baseline, and cargo check's doesn't (D31)", () => {
+    for (const adapter of ['golangci-lint', 'staticcheck', 'clippy', 'shellcheck']) expect(isFingerprintable(adapter), adapter).toBe(true);
+    expect(isFingerprintable('cargo-check')).toBe(false);
+  });
 });
 
 function capture(): { out: Out; text: () => string } {

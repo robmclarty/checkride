@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 49 — feat(findings): export parseFindings with severity, gates and slot
+**Current step:** 50 — feat(findings): parse Go, Rust and shell tool output with path rebasing
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -72,7 +72,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 46. feat(init): scaffold Go and Rust projects with init --lang
 - ☑ 47. test(examples): add the Go, Rust and mixed-stack examples
 - ☑ 48. refactor(baseline): derive fingerprints from one parser per format
-- ☐ 49. feat(findings): export parseFindings with severity, gates and slot
+- ☑ 49. feat(findings): export parseFindings with severity, gates and slot
 - ☐ 50. feat(findings): parse Go, Rust and shell tool output with path rebasing
 - ☐ 51. feat(findings): parse docs, spell and type-checker output
 - ☐ 76. feat(config): pick the implicit pack from the root's markers
@@ -143,7 +143,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
 - [x] R2.1's implicit go/rust/python/terraform pack (a root go.mod or Cargo.toml with no targets picks that pack) has no step: config.ts still resolves every implicit repo as ts, so init --lang go|rust writes an explicit app target at the root instead
 - [x] R11.6's bash-strict-mode dialect rule (set -euo pipefail, or a built-in beside shellcheck if ast-grep can't express it) has no step: no bash scaffold ships rules, so step 46 built only the five go and rust rules
-- [ ] cspell 10.3.6 appends ' fix: (<word>)' to a line when it has a confident suggestion, so the cspell key's message embeds the suggestion; baseline-cspell.txt predates it (C9), so recapture the fixture and decide whether the key keeps the suffix
+- [x] cspell 10.3.6 appends ' fix: (<word>)' to a line when it has a confident suggestion, so the cspell key's message embeds the suggestion; baseline-cspell.txt predates it (C9), so recapture the fixture and decide whether the key keeps the suffix
+- [ ] golangci-lint prints paths relative to its config's dir (v2 relative-path-mode: cfg), so a parent .golangci.yml or a gomod/gitroot mode double-joins the target root in keys
+- [ ] cargo spans are relative to the workspace root, so a rust target declared at a member crate (not the workspace root) keys its clippy paths under the wrong root
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -202,6 +204,7 @@ Harvest results this boundary:
 - After step 47: "R11.6's bash-strict-mode dialect rule ... has no step" → **tangent**, deferred to step 73 (no scaffold ships bash rules, so nothing loses coverage; step 73 folds the spec into the docs and decides whether to drop that row from the documented dialect rules or keep it as unbuilt).
 - After step 47: the Ranges section's step 45 lean, which step 45 applied inside the range the human granted → folded into `intent.md` as D64 (cargo-target-dir-lock), which amends R6.5's sentence; the remaining leans now fold as D67 onward once approved.
 - After step 47: the plan text steps 41 to 46 corrected after running each tool at its pinned version (not parked; recorded in those steps' checkpoint bodies) → **blocker**, handled now: folded into `intent.md` as D65 (verified-argv), which amends R5.5's go-build, golangci-lint and govulncheck rows, R5.6's cargo-deny and cargo-mutants rows, R6.1's go-mod-tool and rust-toolchain rows, R6.2's toolchain rule, R6.4's `RUSTUP_TOOLCHAIN` and offline-hint paragraph, and R6.5's lock sentence (steps 50, 56, 72 and 73 build from that text, and step 73 would otherwise document govulncheck's vacuous `-format json` argv).
+- After step 49: "cspell 10.3.6 appends ' fix: (<word>)' to a line ..." → **tangent**, deferred to step 51 (keys stay stable for one cspell version and dictionary, and the contract treats a tool's wording as the tool's, so the key keeps the suffix verbatim, since stripping it would re-key every suffixed cspell key in today's baselines; step 51 recaptures `baseline-cspell.txt` at the pinned cspell so the fixture carries a suffixed line, per C9).
 
 ## Log
 
@@ -2177,3 +2180,63 @@ folder, so it rides the branch into the PR.)*
   **5.** Fallow findings got provisional fields for step 49
 
   A fallow finding's rule is its dead-code category, `code-duplication` or `complexity`. Its message is the symbol, the clone fingerprint or the function name. A clone group names its first instance's file. None of this feeds a key. Step 49 settles what `checkride/findings` shows a reader.
+
+- 2026-10-17 — step 49 checkpointed · 78a1cddfc — feat(findings): export parseFindings with severity, gates and slot (1 drift, 12m)
+
+  **Summary**: `checkride/findings` now exports `parseFindings`, `findingsFor` and `isParseable`. Findings carry the adapter, the slot, a 1-based line and column, the tool's severity verbatim, and `gates` per R12.3. `findingsFor` opens a summary entry's own artifact from the run directory. An adapter with no parser returns `null`.
+
+  1. The subpath's entry is `src/findings/api.ts`, not the barrel
+  2. Every parser now reports 1-based positions, checked against the real tools
+  3. `findingsFor` reads the stream its parser declares (D49)
+  4. Two behavior changes ride along
+  5. The range stopped here because the checkpoint latch refused step 49
+
+  **Readout**: Step 49 - feat(findings): export parseFindings with severity, gates and slot
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 14 paths outside the seam
+               - fallow.toml
+               - src/baseline/fallow.ts
+               - src/findings/__tests__/parsers.test.ts
+               - src/findings/parsers/ast-grep.ts
+               - src/findings/parsers/cspell.ts
+               - src/findings/parsers/fallow.ts
+               - src/findings/parsers/oxlint.ts
+               - src/findings/parsers/vale.ts
+               - src/findings/paths.ts
+               - src/findings/read.ts
+               - src/findings/types.ts
+               - rules/findings-never-imports-orchestrator.yml
+               - src/findings/__tests__/api.test.ts
+               - src/findings/api.ts
+  diff         +686 -116 across 18 files
+  spent        12 min · 1 turn · 48s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve step 49 with `looks good`, then run `/plumbbob:build 50-51` for the rest of what this range can reach. The API is locked by the contract test and documented with a type-checked snippet, and `smoke` and `attw` both exercised the new subpath.
+
+  **1.** The subpath's entry is `src/findings/api.ts`, not the barrel
+
+  R17 sketches `findings/index.ts` as the subpath. But the baseline reaches the parsers through that barrel (the deep-module rule allows nothing else), so pointing `exports` at it would publish `parserFor`, `streamText` and `parseFallowReport`. `api.ts` holds the three public functions, `package.json` maps `./findings` to `dist/findings/api.js`, and the contract test pins its export list to exactly three names. `fallow.toml` declares it as an entry, as it does the plugin's CLIs.
+
+  **2.** Every parser now reports 1-based positions, checked against the real tools
+
+  I ran each tool on a scratch file to learn its bases. oxlint, cspell and vale are 1-based. ast-grep counts lines and columns from 0. fallow counts lines from 1 and columns from 0. The fixtures' tests assert the converted numbers, and fallow findings take their slot from the report's `kind`.
+
+  **3.** `findingsFor` reads the stream its parser declares (D49)
+
+  A JSON parser opens the entry's `output_file`, else falls back to `<slot>.stdout.txt`. A text parser opens `<slot>.stdout.txt` or `<slot>.stderr.txt`, under `<target>/` for a target's check. A file the run never wrote reads as empty output. The entry's `cwd`, `argv` and slot rebase paths and decide `gates`; with no `argv`, the registry args do. `findingsFor` takes a structural `FindingsCheck`, which `SummaryCheck` fits, because A6 bars importing the orchestrator's type. A new ast-grep rule, `findings-never-imports-orchestrator`, holds A6. The contract test runs `runChecks` in implicit and multi-target mode and reads the findings back through `findingsFor`.
+
+  **4.** Two behavior changes ride along
+
+  R12.4's absolute-path rule landed here because `findingsFor` requires `repoRoot`, and accepting it unused would mislead. An absolute path inside the repo becomes repo-relative, and one outside stays absolute. The baseline never passes `repoRoot`, so the golden still holds. Fallow's parser now returns `null` for a report it can't read, which R12.1's null rule asks for. As a side effect, `checkride baseline` no longer writes an empty list for that slot; CHANGELOG lists it under Fixed. CHANGELOG also gains the Internal note step 48 owed for moving the baseline onto the parsers.
+
+  **5.** The range stopped here because the checkpoint latch refused step 49
+
+  Step 48 landed under your 48-57 grant, but `plumbbob checkpoint 49` refused with "no human turn since this step began". The likely cause is my own: during step 48 I ran stryker in the background with a monitor, and their task notifications went through the prompt hook as turns (`.plumbbob/TURN` counts them). Step 48's checkpoint came after those turns. Step 49 began after the last one, and the latest "prompt" no longer carried the range, so the latch saw no grant. I didn't route around it, and I saved a memory to run long jobs in the foreground during a range. Separately, a task notification counting as a human turn looks like a gap in the latch worth a look on plumbbob's side. The range could only have reached step 51 anyway, because the build order runs step 76 next.

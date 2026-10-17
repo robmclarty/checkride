@@ -5,8 +5,9 @@
  * `src/a.ts` from `apps/web` keys as `apps/web/src/a.ts`, and the same file
  * keys the same way whichever directory checked it. A check at the repo root
  * keeps every path as printed, so every implicit-mode key is unchanged. An
- * absolute path is made relative to the repo root when the caller names it,
- * which the baseline never does, so its keys keep an absolute path as printed.
+ * absolute path, which staticcheck prints for every finding, is made relative
+ * to the repo root when the caller names it, as a run, a capture and the
+ * digest all do, so a key names its file the same way on every machine.
  */
 
 import { isAbsolute, posix, relative, sep } from 'node:path';

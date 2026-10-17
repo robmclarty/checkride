@@ -116,10 +116,11 @@ function failureLine(outcome: CheckOutcome): string | null {
 /**
  * Which baseline entry a check masks against and how its findings are keyed:
  * `key` names the entry (the check's name), `root` is the check's target root,
- * joined onto each path its tool printed (D50), and `base` and `out` fill the
+ * joined onto each path its tool printed (D50), `repoRoot` the repo root an
+ * absolute path is made relative to (R12.4), and `base` and `out` fill the
  * argv placeholders the gating rules read.
  */
-type MaskScope = { key: string; root: string | undefined; base: string | null; out: string };
+type MaskScope = { key: string; root: string | undefined; repoRoot: string; base: string | null; out: string };
 
 /**
  * Baseline-aware verdict for one check's outcome. An adapter with a registered
@@ -140,7 +141,7 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
     return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
   }
   const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
-  const current = keys !== null ? fingerprint(adapter.name, raw, argv, scope.root) : null;
+  const current = keys !== null ? fingerprint(adapter.name, raw, argv, scope.root, scope.repoRoot) : null;
   if (keys !== null && current !== null) {
     const adj = applyBaseline(current, keys, outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: failureLine(outcome), observed: current };
@@ -312,7 +313,8 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   // Masking is always on (even under a partial run); only the ratchet is gated.
   // The raw `<slot>.json` is persisted untouched — masking changes the
   // pass/fail verdict, never the authoritative output.
-  const mask = maskOutcome(adapter, outcome, ctx.baseline, { key: name, root: r.root, base: ctx.changedBase?.ref ?? null, out: place.outArg });
+  const scope = { key: name, root: r.root, repoRoot: ctx.cwd, base: ctx.changedBase?.ref ?? null, out: place.outArg };
+  const mask = maskOutcome(adapter, outcome, ctx.baseline, scope);
   const run = checkRun(r, adapter, outcome);
   const entry = executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null);
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);

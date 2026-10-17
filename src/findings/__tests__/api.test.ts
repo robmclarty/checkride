@@ -35,7 +35,8 @@ function entry(name: string, adapter: string | null, extra: Partial<FindingsChec
 
 describe('isParseable', () => {
   test('names the adapters with a parser, and no others', () => {
-    for (const adapter of ['oxlint', 'ast-grep', 'cspell', 'vale', 'fallow']) expect(isParseable(adapter), adapter).toBe(true);
+    const parseable = ['oxlint', 'ast-grep', 'cspell', 'vale', 'fallow', 'golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck'];
+    for (const adapter of parseable) expect(isParseable(adapter), adapter).toBe(true);
     for (const adapter of ['tsc', 'vitest', 'knip', 'biome', 'constructor']) expect(isParseable(adapter), adapter).toBe(false);
   });
 });

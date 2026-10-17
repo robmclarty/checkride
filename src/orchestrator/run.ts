@@ -222,7 +222,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file beside summary.json, never a stdout stream, so the machine-output
   // split holds. Raw `<slot>.json` files are already persisted and
   // untouched — the digest only reads them.
-  const digestWritten = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel }, runs, checks) : false;
+  const digestWritten = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : false;
 
   if (ctx.json) {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);

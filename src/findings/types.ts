@@ -58,11 +58,15 @@ export type KeyedFinding = {
  * One tool format's parser. `parse` never throws: it returns the findings it
  * read, an empty array for a clean run or a payload its format can't tell from
  * one, and `null` only for output the format can say is untrustworthy (vale's
- * runtime-error report), which a reader takes as "not observed".
+ * runtime-error report, a cargo build that never finished), which a reader
+ * takes as "not observed". `parseOnly` marks a parser that serves
+ * `checkride/findings` but never the baseline: a type checker's errors aren't
+ * grandfathered (D31).
  */
 export type Parser = {
   readonly stream: FindingStream;
   readonly parse: (raw: string, context: ParseContext) => readonly KeyedFinding[] | null;
+  readonly parseOnly?: true;
 };
 
 /**

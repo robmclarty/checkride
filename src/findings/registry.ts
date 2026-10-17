@@ -10,9 +10,13 @@
  */
 
 import { astGrepParser } from './parsers/ast-grep.js';
+import { cargoCheckParser, clippyParser } from './parsers/cargo.js';
 import { cspellParser } from './parsers/cspell.js';
 import { fallowParser } from './parsers/fallow.js';
+import { golangciLintParser } from './parsers/golangci-lint.js';
 import { oxlintParser } from './parsers/oxlint.js';
+import { shellcheckParser } from './parsers/shellcheck.js';
+import { staticcheckParser } from './parsers/staticcheck.js';
 import { valeParser } from './parsers/vale.js';
 import type { Parser } from './types.js';
 
@@ -28,9 +32,23 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   cspell: cspellParser,
   vale: valeParser,
   fallow: fallowParser,
+  'golangci-lint': golangciLintParser,
+  staticcheck: staticcheckParser,
+  clippy: clippyParser,
+  'cargo-check': cargoCheckParser,
+  shellcheck: shellcheckParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */
 export function parserFor(adapter: string): Parser | undefined {
   return Object.hasOwn(PARSERS, adapter) ? PARSERS[adapter] : undefined;
+}
+
+/**
+ * The parser the baseline keys `adapter` with: its registered parser, unless
+ * that one only serves `checkride/findings`, as a type checker's does (D31).
+ */
+export function baselineParserFor(adapter: string): Parser | undefined {
+  const parser = parserFor(adapter);
+  return parser?.parseOnly === true ? undefined : parser;
 }

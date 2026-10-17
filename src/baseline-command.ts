@@ -91,12 +91,13 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
 
   // A capture run is never `--changed`, so each check ran its declared args.
   // Keys go under the check's name, `<target>:<slot>` for a target's check, with
-  // its paths joined onto the target's root, as a run masks with them, read
-  // from the stream the adapter's parser declares.
+  // its paths joined onto the target's root and an absolute path made relative
+  // to the repo root, as a run masks with them, read from the stream the
+  // adapter's parser declares.
   const slots: Record<string, string[]> = {};
   for (const run of result.runs) {
     const { adapter, outcome } = run;
-    const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root);
+    const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, cwd);
     if (keys === null) continue;
     slots[run.name] = [...keys].toSorted();
   }

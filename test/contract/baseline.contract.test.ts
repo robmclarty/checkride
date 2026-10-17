@@ -172,6 +172,28 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('vale', '{}')).toEqual(new Set());
   });
 
+  test('the go, rust and bash lint tools key as <file>:<rule>:<message>, and cargo check never keys', () => {
+    const golangci = JSON.stringify({
+      Issues: [{ FromLinter: 'errcheck', Text: 'Error return value is not checked', Severity: '', Pos: { Filename: 'store/store.go', Line: 11, Column: 11 } }],
+    });
+    expect(fingerprint('golangci-lint', golangci, undefined, 'svc')).toEqual(new Set(['svc/store/store.go:errcheck:Error return value is not checked']));
+    // staticcheck prints absolute paths, and a key names them from the repo root.
+    const staticcheck = '{"code":"S1003","severity":"error","location":{"file":"/repo/svc/store.go","line":16,"column":5},"message":"use strings.Contains"}\n';
+    expect(fingerprint('staticcheck', staticcheck, undefined, 'svc', '/repo')).toEqual(new Set(['svc/store.go:S1003:use strings.Contains']));
+    const cargo = [
+      JSON.stringify({
+        reason: 'compiler-message',
+        message: { level: 'error', code: { code: 'clippy::ptr_arg' }, message: 'writing `&Vec`', spans: [{ file_name: 'src/lib.rs', line_start: 13, column_start: 24, is_primary: true }] },
+      }),
+      JSON.stringify({ reason: 'build-finished', success: false }),
+    ].join('\n');
+    expect(fingerprint('clippy', cargo)).toEqual(new Set(['src/lib.rs:clippy::ptr_arg:writing `&Vec`']));
+    expect(fingerprint('cargo-check', cargo)).toBeNull();
+    const shellcheck = JSON.stringify({ comments: [{ file: 'deploy.sh', line: 9, column: 19, level: 'style', code: 2006, message: 'Use $(...).' }] });
+    expect(fingerprint('shellcheck', shellcheck, ['shellcheck', '-f', 'json1'])).toEqual(new Set(['deploy.sh:SC2006:Use $(...).']));
+    expect(fingerprint('shellcheck', shellcheck, ['shellcheck', '-f', 'json1', '--severity=warning'])).toEqual(new Set());
+  });
+
   test.each<{ label: string; raw: string; expected: Baseline | null }>([
     { label: 'an unknown top-level field is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, extra: true }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a missing schema_version reads as 1', raw: JSON.stringify({ slots: { lint: ['a'] } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },

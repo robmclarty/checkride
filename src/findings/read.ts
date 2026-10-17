@@ -15,6 +15,21 @@ export function parseJson(raw: string): unknown {
   return parseToolJson(raw)?.value ?? null;
 }
 
+/**
+ * Parse JSON-lines output defensively: the value of each line that parses on
+ * its own, in order. A line that doesn't (a launcher's preamble, a stray
+ * print) is passed over rather than voiding the rest, so one foreign line
+ * can't hide every finding behind it.
+ */
+export function jsonLines(raw: string): unknown[] {
+  const values: unknown[] = [];
+  for (const line of raw.split('\n')) {
+    const value = line.trim() === '' ? undefined : parseToolJson(line)?.value;
+    if (value !== undefined) values.push(value);
+  }
+  return values;
+}
+
 /** Read a field as a string, or `''` when it is missing or not a string. */
 export function str(value: unknown): string {
   return typeof value === 'string' ? value : '';

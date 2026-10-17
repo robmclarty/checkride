@@ -779,7 +779,7 @@ reference rules and porting trap apply as written there.
       `src/__tests__/baseline-fingerprint.test.ts`, `src/orchestrator/execute.ts`,
       `src/baseline-command.ts`
     - model: opus (byte-identical keys across a refactor)
-49. [ ] feat(findings): export parseFindings with severity, gates and slot, **done when:** `checkride/findings` exports R12.1's API, with `findingsFor` opening the check's own artifact from the run directory ([D49 (text-findings)](#d49)); findings carry 1-based lines, verbatim `severity`, `gates` per R12.3 and the slot; an unsupported adapter returns `null` (F45); `package.json` exports the subpath; rule A6 holds; `exports.contract.test.ts` and `docs/contract.md` cover it
+49. [x] feat(findings): export parseFindings with severity, gates and slot, **done when:** `checkride/findings` exports R12.1's API, with `findingsFor` opening the check's own artifact from the run directory ([D49 (text-findings)](#d49)); findings carry 1-based lines, verbatim `severity`, `gates` per R12.3 and the slot; an unsupported adapter returns `null` (F45); `package.json` exports the subpath; rule A6 holds; `exports.contract.test.ts` and `docs/contract.md` cover it
     - seam: `src/findings/index.ts`, `package.json`, `test/contract/exports.contract.test.ts`,
       `docs/contract.md`, `CHANGELOG.md`
     - model: opus (a new public surface)
