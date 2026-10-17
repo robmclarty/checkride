@@ -443,6 +443,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and the run is partial, so it never ratchets. It's a best-effort selector,
   not a sandbox: a tool release can add a way to load code that these sniffs
   don't know. `doctor` refuses the flag for now (#7).
+- **A guide to running checkride from outside a repo.** `docs/consumers.md`
+  walks a reviewer, a CI job or an agent through the consumer flags, a
+  defaults file, the pre-sandbox and sandbox passes, comparing the base
+  branch's config, `baseline diff`, and reading every finding through
+  `checkride/findings`, and says plainly that none of it is a sandbox. An e2e
+  case runs both passes over `examples/polyglot-stack` (#7).
 
 ### Changed
 

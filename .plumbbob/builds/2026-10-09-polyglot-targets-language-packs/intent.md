@@ -825,7 +825,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/cli.ts`, `src/gate.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: sonnet
-56. [ ] feat(select): keep only checks that need no install with --static-only, **done when:** adapters carry `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys` per R13.4; `--static-only` keeps a check only per [D26 (static-only)](#d26) and skips the rest with a `static-only:` reason; the summary records `run.static_only`, and its `docs/contract.md` row drops "no such flag yet"; `--static-only` joins `isPartialRun`, so `run.partial` is true and the ratchet stands down, and the `partial` row says so ([D55 (run-fields-ahead)](#d55)); F39 and F40 pass; the docs call it a selector, not a sandbox
+56. [x] feat(select): keep only checks that need no install with --static-only, **done when:** adapters carry `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys` per R13.4; `--static-only` keeps a check only per [D26 (static-only)](#d26) and skips the rest with a `static-only:` reason; the summary records `run.static_only`, and its `docs/contract.md` row drops "no such flag yet"; `--static-only` joins `isPartialRun`, so `run.partial` is true and the ratchet stands down, and the `partial` row says so ([D55 (run-fields-ahead)](#d55)); F39 and F40 pass; the docs call it a selector, not a sandbox
     - seam: `src/packs/`, `src/packs/static.ts`, `src/orchestrator/select.ts`, `src/cli.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: opus (the sniffs decide what a pre-sandbox run touches)

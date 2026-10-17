@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 56 — feat(select): keep only checks that need no install with --static-only
+**Current step:** 57 — docs(consumers): document running checkride from outside a repo
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -80,7 +80,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 53. feat(config): layer a defaults file below detection with --defaults
 - ☑ 54. feat(run): discover targets at run time with --discover
 - ☑ 55. feat(launch): let an outside mise.toml override pins with --pins
-- ☐ 56. feat(select): keep only checks that need no install with --static-only
+- ☑ 56. feat(select): keep only checks that need no install with --static-only
 - ☐ 57. docs(consumers): document running checkride from outside a repo
 - ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☐ 59. feat(packs): add the python pack
@@ -157,6 +157,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] a full pnpm mutation fails its dry run at HEAD: test/integration/dogfood-config.test.ts runs git ls-files from inside the gitignored .stryker-tmp sandbox and gets nothing; only --mutate runs whose related tests skip it get through
 - [ ] doctor takes --pins per R7.2, but step 55 has it exit 2: its tool probe, pin rows and unpinned list need the override source (mise where <id>@<version>) before it can report the copies a --pins run uses
 - [ ] doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins: its rows would need withStaticOnly's causes and the every-manager install pre-flight to say which checks a static run keeps
+- [ ] R13.6's recipes pass --discover unconditionally, but F37 makes --discover exit 2 on a repo whose config declares targets, so docs/consumers.md conditions it on the config; decide whether --discover should instead stand down quietly where targets exist
+- [ ] R11.4 proposes a bash target only for shell files outside every other target, so a repo with a root package.json gets no bash target under --discover or init and its scripts go unlinted (polyglot-stack without its config shows it)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2383,3 +2385,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 53 checkpointed · 7c47b8c45 — feat(config): layer a defaults file below detection with --defaults (1 drift, 59m)
 - 2026-10-17 — step 54 checkpointed · 75bfd64eb — feat(run): discover targets at run time with --discover (1 drift, 12m)
 - 2026-10-17 — step 55 checkpointed · d030bda47 — feat(launch): let an outside mise.toml override pins with --pins (1 drift, 13m)
+- 2026-10-17 — step 56 checkpointed · e82106524 — feat(select): keep only checks that need no install with --static-only (1 drift, 15m)

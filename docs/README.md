@@ -24,6 +24,11 @@ Start here:
   sources, `requirePins`, and the spawn environment that keeps a check from
   downloading anything. Read this to know which copy of a tool produced a
   finding.
+- **[Running checkride from outside a repo](./consumers.md)** — for a
+  reviewer, CI job or agent checking a checkout it didn't write: the
+  `--defaults`, `--pins`, `--discover` and `--static-only` flags, the
+  pre-sandbox and sandbox passes, and reading findings through
+  `checkride/findings`. None of it is a sandbox.
 - **[Deep modules](./deep-modules.md)** — the module-boundary convention the
   `struct` slot enforces: the Ousterhout idea behind it, how it's held in place,
   and how to swap it for a different convention or language. Read this to
