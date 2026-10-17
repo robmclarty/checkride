@@ -1576,10 +1576,10 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
   const raw = readRawConfig(cwd, () => ({}));
   if (raw['targets'] !== undefined) return null;
   const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
-  if (isImplicit(proposed)) return null;
+  const pack = implicitPack((marker) => existsSync(join(cwd, marker)));
+  if (isImplicit(proposed, pack)) return null;
   // The root target first, so it takes the implicit target over rather than nesting beside one.
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
-  const pack = implicitPack((marker) => existsSync(join(cwd, marker)));
   const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS };
   let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
   for (const target of ordered) {

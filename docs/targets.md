@@ -95,7 +95,14 @@ installs tools, above ts targets in their own directories, goes in
   there's more than the one project at the root. Where that pack isn't `ts`,
   `--add` takes only `docs`, `spell` and `prose`, and exits 2 on a slot whose
   blessed config is the ts pack's.
+- `checkride --discover` checks the targets `init` would propose without
+  writing them: the top-level entries and baseline keys move to the target at
+  the root, in memory, and a repo whose config already declares targets exits
+  2. Discovery proposes a go target for each top-most `go.work` and each
+  `go.mod` outside one, and a rust target for each top-most `[workspace]`
+  manifest and each `[package]` one outside it, beside the ts and bash rules.
 - `checkride doctor` names the mode and the implicit pack, lists the targets,
   and reports each check's pin source and the markers no target claims.
+  `doctor --discover` shows what `--discover` would check.
 
 [The contract](./contract.md) holds the exact rules each of these keeps.

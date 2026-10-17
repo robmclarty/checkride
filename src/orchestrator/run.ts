@@ -19,6 +19,7 @@ import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { Target } from '../targets/index.js';
+import { discoverRun } from '../targets/index.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -49,6 +50,14 @@ function runRecord(options: RunOptions, cwd: string, partial: boolean): SummaryR
     ...(options.include ? { include: [...options.include] } : {}),
     ...(options.all === true ? { all: true } : {}),
     ...(options.changed === true ? { changed: true } : {}),
+    ...(options.discover === true ? { discover: true } : {}),
+    ...pathsRecord(options, cwd),
+  };
+}
+
+/** The files and directory a run was pointed at, each as an absolute path, and nothing for one it wasn't. */
+function pathsRecord(options: RunOptions, cwd: string): Pick<SummaryRun, 'config' | 'defaults' | 'out'> {
+  return {
     ...(options.configPath !== undefined ? { config: resolve(cwd, options.configPath) } : {}),
     ...(options.defaults !== undefined ? { defaults: resolve(cwd, options.defaults.path) } : {}),
     ...(options.out !== undefined ? { out: resolve(cwd, options.out) } : {}),
@@ -65,9 +74,13 @@ function gitRecord(state: GitState | null, base: ChangedBase | null): SummaryGit
   return base?.sha ? { ...state, base: { ref: base.ref, sha: base.sha } } : state;
 }
 
-/** The summary's `targets`: each configured target in config order, or `null` in implicit mode. */
-function targetsRecord(targets: readonly Target[] | null): SummaryTarget[] | null {
-  return targets === null ? null : targets.map(({ name, pack, root }) => ({ name, pack, root }));
+/**
+ * The summary's `targets`: each configured target in config order, or each
+ * discovered one in discovery order, marked so, or `null` in implicit mode.
+ */
+function targetsRecord(targets: readonly Target[] | null, discovered: boolean): SummaryTarget[] | null {
+  if (targets === null) return null;
+  return targets.map(({ name, pack, root }) => ({ name, pack, root, ...(discovered ? { discovered: true as const } : {}) }));
 }
 
 /**
@@ -79,6 +92,7 @@ function targetsRecord(targets: readonly Target[] | null): SummaryTarget[] | nul
  */
 function consumerCause(options: RunOptions, cwd: string): string | null {
   if (options.defaults !== undefined) return '--defaults';
+  if (options.discover === true) return '--discover';
   if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
   if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;
@@ -156,11 +170,27 @@ async function changedPathsFor(ctx: RunContext, base: ChangedBase | null): Promi
   return null;
 }
 
+/**
+ * The run context with `--discover`'s targets applied (R13.2), or `ctx` as it
+ * is without the flag. A discovery that proposes only the implicit target
+ * leaves it unchanged. Each top-level entry no root target could take is
+ * named on stderr, since the run drops it.
+ */
+async function withDiscovery(ctx: RunContext, options: RunOptions): Promise<RunContext> {
+  if (options.discover !== true) return ctx;
+  const found = await discoverRun(ctx.cwd, ctx.config, ctx.baseline);
+  for (const slot of found.dropped) {
+    writeLine(ctx.stderr, `--discover: dropped checks.${slot}, since no discovered target sits at the repo root to take it`);
+  }
+  if (found.targets.length === 0) return ctx;
+  return { ...ctx, config: found.config, targets: found.targets, discovered: true, baseline: found.baseline };
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
   resetInterrupt();
-  const base = resolveRunContext(options);
+  const base = await withDiscovery(resolveRunContext(options), options);
   const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, defaults: base.defaults, cwd: base.cwd });
   // A usage error before any side effect: no output dir, no run, exit 2.
   validateSelection(resolved, options);
@@ -216,7 +246,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     totalDurationMs,
     runRecord(options, ctx.cwd, partial),
     gitRecord(gitState, changedBase),
-    targetsRecord(ctx.targets),
+    targetsRecord(ctx.targets, ctx.discovered),
   );
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
 

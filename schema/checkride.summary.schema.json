@@ -97,7 +97,7 @@
         "all": { "const": true, "description": "Present when --all was given." },
         "changed": { "const": true, "description": "Present when --changed was given." },
         "static_only": { "const": true, "description": "Present when --static-only was given. checkride has no such flag yet, so no run writes it." },
-        "discover": { "const": true, "description": "Present when --discover was given. checkride has no such flag yet, so no run writes it." },
+        "discover": { "const": true, "description": "Present when --discover was given." },
         "config": { "type": "string", "description": "Present when --config or CHECKRIDE_CONFIG named the config file: its absolute path." },
         "defaults": { "type": "string", "description": "Present when --defaults or CHECKRIDE_DEFAULTS named the defaults file: its absolute path." },
         "pins": { "type": "string", "description": "Present when --pins or CHECKRIDE_PINS was given: the file's absolute path. checkride has no such flag yet, so no run writes it." },
@@ -131,7 +131,7 @@
         "name": { "type": "string", "description": "The target's name, as checkride.config.json declares it; its checks are named <name>:<slot> and write under <out>/<name>/." },
         "pack": { "type": "string", "description": "The pack that checks the target (ts)." },
         "root": { "type": "string", "description": "The directory its target-scope checks run from, relative to the repo root and normalized: . for the root itself." },
-        "discovered": { "const": true, "description": "Present when --discover proposed the target rather than the config declaring it. checkride has no such flag yet, so no run writes it." }
+        "discovered": { "const": true, "description": "Present when --discover proposed the target rather than the config declaring it." }
       }
     }
   }

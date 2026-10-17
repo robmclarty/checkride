@@ -75,6 +75,8 @@ export type RunContext = CommonContext & {
   targets: readonly Target[] | null;
   /** The defaults layer's config (`--defaults`, R13.1), or `null` when the run names none. */
   defaults: CheckrideConfig | null;
+  /** True when `--discover` proposed {@link targets} rather than the config declaring them. */
+  discovered: boolean;
   runner: CheckRunner;
   json: boolean;
   bail: boolean;
@@ -187,6 +189,7 @@ export function resolveRunContext(options: RunOptions): RunContext {
     ...layeredKeys(common.config, options),
     ...flagsOf(options),
     targets: configuredTargets(common.config),
+    discovered: false,
     nameWidth: 8,
     changedBase: null,
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),

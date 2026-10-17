@@ -27,6 +27,13 @@ export type RunFlags = {
   /** Write a capped failure excerpt to `digest.md` in the output directory. */
   digest?: boolean;
   /**
+   * Discover targets at run time (R13.2): the ones the repo's files propose
+   * are declared in memory, nothing is written, and the run never ratchets the
+   * baseline. A config that already declares targets makes the run a usage
+   * error.
+   */
+  discover?: boolean;
+  /**
    * Treat zero checks actually executing as an error (exit 2), not a vacuous
    * pass. For consumers that gate on the exit code (plumbbob, CI); a human
    * exploring a fresh repo keeps the default warning-only behavior.
@@ -114,9 +121,9 @@ export type SummaryCheck = {
 
 /**
  * What a run selected (R8.1): `partial`, plus each selection or mode flag the
- * run was given and nothing for one it wasn't. `static_only`, `discover` and
- * `pins` belong to flags checkride doesn't have yet, so no run writes them.
- * Paths are absolute.
+ * run was given and nothing for one it wasn't. `static_only` and `pins`
+ * belong to flags checkride doesn't have yet, so no run writes them. Paths
+ * are absolute.
  */
 export type SummaryRun = {
   /**
@@ -146,8 +153,8 @@ export type SummaryGit = { head: string; dirty: boolean; base?: SummaryBase };
 
 /**
  * One target a multi-target run checked (R8.1): its name, its pack, and its
- * root relative to the repo root, with `.` for the root itself. `discovered`
- * belongs to `--discover`, which checkride doesn't have yet, so no run writes it.
+ * root relative to the repo root, with `.` for the root itself, and
+ * `discovered` when `--discover` proposed it rather than the config.
  */
 export type SummaryTarget = { name: string; pack: string; root: string; discovered?: true };
 

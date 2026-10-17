@@ -8,7 +8,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -18,7 +18,7 @@ import { GATE_SCRIPT_FILE } from '../../src/agent-setup/index.js';
 import type { CliDeps } from '../../src/cli.js';
 import { parseCliArgs, runCli } from '../../src/cli.js';
 
-const BOOLEAN_FLAGS = ['bail', 'json', 'all', 'changed', 'digest', 'strict'] as const;
+const BOOLEAN_FLAGS = ['bail', 'json', 'all', 'changed', 'discover', 'digest', 'strict'] as const;
 const LIST_FLAGS = ['only', 'skip', 'include'] as const;
 
 /** A stderr sink that records what was written, for asserting on the message. */
@@ -313,6 +313,62 @@ describe('CLI defaults layer (--defaults / CHECKRIDE_DEFAULTS)', () => {
     expect(stderr.text()).toContain('not ratcheted, because a run with --defaults never writes checkride.baseline.json');
     expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(baseline);
   });
+});
+
+/**
+ * Contract: `--discover` checks the targets the repo's files propose, applied
+ * in memory (R13.2). The summary marks each `discovered: true` and records
+ * `run.discover`; nothing is written; a config that declares `targets` is exit
+ * 2 (F37); and a top-level slot entry no root target can take is dropped with
+ * a note on stderr.
+ */
+describe('CLI run-time discovery (--discover)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-discover-flag-'));
+    for (const path of ['web/package.json', 'scripts/deploy.sh']) {
+      await mkdir(join(dir, path, '..'), { recursive: true });
+      await writeFile(join(dir, path), path.endsWith('.sh') ? '#!/bin/sh\n' : '{}');
+    }
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const config = { checks: { lint: false, probe: { command: process.execPath, args: ['-e', ''] } } };
+
+  test('the proposed targets run as declared, marked discovered, and nothing is written', async () => {
+    const text = `${JSON.stringify(config)}\n`;
+    await writeFile(join(dir, 'checkride.config.json'), text);
+    const stdout = capture();
+    const stderr = capture();
+    expect(await runCli(['--discover', '--json'], { cwd: dir, stdout, stderr, env: {} })).toBe(0);
+    const summary = JSON.parse(stdout.text()) as { run: Record<string, unknown>; targets: unknown[]; checks: { name: string }[] };
+    expect(summary.run).toEqual({ partial: false, discover: true });
+    expect(summary.targets).toEqual([
+      { name: 'web', pack: 'ts', root: 'web', discovered: true },
+      { name: 'scripts', pack: 'bash', root: 'scripts', discovered: true },
+    ]);
+    expect(summary.checks.map((c) => c.name)).toEqual(expect.arrayContaining(['web:lint', 'scripts:lint', 'probe']));
+    expect(stderr.text()).toContain('--discover: dropped checks.lint');
+    expect(await readFile(join(dir, 'checkride.config.json'), 'utf8')).toBe(text);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
+  });
+
+  // F37
+  test('a config that declares targets exits 2 before anything is written', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { web: { lang: 'ts', root: 'web' } } }));
+    const stderr = capture();
+    expect(await runCli(['--discover'], { cwd: dir, stdout: capture(), stderr, env: {} })).toBe(2);
+    expect(stderr.text()).toContain('--discover runs only where the config declares no targets');
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('doctor --discover reports the discovered mode', async () => {
+    const stdout = capture();
+    await runCli(['doctor', '--discover', '--json'], { cwd: dir, stdout, stderr: capture(), env: {} });
+    const report = JSON.parse(stdout.text()) as { mode: string; targets: { name: string }[] };
+    expect(report.mode).toBe('multi-target');
+    expect(report.targets.map((t) => t.name)).toEqual(['web', 'scripts']);
+  }, 30_000);
 });
 
 /**

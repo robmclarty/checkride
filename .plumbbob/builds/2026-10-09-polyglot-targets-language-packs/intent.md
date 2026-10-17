@@ -813,7 +813,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 9: consumer mode
 
-53. [ ] feat(config): layer a defaults file below detection with --defaults, **done when:** `--defaults` and `CHECKRIDE_DEFAULTS` load a config per R13.1 that fills only the slots the repo's config and detection leave unresolved, with `origin: "defaults"` and a `[defaults]` suffix; a repo-detected adapter beats a default (F35); a defaults file with `targets` exits 2 (F36); the summary records the file as `run.defaults`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); the gate strips the variable
+53. [x] feat(config): layer a defaults file below detection with --defaults, **done when:** `--defaults` and `CHECKRIDE_DEFAULTS` load a config per R13.1 that fills only the slots the repo's config and detection leave unresolved, with `origin: "defaults"` and a `[defaults]` suffix; a repo-detected adapter beats a default (F35); a defaults file with `targets` exits 2 (F36); the summary records the file as `run.defaults`, and its `docs/contract.md` row drops "no such flag yet" ([D55 (run-fields-ahead)](#d55)); the gate strips the variable
     - seam: `src/config.ts`, `src/cli.ts`, `src/orchestrator/report.ts`, `src/gate.ts`,
       `src/orchestrator/run.ts`, `schema/checkride.summary.schema.json`, `docs/contract.md`
     - model: opus (a new resolution layer)

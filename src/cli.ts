@@ -22,7 +22,7 @@ import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff } from './baseline-command.js';
 import type { CheckrideConfig } from './config.js';
-import { CONFIG_ENV, DEFAULTS_ENV, loadConfigFile, loadDefaultsFile } from './config.js';
+import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import type { NamedBase } from './git.js';
@@ -34,6 +34,7 @@ import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import { runTargetAdd } from './target-command.js';
+import { discoverRun } from './targets/index.js';
 import { realEnv, renderTriage, triage } from './triage/index.js';
 
 /**
@@ -51,6 +52,7 @@ const RUN_OPTIONS = {
   include: { type: 'string' },
   all: { type: 'boolean', default: false },
   changed: { type: 'boolean', default: false },
+  discover: { type: 'boolean', default: false },
   digest: { type: 'boolean', default: false },
   strict: { type: 'boolean', default: false },
   concurrency: { type: 'string' },
@@ -161,6 +163,9 @@ Run options:
   --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
+  --discover       Check the targets the repo's files propose, as if the
+                   config declared them (exit 2 when it declares some; also
+                   on doctor). Writes nothing and never ratchets the baseline.
   --base <ref>     The ref --changed measures from (or set CHECKRIDE_BASE, or
                    changedBase in the config; default origin/main, else HEAD).
                    A named ref that doesn't resolve is exit 2.
@@ -491,6 +496,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     json: values.json,
     all: values.all,
     changed: values.changed,
+    discover: values.discover,
     digest: values.digest,
     strict: values.strict,
     only: parseList(values.only, 'only'),
@@ -689,13 +695,23 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
+/**
+ * The config `doctor` reads: the named one, else the repo's, with the targets
+ * `--discover` proposes declared in memory (R13.2), or nothing to inject when
+ * neither applies, so `doctor` reads the repo's own.
+ */
+async function doctorConfig(discover: boolean, named: NamedConfig | null, cwd: string): Promise<{ config?: CheckrideConfig | null }> {
+  if (!discover) return named ? { config: named.config } : {};
+  return { config: (await discoverRun(cwd, named?.config ?? loadConfig(cwd), null)).config };
+}
+
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   const { flags, config, out, defaults } = parseCliArgs(argv);
   const named = namedConfig(config, deps);
   const layer = namedDefaults(defaults, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
-    ...(named ? { config: named.config } : {}),
+    ...(await doctorConfig(flags.discover === true, named, deps.cwd)),
     ...(layer ? { defaults: layer.config } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,

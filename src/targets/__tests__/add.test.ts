@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { addTarget } from '../add.js';
+import { addTarget, liftDiscovered } from '../add.js';
 
 const rules = { rootName: 'app', implicitPack: 'ts', targetSlots: new Set(['types', 'lint', 'test']) };
 
@@ -65,5 +65,28 @@ describe('addTarget', () => {
     expect(() => addTarget({}, { name: 'app', lang: 'bash', root: 'scripts' }, rules)).toThrow(
       "target add: the repo's implicit target takes the name app; pass --root-name <name> to name it something else",
     );
+  });
+});
+
+describe('liftDiscovered (R13.2)', () => {
+  const discovery = { implicitPack: 'ts', targetSlots: rules.targetSlots };
+  const raw = { checks: { lint: 'oxlint', types: { timeout: 30 }, links: false } };
+
+  test('the target at the root of the root’s pack takes the slot entries and the baseline entries, and every target keeps discovery’s order', () => {
+    const change = liftDiscovered(raw, [{ name: 'api', lang: 'go', root: 'api' }, { name: 'app', lang: 'ts', root: '.' }], discovery);
+    expect(change.config).toEqual({
+      targets: { api: { lang: 'go', root: 'api' }, app: { lang: 'ts', root: '.', checks: { lint: 'oxlint', types: { timeout: 30 } } } },
+      checks: { links: false },
+    });
+    expect(Object.keys(change.config['targets'] as object)).toEqual(['api', 'app']);
+    expect(change.renames.get('lint')).toBe('app:lint');
+    expect(change.dropped).toEqual([]);
+  });
+
+  test('with no such target the slot entries are dropped and named, and nothing is renamed', () => {
+    const change = liftDiscovered(raw, [{ name: 'web', lang: 'ts', root: 'web' }, { name: 'app', lang: 'go', root: '.' }], discovery);
+    expect(change.config).toEqual({ targets: { web: { lang: 'ts', root: 'web' }, app: { lang: 'go', root: '.' } }, checks: { links: false } });
+    expect(change.dropped).toEqual(['lint', 'types']);
+    expect(change.renames.size).toBe(0);
   });
 });

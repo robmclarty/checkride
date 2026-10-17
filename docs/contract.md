@@ -90,7 +90,7 @@ required ones, so a field can't reach the schema without a row here.
 | `total_duration_ms` | number, 0 or more | always: the run's wall-clock span |
 | `run` | object, below | always: what the run selected, and whether it saw the whole pipeline |
 | `git` | object, below | the working directory is in a git work tree whose `HEAD` names a commit, and git answered within 5 seconds |
-| `targets` | array of target entries, below | multi-target mode, when `checkride.config.json` declares `targets`: each target the run checked, in config order |
+| `targets` | array of target entries, below | multi-target mode, when `checkride.config.json` declares `targets` or `--discover` proposes them: each target the run checked, in config or discovery order |
 | `checks` | array of per-check entries | always: one per selected check, skipped ones included, plus a skipped entry for each check `--only` or `--skip` left out, in the order below |
 
 **`run` fields.**
@@ -104,7 +104,7 @@ required ones, so a field can't reach the schema without a row here.
 | `all` | `true` | `--all` was given |
 | `changed` | `true` | `--changed` was given |
 | `static_only` | `true` | `--static-only` was given; checkride has no such flag yet |
-| `discover` | `true` | `--discover` was given; checkride has no such flag yet |
+| `discover` | `true` | `--discover` was given |
 | `config` | string, an absolute path | `--config` or `CHECKRIDE_CONFIG` named the config file |
 | `defaults` | string, an absolute path | `--defaults` or `CHECKRIDE_DEFAULTS` named the defaults file |
 | `pins` | string, an absolute path | `--pins` or `CHECKRIDE_PINS` was given; checkride has no such flag yet |
@@ -132,7 +132,7 @@ required ones, so a field can't reach the schema without a row here.
 | `name` | string | always: the target's name, which names its checks `<name>:<slot>` and its directory `<out>/<name>/` |
 | `pack` | string | always: the pack that checks it (`ts`) |
 | `root` | string | always: the directory its checks run from, relative to the repo root and normalized, `.` for the root itself |
-| `discovered` | `true` | `--discover` proposed the target; checkride has no such flag yet |
+| `discovered` | `true` | `--discover` proposed the target |
 
 **Per-check fields.**
 
@@ -452,7 +452,7 @@ run flags:
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
---out <dir>  --defaults <path>
+--out <dir>  --defaults <path>  --discover
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -506,6 +506,27 @@ that doesn't exist is exit 2. A run with it never ratchets and never writes
 `checkride.baseline.json`, wherever the file sits, and its summary records the
 file as `run.defaults`. `gate` strips `CHECKRIDE_DEFAULTS` from the check it
 spawns.
+
+**`--discover` checks the targets the repo's files propose.** Run and
+`doctor` take the targets discovery proposes, the ones existing-mode `init`
+would write, and apply them in memory as if the config declared them, writing
+nothing. A config that already declares `targets` exits 2. Discovery reads the
+files git lists. A root `package.json` or `pnpm-workspace.yaml` proposes one
+`ts` target at the root, else each top-most `package.json` proposes its own.
+Each top-most `go.work` directory proposes a `go` target that claims the
+modules its `use` directives name, and each top-most `go.mod` no go target
+claims proposes one more. Each top-most `Cargo.toml` with a `[workspace]` table
+proposes a `rust` target, and each top-most `[package]` manifest outside it one
+more. The shell files outside all of those gather into one `bash` target. A
+target is named after its root's last segment, `.` becoming `app`, numbered on
+a collision. When discovery proposes nothing, or only one target at the root of
+the pack the root marks, the repo stays in implicit mode and the run is
+unchanged. Otherwise the target at the root of that pack takes the top-level
+entries for target-scope slots and the baseline's entries, `lint` read as
+`app:lint`, as `target add` would hand them over, so masking keeps working.
+With no such target, those entries are dropped, and stderr names each. The
+summary's `targets` entries carry `discovered: true` and `run.discover` is
+`true`. The run never ratchets or writes `checkride.baseline.json`.
 
 **`--changed` measures from one base ref.** It resolves from `--base <ref>`,
 then `CHECKRIDE_BASE` (an empty variable counts as unset), then the config's

@@ -72,6 +72,36 @@ function liftImplicit(
   return { config, renames, changes };
 }
 
+/** How `--discover` names the implicit target's successor: the pack the root marks, and the slots its top-level entries fill. */
+export type DiscoveryRules = Omit<ConversionRules, 'rootName'>;
+
+/**
+ * `raw`, an implicit-mode config, with `proposed` declared (R13.2), in their
+ * order. The proposed target at `.` of the root's pack takes the implicit
+ * target over, as `target add` hands it over: the top-level entries for
+ * target-scope slots move into its `checks`, and the baseline's entries take
+ * its name. With no such target those entries go nowhere, so they're dropped,
+ * each named in `dropped`, and nothing is renamed.
+ */
+export function liftDiscovered(
+  raw: Record<string, unknown>,
+  proposed: readonly TargetToAdd[],
+  rules: DiscoveryRules,
+): TargetChange & { dropped: string[] } {
+  const heir = proposed.find((t) => t.root === '.' && t.lang === rules.implicitPack);
+  const lifted = liftImplicit(raw, { name: heir?.name ?? '', lang: rules.implicitPack }, rules.targetSlots);
+  const own = isRecord(lifted.config['targets']) ? lifted.config['targets'] : {};
+  const targets = Object.fromEntries(proposed.map((t) => [t.name, t === heir ? own[t.name] : entryOf(t)]));
+  const checks = isRecord(raw['checks']) ? raw['checks'] : {};
+  const dropped = heir === undefined ? Object.keys(checks).filter((name) => rules.targetSlots.has(name)) : [];
+  return {
+    config: { ...lifted.config, targets },
+    renames: heir === undefined ? new Map() : lifted.renames,
+    changes: lifted.changes,
+    dropped,
+  };
+}
+
 /** The line that announces an added target's entry, and each check it names. */
 function addedLines(target: TargetToAdd): string[] {
   const checks = Object.entries(target.checks ?? {}).map(([slot, value]) => `targets.${target.name}.checks.${slot}: ${JSON.stringify(value)}`);

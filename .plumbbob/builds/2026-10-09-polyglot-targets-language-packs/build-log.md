@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 53 — feat(config): layer a defaults file below detection with --defaults
+**Current step:** 54 — feat(run): discover targets at run time with --discover
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -77,7 +77,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 51. feat(findings): parse docs, spell and type-checker output
 - ☑ 76. feat(config): pick the implicit pack from the root's markers
 - ☑ 52. test(examples): adopt a Go repo with --baseline and ratchet it
-- ☐ 53. feat(config): layer a defaults file below detection with --defaults
+- ☑ 53. feat(config): layer a defaults file below detection with --defaults
 - ☐ 54. feat(run): discover targets at run time with --discover
 - ☐ 55. feat(launch): let an outside mise.toml override pins with --pins
 - ☐ 56. feat(select): keep only checks that need no install with --static-only
@@ -2377,3 +2377,5 @@ folder, so it rides the branch into the PR.)*
   **5.** An early experiment ran init in this repo, and I reverted it
 
   My first trial used `mise exec -C <repo>`, which also changed the working directory, so `init --baseline` ran against checkride itself rather than the temp Go module. It appended the checkride stanza to `AGENTS.md` and created `.claude/settings.json` and `.claude/hooks/checkride-gate.sh`. It kept the existing `checkride.config.json` and wrote no baseline, and its probe found nothing failing. I confirmed the session-start status listed neither `.claude` path, restored `AGENTS.md` with `git checkout`, and deleted the two files. `git status` then matched the snapshot. Every later trial exported mise's environment and ran from inside a temp directory.
+
+- 2026-10-17 — step 53 checkpointed · 7c47b8c45 — feat(config): layer a defaults file below detection with --defaults (1 drift, 59m)

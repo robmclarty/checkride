@@ -404,6 +404,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `run.defaults`, and the stop gate strips `CHECKRIDE_DEFAULTS` from the check
   it runs (#7). A config error from a `--config` file now names that file
   too, where it used to say `checkride.config.json`.
+- **Check a polyglot repo's parts without declaring them, with
+  `--discover`.** Run and `doctor` take the targets the repo's files propose,
+  the ones existing-mode `init` would write, and apply them in memory: the
+  target at the root takes the top-level slot entries and the baseline's
+  entries (`lint` read as `app:lint`), so grandfathered findings stay masked,
+  and with no root target those entries are dropped, each named on stderr.
+  Nothing is written, the run never ratchets the baseline, and the summary
+  marks each target `discovered: true` and records `run.discover`. A config
+  that already declares `targets` exits 2. Discovery, for `init` too, now
+  proposes a go target for each top-most `go.work` (claiming its `use`
+  modules) and each `go.mod` outside one, and a rust target for each top-most
+  `Cargo.toml` with `[workspace]` and each `[package]` manifest outside it. A
+  lone root target counts as the implicit one only when its pack is the one
+  the root marks, so a Go root with nested modules stays implicit (#7).
 
 ### Changed
 
@@ -544,6 +558,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gains `'defaults'`; `RunOptions` gains an optional `defaults` (`{ path, config }`),
   `DoctorOptions` an optional `defaults`, and `resolveChecks`'s input an
   optional `defaults` config.
+- Additive: the run and `doctor` flag `--discover`, and the summary's
+  `run.discover` and `targets[].discovered`, which a run now writes. The
+  exported `RunFlags` type gains an optional `discover`.
 - Additive: the config schema's custom check entry gains `skipExitCode`
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A
