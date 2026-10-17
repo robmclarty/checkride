@@ -1,0 +1,3 @@
+[global]
+disable = ["MD013", "MD033", "MD041", "MD060"]
+exclude = [".check", "target", "CHANGELOG.md", "**/test/fixtures/**", "**/testdata/**"]

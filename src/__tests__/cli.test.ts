@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -67,6 +67,32 @@ describe('parseInitArgs', () => {
 
   test('rejects an invalid shape', () => {
     expect(() => parseInitArgs(['init', '--shape', 'nope'])).toThrow('invalid --shape');
+  });
+
+  test('parses --lang, a shape of that language and --module', () => {
+    expect(parseInitArgs(['init', '--lang', 'go', '--shape', 'workspace', '--module', 'github.com/acme/api'])).toMatchObject({
+      lang: 'go',
+      shape: 'workspace',
+      module: 'github.com/acme/api',
+    });
+    expect(parseInitArgs(['init', '--lang', 'rust', '--shape', 'crate'])).toMatchObject({ lang: 'rust', shape: 'crate' });
+  });
+
+  test('rejects an unknown --lang', () => {
+    expect(() => parseInitArgs(['init', '--lang', 'cobol'])).toThrow("invalid --lang 'cobol' (expected ts | go | rust)");
+  });
+
+  test('a shape another language takes exits 2 before writing anything', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-cli-lang-'));
+    try {
+      const err = sink();
+      const code = await runCli(['init', '--lang', 'go', '--shape', 'crate'], { cwd: dir, stdout: sink(), stderr: err });
+      expect(code).toBe(2);
+      expect(err.text()).toContain("--lang go takes --shape module | workspace, not 'crate'");
+      expect(await readdir(dir)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('parses --baseline and --force', () => {

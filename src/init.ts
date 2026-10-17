@@ -38,11 +38,30 @@ import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
 import { addTarget, checkName, discoverTargets, isImplicit } from './targets/index.js';
 
-export type Shape = 'flat' | 'monorepo' | 'hybrid';
+/**
+ * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
+ * `workspace` for `go`, and `crate` or `workspace` for `rust`.
+ */
+export type Shape = 'flat' | 'monorepo' | 'hybrid' | 'module' | 'workspace' | 'crate';
+
+/** The language a new project is scaffolded for (`--lang`). */
+export type Lang = 'ts' | 'go' | 'rust';
+
+/** The shapes each language takes, its default first. */
+export const LANG_SHAPES: Readonly<Record<Lang, readonly Shape[]>> = {
+  ts: ['flat', 'monorepo', 'hybrid'],
+  go: ['module', 'workspace'],
+  rust: ['crate', 'workspace'],
+};
 
 export type InitOptions = {
   cwd?: string;
+  /** New mode: the language to scaffold (`--lang`). Omitted, `ts`. */
+  lang?: Lang;
+  /** New mode: one of {@link LANG_SHAPES} for the language. Omitted, its first. */
   shape?: Shape;
+  /** New mode, `go`: the module path (`--module`). Omitted, `example.com/<name>`. */
+  module?: string;
   name?: string;
   scope?: string | null;
   license?: string;
@@ -897,6 +916,207 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
 }
 
 // ----------------------------------------------------------------------------
+// New-project mode for another language (`--lang go|rust`)
+// ----------------------------------------------------------------------------
+
+/** The target a `--lang go|rust` scaffold declares: the whole project, at its root. */
+const LANG_TARGET = 'app';
+
+/** A file a language scaffold writes: where, and the template it renders. */
+type LangFile = { to: string; from: string };
+
+/** What a language scaffold writes beyond the shared files, and the setup it needs. */
+type LangPlan = {
+  files: readonly LangFile[];
+  /** The target's checks: each default slot the pack fills, by its blessed adapter. */
+  checks: Record<string, SlotConfig>;
+  /** The steps that need the network, printed after the scaffold. */
+  setup: readonly string[];
+};
+
+/** The repo-scope slots a Node-free scaffold names, with the binary each runs. */
+const NODE_FREE_REPO_CHECKS: Record<string, SlotConfig> = { struct: 'ast-grep', docs: 'rumdl', links: 'links', spell: 'typos' };
+
+/** The tested deadcode a Go scaffold's setup declares as a `go.mod` tool. */
+const DEADCODE_TOOL = 'golang.org/x/tools/cmd/deadcode@v0.52.0';
+
+/** The files, checks and setup of each `--lang go|rust` shape. */
+function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPlan {
+  if (lang === 'go') {
+    const checks = { types: 'go-build', lint: 'golangci-lint', dead: 'deadcode', test: 'go-test' };
+    if (shape === 'workspace') {
+      return {
+        files: [
+          { to: 'go.work', from: 'go/workspace/go.work' },
+          { to: 'core/go.mod', from: 'go/workspace/core.go.mod' },
+          { to: 'core/greet/greet.go', from: 'go/module/greet.go' },
+          { to: 'core/greet/greet_test.go', from: 'go/module/greet_test.go' },
+          { to: 'cli/go.mod', from: 'go/workspace/cli.go.mod' },
+          { to: 'cli/main.go', from: 'go/workspace/main.go' },
+        ],
+        checks,
+        setup: ['mise install', `go get -C core -tool ${DEADCODE_TOOL}`],
+      };
+    }
+    return {
+      files: [
+        { to: 'go.mod', from: 'go/module/go.mod' },
+        { to: join('cmd', name, 'main.go'), from: 'go/module/main.go' },
+        { to: 'internal/greet/greet.go', from: 'go/module/greet.go' },
+        { to: 'internal/greet/greet_test.go', from: 'go/module/greet_test.go' },
+      ],
+      checks,
+      setup: ['mise install', `go get -tool ${DEADCODE_TOOL}`],
+    };
+  }
+  const checks = { types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' };
+  const shared = [
+    { to: 'rust-toolchain.toml', from: 'rust/shared/rust-toolchain.toml' },
+    { to: 'rustfmt.toml', from: 'rust/shared/rustfmt.toml' },
+    { to: '.config/nextest.toml', from: 'rust/shared/nextest.toml' },
+  ];
+  const files = shape === 'workspace'
+    ? [
+        { to: 'Cargo.toml', from: 'rust/workspace/Cargo.toml' },
+        { to: 'crates/core/Cargo.toml', from: 'rust/workspace/core.Cargo.toml' },
+        { to: 'crates/core/src/lib.rs', from: 'rust/crate/lib.rs' },
+        { to: 'crates/cli/Cargo.toml', from: 'rust/workspace/cli.Cargo.toml' },
+        { to: 'crates/cli/src/main.rs', from: 'rust/workspace/main.rs' },
+      ]
+    : [
+        { to: 'Cargo.toml', from: 'rust/crate/Cargo.toml' },
+        { to: 'src/lib.rs', from: 'rust/crate/lib.rs' },
+        { to: 'src/main.rs', from: 'rust/crate/main.rs' },
+      ];
+  return { files: [...shared, ...files], checks, setup: ['mise install', 'cargo fetch'] };
+}
+
+/** Each `[tools]` key and its raw value in a `mise.toml` fragment, in order. */
+function toolLines(text: string): [string, string][] {
+  return text.split('\n').flatMap((line) => {
+    const match = /^\s*("[^"]+"|[\w.-]+)\s*=\s*(.+?)\s*$/.exec(line);
+    return match?.[1] !== undefined && match[2] !== undefined ? [[match[1], match[2]] as [string, string]] : [];
+  });
+}
+
+/**
+ * The root `mise.toml` a language scaffold writes (R11.6): checkride itself,
+ * as `npm:checkride` at this release with `node` beside it until a binary
+ * ships (D46), then the pack's tools and the repo pack's Node-free ones, each
+ * at the version it was tested with. A key a later fragment repeats keeps the
+ * first one's version.
+ */
+function langMiseToml(lang: Exclude<Lang, 'ts'>): string {
+  const own = `[tools]\nnode = "22.18.0"\n"npm:checkride" = "${productVersion()}"\n`;
+  const tools = new Map<string, string>();
+  for (const fragment of [own, readTemplate(`${lang}/shared/mise.toml`), readTemplate('repo/shared/mise.toml')]) {
+    for (const [key, value] of toolLines(fragment)) if (!tools.has(key)) tools.set(key, value);
+  }
+  return `[tools]\n${[...tools].map(([key, value]) => `${key} = ${value}`).join('\n')}\n`;
+}
+
+/**
+ * The `checkride.config.json` a language scaffold writes: one target, `app`,
+ * at the root, naming each slot the pack fills by default, the Node-free
+ * repo slots beside it, and `requirePins`, since a new project starts pinned
+ * (D41).
+ */
+function langConfigFile(lang: Exclude<Lang, 'ts'>, checks: Record<string, SlotConfig>): string {
+  const config = {
+    $schema: generatedSchemaUrl(),
+    requirePins: true,
+    targets: { [LANG_TARGET]: { lang, root: '.', checks } },
+    checks: NODE_FREE_REPO_CHECKS,
+  };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+/** The names a language scaffold's checks run under: the target's, then the repo's. */
+function langCheckNames(checks: Record<string, SlotConfig>): string[] {
+  return [...Object.keys(checks).map((slot) => `${LANG_TARGET}:${slot}`), ...Object.keys(NODE_FREE_REPO_CHECKS)];
+}
+
+/** A language scaffold's README, which names the command the gate runs. */
+function langReadme(name: string, lang: Exclude<Lang, 'ts'>): string {
+  const language = lang === 'go' ? 'Go' : 'Rust';
+  return [
+    `# ${name}`,
+    '',
+    `A ${language} project verified by checkride.`,
+    '',
+    '```bash',
+    'mise exec -- checkride   # run the full pipeline; exit 0 = done',
+    '```',
+    '',
+    'See [AGENTS.md](./AGENTS.md) for the contract agents follow in this repository.',
+    '',
+  ].join('\n');
+}
+
+/** The derived inputs a language scaffold is generated from. */
+type LangScaffold = { lang: Exclude<Lang, 'ts'>; shape: Shape; name: string; license: string; author: string | null; vars: Record<string, string> };
+
+/** Resolve a language scaffold's inputs, applying every default. */
+function resolveLangScaffold(options: InitOptions, cwd: string): LangScaffold {
+  const lang = options.lang === 'go' ? 'go' : 'rust';
+  const { name } = resolveProjectName(options, cwd);
+  const shape = options.shape ?? LANG_SHAPES[lang][0] ?? 'module';
+  const vars = { name, module: options.module ?? `example.com/${name}`, crate: name.replaceAll('-', '_') };
+  return { lang, shape, name, license: options.license ?? 'MIT', author: options.author ?? null, vars };
+}
+
+/** Emit every file of a language scaffold into `w`. */
+async function writeLangScaffold(w: Writer, s: LangScaffold): Promise<string[]> {
+  const plan = langPlan(s.lang, s.shape, s.name);
+  // The workspace's library crate is `<name>-core`, so its doctest names that crate.
+  const crate = s.shape === 'workspace' && s.lang === 'rust' ? `${s.vars['crate'] ?? ''}_core` : (s.vars['crate'] ?? '');
+  await Promise.all(plan.files.map((f) => put(w, f.to, render(readTemplate(f.from), { ...s.vars, crate }))));
+  const rules = s.lang === 'go' ? ['go-no-dot-import', 'go-no-import-alias', 'go-no-init-func'] : ['rust-no-glob-reexport', 'rust-no-glob-import'];
+  await Promise.all(rules.map((rule) => put(w, join('rules', s.lang, `${rule}.yml`), readTemplate(`${s.lang}/shared/rules/${s.lang}/${rule}.yml`))));
+  if (s.lang === 'go') await put(w, '.golangci.yml', readTemplate('go/shared/golangci.yml'));
+  await put(w, '.gitignore', readTemplate(`${s.lang}/shared/gitignore`));
+  await put(w, 'sgconfig.yml', readTemplate('repo/shared/sgconfig.yml'));
+  await put(w, '.rumdl.toml', readTemplate('repo/shared/rumdl.toml'));
+  await put(w, '_typos.toml', readTemplate('repo/shared/typos.toml'));
+  await put(w, 'mise.toml', langMiseToml(s.lang));
+  await put(w, 'checkride.config.json', langConfigFile(s.lang, plan.checks));
+  await put(w, 'LICENSE', licenseText(s.license, s.author ?? s.name));
+  await put(w, 'README.md', langReadme(s.name, s.lang));
+  const intro = ['# AGENTS.md', '', 'Instructions for any coding agent working in this repository.', ''].join('\n');
+  await put(w, 'AGENTS.md', applyStanza(intro, buildStanza(langCheckNames(plan.checks), { kind: 'mise' })));
+  await put(w, 'CLAUDE.md', claudeMd());
+  return [...plan.setup, 'mise exec -- checkride'];
+}
+
+/**
+ * New mode for Go or Rust (R7.5): the shape's files, the pack's configs and
+ * dialect rules, a `mise.toml` pinning checkride and every binary tool, and a
+ * config naming each slot with `requirePins`. It writes no `package.json`, and
+ * prints the setup that needs the network, such as `go get -tool`, which
+ * checkride never runs itself.
+ */
+async function initNewLang(options: InitOptions, cwd: string): Promise<InitResult> {
+  const scaffold = resolveLangScaffold(options, cwd);
+  if (!(options.force ?? false)) {
+    const plan: Writer = { cwd, dryRun: true, written: [], removed: [] };
+    await writeLangScaffold(plan, scaffold);
+    const collisions = plan.written.filter((rel) => existsSync(join(cwd, rel)));
+    if (collisions.length > 0) {
+      throw new Error(`init: refusing to overwrite ${collisions.length} existing file(s) (pass --force to overwrite):\n${collisions.map((c) => `  ${c}`).join('\n')}`);
+    }
+  }
+  const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
+  const next = await writeLangScaffold(w, scaffold);
+  await writeHook(w, options);
+  await writeSkills(w, options);
+  if (options.stdout) {
+    options.stdout.write(`checkride init: generated a ${scaffold.lang} ${scaffold.shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
+    options.stdout.write(`  next, with the network:\n${next.map((step) => `    ${step}\n`).join('')}`);
+  }
+  return { mode: 'new', shape: scaffold.shape, written: w.written, removed: w.removed, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
+}
+
+// ----------------------------------------------------------------------------
 // Existing-project mode
 // ----------------------------------------------------------------------------
 
@@ -1478,10 +1698,31 @@ export function detectMode(cwd: string): 'new' | 'existing' {
   return existsSync(join(cwd, 'package.json')) ? 'existing' : 'new';
 }
 
+/**
+ * The usage error for a `--lang` and `--shape` pair that doesn't go
+ * together, or a `--lang` other than `ts` where init would run in existing
+ * mode, which reads the repo's languages for itself; `null` when they fit.
+ */
+function langProblem(options: InitOptions, mode: 'new' | 'existing'): string | null {
+  const lang = options.lang ?? 'ts';
+  const shapes = LANG_SHAPES[lang];
+  if (options.shape !== undefined && !shapes.includes(options.shape)) {
+    return `init: --lang ${lang} takes --shape ${shapes.join(' | ')}, not '${options.shape}'`;
+  }
+  if (mode === 'existing' && lang !== 'ts') {
+    return `init: --lang ${lang} scaffolds a new project, and this directory has a package.json; run it in an empty directory`;
+  }
+  return null;
+}
+
 /** Run `checkride init` against `cwd`. */
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
-  return detectMode(cwd) === 'existing' ? initExisting(options, cwd) : initNew(options, cwd);
+  const mode = detectMode(cwd);
+  const problem = langProblem(options, mode);
+  if (problem !== null) throw new Error(problem);
+  if (mode === 'existing') return initExisting(options, cwd);
+  return (options.lang ?? 'ts') === 'ts' ? initNew(options, cwd) : initNewLang(options, cwd);
 }
 
 export type AgentSetupOptions = {

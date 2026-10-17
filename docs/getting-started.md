@@ -195,6 +195,42 @@ takes in `src/` and `test/` in every package and skips `test/fixtures/`, as
 every tool `init` configures does. The check's line ends in `[custom]`, the
 tag every custom check carries.
 
+### A new Go or Rust project
+
+`--lang go` or `--lang rust` scaffolds a project with no `package.json`, which
+mise runs:
+
+```bash
+mkdir my-api && cd my-api
+pnpm dlx checkride init --lang go --shape module --module github.com/acme/my-api
+mise install
+go get -tool golang.org/x/tools/cmd/deadcode@v0.52.0
+mise exec -- checkride
+```
+
+`init` prints the steps that need the network, since a check never fetches
+anything. Pick a shape:
+
+- **go module** — `go.mod`, `cmd/<name>/main.go` and `internal/greet/` with a
+  test. Go's `internal/` is the deep-module boundary, and the compiler holds
+  it. `--module` names the module, `example.com/<name>` by default.
+- **go workspace** — `go.work` over a `core` and a `cli` module.
+- **rust crate** — `Cargo.toml` (edition 2024, `unsafe_code` forbidden and
+  `unwrap_used` denied), `src/lib.rs` with a doctest and a test, and
+  `src/main.rs`.
+- **rust workspace** — a virtual manifest over `crates/core` and `crates/cli`.
+
+Each writes a `mise.toml` that pins checkride (as `npm:checkride`, with `node`
+beside it) and every binary tool its checks run, at the versions they were
+tested with, and a `checkride.config.json` with one target, `app`, at the
+root, naming every slot, with `requirePins: true`. The `struct` check runs the
+pack's dialect rules from `rules/go/` or `rules/rust/`: no dot imports, no
+import aliases and no `init` outside `package main` in Go, and no glob
+imports or re-exports in Rust. A Rust project's `rust-toolchain.toml` pins the
+toolchain, with rustfmt and clippy, and its config names `snippets`, so its
+doctests run. Every shape is green once its setup has run, and an end-to-end
+test holds each one.
+
 ## The daily loop
 
 Once set up, daily usage is one command regardless of the tool's name, because

@@ -1030,3 +1030,124 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
   });
 });
+
+describe('new-project generation for another language (--lang)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-new-lang-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+  const version = async (): Promise<string> => (JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8')) as { version: string }).version;
+
+  test.each([
+    ['go', 'module', ['go.mod', 'cmd/demo/main.go', 'internal/greet/greet.go', 'internal/greet/greet_test.go', '.golangci.yml']],
+    ['go', 'workspace', ['go.work', 'core/go.mod', 'core/greet/greet.go', 'core/greet/greet_test.go', 'cli/go.mod', 'cli/main.go', '.golangci.yml']],
+    ['rust', 'crate', ['Cargo.toml', 'src/lib.rs', 'src/main.rs', 'rust-toolchain.toml', 'rustfmt.toml', '.config/nextest.toml']],
+    ['rust', 'workspace', ['Cargo.toml', 'crates/core/Cargo.toml', 'crates/core/src/lib.rs', 'crates/cli/Cargo.toml', 'crates/cli/src/main.rs', 'rust-toolchain.toml']],
+  ] as const)('writes the %s %s shape with no package.json', async (lang, shape, files) => {
+    const result = await runInit({ cwd: dir, lang, shape, name: 'demo' });
+    expect(result).toMatchObject({ mode: 'new', shape, exitCode: 0 });
+    for (const f of [...files, 'mise.toml', 'checkride.config.json', 'sgconfig.yml', '.rumdl.toml', '_typos.toml', '.gitignore', 'AGENTS.md', 'CLAUDE.md', 'README.md', 'LICENSE']) {
+      expect(existsSync(join(dir, f)), f).toBe(true);
+    }
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+  });
+
+  test('a go config names every default slot of the go and repo packs, with requirePins, in one root target', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo' });
+    const config = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    expect(config).toEqual({
+      $schema: configSchemaUrl(await version()),
+      requirePins: true,
+      targets: { app: { lang: 'go', root: '.', checks: { types: 'go-build', lint: 'golangci-lint', dead: 'deadcode', test: 'go-test' } } },
+      checks: { struct: 'ast-grep', docs: 'rumdl', links: 'links', spell: 'typos' },
+    });
+  });
+
+  test("a rust config names snippets too, which opts the doctests in, since nextest doesn't run them", async () => {
+    await runInit({ cwd: dir, lang: 'rust', name: 'demo' });
+    const config = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { targets: { app: { checks: Record<string, string> } } };
+    expect(config.targets.app.checks).toEqual({ types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' });
+  });
+
+  test('mise.toml pins npm:checkride at this release with node beside it, then each binary tool at its tested version (D46)', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo' });
+    expect(await readFile(join(dir, 'mise.toml'), 'utf8')).toBe([
+      '[tools]',
+      'node = "22.18.0"',
+      `"npm:checkride" = "${await version()}"`,
+      'go = "1.27.2"',
+      'golangci-lint = "2.14.0"',
+      'ast-grep = "0.45.3"',
+      'rumdl = "0.2.79"',
+      'typos = "1.51.1"',
+      '',
+    ].join('\n'));
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir);
+    await runInit({ cwd: dir, lang: 'rust', name: 'demo' });
+    const rustMise = await readFile(join(dir, 'mise.toml'), 'utf8');
+    expect(rustMise).toContain('"ubi:bnjbvr/cargo-machete" = "0.9.2"');
+    expect(rustMise).toContain('"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.148"');
+    // rust-toolchain.toml pins the toolchain, so mise.toml leaves it alone.
+    expect(rustMise).not.toMatch(/^rust =/m);
+  });
+
+  test('ships the dialect rules, verbatim from the templates', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo' });
+    const goRules = ['go-no-dot-import.yml', 'go-no-import-alias.yml', 'go-no-init-func.yml'];
+    expect((await readdir(join(dir, 'rules', 'go'))).toSorted()).toEqual(goRules);
+    for (const rule of goRules) {
+      expect(await readFile(join(dir, 'rules', 'go', rule), 'utf8')).toBe(await readFile(join(repoRoot, 'templates', 'go', 'shared', 'rules', 'go', rule), 'utf8'));
+    }
+  });
+
+  test('names the module --module gives, and example.com/<name> without it', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', module: 'github.com/acme/demo' });
+    expect(await readFile(join(dir, 'go.mod'), 'utf8')).toBe('module github.com/acme/demo\n\ngo 1.24\n');
+    expect(await readFile(join(dir, 'cmd', 'demo', 'main.go'), 'utf8')).toContain('"github.com/acme/demo/internal/greet"');
+  });
+
+  test("runs the gate through mise's checkride, and prints the setup that needs the network", async () => {
+    const out = sink();
+    await runInit({ cwd: dir, lang: 'go', shape: 'workspace', name: 'demo', stdout: out });
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('`mise exec -- checkride` is the single source of truth for "done"');
+    expect(out.text()).toContain('go get -C core -tool golang.org/x/tools/cmd/deadcode@v0.52.0');
+    expect(out.text()).toContain('mise install');
+  });
+
+  test.each([
+    [{ lang: 'go', shape: 'crate' }, "--lang go takes --shape module | workspace, not 'crate'"],
+    [{ lang: 'rust', shape: 'module' }, "--lang rust takes --shape crate | workspace, not 'module'"],
+    [{ lang: 'ts', shape: 'workspace' }, "--lang ts takes --shape flat | monorepo | hybrid, not 'workspace'"],
+  ] as const)('rejects a shape its language does not take: %o', async (options, message) => {
+    await expect(runInit({ cwd: dir, name: 'demo', ...options })).rejects.toThrow(message);
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  test('refuses --lang go where a package.json puts init in existing mode', async () => {
+    await writeFile(join(dir, 'package.json'), '{}');
+    await expect(runInit({ cwd: dir, lang: 'go' })).rejects.toThrow('--lang go scaffolds a new project, and this directory has a package.json');
+  });
+
+  test('refuses to overwrite a file it would write, unless --force', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module mine\n');
+    await expect(runInit({ cwd: dir, lang: 'go', name: 'demo' })).rejects.toThrow('refusing to overwrite 1 existing file(s)');
+    expect(await readFile(join(dir, 'go.mod'), 'utf8')).toBe('module mine\n');
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', force: true });
+    expect(await readFile(join(dir, 'go.mod'), 'utf8')).toContain('module example.com/demo');
+  });
+
+  test('--dry-run plans every file and writes none', async () => {
+    const result = await runInit({ cwd: dir, lang: 'rust', name: 'demo', dryRun: true, hook: false });
+    expect(result.written).toContain('Cargo.toml');
+    expect(await readdir(dir)).toEqual([]);
+  });
+
+  test('the written config resolves: a go target whose checks run under its pack', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', hook: false });
+    const config = loadConfig(dir);
+    const names = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir }).filter((r) => r.adapter !== null && r.skip === null).map((r) => [r.target ?? '', r.slot, r.adapter?.name]);
+    expect(names).toEqual(expect.arrayContaining([['app', 'types', 'go-build'], ['app', 'dead', 'deadcode'], ['', 'docs', 'rumdl'], ['', 'spell', 'typos']]));
+  });
+});

@@ -27,8 +27,8 @@ import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import type { NamedBase } from './git.js';
 import { BASE_ENV } from './git.js';
-import type { AgentSetupOptions, InitOptions, Shape } from './init.js';
-import { runAgentSetup, runInit } from './init.js';
+import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
+import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
 import type { Out, RunFlags } from './orchestrator/index.js';
 import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
@@ -76,7 +76,9 @@ const BASELINE_DIFF_OPTIONS = {
 } as const;
 
 const INIT_OPTIONS = {
+  lang: { type: 'string' },
   shape: { type: 'string' },
+  module: { type: 'string' },
   name: { type: 'string' },
   scope: { type: 'string' },
   license: { type: 'string' },
@@ -191,7 +193,11 @@ Either mode refuses (exit 2) rather than overwrite an AGENTS.md stanza that has
 been edited since checkride wrote it.
 
 Options:
-  --shape <s>      Project shape: flat | monorepo | hybrid (new mode; default flat)
+  --lang <l>       Language: ts | go | rust (new mode; default ts)
+  --shape <s>      Project shape (new mode): flat | monorepo | hybrid for ts
+                   (default flat), module | workspace for go (default module),
+                   crate | workspace for rust (default crate)
+  --module <path>  Go module path (new mode, --lang go; default example.com/<name>)
   --name <n>       Package name (new mode; default: directory name)
   --scope <@s>     npm scope, e.g. @acme (new mode)
   --license <id>   SPDX license id (new mode; default MIT)
@@ -534,8 +540,16 @@ function namedBase(flag: string | undefined, deps: CliDeps): NamedBase | null {
 
 function asShape(value: string | undefined): Shape | undefined {
   if (value === undefined) return undefined;
-  if (value === 'flat' || value === 'monorepo' || value === 'hybrid') return value;
-  throw new Error(`invalid --shape '${value}' (expected flat | monorepo | hybrid)`);
+  const shapes = [...new Set(Object.values(LANG_SHAPES).flat())];
+  const hit = shapes.find((s) => s === value);
+  if (hit === undefined) throw new Error(`invalid --shape '${value}' (expected ${shapes.join(' | ')})`);
+  return hit;
+}
+
+function asLang(value: string | undefined): Lang | undefined {
+  if (value === undefined) return undefined;
+  if (value === 'ts' || value === 'go' || value === 'rust') return value;
+  throw new Error(`invalid --lang '${value}' (expected ts | go | rust)`);
 }
 
 /**
@@ -578,17 +592,26 @@ function asHarness(value: string | undefined): HarnessName | undefined {
   return names[0];
 }
 
+/** The new-project half of `init`'s flags: what to scaffold, and the names it carries. */
+function newProjectArgs(values: { lang?: string; shape?: string; module?: string; name?: string; scope?: string; license?: string; author?: string }): Partial<InitOptions> {
+  const lang = asLang(values.lang);
+  const shape = asShape(values.shape);
+  return {
+    ...(lang ? { lang } : {}),
+    ...(shape ? { shape } : {}),
+    ...(values.module ? { module: values.module } : {}),
+    ...(values.name ? { name: values.name } : {}),
+    ...(values.scope ? { scope: values.scope } : {}),
+    ...(values.license ? { license: values.license } : {}),
+    ...(values.author ? { author: values.author } : {}),
+  };
+}
+
 /** Parse `init` arguments into init options. */
 export function parseInitArgs(argv: string[]): Partial<InitOptions> {
   const { rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: INIT_OPTIONS });
-  const opts: Partial<InitOptions> = {};
-  const shape = asShape(values.shape);
-  if (shape) opts.shape = shape;
-  if (values.name) opts.name = values.name;
-  if (values.scope) opts.scope = values.scope;
-  if (values.license) opts.license = values.license;
-  if (values.author) opts.author = values.author;
+  const opts: Partial<InitOptions> = newProjectArgs(values);
   if (values['dry-run']) opts.dryRun = true;
   if (values.baseline) opts.baseline = true;
   if (values['no-hook']) opts.hook = false;

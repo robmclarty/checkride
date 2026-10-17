@@ -1,0 +1,17 @@
+id: go-no-init-func
+language: go
+severity: error
+message: An init function runs on import, before anything the importer controls. Outside package main, call a constructor instead.
+rule:
+  kind: function_declaration
+  has:
+    field: name
+    regex: ^init$
+  inside:
+    kind: source_file
+    not:
+      has:
+        kind: package_clause
+        has:
+          kind: package_identifier
+          regex: ^main$

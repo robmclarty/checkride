@@ -207,13 +207,13 @@ const SOURCES: { readonly [K in PinSourceName]?: Source } = {
 };
 
 /**
- * Launch `args` through a toolchain, such as `go`, which resolves its own
- * executable (R6.2): through mise, as `mise exec -- <bin>`, when a `mise.toml`
- * up to the repo root pins it and mise can run that copy, else from `PATH`. A
- * toolchain from `PATH` isn't refused under `requirePins`, since the
- * project's own files set the oldest version it accepts, and the pack's
- * environment stops it fetching another. It records the pin it resolved
- * through, which a caller running a tool another source declared replaces.
+ * Launch `args` through the Go toolchain for a tool `go.mod` declares, as
+ * `go tool <bin>` (R6.2): through mise, as `mise exec -- go`, when a
+ * `mise.toml` up to the repo root pins it and mise can run that copy, else
+ * from `PATH`. A toolchain from `PATH` isn't refused under `requirePins`, since
+ * the project's own files set the oldest version it accepts, and the pack's
+ * environment stops it fetching another. The caller records the source that
+ * declared the tool.
  */
 function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]): Launch {
   const asked = { ...req, tool: toolchain };
@@ -312,7 +312,10 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
   if (tool === null) {
     const toolchain = TOOLCHAINS.find((t) => t.bin === command);
     if (toolchain === undefined || !chain.includes('mise')) return passThrough(command, args, ctx.pm);
-    return viaToolchain(toolRequest(slot, toolchain, args, chain, ctx), toolchain, args);
+    // A toolchain walks its pack's chain like a tool, so a toolchain file pins
+    // cargo itself; from PATH it runs even under requirePins, since the
+    // project's own files set the version it accepts (R6.2).
+    return walkChain({ ...toolRequest(slot, toolchain, args, chain, ctx), requirePins: false });
   }
   return walkChain(toolRequest(slot, toolRow(tool, ctx.tools), args.slice(2), chain, ctx));
 }

@@ -58,24 +58,27 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 | --- | --- | --- | --- |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
-| `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component (rustfmt and clippy) | `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
+| `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
 The summary's `pin_source` names three more sources, `override`, `uv-lock`
 and `tf-version`. They arrive with the packs and the `--pins` flag that use
 them, and no run writes them yet. `rust-toolchain` declares only a tool that
-`TOOLS` names as a rustup component: rustfmt and clippy. Only rustup reads a
-toolchain file, so a component the file pins fails its check when `rustup`
-isn't on `PATH`, rather than run a `cargo` that ignores the pin. `go-mod-tool`
+`TOOLS` names as a rustup component: `cargo` itself, rustfmt and clippy. Only
+rustup reads a toolchain file, so a component the file pins fails its check
+when `rustup` isn't on `PATH`, rather than run a `cargo` that ignores the
+pin. `go-mod-tool`
 declares a tool only when `TOOLS` gives its Go package, which it does for
 staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
 never as a `go tool`.
 
 A toolchain resolves its own executables, `go` and `gofmt` for Go and `cargo`
-for Rust, in a pack whose chain reads `mise`: `mise exec -- go` when a `mise.toml` up to the repo
-root pins `go`, recorded as `pin_source: "mise"`, and the `go` on `PATH`
-otherwise, recorded as `path`. A tool `go-mod-tool` declares runs through the
+for Rust, through its pack's chain, in a pack whose chain reads `mise`: a
+toolchain file pins `cargo`, recorded as `rust-toolchain`; `mise exec -- go`
+runs when a `mise.toml` up to the repo root pins `go`, recorded as
+`pin_source: "mise"`; and the `go` on `PATH` runs otherwise, recorded as
+`path`. A tool `go-mod-tool` declares runs through the
 same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
 the check, as any mise pin does, and a `go` from `PATH` runs even under
 `requirePins`, since `go.mod`'s `go` line sets the oldest version it accepts

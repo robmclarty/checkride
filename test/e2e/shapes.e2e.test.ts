@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
+import { describeWithToolchain } from '../helpers/toolchains.js';
+
 // cspell:ignore recieve
 
 const execFileP = promisify(execFile);
@@ -188,3 +190,56 @@ for (const { shape, homes } of SHAPES) {
     });
   });
 }
+
+/**
+ * The shapes `init --lang go|rust` writes (R11.6). Each one, after the setup
+ * `init` prints that needs the network, is green with every check resolving
+ * through a pin, since the config sets `requirePins`; and its dialect rules
+ * fail `struct` on the plant S4 or S5 names for it.
+ */
+const LANG_SHAPES = [
+  { lang: 'go', shape: 'module', setup: [['go', 'get', '-tool', 'golang.org/x/tools/cmd/deadcode@v0.52.0']], plant: { 'internal/greet/dot.go': 'package greet\n\nimport . "strings"\n\nvar _ = ToUpper\n' }, rule: 'go-no-dot-import' },
+  { lang: 'go', shape: 'workspace', setup: [['go', 'get', '-C', 'core', '-tool', 'golang.org/x/tools/cmd/deadcode@v0.52.0']], plant: { 'core/greet/dot.go': 'package greet\n\nimport . "strings"\n\nvar _ = ToUpper\n' }, rule: 'go-no-dot-import' },
+  { lang: 'rust', shape: 'crate', setup: [], plant: { 'src/glob.rs': 'pub use std::collections::*;\n' }, rule: 'rust-no-glob-reexport' },
+  { lang: 'rust', shape: 'workspace', setup: [], plant: { 'crates/core/src/glob.rs': 'pub use std::collections::*;\n' }, rule: 'rust-no-glob-reexport' },
+] as const;
+
+/** The checks a language scaffold runs, by name: its target's, the Node-free repo slots, and `unclaimed`. */
+function langChecks(lang: 'go' | 'rust'): string[] {
+  const target = lang === 'go' ? ['types', 'lint', 'dead', 'test'] : ['types', 'lint', 'dead', 'test', 'snippets'];
+  return [...target.map((slot) => `app:${slot}`), 'struct', 'docs', 'links', 'spell', 'unclaimed'].toSorted();
+}
+
+describeWithToolchain('repo')('init --lang', () => {
+  for (const { lang, shape, setup, plant: probe, rule } of LANG_SHAPES) {
+    describeWithToolchain(lang)(`${lang} ${shape} shape`, () => {
+      let dir: string;
+      beforeAll(async () => {
+        dir = await mkdtemp(join(tmpdir(), `checkride-e2e-${lang}-${shape}-`));
+        await execFileP('node', [CLI, 'init', '--lang', lang, '--shape', shape, '--name', 't-demo'], { cwd: dir, ...BIG });
+        await execFileP('git', ['init', '-q'], { cwd: dir });
+        // Setup may download; the checks never do.
+        for (const [command, ...args] of setup) await execFileP(command, args, { cwd: dir, ...BIG });
+      }, 300_000);
+      afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
+
+      test('init -> its setup -> checkride exits 0, every tool through a pin', async () => {
+        const result = await check(dir);
+        expect(result.code).toBe(0);
+        const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
+          checks: { name: string; ok: boolean; argv?: string[]; pin_source?: string }[];
+        };
+        expect(summary.checks.map((c) => c.name).toSorted()).toEqual(langChecks(lang));
+        for (const c of summary.checks.filter((entry) => entry.argv !== undefined)) expect(c.pin_source, c.name).not.toBe('path');
+      });
+
+      test(`a ${rule} plant fails struct`, async () => {
+        await plant(dir, '', probe);
+        // A Go dot import fails golangci-lint's staticcheck too; struct is the check S4 names.
+        expect((await check(dir)).failed).toContain('struct');
+        expect(await firedRules(dir)).toEqual([rule]);
+        await Promise.all(Object.keys(probe).map((rel) => rm(join(dir, rel))));
+      });
+    });
+  }
+});

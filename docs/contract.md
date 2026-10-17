@@ -199,12 +199,12 @@ the source that declared the copy that ran: `js-lockfile` for a
 `pnpm exec <tool>` the project's package manager runs, a package script
 (`pnpm run build`) included, `go-mod-tool` for a Go tool the target's
 `go.mod` declares in a `tool` directive, run as `go tool <tool>`,
-`rust-toolchain` for rustfmt or clippy, which a `rust-toolchain.toml` pins
-with its toolchain, run as `cargo fmt` or `cargo clippy`, `mise` for a
+`rust-toolchain` for cargo, rustfmt or clippy, which a `rust-toolchain.toml`
+pins with its toolchain, `mise` for a
 tool a `mise.toml` in the repo names under `[tools]`, and `path` for a tool
 nothing declared, found on `PATH` and so unpinned. A toolchain's own
-executable, such as `go` or `gofmt` in a go target or `cargo` in a rust
-target, records `mise` or `path` the same way. `tool_version` adds the version when a file read finds it, never
+executable, such as `go` or `gofmt` in a go target, records `mise` or `path`
+the same way. `tool_version` adds the version when a file read finds it, never
 by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
 whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires

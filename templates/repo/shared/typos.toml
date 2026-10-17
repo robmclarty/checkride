@@ -1,0 +1,2 @@
+[files]
+extend-exclude = [".check/", "target/", "go.sum", "Cargo.lock", "**/test/fixtures/**", "**/testdata/**"]

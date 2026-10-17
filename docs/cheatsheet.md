@@ -47,7 +47,9 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 
 | Flag | Effect |
 | ---- | ------ |
-| `--shape flat\|monorepo\|hybrid` | Project layout for a new repo. |
+| `--lang ts\|go\|rust` | Language of a new repo (default `ts`). Go and Rust write no `package.json`. |
+| `--shape <s>` | Project layout for a new repo: `flat\|monorepo\|hybrid` for ts, `module\|workspace` for go, `crate\|workspace` for rust. |
+| `--module <path>` | (go) The module path (default `example.com/<name>`). |
 | `--name <n>` | Package name. |
 | `--scope <@s>` | npm scope. |
 | `--license <id>` | License identifier (default `MIT`). |

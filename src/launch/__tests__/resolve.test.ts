@@ -472,6 +472,19 @@ describe('the go-mod-tool source (R6.1)', () => {
       expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({ pin: { source: 'go-mod-tool' } });
     }));
 
+  test('at a workspace root with no go.mod, a module the go.work uses declares the tool, as go tool finds it', () =>
+    withScratch(async (s) => {
+      await s.file('go.work', 'go 1.24\n\nuse (\n\t./cli\n\t./core\n)\n');
+      await s.file('cli/go.mod', 'module example.com/t/cli\n\ngo 1.24\n');
+      await s.file('core/go.mod', GO_MOD_WITH_TOOL);
+      await s.tool('go');
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({
+        command: 'go',
+        args: ['tool', 'deadcode', '-test', './...'],
+        pin: { source: 'go-mod-tool', version: 'v0.30.0' },
+      });
+    }));
+
   test('go runs through mise when a mise.toml pins it', () =>
     withScratch(async (s) => {
       await s.file('go.mod', GO_MOD_WITH_TOOL);
@@ -582,8 +595,14 @@ describe("a toolchain's own executables resolve through its pin (R6.2)", () => {
   test('a missing toolchain fails naming how to install it', () =>
     withScratch(async (s) => {
       const refusal = refusalOf(launchCheck('types', 'go', ['build', './...'], s.at('.', { pins: GO_CHAIN }))) ?? '';
-      expect(refusal).toContain("the `types` slot needs `go`, which isn't on PATH");
+      expect(refusal).toContain('the `types` slot needs `go`, which no source in its pin chain provides');
       expect(refusal).toContain('install Go 1.24 or later');
+    }));
+
+  test('a toolchain on PATH runs even under requirePins', () =>
+    withScratch(async (s) => {
+      await s.tool('go');
+      expect(launchCheck('types', 'go', ['build', './...'], s.at('.', { pins: GO_CHAIN, requirePins: true }))).toMatchObject({ pin: { source: 'path' } });
     }));
 
   test('a chain that reads no mise spawns the command as written, as every check in implicit mode does', () =>
@@ -682,6 +701,18 @@ describe('the rust-toolchain source (R6.1)', () => {
       });
     }));
 
+  test('a toolchain file pins cargo itself, a rustup component like clippy', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo');
+      await s.tool('rustup');
+      expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({
+        command: 'cargo',
+        args: ['check'],
+        pin: { source: 'rust-toolchain', version: '1.85.0' },
+      });
+    }));
+
   test('cargo itself resolves as a toolchain: through mise when a mise.toml pins rust, else from PATH', () =>
     withScratch(async (s) => {
       await s.tool('cargo');
@@ -701,6 +732,7 @@ describe('a toolchain file picks the toolchain over one the shell exported', () 
     withScratch(async (s) => {
       await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
       await s.tool('cargo');
+      await s.tool('rustup');
       expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({ env: { RUSTUP_TOOLCHAIN: '' } });
       expect(launchCheck('custom', 'make', ['check'], s.at('.', { pins: RUST_CHAIN }))).toEqual({ command: 'make', args: ['check'], env: { RUSTUP_TOOLCHAIN: '' } });
     }));

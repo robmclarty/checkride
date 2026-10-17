@@ -307,6 +307,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that would ignore the pin, and cargo-mutants writes its report into the
   check's own artifact directory. Each tool's flags were checked against the
   versions this repo pins; `docs/packs.md` has the table.
+- **`init --lang go|rust` scaffolds Go and Rust projects.** `--lang go`
+  writes a `module` (`--module` names it) or a `workspace`, and
+  `--lang rust` a `crate` or a `workspace`, with no `package.json`. Each
+  writes a `mise.toml` that pins checkride as `npm:checkride` with `node`
+  beside it, and every binary tool at the version it was tested with; a
+  `checkride.config.json` with one target, `app`, at the root, naming every
+  slot, with `requirePins: true`; the pack's dialect rules under `rules/`
+  (no dot imports, import aliases or `init` outside `package main` in Go, no
+  glob imports or re-exports in Rust); and an AGENTS.md whose gate runs
+  `mise exec -- checkride`. It prints the setup that needs the network, such
+  as `go get -tool`, and each shape is green once that has run. A shape
+  another language takes, or `--lang go` where a `package.json` would put
+  `init` in existing mode, exits 2. `cargo` in a rust target now records
+  `pin_source: "rust-toolchain"` where a toolchain file pins it, and the
+  go-mod-tool source finds a tool a workspace module declares from the
+  workspace root, as `go tool` does.
 
 ### Changed
 
@@ -650,6 +666,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pin_source: "rust-toolchain"`, with the channel as `tool_version`, and a
   `cargo` a rust target's check spawns records `mise` or `path`, in the JSON
   Schema's descriptions and the contract doc.
+- Additive: the exported `Shape` type takes `module`, `workspace` and
+  `crate`, and `InitOptions` gains optional `lang` (`ts`, `go` or `rust`)
+  and `module`; `init` takes `--lang` and `--module`. A run writes
+  `pin_source: "rust-toolchain"` for `cargo` itself where a toolchain file
+  pins it, and the JSON Schema's description says so.
 
 ### Internal
 

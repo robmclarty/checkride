@@ -164,7 +164,9 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
   --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
 checkride init         Set up a project (new or existing — auto-detected).
-  --shape flat|monorepo|hybrid  --name <n>  --scope <@s>  --license <id>  --author <a>
+  --lang ts|go|rust  --shape flat|monorepo|hybrid (ts), module|workspace (go),
+  crate|workspace (rust)  --module <path> (go)
+  --name <n>  --scope <@s>  --license <id>  --author <a>
   --add <a,b>  (existing mode) scaffold blessed configs for the named empty slots
   --baseline   (existing mode) grandfather current debt instead of disabling slots
   --force      (new mode) overwrite existing files instead of refusing
@@ -564,6 +566,11 @@ disable.
 - **monorepo** — a pnpm workspace of `apps/*` (deployable leaves) and `libs/*`
   (reusable internals); libs may not import from apps.
 - **hybrid** — a root app in `src/` plus internal packages under `packages/*`.
+
+`init --lang go` scaffolds a Go `module` or `workspace`, and `init --lang rust`
+a Rust `crate` or `workspace`, each with no `package.json`: a `mise.toml` pins
+checkride and its tools, the config sets `requirePins`, and the pack's dialect
+rules ship under `rules/`. See [getting started](./docs/getting-started.md).
 
 Every generated shape is green out of the box — an end-to-end test enforces it.
 

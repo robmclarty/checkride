@@ -23,6 +23,7 @@ export const GO_TOOLCHAIN: Tool = {
  */
 export const CARGO_TOOLCHAIN: Tool = {
   bin: 'cargo',
+  component: 'cargo',
   mise: ['rust', 'core:rust'],
   install: 'install Rust with rustup (https://rustup.rs), or pin it with `mise use rust@<version>`',
 };

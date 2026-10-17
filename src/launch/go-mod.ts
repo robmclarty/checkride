@@ -112,17 +112,40 @@ function readText(path: string): string | null {
   }
 }
 
+/** Where the `go.mod` at `path` declares `goTool`, named relative to `repo`, or `null` when it doesn't. */
+function declarationIn(path: string, repo: string, goTool: string): GoModDeclaration | null {
+  const text = readText(path);
+  if (text === null || !goModTools(text).includes(goTool)) return null;
+  const version = goModRequiredVersion(text, goTool);
+  return { file: relative(repo, path) || GO_MOD, ...(version !== undefined ? { version } : {}) };
+}
+
+/**
+ * Where a workspace at `dir` declares `goTool`: the first module its
+ * `go.work` uses whose `go.mod` has a `tool` directive for it, as `go tool`
+ * finds one from a workspace root.
+ */
+function workspaceDeclaration(dir: string, repo: string, goTool: string): GoModDeclaration | null {
+  const work = readText(join(dir, GO_WORK));
+  const uses = work === null ? [] : directives(work).filter((d) => d.verb === 'use').flatMap((d) => d.args.slice(0, 1));
+  for (const use of uses) {
+    const found = declarationIn(join(dir, use, GO_MOD), repo, goTool);
+    if (found !== null) return found;
+  }
+  return null;
+}
+
 /**
  * Where the `go.mod` nearest `cwd`, up to `repo`, declares the tool whose
- * package is `goTool`, or `null` when that file has no `tool` directive for
- * it, or there's no `go.mod` to read.
+ * package is `goTool`. With no `go.mod` between them, a `go.work` there stands
+ * in, as Go's workspace mode does: the tool any module it uses declares. `null`
+ * when nothing declares it.
  */
 export function goModDeclaration(cwd: string, repo: string, goTool: string): GoModDeclaration | null {
   const path = nearestGoMod(cwd, repo);
-  const text = path === null ? null : readText(path);
-  if (path === null || text === null || !goModTools(text).includes(goTool)) return null;
-  const version = goModRequiredVersion(text, goTool);
-  return { file: relative(repo, path) || GO_MOD, ...(version !== undefined ? { version } : {}) };
+  if (path !== null) return declarationIn(path, repo, goTool);
+  const work = dirsUpTo(cwd, repo).find((dir) => existsSync(join(dir, GO_WORK)));
+  return work === undefined ? null : workspaceDeclaration(work, repo, goTool);
 }
 
 /** The argument a Go adapter takes its packages through: one argument per pattern. */

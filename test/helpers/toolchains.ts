@@ -39,6 +39,7 @@ export const TOOLCHAINS = {
     { name: 'cargo clippy', mise: 'rust', probe: ['cargo', 'clippy', '--version'] },
     { name: 'cargo fmt', mise: 'rust', probe: ['cargo', 'fmt', '--version'] },
     { name: 'cargo-machete', mise: 'ubi:bnjbvr/cargo-machete', probe: ['cargo-machete', '--version'] },
+    { name: 'cargo nextest', mise: 'aqua:nextest-rs/nextest/cargo-nextest', probe: ['cargo', 'nextest', '--version'] },
   ],
   python: [
     { name: 'python3', mise: 'python', probe: ['python3', '--version'] },

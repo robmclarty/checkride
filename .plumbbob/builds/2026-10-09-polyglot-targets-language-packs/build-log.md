@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 45 — feat(packs): add the rust pack
+**Current step:** 46 — feat(init): scaffold Go and Rust projects with init --lang
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -68,7 +68,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 42. feat(packs): add the go pack
 - ☑ 43. feat(changed): narrow Go packages to affected workspace modules
 - ☑ 44. feat(launch): pin Rust by rust-toolchain and harden the cargo env
-- ☐ 45. feat(packs): add the rust pack
+- ☑ 45. feat(packs): add the rust pack
 - ☐ 46. feat(init): scaffold Go and Rust projects with init --lang
 - ☐ 47. test(examples): add the Go, Rust and mixed-stack examples
 - ☐ 48. refactor(baseline): derive fingerprints from one parser per format
@@ -140,6 +140,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] SLOTS gained unclaimed after snippets at step 33; R5.1 lists schema before unclaimed, so step 66 inserting schema there moves unclaimed's catalogue position (summary order in multi-target runs), or appends schema after it
 - [x] R6.6's rule 3 (otherwise checkride on PATH) also caught a package.json repo with no check script; step 35 keeps any package.json repo on <pm> run check (C2, and triage's not-run), so PATH applies only with no package.json; amend R6.6's text to match
 - [x] R11.4's bash rule proposes a bash target only for shell files outside every other target's root, so a repo with a root target (every existing-mode init, and --discover on a TS repo with scripts/) never gets one, which leaves shell unchecked where D24 and #7 want it checked; settle before step 54 whether discovery proposes bash under a root target of another pack
+- [ ] R2.1's implicit go/rust/python/terraform pack (a root go.mod or Cargo.toml with no targets picks that pack) has no step: config.ts still resolves every implicit repo as ts, so init --lang go|rust writes an explicit app target at the root instead
+- [ ] R11.6's bash-strict-mode dialect rule (set -euo pipefail, or a built-in beside shellcheck if ast-grep can't express it) has no step: no bash scaffold ships rules, so step 46 built only the five go and rust rules
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2116,3 +2118,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 42 checkpointed · 72ca9ea4f — feat(packs): add the go pack (1 drift, 13m)
 - 2026-10-17 — step 43 checkpointed · c3cb2ab6b — feat(changed): narrow Go packages to affected workspace modules (1 drift, 6m)
 - 2026-10-17 — step 44 checkpointed · c7ce1a7d2 — feat(launch): pin Rust by rust-toolchain and harden the cargo env (1 drift, 8m)
+- 2026-10-17 — step 45 checkpointed · a5ef832df — feat(packs): add the rust pack (1 drift, 9m)
