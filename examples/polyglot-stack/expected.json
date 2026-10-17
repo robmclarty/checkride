@@ -1,0 +1,67 @@
+{
+  "description": "Three targets in one repo, a ts app, a go service and bash scripts, with the repo-wide checks run once, and each S4 plant failing the check it names.",
+  "args": [],
+  "requires": ["go", "golangci-lint", "shellcheck"],
+  "exitCode": 0,
+  "checks": {
+    "web:types": { "ok": true, "skipped": false },
+    "api:types": { "ok": true, "skipped": false },
+    "api:lint": { "ok": true, "skipped": false },
+    "api:test": { "ok": true, "skipped": false },
+    "scripts:lint": { "ok": true, "skipped": false },
+    "struct": { "ok": true, "skipped": false },
+    "links": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "a Go compile error",
+      "edits": [{ "file": "api/internal/greet/greet.go", "find": "return \"Hello, \" + name + \"!\"", "replace": "return 42" }],
+      "exitCode": 1,
+      "failing": ["api:types"]
+    },
+    {
+      "name": "an ignored error return in Go",
+      "edits": [{ "file": "api/cmd/api/remove.go", "contents": "package main\n\nimport \"os\"\n\nfunc init() { os.Remove(\"stale\") }\n" }],
+      "exitCode": 1,
+      "failing": ["api:lint"]
+    },
+    {
+      "name": "a failing Go test",
+      "edits": [{ "file": "api/internal/greet/greet_test.go", "find": "got != \"Hello, gopher!\"", "replace": "got == \"Hello, gopher!\"" }],
+      "exitCode": 1,
+      "failing": ["api:test"]
+    },
+    {
+      "name": "a TypeScript type error",
+      "edits": [{ "file": "web/src/app.ts", "find": "greeting('world').length", "replace": "greeting('world')" }],
+      "exitCode": 1,
+      "failing": ["web:types"]
+    },
+    {
+      "name": "an unquoted variable in a script (SC2086)",
+      "edits": [{ "file": "scripts/deploy.sh", "find": "\"$target\"", "replace": "$target" }],
+      "exitCode": 1,
+      "failing": ["scripts:lint"]
+    },
+    {
+      "name": "a Go module no target checks",
+      "edits": [{ "file": "tools/gen/go.mod", "contents": "module example.com/stack/gen\n\ngo 1.24\n" }],
+      "exitCode": 1,
+      "failing": ["unclaimed"]
+    },
+    {
+      "name": "a broken relative link in a skill",
+      "edits": [{ "file": "skills/release/SKILL.md", "find": "../../scripts/deploy.sh", "replace": "../../scripts/ship.sh" }],
+      "exitCode": 1,
+      "failing": ["links"]
+    },
+    {
+      "name": "a dot import in Go",
+      "edits": [{ "file": "api/internal/greet/dot.go", "contents": "package greet\n\nimport . \"strings\"\n\nvar _ = ToUpper\n" }],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["go-no-dot-import"]
+    }
+  ]
+}

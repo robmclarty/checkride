@@ -1,0 +1,40 @@
+{
+  "description": "A Go module as one go target: go build, golangci-lint, deadcode through its go.mod tool directive, and go test, each failing on its own plant.",
+  "args": [],
+  "requires": ["go", "golangci-lint"],
+  "setup": [["go", "mod", "download"]],
+  "exitCode": 0,
+  "checks": {
+    "greeter:types": { "ok": true, "skipped": false },
+    "greeter:lint": { "ok": true, "skipped": false },
+    "greeter:dead": { "ok": true, "skipped": false },
+    "greeter:test": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "a compile error",
+      "edits": [{ "file": "internal/greet/greet.go", "find": "return \"Hello, \" + name + \"!\"", "replace": "return 42" }],
+      "exitCode": 1,
+      "failing": ["greeter:types"]
+    },
+    {
+      "name": "an ignored error return",
+      "edits": [{ "file": "cmd/greeter/remove.go", "contents": "package main\n\nimport \"os\"\n\nfunc init() { os.Remove(\"stale\") }\n" }],
+      "exitCode": 1,
+      "failing": ["greeter:lint"]
+    },
+    {
+      "name": "a failing test",
+      "edits": [{ "file": "internal/greet/greet_test.go", "find": "got != \"Hello, gopher!\"", "replace": "got == \"Hello, gopher!\"" }],
+      "exitCode": 1,
+      "failing": ["greeter:test"]
+    },
+    {
+      "name": "a function nothing reaches",
+      "edits": [{ "file": "internal/greet/orphan.go", "contents": "package greet\n\nfunc orphan() string { return \"no one calls me\" }\n" }],
+      "exitCode": 1,
+      "failing": ["greeter:dead"]
+    }
+  ]
+}

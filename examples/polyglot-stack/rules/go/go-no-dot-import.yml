@@ -1,0 +1,9 @@
+id: go-no-dot-import
+language: go
+severity: error
+message: A dot import pours another package's names into this file, so a reader can't tell where a name comes from. Import the package by its name.
+rule:
+  kind: import_spec
+  has:
+    field: name
+    kind: dot

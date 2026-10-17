@@ -736,7 +736,7 @@ reference rules and porting trap apply as written there.
 45. [x] feat(packs): add the rust pack, **done when:** a `rust` target runs every R5.6 adapter with `lock: cargo:{root}`, and S5's plants fail as expected
     - seam: `src/packs/rust.ts`, `src/packs/tools.ts`
     - model: sonnet
-46. [ ] feat(init): scaffold Go and Rust projects with init --lang, **done when:** `init --lang go --shape module|workspace` and `init --lang rust --shape crate|workspace` write R11.6's shapes with `mise.toml`, `requirePins: true`, a config naming every slot and the dialect rules; the written `mise.toml` pins `npm:checkride` at the package version, with `node` beside it ([D46 (checkride-pin)](#d46)); each shape is green out of the box (e2e); an invalid combination exits 2
+46. [x] feat(init): scaffold Go and Rust projects with init --lang, **done when:** `init --lang go --shape module|workspace` and `init --lang rust --shape crate|workspace` write R11.6's shapes with `mise.toml`, `requirePins: true`, a config naming every slot and the dialect rules; the written `mise.toml` pins `npm:checkride` at the package version, with `node` beside it ([D46 (checkride-pin)](#d46)); each shape is green out of the box (e2e); an invalid combination exits 2
     - seam: `src/init.ts`, `templates/go/`, `templates/rust/`, `templates/repo/`,
       `test/e2e/shapes.e2e.test.ts`
     - model: opus (four shapes and six dialect rules, each with fixtures)

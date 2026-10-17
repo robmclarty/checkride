@@ -79,6 +79,8 @@ type Violation = {
 type Expected = {
   args?: string[];
   requires?: string[];
+  /** Commands run in the copy after install, for setup that needs the network, such as `go mod download`. */
+  setup?: string[][];
   exitCode: number;
   checks?: Record<string, SlotExpectation>;
   firstCheck?: string;
@@ -143,10 +145,12 @@ function assertChecks(summary: Summary, expected: Record<string, SlotExpectation
   }
 }
 
-/** Whether a binary an example depends on is callable on this machine. */
+/** Whether a binary an example depends on is callable on this machine: `--version`, or `version` for a toolchain like `go` that takes no flag. */
 function onPath(binary: string): boolean {
-  const probe = spawnSync(binary, ['--version'], { stdio: 'ignore' });
-  return probe.error === undefined && probe.status === 0;
+  return [['--version'], ['version']].some((args) => {
+    const probe = spawnSync(binary, args, { stdio: 'ignore' });
+    return probe.error === undefined && probe.status === 0;
+  });
 }
 
 /** The example's canonical run: exit code, per-slot verdicts, pipeline order, digest. */
@@ -329,6 +333,8 @@ describe('examples', () => {
 
       try {
         await prepare(name, dir);
+        // Setup may download; the checks never do.
+        for (const [command = '', ...rest] of expected.setup ?? []) await execFileP(command, rest, { cwd: dir, ...BIG });
         await assertCanonicalRun(dir, name, expected);
         if (expected.violations) await assertViolations(dir, args, expected.violations);
         if (expected.ratchet) await assertRatchet(dir, args, expected.ratchet);

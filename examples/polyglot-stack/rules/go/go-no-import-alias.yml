@@ -1,0 +1,9 @@
+id: go-no-import-alias
+language: go
+severity: error
+message: An import alias renames a package everywhere this file uses it. Use the package's own name; for a genuine collision, add an ast-grep-ignore comment saying which.
+rule:
+  kind: import_spec
+  has:
+    field: name
+    kind: package_identifier

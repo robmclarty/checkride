@@ -1,0 +1,13 @@
+{
+  "name": "checkride-example-go-module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Go module checked as a go target: go build, golangci-lint, deadcode pinned as a go.mod tool, and go test.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "checkride": "link:../.."
+  }
+}

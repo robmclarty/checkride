@@ -1,0 +1,12 @@
+id: rust-no-glob-reexport
+language: rust
+severity: error
+message: A glob re-export makes everything the path holds part of this module's interface, so the interface changes whenever that module does. Re-export the items by name.
+rule:
+  kind: use_declaration
+  all:
+    - has:
+        kind: visibility_modifier
+    - has:
+        stopBy: end
+        kind: use_wildcard

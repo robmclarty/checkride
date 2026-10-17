@@ -1,0 +1,14 @@
+{
+  "name": "checkride-example-rust-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Cargo workspace checked as one rust target, its toolchain pinned by rust-toolchain.toml and cargo-machete by mise.toml.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.45.3",
+    "checkride": "link:../.."
+  }
+}

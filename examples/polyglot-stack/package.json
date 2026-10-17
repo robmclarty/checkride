@@ -1,0 +1,15 @@
+{
+  "name": "checkride-example-polyglot-stack",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A TypeScript app, a Go service and shell scripts checked as three targets, with the repo's links, structure and unclaimed code checked once.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "@ast-grep/cli": "0.45.3",
+    "checkride": "link:../..",
+    "typescript": "6.0.3"
+  }
+}

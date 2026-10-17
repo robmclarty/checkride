@@ -323,6 +323,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `pin_source: "rust-toolchain"` where a toolchain file pins it, and the
   go-mod-tool source finds a tool a workspace module declares from the
   workspace root, as `go tool` does.
+- **Go, Rust and mixed-stack examples.** `examples/go-module`,
+  `examples/go-workspace`, `examples/rust-workspace` and
+  `examples/polyglot-stack` run end to end, each with plants that fail the
+  check they name: a Go compile error, an ignored error return, a failing Go
+  test and a dot import; a clippy warning, a glob re-export, a failing
+  doctest and an unused dependency; a TypeScript type error, an unquoted shell
+  variable, a broken link in a skill and a Go module no target checks. An
+  example's `expected.json` can now list `setup` commands, such as
+  `go mod download`, that run before its checks.
 
 ### Changed
 

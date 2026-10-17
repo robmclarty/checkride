@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 46 — feat(init): scaffold Go and Rust projects with init --lang
+**Current step:** 47 — test(examples): add the Go, Rust and mixed-stack examples
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -69,7 +69,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 43. feat(changed): narrow Go packages to affected workspace modules
 - ☑ 44. feat(launch): pin Rust by rust-toolchain and harden the cargo env
 - ☑ 45. feat(packs): add the rust pack
-- ☐ 46. feat(init): scaffold Go and Rust projects with init --lang
+- ☑ 46. feat(init): scaffold Go and Rust projects with init --lang
 - ☐ 47. test(examples): add the Go, Rust and mixed-stack examples
 - ☐ 48. refactor(baseline): derive fingerprints from one parser per format
 - ☐ 49. feat(findings): export parseFindings with severity, gates and slot
@@ -2119,3 +2119,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 43 checkpointed · c3cb2ab6b — feat(changed): narrow Go packages to affected workspace modules (1 drift, 6m)
 - 2026-10-17 — step 44 checkpointed · c7ce1a7d2 — feat(launch): pin Rust by rust-toolchain and harden the cargo env (1 drift, 8m)
 - 2026-10-17 — step 45 checkpointed · a5ef832df — feat(packs): add the rust pack (1 drift, 9m)
+- 2026-10-17 — step 46 checkpointed · 7439cea26 — feat(init): scaffold Go and Rust projects with init --lang (1 drift, 14m)

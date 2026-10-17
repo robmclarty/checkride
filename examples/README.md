@@ -14,6 +14,10 @@ which is the only reason to trust anything written here.
 | [`existing-repo-baseline/`](./existing-repo-baseline/) | Adopting checkride on a repo that already has findings: grandfather today's debt, fail on anything new, ratchet down as it is fixed | `0` |
 | [`custom-checks/`](./custom-checks/) | The escape hatch: a bespoke formatter running ahead of the built-ins, `detect`-gated checks that stand down, and a rule no off-the-shelf linter could express | `0` |
 | [`shared-preset/`](./shared-preset/) | One versioned preset package carrying org-wide policy across a fleet — two tiers, deep-merged local overrides, and `detect` keeping it safe in repos with different toolchains | `0` |
+| [`go-module/`](./go-module/) | A Go module as one go target: go build, golangci-lint, deadcode pinned as a `go.mod` tool, and go test, all offline | `0` |
+| [`go-workspace/`](./go-workspace/) | A Go workspace as one go target, whose checks name each module `go.work` uses | `0` |
+| [`rust-workspace/`](./rust-workspace/) | A Cargo workspace as one rust target: the toolchain pinned by `rust-toolchain.toml`, clippy with warnings failing, cargo-machete, the doctests, and the Rust dialect rules | `0` |
+| [`polyglot-stack/`](./polyglot-stack/) | A TypeScript app, a Go service and shell scripts as three targets, with links, the Go dialect rules and `unclaimed` checked once for the whole repo | `0` |
 | [`polyglot-ts-bash/`](./polyglot-ts-bash/) | Two targets in one repo: a TypeScript app checked by tsc from its own root, shell scripts checked by shellcheck over their file list, and `unclaimed` failing on a package no target checks | `0` |
 | [`polyglot/`](./polyglot/) | A Python repo: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks run the ecosystem's own tools | `0` |
 | [`prose-voice/`](./prose-voice/) | The `prose` slot: a repo-owned vale style over markdown and TypeScript doc comments, drift control for model-generated text, voice exemplars the agent contract points at, and a grandfathered legacy doc | `0` |
@@ -72,6 +76,7 @@ declares what a correct run looks like, and the end-to-end suite asserts it:
 | `firstCheck` / `lastCheck` | The check that must come first or last in pipeline order, for examples that set `"order"` |
 | `digestContains` | Substrings that must appear in `.check/digest.md` |
 | `requires` | Binaries that must be on PATH; the example is skipped (loudly) when they are not |
+| `setup` | Commands run in the copy after install, for setup that needs the network, such as `["go", "mod", "download"]`; a check never downloads |
 | `ratchet` | Optional multi-step scenario: introduce a finding, then fix one, asserting the exit code and baseline size at each step |
 | `violations` | Deliberate rule-breaking edits that must fail the build, each asserting the exit code, which checks failed, and which fallow counter, ast-grep rule, or vale rule fired |
 

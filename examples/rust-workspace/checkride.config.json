@@ -1,0 +1,6 @@
+{
+  "targets": {
+    "shop": { "lang": "rust", "root": ".", "checks": { "snippets": "cargo-doctest" } }
+  },
+  "unclaimed": { "ignore": ["package.json"] }
+}

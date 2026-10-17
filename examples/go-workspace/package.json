@@ -1,0 +1,13 @@
+{
+  "name": "checkride-example-go-workspace",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Go workspace checked as one go target, whose packages expand to each module go.work uses.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "checkride": "link:../.."
+  }
+}

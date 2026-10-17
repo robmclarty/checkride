@@ -1,0 +1,6 @@
+{
+  "targets": {
+    "shop": { "lang": "go", "root": "." }
+  },
+  "unclaimed": { "ignore": ["package.json"] }
+}

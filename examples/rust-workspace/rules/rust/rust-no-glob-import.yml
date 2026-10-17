@@ -1,0 +1,14 @@
+id: rust-no-glob-import
+language: rust
+severity: error
+message: A glob import brings in names this file never says it uses, and a later addition there can shadow or collide with one here. Import the items by name; `use super::*;` in a test module is the one exception.
+rule:
+  kind: use_declaration
+  not:
+    has:
+      kind: visibility_modifier
+  has:
+    stopBy: end
+    kind: use_wildcard
+    not:
+      regex: ^super::\*$

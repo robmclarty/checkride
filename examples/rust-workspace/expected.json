@@ -1,0 +1,42 @@
+{
+  "description": "A Cargo workspace as one rust target, with each S5 plant failing the check it names: a clippy warning, a glob re-export, a failing doctest and an unused dependency.",
+  "args": [],
+  "requires": ["cargo", "rustup", "cargo-machete"],
+  "exitCode": 0,
+  "checks": {
+    "shop:types": { "ok": true, "skipped": false },
+    "shop:lint": { "ok": true, "skipped": false },
+    "shop:dead": { "ok": true, "skipped": false },
+    "shop:test": { "ok": true, "skipped": false },
+    "shop:snippets": { "ok": true, "skipped": false },
+    "struct": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "a clippy warning",
+      "edits": [{ "file": "crates/cli/src/main.rs", "find": "fn main() {\n", "replace": "fn main() {\n    let unused = 3;\n" }],
+      "exitCode": 1,
+      "failing": ["shop:lint"]
+    },
+    {
+      "name": "a glob re-export",
+      "edits": [{ "file": "crates/core/src/lib.rs", "find": "//! Prices, kept in whole cents.\n", "replace": "//! Prices, kept in whole cents.\n\npub use std::collections::*;\n" }],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["rust-no-glob-reexport"]
+    },
+    {
+      "name": "a failing doctest",
+      "edits": [{ "file": "crates/core/src/lib.rs", "find": "&[150, 250]), 400);", "replace": "&[150, 250]), 500);" }],
+      "exitCode": 1,
+      "failing": ["shop:snippets"]
+    },
+    {
+      "name": "a dependency no crate uses",
+      "edits": [{ "file": "crates/cli/Cargo.toml", "find": "shop-core = { path = \"../core\" }\n", "replace": "shop-core = { path = \"../core\" }\nitoa = \"1\"\n" }],
+      "exitCode": 1,
+      "failing": ["shop:dead"]
+    }
+  ]
+}
