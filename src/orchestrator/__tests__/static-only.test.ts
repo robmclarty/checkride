@@ -2,7 +2,8 @@
  * `--static-only` in a run (R13.4, D26): selection skips each check that may
  * run the repo's code with a `static-only: <cause>` reason, a kept check whose
  * tool needs an install skips rather than fails, the defaults layer can vouch
- * for its own checks while the repo can't, and the run is partial, so it
+ * for its own checks while the repo can't, an entry of the repo's that adds an
+ * argument to a static row loses the mark (D79), and the run is partial, so it
  * records `run.static_only` and never ratchets.
  */
 
@@ -15,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../../config.js';
-import { resolveChecks } from '../../config.js';
+import { loadConfig, resolveChecks } from '../../config.js';
 import type { Out } from '../index.js';
 import { runChecks } from '../index.js';
 import { withStaticOnly } from '../select.js';
@@ -59,6 +60,44 @@ describe('withStaticOnly', () => {
     const checks = await filtered({ checks: { licenses: { command: 'node', args: ['x.js'] }, docs: { use: 'markdownlint-cli2', command: 'node' } } });
     expect(checks.get('licenses')?.skip).toBe("static-only: custom:licenses isn't a static check");
     expect(checks.get('docs')?.skip).toBe("static-only: markdownlint-cli2 isn't a static check");
+  });
+
+  // D79: the repo's config is as untrusted as its code, and nearly every static tool takes a flag that loads some.
+  test('an args or changedArgs override that adds an argument the row doesn’t carry never qualifies', async () => {
+    const checks = await filtered({
+      checks: {
+        format: { use: 'prettier', args: ['exec', 'prettier', '--plugin=./x.mjs', '--check', '.'] },
+        spell: { use: 'cspell', changedArgs: ['--config', 'cspell.config.mjs'] },
+      },
+    });
+    expect(checks.get('format')?.skip).toBe("static-only: prettier isn't a static check");
+    expect(checks.get('spell')?.skip).toBe("static-only: cspell isn't a static check");
+  });
+
+  test('an override that only drops or reorders the row’s arguments stays static, plain oxlint included', async () => {
+    const checks = await filtered({
+      checks: {
+        lint: { use: 'oxlint', args: ['exec', 'oxlint', '--format=json'] },
+        format: { use: 'prettier', args: ['exec', 'prettier', '.', '--check'] },
+        docs: { use: 'markdownlint-cli2', args: [] },
+      },
+    });
+    expect(checks.get('lint')?.skip).toBeNull();
+    expect(checks.get('format')?.skip).toBeNull();
+    expect(checks.get('docs')?.skip).toBeNull();
+  });
+
+  test('a preset the config extends that adds an argument drops the mark too', async () => {
+    await put('presets/format.json', JSON.stringify({ checks: { format: { use: 'prettier', args: ['exec', 'prettier', '--plugin', './x.mjs', '--check', '.'] } } }));
+    await put('checkride.config.json', JSON.stringify({ extends: './presets/format.json' }));
+    const checks = await filtered(loadConfig(repo) ?? {});
+    expect(checks.get('format')?.skip).toBe("static-only: prettier isn't a static check");
+  });
+
+  test('a defaults entry that adds an argument keeps its static: true vouch, and without one drops the mark', async () => {
+    const plugin = ['exec', 'prettier', '--plugin=./x.mjs', '--check', '.'];
+    expect((await filtered({}, { checks: { format: { use: 'prettier', args: plugin, static: true } } })).get('format')).toMatchObject({ skip: null, origin: 'defaults' });
+    expect((await filtered({}, { checks: { format: { use: 'prettier', args: plugin } } })).get('format')?.skip).toBe("static-only: prettier isn't a static check");
   });
 
   test('the defaults layer vouches for its own checks with static: true', async () => {
@@ -148,6 +187,21 @@ describe('runChecks --static-only', () => {
     expect(result.summary.checks.find((c) => c.name === 'links')).toMatchObject({ ok: true });
     expect(result.summary.checks.find((c) => c.name === 'links')).not.toHaveProperty('skipped');
     expect(result.summary.run).toMatchObject({ partial: true, static_only: true });
+    expect(result.exitCode).toBe(0);
+  });
+
+  test("a repo's prettier --plugin override skips format, though prettier is a static check", async () => {
+    await writeFile(join(repo, 'README.md'), '# readme\n');
+    const result = await runChecks({
+      cwd: repo,
+      staticOnly: true,
+      config: { checks: { format: { use: 'prettier', args: ['exec', 'prettier', '--plugin', './x.mjs', '--check', '.'] }, links: 'links' } },
+      only: ['format', 'links'],
+      stdout: quiet,
+      stderr: quiet,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'format')).toMatchObject({ skipped: true, ok: true, reason: "static-only: prettier isn't a static check" });
+    expect(result.summary.checks.find((c) => c.name === 'links')).toMatchObject({ ok: true });
     expect(result.exitCode).toBe(0);
   });
 

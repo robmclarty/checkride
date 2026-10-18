@@ -437,11 +437,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when its adapter is marked static (prettier, biome, oxlint, ast-grep,
   markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt,
   `links` and `unclaimed`), or a defaults file vouches for it with
-  `static: true`. Its argv has to carry no flag that needs the install, such
-  as oxlint's `--type-aware`, and none that loads code. No code config of its
-  own may sit on disk under its directory, in any case of its name, such as
+  `static: true`. An entry in the repo's config, or a preset it extends, that
+  adds an argument to a static tool's own, such as prettier's `--plugin`,
+  loses the mark, since the repo's config is as untrusted as its code; one
+  that only drops or reorders them, such as oxlint without `--type-aware`,
+  keeps it, and a defaults file's entry needs `static: true` to add one. Its
+  argv has to carry no flag that needs the install, such as oxlint's
+  `--type-aware`, and none that loads code. No code config of its own may sit
+  on disk under its directory, in any case of its name, such as
   `.markdownlint-cli2.cjs`, and no config key that loads code may be set,
-  such as `jsPlugins`. Its tool has to resolve without an install. Every
+  such as `jsPlugins`, however the file's parser would still read it: spelled
+  with `\x`, `\u` or `\U` escapes, opening a YAML flow mapping such as
+  `{plugins: [./x.mjs]}`, or after a comma. Its tool has to resolve without
+  an install. Every
   other check is skipped with a `static-only: <cause>` reason, and the run is
   partial, so it never ratchets. It's a best-effort selector, not a sandbox:
   a tool release can add a way to load code that these sniffs don't know.

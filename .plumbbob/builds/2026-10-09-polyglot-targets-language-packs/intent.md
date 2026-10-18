@@ -67,6 +67,8 @@ the as-written source until step 74 marks it implemented.
   - `--out` for the gate and hooks, or any read-only guarantee beyond checkride's own writes;
   - Windows and musl binaries; crates.io, PyPI or `go install` shims; creating the Homebrew tap
     repository; publishing a release (the tap and every release stay manual, after the build);
+  - the standalone binary, its release pipeline and the `github:` mise channel, which a later
+    build takes up ([D80 (binary-deferred)](#d80));
   - self-update, installing toolchains or tools from a check, or a network escape hatch;
   - batching long file lists, bats, per-target ast-grep configs, TOML validation in `schema`, JSON
     formatting outside `ts`, and Go mutation, dupes or health;
@@ -95,7 +97,7 @@ the as-written source until step 74 marks it implemented.
 | Runs shaped from outside never write the repo | review | [D22 (consumer-runs-write-nothing)](#d22), [D47 (consumer-trigger)](#d47) | 2, 11, 53 to 56 |
 | Slot provenance, features 1 and 2 | queued draft | [D16 (provenance)](#d16) | 6, 18 |
 | The test layout, and its type-check question | queued draft | [D44 (test-layout-in)](#d44) | 12 to 17, 19 |
-| Polyglot draft milestones M1 to M6 | polyglot draft | [D3 (stay-typescript)](#d3) to [D15 (network-security-only)](#d15) | Phases 5 to 8, 12, 13 |
+| Polyglot draft milestones M1 to M6 | polyglot draft | [D3 (stay-typescript)](#d3) to [D15 (network-security-only)](#d15) | Phases 5 to 8 and 12; M4, the binary, waits for a later build ([D80 (binary-deferred)](#d80)) |
 
 ## Architecture sketch
 
@@ -315,7 +317,8 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   e2e suite. Releases carry darwin-arm64, darwin-x64, linux-x64 and linux-arm64 (glibc) tarballs,
   `SHA256SUMS` and provenance attestations, and mise's `github:` backend is the documented pin for
   repos without Node (R14), *because* SEA keeps runtime parity with the tested npm path (this
-  settles the polyglot draft's binary and mise questions).
+  settles the polyglot draft's binary and mise questions). It holds for the later build the
+  binary now waits for ([D80 (binary-deferred)](#d80)).
 - <a id="d40"></a>**D40 (entry-command)**: the AGENTS.md stanza, the generated hooks and the plugin
   skills all run checkride through the entry command (R6.6), and the skills call
   `checkride triage` that way everywhere, *because* a binary-only repo has no `pnpm run check`.
@@ -349,7 +352,10 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   `github:robmclarty/checkride` as declaring checkride, and the distribution docs describe the
   switch to `github:` for repos that want no Node (R6.6, R7.5, R14.2), *because* the `github:`
   backend has nothing to install until Phase 13 and a manual release, and
-  [Q1 (scope-cut)](#q1) may still cut Phase 13 (was [Q3 (checkride-pin)](#q3)).
+  [Q1 (scope-cut)](#q1) may still cut Phase 13 (was [Q3 (checkride-pin)](#q3)). With the binary
+  cut, this is the supported route for every release this build ships, its `npm:checkride` entry
+  opting in with `allow_low_downloads = true`, and the docs describe the `github:` switch as a
+  later build's ([D80 (binary-deferred)](#d80)).
 - <a id="d47"></a>**D47 (consumer-trigger)**: the `baseline` command is the repo's explicit write
   and writes `checkride.baseline.json` whatever `--config` or `--out` it's given, and `--config`
   makes a consumer run only when the file sits outside the repo, the test `--out` already uses
@@ -526,9 +532,10 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   by name at any depth or by path glob, with an optional `value` regex; an entry that swaps a
   static adapter's command loses the mark; under `--static-only` the js-lockfile pre-flight
   covers every package manager but a PnP install; keys are sniffed as text, erring toward a
-  skip. `doctor` refuses `--pins` and `--static-only` with exit 2 until step 69 teaches it
-  both, *because* steps 72 and 73 build the docs from R13, and they would otherwise document
-  rules no run keeps (settled at steps 53 to 56, folded at step 57's harvest).
+  skip. `doctor` refuses `--pins` and `--static-only` with exit 2 until step 81 teaches it
+  both ([D80 (binary-deferred)](#d80)), *because* steps 72 and 73 build the docs from R13, and
+  they would otherwise document rules no run keeps (settled at steps 53 to 56, folded at step
+  57's harvest).
 - <a id="d72"></a>**D72 (mutation-sandbox)**: stryker runs the tests through a vitest config of
   its own that leaves out the ones that read the repo's git state
   (`test/integration/dogfood-config.test.ts`), which `pnpm check` still runs, *because*
@@ -561,6 +568,83 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   argv alone can't say whether a warning fails the run, and
   [D30 (gates-not-level)](#d30) leaves `gates` out when it can't be known (folded at step 62's
   harvest, from step 60's park).
+- <a id="d76"></a>**D76 (terraform-verified)**: R4 and R5.8 read as step 63 shipped them after
+  running each tool at the version it verified (OpenTofu 1.13.1, tflint 0.64.0, trivy 0.76.0).
+  An adapter row may carry `onlyWith`, a file it applies only beside and the reason its slot
+  stands down with where the file is missing, however the adapter was chosen, so
+  `terraform-validate` stands down without a `.terraform.lock.hcl` even where a config or preset
+  names it; and `setup`, a directory a setup step writes, the step's arguments to the check's
+  own command and a variable that moves the directory, so validate fails before anything spawns,
+  naming `terraform init -backend=false` (`tofu init -backend=false` where the repo runs
+  OpenTofu), where `.terraform/` or the directory `TF_DATA_DIR` names is missing.
+  `trivy-config` takes `--cache-dir {out}/trivy-cache`, a scratch path a config scan never
+  writes, and tflint's default `--minimum-failure-severity` fails every issue, a notice
+  included, *because* a shared preset that names validate must stay safe on a child module's
+  target, a bare `init` reaches for the state backend, trivy otherwise prefers a checks bundle
+  an earlier online scan cached, so one machine's findings would differ from another's, and
+  steps 72 and 73 build the docs from R4 and R5.8 (folded at step 79's harvest, from step 63's
+  park).
+- <a id="d77"></a>**D77 (terraform-findings)**: R12.3 and R12.4 read as step 64 shipped them
+  against real output at the same versions. A tflint issue gates at or above argv's
+  `--minimum-failure-severity`, which defaults to `notice`, so every issue gates, a notice
+  (`info` in the JSON) included, and none does under `--force`; a report with an entry in
+  `errors` parses to null, so the ratchet keeps its keys; and a nested module's path that
+  tflint climbs to `/` and back through a symlinked `PWD` is read from `/` and rebased through
+  `repoRoot` when it lands inside the repo. A trivy misconfiguration gates only under a nonzero
+  `--exit-code`, then when `--severity` lists its level or the flag is absent, and an argv that
+  hides trivy's flags leaves `gates` out. A validate diagnostic's message is its summary and
+  detail joined, an error gates and a warning doesn't, and a rangeless one names no file,
+  *because* trivy 0.76.0 exits 0 on any finding without `--exit-code`, validate's summary alone
+  doesn't say what it's about, Go's `Getwd` trusts `PWD`, and step 73 folds R12 into the docs
+  (folded at step 79's harvest, from step 64's park).
+- <a id="d78"></a>**D78 (static-fail-closed)**: R13.4 reads as step 79 shipped it, failing closed
+  against tflint 0.64.0 as probed. The sniffs read the disk under each check's directory, every
+  directory but `.git`, symlinks listed and never followed, instead of git's list less the
+  marker-skipped directories, so a file git ignores, a submodule's contents and a file under
+  `vendor/`, `testdata/`, `node_modules/` or `target/` count. A name matches in any case. A
+  `codeConfigs` name ending in `/` names a directory, any entry through which counts. Adapter
+  rows gain `codeArgs`, flags that load code the sniffs can't vouch for, counted like
+  `nonStaticArgs`: bare, with a value after `=`, or as a one-letter flag in a cluster. A `.hcl`
+  file is read as HCL: its line comments dropped and its block comments kept, every occurrence
+  of a key counts unless it opens a block whose label `value` rejects, and a label the reading
+  can't parse, or one spread past 1024 characters, counts. Other text is read raw and with its
+  unicode escapes decoded, and a key set in either reading counts. tflint skips for any entry
+  under a `.tflint.d/`; a `plugin` block other than `terraform`, its label quoted or bare, or
+  `source`, `version` or `plugin_dir` (a rule's own option included) in `.tflint.hcl`; any of
+  those four keys in `.tflint.json`; and `--chdir`, `--config`, `-c` or `--enable-plugin` in
+  argv, *because* tflint runs a plugin binary from the `.tflint.d/plugins/` of each directory it
+  lints, the bundled ruleset's own name included, reads `.tflint.json` where no `.tflint.hcl`
+  sits and walks the disk rather than git, macOS opens a file by any case of its name, a block
+  comment that only a heredoc seems to open must hide nothing, and steps 72 and 73 build the
+  docs from R13 (folded at step 79's harvest, from step 79's park).
+- <a id="d79"></a>**D79 (static-args)**: an `args` or `changedArgs` override in the repo's config,
+  or a preset it extends, that adds an argument its registry row doesn't carry drops the static
+  mark, as a command swap does ([D71 (consumer-calls)](#d71)), so `--static-only` skips the
+  check; an override that only drops or reorders the row's arguments keeps it, as R13.4's plain
+  oxlint does, and a defaults entry that sets `static: true` keeps its vouch. The non-HCL key
+  sniff also decodes YAML's `\x` and `\U` escapes, and reads a key that opens a flow mapping or
+  follows a comma, *because* the repo's config is as untrusted as its code under
+  `--static-only`, a flag such as prettier's `--plugin`, or a `--config` naming a code config,
+  loads code through nearly every static adapter, which a per-tool flag list would chase release
+  by release, dropping the mark on every override would skip a repo's plain oxlint, and an
+  escaped or flow-mapped key is still a key to the tool's YAML parser (the maintainer's call at
+  step 79's harvest, from step 79's parks).
+- <a id="d80"></a>**D80 (binary-deferred)**: this build cuts the standalone binary. Steps 69 to 71
+  (the SEA build, the e2e run against it and the release pipeline) move under `## Deferred to a
+  later build`, with R14.1 and R14.3 intact for that build, and the mise route, `npm:checkride`
+  pinned with `node` beside it ([D46 (checkride-pin)](#d46)), is the supported way to run
+  checkride in a repo without Node. Step 72 now makes that route install, tests it end to end
+  and documents it, since mise 2026.10's npm backend refuses a package under 1000 weekly
+  downloads unless its entry sets `allow_low_downloads = true`, which the scaffold doesn't. The
+  items earlier harvests deferred to step 69 move with it: doctor's install row in a root with no
+  `package.json` to step 72, and doctor's `--pins` and `--static-only` refusals to step 81.
+  Phase 12's keep-or-cut stays open as [Q12 (schema-keep)](#q12), *because* the binary buys only
+  an install with no Node or no mise and a channel outside npm's gates, which no current user
+  needs (the review agent of #6 and #7 imports `checkride/findings` from Node), while its SEA
+  build and four-platform release pipeline would need upkeep with every release, and an isolated
+  mise with no Node on `PATH` installed node 22.18.0 and checkride 0.14.0 in about 12 seconds and
+  ran `mise exec -- checkride` once the entry opted in (the maintainer's call at step 79's
+  boundary, from [Q1 (scope-cut)](#q1)).
 
 ## Constraints
 
@@ -620,9 +704,9 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 8. Findings | 48 to 52, 76 | one parser per format, `checkride/findings`, the implicit pack, a Go baseline (draft M6) |
 | 9. Consumer mode | 53 to 57 | `--defaults`, `--discover`, `--pins`, `--static-only`, the consumer guide |
 | 10. Python | 58 to 61 | the python pack |
-| 11. Terraform | 62 to 65 | the terraform pack |
+| 11. Terraform | 62 to 65, 79, 80 | the terraform pack, and a `--static-only` that fails closed |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
-| 13. The standalone binary | 69 to 72 | the SEA binary and its release pipeline (draft M4) |
+| 13. The mise route and doctor | 72, 81 | a scaffolded mise route that installs and is tested, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
 
 Every phase ends at a release point, and its last step runs the whole `pnpm test:e2e`
@@ -931,10 +1015,14 @@ reference rules and porting trap apply as written there.
 65. [x] test(examples): add terraform-roots with plants, **done when:** `examples/terraform-roots` (two root modules and a shared `modules/` target, with providers its setup can fetch) is green, and an unformatted file, a tflint violation, an invalid reference and an unclaimed `.tf` directory each fail the expected check (S20); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/terraform-roots/`, `test/e2e/examples.e2e.test.ts`
     - model: sonnet
-79. [ ] fix(packs): keep tflint out of --static-only wherever it would run repo code, **done when:** `--static-only` skips a terraform target's `lint` with a `static-only:` reason wherever tflint 0.64.0 would load a plugin binary: a file anywhere under a `.tflint.d/` directory below the check's directory, a `.tflint.hcl` there that sets `source`, `version` or `plugin_dir`, or one that opens a `plugin` block, its label quoted or bare, other than `terraform`; each of the three bypasses probed after step 65 (a repo-shipped `.tflint.d/plugins/tflint-ruleset-terraform` that runs under a terraform-only config, `plugin aws {`, and `plugin "terraform"` with a `source`) has a unit test, and an e2e case shows that planted binary never runs under `--static-only`; a terraform-only `.tflint.hcl` with no `.tflint.d/` still keeps `lint`; `docs/packs.md` and `CHANGELOG.md` say so
+79. [x] fix(packs): keep tflint out of --static-only wherever it would run repo code, **done when:** `--static-only` skips a terraform target's `lint` with a `static-only:` reason wherever tflint 0.64.0 would load a plugin binary: a file anywhere under a `.tflint.d/` directory below the check's directory, a `.tflint.hcl` there that sets `source`, `version` or `plugin_dir`, or one that opens a `plugin` block, its label quoted or bare, other than `terraform`; each of the three bypasses probed after step 65 (a repo-shipped `.tflint.d/plugins/tflint-ruleset-terraform` that runs under a terraform-only config, `plugin aws {`, and `plugin "terraform"` with a `source`) has a unit test, and an e2e case shows that planted binary never runs under `--static-only`; a terraform-only `.tflint.hcl` with no `.tflint.d/` still keeps `lint`; `docs/packs.md` and `CHANGELOG.md` say so
     - seam: `src/packs/terraform.ts`, `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`,
       `test/e2e/terraform-pack.e2e.test.ts`, `docs/packs.md`
     - model: opus (a security boundary: the sniff has to fail closed against the pinned tflint)
+80. [ ] fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code, **done when:** an `args` or `changedArgs` override in the repo's config, or a preset it extends, that adds an argument its registry row doesn't carry drops the static mark, so `--static-only` skips the check with a `static-only:` reason, while an override that only drops or reorders the row's arguments (oxlint without `--type-aware`) stays static and a defaults entry with `static: true` keeps its vouch ([D79 (static-args)](#d79)); the non-HCL key sniff decodes YAML's `\x` and `\U` escapes and reads a key that opens a flow mapping or follows a comma, so `.prettierrc.yaml`'s `{plugins: [./x.mjs]}` and an escaped `plugins` key each skip prettier; each case has a unit test, and an orchestrator test shows a repo's prettier `--plugin` override skipped under `--static-only`; `docs/contract.md`'s rules 1 and 4 and `CHANGELOG.md` say so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+    - seam: `src/config.ts`, `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`,
+      `src/orchestrator/__tests__/static-only.test.ts`, `docs/contract.md`
+    - model: opus (a security boundary: the classification has to fail closed against the repo's own config)
 
 ### Phase 12: the schema slot
 
@@ -950,20 +1038,18 @@ reference rules and porting trap apply as written there.
     - seam: `src/findings/parsers/`
     - model: sonnet
 
-### Phase 13: the standalone binary
+### Phase 13: the mise route and doctor
 
-69. [ ] build(sea): build a standalone binary with Node SEA, **done when:** `pnpm build:sea` bundles `dist/cli.js` with esbuild and embeds `templates/`, `schema/` and `skills/` as assets read through `src/resources.ts`; the host binary's `checkride doctor` prints `channel: binary`; an `extends` naming a package fails per F20
-    - seam: `build/sea/`, `package.json`, `src/resources.ts`, `src/doctor.ts`, `src/config.ts`
-    - model: opus (SEA asset plumbing)
-70. [ ] test(e2e): run the e2e suite against the binary, **done when:** `CHECKRIDE_BIN=<binary> pnpm test:e2e` passes on the host, and CI runs it on linux-x64 and macOS arm64 (S12)
-    - seam: `test/e2e/`, `.github/workflows/ci.yml`
-    - model: sonnet
-71. [ ] ci(release): publish binaries with checksums and attestations, **done when:** the release workflow builds R14.3's four tarballs on native runners, signs ad hoc on macOS, writes `SHA256SUMS`, attests provenance, and asserts that the npm version, the tag and the compiled version are equal; actionlint passes
-    - seam: `.github/workflows/release.yaml`, `build/sea/`
-    - model: sonnet
-72. [ ] docs(distribution): document the binary, mise and Homebrew channels, **done when:** `docs/distribution.md` covers each channel (R14.2), mise's `github:` backend as the pin for repos without Node, and checking checksums, and it says the Homebrew tap and the first binary release are manual steps after this build; it describes the switch from `npm:checkride` to `github:robmclarty/checkride` for repos that want no Node ([D46 (checkride-pin)](#d46)); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
-    - seam: `docs/distribution.md`, `README.md`, `docs/getting-started.md`
-    - model: sonnet
+Steps 69 to 71, the binary, moved under `## Deferred to a later build`
+([D80 (binary-deferred)](#d80)).
+
+72. [ ] fix(init): make the mise route install, and test and document it, **done when:** the `mise.toml` that `init --lang go|rust` writes pins `npm:checkride` with `allow_low_downloads = true`, which mise 2026.10's npm backend needs before it installs a package under 1000 weekly downloads, and the `mise use npm:checkride@<version>` hint in `doctor` and agent setup carries the same opt-in; an e2e case installs a scaffold's `mise.toml` through an isolated mise with no Node on `PATH`, its checkride pin set to a published release, and runs `mise exec -- checkride --version`, skipping without mise unless `CHECKRIDE_REQUIRE_TOOLCHAINS=1`; `doctor` in a root with no `package.json` no longer fails for a missing Node lockfile; `docs/distribution.md` names npm and the mise route as this build's channels, presents the mise route as the supported way to run checkride in a repo without Node, and leaves the binary to a later build ([D80 (binary-deferred)](#d80), [D46 (checkride-pin)](#d46)); `CHANGELOG.md` says so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+    - seam: `src/init.ts`, `src/doctor.ts`, `src/agent-setup/scripts.ts`, `test/e2e/shapes.e2e.test.ts`,
+      `docs/distribution.md`, `README.md`, `docs/getting-started.md`
+    - model: sonnet (a pin, a hint, a doctor row and a doc; the e2e follows the probe D80 records)
+81. [ ] feat(doctor): read --pins and --static-only instead of refusing them, **done when:** `doctor --pins <mise.toml>` probes each tool the file pins through the `override` source, reports the version `mise where <id>@<version>` finds, names a version mise hasn't installed, and reads its pin rows and unpinned list the way a run does (R13.3); `doctor --static-only` reports each check a static run would skip, with its `static-only:` cause, and pre-flights every package manager's install as the run does (R13.4); neither flag exits 2 any longer, and `docs/contract.md` and `CHANGELOG.md` drop "doctor refuses the flag for now" ([D71 (consumer-calls)](#d71), [D80 (binary-deferred)](#d80))
+    - seam: `src/doctor.ts`, `src/cli.ts`, `docs/contract.md`
+    - model: opus (doctor has to probe the copies a consumer run would use, through the same chain)
 
 ### Phase 14: close-out
 
@@ -971,7 +1057,7 @@ reference rules and porting trap apply as written there.
     - seam: `docs/packs.md`, `docs/targets.md`, `docs/contract.md`, `README.md`,
       `test/docs-currency.test.ts`
     - model: sonnet
-74. [ ] chore: retire the drafts and run the opt-in audit, **done when:** the slot provenance draft's status line points here as superseded; this spec's status reads implemented; `pnpm check --include security` has run and the build report records its result; the build report lists each request in #6 and #7 beside the step that shipped it, ready to paste as a closing comment; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+74. [ ] chore: retire the drafts and run the opt-in audit, **done when:** the slot provenance draft's status line points here as superseded; this spec's status reads implemented, apart from the binary a later build takes up ([D80 (binary-deferred)](#d80)); `pnpm check --include security` has run and the build report records its result; the build report lists each request in #6 and #7 beside the step that shipped it, ready to paste as a closing comment; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `docs/spec-slot-provenance.md`, `docs/spec-polyglot.md`
     - model: sonnet
 
@@ -982,7 +1068,31 @@ reference rules and porting trap apply as written there.
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-79, 66, 67, 68, 69, 70, 71, 72, 73, 74
+80, 72, 81, 66, 67, 68, 73, 74
+
+## Deferred to a later build
+
+*(Cut from this build by [D80 (binary-deferred)](#d80) at step 79's boundary. These keep their
+numbers and text for the build that takes up the binary, and plumbbob reads none of them as a
+step. R14.1 and R14.3 hold their design, and the Ranges section's step 70 lean applies there.)*
+
+- **69.** build(sea): build a standalone binary with Node SEA, **done when:** `pnpm build:sea`
+  bundles `dist/cli.js` with esbuild and embeds `templates/`, `schema/` and `skills/` as assets
+  read through `src/resources.ts`; the host binary's `checkride doctor` prints `channel: binary`;
+  an `extends` naming a package fails per F20
+  - seam: `build/sea/`, `package.json`, `src/resources.ts`, `src/doctor.ts`, `src/config.ts`
+  - model: opus (SEA asset plumbing)
+- **70.** test(e2e): run the e2e suite against the binary, **done when:**
+  `CHECKRIDE_BIN=<binary> pnpm test:e2e` passes on the host, and CI runs it on linux-x64 and
+  macOS arm64 (S12)
+  - seam: `test/e2e/`, `.github/workflows/ci.yml`
+  - model: sonnet
+- **71.** ci(release): publish binaries with checksums and attestations, **done when:** the
+  release workflow builds R14.3's four tarballs on native runners, signs ad hoc on macOS, writes
+  `SHA256SUMS`, attests provenance, and asserts that the npm version, the tag and the compiled
+  version are equal; actionlint passes
+  - seam: `.github/workflows/release.yaml`, `build/sea/`
+  - model: sonnet
 
 ## Ranges
 
@@ -1049,7 +1159,8 @@ other call.
   [D69 (config-error-file)](#d69).*
 - **Step 53, `packs` without targets.** *Folded at step 57's harvest as
   [D70 (implicit-top-over-packs)](#d70).*
-- **Step 70, the CI clause.** Amend the done-when to read "`ci.yml` runs it on linux-x64 and
+- **Step 70, the CI clause.** *Deferred with step 70 by [D80 (binary-deferred)](#d80); the lean
+  waits for the build that takes up the binary.* Amend the done-when to read "`ci.yml` runs it on linux-x64 and
   macOS arm64 (S12), and actionlint passes"; the first green CI run on `main` after the build is
   the proof, *because* only a push can show CI green, a range can't push, and pushing stays your
   call.
@@ -1065,7 +1176,7 @@ other call.
 
 ## Open questions
 
-- <a id="q1"></a>**Q1 (scope-cut)**: should this build keep Phases 12 and 13, the `schema` slot and the standalone binary? *resolved:* 2026-10-09, keep them, last, and make the real cut call once Phase 11 ships
+- <a id="q1"></a>**Q1 (scope-cut)**: should this build keep Phases 12 and 13, the `schema` slot and the standalone binary? *resolved:* 2026-10-09, keep them, last, and make the real cut call once Phase 11 ships; 2026-10-18, the real call cuts the binary as [D80 (binary-deferred)](#d80) and moves Phase 12 to [Q12 (schema-keep)](#q12)
   - *plain:* the review agent needs neither soon (#6 says so). Together they add three runtime
     dependencies and a release pipeline that only CI can fully prove, and they're the last seven
     steps. Cutting them ships everything else sooner and leaves their design here for a later
@@ -1195,9 +1306,25 @@ other call.
   - *lean:* drop the `GOFLAGS` row from R6.4, since Go 1.24's defaults already keep `go.mod`
     unchanged with or without `vendor/`. Step 41's done-when gains a vendored-module fixture that
     passes with an empty module cache.
+- <a id="q12"></a>**Q12 (schema-keep)**: should this build keep Phase 12, the `schema` slot, now that [D80 (binary-deferred)](#d80) has cut the binary?
+  - *plain:* steps 66 to 68 add a repo-scope slot that validates JSON, JSONC, YAML and markdown
+    frontmatter against JSON Schemas, with bundled schemas for agent skills (`SKILL.md`) and
+    checkride's own config. It brings checkride's first runtime dependencies (`ajv`, `yaml` and
+    `jsonc-parser`, lazy-loaded per [C6 (runtime-deps)](#c6)), and the review agent of #6 and #7
+    doesn't need it soon. R14.1 plans to bundle those three into the binary, so the two were
+    designed together. The build order runs Phase 12 after steps 72 and 81, so the call can wait
+    until step 81 lands.
+  - *lean:* defer it with the binary, to the same later build. It's cheap in steps, but it ends
+    checkride's run of zero runtime dependencies, a supply-chain property worth deciding on its
+    own, and R14.1's bundling plan assumes those dependencies, so the later build would settle
+    both at once.
 
 ## Verdicts
 
+- 2026-10-18: [Q1 (scope-cut)](#q1)'s real call → the binary is cut as
+  [D80 (binary-deferred)](#d80): steps 69 to 71 move under `## Deferred to a later build`, step 72
+  becomes the mise route's fix, test and docs, and step 81 takes doctor's two refusals; Phase 12's
+  call becomes [Q12 (schema-keep)](#q12).
 - 2026-10-09: [Q2 (capture-gate)](#q2) to [Q11 (go-mod-readonly)](#q11), the holes
   `/plumbbob:refine` found at the plan pause → settled on their leans as
   [D45 (capture-gate)](#d45) to [D54 (go-mod-readonly)](#d54); the decisions, steps and reference
@@ -1391,6 +1518,8 @@ type PackAdapter = {
   detectScript?: string;            // ts pack only
   detectPin?: string;               // available when a pin source other than PATH declares this tool
   detectTable?: { file: string; table: string }[]; // TOML table headers, like [tool.ruff] or a sub-table (D74)
+  onlyWith?: { file: string; skip: string };       // stands down without the file, however chosen (D76)
+  setup?: { dir: string; args: string[]; variable?: string }; // fails naming the step where dir is missing (D76)
   invoke: Invocation;
   fix?: Invocation;
   changedArgs?: string[];           // may hold {base}; args may hold {out}, {files}, {go-packages}
@@ -1403,7 +1532,8 @@ type PackAdapter = {
   narrowsUnderChanged?: boolean;    // {go-packages} narrows under --changed (R10.4)
   static: boolean;                  // R13.4
   nonStaticArgs?: string[];         // argv flags that need an install
-  codeConfigs?: string[];           // config files that make this adapter run code
+  codeArgs?: string[];              // argv flags that load code the sniffs can't vouch for (D78)
+  codeConfigs?: string[];           // config files that make this adapter run code; `x/` names a directory (D78)
   codeKeys?: { file: string; keys: string[] }[]; // config keys that load code
   devDeps?: Record<string, string>; // ts pack only, unchanged
 };
@@ -1545,9 +1675,9 @@ and `terraform` otherwise.
 | Slot | Adapter | Invocation | Detect | Capture | Notes |
 | --- | --- | --- | --- | --- | --- |
 | `format` (opt-in) | `terraform-fmt` | `fmt -check -recursive -diff`; fix: `fmt -recursive` | none: always available in a terraform target | txt | |
-| `lint` | `tflint` | tool: `tflint --recursive --format=json` | `.tflint.hcl`, or `detectPin: tflint` | json | Plugin rulesets need `tflint --init` beforehand. |
-| `types` | `terraform-validate` | `validate -json` | `.terraform.lock.hcl` | json | Fails naming `terraform init -backend=false` when `.terraform/` is missing. Skipped where no lock file marks a root module. |
-| `security` (opt-in) | `trivy-config` | tool: `trivy config --format json --exit-code 1 --skip-check-update .` | `detectPin: trivy` | json | Uses trivy's embedded checks, so it makes no network call. |
+| `lint` | `tflint` | tool: `tflint --recursive --format=json` | `.tflint.hcl`, or `detectPin: tflint` | json | Plugin rulesets need `tflint --init` beforehand. Its default `--minimum-failure-severity` fails every issue, a notice included ([D76 (terraform-verified)](#d76)). |
+| `types` | `terraform-validate` | `validate -json` | `.terraform.lock.hcl` | json | Fails before anything spawns, naming `terraform init -backend=false` (`tofu init -backend=false` where the repo runs OpenTofu), when `.terraform/` or the directory `TF_DATA_DIR` names is missing (`setup`). Stands down where no lock file marks a root module, even where a config names it (`onlyWith`) ([D76 (terraform-verified)](#d76)). |
+| `security` (opt-in) | `trivy-config` | tool: `trivy config --format json --exit-code 1 --skip-check-update --cache-dir {out}/trivy-cache .` | `detectPin: trivy` | json | Uses trivy's embedded checks, so it makes no network call. The scratch cache, which a config scan never writes, keeps a checks bundle an earlier scan cached from standing in for them ([D76 (terraform-verified)](#d76)). |
 
 #### R5.9 The bash pack
 
@@ -1747,7 +1877,8 @@ blessed configs for the slots `--add` names.
   `flat|monorepo|hybrid`, `go` takes `module|workspace`, and `rust` takes `crate|workspace`. An
   invalid combination is a usage error (exit 2). `--lang go|rust` writes no `package.json`. It
   writes `mise.toml` pinning checkride (as `npm:checkride` with `node` until a binary ships,
-  [D46 (checkride-pin)](#d46)) and the pack's binary tools (R11.6), a config naming every
+  [D46 (checkride-pin)](#d46), its entry opting in with `allow_low_downloads = true`,
+  [D80 (binary-deferred)](#d80)) and the pack's binary tools (R11.6), a config naming every
   slot with `requirePins: true`, and prints the remaining steps that need the network, such as
   `go get -tool` and `cargo fetch`.
 - **Existing mode** runs discovery (R11.4). When discovery finds more than one pack, or a marker
@@ -2118,9 +2249,9 @@ stdout ([D49 (text-findings)](#d49)).
 | `shellcheck` | its `level` is at or above argv's `--severity`, which defaults to `style`: every finding |
 | `mypy` | its `severity` is `error` |
 | `basedpyright` | its `severity` is `error`, or `warning` when argv has `--warnings`; without the flag a warning's `gates` is left out, since a config's `failOnWarnings` can fail it too, and an `information` never gates ([D75 (basedpyright-gates)](#d75)) |
-| `tflint` | its rule severity is at or above `--minimum-failure-severity` (default verified at the pinned version) |
-| `terraform-validate` | its `severity` is `error` |
-| `trivy-config` | its `Severity` is in argv's `--severity` list, or always when that flag is absent |
+| `tflint` | its rule severity is at or above argv's `--minimum-failure-severity`, which defaults to `notice`, so every issue gates, a notice (`info` in the JSON) included, and none does under `--force`; a report with an entry in `errors` parses to null ([D77 (terraform-findings)](#d77)) |
+| `terraform-validate` | its `severity` is `error`; its message is the diagnostic's summary and detail, and a rangeless one names no file ([D77 (terraform-findings)](#d77)) |
+| `trivy-config` | argv's `--exit-code` is nonzero, and its `--severity` list names the finding's `Severity` or the flag is absent; an argv that hides trivy's flags leaves `gates` out ([D77 (terraform-findings)](#d77)) |
 
 When a rule depends on argv and none is given, the parser uses the adapter's registry args.
 `gates` is absent only when a parser can't tell.
@@ -2130,6 +2261,9 @@ When a rule depends on argv and none is given, the parser uses the adapter's reg
 1. A tool-relative path is joined to the check's `root`, its summary `cwd`.
 2. An absolute path is made relative to `repoRoot`. Without `repoRoot`, it stays absolute.
 3. Separators become `/`.
+4. A path tflint names by climbing to `/` and back down through a symlinked `PWD`
+   (`../../../private/tmp/r/mod/a.tf`) is read from `/`, and rebased through `repoRoot` when it
+   lands inside the repo ([D77 (terraform-findings)](#d77)).
 
 Baseline keys use the rebased path. In implicit mode the root is the repo root, so every
 existing key is unchanged. Rebasing starts in step 27, when targets arrive, so a target's keys
@@ -2183,13 +2317,26 @@ A check survives `--static-only` only when every condition holds:
 
 1. Its adapter is `static: true` in the registry, or its entry comes from the defaults layer with
    `static: true`. A custom check from the repo never qualifies, and neither does an entry that
-   swaps a static adapter's command ([D71 (consumer-calls)](#d71)).
-2. Its argv carries none of the adapter's `nonStaticArgs`.
-3. None of the adapter's `codeConfigs` exists under the check's working directory, at any depth.
+   swaps a static adapter's command ([D71 (consumer-calls)](#d71)), or whose `args` or
+   `changedArgs` add an argument its registry row doesn't carry ([D79 (static-args)](#d79)).
+2. Its argv carries none of the adapter's `nonStaticArgs`, flags that need the install, or
+   `codeArgs`, flags that load code the sniffs can't vouch for, each counted bare, with a value
+   after `=`, or as a one-letter flag in a cluster such as `-vc`
+   ([D78 (static-fail-closed)](#d78)).
+3. None of the adapter's `codeConfigs` exists under the check's working directory, at any depth
+   and in any case of its name; a name ending in `/` names a directory, any entry through which
+   counts. The sniffs walk the disk there, every directory but `.git`, so a file git ignores and
+   a submodule's contents count too ([D78 (static-fail-closed)](#d78)).
 4. None of its `codeKeys` appears in the config file it reads. This is a best-effort sniff of
    known keys, read as text and erring toward a skip: a `CodeKey` names its file by name at any
-   depth or by path glob, and may carry a `value` regex a string the key holds must match
-   ([D71 (consumer-calls)](#d71)).
+   depth or by path glob, in any case, and may carry a `value` regex a string the key holds must
+   match ([D71 (consumer-calls)](#d71)). A `.hcl` file is read as HCL: its line comments are
+   dropped and its block comments kept, every occurrence of a key counts unless it opens a block
+   whose label `value` rejects, and a label the reading can't parse counts
+   ([D78 (static-fail-closed)](#d78)). Other text is read raw and with its escapes decoded, a key
+   set in either reading counting ([D78 (static-fail-closed)](#d78)), YAML's `\x` and `\U`
+   escapes among them, and a key counts that opens a flow mapping or follows a comma
+   ([D79 (static-args)](#d79)).
 5. Its tool resolves without an install (R6.2). Under the flag, the js-lockfile source
    pre-flights `node_modules/.bin` for every package manager but a PnP install
    ([D71 (consumer-calls)](#d71)).
@@ -2205,7 +2352,7 @@ Every other check is skipped with `static-only: <cause>`, and the summary record
 | `vale` | yes | none | a style rule with `extends: script` |
 | `prettier` | yes | `prettier.config.js`, `prettier.config.cjs`, `prettier.config.mjs`, `.prettierrc.js`, `.prettierrc.cjs`, `.prettierrc.mjs` | `plugins` |
 | `oxlint` | yes, unless argv has `--type-aware` | none | `jsPlugins` |
-| `tflint` | yes | none | a `plugin` block other than `terraform` in `.tflint.hcl` |
+| `tflint` | yes, unless argv has `--chdir`, `--config`, `-c` or `--enable-plugin` | any entry under a `.tflint.d/` | a `plugin` block other than `terraform`, its label quoted or bare, or `source`, `version` or `plugin_dir`, in `.tflint.hcl`; any of those four keys in `.tflint.json` ([D78 (static-fail-closed)](#d78)) |
 | `rumdl`, `typos`, `shellcheck`, `shfmt`, `gofmt`, `ruff`, `ruff-format`, `terraform-fmt`, `trivy-config`, `biome`, `biome-format` | yes | none | none |
 | `links`, `schema`, `unclaimed` | yes | none | none |
 | every other adapter, and every custom check from the repo | no | none | none |
@@ -2274,6 +2421,9 @@ None of this is a sandbox. Run untrusted PRs inside one.
 
 ### R14. Distribution
 
+This build ships the npm channel and the mise route through `npm:checkride`. R14.1, R14.3 and
+R14.2's binary channels wait for a later build ([D80 (binary-deferred)](#d80)).
+
 #### R14.1 The binary
 
 1. `pnpm build:sea` runs `tsc --build`, then esbuild bundles `dist/cli.js`, the three schema
@@ -2297,7 +2447,8 @@ None of this is a sandbox. Run untrusted PRs inside one.
 
 npm, unchanged. GitHub Releases. mise, through the `github:robmclarty/checkride` backend: the
 documented pin for repos without Node, with `mise.lock` recording checksums; until a binary ships, scaffolds pin `npm:checkride` with
-`node` instead ([D46 (checkride-pin)](#d46)). A Homebrew tap, for
+`node` instead ([D46 (checkride-pin)](#d46)), the entry opting in with `allow_low_downloads = true`
+([D80 (binary-deferred)](#d80)). A Homebrew tap, for
 convenience only and never a pin. The tap repository and the first binary release are created by
 hand after this build.
 

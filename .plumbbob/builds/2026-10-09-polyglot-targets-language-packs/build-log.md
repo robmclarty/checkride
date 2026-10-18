@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 79 — fix(packs): keep tflint out of --static-only wherever it would run repo code
+**Current step:** 80 — fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -92,14 +92,13 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 63. feat(packs): add the terraform pack
 - ☑ 64. feat(findings): parse tflint, terraform validate and trivy output
 - ☑ 65. test(examples): add terraform-roots with plants
-- ☐ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
+- ☑ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
+- ☐ 80. fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
-- ☐ 69. build(sea): build a standalone binary with Node SEA
-- ☐ 70. test(e2e): run the e2e suite against the binary
-- ☐ 71. ci(release): publish binaries with checksums and attestations
-- ☐ 72. docs(distribution): document the binary, mise and Homebrew channels
+- ☐ 72. fix(init): make the mise route install, and test and document it
+- ☐ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
 
@@ -169,15 +168,18 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
 - [x] fold step 59's verified python rows into a decision like D65: ruff runs with --no-cache (it fails outright in a read-only checkout), pytest also detects pytest.toml, .pytest.toml, .pytest.ini and [tool.pytest] (pytest 9), and detectTable is an array, since basedpyright needs two tables
 - [x] fold into R12.3 (verified at basedpyright 1.40.2): a warning fails the run under --warnings or where the config sets failOnWarnings, which the default recommended mode does, so without --warnings the parser leaves gates out; and rebasePath can't relativize ruff's and basedpyright's realpath (/private/tmp/...) against a repoRoot a consumer passes through a symlink, which a realpath fallback in src/findings/paths.ts would fix
-- [ ] R4 and R5.8 read as step 63 shipped them: Adapter gains onlyWith (validate stands down without a lock file, even when named) and setup (fail naming init -backend=false, honoring TF_DATA_DIR, as tofu where the repo runs OpenTofu); trivy-config adds --cache-dir {out}/trivy-cache so its embedded checks always run; tflint's default minimum failure severity fails every issue (tflint 0.64.0)
-- [ ] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
-- [ ] R12.3 and R12.4 read as step 64 shipped them: tflint's default minimum failure severity is notice (every issue gates, none under --force), and a nested-module path tflint climbs to / through a symlinked PWD is read as its real path from repoRoot; a trivy finding gates only under a nonzero --exit-code (trivy 0.76.0 exits 0 on findings by default) and leaves gates out under a wrapper; a validate finding's message is its summary and detail, and a rangeless one names no file
-- [ ] links walks the filesystem, not git, and its built-in excludes skip node_modules and now .terraform, but not vendor/, .venv/ or target/, which unclaimed's NEVER_READ skips; a Go vendor/ or a .venv holding a package README with relative links fails links falsely
-- [ ] security, fix before release: --static-only keeps tflint where it runs repo code; probed at 0.64.0, tflint executes a repo-shipped ./.tflint.d/plugins/tflint-ruleset-terraform even under a terraform-only .tflint.hcl, loads plugin aws { (a bare label the HCL-label sniff misses), and loads a downloaded terraform ruleset when plugin "terraform" sets source/version; make tflint's sniff fail closed: codeConfigs for any file under .tflint.d/, codeKeys for source, version and plugin_dir, and a bare-or-quoted label other than terraform
-- [ ] security, fix before release: a repo's config can override a static adapter's args with a code-loading flag and keep the static mark (prettier --plugin ./x.mjs; a --config naming a code config for markdownlint-cli2, cspell, vale or ast-grep); only oxlint's --type-aware (nonStaticArgs) and tflint's flags (codeArgs, step 79) are caught, so give each static row its codeArgs or drop the mark on an args override
-- [ ] security: the non-HCL key sniff in src/packs/static.ts misses YAML's \x and \U escapes and unquoted flow-mapping keys ({plugins: [./x.mjs]}), so a prettier, cspell or markdownlint YAML config can hide a code key; step 79 decodes \u escapes only
-- [ ] fold step 79 into R13.4 at harvest: the sniffs read the disk under each check's directory (filesOnDisk, every directory but .git) instead of repoFiles; names match in any case; a codeConfigs name ending in / names a directory; Adapter gains codeArgs; a .hcl file is read as HCL (line comments dropped, block comments kept, every key occurrence counts, an unreadable plugin label counts); .tflint.json is sniffed; non-HCL text is read raw and with \u escapes decoded
-- [ ] docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config, and its PACKS sentence omits the terraform pack; fold at step 73
+- [x] R4 and R5.8 read as step 63 shipped them: Adapter gains onlyWith (validate stands down without a lock file, even when named) and setup (fail naming init -backend=false, honoring TF_DATA_DIR, as tofu where the repo runs OpenTofu); trivy-config adds --cache-dir {out}/trivy-cache so its embedded checks always run; tflint's default minimum failure severity fails every issue (tflint 0.64.0)
+- [x] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
+- [x] R12.3 and R12.4 read as step 64 shipped them: tflint's default minimum failure severity is notice (every issue gates, none under --force), and a nested-module path tflint climbs to / through a symlinked PWD is read as its real path from repoRoot; a trivy finding gates only under a nonzero --exit-code (trivy 0.76.0 exits 0 on findings by default) and leaves gates out under a wrapper; a validate finding's message is its summary and detail, and a rangeless one names no file
+- [x] links walks the filesystem, not git, and its built-in excludes skip node_modules and now .terraform, but not vendor/, .venv/ or target/, which unclaimed's NEVER_READ skips; a Go vendor/ or a .venv holding a package README with relative links fails links falsely
+- [x] security, fix before release: --static-only keeps tflint where it runs repo code; probed at 0.64.0, tflint executes a repo-shipped ./.tflint.d/plugins/tflint-ruleset-terraform even under a terraform-only .tflint.hcl, loads plugin aws { (a bare label the HCL-label sniff misses), and loads a downloaded terraform ruleset when plugin "terraform" sets source/version; make tflint's sniff fail closed: codeConfigs for any file under .tflint.d/, codeKeys for source, version and plugin_dir, and a bare-or-quoted label other than terraform
+- [x] security, fix before release: a repo's config can override a static adapter's args with a code-loading flag and keep the static mark (prettier --plugin ./x.mjs; a --config naming a code config for markdownlint-cli2, cspell, vale or ast-grep); only oxlint's --type-aware (nonStaticArgs) and tflint's flags (codeArgs, step 79) are caught, so give each static row its codeArgs or drop the mark on an args override
+- [x] security: the non-HCL key sniff in src/packs/static.ts misses YAML's \x and \U escapes and unquoted flow-mapping keys ({plugins: [./x.mjs]}), so a prettier, cspell or markdownlint YAML config can hide a code key; step 79 decodes \u escapes only
+- [x] fold step 79 into R13.4 at harvest: the sniffs read the disk under each check's directory (filesOnDisk, every directory but .git) instead of repoFiles; names match in any case; a codeConfigs name ending in / names a directory; Adapter gains codeArgs; a .hcl file is read as HCL (line comments dropped, block comments kept, every key occurrence counts, an unreadable plugin label counts); .tflint.json is sniffed; non-HCL text is read raw and with \u escapes decoded
+- [x] docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config, and its PACKS sentence omits the terraform pack; fold at step 73
+- [x] fix before release: init --lang go|rust writes "npm:checkride" = "<version>", which mise 2026.10's npm backend refuses (checkride has 162 weekly downloads, under its 1000 threshold) unless the entry sets allow_low_downloads = true; doctor's and agent-setup's 'mise use npm:checkride@<version>' hint hits the same refusal, and no test installs the mise route end to end (verified at this boundary: with the opt-in, an isolated Node-free mise installs node 22.18.0 and checkride 0.14.0 in about 12s and mise exec -- checkride runs)
+- [ ] static.ts's non-HCL value reading still hides a cspell script import three ways: a # inside a quoted value is cut as a comment (import: "./a #.mjs"), YAML's escaped line break splits the name ("./x.m\<newline>js"), and a column-0 comment ends a block sequence early
+- [ ] the static-only reason for an entry that adds args reads "prettier isn't a static check", the same as a command swap; name the cause (the config adds an argument prettier's row doesn't carry) so a consumer can tell why a documented static tool sat out
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -270,6 +272,17 @@ Harvest results this boundary:
 - After step 62: step 51's harvest deferred a cspell recapture to step 60, which step 60 didn't do (not parked; found at this harvest) → **tangent**, deferred to step 64 (nothing is wrong, only unproven against a real capture; step 64's seam holds `src/findings/parsers/` and `src/__tests__/fixtures/`, so it adds a `findings-cspell.txt` captured at the pinned cspell with a suffixed line, per C9, and leaves `baseline-cspell.txt` and `baseline-keys.golden.json` alone).
 - After step 62: step 57's harvest deferred whether to relax R11.4's bash rule (shell files outside every other target) to step 59, which added the python rule beside it and kept it unweighed (not parked; found at this harvest) → **tangent**, killed (keep `init` and `--discover` identical and conservative, as every step since step 37 has; the gap it leaves, a ts-root repo's `scripts/*.sh` getting no shellcheck under `--discover` with nothing for `unclaimed` to flag, since bash has no marker, was weighed and accepted).
 - After step 62: step 58's harvest deferred whether a uv-lock spawn should mirror `uv run` (`VIRTUAL_ENV`, the venv first on `PATH`) to step 59, which didn't decide it (not parked; found at this harvest) → **tangent**, killed (probed at this harvest: basedpyright 1.40.2 and mypy 2.4.0, run from `.venv/bin` with the venv off `PATH` and no `VIRTUAL_ENV`, both resolved a package installed only in the venv, and pytest runs under the venv's interpreter through its shebang).
+- After step 79: "R4 and R5.8 read as step 63 shipped them..." → **blocker**, handled now: folded into `intent.md` as D76 (terraform-verified), which amends R4's adapter type (`onlyWith`, `setup`) and R5.8's tflint, validate and trivy rows, since steps 72 and 73 build the docs from R4 and R5.8, as D74 did for python.
+- After step 79: "a terraform target whose .terraform/ is stale..." → **tangent**, deferred to step 73 (the red is real, since validate can't check a provider init never installed, and only tofu's remedy is wrong: a bare `init` reaches for the backend; no remaining seam holds `src/launch/env.ts`, so step 73 either documents the `init -backend=false` remedy in `docs/packs.md` or takes the one-row `OFFLINE_HINTS` fix as a stray).
+- After step 79: "R12.3 and R12.4 read as step 64 shipped them..." → **blocker**, handled now: folded into `intent.md` as D77 (terraform-findings), which amends R12.3's tflint, validate and trivy rows and adds R12.4's symlinked-`PWD` rule, since step 73 folds R12 into the docs, as D75 did for basedpyright.
+- After step 79: "links walks the filesystem, not git..." → **tangent**, deferred to step 73 as a one-file stray in `src/links.ts`, adding `vendor`, `.venv` and `target` to its built-in excludes (a false red, never a false green, though any Go repo that commits `vendor/` will hit it; no remaining seam holds `src/links.ts`, so add it via `/plumbbob:step 73` or accept the stray, and give it a step of its own instead if it must ship in the Phase 11 release).
+- After step 79: "security, fix before release: --static-only keeps tflint where it runs repo code..." → **blocker**, handled before this harvest: `/plumbbob:step` made it step 79, which landed as `86f81a2`, and D78 (static-fail-closed) records what it settled.
+- After step 79: "security, fix before release: a repo's config can override a static adapter's args..." → **blocker**, handled now: folded into `intent.md` as D79 (static-args) and as step 80, ordered to build next, before step 66, so the Phase 11 release doesn't ship it (an `args` or `changedArgs` override that adds an argument the registry row doesn't carry drops the static mark, which fails closed with no per-tool flag list and keeps a repo's plain oxlint static, as R13.4 intends; R13.4's rule 1 cites it).
+- After step 79: "security: the non-HCL key sniff in src/packs/static.ts misses YAML's \x and \U escapes..." → **blocker**, handled now: folded into step 80 and D79 (static-args) beside the args-override item (the same file and the same hole, a config the repo controls loading code under `--static-only`; R13.4's rule 4 cites it).
+- After step 79: "fold step 79 into R13.4 at harvest..." → **blocker**, handled now: folded into `intent.md` as D78 (static-fail-closed), which amends R4's adapter type (`codeArgs`, a directory `codeConfigs` name), R13.4's rules 2 to 4 and its tflint row, since steps 72 and 73 build the docs from R13.
+- After step 79: "docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config..." → **tangent**, deferred to step 73 (its seam holds `docs/contract.md`, and it folds every surface this build added).
+- After step 79, at Q1 (scope-cut)'s real call: "fix before release: init --lang go|rust writes "npm:checkride" = "<version>", which mise 2026.10's npm backend refuses..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D80 (binary-deferred) and the rewritten step 72, ordered right after step 80, so the next release ships a scaffold whose `mise.toml` installs, a test that installs it, and docs that present the mise route as the supported way to run checkride without Node; the binary's steps 69 to 71 move under `## Deferred to a later build`.
+- After step 79, at the same call: the three items earlier harvests deferred to step 69, which D80 cut (not parked again) → moved with it: doctor's install row in a root with no `package.json` joins step 72, whose subject is a repo without Node, and doctor's `--pins` and `--static-only` refusals become step 81, ordered after step 72, since they're doctor features rather than the mise route; D71 (consumer-calls) now points at step 81.
 
 ## Log
 
@@ -2632,3 +2645,60 @@ folder, so it rides the branch into the PR.)*
   `isParseable` grows by three, `baseline.contract.test.ts` and `exports.contract.test.ts` hold the new keys and parsers, and `docs/contract.md`, `docs/packs.md` and CHANGELOG say so. The R12.3 and R12.4 readings went to a park for the harvest to fold. Two fallow health findings (the tflint and trivy `parse` bodies) were cleared by splitting each into per-item helpers.
 
 - 2026-10-18 — step 65 checkpointed · 738514665 — test(examples): add terraform-roots with plants (1 drift, 8m)
+- 2026-10-18 — step 79 checkpointed · 86f81a219 — fix(packs): keep tflint out of --static-only wherever it would run repo code (1 drift, 455m)
+
+  **Summary**: `--static-only` now skips a terraform target's `lint` wherever tflint 0.64.0 was seen to run a plugin binary: the three bypasses from step 65's park, and five more ways in that probing the pinned tflint turned up. A terraform-only `.tflint.hcl` with no `.tflint.d/`, the blessed scaffold included, still keeps `lint`.
+
+  1. The three named bypasses are closed, and the e2e plant never runs
+  2. Probing tflint 0.64.0 found five more ways in, now closed the same way
+  3. The sniff reads the disk under each check's directory, for every static adapter
+  4. A `.hcl` config is read as HCL, and anything the reading can't parse counts
+  5. A new optional Adapter field, seven files past the seam, and four parks
+
+  **Readout**: Step 79 - fix(packs): keep tflint out of --static-only wherever it would run repo code
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D26 (static-only)
+               - D37 (terraform)
+               - D52 (e2e-cadence)
+               - D71 (consumer-calls)
+  constraints  12 of 12 honored
+  seam         strayed: 8 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - src/adapters.ts
+               - src/orchestrator/__tests__/static-only.test.ts
+               - src/orchestrator/select.ts
+               - src/targets/__tests__/files.test.ts
+               - src/targets/files.ts
+               - src/targets/index.ts
+  diff         +471 -96 across 13 files
+  spent        7h 35m · 1 turn · 41s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land step 79, then run `/plumbbob:harvest` before step 66. It closes Phase 11 with the gate and the whole e2e suite green (20 files, 166 tests, toolchains required), and the harvest is where the two security parks on the other static adapters and Q1 (scope-cut)'s call on Phases 12 and 13 get settled.
+
+  **1.** The three named bypasses are closed, and the e2e plant never runs
+
+  A repo-shipped `.tflint.d/plugins/tflint-ruleset-terraform` beside a terraform-only config, `plugin aws {` with its bare label, and `plugin "terraform"` with a `source` each skip `lint` now, and each has a unit test in `src/packs/__tests__/static.test.ts`. The tflint row gains `codeConfigs: ['.tflint.d/']` (a name ending in `/` now names a directory, and any entry through one counts), a key row for `source`, `version` and `plugin_dir`, and a plugin row that reads labels quoted or bare. In `test/e2e/terraform-pack.e2e.test.ts` the plant is a script that touches a marker. Under `--static-only` the run skips `infra:lint` with `static-only: infra/.tflint.d/plugins/tflint-ruleset-terraform is code tflint would run` and the marker never appears; a control run without the flag shows tflint does execute it (exit 1 on the plugin handshake, marker present). A second e2e case keeps `infra:lint` under the fixture's terraform-only config.
+
+  **2.** Probing tflint 0.64.0 found five more ways in, now closed the same way
+
+  I ran 41 probes against the pinned binary on this Mac's case-insensitive APFS, each with a fake plugin that touches a marker. Beyond the three named bypasses, tflint also ran a plant from `vendor/`, `testdata/`, `node_modules/` and `target/` (it lints every non-hidden directory and reads each one's own `.tflint.d/` and `.tflint.hcl`), from upper-case `.TFLINT.D` and `.TFLint.hcl`, behind a `/* */` comment in or before a plugin header, from a `.tflint.json` (read where no `.tflint.hcl` sits, its unicode-escaped and duplicated keys honored), and through `--chdir`, `--config` and `--enable-plugin`, which a repo's config can add to tflint's args without losing the static mark. Each now skips `lint`: the sniff reads the disk, names match in any case, `.tflint.json` gets its own key row, and a new `codeArgs` field lists the four flags (`-c` included), matched bare, after `=`, or in a cluster such as `-vc`.
+
+  **3.** The sniff reads the disk under each check's directory, for every static adapter
+
+  `withStaticOnly` in `src/orchestrator/select.ts` used `repoFiles`: git's list, less `vendor/`, `testdata/`, `node_modules/`, `target/` and `test/fixtures/`, which hid the plants above, along with files git ignores and a submodule's contents. It now walks the disk under each distinct check directory once (`filesOnDisk` in `src/targets/files.ts`: every directory but `.git`, symlinks listed and never followed, the directory itself read through one), so a symlinked `.tflint.d` or target root counts too. That change and case-insensitive names apply to every static adapter, not only tflint. Both only ever add skips, the direction R13.4 errs in. The cost is one walk per check directory: cheap in the uninstalled checkout this flag is for, slower in an installed tree with a big `node_modules`.
+
+  **4.** A `.hcl` config is read as HCL, and anything the reading can't parse counts
+
+  A `.hcl` file loses its `#` and `//` comments (string-aware, so the blessed scaffold's comment that mentions a plugin block keeps `lint`) but keeps its block comments, since a `/*` inside a heredoc must not hide the block after it. Then every whole-word `source`, `version` or `plugin_dir` counts, and so does every `plugin` that doesn't open a `"terraform"` or `terraform` block. A label it can't read counts, and so does one spread past 1024 characters. Without that cap a crafted file made the reading quadratic (80 KB took 122 ms, so a few MB would stall the run before any check timeout applies); with it the reading stays near 1 ms. One judgment call: the done-when's "sets `source` or `version`" also catches the `source` and `version` options of the `terraform_required_providers` rule. I documented that false skip rather than parse block structure, which a heredoc could fool into a false keep.
+
+  **5.** A new optional Adapter field, seven files past the seam, and four parks
+
+  `codeArgs` joins the exported `Adapter` type, additive under C1 (additive-contract), with `docs/contract.md`'s rule 2 and the CHANGELOG's Contract bullet updated; a field of its own keeps the reason accurate ("runs with --config, which can load code", not "needs the install"). Past the seam: `src/adapters.ts`, `src/orchestrator/select.ts`, `src/targets/files.ts`, `src/targets/index.ts`, their two test files and `docs/contract.md`. The CHANGELOG amends the unreleased `--static-only`, terraform and Contract entries in place, as step 78 did. A scoped mutation run left no survivors in the new logic, and the repo score is 83.02 against the floor of 68. Parked: args overrides on the other static adapters (prettier `--plugin` and kin, security), YAML escapes and flow-mapping keys that hide a code key (security), folding these calls into R13.4, and contract.md's stale static adapter list for step 73.

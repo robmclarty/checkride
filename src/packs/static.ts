@@ -94,37 +94,56 @@ function valueText(text: string, at: number): string {
   return text.slice(at, close === -1 ? undefined : close + 1);
 }
 
+/** A quoted string, double or single, as JSON, YAML and TOML write one. */
+const QUOTED = /"([^"]*)"|'([^']*)'/g;
+
 /**
- * The values `key` holds in a config file's text, JSON, YAML or TOML, read as
- * text: each quoted string, else each bare value, a list item's included.
+ * The strings a key's value text holds: each quoted one, then each bare one,
+ * split at the brackets, braces and commas of a YAML flow collection and
+ * shorn of a list item's dash, so `[./a.json, "./b.json", ./c.mjs]` holds
+ * all three.
  */
-function keyValues(text: string, key: string): string[] {
-  const pattern = new RegExp(`(?:^\\s*|["'])${escaped(key)}["']?\\s*[:=]`, 'gm');
-  return [...text.matchAll(pattern)].flatMap((match) => {
-    const value = valueText(text, (match.index ?? 0) + match[0].length);
-    const quoted = [...value.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2] ?? '');
-    if (quoted.length > 0) return quoted;
-    return value.split('\n').map((line) => line.replace(/\s+#.*$/, '').replace(/^\s*-\s*/, '').trim());
+function scalars(value: string): string[] {
+  const quoted = [...value.matchAll(QUOTED)].map((m) => m[1] ?? m[2] ?? '');
+  const bare = value
+    .replaceAll(QUOTED, ',')
+    .split('\n')
+    .flatMap((line) => line.replace(/\s+#.*$/, '').split(/[[\]{},]/))
+    .map((item) => item.replace(/^\s*-\s*/, '').trim())
+    .filter((item) => item !== '');
+  return [...quoted, ...bare];
+}
+
+/**
+ * `text` with each `\xXX`, `\uXXXX` and `\UXXXXXXXX` escape decoded, as
+ * JSON, JSON5, YAML and TOML decode those they allow in a quoted key or
+ * value, so a key that spells a letter of `plugins` as an escape still reads
+ * as `plugins`. A code point past Unicode's last stays as written.
+ */
+function unescaped(text: string): string {
+  return text.replaceAll(/\\(?:x([\dA-Fa-f]{2})|u([\dA-Fa-f]{4})|U([\dA-Fa-f]{8}))/g, (escape, x?: string, u?: string, big?: string) => {
+    const code = Number.parseInt(x ?? u ?? big ?? '', 16);
+    return code > 0x10_ffff ? escape : String.fromCodePoint(code);
   });
 }
 
-/**
- * `text` with each `\uXXXX` escape decoded, as JSON, YAML and TOML decode one
- * in a quoted key or value, so a key that spells a letter of `plugin` as an
- * escape still reads as `plugin`.
- */
-function unescapeUnicode(text: string): string {
-  return text.replaceAll(/\\u([\dA-Fa-f]{4})/g, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)));
-}
-
-/** True when `text`, JSON, YAML or TOML, sets `key` so that it loads code: with any value, or with one `value` matches. */
-function setsKey(text: string, key: string, value: RegExp | null): boolean {
-  const values = keyValues(text, key);
-  return values.length > 0 && (value === null || values.some((v) => value.test(v)));
-}
-
-/** A character that continues an HCL identifier: a letter, digit or mark, `_` or `-`. */
+/** A character that continues a name, an HCL identifier's or a bare YAML, TOML or JSON5 key's: a letter, digit or mark, `_` or `-`. */
 const IDENT = String.raw`[\p{L}\p{N}\p{M}_-]`;
+
+/**
+ * True when `text`, JSON, JSON5, YAML or TOML, sets `key` so that it loads
+ * code: with any value, or with one `value` matches. The key counts wherever
+ * its whole name stands before a `:` or `=`, erring toward a skip: at a
+ * line's start or in quotes, and as well opening a flow mapping, after a
+ * comma, or past a YAML tag, anchor or `?`, each of which the tool's parser
+ * reads as the same key. A longer name that ends in it, such as
+ * `no-plugins`, doesn't count.
+ */
+function setsKey(text: string, key: string, value: RegExp | null): boolean {
+  const matches = [...text.matchAll(new RegExp(`(?<!${IDENT})${escaped(key)}["']?\\s*[:=]`, 'gu'))];
+  if (value === null) return matches.length > 0;
+  return matches.some((match) => scalars(valueText(text, (match.index ?? 0) + match[0].length)).some((v) => value.test(v)));
+}
 
 /** What HCL allows between a block's type, its label and its brace: whitespace and block comments. */
 const GAP = String.raw`(?:\s|/\*[\s\S]*?\*/)*`;
@@ -173,8 +192,9 @@ function hclSetsKey(code: string, key: string, value: RegExp | null): boolean {
 /**
  * The first key of `codeKey` set in `file`'s text so that it loads code, or
  * `null`. A `.hcl` file is read as HCL. Any other is read as written and with
- * its `\u` escapes decoded, and a key set in either reading counts, since
- * decoding one escape into a quote can hide what the raw text shows.
+ * its `\x`, `\u` and `\U` escapes decoded, and a key set in either reading
+ * counts, since decoding one escape into a quote can hide what the raw text
+ * shows.
  */
 function codeKeyIn(file: string, text: string, codeKey: CodeKey): string | null {
   const value = codeKey.value === undefined ? null : new RegExp(codeKey.value);
@@ -182,7 +202,7 @@ function codeKeyIn(file: string, text: string, codeKey: CodeKey): string | null 
     const code = hclCode(text);
     return codeKey.keys.find((key) => hclSetsKey(code, key, value)) ?? null;
   }
-  const readings = [text, unescapeUnicode(text)];
+  const readings = [text, unescaped(text)];
   return codeKey.keys.find((key) => readings.some((reading) => setsKey(reading, key, value))) ?? null;
 }
 

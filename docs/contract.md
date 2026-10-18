@@ -543,7 +543,12 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
 
 1. Its adapter is marked static in the registry, or a defaults file's entry
    vouches for it with `static: true`. A custom check from the repo, or an
-   entry that swaps a static adapter's command, never qualifies.
+   entry that swaps a static adapter's command, never qualifies, and neither
+   does an entry whose `args` or `changedArgs` add an argument the adapter's
+   own don't carry, such as prettier's `--plugin`, whether the repo's config
+   sets it or a preset it extends does. An entry that only drops or reorders
+   the adapter's arguments, as oxlint without `--type-aware` does, keeps the
+   mark, and a defaults entry with `static: true` keeps its vouch.
 2. Its argv carries none of the adapter's flags that need the install, such
    as oxlint's `--type-aware`, which the blessed oxlint invocation carries,
    and none that load code, such as tflint's `--config`. A flag counts with
@@ -553,6 +558,10 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    name. The sniffs read what's on disk there, files git ignores included.
 4. None of the config keys that load code is set in a config file it reads,
    such as `jsPlugins` in `.oxlintrc.json` or a script in cspell's `import`.
+   A key counts however the file's parser would still read it: spelled with
+   `\x`, `\u` or `\U` escapes, opening a flow mapping such as
+   `{plugins: [./x.mjs]}`, or after a comma. A longer name that ends in it,
+   such as `no-plugins`, doesn't.
 5. Its tool resolves without an install. A tool whose pin source can't run it
    here, such as a `pnpm exec` tool missing from `node_modules/.bin`, skips
    with `static-only: needs an install (<detail>)` instead of failing.

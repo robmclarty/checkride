@@ -55,7 +55,10 @@ so one file serves a TypeScript repo and a Go one. A slot the file fills keeps
 its opt-in status: name an opt-in slot such as `format` and it still needs
 `--include format`. A check of yours that reads the repo as data says so with
 `static: true`, which only a defaults file may set, so `--static-only` keeps
-it.
+it. An entry that hands a static tool an argument its own invocation doesn't
+carry needs `static: true` too, since such an argument can load code: without
+it, `--static-only` skips the entry, as it skips the same entry in the repo's
+config.
 
 ## The two passes
 

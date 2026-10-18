@@ -1052,19 +1052,33 @@ function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): 
 }
 
 /**
+ * True when `o`'s `args` or `changedArgs` hand the tool an argument that
+ * `row`, the registry's, carries in neither (D79), as prettier's `--plugin`
+ * or a `--config` naming a code config does. Dropping or reordering the row's
+ * own arguments adds none.
+ */
+function addsArgs(row: Adapter, o: UseConfig): boolean {
+  const carried = new Set([...row.args, ...(row.changedArgs ?? [])]);
+  return [o.args ?? [], o.changedArgs ?? []].flat().some((arg) => !carried.has(arg));
+}
+
+/**
  * The `static` mark an entry sets over its adapter's own (R13.4): the
  * defaults file's vouch when it gives one, else none for an entry that swaps
- * the command, which runs a command of the config's, as a custom check does.
+ * the command, which runs a command of the config's, as a custom check does,
+ * or that adds an argument to the row's, since the repo's config is as
+ * untrusted as its code under `--static-only`. A preset the config extends is
+ * merged in by now, so its overrides count the same.
  */
-function staticMark(o: { command?: string; static?: boolean }): Pick<Adapter, 'static'> {
+function staticMark(row: Adapter, o: UseConfig): Pick<Adapter, 'static'> {
   if (o.static !== undefined) return { static: o.static };
-  return o.command !== undefined ? { static: false } : {};
+  return o.command !== undefined || addsArgs(row, o) ? { static: false } : {};
 }
 
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {
   const merged: Adapter = {
     ...base,
-    ...staticMark(o),
+    ...staticMark(base, o),
     ...(o.command !== undefined ? { command: o.command } : {}),
     ...(o.args !== undefined ? { args: o.args } : {}),
     ...(o.outputFile !== undefined ? { outputFile: o.outputFile } : {}),

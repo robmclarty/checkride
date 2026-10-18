@@ -98,6 +98,39 @@ describe('staticCause (R13.4)', () => {
     expect(staticCause(cspell, scope({ 'cspell.json': '{ "import": ["./a\\u0022.mjs"] }' }))).toBe('cspell.json sets import, which loads code');
   });
 
+  test('a key spelled with YAML’s \\x or \\U escapes counts, and an escape past Unicode’s last is read as written', () => {
+    const prettier = row('prettier');
+    expect(staticCause(prettier, scope({ '.prettierrc.yaml': '"pl\\x75gins": [./x.mjs]\n' }))).toBe(loads('.prettierrc.yaml', 'plugins'));
+    expect(staticCause(prettier, scope({ '.prettierrc.yaml': '"pl\\U00000075gins": [./x.mjs]\n' }))).toBe(loads('.prettierrc.yaml', 'plugins'));
+    expect(staticCause(prettier, scope({ '.prettierrc.toml': '"\\U00000070lugins" = ["./x.mjs"]\n' }))).toBe(loads('.prettierrc.toml', 'plugins'));
+    expect(staticCause(prettier, scope({ '.prettierrc.yaml': 'semi: "\\UFFFFFFFF"\n' }))).toBeNull();
+  });
+
+  // The YAML parser reads each of these as the same `plugins` key a line of its own sets.
+  test('a key counts opening a flow mapping, after a comma, and past a tag, an anchor or a ?, and a longer name doesn’t', () => {
+    const prettier = row('prettier');
+    for (const config of [
+      '{plugins: [./x.mjs]}\n',
+      '{semi: false, plugins: [./x.mjs]}\n',
+      '{semi: false,plugins: [./x.mjs]}\n',
+      '--- {plugins: [./x.mjs]}\n',
+      '!!str plugins: [./x.mjs]\n',
+      '&p plugins: [./x.mjs]\n',
+      '? plugins\n: [./x.mjs]\n',
+    ]) {
+      expect(staticCause(prettier, scope({ '.prettierrc.yaml': config })), config).toBe(loads('.prettierrc.yaml', 'plugins'));
+    }
+    expect(staticCause(prettier, scope({ '.prettierrc.json5': "{ semi: false, plugins: ['./x.mjs'] }\n" }))).toBe(loads('.prettierrc.json5', 'plugins'));
+    expect(staticCause(prettier, scope({ '.prettierrc.yaml': '{no-plugins: [x], pluginsDir: x, my_plugins: x, semi: false}\n' }))).toBeNull();
+  });
+
+  test('a flow sequence’s bare items are values too, beside its quoted ones, so a flow-mapped import of a script counts', () => {
+    const cspell = row('cspell');
+    expect(staticCause(cspell, scope({ 'cspell.yaml': '{import: [./dict.json, ./words.mjs]}\n' }))).toBe('cspell.yaml sets import, which loads code');
+    expect(staticCause(cspell, scope({ 'cspell.yaml': 'import: ["./dict.json", ./words.mjs]\n' }))).toBe('cspell.yaml sets import, which loads code');
+    expect(staticCause(cspell, scope({ 'cspell.yaml': '{words: [a], import: [./dict.json]}\n' }))).toBeNull();
+  });
+
   test('a vale style that extends script skips prose, through the styles path glob', () => {
     const vale = row('vale');
     expect(staticCause(vale, scope({ '.vale/styles/Repo/Count.yml': 'extends: script\nscript: |\n  x\n' }))).toBe(
