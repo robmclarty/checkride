@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 59 — feat(packs): add the python pack
+**Current step:** 60 — feat(findings): parse ruff, mypy and basedpyright output
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -85,7 +85,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 77. test(mutation): let a full stryker run start from its sandbox
 - ☑ 78. feat(run): let --discover stand down where the config declares targets
 - ☑ 58. feat(launch): resolve Python tools from uv.lock and the project venv
-- ☐ 59. feat(packs): add the python pack
+- ☑ 59. feat(packs): add the python pack
 - ☐ 60. feat(findings): parse ruff, mypy and basedpyright output
 - ☐ 61. test(examples): move examples/polyglot onto the python pack
 - ☐ 62. feat(launch): pin terraform or tofu by version file and harden its env
@@ -167,6 +167,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH), so basedpyright finds the project environment and a test's own python subprocess runs the venv's interpreter; verify against the pinned basedpyright and pytest
 - [x] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
 - [ ] fold step 59's verified python rows into a decision like D65: ruff runs with --no-cache (it fails outright in a read-only checkout), pytest also detects pytest.toml, .pytest.toml, .pytest.ini and [tool.pytest] (pytest 9), and detectTable is an array, since basedpyright needs two tables
+- [ ] fold into R12.3 (verified at basedpyright 1.40.2): a warning fails the run under --warnings or where the config sets failOnWarnings, which the default recommended mode does, so without --warnings the parser leaves gates out; and rebasePath can't relativize ruff's and basedpyright's realpath (/private/tmp/...) against a repoRoot a consumer passes through a symlink, which a realpath fallback in src/findings/paths.ts would fix
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2494,3 +2495,5 @@ folder, so it rides the branch into the PR.)*
   `resolve.ts` holds the `SOURCES` table and every refusal. `src/packs/` holds the pack and the `Tool.pypi` field. The config schema's pack enum, the pack-name lists in four test files, `docs/packs.md`, `docs/targets.md`, `docs/contract.md` and `CHANGELOG.md` follow C11 (docs-in-step) and C1 (additive-contract). The first gate went red on fallow's health check. `declarationSignal` had reached cyclomatic 10, and the line-by-line lock reader exceeded the cognitive limit. Both were refactored (a `languageSignal` split, a regex-driven table reader), not suppressed.
 
   Two parks: whether a uv-lock spawn should mirror `uv run` by setting `VIRTUAL_ENV` and putting the venv's bin first on PATH (step 59, where basedpyright and pytest are verified), and a stale `docs/contract.md` sentence about "a flag checkride doesn't have yet" left over from step 55 (step 73).
+
+- 2026-10-18 — step 59 checkpointed · 46be7e6ac — feat(packs): add the python pack (1 drift, 26m)

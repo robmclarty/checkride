@@ -1,0 +1,109 @@
+
+{
+    "version": "1.40.2",
+    "time": "1792297372890",
+    "generalDiagnostics": [
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "warning",
+            "message": "Import \"os\" is not accessed",
+            "range": {
+                "start": {
+                    "line": 0,
+                    "character": 7
+                },
+                "end": {
+                    "line": 0,
+                    "character": 9
+                }
+            },
+            "rule": "reportUnusedImport"
+        },
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "warning",
+            "message": "Function calls and mutable objects not allowed within parameter default value expression",
+            "range": {
+                "start": {
+                    "line": 4,
+                    "character": 39
+                },
+                "end": {
+                    "line": 4,
+                    "character": 41
+                }
+            },
+            "rule": "reportCallInDefaultInitializer"
+        },
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "error",
+            "message": "Type \"Literal['one']\" is not assignable to return type \"int\"\n  \"Literal['one']\" is not assignable to \"int\"",
+            "range": {
+                "start": {
+                    "line": 6,
+                    "character": 11
+                },
+                "end": {
+                    "line": 6,
+                    "character": 16
+                }
+            },
+            "rule": "reportReturnType"
+        },
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "warning",
+            "message": "Result of call expression is of type \"float\" and is not used; assign to variable \"_\" if this is intentional",
+            "range": {
+                "start": {
+                    "line": 14,
+                    "character": 0
+                },
+                "end": {
+                    "line": 14,
+                    "character": 11
+                }
+            },
+            "rule": "reportUnusedCallResult"
+        },
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "error",
+            "message": "Argument of type \"list[int]\" cannot be assigned to parameter \"xs\" of type \"list[float]\" in function \"total\"\n  \"list[int]\" is not assignable to \"list[float]\"\n    Type parameter \"_T@list\" is invariant, but \"int\" is not the same as \"float\"\n    Consider switching from \"list\" to \"Sequence\" which is covariant",
+            "range": {
+                "start": {
+                    "line": 14,
+                    "character": 6
+                },
+                "end": {
+                    "line": 14,
+                    "character": 10
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+            "severity": "information",
+            "message": "Type of \"add_one\" is \"(x: int, items: list[int] = []) -> int\"",
+            "range": {
+                "start": {
+                    "line": 15,
+                    "character": 12
+                },
+                "end": {
+                    "line": 15,
+                    "character": 19
+                }
+            }
+        }
+    ],
+    "summary": {
+        "filesAnalyzed": 1,
+        "errorCount": 2,
+        "warningCount": 3,
+        "informationCount": 1,
+        "timeInSec": 0.201
+    }
+}

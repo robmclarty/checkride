@@ -230,3 +230,116 @@ describe('shellcheck', () => {
     expect(attempt('shellcheck', '{"comments":[]}')).toEqual([]);
   });
 });
+
+/**
+ * The python pack's tools, captured at ruff 0.17.1, mypy 2.4.0 and
+ * basedpyright 1.40.2 from a target in `py/` of the same scratch repo. ruff
+ * and basedpyright print the real path, which on macOS runs through
+ * `/private/tmp`, so that's the repo root they're rebased from.
+ */
+const REAL_REPO = '/private/tmp/fixture-repo';
+
+describe('the python pack’s parsers', () => {
+  test('ruff reads its JSON artifact and keys the baseline; mypy and basedpyright serve findings alone (D31)', () => {
+    for (const adapter of ['ruff', 'mypy', 'basedpyright']) expect(parserFor(adapter)?.stream, adapter).toBe('artifact');
+    expect(baselineParserFor('ruff')).toBe(parserFor('ruff'));
+    expect(baselineParserFor('mypy')).toBeUndefined();
+    expect(baselineParserFor('basedpyright')).toBeUndefined();
+  });
+});
+
+describe('ruff', () => {
+  test('every violation gates, keyed on its code, its absolute path named from the repo root', () => {
+    const findings = parse('ruff', 'findings-ruff.json', { root: 'py', repoRoot: REAL_REPO });
+    expect(findings).toEqual([
+      {
+        file: 'py/src/kit/__init__.py',
+        line: 1,
+        column: 8,
+        rule: 'F401',
+        message: '`os` imported but unused',
+        severity: 'error',
+        gates: true,
+        key: 'py/src/kit/__init__.py:F401:`os` imported but unused',
+      },
+      expect.objectContaining({ file: 'py/src/kit/__init__.py', line: 5, column: 40, rule: 'B006', gates: true }),
+    ]);
+  });
+
+  test('without a repo root an absolute path stays as printed, and a syntax error is a finding like any other', () => {
+    const [first] = parse('ruff', 'findings-ruff.json', { root: 'py' });
+    expect(first?.file).toBe(`${REAL_REPO}/py/src/kit/__init__.py`);
+    const syntax = parse('ruff', 'findings-ruff-syntax.json', { root: 'py', repoRoot: REAL_REPO });
+    expect(syntax.map((f) => [f.rule, f.line, f.column, f.gates])).toEqual([
+      ['invalid-syntax', 1, 12, true],
+      ['invalid-syntax', 1, 13, true],
+    ]);
+  });
+
+  test('a clean run is no findings, and output that is not an array, as a config ruff can not load leaves, is untrustworthy', () => {
+    expect(attempt('ruff', '[]')).toEqual([]);
+    expect(attempt('ruff', '')).toBeNull();
+    expect(attempt('ruff', '{"error":"x"}')).toBeNull();
+  });
+});
+
+describe('mypy', () => {
+  test('an error gates and a note does not, its 0-based column counted from 1, its path joined onto the root', () => {
+    const findings = parse('mypy', 'findings-mypy.jsonl', { root: 'py' });
+    expect(findings.map((f) => [f.rule, f.line, f.column, f.severity, f.gates])).toEqual([
+      ['return-value', 7, 12, 'error', true],
+      ['arg-type', 15, 7, 'error', true],
+      ['misc', 16, 13, 'note', false],
+    ]);
+    expect(findings[1]).toEqual({
+      file: 'py/src/kit/__init__.py',
+      line: 15,
+      column: 7,
+      rule: 'arg-type',
+      message: 'Argument 1 to "total" has incompatible type "list[int]"; expected "list[float]"',
+      severity: 'error',
+      gates: true,
+      key: 'py/src/kit/__init__.py:arg-type:Argument 1 to "total" has incompatible type "list[int]"; expected "list[float]"',
+    });
+  });
+
+  test('a syntax error is a gating finding, an unknown place is none, and a clean run or a stray line hides nothing', () => {
+    expect(parse('mypy', 'findings-mypy-syntax.jsonl', { root: 'py' }).map((f) => [f.rule, f.line, f.column])).toEqual([
+      ['syntax', 1, 13],
+      ['syntax', 1, 14],
+    ]);
+    const unplaced = attempt('mypy', '{"file": "a.py", "line": -1, "column": -1, "message": "m", "code": null, "severity": "error"}\n');
+    expect(unplaced).toEqual([{ file: 'a.py', rule: '', message: 'm', severity: 'error', gates: true, key: 'a.py::m' }]);
+    expect(attempt('mypy', '\n')).toEqual([]);
+    expect(attempt('mypy', `Warning: a stray print\n${read('findings-mypy-syntax.jsonl')}`)).toHaveLength(2);
+  });
+});
+
+describe('basedpyright', () => {
+  const registry = ['basedpyright', '--outputjson'];
+
+  test('an error gates and an information does not; a warning gates under --warnings, and otherwise its config decides', () => {
+    const findings = parse('basedpyright', 'findings-basedpyright.json', { root: 'py', repoRoot: REAL_REPO, argv: registry });
+    expect(findings.map((f) => [f.rule, f.severity, f.line, f.column, f.gates])).toEqual([
+      ['reportUnusedImport', 'warning', 1, 8, undefined],
+      ['reportCallInDefaultInitializer', 'warning', 5, 40, undefined],
+      ['reportReturnType', 'error', 7, 12, true],
+      ['reportUnusedCallResult', 'warning', 15, 1, undefined],
+      ['reportArgumentType', 'error', 15, 7, true],
+      ['', 'information', 16, 13, false],
+    ]);
+    expect(findings[0]).not.toHaveProperty('gates');
+    expect(findings[0]?.file).toBe('py/src/kit/__init__.py');
+    const warned = parse('basedpyright', 'findings-basedpyright.json', { root: 'py', repoRoot: REAL_REPO, argv: [...registry, '--warnings'] });
+    expect(warned.filter((f) => f.severity === 'warning').map((f) => f.gates)).toEqual([true, true, true]);
+  });
+
+  test('a message over several lines is kept whole, and output with no diagnostics array is untrustworthy', () => {
+    const returnType = parse('basedpyright', 'findings-basedpyright.json', { root: 'py', repoRoot: REAL_REPO }).find((f) => f.rule === 'reportReturnType');
+    expect(returnType?.message).toContain('\n');
+    expect(returnType?.key).toBe(`py/src/kit/__init__.py:reportReturnType:${(returnType?.message ?? '').replace(/\s+/g, ' ').trim()}`);
+    expect(attempt('basedpyright', '{"generalDiagnostics": [], "summary": {}}')).toEqual([]);
+    expect(attempt('basedpyright', '')).toBeNull();
+    expect(attempt('basedpyright', 'No configuration file found.')).toBeNull();
+  });
+});

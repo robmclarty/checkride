@@ -1,0 +1,2 @@
+{"file": "src/kit/__init__.py", "line": 1, "column": 12, "end_line": 1, "end_column": 13, "message": "Expected a parameter or the end of the parameter list", "hint": null, "code": "syntax", "severity": "error"}
+{"file": "src/kit/__init__.py", "line": 1, "column": 13, "end_line": 1, "end_column": 14, "message": "Expected `)`, found newline", "hint": null, "code": "syntax", "severity": "error"}

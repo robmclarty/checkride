@@ -888,7 +888,7 @@ reference rules and porting trap apply as written there.
 58. [x] feat(launch): resolve Python tools from uv.lock and the project venv, **done when:** the `uv-lock` source declares a tool that `uv.lock` lists and runs it from `<root>/.venv/bin/` (or `$UV_PROJECT_ENVIRONMENT/bin/`); a missing venv fails naming `uv sync` (F41); the python pack's environment applies R6.4
     - seam: `src/launch/uv.ts`, `src/launch/env.ts`
     - model: sonnet
-59. [ ] feat(packs): add the python pack, **done when:** a `python` target runs ruff (`lint`, opt-in `format`), mypy or basedpyright (`types`) and pytest (`test`) per R5.7, detected by config files, `[tool.*]` tables or pins; `unclaimed` and discovery know its markers; pytest's exit 5 fails the check (F44); `target add --lang python --add lint,types` scaffolds the blessed configs
+59. [x] feat(packs): add the python pack, **done when:** a `python` target runs ruff (`lint`, opt-in `format`), mypy or basedpyright (`types`) and pytest (`test`) per R5.7, detected by config files, `[tool.*]` tables or pins; `unclaimed` and discovery know its markers; pytest's exit 5 fails the check (F44); `target add --lang python --add lint,types` scaffolds the blessed configs
     - seam: `src/packs/python.ts`, `src/packs/tools.ts`, `src/targets/`, `templates/python/`
     - model: opus (each tool's JSON flags must be verified at the pinned versions)
 60. [ ] feat(findings): parse ruff, mypy and basedpyright output, **done when:** all three parse real fixtures, ruff feeds the baseline, and the type checkers don't

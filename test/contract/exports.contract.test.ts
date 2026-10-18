@@ -122,6 +122,10 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('the python pack\'s ruff, mypy and basedpyright output is parseable', () => {
+    for (const adapter of ['ruff', 'mypy', 'basedpyright']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
   test('an adapter with no parser returns null (F45)', () => {
     expect(findings.isParseable('vitest')).toBe(false);
     expect(findings.parseFindings('vitest', 'FAIL src/a.test.ts')).toBeNull();

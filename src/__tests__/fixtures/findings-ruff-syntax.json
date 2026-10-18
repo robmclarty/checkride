@@ -1,0 +1,40 @@
+[
+  {
+    "cell": null,
+    "code": "invalid-syntax",
+    "end_location": {
+      "column": 13,
+      "row": 1
+    },
+    "filename": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+    "fix": null,
+    "location": {
+      "column": 12,
+      "row": 1
+    },
+    "message": "Expected a parameter or the end of the parameter list",
+    "name": "invalid-syntax",
+    "noqa_row": null,
+    "severity": "error",
+    "url": null
+  },
+  {
+    "cell": null,
+    "code": "invalid-syntax",
+    "end_location": {
+      "column": 1,
+      "row": 2
+    },
+    "filename": "/private/tmp/fixture-repo/py/src/kit/__init__.py",
+    "fix": null,
+    "location": {
+      "column": 13,
+      "row": 1
+    },
+    "message": "Expected `)`, found newline",
+    "name": "invalid-syntax",
+    "noqa_row": null,
+    "severity": "error",
+    "url": null
+  }
+]

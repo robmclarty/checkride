@@ -10,13 +10,16 @@
  */
 
 import { astGrepParser } from './parsers/ast-grep.js';
+import { basedpyrightParser } from './parsers/basedpyright.js';
 import { cargoCheckParser, clippyParser } from './parsers/cargo.js';
 import { cspellParser } from './parsers/cspell.js';
 import { fallowParser } from './parsers/fallow.js';
 import { goBuildParser } from './parsers/go-build.js';
 import { golangciLintParser } from './parsers/golangci-lint.js';
 import { markdownlintCli2Parser } from './parsers/markdownlint-cli2.js';
+import { mypyParser } from './parsers/mypy.js';
 import { oxlintParser } from './parsers/oxlint.js';
+import { ruffParser } from './parsers/ruff.js';
 import { rumdlParser } from './parsers/rumdl.js';
 import { shellcheckParser } from './parsers/shellcheck.js';
 import { staticcheckParser } from './parsers/staticcheck.js';
@@ -47,6 +50,9 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   typos: typosParser,
   tsc: tscParser,
   'go-build': goBuildParser,
+  ruff: ruffParser,
+  mypy: mypyParser,
+  basedpyright: basedpyrightParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

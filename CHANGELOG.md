@@ -486,6 +486,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that config, and the command says so rather than write a file that would
   hide it (#7). Checked against ruff 0.17.1, mypy 2.4.0, basedpyright 1.40.2
   and pytest 9.1.1; see `docs/packs.md`.
+- **ruff's findings join the baseline, and mypy's and basedpyright's reach
+  `checkride/findings`.** ruff's JSON parses to one gating finding per
+  violation, keyed `<file>:<rule>:<message>`, so `init --baseline`
+  grandfathers a failing python `lint` and the ratchet carries its cleanup.
+  mypy's JSON lines and basedpyright's JSON parse for the findings API only,
+  as every type checker's do: an error gates, a mypy note and a basedpyright
+  `information` don't, and a basedpyright warning gates under `--warnings`
+  and otherwise leaves `gates` out, since its config's `failOnWarnings`,
+  which its default mode turns on, decides. ruff and basedpyright print
+  absolute paths, which `repoRoot` names from the repo root.
 
 ### Changed
 
@@ -904,6 +914,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `detected_by` gains the form `<file>: [<table>]`, such as
   `pyproject.toml: [tool.ruff]`, in the schema's description and the contract
   doc.
+- Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
+  `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
+  keys, in the contract doc and both contract tests.
 
 ### Internal
 

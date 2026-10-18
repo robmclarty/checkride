@@ -206,6 +206,14 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('go-build', '{"ImportPath":"x","Action":"build-output","Output":"a.go:1:1: undefined: y\\n"}\n')).toBeNull();
   });
 
+  test('ruff keys as <file>:<rule>:<message>, every violation of it, and neither python type checker keys', () => {
+    const ruff = JSON.stringify([{ code: 'F401', message: '`os` imported but unused', filename: 'src/a.py', location: { row: 1, column: 8 }, severity: 'error' }]);
+    expect(fingerprint('ruff', ruff)).toEqual(new Set(['src/a.py:F401:`os` imported but unused']));
+    const mypy = '{"file": "src/a.py", "line": 7, "column": 11, "message": "Incompatible return value type", "hint": null, "code": "return-value", "severity": "error"}\n';
+    expect(fingerprint('mypy', mypy)).toBeNull();
+    expect(fingerprint('basedpyright', JSON.stringify({ generalDiagnostics: [], summary: {} }))).toBeNull();
+  });
+
   test.each<{ label: string; raw: string; expected: Baseline | null }>([
     { label: 'an unknown top-level field is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, extra: true }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a missing schema_version reads as 1', raw: JSON.stringify({ slots: { lint: ['a'] } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
