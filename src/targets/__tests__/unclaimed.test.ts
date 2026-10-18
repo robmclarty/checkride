@@ -89,6 +89,12 @@ describe('findUnclaimed', () => {
     expect(red.stderr).toContain('claim it: "py": { "lang": "python", "root": "py" } under targets, or list it in unclaimed.ignore');
   });
 
+  test('a python target claims the manifests at and under its root, a uv workspace member included', async () => {
+    await put('py/pyproject.toml', 'py/packages/core/pyproject.toml', 'py/legacy/setup.py', 'tools/setup.cfg');
+    const found = await findUnclaimed(repo, { targets: [{ name: 'py', pack: 'python', root: 'py' }] });
+    expect(found.map((u) => u.path)).toEqual(['tools/setup.cfg']);
+  });
+
   test('never reports installed dependencies, build output, environments, test data or checkride’s own artifacts', async () => {
     await put(
       'node_modules/a/package.json',

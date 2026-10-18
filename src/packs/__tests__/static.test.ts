@@ -38,7 +38,7 @@ describe('staticCause (R13.4)', () => {
   test('the marked rows are the ones R13.4 lists, each of them pure data', () => {
     const marked = Object.values(PACKS).flatMap((p) => p.adapters.filter((a) => a.static === true).map((a) => a.name));
     expect(marked.toSorted()).toEqual(
-      ['ast-grep', 'biome', 'biome-format', 'cspell', 'gofmt', 'links', 'markdownlint-cli2', 'oxlint', 'prettier', 'rumdl', 'shellcheck', 'shfmt', 'typos', 'unclaimed', 'vale'].toSorted(),
+      ['ast-grep', 'biome', 'biome-format', 'cspell', 'gofmt', 'links', 'markdownlint-cli2', 'oxlint', 'prettier', 'rumdl', 'ruff', 'ruff-format', 'shellcheck', 'shfmt', 'typos', 'unclaimed', 'vale'].toSorted(),
     );
     expect(JSON.parse(JSON.stringify(ADAPTERS))).toEqual(ADAPTERS);
   });

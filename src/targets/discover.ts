@@ -12,6 +12,9 @@
  *   one more.
  * - Each `Cargo.toml` with a `[workspace]` table proposes a `rust` target, and
  *   each `[package]` manifest no rust target claims proposes one more.
+ * - Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
+ *   `setup.py` proposes a `python` target, which claims the nested ones, a uv
+ *   workspace's members among them.
  * - Shell files R11.2's defaults keep, outside every other proposed target's
  *   root, propose one `bash` target at the deepest directory holding them
  *   all, named `scripts` when that's `scripts` and `shell` otherwise.
@@ -109,6 +112,12 @@ function rustRoots(repo: string, files: readonly string[]): string[] {
   return unclaimedRoots(workspaces, manifests.filter((dir) => at(dir, 'package')));
 }
 
+/** The python roots: each top-most directory holding one of the python pack's markers. */
+function pythonRoots(files: readonly string[]): string[] {
+  const dirs = PACKS.python.markers.flatMap((marker) => dirsOf(files, marker));
+  return unclaimedRoots([], [...new Set(dirs)].toSorted((a, b) => depthOf(a) - depthOf(b)));
+}
+
 /** The deepest directory every one of `dirs` lies under, `.` for the root. */
 function commonAncestor(dirs: readonly string[]): string {
   const [first = [], ...rest] = dirs.map((d) => (d === '.' ? [] : d.split('/')));
@@ -134,13 +143,14 @@ function named(targets: readonly { lang: string; root: string }[]): ProposedTarg
   });
 }
 
-/** The targets the repo at `repo` proposes (R11.4): ts, then go, then rust, each in root order, then bash. */
+/** The targets the repo at `repo` proposes (R11.4): ts, then go, then rust, then python, each in root order, then bash. */
 export async function discoverTargets(repo: string, git: GitRunner = realGit(repo)): Promise<ProposedTarget[]> {
   const files = await repoFiles(repo, git);
   const ts = tsRoots(files).toSorted().map((root) => ({ lang: PACKS.ts.name, root }));
   const go = goRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.go.name, root }));
   const rust = rustRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.rust.name, root }));
-  const toolchains = [...ts, ...go, ...rust];
+  const python = pythonRoots(files).toSorted().map((root) => ({ lang: PACKS.python.name, root }));
+  const toolchains = [...ts, ...go, ...rust, ...python];
   const bash = bashRoot(repo, files, toolchains.map((t) => t.root));
   return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])]);
 }

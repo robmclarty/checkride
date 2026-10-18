@@ -28,7 +28,7 @@ import type { HarnessName } from './gate.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
 import type { CustomCheck, SlotConfig } from './config.js';
-import { configSchemaUrl, loadConfig, resolveChecks } from './config.js';
+import { configSchemaUrl, configuredBy, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
 import type { EntryLike, PackageManager } from './launch/index.js';
@@ -1392,33 +1392,103 @@ const ADD_CONFIGS: Record<string, [string, string][]> = {
   ],
 };
 
-/** `--add <slots>`: scaffold blessed-default configs for the named empty slots. */
-async function addConfigs(w: Writer, add: readonly string[], skipped: string[]): Promise<void> {
+/**
+ * The blessed configs `--add` scaffolds for a pack whose target-scope slots
+ * aren't the ts pack's, by pack, then slot. A slot missing here scaffolds
+ * `ADD_CONFIGS`' entry unless that entry is the ts pack's own, so a python
+ * root's `docs` still gets the repo pack's markdownlint config.
+ */
+const PACK_ADD_CONFIGS: Readonly<Record<string, Record<string, [string, string][]>>> = {
+  // One ruff.toml configures both ruff check and ruff format.
+  python: {
+    lint: [['python/shared/ruff.toml', 'ruff.toml']],
+    format: [['python/shared/ruff.toml', 'ruff.toml']],
+    types: [['python/shared/mypy.ini', 'mypy.ini']],
+    test: [['python/shared/pytest.ini', 'pytest.ini']],
+  },
+};
+
+/** The files `--add <slot>` scaffolds in a root of `pack`, and whether they're that pack's own, or `undefined` when there are none. */
+function addConfigsFor(pack: string, slot: string): { files: [string, string][]; own: boolean } | undefined {
+  const own = PACK_ADD_CONFIGS[pack]?.[slot];
+  if (own !== undefined) return { files: own, own: true };
+  const shared = ADD_CONFIGS[slot];
+  return shared === undefined || (pack !== PACKS.ts.name && addsTsOnly(slot)) ? undefined : { files: shared, own: false };
+}
+
+/**
+ * The config that already configures `slot`'s blessed tool in a root of
+ * `pack` at `dir`, such as `pyproject.toml: [tool.ruff]`, or `null`. A new
+ * file there would hide that config, as a `ruff.toml` hides the table.
+ */
+function configuredAt(dir: string, pack: string, slot: string): string | null {
+  const blessed = Object.values(PACKS).find((p) => p.name === pack)?.adapters.find((a) => a.slot === slot);
+  return blessed === undefined ? null : configuredBy(blessed, dir);
+}
+
+/**
+ * What `--add <slot>` does in a root of `pack` at `dir`: the files to write,
+ * or why it writes none, `configured` when that's because the root
+ * configures the slot's tool already. A pack's own configs stand down there.
+ */
+function slotPlan(dir: string, pack: string, slot: string): { files: [string, string][]; own: boolean } | { skip: string; configured: boolean } {
+  const configs = addConfigsFor(pack, slot);
+  if (configs === undefined) return { skip: `--add ${slot} (no blessed config to scaffold)`, configured: false };
+  const by = configs.own ? configuredAt(dir, pack, slot) : null;
+  return by === null ? configs : { skip: `--add ${slot} (${by} configures it already)`, configured: true };
+}
+
+/** Write one slot's files, never over one that's there, and a pack's own file once however many slots share it. */
+async function writeSlotFiles(w: Writer, configs: { files: [string, string][]; own: boolean }, skipped: string[]): Promise<void> {
+  for (const [from, to] of configs.files) {
+    if (configs.own && w.written.includes(to)) continue;
+    if (existsSync(join(w.cwd, to))) skipped.push(`${to} (exists)`);
+    // oxlint-disable-next-line no-await-in-loop -- one-shot `--add` scaffolding: writes are independent and perf-irrelevant, kept sequential for a deterministic progress list.
+    else await put(w, to, readTemplate(from));
+  }
+}
+
+/**
+ * `--add <slots>`: scaffold blessed-default configs for the named empty slots
+ * in a root of `pack`, adding to `configured` each slot left because the root
+ * configures its tool already.
+ */
+async function addConfigs(
+  w: Writer,
+  add: readonly string[],
+  skipped: string[],
+  opts: { pack?: string; configured?: string[] } = {},
+): Promise<void> {
+  const pack = opts.pack ?? PACKS.ts.name;
   for (const slot of add) {
-    const files = ADD_CONFIGS[slot];
-    if (!files) {
-      skipped.push(`--add ${slot} (no blessed config to scaffold)`);
+    const plan = slotPlan(w.cwd, pack, slot);
+    if ('skip' in plan) {
+      skipped.push(plan.skip);
+      if (plan.configured) opts.configured?.push(plan.skip);
       continue;
     }
-    for (const [from, to] of files) {
-      if (existsSync(join(w.cwd, to))) skipped.push(`${to} (exists)`);
-      // oxlint-disable-next-line no-await-in-loop -- one-shot `--add` scaffolding: writes are independent and perf-irrelevant, kept sequential for a deterministic progress list.
-      else await put(w, to, readTemplate(from));
-    }
+    // oxlint-disable-next-line no-await-in-loop -- one-shot `--add` scaffolding, kept sequential so a file two slots share is written once.
+    await writeSlotFiles(w, plan, skipped);
   }
 }
 
 /**
  * Scaffold `--add`'s blessed-default configs for `slots` into `dir`, a
- * target's root as well as the repo's, never over a file that's there. The
- * configs are the ts pack's. Returns what it wrote and what it left, each
- * relative to `dir`.
+ * target's root as well as the repo's, for a root of `pack`, never over a
+ * file that's there. Returns what it wrote and what it left, each relative
+ * to `dir`, and, of what it left, the slots whose tool the root configures
+ * already.
  */
-export async function scaffoldSlotConfigs(dir: string, slots: readonly string[], dryRun: boolean): Promise<{ written: string[]; skipped: string[] }> {
-  const w: Writer = { cwd: dir, dryRun, written: [], removed: [] };
+export async function scaffoldSlotConfigs(
+  dir: string,
+  slots: readonly string[],
+  opts: { dryRun: boolean; pack?: string },
+): Promise<{ written: string[]; skipped: string[]; configured: string[] }> {
+  const w: Writer = { cwd: dir, dryRun: opts.dryRun, written: [], removed: [] };
   const skipped: string[] = [];
-  await addConfigs(w, slots, skipped);
-  return { written: w.written, skipped };
+  const configured: string[] = [];
+  await addConfigs(w, slots, skipped, { ...(opts.pack !== undefined ? { pack: opts.pack } : {}), configured });
+  return { written: w.written, skipped, configured };
 }
 
 /** Add the `check: checkride` alias to an existing package.json (never overwrites). */
@@ -1648,7 +1718,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // Route --add: publish slots (and the library path) opt into the bundle; the
   // rest scaffold blessed configs before inventory, so they're detected this run.
   const { publishRequested, fileAdds } = splitAdd(options.add ?? [], manifest);
-  await addConfigs(w, fileAdds, skipped);
+  await addConfigs(w, fileAdds, skipped, { pack: implicitPack((file) => existsSync(join(cwd, file))) });
 
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
@@ -1747,9 +1817,10 @@ function addsTsOnly(name: string): boolean {
  */
 function addProblem(options: InitOptions, cwd: string): string | null {
   const pack = implicitPack((file) => existsSync(join(cwd, file)));
-  const refused = pack === PACKS.ts.name ? [] : (options.add ?? []).filter(addsTsOnly);
+  const own = PACK_ADD_CONFIGS[pack] ?? {};
+  const refused = pack === PACKS.ts.name ? [] : (options.add ?? []).filter((name) => !Object.hasOwn(own, name) && addsTsOnly(name));
   if (refused.length === 0) return null;
-  const fits = Object.keys(ADD_CONFIGS).filter((name) => !addsTsOnly(name));
+  const fits = Object.keys(ADD_CONFIGS).filter((name) => Object.hasOwn(own, name) || !addsTsOnly(name));
   return `init: --add ${refused.join(', ')} scaffolds the ts pack's config, and this root's pack is ${pack}; --add takes ${fits.join(', ')} here`;
 }
 

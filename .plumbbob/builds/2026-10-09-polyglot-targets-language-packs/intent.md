@@ -885,7 +885,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 10: Python
 
-58. [ ] feat(launch): resolve Python tools from uv.lock and the project venv, **done when:** the `uv-lock` source declares a tool that `uv.lock` lists and runs it from `<root>/.venv/bin/` (or `$UV_PROJECT_ENVIRONMENT/bin/`); a missing venv fails naming `uv sync` (F41); the python pack's environment applies R6.4
+58. [x] feat(launch): resolve Python tools from uv.lock and the project venv, **done when:** the `uv-lock` source declares a tool that `uv.lock` lists and runs it from `<root>/.venv/bin/` (or `$UV_PROJECT_ENVIRONMENT/bin/`); a missing venv fails naming `uv sync` (F41); the python pack's environment applies R6.4
     - seam: `src/launch/uv.ts`, `src/launch/env.ts`
     - model: sonnet
 59. [ ] feat(packs): add the python pack, **done when:** a `python` target runs ruff (`lint`, opt-in `format`), mypy or basedpyright (`types`) and pytest (`test`) per R5.7, detected by config files, `[tool.*]` tables or pins; `unclaimed` and discovery know its markers; pytest's exit 5 fails the check (F44); `target add --lang python --add lint,types` scaffolds the blessed configs

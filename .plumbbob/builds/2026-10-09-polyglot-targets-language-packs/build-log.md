@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 58 — feat(launch): resolve Python tools from uv.lock and the project venv
+**Current step:** 59 — feat(packs): add the python pack
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -84,7 +84,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 57. docs(consumers): document running checkride from outside a repo
 - ☑ 77. test(mutation): let a full stryker run start from its sandbox
 - ☑ 78. feat(run): let --discover stand down where the config declares targets
-- ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
+- ☑ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☐ 59. feat(packs): add the python pack
 - ☐ 60. feat(findings): parse ruff, mypy and basedpyright output
 - ☐ 61. test(examples): move examples/polyglot onto the python pack
@@ -164,8 +164,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a full pnpm mutation now takes about 3h on 8 cores: 1026 static mutants (8%) each rerun the whole 60s suite and take about half of it; ignoreStatic would cut that but drops them from C12's score, so it's a call on what the floor measures
 - [x] orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan after a plain vitest run on 2026-10-17 (killed by hand); find which path skips the SIGKILL
 - [x] the first full mutation run since step 17 scored 83.13% against break 68, and stryker.config.mjs's comment still cites 73.2%: decide whether to ratchet break toward ~78 per that comment's rule, which C12 (quality-floors) pins at 68
-- [ ] step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH), so basedpyright finds the project environment and a test's own python subprocess runs the venv's interpreter; verify against the pinned basedpyright and pytest
-- [ ] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
+- [x] step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH), so basedpyright finds the project environment and a test's own python subprocess runs the venv's interpreter; verify against the pinned basedpyright and pytest
+- [x] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
+- [ ] fold step 59's verified python rows into a decision like D65: ruff runs with --no-cache (it fails outright in a read-only checkout), pytest also detects pytest.toml, .pytest.toml, .pytest.ini and [tool.pytest] (pytest 9), and detectTable is an array, since basedpyright needs two tables
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -249,6 +250,9 @@ Harvest results this boundary:
 - After step 78: "a full pnpm mutation now takes about 3h on 8 cores..." → **tangent**, deferred to step 74 (the run took 240 minutes, about half of it the 1026 static mutants; mutation is an opt-in slot, and step 74's opt-in audit runs it after Phases 10 to 12 add their modules, so it decides there between `ignoreStatic`, which drops static mutants from C12 (quality-floors)'s score, and leaving the static-heavy data modules out of `mutate`).
 - After step 78: "orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan..." → **tangent**, killed (no orphan came back across the 12744-mutant full run and three full `pnpm check` runs, no step's seam holds the test, and an orphan costs one idle process; re-park it with the `ps` line and the temp dir if it recurs).
 - After step 78: "the first full mutation run since step 17 scored 83.13% against break 68..." → **tangent**, deferred to step 74 (554 of the detected results were load-dependent timeouts, Phases 10 to 12 add modules before step 74 re-measures, and moving break past 68 amends C12 (quality-floors), a call worth making against the close-out score; step 74 also refreshes the comment's stale 73.2%).
+
+- After step 58: "step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH)..." → **tangent**, deferred to step 59 (R6.1's `.venv/bin/<bin>` is what shipped and isn't wrong; whether basedpyright finds the environment, and whether a test's own `python` subprocess needs the venv first on PATH, can only be read against the pinned tools step 59 runs; the change is about three lines in `src/launch/resolve.ts`, outside step 59's seam, so add it via `/plumbbob:step 59` or accept a one-file stray).
+- After step 58: "docs/contract.md's pin_source paragraph still says the schema names three more sources..." → **tangent**, deferred to step 73 (a doc inaccuracy, not a behavior bug; step 73's seam holds `docs/contract.md` and folds every surface this build added, `uv-lock` included once step 59 brings its `TOOLS` rows).
 
 ## Log
 
@@ -2412,3 +2416,81 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 57 checkpointed · 8e6db2c6b — docs(consumers): document running checkride from outside a repo (1 drift, 10m)
 - 2026-10-18 — step 77 checkpointed · a029ea8ad — test(mutation): let a full stryker run start from its sandbox (1 drift, 329m)
 - 2026-10-18 — step 78 checkpointed · 899b00435 — feat(run): let --discover stand down where the config declares targets (1 drift, 3m)
+- 2026-10-18 — step 58 checkpointed · 7e20b452b — feat(launch): resolve Python tools from uv.lock and the project venv (1 drift, 39m)
+
+  **Summary**: A tool the nearest `uv.lock` lists now runs straight from the project's environment and records the version the lock pins. A missing or incomplete environment fails naming `uv sync` (F41). Every check of a python target runs with pip's and uv's downloads switched off and writes no bytecode.
+
+  1. The uv-lock source runs a locked tool from the project's .venv, never through uv
+  2. A missing or incomplete environment fails naming uv sync (F41), with no fallback to PATH
+  3. The python pack registers ahead of its adapters, so a Python root now picks it (D66)
+  4. A red check stopped by UV_OFFLINE prints run uv sync first
+  5. The seam named two files; the source and pack had to land beside them, as in steps 41 and 44
+
+  **Readout**: Step 58 - feat(launch): resolve Python tools from uv.lock and the project venv
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    5 of 5 honored
+  constraints  12 of 12 honored
+  seam         strayed: 19 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - docs/packs.md
+               - docs/targets.md
+               - schema/checkride.config.schema.json
+               - src/__tests__/config-targets.test.ts
+               - src/__tests__/config.test.ts
+               - src/__tests__/init.test.ts
+               - src/__tests__/target-command.test.ts
+               - src/launch/__tests__/env.test.ts
+               - src/launch/__tests__/resolve.test.ts
+               - src/launch/index.ts
+               - src/launch/resolve.ts
+               - src/packs/index.ts
+               - src/packs/packs.ts
+               - src/packs/types.ts
+               - src/targets/__tests__/unclaimed.test.ts
+               - src/launch/__tests__/uv.test.ts
+               - src/packs/python.ts
+  diff         +700 -49 across 21 files
+  spent        39 min · 1 turn · 35s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land step 58. The source, the F41 refusal and the environment are each proven by tests and by a real spawn against uv 0.13.1. The one behavior change beyond the done-when, a Python root picking the python pack, is the D66 consequence the plan already accepted, and the invariance golden holds.
+
+  **1.** The uv-lock source runs a locked tool from the project's .venv, never through uv
+
+  `src/launch/uv.ts` finds the `uv.lock` nearest the check, up to the repo root, as `go-mod-tool` finds `go.mod`. It lists a package when one of the lock's own `[[package]]` tables names it, compared by PEP 503 normalized name. A `{ name = … }` inside a dependency array or a sub-table doesn't count. The version is recorded only when the lock pins one: a forked resolution (real uv 0.13.1 forks numpy three ways under `requires-python >= 3.10`) records none, since any of the three may be the installed one. That honors D13 (pin-recorded).
+
+  `<root>` in R6.1 is read as the uv project root, the directory holding the lock. I checked this against uv 0.13.1: `uv sync` from a workspace member puts `.venv` at the workspace root, and a relative `UV_PROJECT_ENVIRONMENT` resolves from that same directory. So a member target runs `../../.venv/bin/ruff`. The argv names the executable relative to the check's directory, so the summary reads the same on every machine, and absolutely only when the environment lies outside the repo. A real spawn against a synced probe workspace ran ruff 0.14.0 from the root and pytest 9.1.1 from a member, each recorded at the version the tool itself reports.
+
+  Nothing runs through `uv`, so nothing can resolve or download (D14 (no-fetch)). As in steps 41 and 44, `TOOLS` gains no `pypi` rows yet; those arrive with step 59's adapters, so tests swap rows in through `LaunchContext.tools`, and no real run writes `pin_source: "uv-lock"` yet. The contract doc keeps saying so.
+
+  **2.** A missing or incomplete environment fails naming uv sync (F41), with no fallback to PATH
+
+  A declared tool runs only from the environment (D12 (pin-chain)). With no `.venv`, the refusal says the environment "doesn't exist yet". With a `.venv` that lacks the tool, it says the environment "has no `ruff`", and adds a line on `--group`, `--all-groups` and `--all-packages`: the probe showed that `uv sync` from a member leaves out the root's `dev` group. A lock below the root names `uv sync --directory <dir>`. The F41 test puts a `ruff` on PATH and asserts it never runs. Under `--static-only` the same refusal becomes a `static-only: needs an install (…)` skip through the existing generic path.
+
+  **3.** The python pack registers ahead of its adapters, so a Python root now picks it (D66)
+
+  The done-when's "the python pack's environment applies R6.4" needs a pack to hang the environment on. So `PACKS.python` ships now with markers, the chain `[uv-lock, mise, path]`, `PYTHONDONTWRITEBYTECODE`, `PIP_NO_INDEX` and `UV_OFFLINE`, and no adapters, exactly as steps 41 and 44 registered go and rust (D36 (python)). A real python target's custom check printed all three variables set.
+
+  Unlike those steps, D66 (implicit-pack) already exists, so registering has three knock-on effects:
+
+  - A root holding only a Python marker is now checked as `python`, not `ts`. Its summary loses the ts slots' `no tool detected` skips and records `pack: "python"` on each check.
+  - `--only lint` there is an unknown token until step 59, just as an implicit Go root rejects a slot the go pack doesn't fill.
+  - `init` there runs existing mode.
+
+  Every example with a Python marker also has a root `package.json`, so it stays ts. The invariance golden passes in both halves: contract in `pnpm check`, and the e2e half, run here, 13 of 13. The tests that used python as the "pack that hasn't shipped" now use terraform. `unclaimed` suggests a python target for an unclaimed `pyproject.toml`, and that suggestion has a new test.
+
+  **4.** A red check stopped by UV_OFFLINE prints run uv sync first
+
+  R6.4's rule is that a tool stopped by one of these variables names the variable rather than the way out, so checkride prints the way out under the red check. uv 0.13.1's message is `Network connectivity is disabled, but the requested data wasn't found in the cache`, captured from a real `uv run` against an empty cache, so `src/launch/env.ts` gains a fourth hint naming `uv sync`. R6.4 listed only the Go, rustup and cargo hints, so this extends its rule to uv rather than adding a new one.
+
+  **5.** The seam named two files; the source and pack had to land beside them, as in steps 41 and 44
+
+  `resolve.ts` holds the `SOURCES` table and every refusal. `src/packs/` holds the pack and the `Tool.pypi` field. The config schema's pack enum, the pack-name lists in four test files, `docs/packs.md`, `docs/targets.md`, `docs/contract.md` and `CHANGELOG.md` follow C11 (docs-in-step) and C1 (additive-contract). The first gate went red on fallow's health check. `declarationSignal` had reached cyclomatic 10, and the line-by-line lock reader exceeded the cognitive limit. Both were refactored (a `languageSignal` split, a regex-driven table reader), not suppressed.
+
+  Two parks: whether a uv-lock spawn should mirror `uv run` by setting `VIRTUAL_ENV` and putting the venv's bin first on PATH (step 59, where basedpyright and pytest are verified), and a stale `docs/contract.md` sentence about "a flag checkride doesn't have yet" left over from step 55 (step 73).

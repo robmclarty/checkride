@@ -265,6 +265,85 @@ describe('a bash target detects its tools by config file or by pin', () => {
   });
 });
 
+describe('a python target detects its tools by config file, pyproject.toml table or pin (R5.7)', () => {
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'checkride-detect-py-'));
+    await mkdir(join(repo, 'py'));
+  });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  const py = { lang: 'python', root: 'py' } as const;
+  const put = (rel: string, text: string): Promise<void> => writeFile(join(repo, 'py', rel), text);
+  const resolveAt = (config: CheckrideConfig = { targets: { py } }): Map<string, ResolvedCheck> =>
+    new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo }).map((c) => [checkName(c), c]));
+
+  test('a bare pyproject.toml detects nothing, and the pack fills only the slots R5.7 names', async () => {
+    await put('pyproject.toml', '[project]\nname = "x"\n');
+    const checks = resolveAt();
+    for (const slot of ['lint', 'types', 'test']) expect(check(checks, `py:${slot}`), slot).toMatchObject({ adapter: null, pack: 'python' });
+    expect(check(checks, 'py:format')).toMatchObject({ adapter: null, optIn: true });
+    for (const slot of ['dead', 'build', 'mutation']) expect(checks.has(`py:${slot}`), slot).toBe(false);
+  });
+
+  test('a [tool.*] table detects its tool, a sub-table or an array of tables included, and names the header it found', async () => {
+    await put('pyproject.toml', [
+      '[project]', 'name = "x"', '',
+      '[tool.ruff.lint]  # no [tool.ruff] of its own', 'select = ["F"]', '',
+      '[[ tool.mypy.overrides ]]', 'module = "x"', '',
+      '[tool.pytest.ini_options]', 'addopts = "-q"', '',
+    ].join('\n'));
+    const checks = resolveAt();
+    expect(check(checks, 'py:lint')).toMatchObject({ adapter: { name: 'ruff' }, origin: 'detected', detectedBy: 'pyproject.toml: [tool.ruff.lint]' });
+    expect(check(checks, 'py:format')).toMatchObject({ adapter: { name: 'ruff-format' }, optIn: true, detectedBy: 'pyproject.toml: [tool.ruff.lint]' });
+    expect(check(checks, 'py:types')).toMatchObject({ adapter: { name: 'mypy' }, detectedBy: 'pyproject.toml: [[tool.mypy.overrides]]' });
+    expect(check(checks, 'py:test')).toMatchObject({ adapter: { name: 'pytest' }, detectedBy: 'pyproject.toml: [tool.pytest.ini_options]' });
+  });
+
+  test('a table only named like one, or commented out, detects nothing', async () => {
+    await put('pyproject.toml', '[tool.ruffle]\nx = 1\n# [tool.mypy]\n[tool]\nmypy = 1\nkey = "[tool.pytest]"\n');
+    const checks = resolveAt();
+    for (const slot of ['lint', 'types', 'test']) expect(check(checks, `py:${slot}`).adapter, slot).toBeNull();
+  });
+
+  test('basedpyright takes types from its own config or a [tool.pyright] table, and mypy still wins where both are configured', async () => {
+    await put('pyproject.toml', '[tool.pyright]\ntypeCheckingMode = "standard"\n');
+    expect(check(resolveAt(), 'py:types')).toMatchObject({ adapter: { name: 'basedpyright', outputFile: 'types.json' }, detectedBy: 'pyproject.toml: [tool.pyright]' });
+    await put('mypy.ini', '[mypy]\n');
+    expect(check(resolveAt(), 'py:types')).toMatchObject({ adapter: { name: 'mypy' }, detectedBy: 'mypy.ini' });
+  });
+
+  test('a config file of its own detects a tool before a table does, and conftest.py detects pytest', async () => {
+    await put('pyproject.toml', '[tool.ruff]\n');
+    await put('.ruff.toml', '');
+    await put('conftest.py', '');
+    const checks = resolveAt();
+    expect(check(checks, 'py:lint')).toMatchObject({ adapter: { name: 'ruff' }, detectedBy: '.ruff.toml' });
+    expect(check(checks, 'py:test')).toMatchObject({ adapter: { name: 'pytest' }, detectedBy: 'conftest.py' });
+  });
+
+  test('a uv.lock that lists a tool detects it by pin', async () => {
+    await put('pyproject.toml', '[project]\nname = "x"\n');
+    await put('uv.lock', 'version = 1\n\n[[package]]\nname = "pytest"\nversion = "9.1.1"\n\n[[package]]\nname = "ruff"\nversion = "0.17.1"\n');
+    const checks = resolveAt();
+    expect(check(checks, 'py:lint')).toMatchObject({ adapter: { name: 'ruff' }, detectedBy: 'py/uv.lock: ruff' });
+    expect(check(checks, 'py:test')).toMatchObject({ adapter: { name: 'pytest' }, detectedBy: 'py/uv.lock: pytest' });
+    expect(check(checks, 'py:types').adapter).toBeNull();
+  });
+
+  test('a repo without targets at a pyproject.toml root runs the python pack under bare slot names', async () => {
+    await writeFile(join(repo, 'pyproject.toml'), '[tool.ruff]\n[tool.mypy]\n');
+    const checks = new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: null, cwd: repo }).map((c) => [checkName(c), c]));
+    expect(check(checks, 'lint')).toMatchObject({ pack: 'python', adapter: { name: 'ruff' }, detectedBy: 'pyproject.toml: [tool.ruff]' });
+    expect(check(checks, 'types')).toMatchObject({ pack: 'python', adapter: { name: 'mypy' } });
+  });
+
+  test('a detection that injects its own files reads no table off disk', () => {
+    const checks = resolve({ targets: { py } }, present('py/pyproject.toml'));
+    expect(check(checks, 'py:lint').adapter).toBeNull();
+  });
+});
+
 /** Resolve the catalogue with `config` (none by default), keyed by each check's name. */
 const repoSlots = (fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
   new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists, manifest: NO_MANIFEST }).map((c) => [checkName(c), c]));

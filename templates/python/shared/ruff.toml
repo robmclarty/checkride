@@ -1,0 +1,7 @@
+# ruff: `ruff check` (lint) and `ruff format` (format) both read this file.
+# ruff's default rules (pycodestyle's error classes and pyflakes) plus
+# flake8-bugbear, whose checks are for bugs rather than style.
+extend-exclude = ["**/test/fixtures"]
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B"]

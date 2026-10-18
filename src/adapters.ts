@@ -119,6 +119,14 @@ export type Adapter = {
    * word that the tool should run, where a copy on one machine's `PATH` isn't.
    */
   detectPin?: string;
+  /**
+   * Detection by TOML table: the slot is available when one of these files,
+   * relative to the check's directory, opens the named table or a sub-table
+   * of it, so `tool.ruff` matches `[tool.ruff]` and `[tool.ruff.lint]`. For a
+   * tool configured in a shared manifest, such as `pyproject.toml`, rather
+   * than a file of its own.
+   */
+  detectTable?: TableSignal[];
   /** Command to spawn (usually `'pnpm'`). Ignored when `builtin` is set. */
   command: string;
   /**
@@ -203,6 +211,9 @@ export type Adapter = {
  * for it to count, as cspell's `import` loads code only for a script.
  */
 export type CodeKey = { file: string; keys: string[]; value?: string };
+
+/** A TOML table whose header in `file` detects an adapter: `table` is its dotted name, `tool.ruff` for `[tool.ruff]`. */
+export type TableSignal = { file: string; table: string };
 
 /**
  * Pipeline catalogue in cheapest-first order — the within-wave tie-break and the

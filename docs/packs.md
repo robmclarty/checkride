@@ -5,11 +5,10 @@ and the environment its checks run with. Six packs ship so far: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
 `go`, which checks Go modules and workspaces, `rust`, which checks Cargo
-packages and workspaces, and `python`, whose targets run their own custom
-checks under Python's spawn environment until its adapters arrive. This page
+packages and workspaces, and `python`, which checks Python projects. This page
 covers how a check's tool resolves to the copy that runs, what the summary
 records about that copy, the bash pack and the file lists its checks run over,
-the go and rust packs, and the spawn environment each pack sets.
+the go, rust and python packs, and the spawn environment each pack sets.
 A pack for Terraform arrives in a later release, and the rows below that
 belong to it say so.
 
@@ -69,10 +68,10 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 
 The summary's `pin_source` names one more source, `tf-version`. It arrives
 with the pack that uses it, and no run writes it yet. `uv-lock` declares only
-a tool that `TOOLS` gives a PyPI package, and those rows arrive with the
-python pack's adapters, so no run writes it yet either. Its argv names the
-environment's executable from the check's directory, such as
-`.venv/bin/ruff`, and absolutely when the environment lies outside the repo.
+a tool that `TOOLS` gives a PyPI package: ruff, mypy, basedpyright and pytest.
+Its argv names the environment's executable from the check's directory, such
+as `.venv/bin/ruff`, and absolutely when the environment lies outside the
+repo.
 `override` is the consumer's, not the repo's: a review agent's own
 `mise.toml`, named with `--pins` or `CHECKRIDE_PINS`, runs its toolbelt over a
 checkout it can't write to. Each entry is a version string or an inline
@@ -318,6 +317,58 @@ prints its JSON lines on stderr, so they land in `security.stderr.txt`, and
 nextest reports on stderr too. cargo-mutants writes its `mutants.out/` into
 the check's artifact directory through `--output`, rather than the source
 tree.
+
+## The python pack
+
+A python target checks a Python project from the directory that holds its
+`pyproject.toml`, `setup.cfg` or `setup.py`:
+
+```json
+{
+  "targets": {
+    "api": { "lang": "python", "root": "services/api" }
+  }
+}
+```
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `lint` | `ruff` | `ruff check --no-cache --output-format=json .`, and `ruff check --fix .` under `checkride fix` | `ruff.toml`, `.ruff.toml`, a `[tool.ruff]` table or a pin | `lint.json` |
+| `format` (opt-in) | `ruff-format` | `ruff format --no-cache --check .`, and `ruff format .` under `checkride fix` | as `ruff` | `format.stdout.txt` |
+| `types` | `mypy` | `mypy --output json .` | `mypy.ini`, `.mypy.ini`, a `[tool.mypy]` table or a pin | `types.jsonl` |
+| `types` | `basedpyright` | `basedpyright --outputjson` | `pyrightconfig.json`, a `[tool.basedpyright]` or `[tool.pyright]` table, or a pin | `types.json` |
+| `test` | `pytest` | `pytest -q` | `pytest.toml`, `.pytest.toml`, `pytest.ini`, `.pytest.ini`, `conftest.py`, a `[tool.pytest]` or `[tool.pytest.ini_options]` table, or a pin | `test.stdout.txt` |
+
+A table is read from the `pyproject.toml` at the target's root, and a
+sub-table counts, so `[tool.ruff.lint]` detects ruff on its own, and the
+summary's `detected_by` names the header it found, such as
+`pyproject.toml: [tool.ruff.lint]`. A pin is a `uv.lock` that lists the tool,
+or a `mise.toml` that pins it. Where both of the `types` adapters are
+configured, mypy, the first, takes the slot.
+
+Each tool runs from the project's environment when `uv.lock` lists it, so
+run `uv sync` before checking; a missing environment fails the check, naming
+`uv sync`, and never falls back to another copy. mypy reads the installed
+packages' types, so it needs that environment whichever copy runs.
+basedpyright's wheel bundles the Node it runs on; checkride never runs the
+PyPI `pyright` wrapper, which downloads Node the first time. A pytest run
+that collects no tests exits 5, and that fails the `test` check like any
+other failure, since a test slot with nothing to run would be a vacuous
+green.
+
+Each row was checked against ruff 0.17.1, mypy 2.4.0, basedpyright 1.40.2
+and pytest 9.1.1. ruff runs with `--no-cache`, because it fails outright
+where it can't create `.ruff_cache`, as in a checkout a `--static-only` pass
+may not write to. mypy prints one JSON object per line for each error and
+only a blank line when there are none, so a clean run writes no
+`types.jsonl`, and its summary entry's `output_file` is `null`.
+
+`checkride target add --lang python --add <slots>` names the blessed tool for
+each slot and scaffolds its config under the target's root: `ruff.toml` for
+`lint` and `format`, `mypy.ini` for `types` and `pytest.ini` for `test`, and
+`checkride init --add` does the same at a root the python pack checks. A tool
+the root's `pyproject.toml` already configures keeps that config, since a new
+file would hide the table, and the command says so instead of writing one.
 
 ## The entry command
 

@@ -27,7 +27,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, posix, relative, resolve } from 'node:path';
 
-import type { Adapter, AdapterOptions, Order, Slot } from './adapters.js';
+import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
 import { SLOTS } from './adapters.js';
 import { isRecord } from './json.js';
 import { pinChain, pinDeclaration } from './launch/index.js';
@@ -847,18 +847,50 @@ function readManifest(cwd: string): Manifest {
 
 /** True when this adapter declares any detection signal (so absence of a match means "off", not "always"). */
 function hasAnySignal(a: Adapter): boolean {
-  return a.detect.length > 0 || a.detectScript !== undefined || (a.detectDeps?.length ?? 0) > 0 || a.detectPin !== undefined;
+  return (
+    a.detect.length > 0 ||
+    (a.detectTable?.length ?? 0) > 0 ||
+    a.detectScript !== undefined ||
+    (a.detectDeps?.length ?? 0) > 0 ||
+    a.detectPin !== undefined
+  );
 }
 
 /**
- * How detection reads one directory: which files sit there, its package.json,
- * and where a pin declares a tool for a check there (`<file>: <key>`, or `null`
- * when nothing but `PATH` would provide it).
+ * How detection reads one directory: which files sit there, the header of a
+ * TOML table one of them opens (`[tool.ruff]`, or `null` when it opens none),
+ * its package.json, and where a pin declares a tool for a check there
+ * (`<file>: <key>`, or `null` when nothing but `PATH` would provide it).
  */
-type Detection = { fileExists: (file: string) => boolean; manifest: Manifest; pinned: (bin: string) => string | null };
+type Detection = {
+  fileExists: (file: string) => boolean;
+  tableIn: (signal: TableSignal) => string | null;
+  manifest: Manifest;
+  pinned: (bin: string) => string | null;
+};
 
 /** Detection that finds nothing, so a dry resolution runs only the entry's own rules. */
-const NO_DETECTION: Detection = { fileExists: () => false, manifest: EMPTY_MANIFEST, pinned: () => null };
+const NO_DETECTION: Detection = { fileExists: () => false, tableIn: () => null, manifest: EMPTY_MANIFEST, pinned: () => null };
+
+/**
+ * The first header in a TOML file's text that opens `table` or a sub-table of
+ * it, an array of tables included, as written (`[tool.ruff.lint]`), or `null`.
+ * A best-effort read of the text: a header inside a multi-line string counts.
+ */
+function tomlTableHeader(text: string, table: string): string | null {
+  const name = table.split('.').map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[ \\t]*\\.[ \\t]*');
+  const header = new RegExp(`^[ \\t]*(\\[\\[?[ \\t]*${name}(?:[ \\t]*\\.[^\\]\\r\\n]*)?[ \\t]*\\]\\]?)[ \\t]*(?:#.*)?\\r?$`, 'm');
+  return header.exec(text)?.[1]?.replaceAll(/\s+/g, '') ?? null;
+}
+
+/** The header of the table `signal` names in the file it names under `dir`, or `null` when the file can't be read or opens none. */
+function tableAt(dir: string, signal: TableSignal): string | null {
+  try {
+    return tomlTableHeader(readFileSync(join(dir, signal.file), 'utf8'), signal.table);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What made an adapter's detection fire: a named signal, given in the summary's
@@ -871,6 +903,33 @@ type Signal = { by: string; via: string } | null;
 function depSignal(a: Adapter, manifest: Manifest): Signal | undefined {
   const dep = a.detectDeps?.find((d) => manifest.deps.has(d));
   return dep !== undefined ? { by: `package.json: ${dep}`, via: `dependency '${dep}'` } : undefined;
+}
+
+/**
+ * The config that configures `adapter` in `dir`, absolute: the first of its
+ * `detect` files there, or the first `detectTable` header one of its files
+ * opens (`pyproject.toml: [tool.ruff]`), or `null` when neither does. A pin,
+ * a dependency or a script says the tool should run, not how, so none counts.
+ */
+export function configuredBy(adapter: Adapter, dir: string): string | null {
+  const file = adapter.detect.find((f) => existsSync(join(dir, f)));
+  if (file !== undefined) return file;
+  for (const signal of adapter.detectTable ?? []) {
+    const header = tableAt(dir, signal);
+    if (header !== null) return `${signal.file}: ${header}`;
+  }
+  return null;
+}
+
+/** The first `detectTable` table a file opens, as a named signal (`pyproject.toml: [tool.ruff]`), or `undefined`. */
+function tableSignal(a: Adapter, detection: Detection): Signal | undefined {
+  for (const signal of a.detectTable ?? []) {
+    const header = detection.tableIn(signal);
+    if (header === null) continue;
+    const by = `${signal.file}: ${header}`;
+    return { by, via: `table '${by}'` };
+  }
+  return undefined;
 }
 
 /** The pin that declares an adapter's `detectPin` tool, as a named signal, or `undefined`. */
@@ -890,6 +949,8 @@ function pinSignal(a: Adapter, pinned: Detection['pinned']): Signal | undefined 
 function detectionSignal(a: Adapter, detection: Detection): Signal | undefined {
   const file = a.detect.find((f) => detection.fileExists(f));
   if (file !== undefined) return { by: file, via: file };
+  const table = tableSignal(a, detection);
+  if (table !== undefined) return table;
   const script = a.detectScript;
   if (script !== undefined && detection.manifest.scripts.has(script)) {
     return { by: `package.json: scripts.${script}`, via: `scripts.${script}` };
@@ -1294,12 +1355,13 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
   // `fileExists` (a test, `inventory`) wants detection driven by that alone, not
   // the ambient process cwd — so it gets an empty manifest unless one is passed.
   const manifest = input.manifest ?? (input.cwd !== undefined ? readManifest(join(input.cwd, root)) : EMPTY_MANIFEST);
-  // Pins are read off disk only against an explicit `cwd`, for the same reason.
+  // Pins and TOML tables are read off disk only against an explicit `cwd`, for the same reason.
   const repo = input.cwd;
   const pinned = repo !== undefined
     ? (bin: string) => pinDeclaration(bin, { cwd: join(repo, root), repo, pins: pinChain(pack) })
     : () => null;
-  return { fileExists, manifest, pinned };
+  const tableIn = repo !== undefined ? (signal: TableSignal) => tableAt(join(repo, root), signal) : () => null;
+  return { fileExists, tableIn, manifest, pinned };
 }
 
 /**

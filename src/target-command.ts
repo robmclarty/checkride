@@ -7,8 +7,9 @@
  * The new target adopts the tools its root already configures: each
  * non-opt-in slot detection fills there is named in its `checks`, as `init`
  * names what it adopts, so a tool added later doesn't take the slot over. The
- * slots `--add` names get their blessed tool named too, and, for a ts target,
- * the blessed config scaffolded under its root. The whole config is merged and
+ * slots `--add` names get their blessed tool named too, and, for a ts or
+ * python target, the blessed config scaffolded under its root, unless the
+ * root configures that tool already. The whole config is merged and
  * validated before anything is written, so a change that breaks a rule, such
  * as a ts target nesting under the converted root, exits 2 having written
  * nothing. Every change is printed, and `--dry-run` prints them and stops.
@@ -109,10 +110,10 @@ export async function runTargetAdd(options: TargetAddOptions): Promise<TargetAdd
     targetSlots: TARGET_SLOTS,
   });
   const files = await writeTargetChange(cwd, change, { dryRun, command: 'target add' });
-  // The blessed configs are the ts pack's; another pack names its tool and scaffolds nothing yet.
-  const scaffold = pack.name === PACKS.ts.name ? await scaffoldSlotConfigs(join(cwd, root), add, dryRun) : { written: [], skipped: [] };
+  // A pack with no blessed configs of its own, such as go, names its tool and scaffolds nothing.
+  const scaffold = await scaffoldSlotConfigs(join(cwd, root), add, { dryRun, pack: pack.name });
   const scaffolded = scaffold.written.map((file) => posix.join(root, file));
-  const changes = [...change.changes, ...files.changes, ...scaffolded.map((file) => `${file} written (--add)`)];
+  const changes = [...change.changes, ...files.changes, ...scaffolded.map((file) => `${file} written (--add)`), ...scaffold.configured];
   const written = [...files.files, ...scaffolded];
   report(stdout, `${options.name} (${pack.name} at ${root})`, changes, written, dryRun);
   return { exitCode: 0, changes, written: dryRun ? [] : written };

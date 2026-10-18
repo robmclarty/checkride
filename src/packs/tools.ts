@@ -52,6 +52,12 @@ export const TOOLS: readonly Tool[] = [
     install: 'add @ast-grep/cli to devDependencies, or pin the binary with `mise use ast-grep@<version>`',
   },
   { bin: 'attw', npm: '@arethetypeswrong/cli', install: 'add @arethetypeswrong/cli to devDependencies' },
+  {
+    bin: 'basedpyright',
+    pypi: 'basedpyright',
+    mise: ['pypi:basedpyright', 'pipx:basedpyright'],
+    install: 'add basedpyright to the dev dependencies with `uv add --dev basedpyright`, then run `uv sync`',
+  },
   { bin: 'biome', npm: '@biomejs/biome', install: 'add @biomejs/biome to devDependencies' },
   {
     bin: 'cargo-clippy',
@@ -114,9 +120,27 @@ export const TOOLS: readonly Tool[] = [
   { bin: 'jest', npm: 'jest', install: 'add jest to devDependencies' },
   { bin: 'knip', npm: 'knip', install: 'add knip to devDependencies' },
   { bin: 'markdownlint-cli2', npm: 'markdownlint-cli2', install: 'add markdownlint-cli2 to devDependencies' },
+  {
+    bin: 'mypy',
+    pypi: 'mypy',
+    mise: ['pypi:mypy', 'pipx:mypy'],
+    install: 'add mypy to the dev dependencies with `uv add --dev mypy`, then run `uv sync`',
+  },
   { bin: 'oxlint', npm: 'oxlint', install: 'add oxlint to devDependencies' },
   { bin: 'prettier', npm: 'prettier', install: 'add prettier to devDependencies' },
   { bin: 'publint', npm: 'publint', install: 'add publint to devDependencies' },
+  {
+    bin: 'pytest',
+    pypi: 'pytest',
+    mise: ['pypi:pytest', 'pipx:pytest'],
+    install: 'add pytest to the dev dependencies with `uv add --dev pytest`, then run `uv sync`',
+  },
+  {
+    bin: 'ruff',
+    pypi: 'ruff',
+    mise: ['ruff', 'aqua:astral-sh/ruff', 'pypi:ruff', 'pipx:ruff'],
+    install: 'add ruff to the dev dependencies with `uv add --dev ruff`, then run `uv sync`, or pin the binary with `mise use ruff@<version>`',
+  },
   {
     bin: 'rumdl',
     mise: ['rumdl', 'aqua:rvben/rumdl'],

@@ -1,7 +1,8 @@
 /**
  * R11.4 for the packs that ship: ts targets from `package.json` (a root one
  * claiming every nested package), go targets from `go.work` and `go.mod`, rust
- * targets from `Cargo.toml`, one bash target where the shell files no other
+ * targets from `Cargo.toml`, python targets from the top-most Python
+ * manifests, one bash target where the shell files no other
  * target holds gather, names from roots with collisions numbered, and one
  * target at the root of the root's pack read as the implicit mode a repo
  * already runs in (D68). `discoverRun` applies them in memory (R13.2).
@@ -137,6 +138,44 @@ describe('discoverTargets for go and rust (D68)', () => {
     expect(await discoverTargets(repo)).toEqual([
       { name: 'app', lang: 'ts', root: '.' },
       { name: 'app-2', lang: 'go', root: '.' },
+    ]);
+  });
+});
+
+describe('discoverTargets for python', () => {
+  let repo: string;
+  beforeEach(async () => { repo = await mkdtemp(join(tmpdir(), 'checkride-discover-py-')); });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  const write = async (path: string): Promise<void> => {
+    await mkdir(dirname(join(repo, path)), { recursive: true });
+    await writeFile(join(repo, path), '');
+  };
+
+  test('each top-most pyproject.toml, setup.cfg or setup.py directory proposes a target that claims the nested ones', async () => {
+    await write('pyproject.toml');
+    await write('packages/core/pyproject.toml');
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'python', root: '.' }]);
+    expect(isImplicit(await discoverTargets(repo), 'python')).toBe(true);
+    await rm(join(repo, 'pyproject.toml'));
+    await write('legacy/setup.py');
+    await write('legacy/setup.cfg');
+    await write('tools/gen/setup.cfg');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'legacy', lang: 'python', root: 'legacy' },
+      { name: 'core', lang: 'python', root: 'packages/core' },
+      { name: 'gen', lang: 'python', root: 'tools/gen' },
+    ]);
+  });
+
+  test('reads no marker from a virtual environment, and a python root beside a package.json proposes both', async () => {
+    await write('.venv/lib/site/pyproject.toml');
+    expect(await discoverTargets(repo)).toEqual([]);
+    await write('package.json');
+    await write('pyproject.toml');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'app', lang: 'ts', root: '.' },
+      { name: 'app-2', lang: 'python', root: '.' },
     ]);
   });
 });

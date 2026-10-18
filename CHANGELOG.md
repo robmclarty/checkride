@@ -466,8 +466,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where that environment doesn't exist yet or lacks the tool, the check fails
   naming the `uv sync` to run, and nothing downloads. A red check whose
   `uv run` found a package missing from uv's cache prints `run uv sync first`
-  under its status. The python pack's own adapters arrive in a later
-  release; see `docs/packs.md`.
+  under its status. See `docs/packs.md`.
+- **The python pack checks Python code.** A python target runs ruff
+  (`lint`, and `format`, opt-in), mypy, or basedpyright where the config
+  names it or only its config sits there (`types`), and pytest (`test`), each
+  from the project's environment when `uv.lock` lists it. Each tool is
+  detected by its own config file, by its table in `pyproject.toml`
+  (`[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest.ini_options]`
+  and so on, a sub-table such as `[tool.ruff.lint]` included), or by a pin,
+  and `detected_by` names the header it found. A pytest run that collects no
+  tests exits 5 and fails the check, rather than pass with nothing tested.
+  ruff runs with `--no-cache`, since it fails outright in a checkout it can't
+  write `.ruff_cache` into. Discovery proposes a python target for each
+  top-most directory holding a Python manifest, which claims the ones under
+  it, so a uv workspace is one target. `checkride target add --lang python
+  --add lint,types` names ruff and mypy and scaffolds the blessed `ruff.toml`
+  and `mypy.ini` (`pytest.ini` for `test`), and `checkride init --add` does
+  the same at a Python root; a tool `pyproject.toml` already configures keeps
+  that config, and the command says so rather than write a file that would
+  hide it (#7). Checked against ruff 0.17.1, mypy 2.4.0, basedpyright 1.40.2
+  and pytest 9.1.1; see `docs/packs.md`.
 
 ### Changed
 
@@ -876,6 +894,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ADAPTERS` are unchanged, so no run writes `pin_source: "uv-lock"` yet. A
   repo without `targets` whose root holds only a Python marker now records
   `pack: "python"` on its checks.
+- Additive: `PACKS.python` gains its rows (`ruff`, `ruff-format`, `mypy`,
+  `basedpyright` and `pytest`), and `TOOLS` gains `ruff`, `mypy`,
+  `basedpyright` and `pytest`, each with its PyPI package, so a run now writes
+  `pin_source: "uv-lock"`, with the version the lock pins as `tool_version`,
+  in the JSON Schema's description and the contract doc. The exported
+  `Adapter` type gains an optional `detectTable` (TOML tables, each a `file`
+  and a dotted `table`, whose header, or a sub-table's, detects the adapter),
+  and `detected_by` gains the form `<file>: [<table>]`, such as
+  `pyproject.toml: [tool.ruff]`, in the schema's description and the contract
+  doc.
 
 ### Internal
 

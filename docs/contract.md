@@ -152,9 +152,9 @@ required ones, so a field can't reach the schema without a row here.
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
-| `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
+| `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, `<file>: [<table>]` for a TOML table that configures the tool, such as `pyproject.toml: [tool.ruff]`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
-| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `mise` or `path`; also `uv-lock` or `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
+| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `mise` or `path`; also `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
@@ -202,7 +202,9 @@ the source that declared the copy that ran: `js-lockfile` for a
 (`pnpm run build`) included, `go-mod-tool` for a Go tool the target's
 `go.mod` declares in a `tool` directive, run as `go tool <tool>`,
 `rust-toolchain` for cargo, rustfmt or clippy, which a `rust-toolchain.toml`
-pins with its toolchain, `mise` for a
+pins with its toolchain, `uv-lock` for a Python tool the project's `uv.lock`
+lists, run from the project's environment, `override` for a tool the run's
+`--pins` file pins, `mise` for a
 tool a `mise.toml` in the repo names under `[tools]`, and `path` for a tool
 nothing declared, found on `PATH` and so unpinned. A toolchain's own
 executable, such as `go` or `gofmt` in a go target, records `mise` or `path`
@@ -210,14 +212,15 @@ the same way. `tool_version` adds the version when a file read finds it, never
 by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
 whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires
-for the module that provides the tool, and for `rust-toolchain`, the file's
-channel when it names an exact release. `mise` and `path` record none,
+for the module that provides the tool, for `rust-toolchain`, the file's
+channel when it names an exact release, and for `uv-lock`, the version the
+lock pins the tool's package at. `mise` and `path` record none,
 since mise or the machine decides it. `pin_source` appears exactly where
 `argv` does, apart from a custom check's own command, such as
 `node scripts/x.mjs`, which spawns as written through no pin source and
 records only its `argv`. A declared pin whose source can't run the tool fails
 the check with exit 1, naming the source; checkride never falls back to
-another copy. The schema names three more sources, for packs and a flag
+another copy. The schema names one more source, `tf-version`, for a pack
 checkride doesn't have yet, so its vocabulary is written once.
 
 **A run records what it selected and the tree it read.** `run` names each

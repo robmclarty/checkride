@@ -194,3 +194,59 @@ describe('the rust pack (R5.6)', () => {
     }
   });
 });
+
+/** The python pack's row named `name`. */
+const pythonRow = (name: string): Adapter | undefined => PACKS.python.adapters.find((a) => a.name === name);
+
+describe('the python pack (R5.7)', () => {
+  test('is marked by pyproject.toml, setup.cfg or setup.py, pins through uv.lock, then mise, then PATH, and switches downloads off', () => {
+    expect(PACKS.python.markers).toEqual(['pyproject.toml', 'setup.cfg', 'setup.py']);
+    expect(PACKS.python.pins).toEqual(['uv-lock', 'mise', 'path']);
+    expect(PACKS.python.env).toEqual({ PYTHONDONTWRITEBYTECODE: '1', PIP_NO_INDEX: '1', UV_OFFLINE: '1' });
+  });
+
+  test('fills each slot R5.7 names, mypy first in types, and captures each tool in the form it prints', () => {
+    expect(PACKS.python.adapters.map((a) => [a.slot, a.name, a.outputFile])).toEqual([
+      ['lint', 'ruff', 'lint.json'],
+      ['format', 'ruff-format', null],
+      ['types', 'mypy', 'types.jsonl'],
+      ['types', 'basedpyright', 'types.json'],
+      ['test', 'pytest', null],
+    ]);
+    const scopeOf = new Map(SLOTS.map((s) => [s.name, s.scope]));
+    for (const a of PACKS.python.adapters) expect(scopeOf.get(a.slot), a.name).toBe('target');
+  });
+
+  test('runs each tool with the flags verified at the pinned versions, ruff without the cache a read-only checkout refuses', () => {
+    expect(pythonRow('ruff')?.args).toEqual(['exec', 'ruff', 'check', '--no-cache', '--output-format=json', '.']);
+    expect(pythonRow('ruff')?.fixArgs).toEqual(['exec', 'ruff', 'check', '--fix', '.']);
+    expect(pythonRow('ruff-format')?.args).toEqual(['exec', 'ruff', 'format', '--no-cache', '--check', '.']);
+    expect(pythonRow('ruff-format')?.fixArgs).toEqual(['exec', 'ruff', 'format', '.']);
+    expect(pythonRow('mypy')?.args).toEqual(['exec', 'mypy', '--output', 'json', '.']);
+    expect(pythonRow('basedpyright')?.args).toEqual(['exec', 'basedpyright', '--outputjson']);
+    expect(pythonRow('pytest')?.args).toEqual(['exec', 'pytest', '-q']);
+  });
+
+  test('detects each tool by its config file, its pyproject.toml table, or a pin', () => {
+    const tables = (name: string) => pythonRow(name)?.detectTable?.map((t) => `${t.file} [${t.table}]`);
+    for (const name of ['ruff', 'ruff-format']) {
+      expect(pythonRow(name)?.detect, name).toEqual(['ruff.toml', '.ruff.toml']);
+      expect(tables(name), name).toEqual(['pyproject.toml [tool.ruff]']);
+      expect(pythonRow(name)?.detectPin, name).toBe('ruff');
+    }
+    expect(tables('mypy')).toEqual(['pyproject.toml [tool.mypy]']);
+    expect(tables('basedpyright')).toEqual(['pyproject.toml [tool.basedpyright]', 'pyproject.toml [tool.pyright]']);
+    expect(pythonRow('pytest')?.detect).toContain('conftest.py');
+    expect(tables('pytest')).toEqual(['pyproject.toml [tool.pytest]']);
+  });
+
+  test('marks only ruff static, and runs every check offline', () => {
+    expect(PACKS.python.adapters.filter((a) => a.static === true).map((a) => a.name)).toEqual(['ruff', 'ruff-format']);
+    expect(PACKS.python.adapters.filter((a) => a.network === true)).toEqual([]);
+  });
+
+  test('gives every tool the PyPI package a uv.lock lists it by, and basedpyright, never the pyright wrapper', () => {
+    for (const bin of ['ruff', 'mypy', 'basedpyright', 'pytest']) expect(toolRow(bin)?.pypi, bin).toBe(bin);
+    expect(toolRow('pyright')).toBeUndefined();
+  });
+});

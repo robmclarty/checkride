@@ -131,6 +131,36 @@ describe('runTargetAdd', () => {
     expect(existsSync(join(dir, 'scripts/.oxlintrc.json'))).toBe(false);
   });
 
+  test('a python target’s --add lint,types names ruff and mypy and scaffolds the blessed ruff.toml and mypy.ini', async () => {
+    await put('py/pyproject.toml', '[project]\nname = "x"\n');
+    const out = sink();
+    await add({ name: 'py', lang: 'python', root: 'py', add: ['lint', 'types'] }, out);
+    expect(JSON.parse(await read('checkride.config.json')).targets.py).toEqual({ lang: 'python', root: 'py', checks: { lint: 'ruff', types: 'mypy' } });
+    expect(await read('py/ruff.toml')).toContain('[lint]');
+    expect(await read('py/mypy.ini')).toContain('[mypy]');
+    expect(out.text()).toContain('py/ruff.toml written (--add)');
+    expect(out.text()).toContain('py/mypy.ini written (--add)');
+  });
+
+  test('a python target’s --add scaffolds nothing for a tool its pyproject.toml configures, which a new file would hide', async () => {
+    await put('py/pyproject.toml', '[tool.ruff]\nline-length = 100\n');
+    const out = sink();
+    await add({ name: 'py', lang: 'python', root: 'py', add: ['lint', 'format', 'test'] }, out);
+    expect(existsSync(join(dir, 'py/ruff.toml'))).toBe(false);
+    expect(await read('py/pytest.ini')).toContain('[pytest]');
+    expect(out.text()).toContain('--add lint (pyproject.toml: [tool.ruff] configures it already)');
+    expect(out.text()).toContain('--add format (pyproject.toml: [tool.ruff] configures it already)');
+    expect(JSON.parse(await read('checkride.config.json')).targets.py.checks).toEqual({ lint: 'ruff', format: 'ruff-format', test: 'pytest' });
+  });
+
+  test('a python target’s --add lint,format writes the one ruff.toml both read, once', async () => {
+    await put('py/setup.py');
+    const out = sink();
+    const result = await add({ name: 'py', lang: 'python', root: 'py', add: ['lint', 'format'], dryRun: true }, out);
+    expect(result.changes.filter((line) => line === 'py/ruff.toml written (--add)')).toHaveLength(1);
+    expect(existsSync(join(dir, 'py/ruff.toml'))).toBe(false);
+  });
+
   test('a change that breaks the config, a ts target nesting under the converted root, writes nothing', async () => {
     await put('package.json', '{"name":"x"}');
     await put('apps/web/package.json');

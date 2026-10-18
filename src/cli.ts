@@ -383,10 +383,11 @@ checkride.baseline.json's entries move from lint to app:lint. A ts target
 rooted at . takes the implicit one over instead. Each change is printed.
 
 Options:
-  --lang <pack>       The target's pack: ts or bash
+  --lang <pack>       The target's pack: ts, bash, go, rust or python
   --root <dir>        Its directory, relative to the repo root (. for the root)
-  --add <a,b>         Name the blessed tool for these slots, and for a ts
-                      target scaffold its config under the root
+  --add <a,b>         Name the blessed tool for these slots, and for a ts or
+                      python target scaffold its config under the root, unless
+                      the root configures the tool already
   --root-name <n>     The name a converted repo's implicit target takes
   --dry-run           Print the changes; write nothing
   -h, --help          Show this help

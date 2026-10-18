@@ -627,6 +627,25 @@ describe('existing-project adoption (idempotent)', () => {
     expect(existsSync(join(dir, 'cspell.json'))).toBe(true);
   });
 
+  test('--add scaffolds the python pack’s blessed configs in a pyproject.toml root, and adopts what they configure (D38)', async () => {
+    await writeFile(join(dir, 'pyproject.toml'), '[project]\nname = "legacy"\n');
+    const result = await runInit({ cwd: dir, add: ['lint', 'types', 'docs'], probeFailures: noFailures, hook: false });
+    expect(result.written).toEqual(expect.arrayContaining(['ruff.toml', 'mypy.ini', '.markdownlint-cli2.jsonc']));
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    expect(cfg.checks).toMatchObject({ lint: 'ruff', types: 'mypy' });
+    expect(existsSync(join(dir, 'package.json'))).toBe(false);
+  });
+
+  test('--add in a pyproject.toml root leaves a tool its [tool.*] table configures, and refuses a ts pack config', async () => {
+    await writeFile(join(dir, 'pyproject.toml'), '[tool.mypy]\nstrict = true\n');
+    const result = await runInit({ cwd: dir, add: ['types'], probeFailures: noFailures, hook: false });
+    expect(existsSync(join(dir, 'mypy.ini'))).toBe(false);
+    expect(result.skipped).toContain('--add types (pyproject.toml: [tool.mypy] configures it already)');
+    await expect(runInit({ cwd: dir, add: ['dead'], probeFailures: noFailures, hook: false })).rejects.toThrow(
+      "init: --add dead scaffolds the ts pack's config, and this root's pack is python; --add takes types, format, lint, test, docs, spell, prose here",
+    );
+  });
+
   test('--add keeps scaffolding the ts pack’s configs where a package.json sits beside a go.mod', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
