@@ -140,7 +140,9 @@ fall-through a pin chain exists to rule out, so the source runs
 `mise which <tool>` from the check's directory before it spawns, and fails the
 check when mise answers that the pinned copy isn't active. The question costs
 one short spawn per check that mise launches, and it never asks for a
-version.
+version. A `mise.toml` mise hasn't trusted fails the check too, quoting mise's
+own line and naming `mise trust` rather than `mise install`, which would trust
+the file as a side effect.
 
 ## The bash pack
 
@@ -500,7 +502,9 @@ plugin skills run checkride in a repo, chosen from the repo root:
 The gate runs the entry command with `--strict --digest` and the gate
 profile's flags. The hook script tests whether that copy is there to run
 (`node_modules/.bin`, `mise which checkride`, or `command -v checkride`)
-before it blocks on a gate that didn't answer.
+before it blocks on a gate that didn't answer. Where `mise which` fails
+because mise hasn't trusted the `mise.toml`, the gate stands down naming
+`mise trust`, as it names the install for a checkride that isn't there.
 
 ## What `doctor` reports
 

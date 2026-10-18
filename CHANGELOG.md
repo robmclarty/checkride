@@ -137,9 +137,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rather than fall back to another copy whose version depends on the
   machine. The new `mise` source runs a tool that a `mise.toml` or
   `.mise.toml` in the repo names under `[tools]` as `mise exec -- <tool>`,
-  with mise's auto-install switched off, and the new `path` source runs a
-  tool nothing declares from `PATH`, recorded as unpinned. With
-  `requirePins: true` such a tool fails instead, with
+  with mise's auto-install switched off. A version mise hasn't installed
+  fails naming `mise install`. A `mise.toml` mise hasn't trusted, as one that
+  sets a tool option is until `mise trust` runs, fails naming `mise trust`
+  with mise's own line on it, never the `mise install` that would trust the
+  file as a side effect. The new `path` source runs a tool nothing declares
+  from `PATH`, recorded as unpinned. With `requirePins: true` such a tool
+  fails instead, with
   `<tool> is not pinned; pin it with: mise use <id>@<version>`. The `ts` and
   `repo` packs still resolve every tool through the project's package
   manager alone, so no existing run changes; the packs that reach mise and
@@ -211,8 +215,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PATH` otherwise, which `doctor` reports as the harness unpinned. Where
   nothing pins it, `doctor` and the gate name
   `mise use 'npm:checkride[allow_low_downloads=true]@<version>'`, quoted so
-  zsh doesn't read the brackets as a glob. The stanza lists a target's checks
-  as `<target>:<slot>`. See `docs/packs.md`.
+  zsh doesn't read the brackets as a glob. Where the root `mise.toml` is one
+  mise hasn't trusted, which `mise exec` refuses in paranoid mode, the gate
+  stands down naming `mise trust` rather than an install. The stanza lists a
+  target's checks as `<target>:<slot>`. See `docs/packs.md`.
 - **Installing checkride documents its two channels.** `docs/distribution.md`
   covers npm and the mise route, which pins `npm:checkride` with `node` beside
   it in a repo's `mise.toml` and is the supported way to run checkride in a
@@ -441,8 +447,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and with mise's installs off, and records `pin_source: "override"` with
   that version. A toolchain it pins, such as `go`, runs that copy too. A
   version mise hasn't installed fails the check, naming the tool and the
-  `mise install` that would fix it, and nothing downloads. An entry with no
-  version string exits 2 naming the file. Detection still reads only the
+  `mise install` that would fix it, or `mise trust` where a `mise.toml` the
+  run reads is one mise hasn't trusted, and nothing downloads. An entry with
+  no version string exits 2 naming the file. Detection still reads only the
   repo, so the file changes which copy runs, never which checks run. A run
   with it never ratchets the baseline, its summary records `run.pins`, and
   the stop gate strips the variable. `doctor` refuses the flag for now (#7).

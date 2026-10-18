@@ -655,6 +655,16 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   line break, and a `# note` line at column 0 inside the `import` list), and Phase 11 exists to
   ship a `--static-only` that fails closed (the maintainer's call at step 80's harvest, from
   step 80's parks).
+- <a id="d82"></a>**D82 (untrusted-mise)**: a `mise.toml` mise hasn't trusted is named as one.
+  A mise-pinned check whose `mise which` fails because mise hasn't trusted the repo's config
+  refuses naming `mise trust`, with mise's own trust line in place of its first line alone
+  (`error parsing config file`), and never names `mise install` for it; the gate hook script
+  tells an untrusted `mise.toml` apart from a missing checkride and stands down naming
+  `mise trust`, since neither is an edit the turn broke, *because* checkride's entry sets
+  `allow_low_downloads` ([D80 (binary-deferred)](#d80)), and any tool option makes mise refuse
+  an untrusted file, so every language scaffold and every fresh clone of one meets the refusal
+  before its first run, and the release that calls the mise route supported shouldn't send them
+  to `mise install` (the maintainer's call at step 72's harvest, from step 72's parks).
 
 ## Constraints
 
@@ -716,7 +726,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 10. Python | 58 to 61 | the python pack |
 | 11. Terraform | 62 to 65, 79, 80, 82 | the terraform pack, and a `--static-only` that fails closed |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
-| 13. The mise route and doctor | 72, 81 | a scaffolded mise route that installs and is tested, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
+| 13. The mise route and doctor | 72, 83, 81 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
 
 Every phase ends at a release point, and its last step runs the whole `pnpm test:e2e`
@@ -1057,10 +1067,14 @@ reference rules and porting trap apply as written there.
 Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 ([D80 (binary-deferred)](#d80)).
 
-72. [ ] fix(init): make the mise route install, and test and document it, **done when:** the `mise.toml` that `init --lang go|rust` writes pins `npm:checkride` with `allow_low_downloads = true`, which mise 2026.10's npm backend needs before it installs a package under 1000 weekly downloads, and the `mise use npm:checkride@<version>` hint in `doctor` and agent setup carries the same opt-in; an e2e case installs a scaffold's `mise.toml` through an isolated mise with no Node on `PATH`, its checkride pin set to a published release, and runs `mise exec -- checkride --version`, skipping without mise unless `CHECKRIDE_REQUIRE_TOOLCHAINS=1`; `doctor` in a root with no `package.json` no longer fails for a missing Node lockfile; `docs/distribution.md` names npm and the mise route as this build's channels, presents the mise route as the supported way to run checkride in a repo without Node, and leaves the binary to a later build ([D80 (binary-deferred)](#d80), [D46 (checkride-pin)](#d46)); `CHANGELOG.md` says so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+72. [x] fix(init): make the mise route install, and test and document it, **done when:** the `mise.toml` that `init --lang go|rust` writes pins `npm:checkride` with `allow_low_downloads = true`, which mise 2026.10's npm backend needs before it installs a package under 1000 weekly downloads, and the `mise use npm:checkride@<version>` hint in `doctor` and agent setup carries the same opt-in; an e2e case installs a scaffold's `mise.toml` through an isolated mise with no Node on `PATH`, its checkride pin set to a published release, and runs `mise exec -- checkride --version`, skipping without mise unless `CHECKRIDE_REQUIRE_TOOLCHAINS=1`; `doctor` in a root with no `package.json` no longer fails for a missing Node lockfile; `docs/distribution.md` names npm and the mise route as this build's channels, presents the mise route as the supported way to run checkride in a repo without Node, and leaves the binary to a later build ([D80 (binary-deferred)](#d80), [D46 (checkride-pin)](#d46)); `CHANGELOG.md` says so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/init.ts`, `src/doctor.ts`, `src/agent-setup/scripts.ts`, `test/e2e/shapes.e2e.test.ts`,
       `docs/distribution.md`, `README.md`, `docs/getting-started.md`
     - model: sonnet (a pin, a hint, a doctor row and a doc; the e2e follows the probe D80 records)
+83. [ ] fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml, **done when:** a mise-pinned check whose `mise which` fails because mise hasn't trusted the repo's `mise.toml` refuses naming `mise trust`, with mise's trust line rather than only `error parsing config file`, and no longer names `mise install` for it; the gate hook script tells an untrusted `mise.toml` apart from a missing checkride and stands down naming `mise trust` ([D82 (untrusted-mise)](#d82)); each case has a unit test; an e2e case runs a check in an `init --lang` scaffold before `mise trust` and finds `mise trust` in its refusal; `CHANGELOG.md` says so; `test/e2e/shapes.e2e.test.ts` is green ([D52 (e2e-cadence)](#d52))
+    - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/agent-setup/scripts.ts`,
+      `test/e2e/shapes.e2e.test.ts`, `CHANGELOG.md`
+    - model: sonnet (a refusal's wording and one shell branch, each pinned by a test)
 81. [ ] feat(doctor): read --pins and --static-only instead of refusing them, **done when:** `doctor --pins <mise.toml>` probes each tool the file pins through the `override` source, reports the version `mise where <id>@<version>` finds, names a version mise hasn't installed, and reads its pin rows and unpinned list the way a run does (R13.3); `doctor --static-only` reports each check a static run would skip, with its `static-only:` cause, and pre-flights every package manager's install as the run does (R13.4); neither flag exits 2 any longer, and `docs/contract.md` and `CHANGELOG.md` drop "doctor refuses the flag for now" ([D71 (consumer-calls)](#d71), [D80 (binary-deferred)](#d80))
     - seam: `src/doctor.ts`, `src/cli.ts`, `docs/contract.md`
     - model: opus (doctor has to probe the copies a consumer run would use, through the same chain)
@@ -1082,7 +1096,7 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-82, 72, 81, 66, 67, 68, 73, 74
+83, 81, 66, 67, 68, 73, 74
 
 ## Deferred to a later build
 

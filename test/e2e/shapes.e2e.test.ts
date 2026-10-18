@@ -332,3 +332,42 @@ describeWithMise(MISE)('the mise route', () => {
     expect((await execFileP(mise, ['which', 'checkride'], { cwd: repo, env, ...BIG })).stdout).toContain(join(dir, 'mise', 'data'));
   }, 300_000);
 });
+
+/**
+ * What a run inherits from mise's environment that would trust a file unasked:
+ * `MISE_YES` makes `mise which` trust the config it reads, and
+ * `MISE_TRUSTED_CONFIG_PATHS` trusts whatever it names.
+ */
+const TRUSTING = new Set(['MISE_YES', 'MISE_TRUSTED_CONFIG_PATHS']);
+
+/**
+ * A scaffold before `mise trust` (D82). checkride's entry sets a tool option,
+ * so mise won't read the `mise.toml` until someone trusts it, and a check it
+ * pins refuses naming `mise trust`. checkride runs from Node here, not through
+ * `mise exec`, which trusts the config it reads, and mise keeps what it trusts
+ * in a state directory of the case's own. No Go is needed: the refusal comes
+ * before anything runs.
+ */
+describeWithMise(MISE)('an untrusted mise.toml', () => {
+  let dir: string;
+  beforeAll(async () => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), 'checkride-e2e-untrusted-')));
+    await mkdir(join(dir, 'repo'));
+    await execFileP('node', [CLI, 'init', '--lang', 'go', '--name', 't-demo'], { cwd: join(dir, 'repo'), ...BIG });
+    await execFileP('git', ['init', '-q'], { cwd: join(dir, 'repo') });
+  }, 60_000);
+  afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('a check in a scaffold before mise trust refuses naming mise trust, not mise install', async () => {
+    const repo = join(dir, 'repo');
+    const inherited = Object.entries(process.env).filter(([key]) => !TRUSTING.has(key));
+    const env = { ...Object.fromEntries(inherited), MISE_STATE_DIR: join(dir, 'state') };
+    const run = spawnSync(process.execPath, [CLI, '--only', 'app:lint'], { cwd: repo, env, encoding: 'utf8' });
+    expect(run.status).toBe(1);
+    const refusal = await readFile(join(repo, '.check', 'app', 'lint.stderr.txt'), 'utf8');
+    expect(refusal).toContain("the `lint` slot's `golangci-lint` is pinned through mise, but mise won't read a config file here until it's trusted.");
+    expect(refusal).toMatch(/^ {2}mise which golangci-lint: .* not trusted\.$/m);
+    expect(refusal).toContain('\n  mise trust\n');
+    expect(refusal).not.toContain('mise install');
+  }, 60_000);
+});

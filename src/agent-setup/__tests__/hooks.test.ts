@@ -10,9 +10,9 @@
  * script stopped parsing.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -229,14 +229,16 @@ describe('generated scripts', () => {
    */
   test('every generated message survives the shell and the JSON body', () => {
     for (const harness of ['claude', 'cursor'] as const) {
-      const script = gateScript('pnpm', { harness });
-      const emits = script.split('\n').filter((l) => /^\s*(block|stand_down) '/.test(l));
-      expect(emits.length).toBeGreaterThanOrEqual(3);
-      for (const emit of emits) {
-        const message = /'(.*)'/.exec(emit)?.[1] ?? '';
-        expect(message).toContain('could not run');
-        expect(message).not.toContain('"');
-        expect(message).not.toContain('\\');
+      for (const entry of ['pnpm', { kind: 'mise' }] as const) {
+        const script = gateScript(entry, { harness });
+        const emits = script.split('\n').filter((l) => /^\s*(block|stand_down) '/.test(l));
+        expect(emits.length).toBeGreaterThanOrEqual(3);
+        for (const emit of emits) {
+          const message = /'(.*)'/.exec(emit)?.[1] ?? '';
+          expect(message).toContain('could not run');
+          expect(message).not.toContain('"');
+          expect(message).not.toContain('\\');
+        }
       }
     }
   });
@@ -970,6 +972,59 @@ function call(toolInput: Record<string, string>): string {
 function shellCall(command: string, cwd: string): string {
   return JSON.stringify({ hook_event_name: 'beforeShellExecution', command, cwd });
 }
+
+/** The message a claude stand-down carried to the user. */
+function systemMessage(stdout: string): string {
+  return (JSON.parse(stdout) as { systemMessage: string }).systemMessage;
+}
+
+/**
+ * The mise entry's could-not-run tail, spawned as a real process against a
+ * stand-in `mise` whose `exec` fails, as the gate's launch would, and whose
+ * `which` answers as each case says. `mise which` fails for an untrusted
+ * `mise.toml` and a missing checkride alike, and only one of them is fixed by
+ * an install (D82).
+ */
+describe('mise gate script behavior (live)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-mise-gate-'));
+    await mkdir(join(dir, 'bin'));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Run the claude gate script with a `mise` whose `which` runs `which`, returning its exit status and stdout. */
+  async function gate(which: string): Promise<{ status: number | null; stdout: string }> {
+    await writeFile(join(dir, 'bin', 'mise'), `#!/bin/sh\n[ "$1" = which ] || exit 1\n${which}\n`);
+    await chmod(join(dir, 'bin', 'mise'), 0o755);
+    await writeFile(join(dir, 'gate.sh'), gateScript({ kind: 'mise' }, { harness: 'claude' }));
+    const env = { PATH: `${join(dir, 'bin')}:/usr/bin:/bin`, CLAUDE_PROJECT_DIR: dir };
+    const run = spawnSync('sh', [join(dir, 'gate.sh')], { input: '{}', env, encoding: 'utf8' });
+    return { status: run.status, stdout: run.stdout };
+  }
+
+  test('an untrusted mise.toml stands the gate down naming mise trust, not an install', async () => {
+    const { status, stdout } = await gate(`echo "mise ERROR Config files in ${dir}/mise.toml are not trusted." >&2; exit 1`);
+    expect(status).toBe(0);
+    const said = systemMessage(stdout);
+    expect(said).toContain('mise has not trusted the mise.toml that pins checkride here');
+    expect(said).toContain('Review mise.toml, run `mise trust`, then run `mise exec -- checkride`.');
+    expect(said).not.toContain('mise install');
+  });
+
+  test('a checkride mise has not installed still stands down naming mise install', async () => {
+    const { status, stdout } = await gate('echo "mise ERROR checkride is a mise bin however it is not currently active." >&2; exit 1');
+    expect(status).toBe(0);
+    const said = systemMessage(stdout);
+    expect(said).toContain('the checkride mise.toml pins is not installed');
+    expect(said).toContain('Run `mise install`');
+    expect(said).not.toContain('mise trust');
+  });
+
+  test('an installed checkride that did not answer still blocks', async () => {
+    expect(await gate('exit 0')).toEqual({ status: 2, stdout: '' });
+  });
+});
 
 describe('protect script behavior (live)', () => {
   let dir: string;

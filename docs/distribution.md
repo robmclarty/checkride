@@ -52,8 +52,9 @@ mise exec -- checkride       # the gate
 
 mise loads a `mise.toml` that sets a tool option only once it's trusted, and
 `allow_low_downloads` is a tool option, so until `mise trust` runs, mise
-refuses the whole file and no check it pins can run. `init --lang go|rust`
-prints `mise trust` first among its setup steps for that reason.
+refuses the whole file and no check it pins can run: each fails naming
+`mise trust`. `init --lang go|rust` prints `mise trust` first among its setup
+steps for that reason.
 
 checkride still runs on Node, so `node` is a pin like any other tool's: mise
 installs it, and nothing on the machine's `PATH` has to provide it. Where a

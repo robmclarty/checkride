@@ -160,8 +160,7 @@ const MISE_WHICH_TIMEOUT_MS = 10_000;
 
 /**
  * Whether mise can run the copy of `bin` it pins for `cwd`, asked through
- * `mise which <bin>` with installs switched off, or the first line of mise's
- * answer when it can't.
+ * `mise which <bin>` with installs switched off, or why not when it can't.
  *
  * `mise exec` can't be trusted with this. With auto-install off, a pinned
  * version that isn't installed makes it warn and run whatever `bin` is on
@@ -179,14 +178,24 @@ export function miseCanRun(
   return askMise(mise, ['which', bin], cwd, { ...env, ...MISE_NO_INSTALL });
 }
 
-/** Whether mise answered yes, or the first line of its error when it didn't. */
-type MiseAnswer = { ok: true } | { ok: false; detail: string };
+/**
+ * Whether mise answered yes, or the line of its error that says why it
+ * didn't, and whether that's a config file mise hasn't trusted.
+ */
+export type MiseAnswer = { ok: true } | { ok: false; detail: string; untrusted: boolean };
+
+/**
+ * The line mise gives a config file it won't read until someone runs `mise
+ * trust` (`Config files in <path> are not trusted.`, checked against mise
+ * 2026.10.4). Its first line, `error parsing config file`, names no cause.
+ */
+const UNTRUSTED_LINE = /\bnot trusted\b/;
 
 /**
  * Ask mise `args` from `cwd` with `env`, waiting at most
  * {@link MISE_WHICH_TIMEOUT_MS}: a zero exit is yes, and otherwise the detail
- * is mise's first error line, its `WARN` lines (an update notice, say) passed
- * over.
+ * is mise's line for an untrusted config, else its first error line, its
+ * `WARN` lines (an update notice, say) passed over.
  */
 function askMise(mise: string, args: readonly string[], cwd: string, env: Readonly<Record<string, string | undefined>>): MiseAnswer {
   try {
@@ -195,8 +204,9 @@ function askMise(mise: string, args: readonly string[], cwd: string, env: Readon
   } catch (error) {
     const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr) : '';
     const lines = stderr.split('\n').filter((l) => !l.startsWith('mise WARN'));
-    const line = lines.map((l) => l.replace(/^mise ERROR\s*/, '').trim()).find(Boolean);
-    return { ok: false, detail: line ?? `mise ${args.join(' ')} failed` };
+    const said = lines.map((l) => l.replace(/^mise ERROR\s*/, '').trim()).filter(Boolean);
+    const trust = said.find((l) => UNTRUSTED_LINE.test(l));
+    return { ok: false, detail: trust ?? said[0] ?? `mise ${args.join(' ')} failed`, untrusted: trust !== undefined };
   }
 }
 
@@ -286,8 +296,7 @@ export function loadPinsFile(path: string): ReadonlyMap<string, string> {
 /**
  * Whether mise has installed `spec` (`<id>@<version>`), asked through
  * `mise where` offline and with installs off, which exits 1 for a version it
- * hasn't installed and downloads nothing, or the first line of mise's answer
- * when it hasn't.
+ * hasn't installed and downloads nothing, or why not when it hasn't.
  */
 export function miseHasInstalled(
   mise: string,

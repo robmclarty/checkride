@@ -197,6 +197,21 @@ const FULL_CHAIN = ['js-lockfile', 'mise', 'path'] as const;
 
 const SHELLCHECK = ['exec', 'shellcheck', '-f', 'json1', 'run.sh'];
 
+/**
+ * A mise that answers as 2026.10.4 does for a config file it hasn't trusted:
+ * a first error line that names no cause, the line that does, and its hint.
+ */
+const UNTRUSTED_MISE = [
+  'echo "mise WARN  mise version 2026.10.12 available" >&2',
+  'echo "mise ERROR error parsing config file: /r/mise.toml" >&2',
+  'echo "mise ERROR Config files in /r/mise.toml are not trusted." >&2',
+  "echo 'Trust them with `mise trust`. See https://mise.jdx.dev/cli/trust.html for more information.' >&2",
+  'exit 1',
+].join('\n');
+
+/** How each refusal for an untrusted config opens its cause. */
+const UNTRUSTED_CAUSE = "but mise won't read a config file here until it's trusted.";
+
 describe('the js-lockfile source records the version it installed', () => {
   test('reads node_modules/<package>/package.json, walking up from the check to the repo root', () =>
     withScratch(async (s) => {
@@ -325,6 +340,24 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       expect(refusal).toContain("mise can't run the copy it pins");
       expect(refusal).toContain('mise which shellcheck: shellcheck is a mise bin however it is not currently active.');
       expect(refusal).toContain('mise install');
+    }));
+
+  /**
+   * D82: mise refuses a config with a tool option until it's trusted, and the
+   * refusal says so. `mise install` would trust the file as a side effect.
+   */
+  test("a tool pinned in a config mise hasn't trusted fails, naming mise trust and mise's trust line", () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nshellcheck = { version = "0.11.0" }\n');
+      await s.tool('mise', UNTRUSTED_MISE);
+      await s.tool('shellcheck');
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }))) ?? '';
+      expect(refusal).toContain(`the \`lint\` slot's \`shellcheck\` is pinned through mise, ${UNTRUSTED_CAUSE}`);
+      expect(refusal).toContain('declared in: mise.toml ([tools] shellcheck)');
+      expect(refusal).toContain('mise which shellcheck: Config files in /r/mise.toml are not trusted.');
+      expect(refusal).toContain('\n  mise trust\n');
+      expect(refusal).not.toContain('error parsing config file');
+      expect(refusal).not.toContain('mise install');
     }));
 
   test('mise is asked about the tool from the check directory, with its installs off', () =>
@@ -518,6 +551,18 @@ describe('the go-mod-tool source (R6.1)', () => {
       const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
       expect(refusal).toContain("mise can't run the copy it pins");
       expect(refusal).toContain('mise which go: go@1.99.0 is not installed');
+    }));
+
+  test("a go pinned in a config mise hasn't trusted fails, naming mise trust rather than an install", () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('mise.toml', '[tools]\ngo = { version = "1.27.2" }\n');
+      await s.tool('mise', UNTRUSTED_MISE);
+      const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
+      expect(refusal).toContain(`the \`dead\` slot's \`go\` is pinned through mise, ${UNTRUSTED_CAUSE}`);
+      expect(refusal).toContain('mise which go: Config files in /r/mise.toml are not trusted.');
+      expect(refusal).toContain('\n  mise trust\n');
+      expect(refusal).not.toContain('mise install');
     }));
 
   test('a declared tool fails, naming how to install Go, when go is not on PATH', () =>
@@ -1127,6 +1172,19 @@ describe('the override source (R13.3)', () => {
       expect(refusal).toContain("the `lint` slot's `shellcheck` is pinned by --pins to shellcheck@0.0.1");
       expect(refusal).toContain('mise where shellcheck@0.0.1: shellcheck@0.0.1 not installed');
       expect(refusal).toContain('mise install shellcheck@0.0.1');
+    }));
+
+  /** `mise where` reads the repo's config as well, so an untrusted one refuses the override the same way (D82). */
+  test('a config mise hasn’t trusted fails the override naming mise trust, not the install', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', UNTRUSTED_MISE);
+      await s.tool('shellcheck');
+      const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) }));
+      const refusal = 'refusal' in launch ? launch.refusal : '';
+      expect(refusal).toContain(`the \`lint\` slot's \`shellcheck\` is pinned by --pins to shellcheck@0.11.0, ${UNTRUSTED_CAUSE}`);
+      expect(refusal).toContain('mise where shellcheck@0.11.0: Config files in /r/mise.toml are not trusted.');
+      expect(refusal).toContain('\n  mise trust\n');
+      expect(refusal).not.toContain('mise install');
     }));
 
   test('without mise on PATH it fails rather than run the PATH copy', () =>

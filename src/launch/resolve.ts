@@ -26,7 +26,7 @@ import { CARGO_TOOLCHAIN, GO_TOOLCHAIN, PACKS, TERRAFORM_TOOLCHAIN, TOOLCHAINS, 
 import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
-import type { MiseDeclaration } from './mise.js';
+import type { MiseAnswer, MiseDeclaration } from './mise.js';
 import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, OVERRIDE_ENV } from './mise.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
@@ -159,7 +159,7 @@ function runOverride(req: ToolRequest, pinned: Override, argv: readonly string[]
   const mise = findOnPath('mise', req.env);
   if (mise === null) return { refusal: overrideRefusal(req, spec, "`mise` isn't on PATH") };
   const has = miseHasInstalled(mise, spec, req.cwd, req.env);
-  if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`) };
+  if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`, has.untrusted) };
   return { command: 'mise', args: ['exec', spec, '--', ...argv], env: OVERRIDE_ENV, pin: { source: 'override', version: pinned.version } };
 }
 
@@ -215,7 +215,7 @@ const MISE: Source = {
     const mise = findOnPath('mise', req.env);
     if (mise === null) return { refusal: miseMissingRefusal(req, declared?.mise ?? null) };
     const can = miseCanRun(mise, req.tool.bin, req.cwd, req.env);
-    if (!can.ok) return { refusal: miseInactiveRefusal(req, declared?.mise ?? null, can.detail) };
+    if (!can.ok) return { refusal: miseInactiveRefusal(req, declared?.mise ?? null, can) };
     return { command: 'mise', args: ['exec', '--', ...argvOf(req.tool, req.args)], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
   },
 };
@@ -352,7 +352,7 @@ function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]
   const mise = findOnPath('mise', req.env);
   if (mise === null) return { refusal: miseMissingRefusal(asked, declared) };
   const can = miseCanRun(mise, toolchain.bin, req.cwd, req.env);
-  if (!can.ok) return { refusal: miseInactiveRefusal(asked, declared, can.detail) };
+  if (!can.ok) return { refusal: miseInactiveRefusal(asked, declared, can) };
   return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
 }
 
@@ -575,21 +575,46 @@ function miseMissingRefusal(req: ToolRequest, declared: MiseDeclaration | null):
   ].join('\n');
 }
 
-/** The refusal for a tool mise pins at a version it hasn't installed. */
-function miseInactiveRefusal(req: ToolRequest, declared: MiseDeclaration | null, detail: string): string {
+/** Why a check's mise refused: a config file it hasn't trusted, or no copy at the version it pins. */
+type MiseRefusal = Extract<MiseAnswer, { ok: false }>;
+
+/** How a refusal's headline ends when mise refused a config file it hasn't trusted. */
+const UNTRUSTED_CAUSE = "mise won't read a config file here until it's trusted.";
+
+/**
+ * What a refusal for a config file mise hasn't trusted asks for (D82). Never
+ * `mise install`: outside paranoid mode it trusts the config it reads as a
+ * side effect (mise 2026.10.4), so naming it would trust a file nobody chose
+ * to, and in paranoid mode it fails the same way.
+ */
+const TRUST_REMEDY = [
+  "mise won't load a config file that sets a tool option or an env var until",
+  "someone trusts it, so it can't run the pinned copy. Review the file mise",
+  'names, trust it from the directory that holds it, then re-run:',
+  '',
+  '  mise trust',
+  '',
+];
+
+/** The refusal for a tool mise pins when mise can't run it: a config it hasn't trusted, or a version it hasn't installed. */
+function miseInactiveRefusal(req: ToolRequest, declared: MiseDeclaration | null, why: MiseRefusal): string {
   const bin = req.tool.bin;
   return [
-    `checkride: the \`${req.slot}\` slot's \`${bin}\` is pinned through mise, but mise can't run the copy it pins.`,
+    `checkride: the \`${req.slot}\` slot's \`${bin}\` is pinned through mise, but ${why.untrusted ? UNTRUSTED_CAUSE : "mise can't run the copy it pins."}`,
     '',
     ...(declared !== null ? [`  declared in: ${declared.file} ([tools] ${declared.id})`] : []),
-    `  mise which ${bin}: ${detail}`,
+    `  mise which ${bin}: ${why.detail}`,
     '',
-    'checkride never installs a tool, and it won\'t let mise run another',
-    `\`${bin}\` from PATH in place of the pinned one. Install the pinned`,
-    'version, then re-run:',
-    '',
-    '  mise install',
-    '',
+    ...(why.untrusted
+      ? TRUST_REMEDY
+      : [
+          'checkride never installs a tool, and it won\'t let mise run another',
+          `\`${bin}\` from PATH in place of the pinned one. Install the pinned`,
+          'version, then re-run:',
+          '',
+          '  mise install',
+          '',
+        ]),
   ].join('\n');
 }
 
@@ -609,18 +634,26 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
   ].join('\n');
 }
 
-/** The refusal for a tool the `--pins` file pins at a version mise can't run here (F38). */
-function overrideRefusal(req: ToolRequest, spec: string, detail: string): string {
+/**
+ * The refusal for a tool the `--pins` file pins at a version mise can't run
+ * here (F38), or that mise won't look for while a config file here is
+ * untrusted, since `mise where` reads the repo's config too.
+ */
+function overrideRefusal(req: ToolRequest, spec: string, detail: string, untrusted = false): string {
   return [
-    `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by --pins to ${spec}, which mise can't run here.`,
+    `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by --pins to ${spec}, ${untrusted ? `but ${UNTRUSTED_CAUSE}` : "which mise can't run here."}`,
     '',
     `  ${detail}`,
     '',
-    'checkride never installs a tool, and it won\'t run another copy in place',
-    'of the pinned one. Install that version, then re-run:',
-    '',
-    `  mise install ${spec}`,
-    '',
+    ...(untrusted
+      ? TRUST_REMEDY
+      : [
+          'checkride never installs a tool, and it won\'t run another copy in place',
+          'of the pinned one. Install that version, then re-run:',
+          '',
+          `  mise install ${spec}`,
+          '',
+        ]),
   ].join('\n');
 }
 

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 72 — fix(init): make the mise route install, and test and document it
+**Current step:** 83 — fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -98,7 +98,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
-- ☐ 72. fix(init): make the mise route install, and test and document it
+- ☑ 72. fix(init): make the mise route install, and test and document it
+- ☐ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
 - ☐ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
@@ -181,9 +182,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] fix before release: init --lang go|rust writes "npm:checkride" = "<version>", which mise 2026.10's npm backend refuses (checkride has 162 weekly downloads, under its 1000 threshold) unless the entry sets allow_low_downloads = true; doctor's and agent-setup's 'mise use npm:checkride@<version>' hint hits the same refusal, and no test installs the mise route end to end (verified at this boundary: with the opt-in, an isolated Node-free mise installs node 22.18.0 and checkride 0.14.0 in about 12s and mise exec -- checkride runs)
 - [x] static.ts's non-HCL value reading still hides a cspell script import three ways: a # inside a quoted value is cut as a comment (import: "./a #.mjs"), YAML's escaped line break splits the name ("./x.m\<newline>js"), and a column-0 comment ends a block sequence early
 - [x] the static-only reason for an entry that adds args reads "prettier isn't a static check", the same as a command swap; name the cause (the config adds an argument prettier's row doesn't carry) so a consumer can tell why a documented static tool sat out
-- [ ] docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names the swapped command or first added argument, and rule 4 doesn't say a key's value is read as its parser reads it (quoted #, escaped line break, comment lines, run-on scalars, tags, aliases count); fold at step 73
-- [ ] doctor's package-manager row stays required in a root with no package.json, so a machine on the mise route with no pnpm fails doctor for a package manager the repo never runs (step 72 made only the install row n/a there)
-- [ ] a mise.toml mise hasn't trusted, which every language scaffold is until mise trust runs since checkride's entry sets a tool option, makes each mise-pinned check refuse with only mise's first stderr line ('error parsing config file') and name mise install, and the gate hook's mise which checkride test reads it as not installed; both should name mise trust
+- [x] docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names the swapped command or first added argument, and rule 4 doesn't say a key's value is read as its parser reads it (quoted #, escaped line break, comment lines, run-on scalars, tags, aliases count); fold at step 73
+- [x] doctor's package-manager row stays required in a root with no package.json, so a machine on the mise route with no pnpm fails doctor for a package manager the repo never runs (step 72 made only the install row n/a there)
+- [x] a mise.toml mise hasn't trusted, which every language scaffold is until mise trust runs since checkride's entry sets a tool option, makes each mise-pinned check refuse with only mise's first stderr line ('error parsing config file') and name mise install, and the gate hook's mise which checkride test reads it as not installed; both should name mise trust
+- [ ] under --pins, mise where reads the repo's own mise.toml, so an untrusted one refuses the override and its refusal asks a consumer to trust a repo it may be reviewing; consider having the override ignore the repo's config (MISE_IGNORED_CONFIG_PATHS, or asking from outside the repo)
+- [ ] checkride's own mise calls can trust a repo's mise.toml unasked: an inherited MISE_YES makes the launcher's mise which trust it, and outside paranoid mode the gate hook's mise exec -- checkride trusts it (mise 2026.10.4); decide whether the launcher strips MISE_YES and whether docs/distribution.md says exec trusts
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -290,6 +293,10 @@ Harvest results this boundary:
 
 - After step 80: "static.ts's non-HCL value reading still hides a cspell script import three ways..." → **blocker**, handled now: folded into `intent.md` as D81 (static-values), which also brings R13.4's rule 4 to what step 80 shipped, and as step 82, ordered to build next, before step 72, so the Phase 11 release doesn't ship it (each of the three readings let a repo's `cspell.yaml` import a script while `--static-only` kept `spell`, probed at step 80, and Phase 11 exists to ship a `--static-only` that fails closed).
 - After step 80: "the static-only reason for an entry that adds args reads "prettier isn't a static check"..." → **tangent**, deferred to step 82, whose done-when names it (a confusing reason, never a false green; naming the cause means `src/config.ts` records why it dropped the mark and `src/packs/static.ts` reports it, and step 82's seam holds both).
+
+- After step 82: "docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names..." → **tangent**, deferred to step 73 (doc-only: step 82's behavior is right and unit-tested, and step 73's seam holds `docs/contract.md` and folds every surface this build added).
+- After step 72: "doctor's package-manager row stays required in a root with no package.json..." → **tangent**, deferred to step 81 (a red `doctor` on a machine without pnpm, never a false green; step 81's seam holds `src/doctor.ts`, so it makes that row `n/a` in a root with no `package.json`, as step 72 did the install row).
+- After step 72: "a mise.toml mise hasn't trusted ... both should name mise trust" → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D82 (untrusted-mise) and as step 83, ordered to build next, before step 81, so the release that calls the mise route supported doesn't send a fresh scaffold, or a fresh clone of one, to `mise install` when what it needs is `mise trust`.
 
 ## Log
 
@@ -2811,3 +2818,60 @@ folder, so it rides the branch into the PR.)*
   **5.** One stray and one park: the field lives in src/adapters.ts, and contract.md waits for step 73
 
   `staticDrop` is an optional field on the exported `Adapter` type, additive under C1 (additive-contract), and the CHANGELOG's Contract bullet lists it next to step 80's `codeArgs`; `src/adapters.ts` is the one path outside the seam. The CHANGELOG's `--static-only` entry is amended in place, as steps 78 and 80 did, which also fixes its stray mid-sentence line break. I parked `docs/contract.md`: its rules 1 and 4 stay true but don't yet say a skip names the entry's move or that a value is read as its parser reads it. The plan left that file out of this seam and already sends contract.md's static-only details to step 73.
+
+- 2026-10-18 — step 72 checkpointed · 7f7dcf387 — fix(init): make the mise route install, and test and document it (1 drift, 40m)
+
+  **Summary**: A Go or Rust scaffold's `mise.toml` now installs checkride through a mise that finds no Node on `PATH`, an end-to-end test proves it, `doctor` no longer fails for a lockfile such a repo never has, and the new `docs/distribution.md` documents npm and the mise route as this release's two channels, with the binary left to a later build.
+
+  1. The scaffold pins checkride with mise's low-download opt-in, and both hints carry it
+  2. The opt-in costs a `mise trust`, which the plan didn't know about
+  3. An e2e case installs the route through an isolated mise with no Node
+  4. doctor's install row is n/a in a root with no package.json
+  5. docs/distribution.md names the two channels and leaves the binary for later
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D46 (checkride-pin)
+               - D80 (binary-deferred)
+               - D52 (e2e-cadence)
+               - D42 (toolchain-tests)
+  constraints  12 of 12 honored
+  seam         strayed: 7 paths outside the seam
+               - CHANGELOG.md
+               - docs/README.md
+               - src/__tests__/doctor.test.ts
+               - src/__tests__/init.test.ts
+               - src/agent-setup/__tests__/hooks.test.ts
+               - src/launch/entry.ts
+               - src/launch/index.ts
+  diff         +318 -29 across 14 files
+  spent        40 min · 1 turn · 37s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it, then harvest before step 81. The `mise trust` requirement is new to the plan and both parks follow from it, and step 81 already opens `src/doctor.ts`, so the package-manager row can ride along there.
+
+  **1.** The scaffold pins checkride with mise's low-download opt-in, and both hints carry it
+
+  `init --lang go|rust` now writes `"npm:checkride" = { version = "<this release>", allow_low_downloads = true }`. I probed mise 2026.10.4 first: the plain string pin fails with `refusing to add checkride: only 162 weekly downloads (threshold: 1000)`, and the inline table installs. The doctor and gate-hook hints now name `mise use 'npm:checkride[allow_low_downloads=true]@<version>'`, which I also verified writes that same entry. The single quotes are needed because zsh reads unquoted brackets as a glob and refuses the command. The hook's messages had banned single quotes, since they sit inside `'…'` in the generated script. A small `shellWord` helper in `src/agent-setup/scripts.ts` now escapes them at the two dynamic emit sites, and a new test runs the message through `sh` and gets it back whole. The hint lives once, as `PIN_CHECKRIDE` in `src/launch/entry.ts` beside the ids that declare checkride. That puts `entry.ts` and the launch barrel outside the seam, along with the three unit-test files the change touched.
+
+  **2.** The opt-in costs a `mise trust`, which the plan didn't know about
+
+  The first full e2e run failed all 8 `init --lang` shape cases. Any tool option in a `mise.toml` (`allow_low_downloads`, or even a bare `{ version = ... }` table) makes mise refuse to load the file until someone runs `mise trust`. Until then `mise which` fails, and that's the call both checkride's launcher and the gate hook use. `mise exec` still runs, which is why the route case alone passed. A plain string pin needs no trust, but it can't carry the opt-in, and the bracketed key form needs trust too. So every scaffold's setup now opens with `mise trust` before `mise install` (`MISE_SETUP` in `src/init.ts`). The shape cases run it the way a user would and untrust their directory afterwards, and the docs say why. One follow-up is parked: an untrusted file's refusal shows only mise's first stderr line (`error parsing config file`) and tells the user to run `mise install`, when the fix is `mise trust`.
+
+  **3.** An e2e case installs the route through an isolated mise with no Node
+
+  The new case is `the mise route`, in `test/e2e/shapes.e2e.test.ts`. It scaffolds a Go module, checks the entry carries the opt-in, and moves the pin to 0.14.0, a release npm has. Then it runs mise with its own HOME, data, cache and state directories, and a `PATH` of just a mise symlink plus `/usr/bin:/bin`. It asserts `command -v node` fails, then runs `mise trust`, `mise install node npm:checkride` and `mise exec -- checkride --version`, and checks `mise which checkride` resolves into the isolated data dir. It takes about 6.5s. One judgment call: it installs only the route's two entries, not the whole file. That keeps go, golangci-lint and the rest from downloading again into an empty data dir, and the shape cases already prove those pins. Mise's auto-install is turned off so `exec` can't fetch them behind the test's back. The skip-or-throw gate is local to the file, because `TOOLCHAINS` in `test/helpers/toolchains.ts` must match the dev `mise.toml` key for key, and mise can't pin itself there. With `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, the whole `pnpm test:e2e` passed 167 of 167.
+
+  **4.** doctor's install row is n/a in a root with no package.json
+
+  `checkInstall` in `src/doctor.ts` returns `status: 'n/a'`, `required: false`, `found: 'no package.json'` where the root has no `package.json`. So a Go scaffold's `doctor` no longer exits 1 for a missing `pnpm-lock.yaml`. A root that has a `package.json` but no lockfile still fails as before, and a test pins both cases. The existing Yarn PnP fake env now includes a `package.json`. Parked: the package-manager row is still required in such a root. A machine on the mise route without pnpm would still fail `doctor` over a package manager the repo never runs. Step 81's seam already holds `src/doctor.ts`.
+
+  **5.** docs/distribution.md names the two channels and leaves the binary for later
+
+  The new page covers npm and the mise route. It shows the `mise.toml` pin, the one-line `mise use node@22.18.0 'npm:checkride[...]@<version>'` for an existing repo (verified on a fresh mise), and the `mise trust` → `mise install` → `mise exec -- checkride` sequence. It explains the opt-in by quoting mise's refusal. It presents the route as the supported way to run checkride without Node, and lists the binary, the `github:` pin and a Homebrew tap under "Not in this release". The README's Install and Docs sections, `docs/README.md` and `docs/getting-started.md` link to it, and getting-started's Go block gains `mise trust`. The CHANGELOG amends the unreleased `init --lang`, doctor and no-`package.json` gate entries, and adds one for the page.

@@ -106,6 +106,22 @@ const notInstalled = (entry: EntryCommand): string =>
   ].join(' ');
 
 /**
+ * mise won't read the `mise.toml` that pins checkride until someone trusts it,
+ * and checkride's entry sets a tool option, so every language scaffold and
+ * every fresh clone of one starts there. Like a missing install, this is not
+ * something the turn broke: the remedy is a person choosing to trust a file,
+ * not an edit, so the gate stands down and names `mise trust` (D82).
+ */
+const untrusted = (entry: EntryCommand): string =>
+  [
+    'checkride: the gate could not run — mise has not trusted the mise.toml that pins checkride here, so it will not run it.',
+    NOTHING_RAN,
+    `Review mise.toml, run \`mise trust\`, then run \`${entryText(entry)}\`.`,
+    'Not blocking: the fix is trusting a file rather than an edit, so blocking would only repeat this ' +
+      'message. Nothing was verified this turn.',
+  ].join(' ');
+
+/**
  * checkride *is* installed and still did not answer with one of its own two gate
  * codes — a broken launcher, a corrupt install, a crash. This one blocks: it is
  * rare, it is not self-explanatory, and unlike a missing install there is no
@@ -128,6 +144,24 @@ function installedTest(entry: EntryCommand): string {
   if (entry.kind === 'mise') return 'mise which checkride >/dev/null 2>&1';
   if (entry.kind === 'path') return 'command -v checkride >/dev/null 2>&1';
   return '[ -e node_modules/.bin/checkride ] || [ -e .pnp.cjs ] || [ -e .pnp.js ]';
+}
+
+/**
+ * For the mise entry, the branch that tells an untrusted `mise.toml` apart
+ * from a missing checkride, since `mise which` fails for both. The hook gets
+ * here only once `mise exec` has refused the file as well. Outside paranoid
+ * mode, mise 2026.10.4's `exec` trusts the config it reads, so this answers
+ * paranoid mode, and any mise whose `exec` doesn't.
+ */
+function untrustedBranch(entry: EntryCommand): string[] {
+  if (entry.kind !== 'mise') return [];
+  return [
+    "# mise won't read a mise.toml it hasn't trusted, so `mise which` fails for an",
+    "# installed checkride too. Trusting a file is a person's call, not an edit.",
+    "if mise which checkride 2>&1 | grep -q 'not trusted'; then",
+    `  stand_down ${shellWord(untrusted(entry))}`,
+    'fi',
+  ];
 }
 
 /** The harness pointed the hook at a directory that is not there. */
@@ -268,6 +302,7 @@ function gateTail(harness: HarnessName, entry: EntryCommand): string[] {
     `if ${installedTest(entry)}; then`,
     `  block ${shellWord(notAnswering(entry, harness))}`,
     'fi',
+    ...untrustedBranch(entry),
     `stand_down ${shellWord(notInstalled(entry))}`,
   ];
 }
