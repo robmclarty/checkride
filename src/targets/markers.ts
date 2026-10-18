@@ -5,12 +5,12 @@
  * directory the same way.
  *
  * A pack's markers come from `PACKS`, `package.json` and `tsconfig.json` for
- * ts. The markers R11.3 names for the packs that haven't shipped are listed
- * here until each does, since code in one of those directories is code no
- * target can check yet.
+ * ts, and a marker is a file name or a glob over one, as terraform's `*.tf`
+ * is.
  */
 
-import { posix } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join, posix } from 'node:path';
 
 import type { GitRunner } from '../git.js';
 import { PACKS } from '../packs/index.js';
@@ -26,24 +26,40 @@ const NEVER_READ: ReadonlySet<string> = new Set(['node_modules', 'vendor', 'targ
 /** The longest target name V1 allows. */
 export const NAME_LENGTH = 32;
 
-/** The markers R11.3 names for packs that haven't shipped; the release that adds a pack moves its row into that pack's `markers`. */
-const PENDING_MARKERS: Readonly<Record<string, readonly string[]>> = {
-  go: ['go.mod', 'go.work'],
-  rust: ['Cargo.toml'],
-  python: ['pyproject.toml', 'setup.cfg', 'setup.py'],
-  terraform: ['.terraform.lock.hcl', '*.tf'],
-};
-
-/** Every marker by the pack it marks: each shipped pack's own, then the pending ones of packs not in `PACKS`. */
-const MARKER_KINDS: readonly (readonly [string, readonly string[]])[] = [
-  ...Object.values(PACKS).map((pack) => [pack.name, pack.markers] as const),
-  ...Object.entries(PENDING_MARKERS).filter(([kind]) => !Object.hasOwn(PACKS, kind)),
-];
-
-/** The markers, compiled: the kind a file's name marks, by pattern. */
-const MARKERS: readonly { kind: string; pattern: RegExp }[] = MARKER_KINDS.flatMap(([kind, markers]) =>
-  markers.map((marker) => ({ kind, pattern: globRegExp(marker) })),
+/** The markers, compiled: the kind a file's name marks, by pattern, from every pack's own. */
+const MARKERS: readonly { kind: string; pattern: RegExp }[] = Object.values(PACKS).flatMap((pack) =>
+  pack.markers.map((marker) => ({ kind: pack.name, pattern: globRegExp(marker) })),
 );
+
+/** True when `marker` is a glob over a file name, such as `*.tf`, rather than a name. */
+function isGlob(marker: string): boolean {
+  return /[*?[{]/.test(marker);
+}
+
+/**
+ * Whether a marker sits in `dir` itself: a file of that name, or, for a glob,
+ * a file whose name it matches, which is how a root holding only `main.tf`
+ * is a Terraform root (R2.1). The directory is listed once, on the first glob
+ * asked about, and an unreadable one holds no file.
+ */
+export function markerAt(dir: string): (marker: string) => boolean {
+  let names: readonly string[] | undefined;
+  return (marker) => {
+    if (!isGlob(marker)) return existsSync(join(dir, marker));
+    names ??= filesIn(dir);
+    const pattern = globRegExp(marker);
+    return names.some((name) => pattern.test(name));
+  };
+}
+
+/** The names of the files directly in `dir`, or none when it can't be read. */
+function filesIn(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name);
+  } catch {
+    return [];
+  }
+}
 
 /** The pack whose markers `path`'s file name matches, or `null`. */
 export function markerKind(path: string): string | null {

@@ -15,7 +15,6 @@
  * nothing. Every change is printed, and `--dry-run` prints them and stops.
  */
 
-import { existsSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
@@ -25,7 +24,7 @@ import type { Out } from './orchestrator/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
-import { addTarget, implicitPack, normalizeRoot } from './targets/index.js';
+import { addTarget, implicitPack, markerAt, normalizeRoot } from './targets/index.js';
 
 export type TargetAddOptions = {
   cwd?: string;
@@ -106,7 +105,7 @@ export async function runTargetAdd(options: TargetAddOptions): Promise<TargetAdd
   const raw = readRawConfig(cwd, () => ({ $schema: generatedSchemaUrl() }));
   const change = addTarget(raw, { name: options.name, lang: pack.name, root, checks }, {
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
-    implicitPack: implicitPack((marker) => existsSync(join(cwd, marker))),
+    implicitPack: implicitPack(markerAt(cwd)),
     targetSlots: TARGET_SLOTS,
   });
   const files = await writeTargetChange(cwd, change, { dryRun, command: 'target add' });

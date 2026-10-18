@@ -154,7 +154,7 @@ required ones, so a field can't reach the schema without a row here.
 | `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, `<file>: [<table>]` for a TOML table that configures the tool, such as `pyproject.toml: [tool.ruff]`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
-| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `mise` or `path`; also `tf-version`, which no run writes yet | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
+| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `tf-version`, `mise` or `path` | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
@@ -203,7 +203,9 @@ the source that declared the copy that ran: `js-lockfile` for a
 `go.mod` declares in a `tool` directive, run as `go tool <tool>`,
 `rust-toolchain` for cargo, rustfmt or clippy, which a `rust-toolchain.toml`
 pins with its toolchain, `uv-lock` for a Python tool the project's `uv.lock`
-lists, run from the project's environment, `override` for a tool the run's
+lists, run from the project's environment, `tf-version` for the `terraform`
+or `tofu` CLI a `.terraform-version` or `.opentofu-version` declares, run
+from `PATH` once it reports the release the file names, `override` for a tool the run's
 `--pins` file pins, `mise` for a
 tool a `mise.toml` in the repo names under `[tools]`, and `path` for a tool
 nothing declared, found on `PATH` and so unpinned. A toolchain's own
@@ -213,15 +215,15 @@ by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
 whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires
 for the module that provides the tool, for `rust-toolchain`, the file's
-channel when it names an exact release, and for `uv-lock`, the version the
-lock pins the tool's package at. `mise` and `path` record none,
+channel when it names an exact release, for `uv-lock`, the version the
+lock pins the tool's package at, and for `tf-version`, the file's release when
+it names one exactly. `mise` and `path` record none,
 since mise or the machine decides it. `pin_source` appears exactly where
 `argv` does, apart from a custom check's own command, such as
 `node scripts/x.mjs`, which spawns as written through no pin source and
 records only its `argv`. A declared pin whose source can't run the tool fails
 the check with exit 1, naming the source; checkride never falls back to
-another copy. The schema names one more source, `tf-version`, for a pack
-checkride doesn't have yet, so its vocabulary is written once.
+another copy.
 
 **A run records what it selected and the tree it read.** `run` names each
 selection flag the run was given, so a narrowed run says so in the artifact

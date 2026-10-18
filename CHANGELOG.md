@@ -496,6 +496,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and otherwise leaves `gates` out, since its config's `failOnWarnings`,
   which its default mode turns on, decides. ruff and basedpyright print
   absolute paths, which `repoRoot` names from the repo root.
+- **Terraform targets run the CLI their version file pins.** A target can
+  declare `"lang": "terraform"`, with a root that holds a
+  `.terraform.lock.hcl` or a `.tf` file, and a repo without `targets` whose
+  root holds one, and no marker of an earlier pack, is checked as a
+  terraform project. A check that runs `terraform` runs `tofu` instead where
+  the nearest `.opentofu-version`, or a `mise.toml` or `--pins` pin of
+  `opentofu`, declares OpenTofu. A `.terraform-version` or `.opentofu-version`
+  that names an exact release pins the CLI: checkride asks the copy on `PATH`
+  for its version first, and a mismatch fails the check, naming both releases
+  and the `tfenv install` or `tofuenv install` to run, rather than run another
+  copy. Every check of a terraform target, its own custom checks included,
+  runs with `CHECKPOINT_DISABLE`, `TF_IN_AUTOMATION`, `TF_INPUT=0`, the
+  `TFENV_AUTO_INSTALL` and `TOFUENV_AUTO_INSTALL` switches off and
+  `TRIVY_SKIP_CHECK_UPDATE`, so nothing prompts, calls home or downloads a
+  CLI. `unclaimed` now suggests a terraform target for a `.tf` directory no
+  target claims. The terraform pack's own adapters arrive in a later release;
+  see `docs/packs.md`.
 
 ### Changed
 
@@ -923,6 +940,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `detected_by` gains the form `<file>: [<table>]`, such as
   `pyproject.toml: [tool.ruff]`, in the schema's description and the contract
   doc.
+- Additive: `PACKS` gains `terraform` (markers `.terraform.lock.hcl` and
+  `*.tf`, a glob, the pin chain `tf-version`, `mise`, `path`, R6.4's six
+  variables, and no adapter rows yet), the exported `Pack` type's `name`
+  takes `terraform`, and the config schema's pack names take `terraform`.
+  `TOOLCHAINS` gains `terraform` and `tofu`, also exported on their own. A run
+  now writes `pin_source: "tf-version"`, with the version file's release as
+  `tool_version`, in the JSON Schema's description and the contract doc. A
+  repo without `targets` whose root holds only a Terraform marker now records
+  `pack: "terraform"` on its checks.
 - Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
   `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
   keys, in the contract doc and both contract tests.

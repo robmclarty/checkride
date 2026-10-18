@@ -57,7 +57,7 @@ import { provenanceTag, resolveCommonOptions, selectChecks } from './orchestrato
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
-import { checkName, configuredTargets, findUnclaimed, implicitPack } from './targets/index.js';
+import { checkName, configuredTargets, findUnclaimed, implicitPack, markerAt } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -944,7 +944,7 @@ async function modeOf(
   out: string | undefined,
 ): Promise<{ fields: Pick<DoctorReport, 'mode' | 'pack' | 'targets' | 'unclaimed'>; row: DoctorCheck | null }> {
   const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
-  const implicit = targets === null ? implicitPack((marker) => existsSync(join(cwd, marker))) : null;
+  const implicit = targets === null ? implicitPack(markerAt(cwd)) : null;
   const unclaimed = await unclaimedMarkers(cwd, config, targets ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], out);
   const fields = {
     mode: targets === null ? 'implicit' : 'multi-target',

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../../adapters.js';
 import { SLOTS } from '../../adapters.js';
-import { PACKS, TOOLS } from '../index.js';
+import { PACKS, TOOLCHAINS, TOOLS } from '../index.js';
 
 const ROWS: readonly Adapter[] = Object.values(PACKS).flatMap((pack) => pack.adapters);
 
@@ -248,5 +248,25 @@ describe('the python pack (R5.7)', () => {
   test('gives every tool the PyPI package a uv.lock lists it by, and basedpyright, never the pyright wrapper', () => {
     for (const bin of ['ruff', 'mypy', 'basedpyright', 'pytest']) expect(toolRow(bin)?.pypi, bin).toBe(bin);
     expect(toolRow('pyright')).toBeUndefined();
+  });
+});
+
+describe('the terraform pack (R5.8)', () => {
+  test('is marked by a lock file or any .tf file, pins through its version file, then mise, then PATH, and never prompts or calls home', () => {
+    expect(PACKS.terraform.markers).toEqual(['.terraform.lock.hcl', '*.tf']);
+    expect(PACKS.terraform.pins).toEqual(['tf-version', 'mise', 'path']);
+    expect(Object.keys(PACKS.terraform.env)).toEqual([
+      'CHECKPOINT_DISABLE',
+      'TF_IN_AUTOMATION',
+      'TF_INPUT',
+      'TFENV_AUTO_INSTALL',
+      'TOFUENV_AUTO_INSTALL',
+      'TRIVY_SKIP_CHECK_UPDATE',
+    ]);
+  });
+
+  test('runs terraform or tofu as toolchains, each declared in mise by its registry ids', () => {
+    expect(TOOLCHAINS.find((t) => t.bin === 'terraform')?.mise).toEqual(['terraform', 'aqua:hashicorp/terraform']);
+    expect(TOOLCHAINS.find((t) => t.bin === 'tofu')?.mise).toEqual(['opentofu', 'aqua:opentofu/opentofu']);
   });
 });

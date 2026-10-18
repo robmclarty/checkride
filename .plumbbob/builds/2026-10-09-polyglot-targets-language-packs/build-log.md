@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 61 — test(examples): move examples/polyglot onto the python pack
+**Current step:** 62 — feat(launch): pin terraform or tofu by version file and harden its env
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -87,7 +87,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☑ 59. feat(packs): add the python pack
 - ☑ 60. feat(findings): parse ruff, mypy and basedpyright output
-- ☐ 61. test(examples): move examples/polyglot onto the python pack
+- ☑ 61. test(examples): move examples/polyglot onto the python pack
 - ☐ 62. feat(launch): pin terraform or tofu by version file and harden its env
 - ☐ 63. feat(packs): add the terraform pack
 - ☐ 64. feat(findings): parse tflint, terraform validate and trivy output
@@ -2498,3 +2498,4 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-10-18 — step 59 checkpointed · 46be7e6ac — feat(packs): add the python pack (1 drift, 26m)
 - 2026-10-18 — step 60 checkpointed · f81d980f0 — feat(findings): parse ruff, mypy and basedpyright output (1 drift, 7m)
+- 2026-10-18 — step 61 checkpointed · fdab7a645 — test(examples): move examples/polyglot onto the python pack (1 drift, 15m)

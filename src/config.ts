@@ -34,7 +34,7 @@ import { pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
-import { configProblem, configuredTargets, implicitPack, presetProblem, skipExitCodeProblem } from './targets/index.js';
+import { configProblem, configuredTargets, implicitPack, markerAt, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -1445,7 +1445,7 @@ function withClaims(check: ResolvedCheck, targets: readonly Target[], config: Ch
 /** The pack of a repo without targets (R2.1), from the markers its root holds. */
 function implicitPackOf(input: ResolveInput): string {
   const cwd = input.cwd ?? process.cwd();
-  return implicitPack(input.fileExists ?? ((marker) => existsSync(join(cwd, marker))));
+  return implicitPack(input.fileExists ?? markerAt(cwd));
 }
 
 /** A check of the one implicit target, named by its slot alone, with no target and no root of its own. */

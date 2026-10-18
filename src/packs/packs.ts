@@ -7,6 +7,7 @@ import { GO_PACK } from './go.js';
 import { PYTHON_PACK } from './python.js';
 import { RUST_PACK } from './rust.js';
 import { REPO_PACK } from './repo.js';
+import { TERRAFORM_PACK } from './terraform.js';
 import { TS_PACK } from './ts.js';
 import type { Pack } from './types.js';
 
@@ -18,4 +19,5 @@ export const PACKS: Readonly<Record<Pack['name'], Pack>> = {
   go: GO_PACK,
   rust: RUST_PACK,
   python: PYTHON_PACK,
+  terraform: TERRAFORM_PACK,
 };

@@ -381,7 +381,8 @@ describe('the implicit pack follows R2.1 among the packs that ship', () => {
     { files: ['pyproject.toml'], pack: 'python' },
     { files: ['setup.py'], pack: 'python' },
     { files: ['pyproject.toml', 'go.mod'], pack: 'go' },
-    { files: ['.terraform.lock.hcl'], pack: 'ts' },
+    { files: ['.terraform.lock.hcl'], pack: 'terraform' },
+    { files: ['.terraform.lock.hcl', 'pyproject.toml'], pack: 'python' },
     { files: [], pack: 'ts' },
   ])('a root holding $files is checked as $pack', ({ files, pack }) => {
     expect(implicitPack(present(...files))).toBe(pack);

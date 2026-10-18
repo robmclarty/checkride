@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { PACKS } from '../../packs/index.js';
-import type { Tool } from '../../packs/index.js';
+import type { PinSourceName, Tool } from '../../packs/index.js';
 import type { Launch, LaunchContext, PackageManager } from '../index.js';
 import { installCommand, isReadableSource, launchCheck, pinChain } from '../index.js';
 
@@ -381,8 +381,10 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
   test("a source the launcher can't read stops the walk, rather than pass over a pin it can't see", () =>
     withScratch(async (s) => {
       await s.tool('golangci-lint');
-      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: ['tf-version', 'path'] }));
-      expect(refusalOf(launch)).toContain("through the `tf-version` pin source, which this checkride can't read");
+      // A chain from a newer checkride could name a source this one lacks.
+      const pins = ['nix-flake', 'path'] as unknown as PinSourceName[];
+      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins }));
+      expect(refusalOf(launch)).toContain("through the `nix-flake` pin source, which this checkride can't read");
     }));
 
   test('a custom command spawns as written whatever the chain', () =>
@@ -937,6 +939,146 @@ describe('the uv-lock source (R6.1)', () => {
       expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF], packEnv }))).toMatchObject({
         env: { PYTHONDONTWRITEBYTECODE: '1', PIP_NO_INDEX: '1', UV_OFFLINE: '1' },
       });
+    }));
+});
+
+/** The terraform pack's chain (R6.1). */
+const TF_CHAIN = ['tf-version', 'mise', 'path'] as const;
+
+/** A fake CLI whose `version -json` reports `version`, as terraform 1.9.8 and tofu 1.13.1 both do. */
+const reports = (version: string): string => `[ "$1" = version ] && echo '{"terraform_version": "${version}", "platform": "darwin_arm64"}'`;
+
+/** The variables a CLI from PATH carries, since it may be one of mise's shims. */
+const MISE_OFF = { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' };
+
+describe('the tf-version source (R6.1)', () => {
+  test('a .terraform-version naming an exact release runs the terraform on PATH once it reports that release, and records it', () =>
+    withScratch(async (s) => {
+      await s.file('.terraform-version', '1.5.7\n');
+      await s.file('infra/main.tf', '');
+      await s.tool('terraform', reports('1.5.7'));
+      expect(launchCheck('types', 'terraform', ['validate', '-json'], s.at('infra', { pins: TF_CHAIN }))).toEqual({
+        command: 'terraform',
+        args: ['validate', '-json'],
+        env: MISE_OFF,
+        pin: { source: 'tf-version', version: '1.5.7' },
+      });
+    }));
+
+  test('a mismatch fails naming the release the file asks for, the one found, and how to install it', () =>
+    withScratch(async (s) => {
+      await s.file('.terraform-version', 'v1.5.7\n');
+      await s.tool('terraform', reports('1.9.8'));
+      const refusal = refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))) ?? '';
+      expect(refusal).toContain("the `types` slot's `terraform` is pinned by .terraform-version to 1.5.7, but the `terraform` on PATH is 1.9.8");
+      expect(refusal).toContain('declared in: .terraform-version (1.5.7)');
+      expect(refusal).toContain(`found: ${join(s.bin, 'terraform')} (1.9.8)`);
+      expect(refusal).toContain('tfenv install 1.5.7');
+    }));
+
+  test('a CLI that cannot say its version fails, naming why, rather than run unchecked', () =>
+    withScratch(async (s) => {
+      await s.file('.terraform-version', '1.5.7\n');
+      await s.tool('terraform', "echo \"No installed versions of terraform matched '1.5.7'\" >&2; exit 1");
+      const refusal = refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))) ?? '';
+      expect(refusal).toContain("but the `terraform` on PATH didn't say which version it is");
+      expect(refusal).toContain("terraform version -json: No installed versions of terraform matched '1.5.7'");
+      await s.tool('terraform', 'echo Terraform v1.5.7');
+      expect(refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN })))).toContain('version -json printed no terraform_version');
+    }));
+
+  test('a constraint rather than a release is left to the version manager, checked by nothing and recorded as no version', () =>
+    withScratch(async (s) => {
+      await s.file('.terraform-version', 'latest:^1.5\n');
+      // A probe would fail, so it must not run.
+      await s.tool('terraform', '[ "$1" = version ] && exit 1; exit 0');
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))).toEqual({
+        command: 'terraform',
+        args: ['validate'],
+        env: MISE_OFF,
+        pin: { source: 'tf-version' },
+      });
+    }));
+
+  test('an .opentofu-version makes terraform run as tofu, checked against what tofu reports', () =>
+    withScratch(async (s) => {
+      await s.file('.opentofu-version', '1.13.1\n');
+      await s.file('modules/net/main.tf', '');
+      await s.tool('tofu', reports('1.13.1'));
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('modules/net', { pins: TF_CHAIN }))).toMatchObject({
+        command: 'tofu',
+        args: ['validate'],
+        pin: { source: 'tf-version', version: '1.13.1' },
+      });
+      const refusal = refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN })));
+      expect(refusal).toBeNull();
+      await s.tool('tofu', reports('1.12.0'));
+      expect(refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN })))).toContain('tofuenv install 1.13.1');
+    }));
+
+  test('the version file nearest the check wins, and one directory reads .opentofu-version first', () =>
+    withScratch(async (s) => {
+      await s.file('.opentofu-version', '1.13.1\n');
+      await s.file('legacy/.terraform-version', '1.5.7\n');
+      await s.tool('terraform', reports('1.5.7'));
+      await s.tool('tofu', reports('1.13.1'));
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('legacy', { pins: TF_CHAIN }))).toMatchObject({ command: 'terraform', pin: { version: '1.5.7' } });
+      await s.file('legacy/.opentofu-version', '1.13.1\n');
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('legacy', { pins: TF_CHAIN }))).toMatchObject({ command: 'tofu' });
+    }));
+
+  test('a declared CLI that PATH lacks fails naming how to install it', () =>
+    withScratch(async (s) => {
+      await s.file('.opentofu-version', '1.13.1\n');
+      const refusal = refusalOf(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))) ?? '';
+      expect(refusal).toContain('the `types` slot needs `tofu`, which isn\'t on PATH');
+      expect(refusal).toContain('install OpenTofu 1.6 or later');
+    }));
+
+  test('without a version file, a mise.toml that pins OpenTofu runs tofu through mise, and nothing at all runs terraform from PATH', () =>
+    withScratch(async (s) => {
+      await s.tool('terraform');
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))).toEqual({
+        command: 'terraform',
+        args: ['validate'],
+        env: MISE_OFF,
+        pin: { source: 'path' },
+      });
+      await s.file('mise.toml', '[tools]\nopentofu = "1.13.1"\n');
+      await s.tool('mise');
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: TF_CHAIN }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'tofu', 'validate'],
+        pin: { source: 'mise' },
+      });
+    }));
+
+  test('a --pins file that pins OpenTofu runs that copy of tofu', () =>
+    withScratch(async (s) => {
+      await s.tool('mise');
+      const overrides = new Map([['opentofu', '1.13.1']]);
+      expect(launchCheck('types', 'terraform', ['validate'], s.at('.', { pins: ['override', ...TF_CHAIN], overrides }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', 'opentofu@1.13.1', '--', 'tofu', 'validate'],
+        pin: { source: 'override', version: '1.13.1' },
+      });
+    }));
+
+  test('a version file declares only its CLI, never a tool such as tflint', () =>
+    withScratch(async (s) => {
+      await s.file('.terraform-version', '1.5.7\n');
+      await s.tool('tflint');
+      const tflint: Tool = { bin: 'tflint', mise: ['tflint'], install: 'install tflint' };
+      expect(launchCheck('lint', 'pnpm', ['exec', 'tflint', '--format=json'], s.at('.', { pins: TF_CHAIN, tools: [tflint] }))).toMatchObject({
+        command: 'tflint',
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('outside the terraform pack, terraform spawns as written, a version file or not, as it did in 0.13', () =>
+    withScratch(async (s) => {
+      await s.file('.opentofu-version', '1.13.1\n');
+      expect(launchCheck('custom', 'terraform', ['fmt', '-check'], s.at('.'))).toEqual({ command: 'terraform', args: ['fmt', '-check'] });
     }));
 });
 

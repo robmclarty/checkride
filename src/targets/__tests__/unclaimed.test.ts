@@ -56,7 +56,7 @@ describe('findUnclaimed', () => {
     expect((await findUnclaimed(repo, { targets: [web] })).map((u) => u.path)).toEqual(['tools/x/package.json', 'tools/x/tsconfig.json']);
   });
 
-  test("reports the markers of packs that haven't shipped, which no target can claim yet, with a hint to ignore them", async () => {
+  test('reports the markers of every pack R11.3 names, each kind by its file, a .tf file by its glob', async () => {
     await put('svc/go.mod', 'svc/go.work', 'crates/a/Cargo.toml', 'py/pyproject.toml', 'py/setup.cfg', 'py/setup.py');
     await put('infra/main.tf', 'infra/.terraform.lock.hcl', 'infra/notes.tfvars');
     const found = await findUnclaimed(repo, { targets: [root] });
@@ -72,7 +72,8 @@ describe('findUnclaimed', () => {
     ]);
     const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'py', 'crates'] });
     expect(red.stderr).toContain('unclaimed: infra/.terraform.lock.hcl marks terraform code that no terraform target checks.');
-    expect(red.stderr).toContain('no terraform pack ships yet, so list it in unclaimed.ignore until one does');
+    expect(red.stderr).toContain('claim it: "infra": { "lang": "terraform", "root": "infra" } under targets, or list it in unclaimed.ignore');
+    expect(await findUnclaimed(repo, { targets: [{ name: 'infra', pack: 'terraform', root: 'infra' }], ignore: ['svc', 'py', 'crates'] })).toEqual([]);
   });
 
   test('suggests a target for the markers of a pack that ships', async () => {

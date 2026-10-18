@@ -28,15 +28,18 @@ the first that matches:
 2. a root `go.mod` or `go.work` picks `go`;
 3. a root `Cargo.toml` picks `rust`;
 4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
-5. anything else picks `ts`, where every slot stands down as it always has.
+5. a root `.terraform.lock.hcl` or `.tf` file picks `terraform`;
+6. anything else picks `ts`, where every slot stands down as it always has.
 
-A Go, Rust or Python root runs its pack's checks under their bare slot names (`types`,
+A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
 pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
 spawn environment, and no check for a slot the pack doesn't fill. A top-level
 entry may still pick the tool, since there's only one pack to pick from, and
 each check's summary entry records its `pack`. A ts root records none, as
-before. A Terraform root joins this list when its pack ships.
+before. The terraform pack's adapters arrive in a later release, so until then
+a Terraform root runs its custom checks and the repo-scope slots, under the
+terraform pack's pin chain and spawn environment.
 
 In any repo without targets, the top-level `checks` are the implicit target's
 own entries, so they rank above the `packs.<pack>.checks` block of the root's
@@ -70,6 +73,7 @@ nothing changed under.
 | `go` | a Go module or workspace from its root | go build, gofmt (opt-in), golangci-lint or staticcheck, deadcode, go test and govulncheck (opt-in), with Go's downloads switched off |
 | `rust` | a Cargo package or workspace from its root | cargo check, rustfmt (opt-in), clippy, cargo-machete, nextest or cargo test, doctests (opt-in), cargo-deny (opt-in) and cargo-mutants (opt-in), offline, with the toolchain its `rust-toolchain.toml` names |
 | `python` | a Python project from its root | ruff (`lint`, and `format`, opt-in), mypy or basedpyright and pytest, each from the project's `.venv` when `uv.lock` lists it, with pip's and uv's downloads switched off |
+| `terraform` | a Terraform or OpenTofu root module from its root | the target's own custom checks, with `terraform` or `tofu` as its version file declares, at the release that file names, and no prompt or call home; the Terraform adapters arrive in a later release |
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`

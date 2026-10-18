@@ -3,9 +3,9 @@
  * directory of code no check reads, the polyglot form of a vacuous green.
  *
  * A marker (`./markers.ts`) is a file R11.3 names as marking one language's
- * code, the packs that haven't shipped included, whose code no target can
- * claim yet. A marker in a directory is claimed when some target of that pack is rooted
- * there or above it, which covers a workspace's packages under a root target.
+ * code. A marker in a directory is claimed when some target of that pack is
+ * rooted there or above it, which covers a workspace's packages under a root
+ * target.
  * Every marker no target claims is reported, with the target that would claim
  * it, in checkride's own `unclaimed.json`, and fails the check.
  */
@@ -16,7 +16,6 @@ import { SLOTS } from '../adapters.js';
 import type { GitRunner } from '../git.js';
 import { realGit } from '../git.js';
 import type { CheckOutcome } from '../links.js';
-import { PACKS } from '../packs/index.js';
 import { excluded, globRegExp } from './files.js';
 import { isWithin, markerKind, NAME_LENGTH, numbered, repoFiles, slugName } from './markers.js';
 import { RESERVED_SLOTS } from './resolve.js';
@@ -75,9 +74,8 @@ export async function findUnclaimed(repo: string, input: UnclaimedInput, git: Gi
   });
 }
 
-/** How to quiet one unclaimed marker: the target entry that would claim it, or, for a pack not shipped yet, the ignore. */
-function remedy({ kind, suggest }: Unclaimed): string {
-  if (!Object.hasOwn(PACKS, kind)) return `  no ${kind} pack ships yet, so list it in unclaimed.ignore until one does`;
+/** How to quiet one unclaimed marker: the target entry that would claim it, or the ignore. */
+function remedy({ suggest }: Unclaimed): string {
   return `  claim it: "${suggest.name}": { "lang": "${suggest.lang}", "root": "${suggest.root}" } under targets, or list it in unclaimed.ignore`;
 }
 

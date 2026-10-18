@@ -22,7 +22,7 @@
 import { isAbsolute, relative } from 'node:path';
 
 import type { PinSourceName, Tool } from '../packs/index.js';
-import { CARGO_TOOLCHAIN, GO_TOOLCHAIN, PACKS, TOOLCHAINS, TOOLS } from '../packs/index.js';
+import { CARGO_TOOLCHAIN, GO_TOOLCHAIN, PACKS, TERRAFORM_TOOLCHAIN, TOOLCHAINS, TOOLS } from '../packs/index.js';
 import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
@@ -32,6 +32,8 @@ import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
 import type { RustToolchainDeclaration } from './rust-toolchain.js';
 import { isExactChannel, rustToolchainDeclaration, toolchainFileEnv } from './rust-toolchain.js';
+import type { TfVersionDeclaration } from './terraform.js';
+import { cliVersion, terraformCli, tfVersionDeclaration } from './terraform.js';
 import { translateExec } from './translate.js';
 import type { UvLockDeclaration } from './uv.js';
 import { environmentTool, projectEnvironment, uvLockDeclaration } from './uv.js';
@@ -123,13 +125,15 @@ type ToolRequest = {
 /**
  * What declared a tool, for a refusal or detection to name: the mise config
  * and key, the `go.mod` and its version, the toolchain file and its channel,
- * or the `uv.lock` and the version it locks.
+ * the `uv.lock` and the version it locks, or the Terraform version file and
+ * the release it names.
  */
 type Declared = {
   mise?: MiseDeclaration;
   goMod?: GoModDeclaration;
   toolchain?: RustToolchainDeclaration;
   uvLock?: UvLockDeclaration;
+  tfVersion?: TfVersionDeclaration;
   override?: Override;
 };
 
@@ -288,6 +292,34 @@ const UV_LOCK: Source = {
   },
 };
 
+/**
+ * The `tf-version` source: the CLI a `.terraform-version` or
+ * `.opentofu-version` from the check's directory up to the repo root
+ * declares, run from `PATH` (R6.1). A version manager on `PATH` reads the
+ * file itself, but a plain CLI doesn't, so a file that names an exact release
+ * is checked against the copy that would run, and a mismatch fails the check
+ * naming the release it asks for rather than run another. It records that
+ * release (R6.3). A file declares only its own CLI, so `tofu` for an
+ * `.opentofu-version`, and never a tool such as tflint.
+ */
+const TF_VERSION: Source = {
+  declares: (req) => {
+    const tfVersion = tfVersionDeclaration(req.cwd, req.repo);
+    return tfVersion === null || tfVersion.cli.bin !== req.tool.bin ? null : { tfVersion };
+  },
+  run: (req, declared) => {
+    const found = findOnPath(req.tool.bin, req.env);
+    if (found === null) return { refusal: toolchainMissingRefusal(req, req.tool) };
+    const pinned = declared?.tfVersion;
+    const version = pinned?.version;
+    if (pinned !== undefined && version !== undefined) {
+      const reported = cliVersion(found, req.cwd, req.env);
+      if (!reported.ok || reported.version !== version) return { refusal: tfVersionRefusal(req, pinned, version, { path: found, reported }) };
+    }
+    return { command: req.tool.bin, args: [...req.args], env: MISE_NO_INSTALL, pin: { source: 'tf-version', ...(version !== undefined ? { version } : {}) } };
+  },
+};
+
 /** The sources the launcher reads, by name. `path` declares nothing, so it has no row; a name without one isn't readable yet. */
 const SOURCES: { readonly [K in PinSourceName]?: Source } = {
   override: OVERRIDE,
@@ -295,6 +327,7 @@ const SOURCES: { readonly [K in PinSourceName]?: Source } = {
   'go-mod-tool': GO_MOD_TOOL,
   'rust-toolchain': RUST_TOOLCHAIN,
   'uv-lock': UV_LOCK,
+  'tf-version': TF_VERSION,
   mise: MISE,
 };
 
@@ -348,6 +381,7 @@ function languageSignal(declared: Declared, tool: Tool): string | null {
   if (declared.goMod !== undefined) return `${declared.goMod.file}: ${tool.goTool ?? tool.bin}`;
   if (declared.toolchain !== undefined) return `${declared.toolchain.file}: ${tool.component ?? tool.bin}`;
   if (declared.uvLock !== undefined) return `${declared.uvLock.file}: ${tool.pypi ?? tool.bin}`;
+  if (declared.tfVersion !== undefined) return `${declared.tfVersion.file}: ${tool.bin}`;
   return null;
 }
 
@@ -414,7 +448,7 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
   const chain = ctx.pins !== undefined && ctx.pins.length > 0 ? ctx.pins : IMPLICIT_CHAIN;
   const tool = execTool(command, args);
   if (tool === null) {
-    const toolchain = TOOLCHAINS.find((t) => t.bin === command);
+    const toolchain = chosenToolchain(command, chain, ctx);
     if (toolchain === undefined) return passThrough(command, args, ctx.pm);
     const request = toolRequest(slot, toolchain, args, chain, ctx);
     // A toolchain the `--pins` file pins runs that copy, in any chain (R13.3).
@@ -427,6 +461,17 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
     return walkChain({ ...request, requirePins: false });
   }
   return walkChain(toolRequest(slot, toolRow(tool, ctx.tools), args.slice(2), chain, ctx));
+}
+
+/**
+ * The toolchain `command` names, if it names one. In a chain that reads
+ * `tf-version`, the terraform pack's, `terraform` runs as the CLI the repo
+ * declares, which is `tofu` where it declares OpenTofu (R5.8).
+ */
+function chosenToolchain(command: string, chain: readonly PinSourceName[], ctx: LaunchContext): Tool | undefined {
+  const toolchain = TOOLCHAINS.find((t) => t.bin === command);
+  if (toolchain !== TERRAFORM_TOOLCHAIN || !chain.includes('tf-version')) return toolchain;
+  return terraformCli(ctx.cwd, ctx.repo ?? ctx.cwd, chain.includes('override') ? (ctx.overrides ?? new Map()) : new Map());
 }
 
 /** What a source reads to resolve `tool`, run with `args`, for the check filling `slot`. */
@@ -615,6 +660,36 @@ function environmentRefusal(req: ToolRequest, lock: UvLockDeclaration, found: { 
         '',
       ]
       : []),
+  ].join('\n');
+}
+
+/**
+ * The refusal for a CLI a Terraform version file pins to `version` when the
+ * copy on `PATH` reports another, or can't say which it is. A version
+ * manager that reads the file, tfenv or tofuenv, installs the release it
+ * names; a plain CLI has to be that release.
+ */
+function tfVersionRefusal(
+  req: ToolRequest,
+  pinned: TfVersionDeclaration,
+  version: string,
+  found: { path: string; reported: { ok: true; version: string } | { ok: false; detail: string } },
+): string {
+  const bin = req.tool.bin;
+  const reported = found.reported;
+  return [
+    reported.ok
+      ? `checkride: the \`${req.slot}\` slot's \`${bin}\` is pinned by ${pinned.file} to ${version}, but the \`${bin}\` on PATH is ${reported.version}.`
+      : `checkride: the \`${req.slot}\` slot's \`${bin}\` is pinned by ${pinned.file} to ${version}, but the \`${bin}\` on PATH didn't say which version it is.`,
+    '',
+    `  declared in: ${pinned.file} (${version})`,
+    reported.ok ? `  found: ${found.path} (${reported.version})` : `  ${bin} version -json: ${reported.detail}`,
+    '',
+    `checkride never installs a CLI, and it won't run another \`${bin}\` in place`,
+    `of the pinned one. Put ${version} on PATH, or let ${pinned.manager} pick it, then re-run:`,
+    '',
+    `  ${pinned.manager} install ${version}`,
+    '',
   ].join('\n');
 }
 

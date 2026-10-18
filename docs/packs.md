@@ -1,16 +1,16 @@
 # Packs and pins
 
 A pack is one language's adapters, together with where its tools are pinned
-and the environment its checks run with. Six packs ship so far: `ts`, which
+and the environment its checks run with. Seven packs ship: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
 `go`, which checks Go modules and workspaces, `rust`, which checks Cargo
-packages and workspaces, and `python`, which checks Python projects. This page
-covers how a check's tool resolves to the copy that runs, what the summary
-records about that copy, the bash pack and the file lists its checks run over,
-the go, rust and python packs, and the spawn environment each pack sets.
-A pack for Terraform arrives in a later release, and the rows below that
-belong to it say so.
+packages and workspaces, `python`, which checks Python projects, and
+`terraform`, whose targets run their own custom checks with the CLI their
+version file pins until its adapters arrive. This page covers how a check's
+tool resolves to the copy that runs, what the summary records about that copy,
+the bash pack and the file lists its checks run over, the go, rust, python and
+terraform packs, and the spawn environment each pack sets.
 
 ## Pin chains
 
@@ -25,6 +25,7 @@ order.
 | `go` | `go-mod-tool`, then `mise`, then `path` |
 | `rust` | `rust-toolchain`, then `mise`, then `path` |
 | `python` | `uv-lock`, then `mise`, then `path` |
+| `terraform` | `tf-version`, then `mise`, then `path` |
 
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
@@ -63,12 +64,12 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
 | `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
 | `uv-lock` | the `uv.lock` nearest the check's directory, up to the repo root, lists the tool's PyPI package, its name compared as PyPI compares names | the tool's executable in the project's environment: `.venv/bin/<tool>` beside the lock, which a workspace's members share, or `bin/<tool>` under the environment `UV_PROJECT_ENVIRONMENT` names, a relative one from the lock's directory; never through `uv` itself | the `version` of the lock's `[[package]]` entry for it, when the lock pins one version; a forked resolution that locks several records none |
+| `tf-version` | a `.terraform-version` or `.opentofu-version` from the check's directory up to the repo root, the nearest one, `.opentofu-version` first in one directory, for the CLI it names: `terraform` or `tofu` | that CLI from `PATH`, once `<cli> version -json` reports the release the file names, when it names one exactly | the file's release, when it names one exactly, such as `1.5.7` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
-The summary's `pin_source` names one more source, `tf-version`. It arrives
-with the pack that uses it, and no run writes it yet. `uv-lock` declares only
-a tool that `TOOLS` gives a PyPI package: ruff, mypy, basedpyright and pytest.
+`uv-lock` declares only a tool that `TOOLS` gives a PyPI package: ruff, mypy,
+basedpyright and pytest.
 Its argv names the environment's executable from the check's directory, such
 as `.venv/bin/ruff`, and absolutely when the environment lies outside the
 repo.
@@ -370,6 +371,43 @@ each slot and scaffolds its config under the target's root: `ruff.toml` for
 the root's `pyproject.toml` already configures keeps that config, since a new
 file would hide the table, and the command says so instead of writing one.
 
+## The terraform pack
+
+A terraform target checks a Terraform or OpenTofu root module from its
+directory, which a `.terraform.lock.hcl` or any `.tf` file marks:
+
+```json
+{
+  "targets": {
+    "network": { "lang": "terraform", "root": "infra/network" }
+  }
+}
+```
+
+Its adapters arrive in a later release. Until then a terraform target runs its
+own custom checks, and a `terraform` command among them resolves through the
+pack's chain, as the adapters will.
+
+The CLI is `terraform` or `tofu`. The nearest `.terraform-version` or
+`.opentofu-version`, from the target's root up to the repo root, says which,
+`.opentofu-version` first where one directory holds both. With neither, a
+`mise.toml` that pins `opentofu`, or a `--pins` file that does, makes it
+`tofu`, and otherwise it's `terraform`. A check that names `terraform` runs
+whichever the repo declares, so a command written once fits both.
+
+The version file is the one tfenv and tofuenv read, and where one of them is
+the CLI on `PATH`, it runs the release the file names. A plain CLI reads no
+such file, so when the file names an exact release, such as `1.5.7`, checkride
+asks the CLI on `PATH` for its version with `version -json` before the check
+runs, and fails the check, naming both releases and the `tfenv install` or
+`tofuenv install` that fixes it, when they differ. It never runs another copy
+in place of the pinned one. A constraint such as `latest:^1.5` is left to the
+version manager, and records no `tool_version`. With no version file, a
+`mise.toml` pin runs the CLI through mise, and otherwise it comes from `PATH`,
+and a CLI from `PATH` runs even under `requirePins`, as a toolchain does. Both
+CLIs report `terraform_version` from `version -json`, checked against
+Terraform 1.9.8 and OpenTofu 1.13.1.
+
 ## The entry command
 
 The entry command is how the stop-hook gate, the AGENTS.md stanza and the
@@ -412,11 +450,9 @@ and `pinSource`.
 
 A pack's variables apply to every check of that pack that spawns, the
 target's custom checks included, and override the user's own values for those
-variables only. The go, rust and python rows apply today, and so do the mise
-variables, which checkride sets on every check whose tool resolves through
-`mise` or `path`,
-since a tool on `PATH` may be one of mise's shims. The other rows apply once
-their pack ships. No row touches `GOFLAGS`: Go 1.24 already refuses to rewrite
+variables only. The mise variables apply to every check whose tool resolves
+through `mise` or `path`, since a tool on `PATH` may be one of mise's shims.
+No row touches `GOFLAGS`: Go 1.24 already refuses to rewrite
 `go.mod` during a build, and an explicit `-mod=readonly` would make Go ignore
 `vendor/`, so a vendored module builds with an empty module cache. An adapter
 marked `network: true` gets none of the variables that block the network

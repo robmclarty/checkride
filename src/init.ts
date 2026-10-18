@@ -37,7 +37,7 @@ import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, implicitPack, isImplicit } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, markerAt } from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -1646,7 +1646,7 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
   const raw = readRawConfig(cwd, () => ({}));
   if (raw['targets'] !== undefined) return null;
   const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
-  const pack = implicitPack((marker) => existsSync(join(cwd, marker)));
+  const pack = implicitPack(markerAt(cwd));
   if (isImplicit(proposed, pack)) return null;
   // The root target first, so it takes the implicit target over rather than nesting beside one.
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
@@ -1718,7 +1718,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // Route --add: publish slots (and the library path) opt into the bundle; the
   // rest scaffold blessed configs before inventory, so they're detected this run.
   const { publishRequested, fileAdds } = splitAdd(options.add ?? [], manifest);
-  await addConfigs(w, fileAdds, skipped, { pack: implicitPack((file) => existsSync(join(cwd, file))) });
+  await addConfigs(w, fileAdds, skipped, { pack: implicitPack(markerAt(cwd)) });
 
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
@@ -1776,7 +1776,9 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
  */
 function existingMarker(cwd: string): string | null {
   const others = Object.values(PACKS).filter((p) => p.name !== PACKS.ts.name).flatMap((p) => p.markers);
-  return ['package.json', ...others].find((marker) => existsSync(join(cwd, marker))) ?? null;
+  const marker = ['package.json', ...others].find(markerAt(cwd));
+  // A glob marker names a kind of file: `*.tf` reads as a `.tf file`.
+  return marker === undefined ? null : marker.startsWith('*') ? `${marker.slice(1)} file` : marker;
 }
 
 /** Detect new vs existing: existing when the root holds a `package.json` or another shipped pack's marker. */
@@ -1816,7 +1818,7 @@ function addsTsOnly(name: string): boolean {
  * in a new project's empty directory, whose pack is `ts`.
  */
 function addProblem(options: InitOptions, cwd: string): string | null {
-  const pack = implicitPack((file) => existsSync(join(cwd, file)));
+  const pack = implicitPack(markerAt(cwd));
   const own = PACK_ADD_CONFIGS[pack] ?? {};
   const refused = pack === PACKS.ts.name ? [] : (options.add ?? []).filter((name) => !Object.hasOwn(own, name) && addsTsOnly(name));
   if (refused.length === 0) return null;

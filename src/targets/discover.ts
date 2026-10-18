@@ -28,7 +28,7 @@
  * the implicit mode a repo already runs in, which writes no `targets` block.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import { SLOTS } from '../adapters.js';
@@ -40,7 +40,7 @@ import { readGoWorkspace } from '../launch/index.js';
 import { PACKS } from '../packs/index.js';
 import { liftDiscovered } from './add.js';
 import { isDefaultShellFile } from './files.js';
-import { isWithin, numbered, repoFiles, slugName } from './markers.js';
+import { isWithin, markerAt, numbered, repoFiles, slugName } from './markers.js';
 import type { Target } from './resolve.js';
 import { configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
 
@@ -202,7 +202,7 @@ export async function discoverRun(
   const declared = configuredTargets(config);
   if (declared !== null) return { config, targets: [], declared: declared.map((t) => t.name), dropped: [], baseline };
   const proposed = await discoverTargets(repo, git);
-  const pack = implicitPack((marker) => existsSync(join(repo, marker)));
+  const pack = implicitPack(markerAt(repo));
   if (isImplicit(proposed, pack)) return { config, targets: [], declared: [], dropped: [], baseline };
   const lifted = liftDiscovered(config ?? {}, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS });
   const problem = configProblem(lifted.config, { cwd: repo, layer: 'repo' });

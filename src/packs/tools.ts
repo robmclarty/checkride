@@ -29,6 +29,27 @@ export const CARGO_TOOLCHAIN: Tool = {
 };
 
 /**
+ * Terraform's CLI. A `.terraform-version` pins it, or a `mise.toml`, and
+ * otherwise it comes from `PATH`; it's the CLI a terraform target runs unless
+ * OpenTofu is declared.
+ */
+export const TERRAFORM_TOOLCHAIN: Tool = {
+  bin: 'terraform',
+  mise: ['terraform', 'aqua:hashicorp/terraform'],
+  install: 'install Terraform 1.5 or later (https://developer.hashicorp.com/terraform/install), or pin it with `mise use terraform@<version>`',
+};
+
+/**
+ * OpenTofu's CLI, which a terraform target runs in Terraform's place where an
+ * `.opentofu-version` or a `mise.toml` declares it.
+ */
+export const TOFU_TOOLCHAIN: Tool = {
+  bin: 'tofu',
+  mise: ['opentofu', 'aqua:opentofu/opentofu'],
+  install: 'install OpenTofu 1.6 or later (https://opentofu.org/docs/intro/install), or pin it with `mise use opentofu@<version>`',
+};
+
+/**
  * The executables a toolchain ships, which an adapter runs directly rather
  * than as a tool: each resolves through the toolchain's own pin, the `go` a
  * `mise.toml` declares running both `go` and `gofmt`.
@@ -36,6 +57,8 @@ export const CARGO_TOOLCHAIN: Tool = {
 export const TOOLCHAINS: readonly Tool[] = [
   GO_TOOLCHAIN,
   CARGO_TOOLCHAIN,
+  TERRAFORM_TOOLCHAIN,
+  TOFU_TOOLCHAIN,
   {
     bin: 'gofmt',
     mise: ['go', 'core:go'],

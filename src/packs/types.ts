@@ -13,10 +13,8 @@ import type { Adapter } from '../adapters.js';
  * `node_modules/.bin`. `mise` is a `[tools]` key in a `mise.toml`, and `path`
  * declares nothing: it's the copy a machine's `PATH` holds, unpinned.
  * `override` is a `--pins` file's `[tools]` entry, which heads every chain
- * when a run names one, and `go-mod-tool`, `rust-toolchain` and `uv-lock` the
- * go, rust and python packs' own. `tf-version` belongs to a pack that hasn't
- * shipped, and the summary's `pin_source` names all eight so its vocabulary is
- * written once.
+ * when a run names one, and `go-mod-tool`, `rust-toolchain`, `uv-lock` and
+ * `tf-version` the go, rust, python and terraform packs' own.
  */
 export type PinSourceName =
   | 'override'
@@ -31,11 +29,12 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust' | 'python';
+  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust' | 'python' | 'terraform';
   /**
-   * Files whose presence marks a directory as holding this pack's code. The
-   * repo pack has none, since its slots check the repo as a whole, and neither
-   * does bash, whose targets are always declared.
+   * Files whose presence marks a directory as holding this pack's code, each
+   * a file name or a glob over one (`*.tf`). The repo pack has none, since its
+   * slots check the repo as a whole, and neither does bash, whose targets are
+   * always declared.
    */
   markers: readonly string[];
   /**

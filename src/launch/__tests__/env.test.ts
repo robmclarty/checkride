@@ -21,6 +21,19 @@ describe('packEnv (R6.4)', () => {
     expect(packEnv('python', true)).toEqual({ PYTHONDONTWRITEBYTECODE: '1' });
   });
 
+  test('a terraform check never prompts, calls home or lets a version manager download a CLI, network or not', () => {
+    const env = {
+      CHECKPOINT_DISABLE: '1',
+      TF_IN_AUTOMATION: '1',
+      TF_INPUT: '0',
+      TFENV_AUTO_INSTALL: 'false',
+      TOFUENV_AUTO_INSTALL: 'false',
+      TRIVY_SKIP_CHECK_UPDATE: 'true',
+    };
+    expect(packEnv('terraform')).toEqual(env);
+    expect(packEnv('terraform', true)).toEqual(env);
+  });
+
   test('a check of a pack that sets none, or of no pack, sets none', () => {
     for (const pack of ['ts', 'repo', 'bash', undefined]) expect(packEnv(pack), String(pack)).toEqual({});
   });

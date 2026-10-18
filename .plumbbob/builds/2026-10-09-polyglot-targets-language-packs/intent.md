@@ -894,7 +894,7 @@ reference rules and porting trap apply as written there.
 60. [x] feat(findings): parse ruff, mypy and basedpyright output, **done when:** all three parse real fixtures, ruff feeds the baseline, and the type checkers don't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet
-61. [ ] test(examples): move examples/polyglot onto the python pack, **done when:** `examples/python-project` (formerly `examples/polyglot`) runs on the python pack and keeps one custom check to show that route; plants for ruff, mypy and pytest fail as expected (S19); every link to the old path is updated; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+61. [x] test(examples): move examples/polyglot onto the python pack, **done when:** `examples/python-project` (formerly `examples/polyglot`) runs on the python pack and keeps one custom check to show that route; plants for ruff, mypy and pytest fail as expected (S19); every link to the old path is updated; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/polyglot/`, `examples/python-project/`, `test/e2e/examples.e2e.test.ts`,
       `README.md`, `docs/`
     - model: sonnet
