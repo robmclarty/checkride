@@ -25,7 +25,14 @@ import { spawnCapture } from '../env.js';
 /** A generous budget for the cases that are not about the timeout. */
 const NO_TIMEOUT = { timeoutMs: 60_000 };
 
+/**
+ * True while `pid` names a live process. An empty pid file reads as 0, which
+ * names this process's own group, so the SIGKILL safety net after a probe
+ * would take the test runner down with it: a pid that isn't positive fails the
+ * test instead.
+ */
 function isAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`no pid to probe: read ${pid}`);
   try {
     process.kill(pid, 0);
     return true;

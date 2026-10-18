@@ -501,6 +501,49 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   premise that each pack's release would add its own, steps 42 and 45 didn't, and without them
   `--discover` over a mixed repo, the run #7 and [D24 (discover)](#d24) want, proposes no target
   for its Go or Rust code (settled at step 76's harvest, from step 76's park).
+- <a id="d69"></a>**D69 (config-error-file)**: every config error names the file it came from:
+  `invalid <path>: <reason>` for a `--config`, `--defaults` or `--pins` file, at load and at
+  resolve time alike, the latter through a label each config loaded from another path keeps,
+  and a defaults file's entries are held to resolution's rules as it loads, so a typo surfaces
+  in every repo rather than only one where the entry fills a slot, *because* F36's error helps
+  only if it names the defaults file (settled at step 53 from the Ranges section's lean, folded
+  at step 57's harvest).
+- <a id="d70"></a>**D70 (implicit-top-over-packs)**: in a repo without `targets`, the top-level
+  `checks` are the implicit target's own entries, so for a target-scope slot or a custom check
+  they rank above `packs.<pack>.checks` of the root's pack, ts roots included, then
+  detection, then the defaults layer's `packs` and `checks`; multi-target mode keeps R3 as
+  written, *because* a preset's or a defaults file's `packs` block would otherwise do nothing in
+  a repo without `targets`, a pack default must not beat the repo's own entry, and `target add`
+  moves those top-level entries into the converted target, where they rank the same way
+  (settled at step 53 from the Ranges section's lean, folded at step 57's harvest).
+- <a id="d71"></a>**D71 (consumer-calls)**: R13.1, R13.3 and R13.4 read as steps 53 to 56 shipped
+  them where the plan was silent. A defaults entry fills a slot with the opt-in status the repo
+  gives it and never opts one in itself; a defaults `false`, or a pick the check's pack has no
+  adapter for, fills nothing; a defaults file holds only its listed keys, any other exiting 2,
+  and a top-level entry naming an adapter no pack has exits 2. The `override` source runs
+  offline (`MISE_OFFLINE=1`) behind a `mise where <id>@<version>` check, a toolchain the file
+  pins runs that copy in any chain, and detection never reads the file. A `CodeKey` names a file
+  by name at any depth or by path glob, with an optional `value` regex; an entry that swaps a
+  static adapter's command loses the mark; under `--static-only` the js-lockfile pre-flight
+  covers every package manager but a PnP install; keys are sniffed as text, erring toward a
+  skip. `doctor` refuses `--pins` and `--static-only` with exit 2 until step 69 teaches it
+  both, *because* steps 72 and 73 build the docs from R13, and they would otherwise document
+  rules no run keeps (settled at steps 53 to 56, folded at step 57's harvest).
+- <a id="d72"></a>**D72 (mutation-sandbox)**: stryker runs the tests through a vitest config of
+  its own that leaves out the ones that read the repo's git state
+  (`test/integration/dogfood-config.test.ts`), which `pnpm check` still runs, *because*
+  stryker's sandbox is a gitignored copy with no git state of its own, so those tests fail its
+  dry run and no full mutation run can start, while they guard the repo's files rather than
+  the code stryker mutates, and C12 (quality-floors) needs the repo-wide score (folded at step
+  57's harvest, from step 53's park).
+- <a id="d73"></a>**D73 (discover-stands-down)**: `--discover` over a config that declares
+  `targets` checks those targets, as a run without the flag would, prints one stderr note saying
+  the config's targets stand in for discovery, and still records `run.discover`, with no target
+  marked `discovered`; it stays a consumer run that never ratchets ([D22 (consumer-runs-write-nothing)](#d22)).
+  This replaces F37's exit 2, *because* a review agent runs one recipe over many repos and can't
+  know which declare targets before it reads their configs, the repo's own targets are better
+  evidence than discovery, and the flag hasn't shipped (the maintainer's call at step 57's
+  boundary, from that harvest's `--discover` item).
 
 ## Constraints
 
@@ -829,8 +872,15 @@ reference rules and porting trap apply as written there.
     - seam: `src/packs/`, `src/packs/static.ts`, `src/orchestrator/select.ts`, `src/cli.ts`,
       `src/orchestrator/run.ts`, `docs/contract.md`
     - model: opus (the sniffs decide what a pre-sandbox run touches)
-57. [ ] docs(consumers): document running checkride from outside a repo, **done when:** `docs/consumers.md` gives R13.6's recipes and the findings walk-through and says plainly that nothing in it is a sandbox; an e2e case runs the pre-sandbox recipe over an uninstalled `polyglot-stack` copy and the sandbox recipe over an installed one, and parses every finding with `findingsFor`, text-output checks included (S18); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+57. [x] docs(consumers): document running checkride from outside a repo, **done when:** `docs/consumers.md` gives R13.6's recipes and the findings walk-through and says plainly that nothing in it is a sandbox; an e2e case runs the pre-sandbox recipe over an uninstalled `polyglot-stack` copy and the sandbox recipe over an installed one, and parses every finding with `findingsFor`, text-output checks included (S18); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `docs/consumers.md`, `docs/README.md`, `test/e2e/consumers.e2e.test.ts`
+    - model: sonnet
+77. [ ] test(mutation): let a full stryker run start from its sandbox, **done when:** an unscoped `pnpm mutation` passes its dry run and reports a score at or above `stryker.config.mjs`'s break threshold ([C12 (quality-floors)](#c12)), through a vitest config of stryker's own that leaves out the tests reading the repo's git state, which `pnpm check` still runs ([D72 (mutation-sandbox)](#d72)); the mutation canary stays green
+    - seam: `stryker.config.mjs`, `vitest.stryker.config.ts`, `vitest.config.ts`
+    - model: sonnet
+78. [ ] feat(run): let --discover stand down where the config declares targets, **done when:** `--discover` over a config that declares `targets`, run or `doctor`, checks those targets with one stderr note naming them as the reason, records `run.discover` with no target marked `discovered`, and never ratchets, in place of F37's exit 2 ([D73 (discover-stands-down)](#d73)); `docs/consumers.md`'s recipes pass `--discover` unconditionally, as R13.6 writes them, and `test/e2e/consumers.e2e.test.ts` drops its conditional and runs green; `docs/contract.md`, the cheatsheet and `CHANGELOG.md` say so
+    - seam: `src/targets/discover.ts`, `src/orchestrator/run.ts`, `src/cli.ts`, `docs/contract.md`,
+      `docs/consumers.md`, `test/e2e/consumers.e2e.test.ts`
     - model: sonnet
 
 ### Phase 10: Python
@@ -911,7 +961,7 @@ reference rules and porting trap apply as written there.
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-48, 49, 50, 51, 76, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+77, 78, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
 
 ## Ranges
 
@@ -974,15 +1024,10 @@ other call.
   [D63 (qa-mutation-path)](#d63).*
 - **Step 45, `cargo:global`.** *Folded at step 47's harvest as
   [D64 (cargo-target-dir-lock)](#d64).*
-- **Step 53, the file a config error names.** Every config error names the file it came from.
-  Load-time errors already hold the path, resolve-time errors read it from a label recorded on
-  each loaded layer, and step 55's `--pins` reuses the label, *because* F36's error helps only
-  if it names the defaults file.
-- **Step 53, `packs` without targets.** In implicit mode the top-level `checks` acts as the
-  implicit target's own entry, so it ranks first, then `packs.<pack>.checks`, then detection,
-  then the defaults layer's `packs` and `checks`. Multi-target mode keeps R3 as written,
-  *because* a preset's or a defaults file's `packs` block would otherwise do nothing in a repo
-  without `targets`, and a pack default must not beat the repo's own entry.
+- **Step 53, the file a config error names.** *Folded at step 57's harvest as
+  [D69 (config-error-file)](#d69).*
+- **Step 53, `packs` without targets.** *Folded at step 57's harvest as
+  [D70 (implicit-top-over-packs)](#d70).*
 - **Step 70, the CI clause.** Amend the done-when to read "`ci.yml` runs it on linux-x64 and
   macOS arm64 (S12), and actionlint passes"; the first green CI run on `main` after the build is
   the proof, *because* only a push can show CI green, a range can't push, and pushing stays your
@@ -1296,6 +1341,8 @@ For a target-scope slot S in target T of pack P:
 A repo-scope slot runs steps 3, 4, 5 and 6, relative to the repo root. Presets fold into the
 repo's config before any of this, and `--config` replaces the file the repo's config comes from.
 A custom check from the defaults layer joins only when the repo has no check with that name.
+In a repo without `targets`, the top-level `checks` are the implicit target's own entries, so
+step 3 ranks above step 2 there, ts roots included ([D70 (implicit-top-over-packs)](#d70)).
 
 ### R4. Pack registry
 
@@ -1623,7 +1670,8 @@ here".
 | `--discover` | none | Discover targets at run time (R13.2). |
 | `--static-only` | none | Keep only static checks (R13.4). |
 
-A flag beats its variable. `--discover` with configured `targets` exits 2. The gate strips every
+A flag beats its variable. `--discover` with configured `targets` checks those targets instead,
+with a note on stderr ([D73 (discover-stands-down)](#d73)). The gate strips every
 variable in this table from the check it spawns, and the hooks never pass them.
 
 #### R7.2 Where each applies
@@ -2072,9 +2120,13 @@ don't change between releases ([D50 (key-rebasing)](#d50)).
 
 - `--defaults` or `CHECKRIDE_DEFAULTS` names the file, and its `extends` resolves against it.
 - It may hold `checks`, `packs`, `extends`, `timeout`, `requirePins` and `schemas`; `targets` is
-  an error (V11).
+  an error (V11), and so is any other key ([D71 (consumer-calls)](#d71)). Every entry is held to
+  resolution's rules as it loads, and every error names the file
+  ([D69 (config-error-file)](#d69)); a top-level entry naming an adapter no pack has exits 2.
 - It fills a slot only when the repo's config and detection leave it unresolved (R3). Its entries
-  record `origin: "defaults"` and render `[defaults]`.
+  record `origin: "defaults"` and render `[defaults]`. A slot it fills keeps the opt-in status
+  the repo gives it, and a defaults `false`, or a pick the check's pack has no adapter for,
+  fills nothing ([D71 (consumer-calls)](#d71)).
 - Its custom checks join the run only when the repo has no check by that name.
 - Its other top-level keys (`timeout`, `requirePins`, `schemas`) apply only when the repo's config
   doesn't set them, and an array is never merged with the repo's.
@@ -2084,7 +2136,8 @@ don't change between releases ([D50 (key-rebasing)](#d50)).
 #### R13.2 `--discover`
 
 - It runs R11.4 at run time and applies the proposed targets in memory, as if configured. A
-  config that already declares `targets` makes it exit 2.
+  config that already declares `targets` keeps them, and the run says so on stderr
+  ([D73 (discover-stands-down)](#d73)).
 - Top-level target-scope entries are lifted the way `target add` lifts them: into the target at
   root `.` when discovery proposes one, and dropped with a stderr note when it doesn't.
 - Baseline keys are aliased in memory (`lint` reads as `app:lint`), so masking keeps working.
@@ -2096,21 +2149,29 @@ don't change between releases ([D50 (key-rebasing)](#d50)).
 - `--pins` or `CHECKRIDE_PINS` names a `mise.toml`. Its `[tools]` entries are read with their
   versions: a string, or an inline table's `version`. Anything else exits 2.
 - The file becomes an `override` source at the head of every pack's chain. A tool it declares
-  runs as `mise exec <id>@<version> -- <bin>`, with mise's auto-install off (R6.4), and records
-  `pin_source: "override"` and its `tool_version`.
-- A version mise hasn't installed fails the check, naming the tool. Nothing downloads.
+  runs as `mise exec <id>@<version> -- <bin>`, with mise's auto-install off (R6.4) and offline
+  (`MISE_OFFLINE=1`), and records `pin_source: "override"` and its `tool_version`. A toolchain
+  it declares, such as `go`, runs that copy in any chain, and detection never reads the file
+  ([D71 (consumer-calls)](#d71)).
+- A version mise hasn't installed, as `mise where <id>@<version>` reports it, fails the check,
+  naming the tool. Nothing downloads.
 
 #### R13.4 Static classification
 
 A check survives `--static-only` only when every condition holds:
 
 1. Its adapter is `static: true` in the registry, or its entry comes from the defaults layer with
-   `static: true`. A custom check from the repo never qualifies.
+   `static: true`. A custom check from the repo never qualifies, and neither does an entry that
+   swaps a static adapter's command ([D71 (consumer-calls)](#d71)).
 2. Its argv carries none of the adapter's `nonStaticArgs`.
-3. None of the adapter's `codeConfigs` exists under the check's working directory.
+3. None of the adapter's `codeConfigs` exists under the check's working directory, at any depth.
 4. None of its `codeKeys` appears in the config file it reads. This is a best-effort sniff of
-   known keys.
-5. Its tool resolves without an install (R6.2).
+   known keys, read as text and erring toward a skip: a `CodeKey` names its file by name at any
+   depth or by path glob, and may carry a `value` regex a string the key holds must match
+   ([D71 (consumer-calls)](#d71)).
+5. Its tool resolves without an install (R6.2). Under the flag, the js-lockfile source
+   pre-flights `node_modules/.bin` for every package manager but a PnP install
+   ([D71 (consumer-calls)](#d71)).
 
 Every other check is skipped with `static-only: <cause>`, and the summary records
 `run.static_only` and `run.partial`.
@@ -2271,7 +2332,7 @@ each binary are equal.
 | F34 | `go.work` changes. | Full expansion. | Narrowing fixture. |
 | F35 | `--defaults` fills `lint` where the repo detects another adapter. | The repo's detected adapter runs, with `origin: "detected"`. | Config unit test. |
 | F36 | A defaults file declares `targets`. | Exit 2 (V11). | Config unit test. |
-| F37 | `--discover` meets a config with `targets`. | Exit 2. | CLI test. |
+| F37 | `--discover` meets a config with `targets`. | The config's targets run, with one stderr note, and `run.discover` is recorded ([D73 (discover-stands-down)](#d73)). | CLI test. |
 | F38 | `--pins` names a version mise hasn't installed. | The check fails naming the tool, and nothing downloads. | Fixture with mise. |
 | F39 | `--static-only` on an uninstalled TypeScript repo. | Only static checks run; each other check is skipped with a `static-only:` reason; `run.static_only` and `run.partial` are true. | E2e. |
 | F40 | `.oxlintrc.json` declares `jsPlugins` under `--static-only`. | `lint` is skipped with the sniff's reason. | Unit test. |

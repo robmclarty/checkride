@@ -61,10 +61,12 @@ const FILES: Record<string, string> = {
   'package.json': '{ "name": "mutation-canary", "private": true, "type": "module" }\n',
   'tsconfig.json':
     '{ "compilerOptions": { "module": "NodeNext", "moduleResolution": "NodeNext", "strict": true }, "include": ["src", "test"] }\n',
-  'vitest.config.ts': "export default { test: { include: ['test/**/*.test.ts'] } };\n",
   'src/clamp.ts': SOURCE,
   'test/clamp.test.ts': TESTS,
 };
+
+/** Written under whichever name the repo's stryker config gives the vitest runner. */
+const VITEST_CONFIG = "export default { test: { include: ['test/**/*.test.ts'] } };\n";
 
 type MutationReport = { files: Record<string, { mutants: { status: string }[] }> };
 
@@ -103,8 +105,9 @@ describe('mutation canary', () => {
   });
 
   test("the repo's stryker setup kills mutants under nested test names", async () => {
+    const repo = await repoStrykerConfig();
     const config = {
-      ...(await repoStrykerConfig()),
+      ...repo,
       mutate: ['src/**/*.ts'],
       incremental: false,
       reporters: ['json'],
@@ -113,6 +116,8 @@ describe('mutation canary', () => {
       concurrency: 2,
     };
     await writeFile(join(dir, 'stryker.config.json'), JSON.stringify(config, null, 2));
+    const vitest = repo['vitest'] as { configFile?: string } | undefined;
+    await writeFile(join(dir, vitest?.configFile ?? 'vitest.config.ts'), VITEST_CONFIG);
 
     await execFileP(process.execPath, [STRYKER, 'run', 'stryker.config.json'], {
       cwd: dir,

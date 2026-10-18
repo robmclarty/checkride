@@ -6,7 +6,8 @@
 # never imported by src/index.ts or src/cli.ts — so each executable entry
 # module is declared here or `dead` flags it as an unused file. The
 # `checkride/findings` subpath's entry, src/findings/api.ts, is declared for
-# the same reason: nothing in the package imports it.
+# the same reason: nothing in the package imports it. stryker.config.mjs names
+# vitest.stryker.config.ts as a string, which fallow can't follow.
 entry = [
   "src/index.ts",
   "src/findings/api.ts",
@@ -16,6 +17,7 @@ entry = [
   "src/**/*.test.ts",
   "test/**/*.test.ts",
   "stryker.config.mjs",
+  "vitest.stryker.config.ts",
 ]
 
 # The static site (GitHub Pages): support.js is a generated runtime bundle and

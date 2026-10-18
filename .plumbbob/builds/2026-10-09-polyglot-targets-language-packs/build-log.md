@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 57 — docs(consumers): document running checkride from outside a repo
+**Current step:** 77 — test(mutation): let a full stryker run start from its sandbox
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -81,7 +81,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 54. feat(run): discover targets at run time with --discover
 - ☑ 55. feat(launch): let an outside mise.toml override pins with --pins
 - ☑ 56. feat(select): keep only checks that need no install with --static-only
-- ☐ 57. docs(consumers): document running checkride from outside a repo
+- ☑ 57. docs(consumers): document running checkride from outside a repo
+- ☐ 77. test(mutation): let a full stryker run start from its sandbox
+- ☐ 78. feat(run): let --discover stand down where the config declares targets
 - ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☐ 59. feat(packs): add the python pack
 - ☐ 60. feat(findings): parse ruff, mypy and basedpyright output
@@ -151,14 +153,17 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] doctor's install row stays required in a root with no package.json (a Go or Rust root, or an init --lang go|rust scaffold), so doctor exits 1 there for a missing Node lockfile the repo never needs
 - [x] existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs, where a tsconfig.json would flip the implicit pack back to ts on the next run
 - [x] D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed; decide whether the scaffolds now write an implicit-mode config (bare check names) or keep the explicit target
-- [ ] step 66's schema slot must read a defaults file's schemas when the repo's config sets none (R13.1); step 53 loads and validates the key but nothing consumes it yet
-- [ ] a defaults custom check whose name matches one of the repo's targets isn't rejected, so a token like --only web could name both (V2 holds only within one config)
-- [ ] fix parses the shared run flags, so fix --defaults (like fix --out and --base) is accepted and ignored, where R7.2 says fix takes none of them
-- [ ] a full pnpm mutation fails its dry run at HEAD: test/integration/dogfood-config.test.ts runs git ls-files from inside the gitignored .stryker-tmp sandbox and gets nothing; only --mutate runs whose related tests skip it get through
-- [ ] doctor takes --pins per R7.2, but step 55 has it exit 2: its tool probe, pin rows and unpinned list need the override source (mise where <id>@<version>) before it can report the copies a --pins run uses
-- [ ] doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins: its rows would need withStaticOnly's causes and the every-manager install pre-flight to say which checks a static run keeps
-- [ ] R13.6's recipes pass --discover unconditionally, but F37 makes --discover exit 2 on a repo whose config declares targets, so docs/consumers.md conditions it on the config; decide whether --discover should instead stand down quietly where targets exist
-- [ ] R11.4 proposes a bash target only for shell files outside every other target, so a repo with a root package.json gets no bash target under --discover or init and its scripts go unlinted (polyglot-stack without its config shows it)
+- [x] step 66's schema slot must read a defaults file's schemas when the repo's config sets none (R13.1); step 53 loads and validates the key but nothing consumes it yet
+- [x] a defaults custom check whose name matches one of the repo's targets isn't rejected, so a token like --only web could name both (V2 holds only within one config)
+- [x] fix parses the shared run flags, so fix --defaults (like fix --out and --base) is accepted and ignored, where R7.2 says fix takes none of them
+- [x] a full pnpm mutation fails its dry run at HEAD: test/integration/dogfood-config.test.ts runs git ls-files from inside the gitignored .stryker-tmp sandbox and gets nothing; only --mutate runs whose related tests skip it get through
+- [x] doctor takes --pins per R7.2, but step 55 has it exit 2: its tool probe, pin rows and unpinned list need the override source (mise where <id>@<version>) before it can report the copies a --pins run uses
+- [x] doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins: its rows would need withStaticOnly's causes and the every-manager install pre-flight to say which checks a static run keeps
+- [x] R13.6's recipes pass --discover unconditionally, but F37 makes --discover exit 2 on a repo whose config declares targets, so docs/consumers.md conditions it on the config; decide whether --discover should instead stand down quietly where targets exist
+- [x] R11.4 proposes a bash target only for shell files outside every other target, so a repo with a root package.json gets no bash target under --discover or init and its scripts go unlinted (polyglot-stack without its config shows it)
+- [ ] a full pnpm mutation now takes about 3h on 8 cores: 1026 static mutants (8%) each rerun the whole 60s suite and take about half of it; ignoreStatic would cut that but drops them from C12's score, so it's a call on what the floor measures
+- [ ] orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan after a plain vitest run on 2026-10-17 (killed by hand); find which path skips the SIGKILL
+- [ ] the first full mutation run since step 17 scored 83.13% against break 68, and stryker.config.mjs's comment still cites 73.2%: decide whether to ratchet break toward ~78 per that comment's rule, which C12 (quality-floors) pins at 68
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -226,6 +231,18 @@ Harvest results this boundary:
 - After step 76: "doctor's install row stays required in a root with no package.json..." → **tangent**, deferred to step 69 (step 69's seam holds `src/doctor.ts`, and a binary-only repo is exactly the no-`package.json` case it must handle; nothing gates on `doctor`'s exit code, so the cost is a red diagnostic, never a false green, though the Phase 8 release ships with it).
 - After step 76: "existing-mode init at a go.mod or Cargo.toml root prints 'package manager: pnpm (detected)' and lets --add scaffold the ts pack's configs..." → **tangent**, deferred to step 52 (step 52 runs `init` in a Go root and sees the output; it drops the package-manager line where the root has no `package.json` and refuses an `--add` the root's pack has no blessed config for; `src/init.ts` sits outside step 52's seam, so add it via `/plumbbob:step 52` or accept a one-file stray).
 - After step 76: "D66 said init --lang go|rust writes an explicit app target only until the implicit pack landed..." → **tangent**, killed: the scaffolds keep the explicit `app` target (a later `target add` then only adds, never renaming `types` to `app:types` or rewriting baseline keys, the scaffolds, the `shapes` e2e and the examples already pin it, and R7.5 doesn't ask for implicit mode), so D66's "until it lands" is settled as "stays explicit" and step 73 should read it that way.
+
+- After step 57: "step 66's schema slot must read a defaults file's schemas..." → **tangent**, deferred to step 66 (nothing reads `schemas` before it; step 66 reads the repo's `schemas`, else the defaults file's, and wakes the inactive `schema` slot when only the defaults set them, which `inactiveCheck` in `src/config.ts` doesn't do today, reading the repo's config alone; `src/config.ts` sits outside step 66's seam, so add it via `/plumbbob:step 66` or accept a one-file stray).
+- After step 57: "a defaults custom check whose name matches one of the repo's targets isn't rejected..." → **tangent**, killed (the cost is over-selection, a token like `--only web` selecting both, never a false green, and a consumer's check names rarely meet a repo's target names).
+- After step 57: "fix parses the shared run flags, so fix --defaults ... is accepted and ignored..." → **tangent**, deferred to step 73 (a silent no-op on a command no consumer runs; step 73 decides between a usage error for each run flag `fix` doesn't read and documenting that it ignores them; `src/cli.ts` sits outside its seam, so add it via `/plumbbob:step 73` or accept a one-file stray).
+- After step 57: "a full pnpm mutation fails its dry run at HEAD..." → **blocker**, handled now: folded into `intent.md` as D72 (mutation-sandbox) and as step 77, ordered to build next (no full stryker run can start, likely since step 17 moved `dogfood-config.test.ts`, so C12 (quality-floors)'s repo-wide score can't be read; this range read only focused runs, 74 to 92%).
+- After step 57: "doctor takes --pins per R7.2, but step 55 has it exit 2..." → **tangent**, deferred to step 69, with the `--static-only` item (an honest refusal, never a false answer; step 69's seam holds `src/doctor.ts`, and D71 (consumer-calls) records the interim exit 2).
+- After step 57: "doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins..." → **tangent**, deferred to step 69, with the `--pins` item, for the same reason.
+- After step 57: "R13.6's recipes pass --discover unconditionally, but F37 makes --discover exit 2..." → **tangent**, left for the maintainer's call before the Phase 9 release, since F37 ships with it (`docs/consumers.md`'s shell conditional works today; the alternative amends F37 so `--discover` stands down with a stderr note and runs the declared targets, which makes the review agent's recipe one line for every repo, for a small change in `src/targets/discover.ts`, the contract doc and the step 54 tests).
+- After step 57: "R11.4 proposes a bash target only for shell files outside every other target..." → **tangent**, deferred to step 59 (step 39's harvest deferred this same question to step 54, which kept the rule without weighing it; step 59's seam holds `src/targets/`, where it adds the python rule beside the bash one, so it decides between relaxing the bash rule for `--discover` alone, which renames nothing since it's in memory, and keeping `init` and `--discover` identical and conservative).
+- After step 57, the maintainer's call on the `--discover` item above: let it stand down where the config declares targets → folded into `intent.md` as D73 (discover-stands-down), which amends R7.1, R13.2 and F37, and as step 78, ordered after step 77, both before the Phase 9 release.
+- After step 57: the Ranges section's two step 53 leans, which step 53 applied inside the range the human granted → folded into `intent.md` as D69 (config-error-file) and D70 (implicit-top-over-packs), which amends R3; the Ranges section marks both folded.
+- After step 57: the calls steps 53 to 56 made where R13 was silent (not parked; recorded in their checkpoint bodies and `docs/contract.md`) → **blocker**, handled now: folded into `intent.md` as D71 (consumer-calls), which amends R13.1, R13.3 and R13.4 to what shipped (steps 72 and 73 build the docs from R13).
 
 ## Log
 
@@ -2386,3 +2403,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 54 checkpointed · 75bfd64eb — feat(run): discover targets at run time with --discover (1 drift, 12m)
 - 2026-10-17 — step 55 checkpointed · d030bda47 — feat(launch): let an outside mise.toml override pins with --pins (1 drift, 13m)
 - 2026-10-17 — step 56 checkpointed · e82106524 — feat(select): keep only checks that need no install with --static-only (1 drift, 15m)
+- 2026-10-17 — step 57 checkpointed · 8e6db2c6b — docs(consumers): document running checkride from outside a repo (1 drift, 10m)

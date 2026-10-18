@@ -35,8 +35,14 @@ function sink(): { out: Out; lines: string[] } {
   return { lines, out: { write: (text: string) => { lines.push(text); return true; } } };
 }
 
-/** True while `pid` names a live process (signal 0 probes without delivering). */
+/**
+ * True while `pid` names a live process (signal 0 probes without delivering).
+ * An empty pid file reads as 0, which names this process's own group, so the
+ * SIGKILL safety net after a probe would take the test runner down with it:
+ * a pid that isn't positive fails the test instead.
+ */
 function isAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error(`no pid to probe: read ${pid}`);
   try {
     process.kill(pid, 0);
     return true;
@@ -1819,9 +1825,12 @@ describe('killLiveChecks (fatal-signal cleanup)', () => {
   test("reaps an in-flight check's grandchild and lets the run resolve", async () => {
     const orch = await freshOrchestrator();
     const pidFile = join(dir, 'gc.pid');
+    // Written whole, then renamed into place, so `waitFor` sees the file only
+    // once the pid is in it: an interrupt landing between a plain write's
+    // truncate and its bytes would leave the pid file empty for good.
     await writeFile(
       join(dir, 'gc.js'),
-      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`,
+      `const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(`${pidFile}.tmp`)}, String(process.pid)); fs.renameSync(${JSON.stringify(`${pidFile}.tmp`)}, ${JSON.stringify(pidFile)}); setInterval(() => {}, 1000);`,
     );
     await writeFile(
       join(dir, 'wrap.js'),

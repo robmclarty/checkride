@@ -2,14 +2,18 @@
  * Stryker mutation testing config.
  *
  * Invoked by the opt-in `mutation` slot (and directly via `pnpm mutation`).
- * Mutates the source modules and runs the unit tests (the e2e suite is excluded
- * from the default vitest config, so Stryker does not run it). Incremental mode
- * keeps re-runs cheap.
+ * Mutates the source modules and runs the unit tests through
+ * vitest.stryker.config.ts (the default vitest config less the tests that read
+ * this repo's git state; the e2e suite is excluded there too, so Stryker does
+ * not run it). Incremental mode keeps re-runs cheap.
  */
 export default {
   packageManager: 'pnpm',
   testRunner: 'vitest',
   plugins: ['@stryker-mutator/vitest-runner'],
+  // The sandbox is a gitignored copy with no git state of its own, so a test
+  // that runs `git ls-files` there sees nothing and fails the dry run.
+  vitest: { configFile: 'vitest.stryker.config.ts' },
   reporters: ['clear-text', 'json'],
   jsonReporter: { fileName: '.check/mutation.json' },
   mutate: [
