@@ -426,9 +426,28 @@ tflint run that stopped short, its `errors` list holding an entry, is read as
 untrustworthy, so the ratchet keeps every key it holds.
 
 `--static-only` keeps fmt, tflint and trivy, since each reads the
-configuration as data, and skips validate. It skips tflint too where a
-`.tflint.hcl` under the target declares a `plugin` other than `terraform`,
-since that plugin is a binary tflint runs.
+configuration as data, and skips validate. It skips tflint wherever tflint
+0.64.0 would run a plugin, since a plugin is a binary:
+
+- any file under a `.tflint.d/` below the target's root, at any depth. tflint
+  runs plugins from the `plugins/` of the one in each directory it lints, and
+  a binary named for the bundled terraform ruleset runs in its place, even
+  under a terraform-only `.tflint.hcl` or none.
+- a `.tflint.hcl` there that opens a `plugin` block other than `terraform`,
+  its label quoted or bare. Comments don't count, apart from block comments:
+  the sniff reads those as configuration rather than risk hiding a plugin.
+- a `.tflint.hcl` there that sets `source`, `version` or `plugin_dir`, which
+  fetch a plugin or move where tflint looks for one. A rule's own `source` or
+  `version` option skips it too.
+- a `.tflint.json` there, which tflint reads where no `.tflint.hcl` sits, that
+  declares any plugin or sets one of those keys.
+- argv that passes `--chdir`, `--config` or `--enable-plugin`, which reach
+  past what the sniff reads.
+
+Names match in any case, since macOS opens a file by any case of its name,
+and the sniff reads what sits on disk, so files git ignores and a submodule's
+files count. A terraform-only `.tflint.hcl` with no `.tflint.d/` keeps
+tflint, as the blessed one does.
 
 Each row was checked against OpenTofu 1.13.1, tflint 0.64.0 and trivy 0.76.0.
 `terraform fmt -check` exits 3 when a file would change, and passes over

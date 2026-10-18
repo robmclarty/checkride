@@ -6,9 +6,10 @@
  * records `run.static_only` and never ratchets.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -30,6 +31,19 @@ describe('withStaticOnly', () => {
   async function filtered(config: CheckrideConfig, defaults: CheckrideConfig | null = null): Promise<Map<string, ResolvedCheck>> {
     const resolved = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, defaults, cwd: repo });
     return new Map((await withStaticOnly(resolved, repo)).map((c) => [c.slot, c]));
+  }
+
+  /** Write `path` under the repo, its directories included. */
+  async function put(path: string, content = ''): Promise<void> {
+    await mkdir(dirname(join(repo, path)), { recursive: true });
+    await writeFile(join(repo, path), content);
+  }
+
+  /** The skip reason of an `infra` terraform target's tflint check, through the static filter. */
+  async function lintSkip(): Promise<string | null | undefined> {
+    const config: CheckrideConfig = { targets: { infra: { lang: 'terraform', root: 'infra', checks: { lint: 'tflint' } } } };
+    const checks = await withStaticOnly(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo }), repo);
+    return checks.find((c) => c.slot === 'lint' && c.target === 'infra')?.skip;
   }
 
   // F40
@@ -81,6 +95,34 @@ describe('withStaticOnly', () => {
     expect(format('web')?.skip).toBeNull();
     expect(format('api')?.skip).toBe('static-only: api/prettier.config.js is code prettier would run');
     expect(checks.find((c) => c.slot === 'lint' && c.target === 'web')?.skip).toBe('no tool detected for slot');
+  });
+
+  describe('reads the disk under a check’s directory, as tflint walks it', () => {
+    const plant = '.tflint.d/plugins/tflint-ruleset-terraform';
+
+    test('a terraform-only .tflint.hcl keeps lint, and a plugin under a dependency directory tflint enters skips it', async () => {
+      await put('infra/.tflint.hcl', 'plugin "terraform" {\n  enabled = true\n}\n');
+      expect(await lintSkip()).toBeNull();
+      await put(`infra/vendor/m/${plant}`);
+      expect(await lintSkip()).toBe(`static-only: infra/vendor/m/${plant} is code tflint would run`);
+    });
+
+    test('a plugin git ignores still counts, since tflint never asks git', async () => {
+      execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+      await put('.gitignore', '.tflint.d/\n');
+      await put(`infra/${plant}`);
+      expect(await lintSkip()).toBe(`static-only: infra/${plant} is code tflint would run`);
+    });
+
+    test('a symlink in .tflint.d’s place counts, and so does a plugin under a root that is itself a symlink', async () => {
+      await put(`elsewhere/${plant}`);
+      await mkdir(join(repo, 'infra'));
+      await symlink(join(repo, 'elsewhere', '.tflint.d'), join(repo, 'infra', '.tflint.d'));
+      expect(await lintSkip()).toBe('static-only: infra/.tflint.d is code tflint would run');
+      await rm(join(repo, 'infra'), { recursive: true });
+      await symlink(join(repo, 'elsewhere'), join(repo, 'infra'));
+      expect(await lintSkip()).toBe(`static-only: infra/${plant} is code tflint would run`);
+    });
   });
 });
 

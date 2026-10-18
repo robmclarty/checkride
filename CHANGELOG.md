@@ -438,13 +438,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt,
   `links` and `unclaimed`), or a defaults file vouches for it with
   `static: true`. Its argv has to carry no flag that needs the install, such
-  as oxlint's `--type-aware`. No code config of its own may sit under its
-  directory, such as `.markdownlint-cli2.cjs`, and no config key that loads
-  code may be set, such as `jsPlugins`. Its tool has to resolve without an
-  install. Every other check is skipped with a `static-only: <cause>` reason,
-  and the run is partial, so it never ratchets. It's a best-effort selector,
-  not a sandbox: a tool release can add a way to load code that these sniffs
-  don't know. `doctor` refuses the flag for now (#7).
+  as oxlint's `--type-aware`, and none that loads code. No code config of its
+  own may sit on disk under its directory, in any case of its name, such as
+  `.markdownlint-cli2.cjs`, and no config key that loads code may be set,
+  such as `jsPlugins`. Its tool has to resolve without an install. Every
+  other check is skipped with a `static-only: <cause>` reason, and the run is
+  partial, so it never ratchets. It's a best-effort selector, not a sandbox:
+  a tool release can add a way to load code that these sniffs don't know.
+  `doctor` refuses the flag for now (#7).
 - **A guide to running checkride from outside a repo.** `docs/consumers.md`
   walks a reviewer, a CI job or an agent through the consumer flags, a
   defaults file, the pre-sandbox and sandbox passes, comparing the base
@@ -534,9 +535,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checkride target add --lang terraform --add lint` names tflint and
   scaffolds the blessed `.tflint.hcl`, and `checkride init --add lint` does
   the same at a Terraform root. `--static-only` keeps fmt, tflint and trivy,
-  and skips tflint where `.tflint.hcl` declares a plugin other than the
-  bundled terraform ruleset (#7). Checked against OpenTofu 1.13.1, tflint
-  0.64.0 and trivy 0.76.0; see `docs/packs.md`.
+  and skips tflint wherever it would run a plugin binary: a file anywhere
+  under a `.tflint.d/` below the target, which tflint runs plugins from, a
+  binary named for the bundled terraform ruleset included; a `plugin` block
+  other than `terraform`, its label quoted or bare, or a `source`, `version`
+  or `plugin_dir`, in a `.tflint.hcl` or `.tflint.json` there; or a
+  `--chdir`, `--config` or `--enable-plugin` in its argv. A terraform-only
+  `.tflint.hcl` and no `.tflint.d/` keeps it (#7). Checked against OpenTofu
+  1.13.1, tflint 0.64.0 and trivy 0.76.0; see `docs/packs.md`.
 - **tflint's findings join the baseline, and terraform validate's and
   trivy's reach `checkride/findings`.** tflint's JSON parses to one finding
   per issue, keyed `<file>:<rule>:<message>`, each gating at or above the
@@ -727,10 +733,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the `CheckRunner` context an optional `overrides`.
 - Additive: the run flag `--static-only`, the summary's `run.static_only`,
   which a run now writes, and `run.partial`, now also true under it. Adapter
-  rows gain optional `static`, `nonStaticArgs`, `codeConfigs` and `codeKeys`
-  (the `Adapter` type, and a new exported `CodeKey`), set on the static
-  adapters in `PACKS` and `ADAPTERS`; the config schema's slot and custom
-  check entries gain `static`, which only a defaults file may set. The
+  rows gain optional `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and
+  `codeKeys` (the `Adapter` type, and a new exported `CodeKey`), set on the
+  static adapters in `PACKS` and `ADAPTERS`; the config schema's slot and
+  custom check entries gain `static`, which only a defaults file may set. The
   exported `RunFlags` type gains an optional `staticOnly`, and the
   `CheckRunner` context an optional `staticOnly`.
 - Additive: the config schema's custom check entry gains `skipExitCode`

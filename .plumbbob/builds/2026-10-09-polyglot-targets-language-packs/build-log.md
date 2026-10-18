@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 65 — test(examples): add terraform-roots with plants
+**Current step:** 79 — fix(packs): keep tflint out of --static-only wherever it would run repo code
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -91,7 +91,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 62. feat(launch): pin terraform or tofu by version file and harden its env
 - ☑ 63. feat(packs): add the terraform pack
 - ☑ 64. feat(findings): parse tflint, terraform validate and trivy output
-- ☐ 65. test(examples): add terraform-roots with plants
+- ☑ 65. test(examples): add terraform-roots with plants
+- ☐ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
@@ -172,6 +173,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
 - [ ] R12.3 and R12.4 read as step 64 shipped them: tflint's default minimum failure severity is notice (every issue gates, none under --force), and a nested-module path tflint climbs to / through a symlinked PWD is read as its real path from repoRoot; a trivy finding gates only under a nonzero --exit-code (trivy 0.76.0 exits 0 on findings by default) and leaves gates out under a wrapper; a validate finding's message is its summary and detail, and a rangeless one names no file
 - [ ] links walks the filesystem, not git, and its built-in excludes skip node_modules and now .terraform, but not vendor/, .venv/ or target/, which unclaimed's NEVER_READ skips; a Go vendor/ or a .venv holding a package README with relative links fails links falsely
+- [ ] security, fix before release: --static-only keeps tflint where it runs repo code; probed at 0.64.0, tflint executes a repo-shipped ./.tflint.d/plugins/tflint-ruleset-terraform even under a terraform-only .tflint.hcl, loads plugin aws { (a bare label the HCL-label sniff misses), and loads a downloaded terraform ruleset when plugin "terraform" sets source/version; make tflint's sniff fail closed: codeConfigs for any file under .tflint.d/, codeKeys for source, version and plugin_dir, and a bare-or-quoted label other than terraform
+- [ ] security, fix before release: a repo's config can override a static adapter's args with a code-loading flag and keep the static mark (prettier --plugin ./x.mjs; a --config naming a code config for markdownlint-cli2, cspell, vale or ast-grep); only oxlint's --type-aware (nonStaticArgs) and tflint's flags (codeArgs, step 79) are caught, so give each static row its codeArgs or drop the mark on an args override
+- [ ] security: the non-HCL key sniff in src/packs/static.ts misses YAML's \x and \U escapes and unquoted flow-mapping keys ({plugins: [./x.mjs]}), so a prettier, cspell or markdownlint YAML config can hide a code key; step 79 decodes \u escapes only
+- [ ] fold step 79 into R13.4 at harvest: the sniffs read the disk under each check's directory (filesOnDisk, every directory but .git) instead of repoFiles; names match in any case; a codeConfigs name ending in / names a directory; Adapter gains codeArgs; a .hcl file is read as HCL (line comments dropped, block comments kept, every key occurrence counts, an unreadable plugin label counts); .tflint.json is sniffed; non-HCL text is read raw and with \u escapes decoded
+- [ ] docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config, and its PACKS sentence omits the terraform pack; fold at step 73
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2624,3 +2630,5 @@ folder, so it rides the branch into the PR.)*
   **4.** Contract surfaces follow (C11)
 
   `isParseable` grows by three, `baseline.contract.test.ts` and `exports.contract.test.ts` hold the new keys and parsers, and `docs/contract.md`, `docs/packs.md` and CHANGELOG say so. The R12.3 and R12.4 readings went to a park for the harvest to fold. Two fallow health findings (the tflint and trivy `parse` bodies) were cleared by splitting each into per-item helpers.
+
+- 2026-10-18 — step 65 checkpointed · 738514665 — test(examples): add terraform-roots with plants (1 drift, 8m)

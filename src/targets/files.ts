@@ -35,6 +35,9 @@ const DEFAULT_INCLUDE: readonly string[] = ['**/*.sh', '**/*.bash'];
 /** Directories the walk outside a git repo never enters. */
 const WALK_SKIP: ReadonlySet<string> = new Set(['.git', 'node_modules', 'target', 'vendor']);
 
+/** The one directory a walk of everything on disk never enters: git's own. */
+const GIT_DIR: ReadonlySet<string> = new Set(['.git']);
+
 /**
  * A shell shebang: `#!/bin/sh`, `#!/usr/bin/env bash` or `#!/bin/dash -e`, by
  * the interpreter's own name, so `zsh` and `fish` scripts stay out.
@@ -195,13 +198,28 @@ function entriesOf(dir: string): Dirent[] {
   }
 }
 
-/** Every file under `dir`, relative to it, skipping the {@link WALK_SKIP} directories. */
-function walk(dir: string, prefix = ''): string[] {
+/**
+ * Every entry under `dir` that isn't a directory, relative to it, entering no
+ * directory `skip` names. A symlink is an entry, never followed, though `dir`
+ * itself is read through one.
+ */
+function walk(dir: string, skip: ReadonlySet<string>, prefix = ''): string[] {
   return entriesOf(dir).flatMap((entry) => {
     const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) return WALK_SKIP.has(entry.name) ? [] : walk(join(dir, entry.name), rel);
+    if (entry.isDirectory()) return skip.has(entry.name) ? [] : walk(join(dir, entry.name), skip, rel);
     return [rel];
   });
+}
+
+/**
+ * Every entry on disk under `dir` that isn't a directory, relative to it and
+ * sorted: files, symlinks and the rest, under dependency directories and the
+ * ones git ignores alike, `.git` aside. It's what a tool that walks the disk
+ * can reach, as tflint does, where git's list leaves out an ignored file and
+ * a submodule's contents.
+ */
+export function filesOnDisk(dir: string): string[] {
+  return walk(dir, GIT_DIR).toSorted();
 }
 
 /**
@@ -214,7 +232,7 @@ function walk(dir: string, prefix = ''): string[] {
 export async function listFiles(repo: string, root: string, git: GitRunner, what: string): Promise<string[]> {
   const listed = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', root]);
   if (!listed.ok) {
-    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, root));
+    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, root), WALK_SKIP);
     throw new Error(`can't list the files of ${what}: ${listed.detail}`);
   }
   const strip = root === '.' ? '' : `${root}/`;

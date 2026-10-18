@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { GitRunner } from '../../git.js';
-import { argvBytes, expandFiles, globRegExp, isFileListPack, MAX_FILES_ARGV_BYTES, takesFiles, targetFiles } from '../files.js';
+import { argvBytes, expandFiles, filesOnDisk, globRegExp, isFileListPack, MAX_FILES_ARGV_BYTES, takesFiles, targetFiles } from '../files.js';
 
 /** A git that fails the way an unsafe repo does. */
 const failing: GitRunner = () => Promise.resolve({ ok: false, error: 'failed', detail: 'detected dubious ownership' });
@@ -161,5 +161,33 @@ describe('targetFiles', () => {
   test('matches nothing in an empty root', async () => {
     await mkdir(join(repo, 'empty'));
     expect(await targetFiles(repo, { name: 'e', root: 'empty' })).toEqual([]);
+  });
+});
+
+describe('filesOnDisk', () => {
+  let repo: string;
+  beforeEach(async () => { repo = await mkdtemp(join(tmpdir(), 'checkride-disk-')); });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  const put = async (path: string): Promise<void> => {
+    await mkdir(dirname(join(repo, path)), { recursive: true });
+    await writeFile(join(repo, path), '');
+  };
+
+  test('lists every entry but a directory, sorted, under the directories a file list skips and the ones git ignores, .git aside', async () => {
+    execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
+    for (const path of ['.gitignore', 'z.tf', 'vendor/m/a', 'node_modules/p/b', 'target/c', 'testdata/d', '.tflint.d/plugins/e']) await put(path);
+    await writeFile(join(repo, '.gitignore'), '.tflint.d/\n');
+    await mkdir(join(repo, 'empty'));
+    expect(filesOnDisk(repo)).toEqual(['.gitignore', '.tflint.d/plugins/e', 'node_modules/p/b', 'target/c', 'testdata/d', 'vendor/m/a', 'z.tf']);
+  });
+
+  test('lists a symlink without entering it, reads a directory through one, and finds nothing where there is none', async () => {
+    await put('real/.tflint.d/plugins/x');
+    await symlink(join(repo, 'real', '.tflint.d'), join(repo, 'linked'));
+    await symlink(join(repo, 'real'), join(repo, 'root'));
+    expect(filesOnDisk(join(repo, 'root'))).toEqual(['.tflint.d/plugins/x']);
+    expect(filesOnDisk(repo)).toEqual(['linked', 'real/.tflint.d/plugins/x', 'root']);
+    expect(filesOnDisk(join(repo, 'missing'))).toEqual([]);
   });
 });

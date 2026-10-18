@@ -205,14 +205,30 @@ export type Adapter = {
   lock?: string;
   /**
    * The tool reads the repo as data, so `--static-only` may keep its check
-   * (R13.4), unless one of the three fields below says this run would load
-   * code. Omitted, the check needs the repo's install or runs its code, and
-   * `--static-only` skips it. A best-effort classification, never a sandbox.
+   * (R13.4), unless one of the four fields below says this run would need the
+   * install or load code. Omitted, the check needs the repo's install or runs
+   * its code, and `--static-only` skips it. A best-effort classification,
+   * never a sandbox.
    */
   static?: boolean;
-  /** Arguments that make a static adapter need the install, such as oxlint's `--type-aware`. */
+  /**
+   * Arguments that make a static adapter need the install, such as oxlint's
+   * `--type-aware`. Each counts as given, with its value after `=`, or, for a
+   * one-letter flag, in a cluster such as `-vc`.
+   */
   nonStaticArgs?: string[];
-  /** Config files that are code the tool would run, matched by name at any depth under the check's directory. */
+  /**
+   * Arguments that make a static adapter load code the sniffs can't vouch
+   * for, such as tflint's `--config`, which names a config they don't read.
+   * Each counts as a `nonStaticArgs` entry does.
+   */
+  codeArgs?: string[];
+  /**
+   * Files that are code the tool would run, matched by name, in any case, at
+   * any depth under the check's directory. A name ending in `/` names a
+   * directory, and any entry through one of that name counts, as a plugin
+   * under tflint's `.tflint.d/` does.
+   */
   codeConfigs?: string[];
   /** Keys in the tool's config files that load code (R13.4). */
   codeKeys?: CodeKey[];
@@ -221,11 +237,15 @@ export type Adapter = {
 };
 
 /**
- * Config keys that make a static adapter load code: `file`, a name matched at
- * any depth under the check's directory, or a path glob relative to it when it
- * holds a `/`; `keys`, any of which, set in such a file, loads code; and
- * `value`, a regex source that, when given, a string the key holds must match
- * for it to count, as cspell's `import` loads code only for a script.
+ * Config keys that make a static adapter load code: `file`, a name matched in
+ * any case at any depth under the check's directory, or a path glob relative
+ * to it when it holds a `/`; `keys`, any of which, set in such a file, loads
+ * code; and `value`, a regex source that, when given, a string the key holds
+ * must match for it to count, as cspell's `import` loads code only for a
+ * script. A `.hcl` file is read as HCL, its comments dropped: every
+ * occurrence of a key counts unless it opens a block whose label `value`
+ * rejects, so tflint's `plugin "aws" {` counts and `plugin "terraform" {`
+ * doesn't.
  */
 export type CodeKey = { file: string; keys: string[]; value?: string };
 

@@ -69,9 +69,21 @@ export const TERRAFORM_PACK: Pack = {
       args: ['exec', 'tflint', '--recursive', '--format=json'],
       outputFile: 'lint.json',
       static: true,
-      // A plugin other than the bundled terraform ruleset is a binary that
-      // `tflint --init` downloads and tflint runs.
-      codeKeys: [{ file: '.tflint.hcl', keys: ['plugin'], value: '^(?!terraform$)' }],
+      // A plugin is a binary tflint runs, so `--static-only` keeps tflint only
+      // where 0.64.0 would run none. In each directory it lints, tflint reads
+      // `.tflint.hcl`, else `.tflint.json`, and runs each enabled plugin from
+      // the `.tflint.d/plugins/` there when one sits in it, the bundled
+      // terraform ruleset's name included, so any file under a `.tflint.d/`
+      // counts. A plugin block other than terraform's runs one; `source` and
+      // `version` fetch one, and `plugin_dir` moves where tflint looks.
+      // `--chdir`, `--config` and `--enable-plugin` reach past what these read.
+      codeArgs: ['--chdir', '--config', '-c', '--enable-plugin'],
+      codeConfigs: ['.tflint.d/'],
+      codeKeys: [
+        { file: '.tflint.hcl', keys: ['plugin'], value: '^(?!terraform$)' },
+        { file: '.tflint.hcl', keys: ['source', 'version', 'plugin_dir'] },
+        { file: '.tflint.json', keys: ['plugin', 'source', 'version', 'plugin_dir'] },
+      ],
       devDeps: {},
     },
     {

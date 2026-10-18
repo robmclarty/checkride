@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import type { Adapter } from '../adapters.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
-import { realGit } from '../git.js';
 import { expandGoPackages, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from '../launch/index.js';
 import { staticCause } from '../packs/index.js';
 import type { Target } from '../targets/index.js';
@@ -23,6 +22,7 @@ import {
   changedUnder,
   checkName,
   expandFiles,
+  filesOnDisk,
   isFileListPack,
   MAX_FILES_ARGV_BYTES,
   namedBy,
@@ -30,7 +30,6 @@ import {
   noChangesReason,
   noGoModuleChangedReason,
   pathsUnder,
-  repoFiles,
   selectedBy,
   takesFiles,
   targetFiles,
@@ -213,13 +212,20 @@ const STATIC_ONLY = 'static-only';
  * Under `--static-only`, skip each selected check that may run the repo's
  * code or need its install (R13.4), with `static-only: <cause>`. A check keeps
  * its place, so it still prints and records its skipped row, and one already
- * skipped keeps its own reason. The repo's files are listed once, and only
- * when a check is left to classify. Whether a kept check's tool resolves
- * without an install, the last of R13.4's rules, is the runner's to say.
+ * skipped keeps its own reason. The sniffs read what sits on disk under a
+ * check's directory, as its tool does, files git ignores and a submodule's
+ * included, and each directory is walked once, when a check run from it is
+ * left to classify. Whether a kept check's tool resolves without an install,
+ * the last of R13.4's rules, is the runner's to say.
  */
-export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: string, git: GitRunner = realGit(repo)): Promise<ResolvedCheck[]> {
-  if (!selected.some((r) => r.skip === null && r.adapter !== null)) return [...selected];
-  const files = await repoFiles(repo, git);
+export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: string): Promise<ResolvedCheck[]> {
+  const walked = new Map<string, readonly string[]>();
+  const filesUnder = (dir: string): readonly string[] => {
+    const prefix = dir === '.' ? '' : `${dir}/`;
+    const files = walked.get(dir) ?? filesOnDisk(join(repo, dir)).map((path) => `${prefix}${path}`);
+    walked.set(dir, files);
+    return files;
+  };
   const read = (path: string): string | null => {
     try {
       return readFileSync(join(repo, path), 'utf8');
@@ -229,7 +235,8 @@ export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: s
   };
   return selected.map((r) => {
     if (r.skip !== null || r.adapter === null) return r;
-    const cause = staticCause(r.adapter, { dir: r.root ?? '.', files, read });
+    const dir = r.root ?? '.';
+    const cause = staticCause(r.adapter, { dir, files: filesUnder(dir), read });
     return cause === null ? r : { ...r, skip: `${STATIC_ONLY}: ${cause}` };
   });
 }

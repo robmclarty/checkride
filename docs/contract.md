@@ -545,9 +545,12 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    vouches for it with `static: true`. A custom check from the repo, or an
    entry that swaps a static adapter's command, never qualifies.
 2. Its argv carries none of the adapter's flags that need the install, such
-   as oxlint's `--type-aware`, which the blessed oxlint invocation carries.
+   as oxlint's `--type-aware`, which the blessed oxlint invocation carries,
+   and none that load code, such as tflint's `--config`. A flag counts with
+   its value after `=` as well.
 3. None of the adapter's code configs, such as `.markdownlint-cli2.cjs` or
-   `prettier.config.js`, sits under the check's directory.
+   `prettier.config.js`, sits under the check's directory, in any case of its
+   name. The sniffs read what's on disk there, files git ignores included.
 4. None of the config keys that load code is set in a config file it reads,
    such as `jsPlugins` in `.oxlintrc.json` or a script in cspell's `import`.
 5. Its tool resolves without an install. A tool whose pin source can't run it

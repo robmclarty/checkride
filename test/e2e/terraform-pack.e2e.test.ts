@@ -13,11 +13,14 @@
  * -backend=false` and nothing spawns (F42); `shared:types` stands down, since
  * no lock file marks a root module there; a `.tf` directory outside both
  * targets fails `unclaimed` (F43); and `--discover` proposes both targets.
+ * `--static-only` keeps `infra:lint` under its terraform-only `.tflint.hcl`,
+ * and skips it once `.tflint.d/` ships a binary tflint would run as its
+ * terraform ruleset, which then never runs.
  */
 
 import { execFile, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -216,6 +219,29 @@ describeWithToolchain('terraform')('the terraform pack', () => {
     expect(checks.get('unclaimed')).toMatchObject({ ok: false, exit_code: 1 });
     const report = JSON.parse(await artifact('unclaimed.json')) as { unclaimed: unknown[] };
     expect(report.unclaimed).toEqual([{ path: 'extra/main.tf', kind: 'terraform', suggest: { name: 'extra', lang: 'terraform', root: 'extra' } }]);
+  });
+
+  test('--static-only keeps infra:lint under a terraform-only .tflint.hcl with no .tflint.d/', async () => {
+    const { code, checks, stderr } = await run('--static-only', '--only', 'infra:lint');
+    expect(code, stderr).toBe(0);
+    expect(checks.get('infra:lint')).toMatchObject({ ok: true, adapter: 'tflint', output_file: 'infra/lint.json' });
+    expect(checks.get('infra:lint')).not.toHaveProperty('skipped');
+  });
+
+  // tflint 0.64.0 runs .tflint.d/plugins/tflint-ruleset-terraform in place of its bundled ruleset.
+  test('--static-only skips infra:lint where .tflint.d/ ships the terraform ruleset’s binary, which never runs', async () => {
+    const plant = 'infra/.tflint.d/plugins/tflint-ruleset-terraform';
+    const marker = join(dir, 'plant-ran');
+    await put(plant, `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+    await chmod(join(dir, plant), 0o755);
+    const statically = await run('--static-only', '--only', 'infra:lint');
+    expect(statically.code, statically.stderr).toBe(0);
+    expect(statically.checks.get('infra:lint')).toMatchObject({ skipped: true, reason: `static-only: ${plant} is code tflint would run` });
+    expect(existsSync(marker)).toBe(false);
+    // Without the flag tflint runs the plant, which fails its plugin handshake.
+    const fully = await run('--only', 'infra:lint');
+    expect(fully.checks.get('infra:lint')).toMatchObject({ ok: false, exit_code: 1 });
+    expect(existsSync(marker)).toBe(true);
   });
 
   test('--discover proposes the root module its lock file marks and the module beside it', async () => {

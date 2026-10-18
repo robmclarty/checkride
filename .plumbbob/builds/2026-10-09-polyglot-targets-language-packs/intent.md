@@ -928,9 +928,13 @@ reference rules and porting trap apply as written there.
 64. [x] feat(findings): parse tflint, terraform validate and trivy output, **done when:** all three parse real fixtures; tflint feeds the baseline, and validate and trivy don't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet
-65. [ ] test(examples): add terraform-roots with plants, **done when:** `examples/terraform-roots` (two root modules and a shared `modules/` target, with providers its setup can fetch) is green, and an unformatted file, a tflint violation, an invalid reference and an unclaimed `.tf` directory each fail the expected check (S20); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+65. [x] test(examples): add terraform-roots with plants, **done when:** `examples/terraform-roots` (two root modules and a shared `modules/` target, with providers its setup can fetch) is green, and an unformatted file, a tflint violation, an invalid reference and an unclaimed `.tf` directory each fail the expected check (S20); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `examples/terraform-roots/`, `test/e2e/examples.e2e.test.ts`
     - model: sonnet
+79. [ ] fix(packs): keep tflint out of --static-only wherever it would run repo code, **done when:** `--static-only` skips a terraform target's `lint` with a `static-only:` reason wherever tflint 0.64.0 would load a plugin binary: a file anywhere under a `.tflint.d/` directory below the check's directory, a `.tflint.hcl` there that sets `source`, `version` or `plugin_dir`, or one that opens a `plugin` block, its label quoted or bare, other than `terraform`; each of the three bypasses probed after step 65 (a repo-shipped `.tflint.d/plugins/tflint-ruleset-terraform` that runs under a terraform-only config, `plugin aws {`, and `plugin "terraform"` with a `source`) has a unit test, and an e2e case shows that planted binary never runs under `--static-only`; a terraform-only `.tflint.hcl` with no `.tflint.d/` still keeps `lint`; `docs/packs.md` and `CHANGELOG.md` say so
+    - seam: `src/packs/terraform.ts`, `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`,
+      `test/e2e/terraform-pack.e2e.test.ts`, `docs/packs.md`
+    - model: opus (a security boundary: the sniff has to fail closed against the pinned tflint)
 
 ### Phase 12: the schema slot
 
@@ -978,7 +982,7 @@ reference rules and porting trap apply as written there.
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-77, 78, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74
+79, 66, 67, 68, 69, 70, 71, 72, 73, 74
 
 ## Ranges
 
