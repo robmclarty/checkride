@@ -1,0 +1,10 @@
+{
+  "checks": {
+    "lockfile": {
+      "command": "uv",
+      "args": ["lock", "--check"],
+      "description": "uv.lock matches pyproject.toml",
+      "note": "No pack ships this, so it's a custom check: any command whose exit code means pass or fail fits."
+    }
+  }
+}

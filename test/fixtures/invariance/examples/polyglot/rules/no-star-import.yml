@@ -1,0 +1,11 @@
+id: no-star-import
+message: |
+  Wildcard imports hide a module's real surface. Import the names you use:
+  `from pricing import subtotal`, not `from pricing import *`.
+severity: error
+language: python
+files:
+  - src/**/*.py
+  - tests/**/*.py
+rule:
+  pattern: from $MODULE import *

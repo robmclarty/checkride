@@ -19,5 +19,6 @@ research/
 # reproducibility guarantee (each package.json already pins exact versions).
 examples/*/pnpm-lock.yaml
 
-# Bytecode written by the polyglot example's Python checks.
+# Bytecode a Python tool writes when run by hand in an example, and the
+# frozen 0.13 polyglot subject's compileall check writes in its copy.
 __pycache__/

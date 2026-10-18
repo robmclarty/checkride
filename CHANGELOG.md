@@ -499,6 +499,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`examples/polyglot` is now `examples/python-project`, on the python
+  pack.** It drops its `package.json` and custom Python checks: ruff, mypy and
+  pytest are detected from `pyproject.toml` and run from the `.venv` that
+  `uv sync` installs at the versions its committed `uv.lock` pins, ast-grep
+  still enforces its two Python rules, and one custom check, `uv lock
+  --check`, shows the route for what no pack ships. Its plants fail `lint`,
+  `types`, `test`, `struct` and that custom check. The legacy invariance
+  golden keeps checking the 0.13 example from a frozen copy under
+  `test/fixtures/invariance/examples/`, so its recorded runs are unchanged.
 - **New projects start with a test layout, and the rules that hold it.**
   `init` in an empty directory now writes ten ast-grep rules instead of four.
   Five say where a test lives: unit tests in a `__tests__/` folder under

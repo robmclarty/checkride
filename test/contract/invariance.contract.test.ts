@@ -86,6 +86,18 @@ vi.mock('node:child_process', async (importOriginal) => {
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..');
 const EXAMPLES = join(ROOT, 'examples');
+/**
+ * Where a subject whose example has since changed is kept as 0.13 left it:
+ * `polyglot`, a TypeScript repo checking Python through custom checks, which
+ * became `examples/python-project` on the python pack.
+ */
+const FROZEN = join(ROOT, 'test', 'fixtures', 'invariance', 'examples');
+
+/** The tree a 0.13 example subject is recorded from: its frozen copy when it has one, else the example. */
+function subjectTree(name: string): string {
+  const frozen = join(FROZEN, name);
+  return existsSync(frozen) ? frozen : join(EXAMPLES, name);
+}
 const GOLDEN = join(ROOT, 'test', 'fixtures', 'invariance', 'resolution.json');
 const SUMMARIES_GOLDEN = join(ROOT, 'test', 'fixtures', 'invariance', 'summaries.json');
 const UPDATE = process.env['CHECKRIDE_UPDATE_INVARIANCE'] === '1';
@@ -187,7 +199,7 @@ function exampleSubject(name: string): Subject {
   return {
     key: `example:${name}`,
     prepare: async (dir) => {
-      await cp(join(EXAMPLES, name), dir, { recursive: true, filter: (src) => !NOT_COPIED.test(src) });
+      await cp(subjectTree(name), dir, { recursive: true, filter: (src) => !NOT_COPIED.test(src) });
       await dropCheckrideDep(dir);
       await linkLocalDeps(dir);
       return (await readJson<{ args?: string[] }>(join(dir, 'expected.json'))).args ?? [];
@@ -350,7 +362,7 @@ describe('legacy invariance: resolution (S1)', () => {
   });
 
   test('every subject still exists, and the golden records exactly those subjects', () => {
-    for (const name of EXAMPLE_NAMES) expect(existsSync(join(EXAMPLES, name, 'expected.json')), name).toBe(true);
+    for (const name of EXAMPLE_NAMES) expect(existsSync(join(subjectTree(name), 'expected.json')), name).toBe(true);
     if (UPDATE) return;
     expect(Object.keys(golden)).toEqual(subjects.map((s) => s.key));
   });

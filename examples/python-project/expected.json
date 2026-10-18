@@ -1,0 +1,48 @@
+{
+  "description": "A Python project on the python pack: ruff, mypy and pytest from the uv-synced .venv, ast-grep rules in Python, and one custom check, each failing on its own plant.",
+  "args": [],
+  "requires": ["uv", "ast-grep"],
+  "setup": [["uv", "sync"]],
+  "exitCode": 0,
+  "checks": {
+    "lint": { "ok": true, "skipped": false, "description": "ruff: Python lint" },
+    "types": { "ok": true, "skipped": false, "description": "mypy: Python type checking" },
+    "test": { "ok": true, "skipped": false, "description": "pytest: Python tests" },
+    "struct": { "ok": true, "skipped": false },
+    "links": { "ok": true },
+    "lockfile": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "an unused import",
+      "edits": [{ "file": "src/reporting.py", "find": "from pricing import LineItem, subtotal_cents\n", "replace": "import os\n\nfrom pricing import LineItem, subtotal_cents\n" }],
+      "exitCode": 1,
+      "failing": ["lint"]
+    },
+    {
+      "name": "a type error",
+      "edits": [{ "file": "src/pricing.py", "find": "return subtotal + round(subtotal * rate)", "replace": "return str(subtotal + round(subtotal * rate))" }],
+      "exitCode": 1,
+      "failing": ["types"]
+    },
+    {
+      "name": "a failing test",
+      "edits": [{ "file": "tests/test_pricing.py", "find": "assert subtotal_cents([]) == 0", "replace": "assert subtotal_cents([]) == 1" }],
+      "exitCode": 1,
+      "failing": ["test"]
+    },
+    {
+      "name": "a print in library code",
+      "edits": [{ "file": "src/reporting.py", "find": "    total = subtotal_cents(items)\n", "replace": "    total = subtotal_cents(items)\n    print(\"cart\", items)\n" }],
+      "exitCode": 1,
+      "failing": ["struct"],
+      "structRules": ["no-print-in-src"]
+    },
+    {
+      "name": "a dependency added without relocking",
+      "edits": [{ "file": "pyproject.toml", "find": "dependencies = []", "replace": "dependencies = [\"iniconfig\"]" }],
+      "exitCode": 1,
+      "failing": ["lockfile"]
+    }
+  ]
+}

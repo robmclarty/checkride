@@ -20,7 +20,7 @@ which is the only reason to trust anything written here.
 | [`rust-workspace/`](./rust-workspace/) | A Cargo workspace as one rust target: the toolchain pinned by `rust-toolchain.toml`, clippy with warnings failing, cargo-machete, the doctests, and the Rust dialect rules | `0` |
 | [`polyglot-stack/`](./polyglot-stack/) | A TypeScript app, a Go service and shell scripts as three targets, with links, the Go dialect rules and `unclaimed` checked once for the whole repo | `0` |
 | [`polyglot-ts-bash/`](./polyglot-ts-bash/) | Two targets in one repo: a TypeScript app checked by tsc from its own root, shell scripts checked by shellcheck over their file list, and `unclaimed` failing on a package no target checks | `0` |
-| [`polyglot/`](./polyglot/) | A Python repo: the TypeScript built-ins stand down, ast-grep enforces boundaries in Python, and custom checks run the ecosystem's own tools | `0` |
+| [`python-project/`](./python-project/) | A Python project on the python pack: ruff, mypy and pytest detected from `pyproject.toml` and run from the uv-synced `.venv`, ast-grep rules in Python, and a custom check for what no pack ships | `0` |
 | [`prose-voice/`](./prose-voice/) | The `prose` slot: a repo-owned vale style over markdown and TypeScript doc comments, drift control for model-generated text, voice exemplars the agent contract points at, and a grandfathered legacy doc | `0` |
 | [`module-boundaries/`](./module-boundaries/) | Domain boundaries enforced inside one deployment — directed dependencies, hidden internals, no unzoned escape hatch — and how that compares to splitting into services | `0` |
 | [`dal-boundaries/`](./dal-boundaries/) | A Drizzle/Postgres data-access layer where only a domain's single writer may write its tables, and cross-domain readers get a read-only pool | `0` |
@@ -48,12 +48,15 @@ without it, pnpm walks up to the repo root, finds *that* workspace, and installs
 the root project instead — leaving the example with no `node_modules` and no
 error to explain why.
 
-`go-existing-baseline` is the one exception: it has no `package.json` and no
-`pnpm-workspace.yaml`, because a root `package.json` would make it a
-TypeScript repo. Run it with `node ../../dist/cli.js` from its directory.
+`go-existing-baseline` and `python-project` are the exceptions: they have no
+`package.json` and no `pnpm-workspace.yaml`, because a root `package.json`
+would make each a TypeScript repo. Run either with `node ../../dist/cli.js`
+from its directory, after `uv sync` in `python-project`.
 
-Example lockfiles are not committed (they are gitignored), so the first install
-resolves fresh against the exact versions pinned in each `package.json`.
+Example pnpm lockfiles are not committed (they are gitignored), so the first
+install resolves fresh against the exact versions pinned in each
+`package.json`. `python-project`'s `uv.lock` is committed, since the python
+pack runs each tool at the version that lock pins.
 
 ## The `expected.json` contract
 

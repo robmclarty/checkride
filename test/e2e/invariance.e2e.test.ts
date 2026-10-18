@@ -43,6 +43,18 @@ const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..');
 const CLI = join(ROOT, 'dist', 'cli.js');
 const EXAMPLES = join(ROOT, 'examples');
+/**
+ * Where a subject whose example has since changed is kept as 0.13 left it:
+ * `polyglot`, a TypeScript repo checking Python through custom checks, which
+ * became `examples/python-project` on the python pack.
+ */
+const FROZEN = join(ROOT, 'test', 'fixtures', 'invariance', 'examples');
+
+/** The tree a 0.13 example subject is recorded from: its frozen copy when it has one, else the example. */
+function subjectTree(name: string): string {
+  const frozen = join(FROZEN, name);
+  return existsSync(frozen) ? frozen : join(EXAMPLES, name);
+}
 const GOLDEN = join(ROOT, 'test', 'fixtures', 'invariance', 'summaries.json');
 const UPDATE = process.env['CHECKRIDE_UPDATE_INVARIANCE'] === '1';
 const BIG = { maxBuffer: 32 * 1024 * 1024 };
@@ -122,7 +134,7 @@ function exampleSubject(name: string): Subject {
   return {
     key: `example:${name}`,
     prepare: async (dir) => {
-      await cp(join(EXAMPLES, name), dir, { recursive: true, filter: (src) => !NOT_COPIED.test(src) });
+      await cp(subjectTree(name), dir, { recursive: true, filter: (src) => !NOT_COPIED.test(src) });
       const expected = await readJson<{ args?: string[]; requires?: string[] }>(join(dir, 'expected.json'));
       return { args: expected.args ?? [], requires: expected.requires ?? [] };
     },

@@ -79,6 +79,7 @@ describe("this repo's checkride.config.json", () => {
     '.plumbbob/', // build-history artifacts, frozen as written
     'examples/', // standalone fixture repos with their own deliberate content
     'skills/', // shipped skill instructions — agent-facing procedure, not docs
+    'test/fixtures/', // frozen test subjects, such as the invariance golden's 0.13 polyglot example
     'CHANGELOG.md', // generated from commits at release (cspell skips it too)
     'CLAUDE.md', // a pointer at AGENTS.md, not standalone prose
   ];

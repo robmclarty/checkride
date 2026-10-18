@@ -1,0 +1,23 @@
+[project]
+name = "orders"
+version = "1.0.0"
+description = "A small Python service, gated by checkride."
+requires-python = ">=3.11"
+dependencies = []
+
+# The tools the python pack runs, pinned exactly. `uv sync` installs them into
+# .venv, and checkride runs each from there at the version uv.lock records.
+[dependency-groups]
+dev = ["mypy==2.4.0", "pytest==9.1.1", "ruff==0.17.1"]
+
+# Each [tool.*] table is how checkride detects its tool: [tool.ruff.lint]
+# turns on `lint`, [tool.mypy] `types` and [tool.pytest.ini_options] `test`.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.mypy]
+strict = true
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

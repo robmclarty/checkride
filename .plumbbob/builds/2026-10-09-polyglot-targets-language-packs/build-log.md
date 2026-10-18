@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 60 — feat(findings): parse ruff, mypy and basedpyright output
+**Current step:** 61 — test(examples): move examples/polyglot onto the python pack
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -86,7 +86,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 78. feat(run): let --discover stand down where the config declares targets
 - ☑ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☑ 59. feat(packs): add the python pack
-- ☐ 60. feat(findings): parse ruff, mypy and basedpyright output
+- ☑ 60. feat(findings): parse ruff, mypy and basedpyright output
 - ☐ 61. test(examples): move examples/polyglot onto the python pack
 - ☐ 62. feat(launch): pin terraform or tofu by version file and harden its env
 - ☐ 63. feat(packs): add the terraform pack
@@ -2497,3 +2497,4 @@ folder, so it rides the branch into the PR.)*
   Two parks: whether a uv-lock spawn should mirror `uv run` by setting `VIRTUAL_ENV` and putting the venv's bin first on PATH (step 59, where basedpyright and pytest are verified), and a stale `docs/contract.md` sentence about "a flag checkride doesn't have yet" left over from step 55 (step 73).
 
 - 2026-10-18 — step 59 checkpointed · 46be7e6ac — feat(packs): add the python pack (1 drift, 26m)
+- 2026-10-18 — step 60 checkpointed · f81d980f0 — feat(findings): parse ruff, mypy and basedpyright output (1 drift, 7m)

@@ -891,7 +891,7 @@ reference rules and porting trap apply as written there.
 59. [x] feat(packs): add the python pack, **done when:** a `python` target runs ruff (`lint`, opt-in `format`), mypy or basedpyright (`types`) and pytest (`test`) per R5.7, detected by config files, `[tool.*]` tables or pins; `unclaimed` and discovery know its markers; pytest's exit 5 fails the check (F44); `target add --lang python --add lint,types` scaffolds the blessed configs
     - seam: `src/packs/python.ts`, `src/packs/tools.ts`, `src/targets/`, `templates/python/`
     - model: opus (each tool's JSON flags must be verified at the pinned versions)
-60. [ ] feat(findings): parse ruff, mypy and basedpyright output, **done when:** all three parse real fixtures, ruff feeds the baseline, and the type checkers don't
+60. [x] feat(findings): parse ruff, mypy and basedpyright output, **done when:** all three parse real fixtures, ruff feeds the baseline, and the type checkers don't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet
 61. [ ] test(examples): move examples/polyglot onto the python pack, **done when:** `examples/python-project` (formerly `examples/polyglot`) runs on the python pack and keeps one custom check to show that route; plants for ruff, mypy and pytest fail as expected (S19); every link to the old path is updated; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
