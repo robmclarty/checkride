@@ -19,7 +19,7 @@ import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { Target } from '../targets/index.js';
-import { discoverRun } from '../targets/index.js';
+import { declaredNote, discoverRun } from '../targets/index.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -177,12 +177,14 @@ async function changedPathsFor(ctx: RunContext, base: ChangedBase | null): Promi
 /**
  * The run context with `--discover`'s targets applied (R13.2), or `ctx` as it
  * is without the flag. A discovery that proposes only the implicit target
- * leaves it unchanged. Each top-level entry no root target could take is
- * named on stderr, since the run drops it.
+ * leaves it unchanged, and so does a config that declares its own targets,
+ * which stderr names once as the reason (D73). Each top-level entry no root
+ * target could take is named on stderr, since the run drops it.
  */
 async function withDiscovery(ctx: RunContext, options: RunOptions): Promise<RunContext> {
   if (options.discover !== true) return ctx;
   const found = await discoverRun(ctx.cwd, ctx.config, ctx.baseline);
+  if (found.declared.length > 0) writeLine(ctx.stderr, declaredNote(found.declared));
   for (const slot of found.dropped) {
     writeLine(ctx.stderr, `--discover: dropped checks.${slot}, since no discovered target sits at the repo root to take it`);
   }

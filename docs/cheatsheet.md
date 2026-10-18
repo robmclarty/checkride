@@ -37,7 +37,7 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | `--out <dir>` | Write the summary, raw output and digest to `<dir>` instead of `./.check` (or set `CHECKRIDE_OUT`; the flag wins). Also on `baseline`, `triage` and `qa`; `doctor` probes it. A directory outside the repo never ratchets the baseline. |
 | `--pins <mise.toml>` | Run each tool this file's `[tools]` pins as that version, `mise exec <id>@<version>`, ahead of the repo's pins (or set `CHECKRIDE_PINS`; the flag wins). Never installs: a version mise lacks fails the check. Never ratchets the baseline. |
 | `--static-only` | Keep only the checks that read the repo as data, skipping each that would run its code or need its install with a `static-only:` reason. A selector for a pass before the install, not a sandbox. Never ratchets the baseline. |
-| `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. A config that declares `targets` exits 2. Also on `doctor`. Never ratchets the baseline. |
+| `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. Where the config declares `targets`, those run instead, with a note on stderr. Also on `doctor`. Never ratchets the baseline. |
 | `--defaults <path>` | Fill the slots the repo's config and detection leave empty from this config file, marked `[defaults]` (or set `CHECKRIDE_DEFAULTS`; the flag wins). It never beats a detected tool, and can't declare `targets`. Also on `doctor`. A run with it never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |

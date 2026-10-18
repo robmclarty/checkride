@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 77 — test(mutation): let a full stryker run start from its sandbox
+**Current step:** 78 — feat(run): let --discover stand down where the config declares targets
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -82,7 +82,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 55. feat(launch): let an outside mise.toml override pins with --pins
 - ☑ 56. feat(select): keep only checks that need no install with --static-only
 - ☑ 57. docs(consumers): document running checkride from outside a repo
-- ☐ 77. test(mutation): let a full stryker run start from its sandbox
+- ☑ 77. test(mutation): let a full stryker run start from its sandbox
 - ☐ 78. feat(run): let --discover stand down where the config declares targets
 - ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☐ 59. feat(packs): add the python pack
@@ -2404,3 +2404,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 55 checkpointed · d030bda47 — feat(launch): let an outside mise.toml override pins with --pins (1 drift, 13m)
 - 2026-10-17 — step 56 checkpointed · e82106524 — feat(select): keep only checks that need no install with --static-only (1 drift, 15m)
 - 2026-10-17 — step 57 checkpointed · 8e6db2c6b — docs(consumers): document running checkride from outside a repo (1 drift, 10m)
+- 2026-10-18 — step 77 checkpointed · a029ea8ad — test(mutation): let a full stryker run start from its sandbox (1 drift, 329m)

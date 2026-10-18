@@ -412,7 +412,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and with no root target those entries are dropped, each named on stderr.
   Nothing is written, the run never ratchets the baseline, and the summary
   marks each target `discovered: true` and records `run.discover`. A config
-  that already declares `targets` exits 2. Discovery, for `init` too, now
+  that already declares `targets` keeps them, and stderr says once that they
+  stand in for discovery, so one recipe serves every repo a review agent
+  meets, whether it declares targets or not. Discovery, for `init` too, now
   proposes a go target for each top-most `go.work` (claiming its `use`
   modules) and each `go.mod` outside one, and a rust target for each top-most
   `Cargo.toml` with `[workspace]` and each `[package]` manifest outside it. A
@@ -590,8 +592,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `DoctorOptions` an optional `defaults`, and `resolveChecks`'s input an
   optional `defaults` config.
 - Additive: the run and `doctor` flag `--discover`, and the summary's
-  `run.discover` and `targets[].discovered`, which a run now writes. The
-  exported `RunFlags` type gains an optional `discover`.
+  `run.discover` and `targets[].discovered`, which a run now writes. Over a
+  config that declares `targets`, the flag runs those, with no target marked
+  `discovered`, and exits as the run would without it. The exported
+  `RunFlags` type gains an optional `discover`.
 - Additive: the run flag `--pins <mise.toml>`, the variable `CHECKRIDE_PINS`,
   the `pin_source` value `override` and `run.pins`, which runs now write. The
   exported `RunOptions` type gains an optional `pins` (`{ path, tools }`), and

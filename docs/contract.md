@@ -555,8 +555,12 @@ now.
 **`--discover` checks the targets the repo's files propose.** Run and
 `doctor` take the targets discovery proposes, the ones existing-mode `init`
 would write, and apply them in memory as if the config declared them, writing
-nothing. A config that already declares `targets` exits 2. Discovery reads the
-files git lists. A root `package.json` or `pnpm-workspace.yaml` proposes one
+nothing. A config that already declares `targets` keeps them: run and `doctor`
+check those targets as they would without the flag, and stderr carries one
+note naming them as the reason, `--discover: the config declares its targets
+(web, api), so they stand in for discovery`. The summary still records
+`run.discover`, no target carries `discovered`, and the run never ratchets.
+Otherwise, discovery reads the files git lists. A root `package.json` or `pnpm-workspace.yaml` proposes one
 `ts` target at the root, else each top-most `package.json` proposes its own.
 Each top-most `go.work` directory proposes a `go` target that claims the
 modules its `use` directives name, and each top-most `go.mod` no go target

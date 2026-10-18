@@ -160,10 +160,12 @@ const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !=
 
 /** What a `--discover` run checks with (R13.2). */
 type DiscoveredRun = {
-  /** The config with the proposed targets declared, or the one given when discovery left the repo implicit. */
+  /** The config with the proposed targets declared, or the one given when discovery left the repo implicit or the config declares its own. */
   config: Record<string, unknown> | null;
-  /** The targets discovery declared, in its order; empty when the repo stays implicit. */
+  /** The targets discovery declared, in its order; empty when the repo stays implicit or the config declares its own. */
   targets: Target[];
+  /** The names of the targets the config already declares, in its order, which stand in for discovery; empty when discovery ran. */
+  declared: string[];
   /** The top-level target-scope entries no target at the root could take, so the run drops them. */
   dropped: string[];
   /** The baseline, its implicit entries renamed to the root target's, so masking holds; `null` stays `null`. */
@@ -176,9 +178,10 @@ type DiscoveredRun = {
  * at the root of the pack the root marks takes the top-level target-scope
  * entries and the baseline's entries, `lint` reading as `app:lint`, as
  * `target add` would hand them over; with no such target they're dropped.
- * Proposing only the implicit target changes nothing. Throws, a usage error,
- * when `config` already declares targets (F37), or when the proposed targets
- * break a config rule.
+ * Proposing only the implicit target changes nothing, and a `config` that
+ * already declares targets keeps them, named in `declared`, with nothing
+ * discovered (D73). Throws, a usage error, when the proposed targets break a
+ * config rule.
  */
 export async function discoverRun(
   repo: string,
@@ -186,19 +189,24 @@ export async function discoverRun(
   baseline: Baseline | null,
   git: GitRunner = realGit(repo),
 ): Promise<DiscoveredRun> {
-  if (config?.['targets'] !== undefined) {
-    throw new Error('--discover runs only where the config declares no targets, and this one declares them: drop --discover to check the targets it names');
-  }
+  const declared = configuredTargets(config);
+  if (declared !== null) return { config, targets: [], declared: declared.map((t) => t.name), dropped: [], baseline };
   const proposed = await discoverTargets(repo, git);
   const pack = implicitPack((marker) => existsSync(join(repo, marker)));
-  if (isImplicit(proposed, pack)) return { config, targets: [], dropped: [], baseline };
+  if (isImplicit(proposed, pack)) return { config, targets: [], declared: [], dropped: [], baseline };
   const lifted = liftDiscovered(config ?? {}, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS });
   const problem = configProblem(lifted.config, { cwd: repo, layer: 'repo' });
   if (problem !== null) throw new Error(`--discover: the targets this repo proposes break a config rule: ${problem}`);
   return {
     config: lifted.config,
     targets: configuredTargets(lifted.config) ?? [],
+    declared: [],
     dropped: lifted.dropped,
     baseline: baseline === null ? null : renameBaselineSlots(baseline, lifted.renames),
   };
+}
+
+/** The one stderr note for a `--discover` the config's own targets stand in for (D73). */
+export function declaredNote(declared: readonly string[]): string {
+  return `--discover: the config declares its targets (${declared.join(', ')}), so they stand in for discovery`;
 }

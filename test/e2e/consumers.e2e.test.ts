@@ -9,7 +9,9 @@
  * installed copy with the repo's own pins. Each pass writes outside the repo,
  * leaves the repo's files alone, and every finding a failed check reports
  * parses through `checkride/findings`, the text-output checks (tsc, typos)
- * among them. A copy with no config of its own takes `--discover` instead.
+ * among them. Every pass takes `--discover`, as the recipes do: the example's
+ * own targets stand in for discovery, and a copy with no config of its own
+ * checks the targets discovery proposes.
  */
 
 import { execFile, spawnSync } from 'node:child_process';
@@ -84,12 +86,6 @@ async function pullRequest(dir: string): Promise<string> {
   await git(dir, 'add', '-A');
   await git(dir, 'commit', '-q', '--no-verify', '-m', 'pull request');
   return base;
-}
-
-/** `--discover` where the repo's config declares no targets, and nothing where it does, as the guide's recipe decides. */
-async function discoverFlag(dir: string): Promise<string[]> {
-  const config = join(dir, 'checkride.config.json');
-  return existsSync(config) && (await readFile(config, 'utf8')).includes('"targets"') ? [] : ['--discover'];
 }
 
 type Run = { code: number; summary: Summary; stderr: string };
@@ -171,10 +167,13 @@ if (missing.length > 0) console.warn(`skipping the consumer e2e cases: ${missing
 
   test('the pre-sandbox pass over an uninstalled copy runs only static checks, through the agent’s pins', async () => {
     const runDir = join(work, 'run', 'static');
-    const args = [...(await discoverFlag(uninstalled)), '--defaults', agent.defaults, '--pins', agent.pins, '--static-only', '--changed', '--base', base, '--out', runDir, '--json'];
+    const args = ['--discover', '--defaults', agent.defaults, '--pins', agent.pins, '--static-only', '--changed', '--base', base, '--out', runDir, '--json'];
     const run = await checkride(uninstalled, args);
     expect(run.code).toBe(1);
-    expect(run.summary.run).toEqual({ partial: true, changed: true, static_only: true, defaults: agent.defaults, pins: agent.pins, out: runDir });
+    expect(run.summary.run).toEqual({ partial: true, changed: true, static_only: true, discover: true, defaults: agent.defaults, pins: agent.pins, out: runDir });
+    // The example declares its targets, so they stand in for discovery.
+    expect(run.stderr).toContain('--discover: the config declares its targets (web, api, scripts), so they stand in for discovery');
+    for (const target of run.summary.targets ?? []) expect(target, target.name).not.toHaveProperty('discovered');
 
     expect(entry(run.summary, 'web:types').reason).toBe("static-only: tsc isn't a static check");
     for (const name of ['api:types', 'api:lint', 'api:test']) expect(entry(run.summary, name).reason, name).toMatch(/^static-only: /);
@@ -196,10 +195,10 @@ if (missing.length > 0) console.warn(`skipping the consumer e2e cases: ${missing
 
   test('the sandbox pass over an installed copy runs the repo’s own pins, and every finding parses, the text-output ones included', async () => {
     const runDir = join(work, 'run', 'full');
-    const args = [...(await discoverFlag(installed)), '--defaults', agent.defaults, '--changed', '--base', base, '--out', runDir, '--json'];
+    const args = ['--discover', '--defaults', agent.defaults, '--changed', '--base', base, '--out', runDir, '--json'];
     const run = await checkride(installed, args);
     expect(run.code).toBe(1);
-    expect(run.summary.run).toEqual({ partial: true, changed: true, defaults: agent.defaults, out: runDir });
+    expect(run.summary.run).toEqual({ partial: true, changed: true, discover: true, defaults: agent.defaults, out: runDir });
 
     const findings = findingsOf(run.summary, runDir, installed);
     expect([...findings.keys()].toSorted()).toEqual(['api:lint', 'scripts:lint', 'spell', 'struct', 'web:types'].toSorted());
@@ -215,8 +214,7 @@ if (missing.length > 0) console.warn(`skipping the consumer e2e cases: ${missing
     await cp(uninstalled, dir, { recursive: true });
     await rm(join(dir, 'checkride.config.json'));
     const runDir = join(work, 'run', 'discovered');
-    const args = [...(await discoverFlag(dir)), '--defaults', agent.defaults, '--pins', agent.pins, '--static-only', '--changed', '--base', base, '--out', runDir, '--json'];
-    expect(args[0]).toBe('--discover');
+    const args = ['--discover', '--defaults', agent.defaults, '--pins', agent.pins, '--static-only', '--changed', '--base', base, '--out', runDir, '--json'];
     const run = await checkride(dir, args);
     expect(run.summary.run).toMatchObject({ discover: true, static_only: true });
     expect(run.summary.targets?.length).toBeGreaterThan(0);

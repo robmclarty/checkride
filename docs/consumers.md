@@ -20,7 +20,7 @@ choose what runs there, never as protection.
 | `--config <path>` | `CHECKRIDE_CONFIG` | Reads that config in place of `./checkride.config.json`. Its relative `extends` resolve against the file. |
 | `--defaults <path>` | `CHECKRIDE_DEFAULTS` | Fills only the slots the repo's config and detection leave empty, from a config of yours. A check it fills records `origin: "defaults"`. |
 | `--pins <mise.toml>` | `CHECKRIDE_PINS` | Runs each tool your `mise.toml` pins as that version, `mise exec <id>@<version>`, ahead of the repo's own pins. It never installs. |
-| `--discover` | none | Checks the targets the repo's files propose, as `init` would declare them, without writing them. |
+| `--discover` | none | Checks the targets the repo's files propose, as `init` would declare them, without writing them. Where the repo's config declares targets, those run instead. |
 | `--static-only` | none | Keeps only the checks that read the repo as data, and skips the rest with a `static-only:` reason. |
 | `--base <ref>` | `CHECKRIDE_BASE` | The ref `--changed` measures from. |
 
@@ -63,7 +63,7 @@ The first pass runs before the repo is installed or sandboxed. It reads the
 repo as data, with your own tools:
 
 ```bash
-checkride $discover --defaults /agent/defaults.json --pins /agent/mise.toml \
+checkride --discover --defaults /agent/defaults.json --pins /agent/mise.toml \
   --static-only --changed --base "$BASE_SHA" --out "$RUN_DIR/static" --json
 ```
 
@@ -71,18 +71,15 @@ The second runs after the repo's install, inside the sandbox, with the repo's
 own pins:
 
 ```bash
-checkride $discover --defaults /agent/defaults.json \
+checkride --discover --defaults /agent/defaults.json \
   --changed --base "$BASE_SHA" --out "$RUN_DIR/full" --json
 ```
 
-`$discover` is `--discover` for a repo whose config declares no targets, and
-empty for one that does, since `--discover` exits 2 there rather than
-second-guess the repo:
-
-```bash
-discover=--discover
-if [ -f checkride.config.json ] && grep -q '"targets"' checkride.config.json; then discover=; fi
-```
+`--discover` is safe to pass to every repo. Where the repo's config declares
+targets, the run checks those, as it would without the flag, and stderr says
+once that they stand in for discovery: the repo's own targets are better
+evidence than a guess from its files. Its summary still records
+`run.discover`, and no target carries `discovered`.
 
 In the first pass, each check that might run the repo's code or need its
 install skips, and its reason says why:

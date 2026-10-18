@@ -426,9 +426,10 @@ describe('CLI static-only (--static-only)', () => {
 /**
  * Contract: `--discover` checks the targets the repo's files propose, applied
  * in memory (R13.2). The summary marks each `discovered: true` and records
- * `run.discover`; nothing is written; a config that declares `targets` is exit
- * 2 (F37); and a top-level slot entry no root target can take is dropped with
- * a note on stderr.
+ * `run.discover`; nothing is written; a config that declares `targets` keeps
+ * them, run or `doctor`, with one note on stderr naming them and no target
+ * marked discovered (F37, D73); and a top-level slot entry no root target can
+ * take is dropped with a note on stderr.
  */
 describe('CLI run-time discovery (--discover)', () => {
   let dir: string;
@@ -461,14 +462,35 @@ describe('CLI run-time discovery (--discover)', () => {
     expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
   });
 
-  // F37
-  test('a config that declares targets exits 2 before anything is written', async () => {
-    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { web: { lang: 'ts', root: 'web' } } }));
+  // F37 (D73)
+  const declared = { targets: { site: { lang: 'ts', root: 'web' } }, checks: { probe: { command: process.execPath, args: ['-e', ''] } } };
+  const declaredNote = '--discover: the config declares its targets (site), so they stand in for discovery';
+
+  test('a config that declares targets keeps them, says so once, and nothing is discovered or written', async () => {
+    const text = `${JSON.stringify(declared)}\n`;
+    await writeFile(join(dir, 'checkride.config.json'), text);
+    const stdout = capture();
     const stderr = capture();
-    expect(await runCli(['--discover'], { cwd: dir, stdout: capture(), stderr, env: {} })).toBe(2);
-    expect(stderr.text()).toContain('--discover runs only where the config declares no targets');
-    expect(existsSync(join(dir, '.check'))).toBe(false);
+    expect(await runCli(['--discover', '--json'], { cwd: dir, stdout, stderr, env: {} })).toBe(0);
+    const summary = JSON.parse(stdout.text()) as { run: Record<string, unknown>; targets: unknown[]; checks: { name: string }[] };
+    expect(summary.run).toEqual({ partial: false, discover: true });
+    expect(summary.targets).toEqual([{ name: 'site', pack: 'ts', root: 'web' }]);
+    expect(summary.checks.map((c) => c.name)).toEqual(expect.arrayContaining(['site:types', 'probe']));
+    expect(stderr.text().split('\n').filter((line) => line.startsWith('--discover:'))).toEqual([declaredNote]);
+    expect(await readFile(join(dir, 'checkride.config.json'), 'utf8')).toBe(text);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
   });
+
+  test('doctor --discover over a config that declares targets reports them, with the note', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify(declared));
+    const stdout = capture();
+    const stderr = capture();
+    await runCli(['doctor', '--discover', '--json'], { cwd: dir, stdout, stderr, env: {} });
+    const report = JSON.parse(stdout.text()) as { mode: string; targets: { name: string }[] };
+    expect(report.mode).toBe('multi-target');
+    expect(report.targets.map((t) => t.name)).toEqual(['site']);
+    expect(stderr.text()).toContain(declaredNote);
+  }, 30_000);
 
   test('doctor --discover reports the discovered mode', async () => {
     const stdout = capture();

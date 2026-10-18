@@ -35,7 +35,7 @@ import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import { runTargetAdd } from './target-command.js';
-import { discoverRun } from './targets/index.js';
+import { declaredNote, discoverRun } from './targets/index.js';
 import { realEnv, renderTriage, triage } from './triage/index.js';
 
 /**
@@ -170,8 +170,9 @@ Run options:
                    that would run its code or need its install. A selector for
                    a run before the install, not a sandbox; never ratchets.
   --discover       Check the targets the repo's files propose, as if the
-                   config declared them (exit 2 when it declares some; also
-                   on doctor). Writes nothing and never ratchets the baseline.
+                   config declared them (where it declares some, those run,
+                   with a note; also on doctor). Writes nothing and never
+                   ratchets the baseline.
   --base <ref>     The ref --changed measures from (or set CHECKRIDE_BASE, or
                    changedBase in the config; default origin/main, else HEAD).
                    A named ref that doesn't resolve is exit 2.
@@ -723,11 +724,14 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
 /**
  * The config `doctor` reads: the named one, else the repo's, with the targets
  * `--discover` proposes declared in memory (R13.2), or nothing to inject when
- * neither applies, so `doctor` reads the repo's own.
+ * neither applies, so `doctor` reads the repo's own. A config that declares
+ * its own targets keeps them, and stderr names them once as the reason (D73).
  */
-async function doctorConfig(discover: boolean, named: NamedConfig | null, cwd: string): Promise<{ config?: CheckrideConfig | null }> {
+async function doctorConfig(discover: boolean, named: NamedConfig | null, deps: CliDeps): Promise<{ config?: CheckrideConfig | null }> {
   if (!discover) return named ? { config: named.config } : {};
-  return { config: (await discoverRun(cwd, named?.config ?? loadConfig(cwd), null)).config };
+  const found = await discoverRun(deps.cwd, named?.config ?? loadConfig(deps.cwd), null);
+  if (found.declared.length > 0) deps.stderr.write(`${declaredNote(found.declared)}\n`);
+  return { config: found.config };
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
@@ -739,7 +743,7 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   const layer = namedDefaults(defaults, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
-    ...(await doctorConfig(flags.discover === true, named, deps.cwd)),
+    ...(await doctorConfig(flags.discover === true, named, deps)),
     ...(layer ? { defaults: layer.config } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,

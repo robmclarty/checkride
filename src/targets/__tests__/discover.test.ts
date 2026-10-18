@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { discoverRun, discoverTargets, isImplicit } from '../discover.js';
+import { declaredNote, discoverRun, discoverTargets, isImplicit } from '../discover.js';
 
 describe('discoverTargets', () => {
   let repo: string;
@@ -176,11 +176,18 @@ describe('discoverRun (R13.2)', () => {
   test('only the implicit target changes nothing', async () => {
     await write('go.mod', 'module example.com/app\n');
     const config = { checks: { lint: 'staticcheck' } };
-    expect(await discoverRun(repo, config, null)).toEqual({ config, targets: [], dropped: [], baseline: null });
+    expect(await discoverRun(repo, config, null)).toEqual({ config, targets: [], declared: [], dropped: [], baseline: null });
   });
 
-  // F37
-  test('a config that declares targets is a usage error', async () => {
-    await expect(discoverRun(repo, { targets: { app: { lang: 'ts', root: '.' } } }, null)).rejects.toThrow('--discover runs only where the config declares no targets');
+  // F37 (D73)
+  test('a config that declares targets keeps them and discovers nothing, naming them', async () => {
+    await write('web/package.json');
+    await write('api/go.mod', 'module example.com/api\n');
+    const config = { targets: { site: { lang: 'ts', root: 'web' } }, checks: { lint: false } };
+    expect(await discoverRun(repo, config, baseline)).toEqual({ config, targets: [], declared: ['site'], dropped: [], baseline });
+  });
+
+  test('the note names the declared targets as the reason', () => {
+    expect(declaredNote(['web', 'api'])).toBe('--discover: the config declares its targets (web, api), so they stand in for discovery');
   });
 });
