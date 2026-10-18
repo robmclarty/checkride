@@ -131,6 +131,123 @@ describe('staticCause (R13.4)', () => {
     expect(staticCause(cspell, scope({ 'cspell.yaml': '{words: [a], import: [./dict.json]}\n' }))).toBeNull();
   });
 
+  // D81: step 80's three probes, each a value cspell's YAML parser reads as a script while the sniff once kept spell.
+  describe('a value read as the tool’s parser reads it (each probe held against yaml 2.9.0, the parser cspell 10.3.6 loads)', () => {
+    const cspell = row('cspell');
+    const spell = (file: string, text: string): string | null => staticCause(cspell, scope({ [file]: text }));
+
+    test('a # inside a quoted value is the value’s, and a comment after the value is no part of it', () => {
+      expect(spell('cspell.yaml', 'import: "./a #.mjs"\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', "import: ['./a #.mjs']\n")).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.json', '{ "import": "./a #.mjs" }')).toBe(loads('cspell.json', 'import'));
+      expect(spell('cspell.yaml', 'import: ./dict.json # not ./x.js\n')).toBeNull();
+      expect(spell('cspell.yaml', 'import: "./dict.json" # not "./x.js"\n')).toBeNull();
+    });
+
+    test('a quote inside a comment, or inside a plain scalar such as it’s, opens no string that hides the values after it', () => {
+      expect(spell('cspell.yaml', "import:\n  - ./a.json # it's\n  - ./x.mjs\n  - ./b.json # it's\n")).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', "import: [./a.json, it's, ./x.mjs, 'b']\n")).toBe(loads('cspell.yaml', 'import'));
+      // cspell.json is JSONC, whose comments are // and /* */, never #.
+      expect(spell('cspell.json', '{\n  "import": [ // it\'s the list\n    "./x.mjs"\n  ]\n}')).toBe(loads('cspell.json', 'import'));
+      expect(spell('cspell.json', '{\n  "import": [ /* it\'s */ "./x.mjs" ]\n}')).toBe(loads('cspell.json', 'import'));
+      expect(spell('cspell.json', '{\n  "import": ["./dict.json"] // not "./x.js"\n}')).toBeNull();
+    });
+
+    test('a bracket inside a string closes nothing, a nested one closes only its own, and the value ends where its own closes', () => {
+      expect(spell('cspell.json', '{\n  "import": [\n    "./a].json",\n    "./x.mjs"\n  ]\n}')).toBe(loads('cspell.json', 'import'));
+      expect(spell('cspell.yaml', 'import: [[./a.json], ./x.mjs]\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: [{a: 1}, ./x.mjs]\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: [./a.json,\n  ./x.mjs\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: [{a: 1}, ./dict.json]\nignorePaths: ["*.js"]\n')).toBeNull();
+      expect(spell('cspell.yaml', '{import: [./dict.json], ignorePaths: ["*.js"]}\n')).toBeNull();
+      expect(spell('cspell.json', '{"import":["./dict.json"],"ignorePaths":["dist/*.js"]}')).toBeNull();
+    });
+
+    test('a value split by YAML’s escaped line break reads joined, and a quoted one running on reads to its close', () => {
+      expect(spell('cspell.yaml', 'import: "./x.m\\\n  js"\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: "./x.m\\\r\n  js"\r\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import:\n  - "./x.m\\\n    js"\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: "./a\n  b.mjs"\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', "import: './a\n  b.mjs'\n")).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import: "./x.mj\\x73"\n')).toBe(loads('cspell.yaml', 'import'));
+    });
+
+    test('a block sequence reads past a comment at column 0, and ends at the next key', () => {
+      expect(spell('cspell.yaml', 'import:\n  - ./dict.json\n# note\n  - ./x.mjs\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import:\n- ./dict.json\n# note\n- ./x.mjs\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'import:\n  - ./dict.json\n\n# note\nwords:\n  - x.mjs\n')).toBeNull();
+      // The file's last line is the value's too, with no line break after it.
+      expect(spell('cspell.yaml', 'import:\n  - ./dict.json\n  - ./x.mjs')).toBe(loads('cspell.yaml', 'import'));
+    });
+
+    test('a list item’s dash is no part of its value, so a value read from its start sees the item, and a dash inside one stays', () => {
+      const load: Adapter = { ...row('vale'), codeKeys: [{ file: 'x.yml', keys: ['load'], value: '^script$' }] };
+      expect(staticCause(load, scope({ 'x.yml': 'load:\n  -  script\n' }))).toBe('x.yml sets load, which loads code');
+      expect(staticCause(row('vale'), scope({ '.vale/styles/Repo/Count.yml': 'extends: scri- pt\n' }))).toBeNull();
+    });
+
+    test('a plain scalar running on reads folded, its lines indenting past the key in a block, or not, in a flow mapping', () => {
+      for (const config of [
+        'import: ./x\n  .mjs\n',
+        'import: ./x\n\n  .mjs\n',
+        'import:\n  - ./x\n    .mjs\n',
+        'import: >-\n  ./x.mjs\n',
+        '{import: ./x\n.mjs}\n',
+        '{import: ./x\n- .mjs}\n',
+        '{import: ./x\n- .mjs, words: [a]}\n',
+        'x: {a: 1,\n  import: ./x\n  .mjs}\n',
+      ]) {
+        expect(spell('cspell.yaml', config), config).toBe(loads('cspell.yaml', 'import'));
+      }
+      expect(spell('cspell.yaml', 'import: ./dict.json\nignorePaths:\n  - "*.js"\n')).toBeNull();
+      expect(spell('cspell.yaml', 'import: ./dict.json\nignorePaths: ["*.js"]\n')).toBeNull();
+      expect(spell('cspell.json', '{\n  "import": "./dict.json",\n  "ignorePaths": ["dist/*.js"]\n}')).toBeNull();
+    });
+
+    test('a value ends at the next entry no further in than its key, so a block scalar’s a: b is the value’s and a sibling key isn’t', () => {
+      expect(spell('cspell.yaml', 'import: >-\n  a: b\n  ./x.mjs\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'overrides:\n  - import: ./dict.json\n    ignorePaths: ["*.js"]\n')).toBeNull();
+      expect(spell('cspell.yaml', 'overrides:\n  - import: ./dict.json\n  - words: ["*.js"]\n')).toBeNull();
+    });
+
+    // A codeKey of cspell's import read from a file of each kind of name, to show the syntaxes a name picks.
+    const named = (file: string, text: string): string | null =>
+      staticCause({ ...cspell, codeKeys: [{ file, keys: ['import'], value: String.raw`\.[cm]?js$` }] }, scope({ [file]: text }));
+    const jsonComment = '{\n  "import": "./dict.json" // not "./x.js"\n}';
+    const bracketInComment = '{\n  "import": [ // ]\n    "./x.mjs"\n  ]\n}';
+
+    test('a name says how its values read: JSON’s comments for .json, .jsonc and .json5, YAML’s for .yaml and .yml, and both for any other', () => {
+      for (const file of ['cspell.json', 'cspell.jsonc', 'cspell.json5']) expect(named(file, jsonComment), file).toBeNull();
+      for (const file of ['cspell.yml', 'cspell.yaml']) expect(named(file, 'import: ./dict.json # not ./x.js\n'), file).toBeNull();
+      // Read as JSON, a quote inside a plain YAML scalar would hide the script after it.
+      expect(named('cspell.json.yml', "import: [it's, ./x.mjs, 'b']\n")).toBe(loads('cspell.json.yml', 'import'));
+      // Read as YAML, a // comment's bracket would close the list before the script.
+      for (const file of ['.cspellrc', 'cspell.yml.txt']) expect(named(file, bracketInComment), file).toBe(loads(file, 'import'));
+    });
+
+    test('a YAML tag or anchor is read away, and an alias, which the sniff can’t follow, counts', () => {
+      const vale = row('vale');
+      const style = '.vale/styles/Repo/Count.yml';
+      for (const config of ['extends: !!str script\n', 'extends: !<tag:yaml.org,2002:str> script\n', 'extends: &e script\n', 'extends: !!str\n  script\n']) {
+        expect(staticCause(vale, scope({ [style]: config })), config).toBe(`${style} sets extends, which loads code`);
+      }
+      expect(staticCause(vale, scope({ [style]: 'extends: !!str existence\n' }))).toBeNull();
+      expect(spell('cspell.yaml', 'x: &a ./x.mjs\nimport: *a\n')).toBe(loads('cspell.yaml', 'import'));
+      expect(spell('cspell.yaml', 'x: &a [./x.mjs]\nimport:\n  - *a\n')).toBe(loads('cspell.yaml', 'import'));
+    });
+
+    test('a key set more often than the sniff reads counts unread', () => {
+      expect(spell('cspell.yaml', 'import: ./dict.json\n'.repeat(16))).toBeNull();
+      expect(spell('cspell.yaml', 'import: ./dict.json\n'.repeat(17))).toBe(loads('cspell.yaml', 'import'));
+    });
+  });
+
+  test('an entry that took a static row’s mark is named by what it did, and a row without one by the registry', () => {
+    expect(staticCause({ ...row('prettier'), static: false, staticDrop: { arg: '--plugin' } }, scope({}))).toBe("prettier's entry adds --plugin, an argument its registry row doesn't carry");
+    expect(staticCause({ ...row('markdownlint-cli2'), static: false, staticDrop: { command: 'node' } }, scope({}))).toBe("markdownlint-cli2's entry swaps its command for node");
+    expect(staticCause({ ...row('prettier'), static: false }, scope({}))).toBe("prettier isn't a static check");
+  });
+
   test('a vale style that extends script skips prose, through the styles path glob', () => {
     const vale = row('vale');
     expect(staticCause(vale, scope({ '.vale/styles/Repo/Count.yml': 'extends: script\nscript: |\n  x\n' }))).toBe(

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 80 — fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
+**Current step:** 82 — fix(packs): read a config key's value the way the tool's parser does under --static-only
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -93,7 +93,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 64. feat(findings): parse tflint, terraform validate and trivy output
 - ☑ 65. test(examples): add terraform-roots with plants
 - ☑ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
-- ☐ 80. fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
+- ☑ 80. fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
+- ☐ 82. fix(packs): read a config key's value the way the tool's parser does under --static-only
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
@@ -178,8 +179,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] fold step 79 into R13.4 at harvest: the sniffs read the disk under each check's directory (filesOnDisk, every directory but .git) instead of repoFiles; names match in any case; a codeConfigs name ending in / names a directory; Adapter gains codeArgs; a .hcl file is read as HCL (line comments dropped, block comments kept, every key occurrence counts, an unreadable plugin label counts); .tflint.json is sniffed; non-HCL text is read raw and with \u escapes decoded
 - [x] docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config, and its PACKS sentence omits the terraform pack; fold at step 73
 - [x] fix before release: init --lang go|rust writes "npm:checkride" = "<version>", which mise 2026.10's npm backend refuses (checkride has 162 weekly downloads, under its 1000 threshold) unless the entry sets allow_low_downloads = true; doctor's and agent-setup's 'mise use npm:checkride@<version>' hint hits the same refusal, and no test installs the mise route end to end (verified at this boundary: with the opt-in, an isolated Node-free mise installs node 22.18.0 and checkride 0.14.0 in about 12s and mise exec -- checkride runs)
-- [ ] static.ts's non-HCL value reading still hides a cspell script import three ways: a # inside a quoted value is cut as a comment (import: "./a #.mjs"), YAML's escaped line break splits the name ("./x.m\<newline>js"), and a column-0 comment ends a block sequence early
-- [ ] the static-only reason for an entry that adds args reads "prettier isn't a static check", the same as a command swap; name the cause (the config adds an argument prettier's row doesn't carry) so a consumer can tell why a documented static tool sat out
+- [x] static.ts's non-HCL value reading still hides a cspell script import three ways: a # inside a quoted value is cut as a comment (import: "./a #.mjs"), YAML's escaped line break splits the name ("./x.m\<newline>js"), and a column-0 comment ends a block sequence early
+- [x] the static-only reason for an entry that adds args reads "prettier isn't a static check", the same as a command swap; name the cause (the config adds an argument prettier's row doesn't carry) so a consumer can tell why a documented static tool sat out
+- [ ] docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names the swapped command or first added argument, and rule 4 doesn't say a key's value is read as its parser reads it (quoted #, escaped line break, comment lines, run-on scalars, tags, aliases count); fold at step 73
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -283,6 +285,9 @@ Harvest results this boundary:
 - After step 79: "docs/contract.md's --static-only adapter list omits ruff, ruff-format, terraform-fmt, tflint and trivy-config..." → **tangent**, deferred to step 73 (its seam holds `docs/contract.md`, and it folds every surface this build added).
 - After step 79, at Q1 (scope-cut)'s real call: "fix before release: init --lang go|rust writes "npm:checkride" = "<version>", which mise 2026.10's npm backend refuses..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D80 (binary-deferred) and the rewritten step 72, ordered right after step 80, so the next release ships a scaffold whose `mise.toml` installs, a test that installs it, and docs that present the mise route as the supported way to run checkride without Node; the binary's steps 69 to 71 move under `## Deferred to a later build`.
 - After step 79, at the same call: the three items earlier harvests deferred to step 69, which D80 cut (not parked again) → moved with it: doctor's install row in a root with no `package.json` joins step 72, whose subject is a repo without Node, and doctor's `--pins` and `--static-only` refusals become step 81, ordered after step 72, since they're doctor features rather than the mise route; D71 (consumer-calls) now points at step 81.
+
+- After step 80: "static.ts's non-HCL value reading still hides a cspell script import three ways..." → **blocker**, handled now: folded into `intent.md` as D81 (static-values), which also brings R13.4's rule 4 to what step 80 shipped, and as step 82, ordered to build next, before step 72, so the Phase 11 release doesn't ship it (each of the three readings let a repo's `cspell.yaml` import a script while `--static-only` kept `spell`, probed at step 80, and Phase 11 exists to ship a `--static-only` that fails closed).
+- After step 80: "the static-only reason for an entry that adds args reads "prettier isn't a static check"..." → **tangent**, deferred to step 82, whose done-when names it (a confusing reason, never a false green; naming the cause means `src/config.ts` records why it dropped the mark and `src/packs/static.ts` reports it, and step 82's seam holds both).
 
 ## Log
 
@@ -2702,3 +2707,54 @@ folder, so it rides the branch into the PR.)*
   **5.** A new optional Adapter field, seven files past the seam, and four parks
 
   `codeArgs` joins the exported `Adapter` type, additive under C1 (additive-contract), with `docs/contract.md`'s rule 2 and the CHANGELOG's Contract bullet updated; a field of its own keeps the reason accurate ("runs with --config, which can load code", not "needs the install"). Past the seam: `src/adapters.ts`, `src/orchestrator/select.ts`, `src/targets/files.ts`, `src/targets/index.ts`, their two test files and `docs/contract.md`. The CHANGELOG amends the unreleased `--static-only`, terraform and Contract entries in place, as step 78 did. A scoped mutation run left no survivors in the new logic, and the repo score is 83.02 against the floor of 68. Parked: args overrides on the other static adapters (prettier `--plugin` and kin, security), YAML escapes and flow-mapping keys that hide a code key (security), folding these calls into R13.4, and contract.md's stale static adapter list for step 73.
+
+- 2026-10-18 — step 80 checkpointed · 4958cb158 — fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code (1 drift, 18m)
+
+  **Summary**: `--static-only` now skips a static check when the repo's config, or a preset it extends, hands the tool an argument its registry row doesn't carry, and the key sniff finds a code-loading key wherever YAML, JSON5 or TOML would read it, escaped or flow-mapped. The whole e2e suite ran under the dev `mise.toml` with `CHECKRIDE_REQUIRE_TOOLCHAINS=1`: 166 of 166, none skipped.
+
+  1. An entry that adds an argument to a static row loses its mark, presets included
+  2. The key sniff counts a key wherever the parser would, which is broader than the done-when names
+  3. A flow sequence's bare items are now read as values, or a flow-mapped cspell import would still slip past
+  4. A defaults entry that adds an argument now needs `static: true` too, the one call I made past the done-when's letter
+  5. Two parks: three more ways a cspell script import hides, and a vague skip reason
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D79 (static-args)
+               - D71 (consumer-calls)
+               - D52 (e2e-cadence)
+  constraints  12 of 12 honored
+  seam         strayed: 2 paths outside the seam
+               - CHANGELOG.md
+               - docs/consumers.md
+  diff         +177 -36 across 7 files
+  spent        18 min · 1 turn · 32s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it, then harvest before step 72 so the three cspell value-reading gaps get a fix step inside Phase 11. They are the same fail-closed boundary this phase exists to finish, and leaving them for the docs pass at step 73 would document a selector that's still open.
+
+  **1.** An entry that adds an argument to a static row loses its mark, presets included
+
+  `staticMark` in `src/config.ts` now drops the mark when an entry's `args` or `changedArgs` hold any argument outside the row's own `args` and `changedArgs`, the argv `staticCause` reads. Presets need no special case: `extends` deep-merges them before resolution, so the entry `applyOverrides` sees is already the merged one, and the preset test goes through `loadConfig` to prove it. Dropping or reordering the row's arguments adds nothing, so plain oxlint, a reordered prettier and an empty markdownlint `args` all stay static. The comparison runs through `.flat()` rather than a spread, because this now runs on every resolution, not only under `--static-only`: a malformed `args: "x"` reads as one unknown argument and fails closed, and it can't throw. The skip reason reuses the command-swap wording, `prettier isn't a static check` (see 5). The orchestrator test drives `runChecks` with a prettier `--plugin` override and finds `format` skipped while `links` runs.
+
+  **2.** The key sniff counts a key wherever the parser would, which is broader than the done-when names
+
+  The done-when asks for a key that opens a flow mapping or follows a comma. Rather than add `{` and `,` to the old `^\s*|["']` prefix, the pattern now counts the key anywhere its whole name stands before `:` or `=`, with only a lookbehind refusing a longer name (`no-plugins`, `my_plugins`, `pluginsDir`). That one rule also catches a YAML tag (`!!str plugins:`), an anchor (`&p plugins:`), an explicit `? plugins` key, a `--- {plugins: …}` document line and JSON5's unquoted `{ plugins: [...] }`, each of which the narrower prefix would have left open. The cost is that a comment or string value that happens to read `plugins: x` now skips the check, a false positive in the direction R13.4 accepts. The decoder also gained `\x` and `\U` beside `\u`, through `String.fromCodePoint`, and leaves a `\U` past U+10FFFF as written instead of throwing.
+
+  **3.** A flow sequence's bare items are now read as values, or a flow-mapped cspell import would still slip past
+
+  cspell's `import` counts only for a value ending in `.js`, `.cjs` or `.mjs`. The old reader took a whole bare line as one value, so `{import: [./dict.json, ./words.mjs]}` gave the single string `[./dict.json, ./words.mjs]}`, which never matched, and it dropped every bare item once one quoted item appeared. `scalars` now returns the quoted strings and the bare items both, split at YAML's flow brackets, braces and commas. A key with no value filter (prettier's `plugins`, oxlint's `jsPlugins`) still counts on presence alone, as before.
+
+  **4.** A defaults entry that adds an argument now needs `static: true` too, the one call I made past the done-when's letter
+
+  D79 names the repo's config and its presets, and says a defaults entry with `static: true` keeps its vouch. I applied the rule to every layer, so a defaults entry that adds an argument without `static: true` loses the mark as well. That matches D71's command swap, which already drops the mark in any layer, and D79's line about the vouch only does any work if an unvouched defaults entry loses it. A consumer whose defaults file tweaks a static tool's `args` will see that check skip until they vouch for it. `docs/consumers.md` says so in one added sentence, which is the stray the seam row will name.
+
+  **5.** Two parks: three more ways a cspell script import hides, and a vague skip reason
+
+  While writing the value reader I probed three gaps and confirmed each returns `null` where cspell would import a script: a `#` inside a quoted value is cut as a comment (`import: "./a #.mjs"`), YAML's escaped line break splits a name across lines, and a column-0 comment ends a block sequence early. They are the same fail-open class this step closes, but none is in the done-when, so they're parked. The second park: an entry that adds arguments skips with `prettier isn't a static check`, which reads oddly for a tool the docs list as static. It should name the cause.

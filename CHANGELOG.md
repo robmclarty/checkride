@@ -448,10 +448,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.markdownlint-cli2.cjs`, and no config key that loads code may be set,
   such as `jsPlugins`, however the file's parser would still read it: spelled
   with `\x`, `\u` or `\U` escapes, opening a YAML flow mapping such as
-  `{plugins: [./x.mjs]}`, or after a comma. Its tool has to resolve without
-  an install. Every
-  other check is skipped with a `static-only: <cause>` reason, and the run is
-  partial, so it never ratchets. It's a best-effort selector, not a sandbox:
+  `{plugins: [./x.mjs]}`, or after a comma. A key's value is read the way the
+  parser reads it as well, so a cspell `import` of a script counts with a `#`
+  inside its quotes, split by YAML's escaped line break, past a comment at
+  column 0 in its list, running on over lines, or behind a tag, and a YAML
+  alias counts unread. Its tool has to resolve without an install. Every
+  other check is skipped with a `static-only: <cause>` reason, and one whose
+  entry took a static tool's mark names what the entry did, the command it
+  swapped in or the first argument it added. The run is partial, so it never
+  ratchets. It's a best-effort selector, not a sandbox:
   a tool release can add a way to load code that these sniffs don't know.
   `doctor` refuses the flag for now (#7).
 - **A guide to running checkride from outside a repo.** `docs/consumers.md`
@@ -743,7 +748,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   which a run now writes, and `run.partial`, now also true under it. Adapter
   rows gain optional `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and
   `codeKeys` (the `Adapter` type, and a new exported `CodeKey`), set on the
-  static adapters in `PACKS` and `ADAPTERS`; the config schema's slot and
+  static adapters in `PACKS` and `ADAPTERS`, and a resolved adapter an optional
+  `staticDrop`, which no row sets; the config schema's slot and
   custom check entries gain `static`, which only a defaults file may set. The
   exported `RunFlags` type gains an optional `staticOnly`, and the
   `CheckRunner` context an optional `staticOnly`.

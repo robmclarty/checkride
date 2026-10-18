@@ -71,49 +71,6 @@ function filesNamed(pattern: string, scope: StaticScope): string[] {
   });
 }
 
-/** The lines after the one holding `at` that indent past nothing or open a YAML list item: a block value, read until a line that doesn't. */
-function blockLines(text: string, at: number): string[] {
-  const end = text.indexOf('\n', at);
-  if (end === -1) return [];
-  const rest = text.slice(end + 1).split('\n');
-  const stop = rest.findIndex((line) => line.trim() !== '' && !/^\s|^-/.test(line));
-  return rest.slice(0, stop === -1 ? undefined : stop);
-}
-
-/**
- * The text a key holds where `at` begins its value: the rest of the line,
- * through the closing `]` of an array that runs on, or, with nothing after the
- * key, the YAML block below it.
- */
-function valueText(text: string, at: number): string {
-  const end = text.indexOf('\n', at);
-  const line = text.slice(at, end === -1 ? undefined : end).replace(/\s+#.*$/, '').trim();
-  if (line === '') return blockLines(text, at).join('\n');
-  if (!line.startsWith('[') || line.includes(']')) return line;
-  const close = text.indexOf(']', at);
-  return text.slice(at, close === -1 ? undefined : close + 1);
-}
-
-/** A quoted string, double or single, as JSON, YAML and TOML write one. */
-const QUOTED = /"([^"]*)"|'([^']*)'/g;
-
-/**
- * The strings a key's value text holds: each quoted one, then each bare one,
- * split at the brackets, braces and commas of a YAML flow collection and
- * shorn of a list item's dash, so `[./a.json, "./b.json", ./c.mjs]` holds
- * all three.
- */
-function scalars(value: string): string[] {
-  const quoted = [...value.matchAll(QUOTED)].map((m) => m[1] ?? m[2] ?? '');
-  const bare = value
-    .replaceAll(QUOTED, ',')
-    .split('\n')
-    .flatMap((line) => line.replace(/\s+#.*$/, '').split(/[[\]{},]/))
-    .map((item) => item.replace(/^\s*-\s*/, '').trim())
-    .filter((item) => item !== '');
-  return [...quoted, ...bare];
-}
-
 /**
  * `text` with each `\xXX`, `\uXXXX` and `\UXXXXXXXX` escape decoded, as
  * JSON, JSON5, YAML and TOML decode those they allow in a quoted key or
@@ -127,22 +84,153 @@ function unescaped(text: string): string {
   });
 }
 
+/** How a config file's quoted strings and comments read: as JSON, JSONC and JSON5 read them, or as YAML does. */
+type Syntax = 'json' | 'yaml';
+
+/**
+ * The syntaxes `file`'s values are read in: JSON's for a `.json`, `.jsonc`
+ * or `.json5`, YAML's for a `.yaml` or `.yml`, and both for any other name,
+ * such as `.prettierrc` or a TOML file, a value that loads code in either
+ * reading counting.
+ */
+function syntaxesOf(file: string): Syntax[] {
+  if (/\.json[c5]?$/i.test(file)) return ['json'];
+  if (/\.ya?ml$/i.test(file)) return ['yaml'];
+  return ['json', 'yaml'];
+}
+
+/** A double-quoted string, its backslash escapes included, as JSON and YAML each write one, to its close or, left open, the text's end. */
+const DOUBLE = String.raw`"(?:[^"\\]|\\[\s\S])*"?`;
+
+/**
+ * Each syntax's quoted strings and comments, in the order its parser meets
+ * them, so a `#` or a bracket inside a string is the string's and a quote
+ * inside a comment is the comment's. JSON5 escapes a single-quoted string as
+ * a double-quoted one, and JSONC and JSON5 comment with `//` and a block
+ * comment. A YAML quote opens a string only where a scalar starts, never
+ * inside a plain one such as `it's`, a single-quoted string doubles a quote
+ * to hold one, and a `#` opens a comment at a line's start or after a space.
+ */
+const TOKENS: Record<Syntax, RegExp> = {
+  json: new RegExp(String.raw`${DOUBLE}|'(?:[^'\\]|\\[\s\S])*'?|//[^\n]*|/\*[\s\S]*?(?:\*/|$)`, 'g'),
+  yaml: new RegExp(String.raw`(?<=^|[\s,[{]|["']:)(?:${DOUBLE}|'(?:[^']|'')*'?)|(?<!\S)#[^\n]*`, 'g'),
+};
+
+/** The mark a lifted string leaves in its place: its index between two NULs. */
+const MARK = /\0(\d+)\0/g;
+
+/**
+ * `text` as `syntax` reads it: each comment blanked, and each quoted string
+ * lifted out into `strings`, a mark of its index left in its place, so no
+ * `#`, bracket, comma or line break inside one shapes the value around it.
+ */
+function lifted(text: string, syntax: Syntax): { text: string; strings: string[] } {
+  const strings: string[] = [];
+  const rest = text.replaceAll(TOKENS[syntax], (token) => {
+    if (!token.startsWith('"') && !token.startsWith("'")) return ' ';
+    strings.push(token);
+    return `\0${strings.length - 1}\0`;
+  });
+  return { text: rest, strings };
+}
+
+/**
+ * What a lifted string holds between its quotes, as written and with its
+ * escapes decoded, each with a line break a `\` escapes dropped along with the
+ * next line's indent, as YAML drops one. Any other line break stays rather
+ * than folding to a space, which moves no string's end. A string left open,
+ * which no parser takes, reads short of its last character.
+ */
+function contents(token: string): string[] {
+  const body = token.slice(1, -1);
+  return [body, unescaped(body)].map((text) => text.replaceAll(/\\\r?\n[ \t]*/g, ''));
+}
+
+/** `text`, opening a flow collection past any whitespace, through the bracket or brace that closes it, or whole when none does. */
+function collection(text: string): string {
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text.charAt(i);
+    if (char === '[' || char === '{') depth += 1;
+    if ((char === ']' || char === '}') && (depth -= 1) === 0) return text.slice(0, i + 1);
+  }
+  return text;
+}
+
+/** A line that opens a mapping entry: a key, bare or a lifted string's mark, and its `:`, past any list item's dash or explicit key's `?`. */
+const ENTRY = /^\s*(?:[-?]\s+)*[^\s#,[\]{}:][^,[\]{}:\n]*:(?:\s|$)/;
+
+/**
+ * The lifted text a key's value spans, where `rest` begins it: a flow
+ * collection, through its close; any other value, through the key's line and
+ * on to the first line below that opens another entry no further in than the
+ * key, which stands at `column`. So a YAML block below the key counts, a
+ * comment's blanked line and a block scalar's `a: b` included, and so does a
+ * scalar running on, in a block, where its lines indent past the key, or in a
+ * flow mapping, where they needn't.
+ */
+function span(rest: string, column: number): string {
+  if (/^\s*[[{]/.test(rest)) return collection(rest);
+  const [line = '', ...below] = rest.split('\n');
+  const stop = below.findIndex((next) => next.search(/\S/) <= column && ENTRY.test(next));
+  return [line, ...below.slice(0, stop === -1 ? undefined : stop)].join('\n');
+}
+
+/** The bare scalars a span holds: split at its line breaks and at a flow collection's brackets, braces and commas, each shorn of a list item's dash. */
+function bareItems(text: string): string[] {
+  return text
+    .replaceAll(MARK, ',')
+    .split(/[\n,[\]{}]/)
+    .map((item) => item.trim().replace(/^-\s+/, ''));
+}
+
+/** A YAML node's properties, a tag, verbatim or not, or an anchor, where a node can start. */
+const PROPERTIES = /(^|[\s,[{])[!&](?:<[^>]*>|[^\s,[\]{}]*)/g;
+
+/**
+ * The strings the value of a key holds, where `at` begins it in `text` and
+ * the key stands at `column` of its line, as `syntax` reads them, or `null`
+ * when that reading can't tell, which counts: each quoted string the value
+ * spans, as written and decoded, and each bare scalar, read with its YAML
+ * tags and anchors and without them, so `!!str script` reads as `script`. A
+ * YAML alias, which stands for a node anchored elsewhere, can't be told.
+ */
+function valuesAt(text: string, at: number, column: number, syntax: Syntax): string[] | null {
+  const { text: rest, strings } = lifted(text.slice(at), syntax);
+  const written = span(rest, column);
+  const bare = span(rest.replaceAll(PROPERTIES, '$1'), column);
+  if (bareItems(written).some((item) => item.startsWith('*'))) return null;
+  return [written, bare].flatMap((s) => [...[...s.matchAll(MARK)].flatMap((m) => contents(strings[Number(m[1])] ?? '')), ...bareItems(s)]);
+}
+
 /** A character that continues a name, an HCL identifier's or a bare YAML, TOML or JSON5 key's: a letter, digit or mark, `_` or `-`. */
 const IDENT = String.raw`[\p{L}\p{N}\p{M}_-]`;
 
 /**
+ * How many times a key is read for its value in one file. A key set more
+ * often counts unread, so a file that repeats it can't make each occurrence
+ * read on to the file's end.
+ */
+const KEY_REACH = 16;
+
+/**
  * True when `text`, JSON, JSON5, YAML or TOML, sets `key` so that it loads
- * code: with any value, or with one `value` matches. The key counts wherever
- * its whole name stands before a `:` or `=`, erring toward a skip: at a
- * line's start or in quotes, and as well opening a flow mapping, after a
- * comma, or past a YAML tag, anchor or `?`, each of which the tool's parser
- * reads as the same key. A longer name that ends in it, such as
+ * code: with any value, or with one `value` matches, read as each of
+ * `syntaxes` reads it, and a value a reading can't tell counting. The key
+ * counts wherever its whole name stands before a `:` or `=`, erring toward a
+ * skip: at a line's start or in quotes, and as well opening a flow mapping,
+ * after a comma, or past a YAML tag, anchor or `?`, each of which the tool's
+ * parser reads as the same key. A longer name that ends in it, such as
  * `no-plugins`, doesn't count.
  */
-function setsKey(text: string, key: string, value: RegExp | null): boolean {
+function setsKey(text: string, key: string, value: RegExp | null, syntaxes: readonly Syntax[]): boolean {
   const matches = [...text.matchAll(new RegExp(`(?<!${IDENT})${escaped(key)}["']?\\s*[:=]`, 'gu'))];
-  if (value === null) return matches.length > 0;
-  return matches.some((match) => scalars(valueText(text, (match.index ?? 0) + match[0].length)).some((v) => value.test(v)));
+  if (value === null || matches.length > KEY_REACH) return matches.length > 0;
+  return matches.some((match) => {
+    const from = match.index ?? 0;
+    const column = from - text.lastIndexOf('\n', from) - 1;
+    return syntaxes.some((syntax) => valuesAt(text, from + match[0].length, column, syntax)?.some((v) => value.test(v)) ?? true);
+  });
 }
 
 /** What HCL allows between a block's type, its label and its brace: whitespace and block comments. */
@@ -194,7 +282,7 @@ function hclSetsKey(code: string, key: string, value: RegExp | null): boolean {
  * `null`. A `.hcl` file is read as HCL. Any other is read as written and with
  * its `\x`, `\u` and `\U` escapes decoded, and a key set in either reading
  * counts, since decoding one escape into a quote can hide what the raw text
- * shows.
+ * shows; its values are read in the syntaxes its name says.
  */
 function codeKeyIn(file: string, text: string, codeKey: CodeKey): string | null {
   const value = codeKey.value === undefined ? null : new RegExp(codeKey.value);
@@ -203,7 +291,8 @@ function codeKeyIn(file: string, text: string, codeKey: CodeKey): string | null 
     return codeKey.keys.find((key) => hclSetsKey(code, key, value)) ?? null;
   }
   const readings = [text, unescaped(text)];
-  return codeKey.keys.find((key) => readings.some((reading) => setsKey(reading, key, value))) ?? null;
+  const syntaxes = syntaxesOf(file);
+  return codeKey.keys.find((key) => readings.some((reading) => setsKey(reading, key, value, syntaxes))) ?? null;
 }
 
 /** Why `adapter`'s config would load code here, from its code configs and keys, or `null` when it reads none that does. */
@@ -237,6 +326,14 @@ function passed(argv: readonly string[], flags: readonly string[] | undefined): 
   return flags?.find((flag) => argv.some((arg) => passes(arg, flag)));
 }
 
+/** Why `adapter` isn't static: what its entry did to take the registry's mark, when it took one, or else that the registry gives none. */
+function unmarked(adapter: Adapter): string {
+  const drop = adapter.staticDrop;
+  if (drop === undefined) return `${adapter.name} isn't a static check`;
+  if ('command' in drop) return `${adapter.name}'s entry swaps its command for ${drop.command}`;
+  return `${adapter.name}'s entry adds ${drop.arg}, an argument its registry row doesn't carry`;
+}
+
 /**
  * Why `--static-only` skips a check whose adapter is `adapter`, run from
  * `scope.dir`, as the cause its `static-only: <cause>` reason gives, or
@@ -245,7 +342,7 @@ function passed(argv: readonly string[], flags: readonly string[] | undefined): 
  * skips it whether or not the run is `--changed`.
  */
 export function staticCause(adapter: Adapter, scope: StaticScope): string | null {
-  if (adapter.static !== true) return `${adapter.name} isn't a static check`;
+  if (adapter.static !== true) return unmarked(adapter);
   const argv = [...adapter.args, ...(adapter.changedArgs ?? [])];
   const install = passed(argv, adapter.nonStaticArgs);
   if (install !== undefined) return `${adapter.name} runs with ${install}, which needs the install`;

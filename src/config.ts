@@ -1052,14 +1052,17 @@ function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): 
 }
 
 /**
- * True when `o`'s `args` or `changedArgs` hand the tool an argument that
- * `row`, the registry's, carries in neither (D79), as prettier's `--plugin`
- * or a `--config` naming a code config does. Dropping or reordering the row's
- * own arguments adds none.
+ * What `o` does that takes `row`'s static mark, or `null` when it does
+ * neither: swap the command, or hand the tool, in its `args` or
+ * `changedArgs`, an argument the row carries in neither (D79), as prettier's
+ * `--plugin` or a `--config` naming a code config does. Dropping or
+ * reordering the row's own arguments adds none.
  */
-function addsArgs(row: Adapter, o: UseConfig): boolean {
+function staticDrop(row: Adapter, o: UseConfig): NonNullable<Adapter['staticDrop']> | null {
+  if (o.command !== undefined) return { command: o.command };
   const carried = new Set([...row.args, ...(row.changedArgs ?? [])]);
-  return [o.args ?? [], o.changedArgs ?? []].flat().some((arg) => !carried.has(arg));
+  const arg = [o.args ?? [], o.changedArgs ?? []].flat().find((a) => !carried.has(a));
+  return arg === undefined ? null : { arg };
 }
 
 /**
@@ -1067,12 +1070,14 @@ function addsArgs(row: Adapter, o: UseConfig): boolean {
  * defaults file's vouch when it gives one, else none for an entry that swaps
  * the command, which runs a command of the config's, as a custom check does,
  * or that adds an argument to the row's, since the repo's config is as
- * untrusted as its code under `--static-only`. A preset the config extends is
- * merged in by now, so its overrides count the same.
+ * untrusted as its code under `--static-only`, kept as `staticDrop` so the
+ * skip names it. A row that isn't static has no mark to lose. A preset the
+ * config extends is merged in by now, so its overrides count the same.
  */
-function staticMark(row: Adapter, o: UseConfig): Pick<Adapter, 'static'> {
+function staticMark(row: Adapter, o: UseConfig): Pick<Adapter, 'static' | 'staticDrop'> {
   if (o.static !== undefined) return { static: o.static };
-  return o.command !== undefined || addsArgs(row, o) ? { static: false } : {};
+  const drop = staticDrop(row, o);
+  return drop === null || row.static !== true ? {} : { static: false, staticDrop: drop };
 }
 
 function applyOverrides(base: Adapter, o: UseConfig): Adapter {

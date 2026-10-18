@@ -212,6 +212,13 @@ export type Adapter = {
    */
   static?: boolean;
   /**
+   * What an entry did to take a static row's mark (R13.4), which
+   * `--static-only` names in the check's skip reason: the command it swapped
+   * in, or the first argument it added that the row doesn't carry.
+   * Resolution sets it; no registry row does.
+   */
+  staticDrop?: { command: string } | { arg: string };
+  /**
    * Arguments that make a static adapter need the install, such as oxlint's
    * `--type-aware`. Each counts as given, with its value after `=`, or, for a
    * one-letter flag, in a cluster such as `-vc`.

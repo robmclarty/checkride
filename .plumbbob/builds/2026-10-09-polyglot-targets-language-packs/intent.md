@@ -645,6 +645,16 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   mise with no Node on `PATH` installed node 22.18.0 and checkride 0.14.0 in about 12 seconds and
   ran `mise exec -- checkride` once the entry opted in (the maintainer's call at step 79's
   boundary, from [Q1 (scope-cut)](#q1)).
+- <a id="d81"></a>**D81 (static-values)**: the non-HCL sniff reads a key's value as the tool's
+  parser does: each quoted string before a `#` comment is cut, YAML's escaped line break
+  decoded, and a block sequence read past a comment at column 0. R13.4's rule 4 reads as step 80
+  shipped it, a key counting wherever its whole name stands before `:` or `=`, short only of a
+  longer name that ends in it, and a flow sequence's bare items counting as values, *because*
+  each of the three readings let a repo's `cspell.yaml` import a script while `--static-only`
+  kept `spell` (probed at step 80: `import: "./a #.mjs"`, a script name split by an escaped
+  line break, and a `# note` line at column 0 inside the `import` list), and Phase 11 exists to
+  ship a `--static-only` that fails closed (the maintainer's call at step 80's harvest, from
+  step 80's parks).
 
 ## Constraints
 
@@ -704,7 +714,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 8. Findings | 48 to 52, 76 | one parser per format, `checkride/findings`, the implicit pack, a Go baseline (draft M6) |
 | 9. Consumer mode | 53 to 57 | `--defaults`, `--discover`, `--pins`, `--static-only`, the consumer guide |
 | 10. Python | 58 to 61 | the python pack |
-| 11. Terraform | 62 to 65, 79, 80 | the terraform pack, and a `--static-only` that fails closed |
+| 11. Terraform | 62 to 65, 79, 80, 82 | the terraform pack, and a `--static-only` that fails closed |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
 | 13. The mise route and doctor | 72, 81 | a scaffolded mise route that installs and is tested, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
@@ -1019,10 +1029,14 @@ reference rules and porting trap apply as written there.
     - seam: `src/packs/terraform.ts`, `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`,
       `test/e2e/terraform-pack.e2e.test.ts`, `docs/packs.md`
     - model: opus (a security boundary: the sniff has to fail closed against the pinned tflint)
-80. [ ] fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code, **done when:** an `args` or `changedArgs` override in the repo's config, or a preset it extends, that adds an argument its registry row doesn't carry drops the static mark, so `--static-only` skips the check with a `static-only:` reason, while an override that only drops or reorders the row's arguments (oxlint without `--type-aware`) stays static and a defaults entry with `static: true` keeps its vouch ([D79 (static-args)](#d79)); the non-HCL key sniff decodes YAML's `\x` and `\U` escapes and reads a key that opens a flow mapping or follows a comma, so `.prettierrc.yaml`'s `{plugins: [./x.mjs]}` and an escaped `plugins` key each skip prettier; each case has a unit test, and an orchestrator test shows a repo's prettier `--plugin` override skipped under `--static-only`; `docs/contract.md`'s rules 1 and 4 and `CHANGELOG.md` say so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+80. [x] fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code, **done when:** an `args` or `changedArgs` override in the repo's config, or a preset it extends, that adds an argument its registry row doesn't carry drops the static mark, so `--static-only` skips the check with a `static-only:` reason, while an override that only drops or reorders the row's arguments (oxlint without `--type-aware`) stays static and a defaults entry with `static: true` keeps its vouch ([D79 (static-args)](#d79)); the non-HCL key sniff decodes YAML's `\x` and `\U` escapes and reads a key that opens a flow mapping or follows a comma, so `.prettierrc.yaml`'s `{plugins: [./x.mjs]}` and an escaped `plugins` key each skip prettier; each case has a unit test, and an orchestrator test shows a repo's prettier `--plugin` override skipped under `--static-only`; `docs/contract.md`'s rules 1 and 4 and `CHANGELOG.md` say so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/config.ts`, `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`,
       `src/orchestrator/__tests__/static-only.test.ts`, `docs/contract.md`
     - model: opus (a security boundary: the classification has to fail closed against the repo's own config)
+82. [ ] fix(packs): read a config key's value the way the tool's parser does under --static-only, **done when:** the non-HCL value reading in `src/packs/static.ts` reads each quoted string before it cuts a `#` comment, decodes YAML's escaped line break, and reads a block sequence past a comment at column 0, so each of step 80's three probes (`import: "./a #.mjs"`, a script name split by an escaped line break, and a `# note` line at column 0 inside the `import` list) skips cspell's `spell` under `--static-only`, while `import: ./dict.json # not ./x.js` still keeps it ([D81 (static-values)](#d81)); an entry that lost its static mark skips with a cause that says why, a swapped command or an argument the adapter's row doesn't carry, instead of `<adapter> isn't a static check`; each case has a unit test; `CHANGELOG.md` says so; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+    - seam: `src/packs/static.ts`, `src/packs/__tests__/static.test.ts`, `src/config.ts`,
+      `src/orchestrator/__tests__/static-only.test.ts`, `CHANGELOG.md`
+    - model: opus (a security boundary: the value reading has to fail closed against the repo's own config)
 
 ### Phase 12: the schema slot
 
@@ -1068,7 +1082,7 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-80, 72, 81, 66, 67, 68, 73, 74
+82, 72, 81, 66, 67, 68, 73, 74
 
 ## Deferred to a later build
 
@@ -2335,8 +2349,12 @@ A check survives `--static-only` only when every condition holds:
    whose label `value` rejects, and a label the reading can't parse counts
    ([D78 (static-fail-closed)](#d78)). Other text is read raw and with its escapes decoded, a key
    set in either reading counting ([D78 (static-fail-closed)](#d78)), YAML's `\x` and `\U`
-   escapes among them, and a key counts that opens a flow mapping or follows a comma
-   ([D79 (static-args)](#d79)).
+   escapes among them ([D79 (static-args)](#d79)). A key counts wherever its whole name stands
+   before `:` or `=`, opening a flow mapping and following a comma included, short only of a
+   longer name that ends in it ([D79 (static-args)](#d79), [D81 (static-values)](#d81)). A value
+   is read as the tool's parser reads it: each quoted string before a `#` comment is cut, a flow
+   sequence's bare items, YAML's escaped line break decoded, and a block sequence past a comment
+   at column 0 ([D81 (static-values)](#d81)).
 5. Its tool resolves without an install (R6.2). Under the flag, the js-lockfile source
    pre-flights `node_modules/.bin` for every package manager but a PnP install
    ([D71 (consumer-calls)](#d71)).

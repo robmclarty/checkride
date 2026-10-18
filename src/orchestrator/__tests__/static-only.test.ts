@@ -3,8 +3,9 @@
  * run the repo's code with a `static-only: <cause>` reason, a kept check whose
  * tool needs an install skips rather than fails, the defaults layer can vouch
  * for its own checks while the repo can't, an entry of the repo's that adds an
- * argument to a static row loses the mark (D79), and the run is partial, so it
- * records `run.static_only` and never ratchets.
+ * argument to a static row loses the mark (D79), the skip naming what the entry
+ * did, a value is read as the tool's parser reads it (D81), and the run is
+ * partial, so it records `run.static_only` and never ratchets.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -56,22 +57,26 @@ describe('withStaticOnly', () => {
     expect(checks.get('types')?.skip).toBe("static-only: tsc isn't a static check");
   });
 
-  test("a repo's custom check, and an entry that swaps a static adapter's command, never qualify", async () => {
-    const checks = await filtered({ checks: { licenses: { command: 'node', args: ['x.js'] }, docs: { use: 'markdownlint-cli2', command: 'node' } } });
+  test("a repo's custom check, and an entry that swaps a static adapter's command, never qualify, the swap named", async () => {
+    const checks = await filtered({
+      checks: { licenses: { command: 'node', args: ['x.js'] }, docs: { use: 'markdownlint-cli2', command: 'node' }, types: { use: 'tsc', command: 'node' } },
+    });
     expect(checks.get('licenses')?.skip).toBe("static-only: custom:licenses isn't a static check");
-    expect(checks.get('docs')?.skip).toBe("static-only: markdownlint-cli2 isn't a static check");
+    expect(checks.get('docs')?.skip).toBe("static-only: markdownlint-cli2's entry swaps its command for node");
+    // A row the registry never marks gives that as its cause, whatever the entry does.
+    expect(checks.get('types')?.skip).toBe("static-only: tsc isn't a static check");
   });
 
   // D79: the repo's config is as untrusted as its code, and nearly every static tool takes a flag that loads some.
-  test('an args or changedArgs override that adds an argument the row doesn’t carry never qualifies', async () => {
+  test('an args or changedArgs override that adds an argument the row doesn’t carry never qualifies, the first such argument named', async () => {
     const checks = await filtered({
       checks: {
         format: { use: 'prettier', args: ['exec', 'prettier', '--plugin=./x.mjs', '--check', '.'] },
         spell: { use: 'cspell', changedArgs: ['--config', 'cspell.config.mjs'] },
       },
     });
-    expect(checks.get('format')?.skip).toBe("static-only: prettier isn't a static check");
-    expect(checks.get('spell')?.skip).toBe("static-only: cspell isn't a static check");
+    expect(checks.get('format')?.skip).toBe("static-only: prettier's entry adds --plugin=./x.mjs, an argument its registry row doesn't carry");
+    expect(checks.get('spell')?.skip).toBe("static-only: cspell's entry adds --config, an argument its registry row doesn't carry");
   });
 
   test('an override that only drops or reorders the row’s arguments stays static, plain oxlint included', async () => {
@@ -91,13 +96,25 @@ describe('withStaticOnly', () => {
     await put('presets/format.json', JSON.stringify({ checks: { format: { use: 'prettier', args: ['exec', 'prettier', '--plugin', './x.mjs', '--check', '.'] } } }));
     await put('checkride.config.json', JSON.stringify({ extends: './presets/format.json' }));
     const checks = await filtered(loadConfig(repo) ?? {});
-    expect(checks.get('format')?.skip).toBe("static-only: prettier isn't a static check");
+    expect(checks.get('format')?.skip).toBe("static-only: prettier's entry adds --plugin, an argument its registry row doesn't carry");
   });
 
   test('a defaults entry that adds an argument keeps its static: true vouch, and without one drops the mark', async () => {
     const plugin = ['exec', 'prettier', '--plugin=./x.mjs', '--check', '.'];
     expect((await filtered({}, { checks: { format: { use: 'prettier', args: plugin, static: true } } })).get('format')).toMatchObject({ skip: null, origin: 'defaults' });
-    expect((await filtered({}, { checks: { format: { use: 'prettier', args: plugin } } })).get('format')?.skip).toBe("static-only: prettier isn't a static check");
+    expect((await filtered({}, { checks: { format: { use: 'prettier', args: plugin } } })).get('format')?.skip).toBe(
+      "static-only: prettier's entry adds --plugin=./x.mjs, an argument its registry row doesn't carry",
+    );
+  });
+
+  // D81: step 80's three probes, each a cspell.yaml whose import YAML reads as a script.
+  test('a cspell.yaml importing a script however YAML writes it skips spell, and one importing a dictionary keeps it', async () => {
+    for (const config of ['import: "./a #.mjs"\n', 'import: "./x.m\\\n  js"\n', 'import:\n  - ./dict.json\n# note\n  - ./x.mjs\n']) {
+      await put('cspell.yaml', config);
+      expect((await filtered({ checks: { spell: 'cspell' } })).get('spell')?.skip, config).toBe('static-only: cspell.yaml sets import, which loads code');
+    }
+    await put('cspell.yaml', 'import: ./dict.json # not ./x.js\n');
+    expect((await filtered({ checks: { spell: 'cspell' } })).get('spell')?.skip).toBeNull();
   });
 
   test('the defaults layer vouches for its own checks with static: true', async () => {
@@ -200,7 +217,11 @@ describe('runChecks --static-only', () => {
       stdout: quiet,
       stderr: quiet,
     });
-    expect(result.summary.checks.find((c) => c.name === 'format')).toMatchObject({ skipped: true, ok: true, reason: "static-only: prettier isn't a static check" });
+    expect(result.summary.checks.find((c) => c.name === 'format')).toMatchObject({
+      skipped: true,
+      ok: true,
+      reason: "static-only: prettier's entry adds --plugin, an argument its registry row doesn't carry",
+    });
     expect(result.summary.checks.find((c) => c.name === 'links')).toMatchObject({ ok: true });
     expect(result.exitCode).toBe(0);
   });
