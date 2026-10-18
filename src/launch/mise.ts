@@ -180,9 +180,10 @@ export function miseCanRun(
 
 /**
  * Whether mise answered yes, or the line of its error that says why it
- * didn't, and whether that's a config file mise hasn't trusted.
+ * didn't, and whether that's a config file mise hasn't trusted, with the path
+ * mise names for it when it names one.
  */
-export type MiseAnswer = { ok: true } | { ok: false; detail: string; untrusted: boolean };
+export type MiseAnswer = { ok: true } | { ok: false; detail: string; untrusted: boolean; config?: string };
 
 /**
  * The line mise gives a config file it won't read until someone runs `mise
@@ -190,6 +191,9 @@ export type MiseAnswer = { ok: true } | { ok: false; detail: string; untrusted: 
  * 2026.10.4). Its first line, `error parsing config file`, names no cause.
  */
 const UNTRUSTED_LINE = /\bnot trusted\b/;
+
+/** The path a trust line names, as mise spells it (its real path). */
+const UNTRUSTED_PATH = /^Config files in (.+) are not trusted\b/;
 
 /**
  * Ask mise `args` from `cwd` with `env`, waiting at most
@@ -206,7 +210,8 @@ function askMise(mise: string, args: readonly string[], cwd: string, env: Readon
     const lines = stderr.split('\n').filter((l) => !l.startsWith('mise WARN'));
     const said = lines.map((l) => l.replace(/^mise ERROR\s*/, '').trim()).filter(Boolean);
     const trust = said.find((l) => UNTRUSTED_LINE.test(l));
-    return { ok: false, detail: trust ?? said[0] ?? `mise ${args.join(' ')} failed`, untrusted: trust !== undefined };
+    const config = trust === undefined ? undefined : UNTRUSTED_PATH.exec(trust)?.[1];
+    return { ok: false, detail: trust ?? said[0] ?? `mise ${args.join(' ')} failed`, untrusted: trust !== undefined, ...(config !== undefined ? { config } : {}) };
   }
 }
 
@@ -217,11 +222,30 @@ function askMise(mise: string, args: readonly string[], cwd: string, env: Readon
 export const PINS_ENV = 'CHECKRIDE_PINS';
 
 /**
- * What a check an override pin runs carries: mise's installs off, as for
- * every check mise launches, and mise offline, so a version prefix such as
- * `1.24` resolves against the installed copies rather than a remote list.
+ * mise's installs off, as for every check mise launches, and mise offline, so
+ * a version prefix such as `1.24` resolves against the installed copies
+ * rather than a remote list.
  */
-export const OVERRIDE_ENV: Readonly<Record<string, string>> = { ...MISE_NO_INSTALL, MISE_OFFLINE: '1' };
+const OVERRIDE_ENV: Readonly<Record<string, string>> = { ...MISE_NO_INSTALL, MISE_OFFLINE: '1' };
+
+/**
+ * The paths whose config files mise skips, every file beneath each one
+ * included, as a colon-separated list (checked against mise 2026.10.4).
+ */
+const IGNORED_CONFIG_PATHS = 'MISE_IGNORED_CONFIG_PATHS';
+
+/**
+ * What an override pin asks mise with and runs its check under (D83):
+ * installs off and offline, and the repo root added to the paths `env`
+ * already has mise ignore, so mise reads no config file inside the repo.
+ * `--pins` runs the consumer's toolbelt, so a repo config mise hasn't trusted
+ * neither refuses the override nor gets trusted by it, and its `[env]` never
+ * reaches the check.
+ */
+export function overrideEnv(repo: string, env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const held = env[IGNORED_CONFIG_PATHS];
+  return { ...OVERRIDE_ENV, [IGNORED_CONFIG_PATHS]: held === undefined || held === '' ? repo : `${held}:${repo}` };
+}
 
 /** A TOML string literal, basic or literal, as its content, or `null` for anything else. */
 function stringValue(value: string): string | null {
@@ -295,14 +319,15 @@ export function loadPinsFile(path: string): ReadonlyMap<string, string> {
 
 /**
  * Whether mise has installed `spec` (`<id>@<version>`), asked through
- * `mise where` offline and with installs off, which exits 1 for a version it
- * hasn't installed and downloads nothing, or why not when it hasn't.
+ * `mise where` from `cwd` under {@link overrideEnv} for the repo at `repo`,
+ * which exits 1 for a version it hasn't installed and downloads nothing, or
+ * why not when it hasn't.
  */
 export function miseHasInstalled(
   mise: string,
   spec: string,
-  cwd: string,
+  at: { cwd: string; repo: string },
   env: Readonly<Record<string, string | undefined>>,
 ): MiseAnswer {
-  return askMise(mise, ['where', spec], cwd, { ...env, ...OVERRIDE_ENV });
+  return askMise(mise, ['where', spec], at.cwd, { ...env, ...overrideEnv(at.repo, env) });
 }

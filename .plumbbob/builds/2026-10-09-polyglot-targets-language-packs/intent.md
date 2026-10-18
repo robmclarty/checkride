@@ -665,6 +665,18 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   an untrusted file, so every language scaffold and every fresh clone of one meets the refusal
   before its first run, and the release that calls the mise route supported shouldn't send them
   to `mise install` (the maintainer's call at step 72's harvest, from step 72's parks).
+- <a id="d83"></a>**D83 (override-outside-repo)**: the `override` source asks mise with the repo
+  root in `MISE_IGNORED_CONFIG_PATHS`, added to any value the environment already holds, for
+  both `mise where` and `mise exec <id>@<version>`, so under `--pins` no config file inside the
+  repo is read: one mise hasn't trusted neither refuses the override nor gets trusted, and its
+  `[env]` never reaches a check the override runs, *because*
+  [D25 (pins-override)](#d25) runs the consumer's toolbelt rather than the repo's, the review agent of #6 and #7 meets fresh clones
+  whose `mise.toml` mise hasn't trusted, and step 83's refusal asked that consumer to
+  `mise trust` a repo it may be reviewing, whose `[env]` could then run code. Probed after step
+  83 against mise 2026.10.4: with the repo root in the variable, `mise where go@1.27.2` and
+  `mise exec go@1.27.2` succeed from the root and from a nested directory, configs at the root,
+  in a subdirectory and under `.config/` are all ignored, and the file stays untrusted (the
+  maintainer's call at step 83's harvest, from step 83's parks).
 
 ## Constraints
 
@@ -726,7 +738,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 10. Python | 58 to 61 | the python pack |
 | 11. Terraform | 62 to 65, 79, 80, 82 | the terraform pack, and a `--static-only` that fails closed |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
-| 13. The mise route and doctor | 72, 83, 81 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
+| 13. The mise route and doctor | 72, 83, 84, 81 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, `--pins` run outside the repo's mise config, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
 
 Every phase ends at a release point, and its last step runs the whole `pnpm test:e2e`
@@ -1071,10 +1083,14 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
     - seam: `src/init.ts`, `src/doctor.ts`, `src/agent-setup/scripts.ts`, `test/e2e/shapes.e2e.test.ts`,
       `docs/distribution.md`, `README.md`, `docs/getting-started.md`
     - model: sonnet (a pin, a hint, a doctor row and a doc; the e2e follows the probe D80 records)
-83. [ ] fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml, **done when:** a mise-pinned check whose `mise which` fails because mise hasn't trusted the repo's `mise.toml` refuses naming `mise trust`, with mise's trust line rather than only `error parsing config file`, and no longer names `mise install` for it; the gate hook script tells an untrusted `mise.toml` apart from a missing checkride and stands down naming `mise trust` ([D82 (untrusted-mise)](#d82)); each case has a unit test; an e2e case runs a check in an `init --lang` scaffold before `mise trust` and finds `mise trust` in its refusal; `CHANGELOG.md` says so; `test/e2e/shapes.e2e.test.ts` is green ([D52 (e2e-cadence)](#d52))
+83. [x] fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml, **done when:** a mise-pinned check whose `mise which` fails because mise hasn't trusted the repo's `mise.toml` refuses naming `mise trust`, with mise's trust line rather than only `error parsing config file`, and no longer names `mise install` for it; the gate hook script tells an untrusted `mise.toml` apart from a missing checkride and stands down naming `mise trust` ([D82 (untrusted-mise)](#d82)); each case has a unit test; an e2e case runs a check in an `init --lang` scaffold before `mise trust` and finds `mise trust` in its refusal; `CHANGELOG.md` says so; `test/e2e/shapes.e2e.test.ts` is green ([D52 (e2e-cadence)](#d52))
     - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `src/agent-setup/scripts.ts`,
       `test/e2e/shapes.e2e.test.ts`, `CHANGELOG.md`
     - model: sonnet (a refusal's wording and one shell branch, each pinned by a test)
+84. [ ] fix(launch): run --pins overrides outside the repo's mise config, **done when:** the `override` source spawns `mise where` and `mise exec <id>@<version>` with the repo root in `MISE_IGNORED_CONFIG_PATHS`, added to any value the environment already holds, so under `--pins` a repo `mise.toml` mise hasn't trusted neither refuses the override nor gets trusted, and the repo's `[env]` never reaches a check the override runs ([D83 (override-outside-repo)](#d83)); an override refusal names `mise trust` only for a config outside the repo; each case has a unit test; an e2e case runs a `--pins` check in an `init --lang go` scaffold before `mise trust`, finds it ran with `pin_source: "override"`, and finds the scaffold's `mise.toml` still untrusted; `docs/consumers.md` and `CHANGELOG.md` say so; `test/e2e/consumers.e2e.test.ts` is green ([D52 (e2e-cadence)](#d52))
+    - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `test/e2e/consumers.e2e.test.ts`,
+      `docs/consumers.md`, `CHANGELOG.md`
+    - model: sonnet (one variable on two spawns, settled by D83's probe, and an e2e beside the consumer cases)
 81. [ ] feat(doctor): read --pins and --static-only instead of refusing them, **done when:** `doctor --pins <mise.toml>` probes each tool the file pins through the `override` source, reports the version `mise where <id>@<version>` finds, names a version mise hasn't installed, and reads its pin rows and unpinned list the way a run does (R13.3); `doctor --static-only` reports each check a static run would skip, with its `static-only:` cause, and pre-flights every package manager's install as the run does (R13.4); neither flag exits 2 any longer, and `docs/contract.md` and `CHANGELOG.md` drop "doctor refuses the flag for now" ([D71 (consumer-calls)](#d71), [D80 (binary-deferred)](#d80))
     - seam: `src/doctor.ts`, `src/cli.ts`, `docs/contract.md`
     - model: opus (doctor has to probe the copies a consumer run would use, through the same chain)
@@ -1096,7 +1112,7 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-83, 81, 66, 67, 68, 73, 74
+84, 81, 66, 67, 68, 73, 74
 
 ## Deferred to a later build
 

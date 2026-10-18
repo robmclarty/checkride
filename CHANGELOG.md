@@ -447,8 +447,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and with mise's installs off, and records `pin_source: "override"` with
   that version. A toolchain it pins, such as `go`, runs that copy too. A
   version mise hasn't installed fails the check, naming the tool and the
-  `mise install` that would fix it, or `mise trust` where a `mise.toml` the
-  run reads is one mise hasn't trusted, and nothing downloads. An entry with
+  `mise install` that would fix it, or `mise trust` where a `mise.toml` above
+  the repo is one mise hasn't trusted, and nothing downloads. mise reads no
+  config file inside the repo for such a tool: the repo root joins
+  `MISE_IGNORED_CONFIG_PATHS`, so a fresh clone's `mise.toml` that mise hasn't
+  trusted neither fails the check nor gets trusted, and its `[env]` never
+  reaches the check. An entry with
   no version string exits 2 naming the file. Detection still reads only the
   repo, so the file changes which copy runs, never which checks run. A run
   with it never ratchets the baseline, its summary records `run.pins`, and

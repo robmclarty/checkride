@@ -98,6 +98,14 @@ The checks that remain run your pinned copies wherever your `mise.toml` names
 the tool: each records `pin_source: "override"` and the version it ran. Both
 passes are consumer runs, so neither touches the repo's baseline.
 
+mise reads no config file inside the repo for a tool your pins run. checkride
+adds the repo root to `MISE_IGNORED_CONFIG_PATHS`, after any paths your
+environment already names, both for the `mise where` that confirms the version
+is installed and for the `mise exec` that runs it. A fresh clone whose
+`mise.toml` mise hasn't trusted neither fails those checks nor gets trusted,
+and the repo's `[env]` never reaches them. mise still reads a config file
+above the checkout, so a refusal names `mise trust` only for a file there.
+
 ## Comparing the base branch's config with the pull request's
 
 Check the base out next to the pull request, so the base config's relative

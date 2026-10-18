@@ -16,7 +16,7 @@
 
 import { execFile, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,14 +47,17 @@ const PLANTS: readonly { file: string; edit: (text: string) => string; check: st
   { file: 'api/cmd/api/remove.go', edit: () => 'package main\n\nimport "os"\n\nfunc init() { os.Remove("stale") }\n', check: 'api:lint' },
 ];
 
-/** The versions this repo's dev `mise.toml` pins, installed wherever the e2e suite runs with its toolchains. */
-async function devPins(tools: readonly string[]): Promise<string> {
+/** The version this repo's dev `mise.toml` pins `tool` to, installed wherever the e2e suite runs with its toolchains. */
+async function devPin(tool: string): Promise<string> {
   const text = await readFile(join(ROOT, 'mise.toml'), 'utf8');
-  const lines = tools.map((tool) => {
-    const version = new RegExp(`^${tool}\\s*=\\s*"([^"]+)"`, 'm').exec(text)?.[1];
-    if (version === undefined) throw new Error(`mise.toml pins no ${tool}`);
-    return `${tool} = "${version}"`;
-  });
+  const version = new RegExp(`^${tool}\\s*=\\s*"([^"]+)"`, 'm').exec(text)?.[1];
+  if (version === undefined) throw new Error(`mise.toml pins no ${tool}`);
+  return version;
+}
+
+/** A `mise.toml` pinning each of `tools` at the version {@link devPin} reads. */
+async function devPins(tools: readonly string[]): Promise<string> {
+  const lines = await Promise.all(tools.map(async (tool) => `${tool} = "${await devPin(tool)}"`));
   return `[tools]\n${lines.join('\n')}\n`;
 }
 
@@ -90,10 +93,13 @@ async function pullRequest(dir: string): Promise<string> {
 
 type Run = { code: number; summary: Summary; stderr: string };
 
-/** Run the built CLI in `cwd` with `args`, which end in `--out <runDir> --json`, returning its exit code and the summary on stdout. */
-async function checkride(cwd: string, args: readonly string[]): Promise<Run> {
+/**
+ * Run the built CLI in `cwd` with `args`, which end in `--out <runDir> --json`,
+ * under `env`, returning its exit code and the summary on stdout.
+ */
+async function checkride(cwd: string, args: readonly string[], env: NodeJS.ProcessEnv = process.env): Promise<Run> {
   const result = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
-    execFile(process.execPath, [CLI, ...args], { cwd, ...BIG }, (error, stdout, stderr) => {
+    execFile(process.execPath, [CLI, ...args], { cwd, env, ...BIG }, (error, stdout, stderr) => {
       resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : -1, stdout, stderr });
     });
   });
@@ -222,4 +228,51 @@ if (missing.length > 0) console.warn(`skipping the consumer e2e cases: ${missing
     findingsOf(run.summary, runDir, dir);
     expectRepoUntouched(dir);
   }, 180_000);
+});
+
+const goGate = toolchainGate('go');
+const scaffoldMissing = [...(goGate.run ? [] : [goGate.reason]), ...(hasMise ? [] : ['mise not found'])];
+if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold case: ${scaffoldMissing.join('; ')}`);
+
+/**
+ * A `--pins` run over an `init --lang go` scaffold before `mise trust` (D83).
+ * checkride's entry sets a tool option, so mise won't read the scaffold's
+ * `mise.toml` until someone trusts it, as a review agent finds in a fresh
+ * clone. The override asks mise with the repo root ignored, so the check runs
+ * the agent's go and the file stays untrusted. mise keeps what it trusts in a
+ * state directory of the case's own, and the run carries `MISE_YES`, under
+ * which mise trusts a config it reads, so only the ignore keeps it untrusted.
+ */
+(scaffoldMissing.length === 0 ? describe : describe.skip)('a --pins run in a repo whose mise.toml mise hasn’t trusted', () => {
+  let dir: string;
+  let repo: string;
+  let pins: string;
+
+  beforeAll(async () => {
+    dir = await realpath(await mkdtemp(join(tmpdir(), 'checkride-consumers-untrusted-')));
+    repo = join(dir, 'repo');
+    await mkdir(repo);
+    await execFileP(process.execPath, [CLI, 'init', '--lang', 'go', '--name', 't-demo'], { cwd: repo, ...BIG });
+    await git(repo, 'init', '-q');
+    // Beside the repo, not above it, where mise would read it as a config of the repo's.
+    await mkdir(join(dir, 'agent'));
+    pins = join(dir, 'agent', 'mise.toml');
+    await writeFile(pins, await devPins(['go']));
+  }, 60_000);
+
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test('the check runs the agent’s go as the override, and the scaffold’s mise.toml stays untrusted', async () => {
+    const inherited = Object.entries(process.env).filter(([key]) => key !== 'MISE_TRUSTED_CONFIG_PATHS');
+    const env = { ...Object.fromEntries(inherited), MISE_STATE_DIR: join(dir, 'state'), MISE_YES: '1' };
+    const version = await devPin('go');
+    const run = await checkride(repo, ['--pins', pins, '--only', 'app:types', '--out', join(dir, 'run'), '--json'], env);
+    const types = entry(run.summary, 'app:types');
+    expect(types, run.stderr).toMatchObject({ ok: true, pin_source: 'override', tool_version: version });
+    expect(types.argv?.slice(0, 3)).toEqual(['mise', 'exec', `go@${version}`]);
+    const trust = await execFileP('mise', ['trust', '--show'], { cwd: repo, env, ...BIG });
+    expect(trust.stdout).toContain(`${repo}: untrusted`);
+  }, 120_000);
 });

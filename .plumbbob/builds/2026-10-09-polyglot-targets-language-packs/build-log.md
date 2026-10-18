@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 83 — fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
+**Current step:** 84 — fix(launch): run --pins overrides outside the repo's mise config
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -99,7 +99,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
 - ☑ 72. fix(init): make the mise route install, and test and document it
-- ☐ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
+- ☑ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
+- ☐ 84. fix(launch): run --pins overrides outside the repo's mise config
 - ☐ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
@@ -185,8 +186,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names the swapped command or first added argument, and rule 4 doesn't say a key's value is read as its parser reads it (quoted #, escaped line break, comment lines, run-on scalars, tags, aliases count); fold at step 73
 - [x] doctor's package-manager row stays required in a root with no package.json, so a machine on the mise route with no pnpm fails doctor for a package manager the repo never runs (step 72 made only the install row n/a there)
 - [x] a mise.toml mise hasn't trusted, which every language scaffold is until mise trust runs since checkride's entry sets a tool option, makes each mise-pinned check refuse with only mise's first stderr line ('error parsing config file') and name mise install, and the gate hook's mise which checkride test reads it as not installed; both should name mise trust
-- [ ] under --pins, mise where reads the repo's own mise.toml, so an untrusted one refuses the override and its refusal asks a consumer to trust a repo it may be reviewing; consider having the override ignore the repo's config (MISE_IGNORED_CONFIG_PATHS, or asking from outside the repo)
-- [ ] checkride's own mise calls can trust a repo's mise.toml unasked: an inherited MISE_YES makes the launcher's mise which trust it, and outside paranoid mode the gate hook's mise exec -- checkride trusts it (mise 2026.10.4); decide whether the launcher strips MISE_YES and whether docs/distribution.md says exec trusts
+- [x] under --pins, mise where reads the repo's own mise.toml, so an untrusted one refuses the override and its refusal asks a consumer to trust a repo it may be reviewing; consider having the override ignore the repo's config (MISE_IGNORED_CONFIG_PATHS, or asking from outside the repo)
+- [x] checkride's own mise calls can trust a repo's mise.toml unasked: an inherited MISE_YES makes the launcher's mise which trust it, and outside paranoid mode the gate hook's mise exec -- checkride trusts it (mise 2026.10.4); decide whether the launcher strips MISE_YES and whether docs/distribution.md says exec trusts
+- [ ] docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo (MISE_IGNORED_CONFIG_PATHS, D83); fold it in at step 73
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -297,6 +299,9 @@ Harvest results this boundary:
 - After step 82: "docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names..." → **tangent**, deferred to step 73 (doc-only: step 82's behavior is right and unit-tested, and step 73's seam holds `docs/contract.md` and folds every surface this build added).
 - After step 72: "doctor's package-manager row stays required in a root with no package.json..." → **tangent**, deferred to step 81 (a red `doctor` on a machine without pnpm, never a false green; step 81's seam holds `src/doctor.ts`, so it makes that row `n/a` in a root with no `package.json`, as step 72 did the install row).
 - After step 72: "a mise.toml mise hasn't trusted ... both should name mise trust" → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D82 (untrusted-mise) and as step 83, ordered to build next, before step 81, so the release that calls the mise route supported doesn't send a fresh scaffold, or a fresh clone of one, to `mise install` when what it needs is `mise trust`.
+
+- After step 83: "under --pins, mise where reads the repo's own mise.toml ..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D83 (override-outside-repo) and as step 84, ordered to build next, before step 81, so the override runs the consumer's toolbelt without reading, refusing on, or trusting any config inside the repo, and step 81's `doctor --pins` probes through that path (probed: the repo root in `MISE_IGNORED_CONFIG_PATHS` lets `mise where` and `mise exec <id>@<version>` succeed in an untrusted repo, ignores every config beneath it, and leaves the file untrusted).
+- After step 83: "checkride's own mise calls can trust a repo's mise.toml unasked ..." → **tangent**, deferred: an inherited `MISE_YES` is the user saying yes to mise's prompts on their own machine, the gate's `mise exec` trusting the file is mise's documented normal-mode behavior on the entry command the repo chose, and once step 84 lands a consumer's `--pins` run never reaches a trust prompt. Stripping `MISE_YES` from the launcher's mise calls was offered as a ride-along on step 84 and not taken; step 73's docs pass may note that `exec` trusts.
 
 ## Log
 
@@ -2875,3 +2880,62 @@ folder, so it rides the branch into the PR.)*
   **5.** docs/distribution.md names the two channels and leaves the binary for later
 
   The new page covers npm and the mise route. It shows the `mise.toml` pin, the one-line `mise use node@22.18.0 'npm:checkride[...]@<version>'` for an existing repo (verified on a fresh mise), and the `mise trust` → `mise install` → `mise exec -- checkride` sequence. It explains the opt-in by quoting mise's refusal. It presents the route as the supported way to run checkride without Node, and lists the binary, the `github:` pin and a Homebrew tap under "Not in this release". The README's Install and Docs sections, `docs/README.md` and `docs/getting-started.md` link to it, and getting-started's Go block gains `mise trust`. The CHANGELOG amends the unreleased `init --lang`, doctor and no-`package.json` gate entries, and adds one for the page.
+
+- 2026-10-18 — step 83 checkpointed · 07adc93b4 — fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml (1 drift, 17m)
+
+  **Summary**: When mise hasn't trusted a repo's `mise.toml`, the check that hits it now says so, quotes mise's own `not trusted` line, and names `mise trust` instead of `mise install`. The gate hook also tells this case apart from a missing checkride and stands down naming `mise trust`. Unit tests cover the launcher (tool, toolchain and `--pins` paths) and run the hook script live. A new e2e case runs a check in an untrusted `init --lang go` scaffold, and the whole shapes file passed 19 of 19 with toolchains required.
+
+  1. A check that meets an untrusted mise.toml now says so and names `mise trust`
+  2. The gate hook stands down naming `mise trust`, rather than reading untrusted as not installed
+  3. This mise version trusts the file silently in `mise install` and `mise exec`, which shaped both halves
+  4. The `--pins` override hits the same refusal, so it names `mise trust` too, and the deeper question is parked
+  5. Two docs outside the seam got one sentence each, under C11 (docs-in-step)
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 4 paths outside the seam
+               - docs/distribution.md
+               - docs/packs.md
+               - src/agent-setup/__tests__/hooks.test.ts
+               - src/launch/__tests__/resolve.test.ts
+  diff         +294 -53 across 9 files
+  spent        17 min · 1 turn · 83s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it, then run `/plumbbob:harvest` before step 81. Both parks are about checkride trusting files, or asking users to trust them, and step 81 opens `doctor --pins`, so deciding the override question first keeps step 81 from building on it.
+
+  **1.** A check that meets an untrusted mise.toml now says so and names `mise trust`
+
+  `askMise` in `src/launch/mise.ts` now looks through mise's error lines for the one that says `not trusted`. When it finds one, it uses that line as the detail and flags the answer `untrusted`. Otherwise it keeps the first error line, as before. `miseInactiveRefusal` in `src/launch/resolve.ts` takes the whole answer, and for an untrusted config it changes the headline to "mise won't read a config file here until it's trusted." and ends on `mise trust`. The not-installed refusal is unchanged. Before and after, on a real scaffold:
+
+  ```text
+  before:  mise which golangci-lint: error parsing config file: /…/mise.toml
+           … Install the pinned version, then re-run:   mise install
+  after:   mise which golangci-lint: Config files in /…/mise.toml are not trusted.
+           … Review the file mise names, trust it from the directory that holds it, then re-run:   mise trust
+  ```
+
+  The Go toolchain path (`viaToolchain`) goes through the same refusal, so a `go` pinned in an untrusted file gets it too. Each path has a unit test.
+
+  **2.** The gate hook stands down naming `mise trust`, rather than reading untrusted as not installed
+
+  The mise entry's could-not-run tail in `src/agent-setup/scripts.ts` gains one branch after the existing "installed but didn't answer" block: `if mise which checkride 2>&1 | grep -q 'not trusted'; then stand_down …`. Its message says mise hasn't trusted the `mise.toml` that pins checkride, and asks the user to review it, run `mise trust`, and then run `mise exec -- checkride`. Like a missing install, it stands down rather than blocks, because trusting a file is a person's call, not an edit the turn made. A new live test runs the generated script against a stand-in `mise` in three cases: untrusted, which stands down naming trust; not installed, which still names `mise install`; and installed but silent, which still blocks with exit 2. The test that checks every message survives the shell now covers the mise entry too.
+
+  **3.** This mise version trusts the file silently in `mise install` and `mise exec`, which shaped both halves
+
+  Probing mise 2026.10.4 showed that outside paranoid mode, `mise install` and `mise exec` both trust the config they read as a side effect, and `MISE_YES=1` makes `mise which` do the same. So the old `mise install` advice did fix the problem, but by trusting the file without telling anyone. That supports D82: the refusal should name the trust step rather than hide it inside an install, and in paranoid mode `install` fails anyway (verified). For the hook, the gate itself runs `mise exec -- checkride`, which trusts the file in normal mode, so the new branch only fires in paranoid mode or on a mise whose `exec` doesn't trust. The code comment says exactly that. The e2e case runs checkride from Node, not through `mise exec`, with its own `MISE_STATE_DIR`, and drops `MISE_YES` and `MISE_TRUSTED_CONFIG_PATHS` from the environment, so the scaffold stays untrusted on any machine.
+
+  **4.** The `--pins` override hits the same refusal, so it names `mise trust` too, and the deeper question is parked
+
+  `mise where` also reads the repo's own config, so under `--pins` an untrusted `mise.toml` gave the same unexplained error, followed by `mise install <spec>`. Both paths share `askMise`, so `overrideRefusal` got the same remedy and a unit test. The better fix is probably for the override to ignore the repo's config entirely, so that a consumer isn't asked to trust a repo it's reviewing. That's a design call, so it's parked. A second park covers checkride's own mise calls trusting a file without asking (an inherited `MISE_YES`, and `exec` in the gate).
+
+  **5.** Two docs outside the seam got one sentence each, under C11 (docs-in-step)
+
+  `docs/packs.md` describes how the `mise` source asks `mise which` and what the hook script tests, so both passages now mention the untrusted case. `docs/distribution.md` now says each check fails naming `mise trust` until the file is trusted. The CHANGELOG changes amend the three unreleased entries (the pin chain, the no-`package.json` gate, and `--pins`) rather than adding a Fixed entry, because none of this behavior shipped in 0.14.0. That's the same approach step 72 took.

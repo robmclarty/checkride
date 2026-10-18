@@ -1127,6 +1127,14 @@ describe('the tf-version source (R6.1)', () => {
     }));
 });
 
+/** {@link FAKE_MISE}, keeping the `MISE_IGNORED_CONFIG_PATHS` each `mise where` saw in `<bin>/mise.ignored`. */
+const RECORDING_MISE = `printf '%s' "$MISE_IGNORED_CONFIG_PATHS" > "$0.ignored"\n${FAKE_MISE}`;
+
+/** A mise whose trust line names `config`, as 2026.10.4 names a config file it hasn't trusted. */
+function untrustedMise(config: string): string {
+  return UNTRUSTED_MISE.replaceAll('/r/mise.toml', config);
+}
+
 describe('the override source (R13.3)', () => {
   test('heads the chain: a tool the --pins file names runs as that version through mise, over the repo’s own pin', () =>
     withScratch(async (s) => {
@@ -1136,9 +1144,28 @@ describe('the override source (R13.3)', () => {
       expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides }))).toEqual({
         command: 'mise',
         args: ['exec', 'shellcheck@0.11.0', '--', 'shellcheck', '-f', 'json1', 'run.sh'],
-        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false', MISE_OFFLINE: '1' },
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false', MISE_OFFLINE: '1', MISE_IGNORED_CONFIG_PATHS: s.repo },
         pin: { source: 'override', version: '0.11.0' },
       });
+    }));
+
+  /** D83: under --pins mise reads no config file inside the repo, for the question or the run. */
+  test('asks mise where and runs mise exec with the repo root in MISE_IGNORED_CONFIG_PATHS', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', RECORDING_MISE);
+      await mkdir(join(s.repo, 'sub'));
+      const at = s.at('sub', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) });
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, at)).toMatchObject({ env: { MISE_IGNORED_CONFIG_PATHS: s.repo } });
+      expect(await readFile(join(s.bin, 'mise.ignored'), 'utf8')).toBe(s.repo);
+    }));
+
+  test('adds the repo root to the paths the environment already has mise ignore', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', RECORDING_MISE);
+      const env = { PATH: s.bin, MISE_IGNORED_CONFIG_PATHS: '/a:/b' };
+      const at = s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]), env });
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, at)).toMatchObject({ env: { MISE_IGNORED_CONFIG_PATHS: `/a:/b:${s.repo}` } });
+      expect(await readFile(join(s.bin, 'mise.ignored'), 'utf8')).toBe(`/a:/b:${s.repo}`);
     }));
 
   test('matches any of the tool’s mise ids, as the file spells it', () =>
@@ -1174,17 +1201,42 @@ describe('the override source (R13.3)', () => {
       expect(refusal).toContain('mise install shellcheck@0.0.1');
     }));
 
-  /** `mise where` reads the repo's config as well, so an untrusted one refuses the override the same way (D82). */
-  test('a config mise hasn’t trusted fails the override naming mise trust, not the install', () =>
+  /** `mise where` still reads the config files above the repo, so an untrusted one there refuses the override (D82, D83). */
+  test('a config outside the repo mise hasn’t trusted fails the override naming mise trust, not the install', () =>
     withScratch(async (s) => {
       await s.tool('mise', UNTRUSTED_MISE);
       await s.tool('shellcheck');
       const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) }));
-      const refusal = 'refusal' in launch ? launch.refusal : '';
-      expect(refusal).toContain(`the \`lint\` slot's \`shellcheck\` is pinned by --pins to shellcheck@0.11.0, ${UNTRUSTED_CAUSE}`);
+      const refusal = refusalOf(launch) ?? '';
+      expect(refusal).toContain("the `lint` slot's `shellcheck` is pinned by --pins to shellcheck@0.11.0, but mise won't read a config file outside the repo until it's trusted.");
       expect(refusal).toContain('mise where shellcheck@0.11.0: Config files in /r/mise.toml are not trusted.');
       expect(refusal).toContain('\n  mise trust\n');
       expect(refusal).not.toContain('mise install');
+    }));
+
+  /**
+   * D83: a mise that reads the repo's config despite MISE_IGNORED_CONFIG_PATHS
+   * gets no `mise trust` from the refusal, which would trust a file in a repo
+   * the consumer may be reviewing. mise names the real path, and a symlinked
+   * temp directory still counts as the repo.
+   */
+  test('a config inside the repo mise hasn’t trusted fails the override naming neither mise trust nor an install', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', untrustedMise(join(await realpath(s.repo), 'sub', 'mise.toml')));
+      await s.tool('shellcheck');
+      const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) }));
+      const refusal = refusalOf(launch) ?? '';
+      expect(refusal).toContain('pinned by --pins to shellcheck@0.11.0, but mise read a config file inside the repo, which --pins tells it to skip.');
+      expect(refusal).toContain('upgrade mise instead');
+      expect(refusal).not.toContain('mise trust');
+      expect(refusal).not.toContain('mise install');
+    }));
+
+  test('an untrusted config mise names no path for is never one the refusal asks to trust', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', UNTRUSTED_MISE.replace('Config files in /r/mise.toml are not trusted.', 'Config files are not trusted.'));
+      const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11.0']]) }));
+      expect(refusalOf(launch)).not.toContain('mise trust');
     }));
 
   test('without mise on PATH it fails rather than run the PATH copy', () =>
@@ -1207,7 +1259,12 @@ describe('the override source (R13.3)', () => {
     withScratch(async (s) => {
       await s.tool('mise', FAKE_MISE);
       const at = s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map([['go', '1.27']]) });
-      expect(launchCheck('vet', 'go', ['vet', './...'], at)).toMatchObject({ command: 'mise', args: ['exec', 'go@1.27', '--', 'go', 'vet', './...'], pin: { source: 'override', version: '1.27' } });
+      expect(launchCheck('vet', 'go', ['vet', './...'], at)).toMatchObject({
+        command: 'mise',
+        args: ['exec', 'go@1.27', '--', 'go', 'vet', './...'],
+        env: { MISE_IGNORED_CONFIG_PATHS: s.repo },
+        pin: { source: 'override', version: '1.27' },
+      });
       expect(launchCheck('vet', 'go', ['vet', './...'], s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map() }))).toEqual({ command: 'go', args: ['vet', './...'] });
     }));
 
