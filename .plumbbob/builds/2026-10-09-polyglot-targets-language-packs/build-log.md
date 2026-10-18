@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 82 — fix(packs): read a config key's value the way the tool's parser does under --static-only
+**Current step:** 72 — fix(init): make the mise route install, and test and document it
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -94,7 +94,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 65. test(examples): add terraform-roots with plants
 - ☑ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
 - ☑ 80. fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
-- ☐ 82. fix(packs): read a config key's value the way the tool's parser does under --static-only
+- ☑ 82. fix(packs): read a config key's value the way the tool's parser does under --static-only
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
 - ☐ 68. feat(findings): parse the schema slot's report
@@ -182,6 +182,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] static.ts's non-HCL value reading still hides a cspell script import three ways: a # inside a quoted value is cut as a comment (import: "./a #.mjs"), YAML's escaped line break splits the name ("./x.m\<newline>js"), and a column-0 comment ends a block sequence early
 - [x] the static-only reason for an entry that adds args reads "prettier isn't a static check", the same as a command swap; name the cause (the config adds an argument prettier's row doesn't carry) so a consumer can tell why a documented static tool sat out
 - [ ] docs/contract.md's --static-only rule 1 doesn't say a dropped mark's skip names the swapped command or first added argument, and rule 4 doesn't say a key's value is read as its parser reads it (quoted #, escaped line break, comment lines, run-on scalars, tags, aliases count); fold at step 73
+- [ ] doctor's package-manager row stays required in a root with no package.json, so a machine on the mise route with no pnpm fails doctor for a package manager the repo never runs (step 72 made only the install row n/a there)
+- [ ] a mise.toml mise hasn't trusted, which every language scaffold is until mise trust runs since checkride's entry sets a tool option, makes each mise-pinned check refuse with only mise's first stderr line ('error parsing config file') and name mise install, and the gate hook's mise which checkride test reads it as not installed; both should name mise trust
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2758,3 +2760,54 @@ folder, so it rides the branch into the PR.)*
   **5.** Two parks: three more ways a cspell script import hides, and a vague skip reason
 
   While writing the value reader I probed three gaps and confirmed each returns `null` where cspell would import a script: a `#` inside a quoted value is cut as a comment (`import: "./a #.mjs"`), YAML's escaped line break splits a name across lines, and a column-0 comment ends a block sequence early. They are the same fail-open class this step closes, but none is in the done-when, so they're parked. The second park: an entry that adds arguments skips with `prettier isn't a static check`, which reads oddly for a tool the docs list as static. It should name the cause.
+
+- 2026-10-18 — step 82 checkpointed · 6d6aec6f3 — fix(packs): read a config key's value the way the tool's parser does under --static-only (1 drift, 47m)
+
+  **Summary**: `--static-only` now reads a config key's value in the order the tool's parser meets it, so each of step 80's three probes skips `spell` while `import: ./dict.json # not ./x.js` keeps it. An entry that took a static tool's mark now skips naming what it did, such as `prettier's entry adds --plugin=./x.mjs, an argument its registry row doesn't carry`. The gate is green, and the whole e2e suite passed 166 of 166 with every toolchain required, run before and after the last changes.
+
+  1. The value reader now lifts quoted strings and comments in the order the parser meets them
+  2. The reader closes more than the three probes, each shape checked against the parser cspell loads
+  3. A dropped mark now names its cause, recorded by config.ts and reported by static.ts
+  4. A scoped mutation run cut the new logic's survivors from 47 to 4, all equivalent
+  5. One stray and one park: the field lives in src/adapters.ts, and contract.md waits for step 73
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D81 (static-values)
+               - D79 (static-args)
+               - D78 (static-fail-closed)
+               - D52 (e2e-cadence)
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → src/adapters.ts
+  diff         +331 -78 across 6 files
+  spent        47 min · 1 turn · 38s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it, then build step 72 before cutting a release. This step finishes Phase 11, but step 80's harvest marked the mise route's refusal "fix before release" and ordered step 72 next for that reason, so a release cut here would ship a `mise.toml` scaffold that doesn't install.
+
+  **1.** The value reader now lifts quoted strings and comments in the order the parser meets them
+
+  The old reader cut a `#` comment off the line before it read the quotes, took a whole block as text, and stopped a list at its first column-0 line. Now each config file is read in the syntax its name says: JSON's for `.json`, `.jsonc` and `.json5`, so `//` and block comments count; YAML's for `.yaml` and `.yml`, where a quote opens a string only where a scalar can start and a `#` opens a comment only after a space; and both for any other name, a value that loads code in either reading counting. Each quoted string is lifted out whole, escapes and line breaks included, and each comment is blanked. Then the value's extent is found on what's left: a flow collection through its own closing bracket, depth counted; anything else through the key's line and on to the first line that opens another entry no further in than the key. A string's text drops YAML's escaped line break along with the next line's indent. So `"./a #.mjs"` keeps its `#`, `"./x.m\` plus `  js"` reads `./x.mjs`, and a `# note` line at column 0 is a blank line inside the list. `src/orchestrator/__tests__/static-only.test.ts` writes each probe to a real `cspell.yaml` and finds `spell` skipped with `cspell.yaml sets import, which loads code`, and the dictionary import kept.
+
+  **2.** The reader closes more than the three probes, each shape checked against the parser cspell loads
+
+  Before writing it I ran the probes, and then every test input, through yaml 2.9.0, the parser cspell 10.3.6 loads, and all 33 read as the tests assert. The old reader also missed shapes past the done-when's three, and the new one closes them as a consequence of reading in parser order: an apostrophe in a comment (`# it's`) or inside a plain scalar (`it's`) opened a fake string that swallowed the script after it; a `]` inside a quoted name closed the list early; and a plain scalar running on over lines, `import: ./x` then `  .mjs`, reads `./x .mjs` to the parser. Three more go a step past it, and I'd flag them as calls I made: a YAML tag or anchor is read away, so vale's `extends: !!str script` counts; an alias such as `import: *a` counts unread, as D78 (static-fail-closed) counts a label the reading can't parse; and a key set more than 16 times in one file counts unread, so a file of repeated keys can't make each occurrence read to its end, the same reason the HCL sniff caps its label reach. Precision improved too: minified JSON such as `{"import":["./dict.json"],"ignorePaths":["dist/*.js"]}` no longer skips `spell`, since a list now ends at its own bracket. The cost runs the accepted way: an odd layout, such as a JSON line holding two keys with deeper lines under it, can still read too far and skip a check that would have been safe.
+
+  **3.** A dropped mark now names its cause, recorded by config.ts and reported by static.ts
+
+  `staticMark` in `src/config.ts` keeps what the entry did as `staticDrop`, either `{ command }` for a swap or `{ arg }` for the first argument the row doesn't carry, and `unmarked` in `src/packs/static.ts` turns it into the reason. It's recorded only over a row the registry marks static, so a command swap over `tsc` still reads `tsc isn't a static check`, and a defaults entry's explicit `static: false` reads the same. The new reason earns its keep for vale: its registry comment tells a repo to narrow the walk by overriding `args` with paths, which since step 80 drops the mark, and the skip now says `vale's entry adds docs, an argument its registry row doesn't carry` rather than that vale isn't static. The six orchestrator assertions that read the old wording now read the new one.
+
+  **4.** A scoped mutation run cut the new logic's survivors from 47 to 4, all equivalent
+
+  The first run over the new lines left 47 survivors. Most were code no test could observe: folding a quoted string's line breaks to spaces never moves where a string ends, so neither value regex could see it; the empty-item filter and an unclosed-string guard changed no match; and `static: false` over a row that isn't static changed nothing. I dropped those, and added tests for the syntax a name picks, nested and unclosed brackets, minified JSON, a last line with no line break after it, and a list item's dash. One survivor was a real over-read: the stop rule measured the key's line, so `- import: ./dict.json` read its sibling `ignorePaths: ["*.js"]` as part of the value. It now measures the key's column, which a block scalar's `a: b` line also needs. The four left are equivalent: an index taken from the array's length after a push, a loop bound one past the end, a closed single-quoted string that ends as it starts, and a fallback array no argument can match. The repo score is 83.36 against the floor of 68.
+
+  **5.** One stray and one park: the field lives in src/adapters.ts, and contract.md waits for step 73
+
+  `staticDrop` is an optional field on the exported `Adapter` type, additive under C1 (additive-contract), and the CHANGELOG's Contract bullet lists it next to step 80's `codeArgs`; `src/adapters.ts` is the one path outside the seam. The CHANGELOG's `--static-only` entry is amended in place, as steps 78 and 80 did, which also fixes its stray mid-sentence line break. I parked `docs/contract.md`: its rules 1 and 4 stay true but don't yet say a skip names the entry's move or that a value is read as its parser reads it. The plan left that file out of this seam and already sends contract.md's static-only details to step 73.

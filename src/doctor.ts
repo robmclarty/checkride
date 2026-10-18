@@ -45,6 +45,7 @@ import {
   isAvailableUnder,
   isPnPInstall,
   nearestPackageManager,
+  PIN_CHECKRIDE,
   pinChain,
   pinResolution,
   resolveEntry,
@@ -346,11 +347,18 @@ function checkPackageManager(pm: PackageManager, pnpmMin: Semver, env: DoctorEnv
  * a PnP repo never has one, so asserting the directory reported every correctly
  * installed PnP project as "lockfile only" and made `doctor` exit 1 on a repo
  * whose checks all pass.
+ *
+ * A root with no `package.json`, a Go or Rust project or a scaffold that runs
+ * checkride through mise, has no Node install to check, so its row is `n/a`
+ * and never required.
  */
 function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCheck {
   const locks = PM_LOCKFILES[pm];
   const hint = `Run \`${pm} install\` from the repo root.`;
   const base = { name: 'install', category: 'install' as const, required: true };
+  if (!env.exists(join(cwd, 'package.json'))) {
+    return { ...base, required: false, status: 'n/a', found: 'no package.json', expected: null, hint: null };
+  }
   if (!locks.some((lock) => env.exists(join(cwd, lock)))) {
     return { ...base, status: 'missing', found: null, expected: `${locks.join(' or ')} present`, hint };
   }
@@ -892,7 +900,7 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
     found: 'unpinned (`checkride` from PATH)',
     hint:
       'harness unpinned: with no package.json, the hooks and the AGENTS.md stanza run whatever `checkride` PATH holds. ' +
-      'Pin it with `mise use npm:checkride@<version>`, and they run `mise exec -- checkride` instead.',
+      `Pin it with \`${PIN_CHECKRIDE}\`, and they run \`mise exec -- checkride\` instead.`,
   };
 }
 

@@ -28,6 +28,15 @@ export type EntryLike = EntryCommand | PackageManager;
 /** The `[tools]` keys that declare checkride in a `mise.toml` (D46). */
 const CHECKRIDE_MISE_IDS: readonly string[] = ['npm:checkride', 'github:robmclarty/checkride'];
 
+/**
+ * The command that pins checkride in a repo's `mise.toml`, as `doctor` and
+ * the gate hook name it: `npm:checkride` until a binary ships (D46), with
+ * `allow_low_downloads`, without which mise's npm backend refuses a package
+ * under 1000 weekly downloads (D80). The quotes keep a shell from reading the
+ * brackets as a glob, which zsh refuses to run.
+ */
+export const PIN_CHECKRIDE = "mise use 'npm:checkride[allow_low_downloads=true]@<version>'";
+
 /** The script a repo's `package.json` defines done with. */
 const CHECK_SCRIPT = 'check';
 

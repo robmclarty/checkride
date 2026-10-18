@@ -1194,12 +1194,12 @@ describe('new-project generation for another language (--lang)', () => {
     expect(config.targets.app.checks).toEqual({ types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' });
   });
 
-  test('mise.toml pins npm:checkride at this release with node beside it, then each binary tool at its tested version (D46)', async () => {
+  test('mise.toml pins npm:checkride at this release, opted in to mise’s low-download refusal, with node beside it, then each binary tool at its tested version (D46, D80)', async () => {
     await runInit({ cwd: dir, lang: 'go', name: 'demo' });
     expect(await readFile(join(dir, 'mise.toml'), 'utf8')).toBe([
       '[tools]',
       'node = "22.18.0"',
-      `"npm:checkride" = "${await version()}"`,
+      `"npm:checkride" = { version = "${await version()}", allow_low_downloads = true }`,
       'go = "1.27.2"',
       'golangci-lint = "2.14.0"',
       'ast-grep = "0.45.3"',
@@ -1237,7 +1237,8 @@ describe('new-project generation for another language (--lang)', () => {
     await runInit({ cwd: dir, lang: 'go', shape: 'workspace', name: 'demo', stdout: out });
     expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('`mise exec -- checkride` is the single source of truth for "done"');
     expect(out.text()).toContain('go get -C core -tool golang.org/x/tools/cmd/deadcode@v0.52.0');
-    expect(out.text()).toContain('mise install');
+    // mise loads a mise.toml that sets a tool option, as checkride's entry does, only once it's trusted (D80).
+    expect(out.text()).toContain('    mise trust\n    mise install\n');
   });
 
   test.each([

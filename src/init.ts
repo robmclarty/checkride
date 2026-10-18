@@ -938,6 +938,14 @@ type LangPlan = {
 /** The repo-scope slots a Node-free scaffold names, with the binary each runs. */
 const NODE_FREE_REPO_CHECKS: Record<string, SlotConfig> = { struct: 'ast-grep', docs: 'rumdl', links: 'links', spell: 'typos' };
 
+/**
+ * The mise steps every language scaffold's setup opens with. mise loads a
+ * `mise.toml` that sets a tool option only once it's trusted, and checkride's
+ * `allow_low_downloads` is one (D80), so until `mise trust` runs, no check
+ * mise pins can run either.
+ */
+const MISE_SETUP: readonly string[] = ['mise trust', 'mise install'];
+
 /** The tested deadcode a Go scaffold's setup declares as a `go.mod` tool. */
 const DEADCODE_TOOL = 'golang.org/x/tools/cmd/deadcode@v0.52.0';
 
@@ -956,7 +964,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
           { to: 'cli/main.go', from: 'go/workspace/main.go' },
         ],
         checks,
-        setup: ['mise install', `go get -C core -tool ${DEADCODE_TOOL}`],
+        setup: [...MISE_SETUP, `go get -C core -tool ${DEADCODE_TOOL}`],
       };
     }
     return {
@@ -967,7 +975,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
         { to: 'internal/greet/greet_test.go', from: 'go/module/greet_test.go' },
       ],
       checks,
-      setup: ['mise install', `go get -tool ${DEADCODE_TOOL}`],
+      setup: [...MISE_SETUP, `go get -tool ${DEADCODE_TOOL}`],
     };
   }
   const checks = { types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' };
@@ -989,7 +997,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
         { to: 'src/lib.rs', from: 'rust/crate/lib.rs' },
         { to: 'src/main.rs', from: 'rust/crate/main.rs' },
       ];
-  return { files: [...shared, ...files], checks, setup: ['mise install', 'cargo fetch'] };
+  return { files: [...shared, ...files], checks, setup: [...MISE_SETUP, 'cargo fetch'] };
 }
 
 /** Each `[tools]` key and its raw value in a `mise.toml` fragment, in order. */
@@ -1005,10 +1013,11 @@ function toolLines(text: string): [string, string][] {
  * as `npm:checkride` at this release with `node` beside it until a binary
  * ships (D46), then the pack's tools and the repo pack's Node-free ones, each
  * at the version it was tested with. A key a later fragment repeats keeps the
- * first one's version.
+ * first one's version. checkride's entry sets `allow_low_downloads`, without
+ * which mise's npm backend refuses a package under 1000 weekly downloads (D80).
  */
 function langMiseToml(lang: Exclude<Lang, 'ts'>): string {
-  const own = `[tools]\nnode = "22.18.0"\n"npm:checkride" = "${productVersion()}"\n`;
+  const own = `[tools]\nnode = "22.18.0"\n"npm:checkride" = { version = "${productVersion()}", allow_low_downloads = true }\n`;
   const tools = new Map<string, string>();
   for (const fragment of [own, readTemplate(`${lang}/shared/mise.toml`), readTemplate('repo/shared/mise.toml')]) {
     for (const [key, value] of toolLines(fragment)) if (!tools.has(key)) tools.set(key, value);

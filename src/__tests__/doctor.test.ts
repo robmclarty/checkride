@@ -40,11 +40,11 @@ function toolAdapter(name: string, slot: string): Adapter {
 const oneSlot = [{ name: 'lint' }];
 const oneAdapter = [toolAdapter('oxlint', 'lint')];
 
-/** A PnP tree: lockfile and `.pnp.cjs`, and deliberately no node_modules. */
+/** A PnP tree: `package.json`, lockfile and `.pnp.cjs`, and deliberately no node_modules. */
 function pnpEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
   return fakeEnv({
     packageManager: () => 'yarn',
-    exists: (p: string) => p.includes('.pnp.cjs') || p.includes('yarn.lock') || p.includes('.check'),
+    exists: (p: string) => ['package.json', '.pnp.cjs', 'yarn.lock', '.check'].some((name) => p.includes(name)),
     ...over,
   });
 }
@@ -790,6 +790,29 @@ describe('runDoctor reports how hooks run checkride where it is not the check sc
     const row = await harnessRow();
     expect(row).toMatchObject({ status: 'outdated', required: false, found: 'unpinned (`checkride` from PATH)' });
     expect(row?.hint).toContain('harness unpinned');
-    expect(row?.hint).toContain('mise use npm:checkride@<version>');
+    // Opted in, since mise's npm backend refuses checkride's download count without it (D80).
+    expect(row?.hint).toContain("mise use 'npm:checkride[allow_low_downloads=true]@<version>'");
+  });
+});
+
+/**
+ * A Go or Rust root, or a scaffold that runs checkride through mise, has no
+ * Node install to check, so the install row that demanded a lockfile there
+ * made `doctor` exit 1 on a repo with nothing wrong.
+ */
+const doctorWhere = (exists: (p: string) => boolean) =>
+  runDoctor({ cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, env: fakeEnv({ exists }), stdout: sink(), json: true });
+
+describe('runDoctor in a root with no package.json', () => {
+  test('reports the install row n/a and not required, so it fails nothing', async () => {
+    const result = await doctorWhere((p) => !p.endsWith('package.json'));
+    expect(result.report.checks.find((c) => c.name === 'install')).toMatchObject({ status: 'n/a', required: false, found: 'no package.json', hint: null });
+    expect(result.ok).toBe(true);
+  });
+
+  test('still fails a package.json root that has no lockfile', async () => {
+    const result = await doctorWhere((p) => !p.endsWith('pnpm-lock.yaml'));
+    expect(result.report.checks.find((c) => c.name === 'install')).toMatchObject({ status: 'missing', required: true, expected: 'pnpm-lock.yaml present' });
+    expect(result.ok).toBe(false);
   });
 });

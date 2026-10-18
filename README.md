@@ -83,6 +83,12 @@ workspaces. To start under npm, yarn, or bun, create the `package.json` first
 existing-repository path above — `init --add <slots>` scaffolds the tool
 configs a bare repository lacks (`init --add struct,dead`, for example).
 
+For a **repo without Node**, such as a Go or Rust project with no
+`package.json`, mise installs checkride beside a pinned `node` and runs it as
+`mise exec -- checkride`. `init --lang go|rust` writes that `mise.toml`;
+[Installing checkride](./docs/distribution.md) shows the pin, and the
+`allow_low_downloads = true` opt-in mise needs before it installs checkride.
+
 Both paths end in the same place — `init` auto-detects which case it is in.
 It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
 (`npm run check`, `yarn run check`, or `bun run check` under the others)
@@ -125,6 +131,8 @@ Task-focused guides live in [docs/](./docs/README.md):
   common objections.
 - [Getting started](./docs/getting-started.md) — prerequisites, adding
   checkride to a project (new or existing), your first run, and the daily loop.
+- [Installing checkride](./docs/distribution.md) — the two channels, npm and
+  the mise route, and how a repo without Node pins checkride.
 - [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
   flags, npm-script aliases, and the `.check/` output files.
 - [Tools and installation](./docs/tools.md) — what each pipeline check runs,

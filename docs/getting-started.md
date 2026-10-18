@@ -204,6 +204,7 @@ mise runs:
 ```bash
 mkdir my-api && cd my-api
 pnpm dlx checkride init --lang go --shape module --module github.com/acme/my-api
+mise trust
 mise install
 go get -tool golang.org/x/tools/cmd/deadcode@v0.52.0
 mise exec -- checkride
@@ -231,6 +232,12 @@ imports or re-exports in Rust. A Rust project's `rust-toolchain.toml` pins the
 toolchain, with rustfmt and clippy, and its config names `snippets`, so its
 doctests run. Every shape is green once its setup has run, and an end-to-end
 test holds each one.
+
+checkride's entry in that `mise.toml` sets `allow_low_downloads = true`. mise
+won't install an npm package with fewer than 1000 weekly downloads without it,
+and checkride has fewer. A tool option like that one is also why `mise trust`
+comes first: mise won't load the file until you trust it. To add the same pin
+to a repo you already have, see [Installing checkride](./distribution.md).
 
 ## The daily loop
 
@@ -664,6 +671,8 @@ run exactly as before; you have merely dropped the orchestrator.
 ## Where to go next
 
 - [Cheat sheet](./cheatsheet.md) — every command and flag at a glance.
+- [Installing checkride](./distribution.md) — npm, and the mise route for a
+  repo without Node.
 - [Tools and installation](./tools.md) — installing a missing tool, slot by slot.
 - [README](../README.md) — the slot/adapter model and the `.check/` contract.
 - [AGENTS.md](../AGENTS.md) — the contract for coding agents.

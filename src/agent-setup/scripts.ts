@@ -18,7 +18,7 @@
 
 import { DIRTY_MARKER, GATE_RETRY_ENV, type HarnessName } from '../gate.js';
 import type { EntryCommand, EntryLike } from '../launch/index.js';
-import { asEntry, entryCheckride, entryText } from '../launch/index.js';
+import { asEntry, entryCheckride, entryText, PIN_CHECKRIDE } from '../launch/index.js';
 
 /**
  * The repo root, however the calling harness spells it. Cursor sets
@@ -46,13 +46,23 @@ function checkrideCommand(entry: EntryCommand, args: readonly string[]): string 
  * with the text inline and the shell silently ate two quoted command names.
  *
  * Two characters are therefore banned from every message here, and a test
- * enforces both. A single quote would end the `'…'` the call site wraps it in. A
- * double quote (or a backslash) would break {@link standDown}, which builds its
- * JSON body with `printf '{"systemMessage":"%s"}'` rather than carrying a
- * second, pre-encoded copy of the same sentence out of step with the first.
+ * enforces both: a double quote or a backslash would break {@link standDown},
+ * which builds its JSON body with `printf '{"systemMessage":"%s"}'` rather than
+ * carrying a second, pre-encoded copy of the same sentence out of step with the
+ * first. A single quote may appear only in a message the call site passes
+ * through {@link shellWord}, since a bare one would end the `'…'` around it.
  */
 const NOTHING_RAN =
   'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from this turn.';
+
+/**
+ * `message` as one single-quoted shell word, each `'` in it closed, escaped and
+ * reopened as `'\''`, so a message can quote a command the way a person types
+ * it, as {@link PIN_CHECKRIDE} does, without ending the word early.
+ */
+function shellWord(message: string): string {
+  return `'${message.replaceAll("'", String.raw`'\''`)}'`;
+}
 
 /**
  * What brings checkride into the repo: `<pm> install`, which is how all four
@@ -63,7 +73,7 @@ function installFix(entry: EntryCommand): string {
   const check = entryText(entry);
   if (entry.kind === 'script') return `Run \`${entry.pm} install\` (checkride is a devDependency of this repo), then run \`${check}\`.`;
   if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
-  return 'Install checkride, or pin it in mise.toml with `mise use npm:checkride@<version>`, then run `checkride`.';
+  return `Install checkride, or pin it in mise.toml with \`${PIN_CHECKRIDE}\`, then run \`checkride\`.`;
 }
 
 /** Why checkride could not be found, by where the entry command looks for it. */
@@ -256,9 +266,9 @@ function gateTail(harness: HarnessName, entry: EntryCommand): string[] {
     "# Neither of checkride's two gate codes: checkride itself never ran. Which of",
     '# the two reasons it was decides whether blocking could accomplish anything.',
     `if ${installedTest(entry)}; then`,
-    `  block '${notAnswering(entry, harness)}'`,
+    `  block ${shellWord(notAnswering(entry, harness))}`,
     'fi',
-    `stand_down '${notInstalled(entry)}'`,
+    `stand_down ${shellWord(notInstalled(entry))}`,
   ];
 }
 

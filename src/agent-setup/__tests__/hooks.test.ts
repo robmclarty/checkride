@@ -242,6 +242,21 @@ describe('generated scripts', () => {
   });
 
   /**
+   * With nothing pinning checkride, the stand-down names the `mise use` that
+   * pins it, single-quoted so zsh doesn't read its brackets as a glob, and
+   * opted in to mise's low-download refusal (D80). The quotes inside the
+   * message must reach `printf` intact, as one argument.
+   */
+  test('a message that quotes a command reaches printf whole', () => {
+    for (const harness of ['claude', 'cursor'] as const) {
+      const emit = gateScript({ kind: 'path' }, { harness }).split('\n').find((l) => l.startsWith('stand_down '));
+      const said = execFileSync('sh', ['-c', `stand_down() { printf '%s' "$1"; }\n${emit ?? ''}`], { encoding: 'utf8' });
+      expect(said).toContain("Install checkride, or pin it in mise.toml with `mise use 'npm:checkride[allow_low_downloads=true]@<version>'`, then run `checkride`.");
+      expect(said).not.toMatch(/["\\]/);
+    }
+  });
+
+  /**
    * Claude Code parses a hook body only on exit 0, and only a body can carry a
    * user-visible message alongside the block — so the script forwards what
    * checkride wrote and exits 0, rather than re-blocking on the status.

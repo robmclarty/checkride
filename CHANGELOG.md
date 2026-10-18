@@ -201,14 +201,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `unclaimed` would report, and a repo without targets one for another
   language's markers it sees, such as a `go.mod`, as a hint to declare
   targets. A tool a `mise.toml` pins is no longer reported missing from
-  `node_modules`. See `docs/packs.md`.
+  `node_modules`, and a root with no `package.json` gets an `n/a` install row
+  instead of failing for a lockfile it never needs. See `docs/packs.md`.
 - **Gate a repo with no `package.json`.** The stop-hook gate, the hook
   scripts, the AGENTS.md stanza and the plugin skills now run checkride the
   way the repo does: `<pm> run check` wherever there's a `package.json`, as
   before; `mise exec -- checkride` in a repo whose root `mise.toml` pins
   `npm:checkride` or `github:robmclarty/checkride`; and the `checkride` on
-  `PATH` otherwise, which `doctor` reports as the harness unpinned. The
-  stanza lists a target's checks as `<target>:<slot>`. See `docs/packs.md`.
+  `PATH` otherwise, which `doctor` reports as the harness unpinned. Where
+  nothing pins it, `doctor` and the gate name
+  `mise use 'npm:checkride[allow_low_downloads=true]@<version>'`, quoted so
+  zsh doesn't read the brackets as a glob. The stanza lists a target's checks
+  as `<target>:<slot>`. See `docs/packs.md`.
+- **Installing checkride documents its two channels.** `docs/distribution.md`
+  covers npm and the mise route, which pins `npm:checkride` with `node` beside
+  it in a repo's `mise.toml` and is the supported way to run checkride in a
+  repo without Node. A standalone binary, and the `github:` pin it would
+  bring, wait for a later release. An end-to-end test installs a scaffold's
+  `mise.toml` through a mise that finds no Node on `PATH` and runs
+  `mise exec -- checkride --version`.
 - **Declare a target with `checkride target add`.**
   `checkride target add scripts --lang bash --root scripts` adds the target to
   `checkride.config.json`, creating the file if needed, and names each tool
@@ -311,13 +322,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes a `module` (`--module` names it) or a `workspace`, and
   `--lang rust` a `crate` or a `workspace`, with no `package.json`. Each
   writes a `mise.toml` that pins checkride as `npm:checkride` with `node`
-  beside it, and every binary tool at the version it was tested with; a
+  beside it, its entry set to `allow_low_downloads = true`, without which
+  mise's npm backend refuses a package under 1000 weekly downloads, as
+  checkride is; and every binary tool at the version it was tested with; a
   `checkride.config.json` with one target, `app`, at the root, naming every
   slot, with `requirePins: true`; the pack's dialect rules under `rules/`
   (no dot imports, import aliases or `init` outside `package main` in Go, no
   glob imports or re-exports in Rust); and an AGENTS.md whose gate runs
   `mise exec -- checkride`. It prints the setup that needs the network, such
-  as `go get -tool`, and each shape is green once that has run. A shape
+  as `go get -tool`, after `mise trust`, which checkride's tool option makes
+  mise require, and each shape is green once that has run. A shape
   another language takes, or `--lang go` where a `package.json` would put
   `init` in existing mode, exits 2. `cargo` in a rust target now records
   `pin_source: "rust-toolchain"` where a toolchain file pins it, and the
