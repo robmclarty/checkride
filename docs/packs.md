@@ -1,16 +1,17 @@
 # Packs and pins
 
 A pack is one language's adapters, together with where its tools are pinned
-and the environment its checks run with. Five packs ship so far: `ts`, which
+and the environment its checks run with. Six packs ship so far: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
-`go`, which checks Go modules and workspaces, and `rust`, which checks Cargo
-packages and workspaces. This page covers how a check's tool resolves to the
-copy that runs, what the summary records about that copy, the bash pack and
-the file lists its checks run over, the go and rust packs, and the spawn
-environment each pack sets.
-Packs for Python and Terraform arrive in later releases, and the rows below
-that belong to them say so.
+`go`, which checks Go modules and workspaces, `rust`, which checks Cargo
+packages and workspaces, and `python`, whose targets run their own custom
+checks under Python's spawn environment until its adapters arrive. This page
+covers how a check's tool resolves to the copy that runs, what the summary
+records about that copy, the bash pack and the file lists its checks run over,
+the go and rust packs, and the spawn environment each pack sets.
+A pack for Terraform arrives in a later release, and the rows below that
+belong to it say so.
 
 ## Pin chains
 
@@ -24,6 +25,7 @@ order.
 | `bash` | `mise`, then `path` |
 | `go` | `go-mod-tool`, then `mise`, then `path` |
 | `rust` | `rust-toolchain`, then `mise`, then `path` |
+| `python` | `uv-lock`, then `mise`, then `path` |
 
 A check with no pack, which is every check in a repo without `targets`,
 resolves through `js-lockfile` alone, so a repo that declares no targets runs
@@ -61,12 +63,17 @@ typos runs `typos --format brief`, which exits 2 on a typo, and
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
 | `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
+| `uv-lock` | the `uv.lock` nearest the check's directory, up to the repo root, lists the tool's PyPI package, its name compared as PyPI compares names | the tool's executable in the project's environment: `.venv/bin/<tool>` beside the lock, which a workspace's members share, or `bin/<tool>` under the environment `UV_PROJECT_ENVIRONMENT` names, a relative one from the lock's directory; never through `uv` itself | the `version` of the lock's `[[package]]` entry for it, when the lock pins one version; a forked resolution that locks several records none |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
-The summary's `pin_source` names two more sources, `uv-lock` and
-`tf-version`. They arrive with the packs that use them, and no run writes them
-yet. `override` is the consumer's, not the repo's: a review agent's own
+The summary's `pin_source` names one more source, `tf-version`. It arrives
+with the pack that uses it, and no run writes it yet. `uv-lock` declares only
+a tool that `TOOLS` gives a PyPI package, and those rows arrive with the
+python pack's adapters, so no run writes it yet either. Its argv names the
+environment's executable from the check's directory, such as
+`.venv/bin/ruff`, and absolutely when the environment lies outside the repo.
+`override` is the consumer's, not the repo's: a review agent's own
 `mise.toml`, named with `--pins` or `CHECKRIDE_PINS`, runs its toolbelt over a
 checkout it can't write to. Each entry is a version string or an inline
 table's `version`; anything else exits 2. It changes which copy of a tool
@@ -99,8 +106,10 @@ the checkout isn't the repo's pin.
 1. Each source in the chain, in order, is asked whether it declares the tool.
 2. The first source that declares it runs it, with no fall-through. When that
    source can't run the tool, the check fails with exit 1 and names the
-   source: mise isn't on `PATH`, mise hasn't installed the version it pins, or
-   an `npx` or `bunx` tool is missing from `node_modules/.bin`. checkride never
+   source: mise isn't on `PATH`, mise hasn't installed the version it pins,
+   an `npx` or `bunx` tool is missing from `node_modules/.bin`, or the project
+   environment a `uv.lock` runs from doesn't exist or lacks the tool, which
+   names the `uv sync` to run. checkride never
    reaches for another copy, because that copy's version depends on the
    machine.
 3. When no source declares the tool and the chain names `path`, checkride
@@ -352,7 +361,7 @@ and `pinSource`.
 
 A pack's variables apply to every check of that pack that spawns, the
 target's custom checks included, and override the user's own values for those
-variables only. The go and rust rows apply today, and so do the mise
+variables only. The go, rust and python rows apply today, and so do the mise
 variables, which checkride sets on every check whose tool resolves through
 `mise` or `path`,
 since a tool on `PATH` may be one of mise's shims. The other rows apply once
@@ -366,9 +375,11 @@ the ones that pin a toolchain or switch off an install.
 A tool stopped by one of these variables names the variable, not the way out,
 so a red check's status line is followed by the command to run first: `go mod
 download` for Go's `module lookup disabled by GOPROXY=off`, `cargo fetch` for
-an offline cargo's missing crate, and `rustup toolchain install <toolchain>`
-for rustup's `toolchain '<toolchain>' is not installed`. The raw output keeps
-the tool's own words.
+an offline cargo's missing crate, `rustup toolchain install <toolchain>` for
+rustup's `toolchain '<toolchain>' is not installed`, and `uv sync` for uv's
+`Network connectivity is disabled, but the requested data wasn't found in the
+cache`, which a `uv run` prints for a package its cache lacks. The raw output
+keeps the tool's own words.
 
 Where a `rust-toolchain.toml` or `rust-toolchain` pins the toolchain, every
 spawn of a rust check also clears `RUSTUP_TOOLCHAIN`, which rustup 1.29.1 reads

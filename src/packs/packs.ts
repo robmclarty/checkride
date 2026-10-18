@@ -4,6 +4,7 @@
 
 import { BASH_PACK } from './bash.js';
 import { GO_PACK } from './go.js';
+import { PYTHON_PACK } from './python.js';
 import { RUST_PACK } from './rust.js';
 import { REPO_PACK } from './repo.js';
 import { TS_PACK } from './ts.js';
@@ -16,4 +17,5 @@ export const PACKS: Readonly<Record<Pack['name'], Pack>> = {
   bash: BASH_PACK,
   go: GO_PACK,
   rust: RUST_PACK,
+  python: PYTHON_PACK,
 };

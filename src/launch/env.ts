@@ -53,6 +53,11 @@ const OFFLINE_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) 
     printed: /offline mode \(via `--offline`\)/,
     hint: () => "a crate is missing from cargo's cache, and checks never fetch one: run `cargo fetch` first",
   },
+  {
+    // uv 0.13.1, a `uv run` or `uv sync` that needs a package its cache lacks, under UV_OFFLINE.
+    printed: /Network connectivity is disabled, but the requested data wasn't found in the cache/,
+    hint: () => "a Python package is missing from uv's cache, and checks never download one: run `uv sync` first",
+  },
 ];
 
 /**

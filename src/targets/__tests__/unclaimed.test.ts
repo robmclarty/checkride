@@ -70,9 +70,9 @@ describe('findUnclaimed', () => {
       ['svc/go.mod', 'go'],
       ['svc/go.work', 'go'],
     ]);
-    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'infra', 'crates'] });
-    expect(red.stderr).toContain('unclaimed: py/pyproject.toml marks python code that no python target checks.');
-    expect(red.stderr).toContain('no python pack ships yet, so list it in unclaimed.ignore until one does');
+    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'py', 'crates'] });
+    expect(red.stderr).toContain('unclaimed: infra/.terraform.lock.hcl marks terraform code that no terraform target checks.');
+    expect(red.stderr).toContain('no terraform pack ships yet, so list it in unclaimed.ignore until one does');
   });
 
   test('suggests a target for the markers of a pack that ships', async () => {
@@ -80,6 +80,13 @@ describe('findUnclaimed', () => {
     const red = await checkUnclaimed(repo, { targets: [root] });
     expect(red.stderr).toContain('unclaimed: svc/go.mod marks go code that no go target checks.');
     expect(red.stderr).toContain('claim it: "svc": { "lang": "go", "root": "svc" } under targets, or list it in unclaimed.ignore');
+  });
+
+  test('suggests a python target for a pyproject.toml, now that the python pack ships', async () => {
+    await put('py/pyproject.toml');
+    const red = await checkUnclaimed(repo, { targets: [root] });
+    expect(red.stderr).toContain('unclaimed: py/pyproject.toml marks python code that no python target checks.');
+    expect(red.stderr).toContain('claim it: "py": { "lang": "python", "root": "py" } under targets, or list it in unclaimed.ignore');
   });
 
   test('never reports installed dependencies, build output, environments, test data or checkride’s own artifacts', async () => {

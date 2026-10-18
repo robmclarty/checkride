@@ -325,12 +325,12 @@ describe('detectMode', () => {
     await writeFile(join(dir, 'package.json'), '{}');
     expect(detectMode(dir)).toBe('existing');
   });
-  test.each(['go.mod', 'go.work', 'Cargo.toml'])('existing when another shipped pack marks the root with %s', async (marker) => {
+  test.each(['go.mod', 'go.work', 'Cargo.toml', 'pyproject.toml', 'setup.cfg', 'setup.py'])('existing when another shipped pack marks the root with %s', async (marker) => {
     await writeFile(join(dir, marker), '');
     expect(detectMode(dir)).toBe('existing');
   });
   test('new when only a pack that has not shipped marks the root', async () => {
-    await writeFile(join(dir, 'pyproject.toml'), '');
+    await writeFile(join(dir, '.terraform.lock.hcl'), '');
     expect(detectMode(dir)).toBe('new');
   });
 });

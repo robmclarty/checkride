@@ -451,6 +451,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branch's config, `baseline diff`, and reading every finding through
   `checkride/findings`, and says plainly that none of it is a sandbox. An e2e
   case runs both passes over `examples/polyglot-stack` (#7).
+- **Python targets, offline, running the copy `uv.lock` pins.** A target can
+  declare `"lang": "python"`, with a root that holds a `pyproject.toml`,
+  `setup.cfg` or `setup.py`, and a repo without `targets` whose root holds
+  one, and no `package.json`, `tsconfig.json`, `go.mod`, `go.work` or
+  `Cargo.toml`, is checked as a python project. Every check of a python
+  target, its own custom checks included, runs with `PIP_NO_INDEX=1` and
+  `UV_OFFLINE=1`, so neither pip nor uv reaches an index, and
+  `PYTHONDONTWRITEBYTECODE=1`, so nothing writes `__pycache__` into the
+  checkout. A Python tool resolves through the nearest `uv.lock`, then a
+  `mise.toml` pin, then `PATH`. One the lock lists runs straight from the
+  project's environment, the `.venv` beside the lock or the one
+  `UV_PROJECT_ENVIRONMENT` names, and records the version the lock pins;
+  where that environment doesn't exist yet or lacks the tool, the check fails
+  naming the `uv sync` to run, and nothing downloads. A red check whose
+  `uv run` found a package missing from uv's cache prints `run uv sync first`
+  under its status. The python pack's own adapters arrive in a later
+  release; see `docs/packs.md`.
 
 ### Changed
 
@@ -850,6 +867,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   doc and `summary.contract.test.ts`; a ts root's entries still carry none.
   The exported `ResolvedCheck` and `SummaryCheck` types document the same,
   and `DoctorReport` gains an optional `pack`, present in implicit mode.
+- Additive: `PACKS` gains `python` (markers `pyproject.toml`, `setup.cfg` and
+  `setup.py`, the pin chain `uv-lock`, `mise`, `path`, the environment
+  `PYTHONDONTWRITEBYTECODE`, `PIP_NO_INDEX` and `UV_OFFLINE`, and no adapter
+  rows yet), the exported `Pack` type's `name` takes `python`, and the config
+  schema's pack names take `python`. The exported `Tool` type gains an
+  optional `pypi` (the PyPI package that provides the tool). `TOOLS` and
+  `ADAPTERS` are unchanged, so no run writes `pin_source: "uv-lock"` yet. A
+  repo without `targets` whose root holds only a Python marker now records
+  `pack: "python"` on its checks.
 
 ### Internal
 

@@ -2,8 +2,9 @@
  * Launch module — turns the invocation a check declares into the argv it
  * spawns, through its pack's pin chain. The launcher itself, the chain walk,
  * lives in `resolve.ts`, and each upward search shares `walk.ts`. The `mise`
- * source is `mise.ts`, the `go-mod-tool` source `go-mod.ts` and the `path`
- * source `path.ts`. The variables a check's pack sets on its spawn, and the
+ * source is `mise.ts`, the `go-mod-tool` source `go-mod.ts`, the
+ * `rust-toolchain` source `rust-toolchain.ts`, the `uv-lock` source `uv.ts`
+ * and the `path` source `path.ts`. The variables a check's pack sets on its spawn, and the
  * hint a check stopped by one of them prints, are `env.ts`. The `js-lockfile`
  * source, the project's own package manager, spans the rest: detection in
  * `package-manager.ts`, the exec-prefix translation in `translate.ts`, where a

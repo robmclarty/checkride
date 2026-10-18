@@ -16,6 +16,11 @@ describe('packEnv (R6.4)', () => {
     expect(packEnv('rust', true)).toEqual({ RUSTUP_AUTO_INSTALL: '0', CARGO_TERM_COLOR: 'never' });
   });
 
+  test('a python check reaches no index through pip or uv, and writes no bytecode into the checkout', () => {
+    expect(packEnv('python')).toEqual({ PYTHONDONTWRITEBYTECODE: '1', PIP_NO_INDEX: '1', UV_OFFLINE: '1' });
+    expect(packEnv('python', true)).toEqual({ PYTHONDONTWRITEBYTECODE: '1' });
+  });
+
   test('a check of a pack that sets none, or of no pack, sets none', () => {
     for (const pack of ['ts', 'repo', 'bash', undefined]) expect(packEnv(pack), String(pack)).toEqual({});
   });
@@ -39,6 +44,17 @@ describe('offlineHint', () => {
     // cargo 1.99.0, under CARGO_NET_OFFLINE=true.
     const stderr = 'error: no matching package named `itoa` found\nnote: offline mode (via `--offline`) can sometimes cause surprising resolution failures\n';
     expect(offlineHint({ stdout: '', stderr })).toContain('run `cargo fetch` first');
+  });
+
+  test("names uv sync when UV_OFFLINE stopped uv fetching a package its cache lacks", () => {
+    // uv 0.13.1, `uv run pytest -q` under UV_OFFLINE=1 with an empty cache.
+    const stderr = [
+      'Creating virtual environment at: .venv',
+      'error: Failed to download `ruff==0.14.0`',
+      "  cause: Network connectivity is disabled, but the requested data wasn't found in the cache: https://files.pythonhosted.org/packages/ruff-0.14.0-py3-none-macosx_11_0_arm64.whl",
+      '',
+    ].join('\n');
+    expect(offlineHint({ stdout: '', stderr })).toContain('run `uv sync` first');
   });
 
   test('says nothing for any other failure', () => {

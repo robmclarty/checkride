@@ -19,7 +19,7 @@
  * source.
  */
 
-import { relative } from 'node:path';
+import { isAbsolute, relative } from 'node:path';
 
 import type { PinSourceName, Tool } from '../packs/index.js';
 import { CARGO_TOOLCHAIN, GO_TOOLCHAIN, PACKS, TOOLCHAINS, TOOLS } from '../packs/index.js';
@@ -33,6 +33,8 @@ import { findOnPath } from './path.js';
 import type { RustToolchainDeclaration } from './rust-toolchain.js';
 import { isExactChannel, rustToolchainDeclaration, toolchainFileEnv } from './rust-toolchain.js';
 import { translateExec } from './translate.js';
+import type { UvLockDeclaration } from './uv.js';
+import { environmentTool, projectEnvironment, uvLockDeclaration } from './uv.js';
 
 /**
  * A process to start: the executable, its arguments, the variables it sets
@@ -120,9 +122,16 @@ type ToolRequest = {
 
 /**
  * What declared a tool, for a refusal or detection to name: the mise config
- * and key, the `go.mod` and its version, or the toolchain file and its channel.
+ * and key, the `go.mod` and its version, the toolchain file and its channel,
+ * or the `uv.lock` and the version it locks.
  */
-type Declared = { mise?: MiseDeclaration; goMod?: GoModDeclaration; toolchain?: RustToolchainDeclaration; override?: Override };
+type Declared = {
+  mise?: MiseDeclaration;
+  goMod?: GoModDeclaration;
+  toolchain?: RustToolchainDeclaration;
+  uvLock?: UvLockDeclaration;
+  override?: Override;
+};
 
 /** A tool the `--pins` file pins: the key that names it, and the version. */
 type Override = { id: string; version: string };
@@ -250,12 +259,42 @@ const RUST_TOOLCHAIN: Source = {
   },
 };
 
+/**
+ * The `uv-lock` source: a tool the `uv.lock` nearest the check lists, run
+ * straight from the project's environment, where `uv sync` installed the copy
+ * the lock pins, and recorded with the version it locks (R6.1, R6.3). Nothing
+ * runs through uv, so nothing can resolve or download. An environment that
+ * doesn't exist yet, or lacks the tool, fails the check naming `uv sync`
+ * (F41), rather than reach for a copy on `PATH`. A tool `TOOLS` gives no
+ * `pypi` package is never declared here.
+ */
+const UV_LOCK: Source = {
+  declares: (req) => {
+    const uvLock = req.tool.pypi === undefined ? null : uvLockDeclaration(req.cwd, req.repo, req.tool.pypi);
+    return uvLock === null ? null : { uvLock };
+  },
+  run: (req, declared) => {
+    const lock = declared?.uvLock ?? null;
+    if (lock === null) return { refusal: notFoundRefusal(req) };
+    const [exe = req.tool.bin, ...args] = argvOf(req.tool, req.args);
+    const found = environmentTool(projectEnvironment(lock.dir, req.env), exe);
+    if (!found.tool) return { refusal: environmentRefusal(req, lock, found) };
+    const command = named(req, req.cwd, found.path);
+    return {
+      command: command.includes('/') ? command : `./${command}`,
+      args,
+      pin: { source: 'uv-lock', ...(lock.version !== undefined ? { version: lock.version } : {}) },
+    };
+  },
+};
+
 /** The sources the launcher reads, by name. `path` declares nothing, so it has no row; a name without one isn't readable yet. */
 const SOURCES: { readonly [K in PinSourceName]?: Source } = {
   override: OVERRIDE,
   'js-lockfile': JS_LOCKFILE,
   'go-mod-tool': GO_MOD_TOOL,
   'rust-toolchain': RUST_TOOLCHAIN,
+  'uv-lock': UV_LOCK,
   mise: MISE,
 };
 
@@ -297,10 +336,19 @@ function toolRow(bin: string, tools: readonly Tool[] = TOOLS): Tool {
 /** Where a source declared a tool, as detection names it: the pin file and the key in it. */
 function declarationSignal(declared: Declared, tool: Tool): string {
   if (declared.mise !== undefined) return `${declared.mise.file}: ${declared.mise.id}`;
+  if (declared.override !== undefined) return `--pins: ${declared.override.id}`;
+  return languageSignal(declared, tool) ?? `package.json: ${tool.npm ?? tool.bin}`;
+}
+
+/**
+ * Where a language's own pin file declared a tool, as `<file>: <key>`, keyed
+ * by the name that file gives the tool, or `null` when none did.
+ */
+function languageSignal(declared: Declared, tool: Tool): string | null {
   if (declared.goMod !== undefined) return `${declared.goMod.file}: ${tool.goTool ?? tool.bin}`;
   if (declared.toolchain !== undefined) return `${declared.toolchain.file}: ${tool.component ?? tool.bin}`;
-  if (declared.override !== undefined) return `--pins: ${declared.override.id}`;
-  return `package.json: ${tool.npm ?? tool.bin}`;
+  if (declared.uvLock !== undefined) return `${declared.uvLock.file}: ${tool.pypi ?? tool.bin}`;
+  return null;
 }
 
 /** Where a check's tool is looked up: the directory it runs from, the repo root a search stops at, and its pin chain. */
@@ -444,6 +492,16 @@ function shown(req: ToolRequest, dir: string): string {
   return relative(req.repo, dir) || '.';
 }
 
+/**
+ * `path` named from `from`: relative when it lies inside the repo, so an argv
+ * or a message reads the same on every machine, and absolute when it lies
+ * outside, as an environment `UV_PROJECT_ENVIRONMENT` puts elsewhere does.
+ */
+function named(req: ToolRequest, from: string, path: string): string {
+  const inRepo = relative(req.repo, path);
+  return inRepo.startsWith('..') || isAbsolute(inRepo) ? path : relative(from, path) || '.';
+}
+
 /** The refusal for a tool mise pins when mise itself isn't on `PATH` (F11). */
 function miseMissingRefusal(req: ToolRequest, declared: MiseDeclaration | null): string {
   const bin = req.tool.bin;
@@ -523,6 +581,40 @@ function rustupMissingRefusal(req: ToolRequest, declared: RustToolchainDeclarati
     'toolchain it came with instead of the pinned one. Install rustup',
     '(https://rustup.rs), or remove the file.',
     '',
+  ].join('\n');
+}
+
+/**
+ * The refusal for a tool `uv.lock` pins when the project environment it runs
+ * from doesn't exist yet, or exists without it (F41). Both name `uv sync`, run
+ * where the lock is, and the second says why a sync can leave a tool out.
+ */
+function environmentRefusal(req: ToolRequest, lock: UvLockDeclaration, found: { path: string; venv: boolean }): string {
+  const bin = req.tool.bin;
+  const where = shown(req, lock.dir);
+  const version = lock.version === undefined ? '' : ` ${lock.version}`;
+  return [
+    found.venv
+      ? `checkride: the \`${req.slot}\` slot's \`${bin}\` is locked in ${lock.file}, but the project environment it runs from has no \`${bin}\`.`
+      : `checkride: the \`${req.slot}\` slot's \`${bin}\` is locked in ${lock.file}, but the project environment it runs from doesn't exist yet.`,
+    '',
+    `  declared in: ${lock.file} (${req.tool.pypi ?? bin}${version})`,
+    `  looked for: ${named(req, req.repo, found.path)}`,
+    '',
+    `checkride never installs a tool, and it won't run another \`${bin}\``,
+    'from PATH in place of the locked one. Sync the environment from the',
+    'lock, then re-run:',
+    '',
+    `  ${where === '.' ? 'uv sync' : `uv sync --directory ${where}`}`,
+    '',
+    ...(found.venv
+      ? [
+        'A tool in a dependency group or a workspace member that `uv sync`',
+        'leaves out by default needs `--group <name>`, `--all-groups` or',
+        '`--all-packages`.',
+        '',
+      ]
+      : []),
   ].join('\n');
 }
 

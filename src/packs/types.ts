@@ -13,10 +13,10 @@ import type { Adapter } from '../adapters.js';
  * `node_modules/.bin`. `mise` is a `[tools]` key in a `mise.toml`, and `path`
  * declares nothing: it's the copy a machine's `PATH` holds, unpinned.
  * `override` is a `--pins` file's `[tools]` entry, which heads every chain
- * when a run names one, and `go-mod-tool` and `rust-toolchain` the go and rust
- * packs' own. `uv-lock` and `tf-version` belong to packs that haven't shipped,
- * and the summary's `pin_source` names all eight so its vocabulary is written
- * once.
+ * when a run names one, and `go-mod-tool`, `rust-toolchain` and `uv-lock` the
+ * go, rust and python packs' own. `tf-version` belongs to a pack that hasn't
+ * shipped, and the summary's `pin_source` names all eight so its vocabulary is
+ * written once.
  */
 export type PinSourceName =
   | 'override'
@@ -31,7 +31,7 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust';
+  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust' | 'python';
   /**
    * Files whose presence marks a directory as holding this pack's code. The
    * repo pack has none, since its slots check the repo as a whole, and neither
@@ -65,6 +65,11 @@ export type Tool = {
    * as `golang.org/x/tools/cmd/deadcode`, which runs as `go tool <bin>`.
    */
   goTool?: string;
+  /**
+   * The PyPI package that provides `bin`, such as `ruff`, which a `uv.lock`
+   * lists to declare it, and which runs from the project's environment.
+   */
+  pypi?: string;
   /**
    * The argv the tool runs as when it isn't its own executable, its arguments
    * after: `cargo clippy` for `cargo-clippy`. Omitted, the executable itself.

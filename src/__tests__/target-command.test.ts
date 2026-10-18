@@ -143,7 +143,7 @@ describe('runTargetAdd', () => {
 
   test('refuses an unknown pack, a slot its pack fills nowhere, and a baseline it can’t follow', async () => {
     await put('scripts/a.sh');
-    await expect(add({ lang: 'cobol' })).rejects.toThrow('target add: --lang "cobol" isn\'t a pack (packs: ts, bash, go, rust)');
+    await expect(add({ lang: 'cobol' })).rejects.toThrow('target add: --lang "cobol" isn\'t a pack (packs: ts, bash, go, rust, python)');
     await expect(add({ lang: 'repo' })).rejects.toThrow('isn\'t a pack');
     await expect(add({ add: ['types'] })).rejects.toThrow('target add: --add types: bash fills no types slot');
     await expect(add({ add: ['struct'] })).rejects.toThrow('struct is a repo-scope slot; scaffold it with checkride init --add struct');

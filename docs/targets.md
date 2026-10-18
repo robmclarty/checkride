@@ -27,15 +27,19 @@ the first that matches:
    when the repo also holds Go or Rust code that custom checks cover;
 2. a root `go.mod` or `go.work` picks `go`;
 3. a root `Cargo.toml` picks `rust`;
-4. anything else picks `ts`, where every slot stands down as it always has.
+4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
+5. anything else picks `ts`, where every slot stands down as it always has.
 
-A Go or Rust root runs its pack's checks under their bare slot names (`types`,
+A Go, Rust or Python root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
 pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
 spawn environment, and no check for a slot the pack doesn't fill. A top-level
 entry may still pick the tool, since there's only one pack to pick from, and
 each check's summary entry records its `pack`. A ts root records none, as
-before. A Python or Terraform root joins this list when its pack ships.
+before. The python pack's adapters arrive in a later release, so until then a
+Python root runs its custom checks and the repo-scope slots, under the python
+pack's pin chain and spawn environment. A Terraform root joins this list when
+its pack ships.
 
 In any repo without targets, the top-level `checks` are the implicit target's
 own entries, so they rank above the `packs.<pack>.checks` block of the root's
@@ -68,6 +72,7 @@ nothing changed under.
 | `bash` | a list of shell files under its root | shellcheck (`lint`) and shfmt (`format`, opt-in), through `mise` then `PATH` |
 | `go` | a Go module or workspace from its root | go build, gofmt (opt-in), golangci-lint or staticcheck, deadcode, go test and govulncheck (opt-in), with Go's downloads switched off |
 | `rust` | a Cargo package or workspace from its root | cargo check, rustfmt (opt-in), clippy, cargo-machete, nextest or cargo test, doctests (opt-in), cargo-deny (opt-in) and cargo-mutants (opt-in), offline, with the toolchain its `rust-toolchain.toml` names |
+| `python` | a Python project from its root | the target's own custom checks, with pip's and uv's downloads switched off and a tool `uv.lock` lists run from the project's `.venv`; the Python adapters arrive in a later release |
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`

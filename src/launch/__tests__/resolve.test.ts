@@ -381,8 +381,8 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
   test("a source the launcher can't read stops the walk, rather than pass over a pin it can't see", () =>
     withScratch(async (s) => {
       await s.tool('golangci-lint');
-      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: ['uv-lock', 'path'] }));
-      expect(refusalOf(launch)).toContain("through the `uv-lock` pin source, which this checkride can't read");
+      const launch = launchCheck('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], s.at('.', { pins: ['tf-version', 'path'] }));
+      expect(refusalOf(launch)).toContain("through the `tf-version` pin source, which this checkride can't read");
     }));
 
   test('a custom command spawns as written whatever the chain', () =>
@@ -758,6 +758,187 @@ const FAKE_MISE = [
 
 /** The override chain a bash target runs under `--pins`. */
 const OVERRIDE_CHAIN = ['override', 'mise', 'path'] as const;
+
+/** The python pack's chain (R6.1). */
+const PYTHON_CHAIN = ['uv-lock', 'mise', 'path'] as const;
+
+/** ruff as the python pack's tool row will describe it, swapped in for `TOOLS` until its adapters bring their own. */
+const RUFF: Tool = { bin: 'ruff', pypi: 'ruff', mise: ['ruff'], install: 'add ruff to a dependency group with `uv add --dev ruff`' };
+
+const RUN_RUFF = ['exec', 'ruff', 'check', '--output-format=json', '.'];
+
+/**
+ * A `uv.lock` as uv 0.13.1 writes one for a workspace whose root project
+ * keeps ruff and pytest in its `dev` group, trimmed to the tables the source
+ * reads and the ones around them: the root project's own sub-tables name
+ * ruff too, in arrays, and must not count as a second listing.
+ */
+const UV_LOCK_WITH_RUFF = [
+  'version = 1',
+  'revision = 5',
+  'requires-python = ">=3.12"',
+  '',
+  '[manifest]',
+  'members = [',
+  '    "a",',
+  '    "demo-proj",',
+  ']',
+  '',
+  '[[package]]',
+  'name = "demo-proj"',
+  'version = "0.1.0"',
+  'source = { virtual = "." }',
+  '',
+  '[package.dev-dependencies]',
+  'dev = [',
+  '    { name = "pytest" },',
+  '    { name = "ruff" },',
+  ']',
+  '',
+  '[package.metadata.requires-dev]',
+  'dev = [',
+  '    { name = "pytest" },',
+  '    { name = "ruff", specifier = "==0.14.0" },',
+  ']',
+  '',
+  '[[package]]',
+  'name = "ruff"',
+  'version = "0.14.0"',
+  'source = { registry = "https://pypi.org/simple" }',
+  'sdist = { url = "https://files.pythonhosted.org/packages/ruff-0.14.0.tar.gz", hash = "sha256:0", size = 1 }',
+  'wheels = [',
+  '    { url = "https://files.pythonhosted.org/packages/ruff-0.14.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:0", size = 1 },',
+  ']',
+  '',
+].join('\n');
+
+/** A project environment's executable named `name`, under `venv` in the scratch repo. */
+async function venvTool(s: Scratch, name: string, venv = '.venv'): Promise<void> {
+  await s.file(`${venv}/bin/${name}`, '#!/bin/sh\nexit 0\n');
+  await chmod(join(s.repo, venv, 'bin', name), 0o755);
+}
+
+describe('the uv-lock source (R6.1)', () => {
+  test('a tool uv.lock lists runs from the .venv beside it, recording the version it locks', () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF] }))).toEqual({
+        command: '.venv/bin/ruff',
+        args: ['check', '--output-format=json', '.'],
+        pin: { source: 'uv-lock', version: '0.14.0' },
+      });
+    }));
+
+  test("a workspace member runs the root's environment, where uv syncs it, named from the member's directory", () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await s.file('packages/a/pyproject.toml', '[project]\nname = "a"\n');
+      await venvTool(s, 'ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('packages/a', { pins: PYTHON_CHAIN, tools: [RUFF] }))).toMatchObject({
+        command: '../../.venv/bin/ruff',
+        pin: { source: 'uv-lock' },
+      });
+    }));
+
+  test('UV_PROJECT_ENVIRONMENT moves the environment, a relative one named from the lock, as uv names it', () =>
+    withScratch(async (s) => {
+      await s.file('py/uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'ruff', 'py/envs/dev');
+      const env = { PATH: s.bin, UV_PROJECT_ENVIRONMENT: 'envs/dev' };
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('py', { pins: PYTHON_CHAIN, tools: [RUFF], env }))).toMatchObject({
+        command: 'envs/dev/bin/ruff',
+        pin: { source: 'uv-lock' },
+      });
+    }));
+
+  test('an environment outside the repo is named absolutely', () =>
+    withScratch(async (s) => {
+      const outside = join(s.repo, '..', 'venv');
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await mkdir(join(outside, 'bin'), { recursive: true });
+      await writeFile(join(outside, 'bin', 'ruff'), '#!/bin/sh\nexit 0\n');
+      const env = { PATH: s.bin, UV_PROJECT_ENVIRONMENT: outside };
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF], env }))).toMatchObject({
+        command: join(outside, 'bin', 'ruff'),
+      });
+    }));
+
+  test("a missing environment fails naming uv sync, and never falls back to a ruff on PATH (F41)", () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await s.tool('ruff');
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF] }))) ?? '';
+      expect(refusal).toContain("the `lint` slot's `ruff` is locked in uv.lock, but the project environment it runs from doesn't exist yet");
+      expect(refusal).toContain('declared in: uv.lock (ruff 0.14.0)');
+      expect(refusal).toContain('looked for: .venv/bin/ruff');
+      expect(refusal).toContain('\n  uv sync\n');
+      expect(refusal).not.toContain('--all-groups');
+    }));
+
+  test('an environment without the tool fails naming uv sync, and says why a sync can leave a tool out', () =>
+    withScratch(async (s) => {
+      await s.file('py/uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'python', 'py/.venv');
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('py', { pins: PYTHON_CHAIN, tools: [RUFF] }))) ?? '';
+      expect(refusal).toContain("the `lint` slot's `ruff` is locked in py/uv.lock, but the project environment it runs from has no `ruff`");
+      expect(refusal).toContain('looked for: py/.venv/bin/ruff');
+      expect(refusal).toContain('\n  uv sync --directory py\n');
+      expect(refusal).toContain('`--group <name>`, `--all-groups` or\n`--all-packages`');
+    }));
+
+  test('a lock that does not list the tool passes it on down the chain', () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF.replaceAll('ruff', 'black'));
+      await s.tool('ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF] }))).toMatchObject({
+        command: 'ruff',
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('a tool TOOLS gives no PyPI package is never declared by the lock', () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'ruff');
+      await s.tool('ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [{ bin: 'ruff', install: 'pip install ruff' }] }))).toMatchObject({
+        command: 'ruff',
+        pin: { source: 'path' },
+      });
+    }));
+
+  test('the uv.lock nearest the check declares, and one above the repo root declares nothing', () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await s.file('py/uv.lock', UV_LOCK_WITH_RUFF.replaceAll('ruff', 'black'));
+      await writeFile(join(s.repo, '..', 'uv.lock'), UV_LOCK_WITH_RUFF);
+      await s.tool('ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('py', { pins: PYTHON_CHAIN, tools: [RUFF] }))).toMatchObject({ pin: { source: 'path' } });
+      await rm(join(s.repo, 'uv.lock'));
+      await rm(join(s.repo, 'py', 'uv.lock'));
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF] }))).toMatchObject({ pin: { source: 'path' } });
+    }));
+
+  test('under requirePins, a locked tool runs, since the lock pins it', () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'ruff');
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF], requirePins: true }))).toMatchObject({
+        pin: { source: 'uv-lock' },
+      });
+    }));
+
+  test("the python pack's variables join the spawn", () =>
+    withScratch(async (s) => {
+      await s.file('uv.lock', UV_LOCK_WITH_RUFF);
+      await venvTool(s, 'ruff');
+      const packEnv = PACKS.python.env;
+      expect(launchCheck('lint', 'pnpm', RUN_RUFF, s.at('.', { pins: PYTHON_CHAIN, tools: [RUFF], packEnv }))).toMatchObject({
+        env: { PYTHONDONTWRITEBYTECODE: '1', PIP_NO_INDEX: '1', UV_OFFLINE: '1' },
+      });
+    }));
+});
 
 describe('the override source (R13.3)', () => {
   test('heads the chain: a tool the --pins file names runs as that version through mise, over the repo’s own pin', () =>

@@ -1,6 +1,6 @@
 /**
  * Packs module — the language packs and the tools they run, as plain data:
- * each pack's adapter rows in `ts.ts`, `repo.ts`, `bash.ts`, `go.ts` and `rust.ts`, the registry by name in
+ * each pack's adapter rows in `ts.ts`, `repo.ts`, `bash.ts`, `go.ts`, `rust.ts` and `python.ts`, the registry by name in
  * `packs.ts`, and every external tool once in `tools.ts`, with the
  * `--static-only` classification those rows feed in `static.ts`. This barrel is the
  * module's only public surface: siblings import from `../packs/index.js`, never

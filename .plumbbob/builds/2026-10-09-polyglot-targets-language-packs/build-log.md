@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 78 — feat(run): let --discover stand down where the config declares targets
+**Current step:** 58 — feat(launch): resolve Python tools from uv.lock and the project venv
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -83,7 +83,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 56. feat(select): keep only checks that need no install with --static-only
 - ☑ 57. docs(consumers): document running checkride from outside a repo
 - ☑ 77. test(mutation): let a full stryker run start from its sandbox
-- ☐ 78. feat(run): let --discover stand down where the config declares targets
+- ☑ 78. feat(run): let --discover stand down where the config declares targets
 - ☐ 58. feat(launch): resolve Python tools from uv.lock and the project venv
 - ☐ 59. feat(packs): add the python pack
 - ☐ 60. feat(findings): parse ruff, mypy and basedpyright output
@@ -161,9 +161,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] doctor takes --static-only per R7.2, but step 56 has it exit 2 like --pins: its rows would need withStaticOnly's causes and the every-manager install pre-flight to say which checks a static run keeps
 - [x] R13.6's recipes pass --discover unconditionally, but F37 makes --discover exit 2 on a repo whose config declares targets, so docs/consumers.md conditions it on the config; decide whether --discover should instead stand down quietly where targets exist
 - [x] R11.4 proposes a bash target only for shell files outside every other target, so a repo with a root package.json gets no bash target under --discover or init and its scripts go unlinted (polyglot-stack without its config shows it)
-- [ ] a full pnpm mutation now takes about 3h on 8 cores: 1026 static mutants (8%) each rerun the whole 60s suite and take about half of it; ignoreStatic would cut that but drops them from C12's score, so it's a call on what the floor measures
-- [ ] orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan after a plain vitest run on 2026-10-17 (killed by hand); find which path skips the SIGKILL
-- [ ] the first full mutation run since step 17 scored 83.13% against break 68, and stryker.config.mjs's comment still cites 73.2%: decide whether to ratchet break toward ~78 per that comment's rule, which C12 (quality-floors) pins at 68
+- [x] a full pnpm mutation now takes about 3h on 8 cores: 1026 static mutants (8%) each rerun the whole 60s suite and take about half of it; ignoreStatic would cut that but drops them from C12's score, so it's a call on what the floor measures
+- [x] orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan after a plain vitest run on 2026-10-17 (killed by hand); find which path skips the SIGKILL
+- [x] the first full mutation run since step 17 scored 83.13% against break 68, and stryker.config.mjs's comment still cites 73.2%: decide whether to ratchet break toward ~78 per that comment's rule, which C12 (quality-floors) pins at 68
+- [ ] step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH), so basedpyright finds the project environment and a test's own python subprocess runs the venv's interpreter; verify against the pinned basedpyright and pytest
+- [ ] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -243,6 +245,10 @@ Harvest results this boundary:
 - After step 57, the maintainer's call on the `--discover` item above: let it stand down where the config declares targets → folded into `intent.md` as D73 (discover-stands-down), which amends R7.1, R13.2 and F37, and as step 78, ordered after step 77, both before the Phase 9 release.
 - After step 57: the Ranges section's two step 53 leans, which step 53 applied inside the range the human granted → folded into `intent.md` as D69 (config-error-file) and D70 (implicit-top-over-packs), which amends R3; the Ranges section marks both folded.
 - After step 57: the calls steps 53 to 56 made where R13 was silent (not parked; recorded in their checkpoint bodies and `docs/contract.md`) → **blocker**, handled now: folded into `intent.md` as D71 (consumer-calls), which amends R13.1, R13.3 and R13.4 to what shipped (steps 72 and 73 build the docs from R13).
+
+- After step 78: "a full pnpm mutation now takes about 3h on 8 cores..." → **tangent**, deferred to step 74 (the run took 240 minutes, about half of it the 1026 static mutants; mutation is an opt-in slot, and step 74's opt-in audit runs it after Phases 10 to 12 add their modules, so it decides there between `ignoreStatic`, which drops static mutants from C12 (quality-floors)'s score, and leaving the static-heavy data modules out of `mutate`).
+- After step 78: "orchestrator.test.ts's killLiveChecks 'escalates to SIGKILL for a check that ignores SIGTERM' left a live stubborn.js orphan..." → **tangent**, killed (no orphan came back across the 12744-mutant full run and three full `pnpm check` runs, no step's seam holds the test, and an orphan costs one idle process; re-park it with the `ps` line and the temp dir if it recurs).
+- After step 78: "the first full mutation run since step 17 scored 83.13% against break 68..." → **tangent**, deferred to step 74 (554 of the detected results were load-dependent timeouts, Phases 10 to 12 add modules before step 74 re-measures, and moving break past 68 amends C12 (quality-floors), a call worth making against the close-out score; step 74 also refreshes the comment's stale 73.2%).
 
 ## Log
 
@@ -2405,3 +2411,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-17 — step 56 checkpointed · e82106524 — feat(select): keep only checks that need no install with --static-only (1 drift, 15m)
 - 2026-10-17 — step 57 checkpointed · 8e6db2c6b — docs(consumers): document running checkride from outside a repo (1 drift, 10m)
 - 2026-10-18 — step 77 checkpointed · a029ea8ad — test(mutation): let a full stryker run start from its sandbox (1 drift, 329m)
+- 2026-10-18 — step 78 checkpointed · 899b00435 — feat(run): let --discover stand down where the config declares targets (1 drift, 3m)
