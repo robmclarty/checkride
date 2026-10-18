@@ -1,0 +1,49 @@
+{
+  "description": "Two Terraform root modules and a shared modules target on the terraform pack, OpenTofu pinned by .opentofu-version, each S20 plant failing the check it names.",
+  "args": [],
+  "requires": ["tofu", "tflint"],
+  "setup": [
+    ["tofu", "-chdir=envs/staging", "init", "-backend=false", "-input=false"],
+    ["tofu", "-chdir=envs/production", "init", "-backend=false", "-input=false"]
+  ],
+  "exitCode": 0,
+  "checks": {
+    "staging:types": { "ok": true, "skipped": false, "description": "terraform validate: Terraform configuration" },
+    "production:types": { "ok": true, "skipped": false },
+    "modules:types": { "ok": true, "skipped": true, "reason": "no .terraform.lock.hcl marks a root module here" },
+    "staging:lint": { "ok": true, "skipped": false, "description": "tflint: Terraform lint" },
+    "production:lint": { "ok": true, "skipped": false },
+    "modules:lint": { "ok": true, "skipped": false },
+    "staging:format": { "ok": true, "skipped": false, "description": "terraform fmt: Terraform formatting" },
+    "production:format": { "ok": true, "skipped": false },
+    "modules:format": { "ok": true, "skipped": false },
+    "links": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "an unformatted file",
+      "edits": [{ "file": "envs/staging/main.tf", "find": "  prefix = module.naming.prefix", "replace": "  prefix=module.naming.prefix" }],
+      "exitCode": 1,
+      "failing": ["staging:format"]
+    },
+    {
+      "name": "a variable nothing reads",
+      "edits": [{ "file": "modules/naming/unused.tf", "contents": "variable \"region\" {\n  description = \"The region a name belongs to.\"\n  type        = string\n}\n" }],
+      "exitCode": 1,
+      "failing": ["modules:lint"]
+    },
+    {
+      "name": "a reference to a resource that isn't declared",
+      "edits": [{ "file": "envs/production/main.tf", "find": "value       = random_pet.bucket.id", "replace": "value       = random_pet.missing.id" }],
+      "exitCode": 1,
+      "failing": ["production:types"]
+    },
+    {
+      "name": "a .tf directory no terraform target claims",
+      "edits": [{ "file": "scratch/main.tf", "contents": "locals {\n  owner = \"platform\"\n}\n" }],
+      "exitCode": 1,
+      "failing": ["unclaimed"]
+    }
+  ]
+}

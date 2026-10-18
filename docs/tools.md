@@ -331,8 +331,9 @@ adopting checkride never fails a repo on formatting it never signed up for.
 ### Tuning the links check
 
 The built-in `links` check walks every `*.md` under the repo (minus a built-in
-exclude set — `node_modules`, `dist`, `.git`, the tool caches, and any
-directory named `fixtures`) and fails on any relative Markdown link whose
+exclude set — `node_modules`, `dist`, `.git`, the tool caches, the
+`.terraform` directories `terraform init` fills, and any directory named
+`fixtures`) and fails on any relative Markdown link whose
 target doesn't exist on disk. Links inside fenced code blocks and inline code
 spans are skipped — a `[text](target)` shown as an example isn't a link to
 verify. Two config knobs adapt it to repos that would otherwise

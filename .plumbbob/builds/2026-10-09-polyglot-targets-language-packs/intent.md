@@ -925,7 +925,7 @@ reference rules and porting trap apply as written there.
     - seam: `src/packs/terraform.ts`, `src/packs/tools.ts`, `src/targets/`,
       `templates/terraform/`
     - model: opus (tflint's and trivy's flags and exit codes must be verified at the pinned versions)
-64. [ ] feat(findings): parse tflint, terraform validate and trivy output, **done when:** all three parse real fixtures; tflint feeds the baseline, and validate and trivy don't
+64. [x] feat(findings): parse tflint, terraform validate and trivy output, **done when:** all three parse real fixtures; tflint feeds the baseline, and validate and trivy don't
     - seam: `src/findings/parsers/`, `src/__tests__/fixtures/`
     - model: sonnet
 65. [ ] test(examples): add terraform-roots with plants, **done when:** `examples/terraform-roots` (two root modules and a shared `modules/` target, with providers its setup can fetch) is green, and an unformatted file, a tflint violation, an invalid reference and an unclaimed `.tf` directory each fail the expected check (S20); the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))

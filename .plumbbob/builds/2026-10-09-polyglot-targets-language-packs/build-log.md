@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 64 — feat(findings): parse tflint, terraform validate and trivy output
+**Current step:** 65 — test(examples): add terraform-roots with plants
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -90,7 +90,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 61. test(examples): move examples/polyglot onto the python pack
 - ☑ 62. feat(launch): pin terraform or tofu by version file and harden its env
 - ☑ 63. feat(packs): add the terraform pack
-- ☐ 64. feat(findings): parse tflint, terraform validate and trivy output
+- ☑ 64. feat(findings): parse tflint, terraform validate and trivy output
 - ☐ 65. test(examples): add terraform-roots with plants
 - ☐ 66. feat(schema): validate data files against JSON Schemas
 - ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
@@ -171,6 +171,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [ ] R4 and R5.8 read as step 63 shipped them: Adapter gains onlyWith (validate stands down without a lock file, even when named) and setup (fail naming init -backend=false, honoring TF_DATA_DIR, as tofu where the repo runs OpenTofu); trivy-config adds --cache-dir {out}/trivy-cache so its embedded checks always run; tflint's default minimum failure severity fails every issue (tflint 0.64.0)
 - [ ] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
 - [ ] R12.3 and R12.4 read as step 64 shipped them: tflint's default minimum failure severity is notice (every issue gates, none under --force), and a nested-module path tflint climbs to / through a symlinked PWD is read as its real path from repoRoot; a trivy finding gates only under a nonzero --exit-code (trivy 0.76.0 exits 0 on findings by default) and leaves gates out under a wrapper; a validate finding's message is its summary and detail, and a rangeless one names no file
+- [ ] links walks the filesystem, not git, and its built-in excludes skip node_modules and now .terraform, but not vendor/, .venv/ or target/, which unclaimed's NEVER_READ skips; a Go vendor/ or a .venv holding a package README with relative links fails links falsely
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2575,3 +2576,51 @@ folder, so it rides the branch into the PR.)*
   **5.** Seam strays, all needed for the done-when
 
   Besides the seam, the step touched `src/adapters.ts` (the two fields), `src/config.ts` (the stand-down), `src/orchestrator/spawn.ts` and `src/launch/resolve.ts` (the F42 pre-flight and `commandBin`), `src/packs/static.ts`, `src/init.ts` (the `.tflint.hcl` scaffold for `--add lint`), and the CLI help, README, CHANGELOG, `docs/packs.md`, `docs/targets.md` and `docs/contract.md` (C11). Two parks went to the build log: the R4/R5.8 text to fold at harvest, and an offline hint for a stale `.terraform/`.
+
+- 2026-10-18 — step 64 checkpointed · 00202d44c — feat(findings): parse tflint, terraform validate and trivy output (1 drift, 10m)
+
+  **Summary**: Three parsers join `src/findings/parsers/`, each proven against artifacts this checkride wrote from a scratch repo at OpenTofu 1.13.1, tflint 0.64.0 and trivy 0.76.0: tflint keys the baseline, and validate and trivy serve `checkride/findings` only.
+
+  1. tflint keys the baseline, gating by its verified default
+  2. tflint's symlinked-PWD paths are recovered
+  3. validate and trivy are parse-only, with two gating calls
+  4. Contract surfaces follow (C11)
+
+  **Readout**: Step 64 - feat(findings): parse tflint, terraform validate and trivy output
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    4 of 4 honored
+  constraints  12 of 12 honored
+  seam         strayed: 7 paths outside the seam
+               - CHANGELOG.md
+               - docs/contract.md
+               - docs/packs.md
+               - src/findings/__tests__/pack-parsers.test.ts
+               - src/findings/registry.ts
+               - test/contract/baseline.contract.test.ts
+               - test/contract/exports.contract.test.ts
+  diff         +1216 -10 across 17 files
+  spent        10 min · 40s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it and go on to step 65, the terraform-roots example and the phase's full e2e run. The parsers are pinned to real output and the gate is green.
+
+  **1.** tflint keys the baseline, gating by its verified default
+
+  Each issue keys as `<file>:<rule>:<message>` and gates at or above the argv's `--minimum-failure-severity`, which at 0.64.0 defaults to every issue, a notice (`info` in the JSON) included; `--force` gates none, and a wrapper counts as the default. A report with an entry in `errors`, as on a plugin `tflint --init` never installed, is null, so the ratchet keeps its keys.
+
+  **2.** tflint's symlinked-PWD paths are recovered
+
+  Where `PWD` reaches the working directory through a symlink, which is the case for an implicit-mode run of a repo under macOS's `/tmp`, tflint names a nested module's file `../../../private/tmp/...`. It climbs to `/` and back down the real path. Probes showed this comes from Go's `Getwd` trusting `PWD`. A target run's `PWD` names another directory, so its paths stay clean. The parser reads such a name from `/` and rebases it through `repoRoot` only when it lands inside the repo, so a legitimate `../shared/a.tf` keeps its own path. Both fixtures (`findings-tflint.json` and `findings-tflint-symlinked.json`) key identically.
+
+  **3.** validate and trivy are parse-only, with two gating calls
+
+  validate's message is its summary and detail joined, since the summary alone ("Reference to undeclared resource") doesn't say which; an error gates, a warning (captured as "Quoted references are deprecated") doesn't, and the rangeless "Missing required provider" stays a gating finding with no file, as staticcheck's `compile` does. trivy keys on its check ID at the cause's start line and skips a `PASS`. R12.3 says a trivy finding gates when `--severity` lists its level. I added that it gates only under a nonzero `--exit-code`, because trivy 0.76.0 exits 0 on any finding without one. A wrapper leaves `gates` out, per D30 (gates-not-level).
+
+  **4.** Contract surfaces follow (C11)
+
+  `isParseable` grows by three, `baseline.contract.test.ts` and `exports.contract.test.ts` hold the new keys and parsers, and `docs/contract.md`, `docs/packs.md` and CHANGELOG say so. The R12.3 and R12.4 readings went to a park for the harvest to fold. Two fallow health findings (the tflint and trivy `parse` bodies) were cleared by splitting each into per-item helpers.

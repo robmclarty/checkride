@@ -1,0 +1,13 @@
+{
+  "targets": {
+    "staging": { "lang": "terraform", "root": "envs/staging" },
+    "production": { "lang": "terraform", "root": "envs/production" },
+    "modules": { "lang": "terraform", "root": "modules" }
+  },
+  "packs": {
+    "terraform": {
+      "checks": { "format": "terraform-fmt" },
+      "note": "Naming format here opts every terraform target into terraform fmt."
+    }
+  }
+}

@@ -67,6 +67,7 @@ test('an external host that looks like a path is still skipped', async () => {
 
 test('ignores markdown under excluded directories', async () => {
   await write('node_modules/pkg/README.md', '[broken](./nope.md)\n');
+  await write('envs/prod/.terraform/providers/registry.opentofu.org/hashicorp/random/3.9.1/darwin_arm64/README.md', '[resource](docs/resources/id.md)\n');
   await write('README.md', '# clean\n');
   const out = await checkLinks(dir);
   expect(out.ok).toBe(true);

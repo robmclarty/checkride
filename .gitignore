@@ -22,3 +22,7 @@ examples/*/pnpm-lock.yaml
 # Bytecode a Python tool writes when run by hand in an example, and the
 # frozen 0.13 polyglot subject's compileall check writes in its copy.
 __pycache__/
+
+# The providers and modules `tofu init` installs when a Terraform example is
+# run by hand; its committed .terraform.lock.hcl pins what they are.
+.terraform/

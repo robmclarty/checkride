@@ -34,9 +34,10 @@ const BIG = { maxBuffer: 32 * 1024 * 1024 };
 /**
  * Artifacts of a previous local run; never copied into the scratch dir. A
  * Python example's `.venv` is among them: its scripts name the interpreter by
- * the path it was synced at, so each copy runs its own `uv sync`.
+ * the path it was synced at, so each copy runs its own `uv sync`. So is a
+ * Terraform example's `.terraform`, which each copy's own `tofu init` fills.
  */
-const NOT_COPIED = /(?:^|[\\/])(?:node_modules|\.check|\.venv|__pycache__|\.mypy_cache|\.pytest_cache|\.ruff_cache)(?:[\\/]|$)/;
+const NOT_COPIED = /(?:^|[\\/])(?:node_modules|\.check|\.venv|__pycache__|\.mypy_cache|\.pytest_cache|\.ruff_cache|\.terraform)(?:[\\/]|$)/;
 
 /** The subset of `.check/summary.json` these assertions read. */
 type SummaryCheck = {

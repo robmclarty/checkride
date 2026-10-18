@@ -555,6 +555,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`examples/terraform-roots` shows the terraform pack.** Two root modules,
+  `envs/staging` and `envs/production`, each commit the `.terraform.lock.hcl`
+  their `tofu init -backend=false` wrote for the `hashicorp/random` provider,
+  and a `modules` target holds the child module both call. A root
+  `.opentofu-version` pins OpenTofu 1.13.1 for all three, a `packs` block opts
+  every target into `terraform fmt`, each target's `.tflint.hcl` detects
+  tflint, and `modules:types` stands down for want of a lock file. Its
+  `expected.json` runs both inits as setup and plants an unformatted line, an
+  unused variable, an undeclared reference and an unclaimed `.tf` directory,
+  each failing the check it names (#7).
 - **`examples/polyglot` is now `examples/python-project`, on the python
   pack.** It drops its `package.json` and custom Python checks: ruff, mypy and
   pytest are detected from `pyproject.toml` and run from the `.venv` that
@@ -648,6 +658,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`links` no longer reads the providers `terraform init` installs.** It
+  walks the filesystem, not git, so in any Terraform repo where `init` had
+  run, it read the README each provider package unpacks under `.terraform/`
+  and failed on that README's links into docs the package doesn't ship.
+  `.terraform` joins `node_modules` in its built-in excludes.
 - **A new lint or struct warning no longer keeps a baselined slot red.**
   The baseline now keys only the oxlint and ast-grep findings that can fail
   their check, as it already did for vale: `error` severity, plus warnings
