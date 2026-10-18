@@ -76,6 +76,29 @@ describe('findUnclaimed', () => {
     expect(await findUnclaimed(repo, { targets: [{ name: 'infra', pack: 'terraform', root: 'infra' }], ignore: ['svc', 'py', 'crates'] })).toEqual([]);
   });
 
+  // F43: a .tf directory outside every terraform target fails and suggests one.
+  test('the .tf files of one directory share one suggested target, and its remedy prints once, after them all', async () => {
+    await put('envs/prod/.terraform.lock.hcl', 'envs/prod/main.tf', 'modules/vpc/main.tf', 'modules/vpc/sub/x.tf', 'modules/vpc/variables.tf');
+    const prod: Claimant = { name: 'prod', pack: 'terraform', root: 'envs/prod' };
+    const found = await findUnclaimed(repo, { targets: [prod] });
+    expect(found).toEqual([
+      { path: 'modules/vpc/main.tf', kind: 'terraform', suggest: { name: 'vpc', lang: 'terraform', root: 'modules/vpc' } },
+      { path: 'modules/vpc/sub/x.tf', kind: 'terraform', suggest: { name: 'sub', lang: 'terraform', root: 'modules/vpc/sub' } },
+      { path: 'modules/vpc/variables.tf', kind: 'terraform', suggest: { name: 'vpc', lang: 'terraform', root: 'modules/vpc' } },
+    ]);
+    const red = await checkUnclaimed(repo, { targets: [prod] });
+    expect(red).toMatchObject({ ok: false, exit_code: 1 });
+    expect(red.stderr.split('\n')).toEqual([
+      'unclaimed: modules/vpc/main.tf marks terraform code that no terraform target checks.',
+      'unclaimed: modules/vpc/variables.tf marks terraform code that no terraform target checks.',
+      '  claim it: "vpc": { "lang": "terraform", "root": "modules/vpc" } under targets, or list it in unclaimed.ignore',
+      'unclaimed: modules/vpc/sub/x.tf marks terraform code that no terraform target checks.',
+      '  claim it: "sub": { "lang": "terraform", "root": "modules/vpc/sub" } under targets, or list it in unclaimed.ignore',
+      '',
+    ]);
+    expect(await findUnclaimed(repo, { targets: [prod, { name: 'modules', pack: 'terraform', root: 'modules' }] })).toEqual([]);
+  });
+
   test('suggests a target for the markers of a pack that ships', async () => {
     await put('svc/go.mod');
     const red = await checkUnclaimed(repo, { targets: [root] });

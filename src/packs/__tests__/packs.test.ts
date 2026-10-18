@@ -251,6 +251,9 @@ describe('the python pack (R5.7)', () => {
   });
 });
 
+/** The terraform pack's row named `name`. */
+const terraformRow = (name: string): Adapter | undefined => PACKS.terraform.adapters.find((a) => a.name === name);
+
 describe('the terraform pack (R5.8)', () => {
   test('is marked by a lock file or any .tf file, pins through its version file, then mise, then PATH, and never prompts or calls home', () => {
     expect(PACKS.terraform.markers).toEqual(['.terraform.lock.hcl', '*.tf']);
@@ -268,5 +271,45 @@ describe('the terraform pack (R5.8)', () => {
   test('runs terraform or tofu as toolchains, each declared in mise by its registry ids', () => {
     expect(TOOLCHAINS.find((t) => t.bin === 'terraform')?.mise).toEqual(['terraform', 'aqua:hashicorp/terraform']);
     expect(TOOLCHAINS.find((t) => t.bin === 'tofu')?.mise).toEqual(['opentofu', 'aqua:opentofu/opentofu']);
+  });
+
+  test('fills each slot R5.8 names and captures each tool in the form it prints', () => {
+    expect(PACKS.terraform.adapters.map((a) => [a.slot, a.name, a.command, a.outputFile])).toEqual([
+      ['format', 'terraform-fmt', 'terraform', null],
+      ['lint', 'tflint', 'pnpm', 'lint.json'],
+      ['types', 'terraform-validate', 'terraform', 'types.json'],
+      ['security', 'trivy-config', 'pnpm', 'security.json'],
+    ]);
+    const optIn = new Map(SLOTS.map((s) => [s.name, s.optIn === true]));
+    expect(PACKS.terraform.adapters.filter((a) => optIn.get(a.slot)).map((a) => a.name)).toEqual(['terraform-fmt', 'trivy-config']);
+  });
+
+  test('runs each tool with the flags verified at the pinned versions, trivy on the checks it ships with', () => {
+    expect(terraformRow('terraform-fmt')?.args).toEqual(['fmt', '-check', '-recursive', '-diff']);
+    expect(terraformRow('terraform-fmt')?.fixArgs).toEqual(['fmt', '-recursive']);
+    expect(terraformRow('tflint')?.args).toEqual(['exec', 'tflint', '--recursive', '--format=json']);
+    expect(terraformRow('terraform-validate')?.args).toEqual(['validate', '-json']);
+    expect(terraformRow('trivy-config')?.args).toEqual([
+      'exec', 'trivy', 'config', '--format', 'json', '--exit-code', '1', '--skip-check-update', '--cache-dir', '{out}/trivy-cache', '.',
+    ]);
+  });
+
+  test('formats every target, lints where .tflint.hcl or a pin says to, scans where a pin does, and validates only a root module', () => {
+    expect(terraformRow('terraform-fmt')).toMatchObject({ detect: [] });
+    expect(terraformRow('terraform-fmt')?.detectPin).toBeUndefined();
+    expect(terraformRow('tflint')).toMatchObject({ detect: ['.tflint.hcl'], detectPin: 'tflint' });
+    expect(terraformRow('trivy-config')).toMatchObject({ detect: [], detectPin: 'trivy' });
+    expect(terraformRow('terraform-validate')).toMatchObject({
+      detect: ['.terraform.lock.hcl'],
+      onlyWith: { file: '.terraform.lock.hcl', skip: 'no .terraform.lock.hcl marks a root module here' },
+      setup: { dir: '.terraform', args: ['init', '-backend=false'], variable: 'TF_DATA_DIR' },
+    });
+  });
+
+  test('marks all but validate static, runs every check offline, and pins tflint and trivy through mise', () => {
+    expect(PACKS.terraform.adapters.filter((a) => a.static === true).map((a) => a.name)).toEqual(['terraform-fmt', 'tflint', 'trivy-config']);
+    expect(PACKS.terraform.adapters.filter((a) => a.network === true)).toEqual([]);
+    expect(toolRow('tflint')?.mise).toEqual(['tflint', 'aqua:terraform-linters/tflint']);
+    expect(toolRow('trivy')?.mise).toEqual(['trivy', 'aqua:aquasecurity/trivy']);
   });
 });

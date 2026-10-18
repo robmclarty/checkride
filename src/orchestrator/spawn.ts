@@ -7,15 +7,15 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { cpus } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
 import { CHECK_DIR } from '../artifacts/index.js';
 import { DEFAULT_BASE } from '../git.js';
 import type { LaunchContext, Spawn } from '../launch/index.js';
-import { launchCheck } from '../launch/index.js';
+import { commandBin, launchCheck } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
@@ -369,13 +369,33 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
 }
 
 /**
+ * Fail a check whose adapter reads a directory a setup step writes, such as
+ * the `.terraform/` that `terraform init -backend=false` fills, where that
+ * directory is missing, naming the step rather than spawning a tool that would
+ * report every provider missing and point at a step that reaches the network.
+ * The step is run with the CLI the check would, so it reads `tofu init` where
+ * the repo runs OpenTofu. Checks never run it themselves (R6.4). `null` means
+ * the check may spawn.
+ */
+function missingSetupOutcome(adapter: Adapter, ctx: Parameters<CheckRunner>[1]): CheckOutcome | null {
+  const setup = adapter.setup;
+  if (setup === undefined) return null;
+  const moved = setup.variable === undefined ? undefined : process.env[setup.variable];
+  const dir = moved !== undefined && moved !== '' ? moved : setup.dir;
+  if (existsSync(resolvePath(ctx.cwd, dir))) return null;
+  const step = [commandBin(adapter.command, launchContext(ctx)), ...setup.args].join(' ');
+  return refusedOutcome(`checkride: ${adapter.name} reads ${dir}/, which \`${step}\` writes, and checks never run it: run \`${step}\` here first.\n`, ctx);
+}
+
+/**
  * The runner `runChecks` uses when none is injected: the `links` built-in
  * in-process, the other built-ins through `runBuiltin`, and everything else
  * spawned as the launcher resolves it through the check's pin chain, unless a
- * pre-flight refuses to spawn it at all: `missingExemplarsOutcome`, or the
+ * pre-flight refuses to spawn it at all: `missingExemplarsOutcome`, the
  * launcher's own refusal (a tool the project never installed, a pin whose
- * source can't run it, an unpinned tool under `requirePins`). Only that last
- * path spawns the check's own tool, so only it records `argv` and the pin.
+ * source can't run it, an unpinned tool under `requirePins`), or
+ * `missingSetupOutcome`. Only the path past all three spawns the check's own
+ * tool, so only it records `argv` and the pin.
  */
 export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
@@ -388,5 +408,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (missingExemplars) return Promise.resolve(missingExemplars);
   const launch = launchCheck(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
   if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));
+  const missingSetup = missingSetupOutcome(adapter, ctx);
+  if (missingSetup) return Promise.resolve(missingSetup);
   return spawnTool(launch, ctx.cwd, timeout);
 };

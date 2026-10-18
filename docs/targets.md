@@ -37,9 +37,7 @@ pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
 spawn environment, and no check for a slot the pack doesn't fill. A top-level
 entry may still pick the tool, since there's only one pack to pick from, and
 each check's summary entry records its `pack`. A ts root records none, as
-before. The terraform pack's adapters arrive in a later release, so until then
-a Terraform root runs its custom checks and the repo-scope slots, under the
-terraform pack's pin chain and spawn environment.
+before.
 
 In any repo without targets, the top-level `checks` are the implicit target's
 own entries, so they rank above the `packs.<pack>.checks` block of the root's
@@ -73,7 +71,7 @@ nothing changed under.
 | `go` | a Go module or workspace from its root | go build, gofmt (opt-in), golangci-lint or staticcheck, deadcode, go test and govulncheck (opt-in), with Go's downloads switched off |
 | `rust` | a Cargo package or workspace from its root | cargo check, rustfmt (opt-in), clippy, cargo-machete, nextest or cargo test, doctests (opt-in), cargo-deny (opt-in) and cargo-mutants (opt-in), offline, with the toolchain its `rust-toolchain.toml` names |
 | `python` | a Python project from its root | ruff (`lint`, and `format`, opt-in), mypy or basedpyright and pytest, each from the project's `.venv` when `uv.lock` lists it, with pip's and uv's downloads switched off |
-| `terraform` | a Terraform or OpenTofu root module from its root | the target's own custom checks, with `terraform` or `tofu` as its version file declares, at the release that file names, and no prompt or call home; the Terraform adapters arrive in a later release |
+| `terraform` | a Terraform or OpenTofu module from its root | terraform fmt (opt-in), tflint, terraform validate where a `.terraform.lock.hcl` marks a root module, and trivy (opt-in), with `terraform` or `tofu` as its version file declares, at the release that file names, and no prompt or call home |
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`
@@ -100,8 +98,8 @@ installs tools, above ts targets in their own directories, goes in
   pack, proposes the targets its files suggest, and writes them when there's
   more than the one project at the root. Where that pack isn't `ts`, `--add`
   takes `docs`, `spell` and `prose`, and the pack's own blessed configs where
-  it has them (python's `lint`, `format`, `types` and `test`), and exits 2 on
-  a slot whose blessed config is the ts pack's.
+  it has them (python's `lint`, `format`, `types` and `test`, terraform's
+  `lint`), and exits 2 on a slot whose blessed config is the ts pack's.
 - `checkride --discover` checks the targets `init` would propose without
   writing them: the top-level entries and baseline keys move to the target at
   the root, in memory. A repo whose config already declares targets checks
@@ -109,7 +107,9 @@ installs tools, above ts targets in their own directories, goes in
   `go.mod` outside one, a rust target for each top-most `[workspace]`
   manifest and each `[package]` one outside it, and a python target for each
   top-most `pyproject.toml`, `setup.cfg` or `setup.py` directory, which
-  claims the ones under it, beside the ts and bash rules.
+  claims the ones under it, a terraform target for each top-most
+  `.terraform.lock.hcl` directory and then each top-most directory of `.tf`
+  files none of those claims, beside the ts and bash rules.
 - `checkride doctor` names the mode and the implicit pack, lists the targets,
   and reports each check's pin source and the markers no target claims.
   `doctor --discover` shows what `--discover` would check.

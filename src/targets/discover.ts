@@ -15,6 +15,10 @@
  * - Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
  *   `setup.py` proposes a `python` target, which claims the nested ones, a uv
  *   workspace's members among them.
+ * - Each top-most directory holding a `.terraform.lock.hcl`, the mark of a
+ *   root module, proposes a `terraform` target, which claims the `.tf`
+ *   directories under it, and each top-most directory holding `.tf` files that
+ *   none of those claims proposes one more.
  * - Shell files R11.2's defaults keep, outside every other proposed target's
  *   root, propose one `bash` target at the deepest directory holding them
  *   all, named `scripts` when that's `scripts` and `shell` otherwise.
@@ -40,7 +44,7 @@ import { readGoWorkspace } from '../launch/index.js';
 import { PACKS } from '../packs/index.js';
 import { liftDiscovered } from './add.js';
 import { isDefaultShellFile } from './files.js';
-import { isWithin, markerAt, numbered, repoFiles, slugName } from './markers.js';
+import { isWithin, markerAt, markerKind, numbered, repoFiles, slugName } from './markers.js';
 import type { Target } from './resolve.js';
 import { configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
 
@@ -49,6 +53,9 @@ export type ProposedTarget = { name: string; lang: string; root: string };
 
 /** Names a proposed target can't take: the slots', and the ones V2 reserves. */
 const TAKEN: readonly string[] = [...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, 'doc-snippets'];
+
+/** The file that marks a Terraform root module, the directory `terraform init` runs in. */
+const TERRAFORM_LOCK = '.terraform.lock.hcl';
 
 /** The ts roots: the repo root when it holds a `package.json` or `pnpm-workspace.yaml`, else each top-most `package.json` directory. */
 function tsRoots(files: readonly string[]): string[] {
@@ -118,6 +125,17 @@ function pythonRoots(files: readonly string[]): string[] {
   return unclaimedRoots([], [...new Set(dirs)].toSorted((a, b) => depthOf(a) - depthOf(b)));
 }
 
+/**
+ * The terraform roots: each top-most directory a `.terraform.lock.hcl` marks
+ * as a root module, then each top-most directory holding a `.tf` file that
+ * none of them holds, such as a shared modules directory.
+ */
+function terraformRoots(files: readonly string[]): string[] {
+  const marked = files.filter((f) => markerKind(f) === PACKS.terraform.name).map((f) => posix.dirname(f));
+  const clusters = [...new Set(marked)].toSorted((a, b) => depthOf(a) - depthOf(b));
+  return unclaimedRoots(unclaimedRoots([], dirsOf(files, TERRAFORM_LOCK)), clusters);
+}
+
 /** The deepest directory every one of `dirs` lies under, `.` for the root. */
 function commonAncestor(dirs: readonly string[]): string {
   const [first = [], ...rest] = dirs.map((d) => (d === '.' ? [] : d.split('/')));
@@ -143,14 +161,15 @@ function named(targets: readonly { lang: string; root: string }[]): ProposedTarg
   });
 }
 
-/** The targets the repo at `repo` proposes (R11.4): ts, then go, then rust, then python, each in root order, then bash. */
+/** The targets the repo at `repo` proposes (R11.4): ts, then go, then rust, then python, then terraform, each in root order, then bash. */
 export async function discoverTargets(repo: string, git: GitRunner = realGit(repo)): Promise<ProposedTarget[]> {
   const files = await repoFiles(repo, git);
   const ts = tsRoots(files).toSorted().map((root) => ({ lang: PACKS.ts.name, root }));
   const go = goRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.go.name, root }));
   const rust = rustRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.rust.name, root }));
   const python = pythonRoots(files).toSorted().map((root) => ({ lang: PACKS.python.name, root }));
-  const toolchains = [...ts, ...go, ...rust, ...python];
+  const terraform = terraformRoots(files).toSorted().map((root) => ({ lang: PACKS.terraform.name, root }));
+  const toolchains = [...ts, ...go, ...rust, ...python, ...terraform];
   const bash = bashRoot(repo, files, toolchains.map((t) => t.root));
   return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])]);
 }

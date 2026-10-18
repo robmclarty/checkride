@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 62 — feat(launch): pin terraform or tofu by version file and harden its env
+**Current step:** 63 — feat(packs): add the terraform pack
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -88,7 +88,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 59. feat(packs): add the python pack
 - ☑ 60. feat(findings): parse ruff, mypy and basedpyright output
 - ☑ 61. test(examples): move examples/polyglot onto the python pack
-- ☐ 62. feat(launch): pin terraform or tofu by version file and harden its env
+- ☑ 62. feat(launch): pin terraform or tofu by version file and harden its env
 - ☐ 63. feat(packs): add the terraform pack
 - ☐ 64. feat(findings): parse tflint, terraform validate and trivy output
 - ☐ 65. test(examples): add terraform-roots with plants
@@ -166,8 +166,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] the first full mutation run since step 17 scored 83.13% against break 68, and stryker.config.mjs's comment still cites 73.2%: decide whether to ratchet break toward ~78 per that comment's rule, which C12 (quality-floors) pins at 68
 - [x] step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH), so basedpyright finds the project environment and a test's own python subprocess runs the venv's interpreter; verify against the pinned basedpyright and pytest
 - [x] docs/contract.md's pin_source paragraph still says the schema names three more sources for packs and a flag checkride doesn't have yet, stale since step 55 shipped --pins (override); fold it at step 73
-- [ ] fold step 59's verified python rows into a decision like D65: ruff runs with --no-cache (it fails outright in a read-only checkout), pytest also detects pytest.toml, .pytest.toml, .pytest.ini and [tool.pytest] (pytest 9), and detectTable is an array, since basedpyright needs two tables
-- [ ] fold into R12.3 (verified at basedpyright 1.40.2): a warning fails the run under --warnings or where the config sets failOnWarnings, which the default recommended mode does, so without --warnings the parser leaves gates out; and rebasePath can't relativize ruff's and basedpyright's realpath (/private/tmp/...) against a repoRoot a consumer passes through a symlink, which a realpath fallback in src/findings/paths.ts would fix
+- [x] fold step 59's verified python rows into a decision like D65: ruff runs with --no-cache (it fails outright in a read-only checkout), pytest also detects pytest.toml, .pytest.toml, .pytest.ini and [tool.pytest] (pytest 9), and detectTable is an array, since basedpyright needs two tables
+- [x] fold into R12.3 (verified at basedpyright 1.40.2): a warning fails the run under --warnings or where the config sets failOnWarnings, which the default recommended mode does, so without --warnings the parser leaves gates out; and rebasePath can't relativize ruff's and basedpyright's realpath (/private/tmp/...) against a repoRoot a consumer passes through a symlink, which a realpath fallback in src/findings/paths.ts would fix
+- [ ] R4 and R5.8 read as step 63 shipped them: Adapter gains onlyWith (validate stands down without a lock file, even when named) and setup (fail naming init -backend=false, honoring TF_DATA_DIR, as tofu where the repo runs OpenTofu); trivy-config adds --cache-dir {out}/trivy-cache so its embedded checks always run; tflint's default minimum failure severity fails every issue (tflint 0.64.0)
+- [ ] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -254,6 +256,12 @@ Harvest results this boundary:
 
 - After step 58: "step 59: decide whether a uv-lock spawn should mirror uv run (VIRTUAL_ENV set, the venv's bin first on PATH)..." → **tangent**, deferred to step 59 (R6.1's `.venv/bin/<bin>` is what shipped and isn't wrong; whether basedpyright finds the environment, and whether a test's own `python` subprocess needs the venv first on PATH, can only be read against the pinned tools step 59 runs; the change is about three lines in `src/launch/resolve.ts`, outside step 59's seam, so add it via `/plumbbob:step 59` or accept a one-file stray).
 - After step 58: "docs/contract.md's pin_source paragraph still says the schema names three more sources..." → **tangent**, deferred to step 73 (a doc inaccuracy, not a behavior bug; step 73's seam holds `docs/contract.md` and folds every surface this build added, `uv-lock` included once step 59 brings its `TOOLS` rows).
+
+- After step 62: "fold step 59's verified python rows into a decision like D65..." → **blocker**, handled now: folded into `intent.md` as D74 (python-verified), which amends R4's `detectTable` to an array matching sub-tables and R5.7's ruff argv (`--no-cache`) and pytest detection (pytest 9's `pytest.toml`, `.pytest.toml`, `.pytest.ini` and `[tool.pytest]`), since steps 72 and 73 build the docs from R4 and R5.7 (the D65 precedent).
+- After step 62: "fold into R12.3 (verified at basedpyright 1.40.2)..." split in two at the human's confirmation. Its gating half → **blocker**, handled now: folded into `intent.md` as D75 (basedpyright-gates), which amends R12.3's basedpyright row (a warning gates under `--warnings` and otherwise leaves `gates` out, since `failOnWarnings` in its default `recommended` mode fails it too; an `information` never gates). Its realpath half → **tangent**, deferred to step 64 (only a consumer passing a `repoRoot` through a symlink, such as macOS `/tmp`, sees ruff's and basedpyright's paths left absolute, never wrong, and the baseline is untouched, since a run's root is already the real path; a realpath fallback in `src/findings/paths.ts` is a one-file stray beside step 64's parsers).
+- After step 62: step 51's harvest deferred a cspell recapture to step 60, which step 60 didn't do (not parked; found at this harvest) → **tangent**, deferred to step 64 (nothing is wrong, only unproven against a real capture; step 64's seam holds `src/findings/parsers/` and `src/__tests__/fixtures/`, so it adds a `findings-cspell.txt` captured at the pinned cspell with a suffixed line, per C9, and leaves `baseline-cspell.txt` and `baseline-keys.golden.json` alone).
+- After step 62: step 57's harvest deferred whether to relax R11.4's bash rule (shell files outside every other target) to step 59, which added the python rule beside it and kept it unweighed (not parked; found at this harvest) → **tangent**, killed (keep `init` and `--discover` identical and conservative, as every step since step 37 has; the gap it leaves, a ts-root repo's `scripts/*.sh` getting no shellcheck under `--discover` with nothing for `unclaimed` to flag, since bash has no marker, was weighed and accepted).
+- After step 62: step 58's harvest deferred whether a uv-lock spawn should mirror `uv run` (`VIRTUAL_ENV`, the venv first on `PATH`) to step 59, which didn't decide it (not parked; found at this harvest) → **tangent**, killed (probed at this harvest: basedpyright 1.40.2 and mypy 2.4.0, run from `.venv/bin` with the venv off `PATH` and no `VIRTUAL_ENV`, both resolved a package installed only in the venv, and pytest runs under the venv's interpreter through its shebang).
 
 ## Log
 
@@ -2499,3 +2507,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-18 — step 59 checkpointed · 46be7e6ac — feat(packs): add the python pack (1 drift, 26m)
 - 2026-10-18 — step 60 checkpointed · f81d980f0 — feat(findings): parse ruff, mypy and basedpyright output (1 drift, 7m)
 - 2026-10-18 — step 61 checkpointed · fdab7a645 — test(examples): move examples/polyglot onto the python pack (1 drift, 15m)
+- 2026-10-18 — step 62 checkpointed · c10173b4c — feat(launch): pin terraform or tofu by version file and harden its env (1 drift, 17m)

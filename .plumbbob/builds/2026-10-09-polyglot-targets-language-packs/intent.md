@@ -544,6 +544,23 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   know which declare targets before it reads their configs, the repo's own targets are better
   evidence than discovery, and the flag hasn't shipped (the maintainer's call at step 57's
   boundary, from that harvest's `--discover` item).
+- <a id="d74"></a>**D74 (python-verified)**: R4 and R5.7 read as step 59 shipped them after running
+  each tool at the version it verified (ruff 0.17.1, mypy 2.4.0, basedpyright 1.40.2, pytest
+  9.1.1): `detectTable` is an array of `{ file, table }`, since basedpyright detects by
+  `[tool.basedpyright]` or `[tool.pyright]`, and a table matches its own header or a sub-table's,
+  so `tool.ruff` matches `[tool.ruff.lint]`; `ruff check` and `ruff format --check` take
+  `--no-cache`; and pytest also detects `pytest.toml`, `.pytest.toml`, `.pytest.ini` and a
+  `[tool.pytest]` table, which covers `[tool.pytest.ini_options]`, *because* ruff fails outright
+  where it can't create `.ruff_cache`, as in a checkout a `--static-only` pass may not write to,
+  pytest 9 reads its config from those files too, and steps 72 and 73 build the docs from R4
+  and R5.7 (folded at step 62's harvest, from step 59's park).
+- <a id="d75"></a>**D75 (basedpyright-gates)**: R12.3's basedpyright row reads as step 60 shipped
+  it: an `error` gates, an `information` never does, and a `warning` gates under `--warnings`
+  and otherwise leaves `gates` out, *because* basedpyright 1.40.2 also fails on a warning
+  wherever its config sets `failOnWarnings`, which its default `recommended` mode does, so the
+  argv alone can't say whether a warning fails the run, and
+  [D30 (gates-not-level)](#d30) leaves `gates` out when it can't be known (folded at step 62's
+  harvest, from step 60's park).
 
 ## Constraints
 
@@ -901,7 +918,7 @@ reference rules and porting trap apply as written there.
 
 ### Phase 11: Terraform
 
-62. [ ] feat(launch): pin terraform or tofu by version file and harden its env, **done when:** `.terraform-version` or `.opentofu-version` declares the CLI; an exact version is checked before the run, and a mismatch fails naming the required one; the terraform pack's environment applies R6.4
+62. [x] feat(launch): pin terraform or tofu by version file and harden its env, **done when:** `.terraform-version` or `.opentofu-version` declares the CLI; an exact version is checked before the run, and a mismatch fails naming the required one; the terraform pack's environment applies R6.4
     - seam: `src/launch/terraform.ts`, `src/launch/env.ts`
     - model: sonnet
 63. [ ] feat(packs): add the terraform pack, **done when:** a `terraform` target runs `terraform fmt` (opt-in), tflint, `terraform validate` and trivy config (opt-in) per R5.8; validate fails naming `terraform init -backend=false` when `.terraform/` is missing (F42) and skips where no lock file marks a root module; `.tf` files feed `unclaimed` (F43) and discovery
@@ -1369,7 +1386,7 @@ type PackAdapter = {
   detectDeps?: string[];            // ts and repo packs only
   detectScript?: string;            // ts pack only
   detectPin?: string;               // available when a pin source other than PATH declares this tool
-  detectTable?: { file: string; table: string }; // a TOML table header, like [tool.ruff]
+  detectTable?: { file: string; table: string }[]; // TOML table headers, like [tool.ruff] or a sub-table (D74)
   invoke: Invocation;
   fix?: Invocation;
   changedArgs?: string[];           // may hold {base}; args may hold {out}, {files}, {go-packages}
@@ -1509,11 +1526,11 @@ Markers: `pyproject.toml`, `setup.cfg`, `setup.py`. Pin chain: `[uv-lock, mise, 
 
 | Slot | Adapter | Invocation | Detect | Capture | Notes |
 | --- | --- | --- | --- | --- | --- |
-| `lint` | `ruff` | tool: `ruff check --output-format=json .`; fix: `ruff check --fix .` | `ruff.toml`, `.ruff.toml`, `[tool.ruff]`, or `detectPin: ruff` | json | |
-| `format` (opt-in) | `ruff-format` | tool: `ruff format --check .`; fix: `ruff format .` | as `ruff` | txt | |
+| `lint` | `ruff` | tool: `ruff check --no-cache --output-format=json .`; fix: `ruff check --fix .` | `ruff.toml`, `.ruff.toml`, `[tool.ruff]`, or `detectPin: ruff` | json | |
+| `format` (opt-in) | `ruff-format` | tool: `ruff format --no-cache --check .`; fix: `ruff format .` | as `ruff` | txt | `--no-cache` keeps ruff running where it can't write `.ruff_cache` ([D74 (python-verified)](#d74)). |
 | `types` | `mypy` | tool: `mypy --output json .` | `mypy.ini`, `.mypy.ini`, `[tool.mypy]`, or `detectPin: mypy` | jsonl | Needs the synced venv. `--output json` needs mypy 1.11 or later. |
 | `types` (alt) | `basedpyright` | tool: `basedpyright --outputjson` | `pyrightconfig.json`, `[tool.basedpyright]`, `[tool.pyright]`, or `detectPin: basedpyright` | json | Bundles its own Node. Never the PyPI `pyright` wrapper, which downloads Node on first run. |
-| `test` | `pytest` | tool: `pytest -q` | `pytest.ini`, `[tool.pytest.ini_options]`, `conftest.py`, or `detectPin: pytest` | txt | Exit 5 (no tests collected) fails the check. |
+| `test` | `pytest` | tool: `pytest -q` | `pytest.toml`, `.pytest.toml`, `pytest.ini`, `.pytest.ini`, `conftest.py`, `[tool.pytest]` (which covers `[tool.pytest.ini_options]`), or `detectPin: pytest` ([D74 (python-verified)](#d74)) | txt | Exit 5 (no tests collected) fails the check. |
 
 #### R5.8 The terraform pack
 
@@ -2096,7 +2113,7 @@ stdout ([D49 (text-findings)](#d49)).
 | `clippy`, `cargo-check` | its `level` is `error` (`-D warnings` turns warnings into errors) |
 | `shellcheck` | its `level` is at or above argv's `--severity`, which defaults to `style`: every finding |
 | `mypy` | its `severity` is `error` |
-| `basedpyright` | its `severity` is `error`, or `warning` when argv has `--warnings` |
+| `basedpyright` | its `severity` is `error`, or `warning` when argv has `--warnings`; without the flag a warning's `gates` is left out, since a config's `failOnWarnings` can fail it too, and an `information` never gates ([D75 (basedpyright-gates)](#d75)) |
 | `tflint` | its rule severity is at or above `--minimum-failure-severity` (default verified at the pinned version) |
 | `terraform-validate` | its `severity` is `error` |
 | `trivy-config` | its `Severity` is in argv's `--severity` list, or always when that flag is absent |

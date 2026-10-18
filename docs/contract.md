@@ -572,7 +572,11 @@ Each top-most `go.work` directory proposes a `go` target that claims the
 modules its `use` directives name, and each top-most `go.mod` no go target
 claims proposes one more. Each top-most `Cargo.toml` with a `[workspace]` table
 proposes a `rust` target, and each top-most `[package]` manifest outside it one
-more. The shell files outside all of those gather into one `bash` target. A
+more. Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
+`setup.py` proposes a `python` target. Each top-most directory holding a
+`.terraform.lock.hcl` proposes a `terraform` target, and each top-most
+directory holding `.tf` files that none of those claims proposes one more. The
+shell files outside all of those gather into one `bash` target. A
 target is named after its root's last segment, `.` becoming `app`, numbered on
 a collision. When discovery proposes nothing, or only one target at the root of
 the pack the root marks, the repo stays in implicit mode and the run is

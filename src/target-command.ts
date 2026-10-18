@@ -7,9 +7,9 @@
  * The new target adopts the tools its root already configures: each
  * non-opt-in slot detection fills there is named in its `checks`, as `init`
  * names what it adopts, so a tool added later doesn't take the slot over. The
- * slots `--add` names get their blessed tool named too, and, for a ts or
- * python target, the blessed config scaffolded under its root, unless the
- * root configures that tool already. The whole config is merged and
+ * slots `--add` names get their blessed tool named too, and, for a ts,
+ * python or terraform target, the blessed config scaffolded under its root,
+ * unless the root configures that tool already. The whole config is merged and
  * validated before anything is written, so a change that breaks a rule, such
  * as a ts target nesting under the converted root, exits 2 having written
  * nothing. Every change is printed, and `--dry-run` prints them and stops.

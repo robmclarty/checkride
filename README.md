@@ -187,7 +187,7 @@ checkride recover      Rebuild checkride.baseline.json candidates from git histo
 checkride target add <name> --lang <pack> --root <dir>
                        Declare a target; a repo without targets converts, its
                        implicit ts target becoming app at . (--root-name <n>).
-  --add <a,b>  name the blessed tool (a ts or python target also gets its config)
+  --add <a,b>  name the blessed tool (a ts, python or terraform target also gets its config)
   --dry-run    print the changes; write nothing
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
   --hook <a,b> write only these hooks (gate | dirty | protect)

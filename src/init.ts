@@ -1406,6 +1406,9 @@ const PACK_ADD_CONFIGS: Readonly<Record<string, Record<string, [string, string][
     types: [['python/shared/mypy.ini', 'mypy.ini']],
     test: [['python/shared/pytest.ini', 'pytest.ini']],
   },
+  terraform: {
+    lint: [['terraform/shared/tflint.hcl', '.tflint.hcl']],
+  },
 };
 
 /** The files `--add <slot>` scaffolds in a root of `pack`, and whether they're that pack's own, or `undefined` when there are none. */

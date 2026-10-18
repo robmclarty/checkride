@@ -344,8 +344,40 @@ describe('a python target detects its tools by config file, pyproject.toml table
   });
 });
 
+describe('a terraform target formats everywhere and validates only a root module (R5.8)', () => {
+  const infra = { lang: 'terraform', root: 'infra' } as const;
+  const modules = { lang: 'terraform', root: 'modules' } as const;
+  const rootModule = present('infra/main.tf', 'infra/.terraform.lock.hcl', 'infra/.tflint.hcl', 'modules/vpc/main.tf');
+
+  test('a root module’s lock file detects validate, and .tflint.hcl detects tflint; format and security wait to be opted in', () => {
+    const checks = resolve({ targets: { infra } }, rootModule);
+    expect(check(checks, 'infra:types')).toMatchObject({ pack: 'terraform', adapter: { name: 'terraform-validate' }, origin: 'detected', detectedBy: '.terraform.lock.hcl' });
+    expect(check(checks, 'infra:lint')).toMatchObject({ adapter: { name: 'tflint', outputFile: 'lint.json' }, detectedBy: '.tflint.hcl' });
+    expect(check(checks, 'infra:format')).toMatchObject({ adapter: { name: 'terraform-fmt' }, optIn: true, origin: 'built-in' });
+    expect(check(checks, 'infra:security')).toMatchObject({ adapter: null, optIn: true });
+    for (const slot of ['dead', 'test', 'build']) expect(checks.has(`infra:${slot}`), slot).toBe(false);
+  });
+
+  test('without a lock file, types stands down naming the root module it isn’t, however the slot was chosen', () => {
+    const reason = 'no .terraform.lock.hcl marks a root module here';
+    expect(check(resolve({ targets: { modules } }, rootModule), 'modules:types')).toMatchObject({ adapter: null, skip: reason });
+    const named = resolve({ targets: { modules: { ...modules, checks: { types: 'terraform-validate' } } } }, rootModule);
+    expect(check(named, 'modules:types')).toMatchObject({ adapter: null, skip: reason });
+    const preset = resolve({ targets: { infra, modules }, packs: { terraform: { checks: { types: 'terraform-validate' } } } }, rootModule);
+    expect(check(preset, 'modules:types')).toMatchObject({ adapter: null, skip: reason });
+    expect(check(preset, 'infra:types')).toMatchObject({ adapter: { name: 'terraform-validate' }, origin: 'config' });
+    expect(check(preset, 'modules:lint').adapter).toBeNull();
+  });
+
+  test('a repo without targets at a root module runs the terraform pack under bare slot names', () => {
+    const checks = repoSlots(present('main.tf', '.terraform.lock.hcl'));
+    expect(check(checks, 'types')).toMatchObject({ pack: 'terraform', adapter: { name: 'terraform-validate' } });
+    expect(check(checks, 'format')).toMatchObject({ pack: 'terraform', adapter: { name: 'terraform-fmt' } });
+  });
+});
+
 /** Resolve the catalogue with `config` (none by default), keyed by each check's name. */
-const repoSlots = (fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
+const repoSlots =(fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
   new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists, manifest: NO_MANIFEST }).map((c) => [checkName(c), c]));
 
 describe("the repo pack's Node-free alternates", () => {

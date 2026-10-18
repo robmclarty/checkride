@@ -25,5 +25,5 @@ export { launchRefusal, SPAWN_FAILED_MARKER } from './refusal.js';
 export { loadPinsFile, PINS_ENV } from './mise.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, Spawn } from './resolve.js';
-export { isReadableSource, launchCheck, pinChain, pinDeclaration, pinResolution } from './resolve.js';
+export { commandBin, isReadableSource, launchCheck, pinChain, pinDeclaration, pinResolution } from './resolve.js';
 export { isAvailableUnder, translateExec } from './translate.js';

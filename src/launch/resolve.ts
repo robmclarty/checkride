@@ -464,6 +464,17 @@ function resolveLaunch(slot: string, command: string, args: readonly string[], c
 }
 
 /**
+ * The executable a check's `command` runs as from `ctx`, before a launcher
+ * such as `mise exec` wraps it, for a message to name: the CLI the repo
+ * declares where a toolchain has a stand-in, `tofu` for a terraform pack's
+ * `terraform` where it declares OpenTofu, and otherwise `command` itself.
+ */
+export function commandBin(command: string, ctx: LaunchContext): string {
+  const chain = ctx.pins !== undefined && ctx.pins.length > 0 ? ctx.pins : IMPLICIT_CHAIN;
+  return chosenToolchain(command, chain, ctx)?.bin ?? command;
+}
+
+/**
  * The toolchain `command` names, if it names one. In a chain that reads
  * `tf-version`, the terraform pack's, `terraform` runs as the CLI the repo
  * declares, which is `tofu` where it declares OpenTofu (R5.8).

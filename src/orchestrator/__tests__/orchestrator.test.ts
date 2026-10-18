@@ -2190,3 +2190,70 @@ describe('the default runner resolves a tool through its pin chain', () => {
     expect(existsSync(ran)).toBe(false);
   });
 });
+
+/**
+ * F42 through the real runner: `terraform validate` reads what `terraform
+ * init` installs under `.terraform/`, so without that directory the check
+ * fails naming `init -backend=false` for the CLI the repo runs, and nothing
+ * spawns. Stand-in CLIs on a scratch `PATH` leave a mark when they run.
+ */
+describe('the default runner fails terraform validate before init (F42)', () => {
+  let root: string;
+  let repo: string;
+  let ran: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), 'checkride-tf-setup-'));
+    repo = join(root, 'repo');
+    ran = join(root, 'ran');
+    const bin = join(root, 'bin');
+    await mkdir(repo, { recursive: true });
+    await mkdir(bin);
+    for (const cli of ['terraform', 'tofu']) {
+      // oxlint-disable-next-line no-await-in-loop -- two stand-ins, written once per case.
+      await writeFile(join(bin, cli), `#!/bin/sh\necho ${cli} > "${ran}"\necho '{"valid":true,"diagnostics":[]}'\n`);
+      // oxlint-disable-next-line no-await-in-loop -- as above.
+      await chmod(join(bin, cli), 0o755);
+    }
+    vi.stubEnv('PATH', bin);
+    vi.stubEnv('TF_DATA_DIR', '');
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const validate = PACKS.terraform.adapters.find((a) => a.name === 'terraform-validate') ?? null;
+  const resolved: ResolvedCheck = { slot: 'types', optIn: false, adapter: validate, skip: null };
+  const at = (): Parameters<CheckRunner>[1] => ({ cwd: repo, repo, changed: false, pm: 'pnpm', pins: PACKS.terraform.pins });
+
+  test('without .terraform/, it fails naming terraform init -backend=false, and nothing runs', async () => {
+    const outcome = await defaultRunner(resolved, at());
+    expect(outcome).toMatchObject({ ok: false, exit_code: 1 });
+    expect(outcome.stderr).toContain('terraform-validate reads .terraform/, which `terraform init -backend=false` writes');
+    expect(outcome).not.toHaveProperty('argv');
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  test('where the repo runs OpenTofu, it names tofu init', async () => {
+    await writeFile(join(repo, '.opentofu-version'), 'latest:^1.6\n');
+    const outcome = await defaultRunner(resolved, at());
+    expect(outcome.stderr).toContain('`tofu init -backend=false`');
+    expect(existsSync(ran)).toBe(false);
+  });
+
+  test('once init has run, validate spawns the CLI', async () => {
+    await mkdir(join(repo, '.terraform'));
+    const outcome = await defaultRunner(resolved, at());
+    expect(outcome).toMatchObject({ ok: true, exit_code: 0, argv: ['terraform', 'validate', '-json'], pin_source: 'path' });
+    expect(await readFile(ran, 'utf8')).toBe('terraform\n');
+  });
+
+  test('TF_DATA_DIR moves the directory it looks for', async () => {
+    vi.stubEnv('TF_DATA_DIR', 'state/tf');
+    await mkdir(join(repo, '.terraform'));
+    const missing = await defaultRunner(resolved, at());
+    expect(missing.stderr).toContain('terraform-validate reads state/tf/');
+    await mkdir(join(repo, 'state', 'tf'), { recursive: true });
+    expect(await defaultRunner(resolved, at())).toMatchObject({ ok: true });
+  });
+});

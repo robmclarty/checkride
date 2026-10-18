@@ -161,6 +161,20 @@ describe('runTargetAdd', () => {
     expect(existsSync(join(dir, 'py/ruff.toml'))).toBe(false);
   });
 
+  test('a terraform target adopts validate at a root module, and its --add lint names tflint and scaffolds the blessed .tflint.hcl', async () => {
+    await put('infra/main.tf', 'terraform {}\n');
+    await put('infra/.terraform.lock.hcl', '');
+    const out = sink();
+    await add({ name: 'infra', lang: 'terraform', root: 'infra', add: ['lint'] }, out);
+    expect(JSON.parse(await read('checkride.config.json')).targets.infra).toEqual({
+      lang: 'terraform',
+      root: 'infra',
+      checks: { types: 'terraform-validate', lint: 'tflint' },
+    });
+    expect(await read('infra/.tflint.hcl')).toContain('plugin "terraform"');
+    expect(out.text()).toContain('infra/.tflint.hcl written (--add)');
+  });
+
   test('a change that breaks the config, a ts target nesting under the converted root, writes nothing', async () => {
     await put('package.json', '{"name":"x"}');
     await put('apps/web/package.json');

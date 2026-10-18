@@ -6,8 +6,7 @@ checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
 `go`, which checks Go modules and workspaces, `rust`, which checks Cargo
 packages and workspaces, `python`, which checks Python projects, and
-`terraform`, whose targets run their own custom checks with the CLI their
-version file pins until its adapters arrive. This page covers how a check's
+`terraform`, which checks Terraform and OpenTofu modules. This page covers how a check's
 tool resolves to the copy that runs, what the summary records about that copy,
 the bash pack and the file lists its checks run over, the go, rust, python and
 terraform packs, and the spawn environment each pack sets.
@@ -384,9 +383,60 @@ directory, which a `.terraform.lock.hcl` or any `.tf` file marks:
 }
 ```
 
-Its adapters arrive in a later release. Until then a terraform target runs its
-own custom checks, and a `terraform` command among them resolves through the
-pack's chain, as the adapters will.
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `format` (opt-in) | `terraform-fmt` | `terraform fmt -check -recursive -diff`, and `terraform fmt -recursive` under `checkride fix` | every terraform target | `format.stdout.txt` |
+| `lint` | `tflint` | `tflint --recursive --format=json` | `.tflint.hcl` or a pin | `lint.json` |
+| `types` | `terraform-validate` | `terraform validate -json` | `.terraform.lock.hcl` | `types.json` |
+| `security` (opt-in) | `trivy-config` | `trivy config --format json --exit-code 1 --skip-check-update --cache-dir {out}/trivy-cache .` | a pin | `security.json` |
+
+`terraform validate` reads the providers and modules `terraform init`
+installs under `.terraform/`, so it checks a root module, the directory a
+`.terraform.lock.hcl` marks, and nothing else. In a target without one, such
+as a directory of shared child modules, `types` stands down with the reason
+`no .terraform.lock.hcl marks a root module here`, even where the config or a
+shared preset names `terraform-validate`. Where `.terraform/` is missing, or
+the directory `TF_DATA_DIR` names when it's set, the check fails before
+anything spawns, naming `terraform init -backend=false`, or
+`tofu init -backend=false` where the repo runs OpenTofu. A check never runs
+init, which downloads providers; `-backend=false` installs them without
+touching the state backend.
+
+tflint lints every directory under the target's root with `--recursive`,
+hidden ones such as `.terraform/` aside, and exits 2 on an issue at any
+severity, a notice included, since its default `--minimum-failure-severity`
+fails them all. Its terraform ruleset ships inside tflint, so the blessed
+`.tflint.hcl` needs no `tflint --init`. A `plugin` block for another
+ruleset does: run `tflint --init` before checking, or tflint exits 1 naming
+the missing plugin. trivy's scan is opted in by naming `security`, and needs
+a `mise.toml` pin, or the config naming `trivy-config`, since a copy on one
+machine's `PATH` says nothing about the repo. It exits 1 on a
+misconfiguration at any severity. Its cache directory is a scratch path under
+the check's own artifact directory, which a config scan never writes, so it
+always runs the checks it ships with: in its default cache, a checks bundle
+an earlier online scan downloaded would stand in for them, and one machine's
+findings would differ from another's. Its log on stderr says so, as
+`Falling back to embedded checks`.
+
+`--static-only` keeps fmt, tflint and trivy, since each reads the
+configuration as data, and skips validate. It skips tflint too where a
+`.tflint.hcl` under the target declares a `plugin` other than `terraform`,
+since that plugin is a binary tflint runs.
+
+Each row was checked against OpenTofu 1.13.1, tflint 0.64.0 and trivy 0.76.0.
+`terraform fmt -check` exits 3 when a file would change, and passes over
+hidden directories, `.terraform/` among them, as `-recursive` walks.
+
+`checkride target add --lang terraform --add lint` names tflint and
+scaffolds the blessed `.tflint.hcl`, the terraform ruleset at its
+`recommended` preset, under the target's root, and `checkride init --add lint`
+does the same at a root the terraform pack checks.
+
+Discovery proposes a terraform target for each top-most directory a
+`.terraform.lock.hcl` marks, which claims the `.tf` directories under it, and
+then one for each top-most directory holding `.tf` files that none of those
+claims. A directory of `.tf` files outside every terraform target fails
+`unclaimed`, which suggests one target for all of them.
 
 The CLI is `terraform` or `tofu`. The nearest `.terraform-version` or
 `.opentofu-version`, from the target's root up to the repo root, says which,
@@ -492,5 +542,5 @@ doesn't pin.
 | terraform | `TF_IN_AUTOMATION` | `1` | Automation-friendly output. | OpenTofu 1.13.1: `plan` drops its note about `-out`. |
 | terraform | `TF_INPUT` | `0` | Never prompt. | OpenTofu 1.13.1: a missing variable fails at once instead of prompting. |
 | terraform | `TFENV_AUTO_INSTALL`, `TOFUENV_AUTO_INSTALL` | `false` | The version manager never downloads a CLI. | Neither manager is pinned. Upstream source: tfenv v3.2.2 (`lib/tfenv-exec.sh`) and tofuenv v1.0.7 (`lib/tofuenv-exec.sh`) install only while the variable is `true`, its default. |
-| terraform | `TRIVY_SKIP_CHECK_UPDATE` | `true` | trivy never downloads its checks bundle. | trivy 0.76.0: maps `--skip-check-update` to the variable, and logs that it loads no downloadable checks. With an empty cache it falls back to its embedded checks, and with a cached bundle it uses that one. |
+| terraform | `TRIVY_SKIP_CHECK_UPDATE` | `true` | trivy never downloads its checks bundle. | trivy 0.76.0: maps `--skip-check-update` to the variable, and logs that it loads no downloadable checks. With an empty cache it falls back to its embedded checks, and with a cached bundle it uses that one, which is why the `trivy-config` adapter points `--cache-dir` at a scratch path no scan writes. |
 | any check launched through mise | `MISE_EXEC_AUTO_INSTALL`, `MISE_NOT_FOUND_AUTO_INSTALL` | `false` | mise never installs a missing tool. | mise 2026.10.4: `mise settings get` reads `false` for `exec_auto_install` and `not_found_auto_install`. A pinned version that isn't installed then runs a copy from `PATH`, which is why the `mise` source asks `mise which` first. |

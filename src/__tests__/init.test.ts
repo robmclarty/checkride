@@ -651,6 +651,17 @@ describe('existing-project adoption (idempotent)', () => {
     );
   });
 
+  test('--add lint scaffolds .tflint.hcl at a root a .tf file makes terraform’s, and adopts tflint', async () => {
+    await writeFile(join(dir, 'main.tf'), 'terraform {}\n');
+    const result = await runInit({ cwd: dir, add: ['lint'], probeFailures: noFailures, hook: false });
+    expect(result.written).toContain('.tflint.hcl');
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+    expect(cfg.checks).toMatchObject({ lint: 'tflint' });
+    await expect(runInit({ cwd: dir, add: ['test'], probeFailures: noFailures, hook: false })).rejects.toThrow(
+      "init: --add test scaffolds the ts pack's config, and this root's pack is terraform; --add takes lint, docs, spell, prose here",
+    );
+  });
+
   test('--add keeps scaffolding the ts pack’s configs where a package.json sits beside a go.mod', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');

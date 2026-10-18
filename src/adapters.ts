@@ -127,6 +127,23 @@ export type Adapter = {
    * than a file of its own.
    */
   detectTable?: TableSignal[];
+  /**
+   * A file the adapter applies only beside, relative to the check's
+   * directory, and the skip reason its slot stands down with where the file
+   * is missing, however the adapter was chosen, as a `detectScript` adapter
+   * stands down without its script: `terraform validate` checks a root module,
+   * which a `.terraform.lock.hcl` marks, so a shared preset that names it
+   * stays safe on a child module's target.
+   */
+  onlyWith?: { file: string; skip: string };
+  /**
+   * A directory, relative to the check's, that a setup step writes and the
+   * tool reads, such as the `.terraform/` that `terraform init` fills. Where
+   * it's missing, the check fails naming the step, without spawning: `args`
+   * are the step's arguments to the check's own command, and `variable` names
+   * an environment variable that, when set, moves the directory there.
+   */
+  setup?: { dir: string; args: string[]; variable?: string };
   /** Command to spawn (usually `'pnpm'`). Ignored when `builtin` is set. */
   command: string;
   /**

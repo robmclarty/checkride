@@ -975,27 +975,35 @@ function detectAdapter(
 /**
  * Why nothing filled `slot` on the detection path. When the slot's adapter gates
  * on a package script (`detectScript`, for example `build`), name the missing script so
- * an opted-in-but-scriptless slot stands down with a clear reason; otherwise the
- * generic no-tool message.
+ * an opted-in-but-scriptless slot stands down with a clear reason, and when it
+ * applies only beside a file (`onlyWith`), give that file's reason; otherwise
+ * the generic no-tool message.
  */
 function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
   const scripted = adapters.find((a) => a.slot === slot && a.detectScript !== undefined);
-  return scripted ? `no '${scripted.detectScript}' script in package.json` : 'no tool detected for slot';
+  if (scripted) return `no '${scripted.detectScript}' script in package.json`;
+  return adapters.find((a) => a.slot === slot && a.onlyWith !== undefined)?.onlyWith?.skip ?? 'no tool detected for slot';
 }
 
 /**
  * A slot whose adapter is gated on a package script (`detectScript`, for example `build`
  * → `scripts.build`) stands down as a skip — never a red check — when that script
- * is absent, however the adapter was selected. Detection already filters the
- * auto-detect path; this also covers an explicit config entry, so a shared preset
- * that names `build` is safe on a repo that has no build script.
+ * is absent, however the adapter was selected, and so does one that applies only
+ * beside a file (`onlyWith`, for example `terraform validate` → a lock file) where
+ * that file is absent. Detection already filters the auto-detect path; this also
+ * covers an explicit config entry, so a shared preset that names `build` is safe
+ * on a repo that has no build script.
  */
-function standDownIfScriptless(check: ResolvedCheck, manifest: Manifest): ResolvedCheck {
+function standDownIfUnfit(check: ResolvedCheck, detection: Detection): ResolvedCheck {
   const script = check.adapter?.detectScript;
-  if (script === undefined || manifest.scripts.has(script)) return check;
+  const onlyWith = check.adapter?.onlyWith;
+  let skip: string | null = null;
+  if (script !== undefined && !detection.manifest.scripts.has(script)) skip = `no '${script}' script in package.json`;
+  else if (onlyWith !== undefined && !detection.fileExists(onlyWith.file)) skip = onlyWith.skip;
+  if (skip === null) return check;
   // A check with no adapter isn't in the run, so it says nothing about why it would be.
   const { origin: _origin, detectedBy: _by, detectedVia: _via, ...rest } = check;
-  return { ...rest, adapter: null, skip: `no '${script}' script in package.json` };
+  return { ...rest, adapter: null, skip };
 }
 
 /** The optional adapter fields a config entry may carry onto its adapter. */
@@ -1214,8 +1222,8 @@ function resolveOne(
   // Config may override the slot's opt-in default (configure-without-opting-in).
   const overridden = applyOptIn(resolved, entry, slot.name);
   // A script-gated adapter (build) stands down — never red — when its script is
-  // absent, even when config named it explicitly.
-  return standDownIfScriptless(overridden, detection.manifest);
+  // absent, and an `onlyWith` adapter without its file, even when config named it.
+  return standDownIfUnfit(overridden, detection);
 }
 
 /**

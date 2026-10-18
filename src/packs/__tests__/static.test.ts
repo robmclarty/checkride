@@ -38,7 +38,7 @@ describe('staticCause (R13.4)', () => {
   test('the marked rows are the ones R13.4 lists, each of them pure data', () => {
     const marked = Object.values(PACKS).flatMap((p) => p.adapters.filter((a) => a.static === true).map((a) => a.name));
     expect(marked.toSorted()).toEqual(
-      ['ast-grep', 'biome', 'biome-format', 'cspell', 'gofmt', 'links', 'markdownlint-cli2', 'oxlint', 'prettier', 'rumdl', 'ruff', 'ruff-format', 'shellcheck', 'shfmt', 'typos', 'unclaimed', 'vale'].toSorted(),
+      ['ast-grep', 'biome', 'biome-format', 'cspell', 'gofmt', 'links', 'markdownlint-cli2', 'oxlint', 'prettier', 'rumdl', 'ruff', 'ruff-format', 'shellcheck', 'shfmt', 'terraform-fmt', 'tflint', 'trivy-config', 'typos', 'unclaimed', 'vale'].toSorted(),
     );
     expect(JSON.parse(JSON.stringify(ADAPTERS))).toEqual(ADAPTERS);
   });
@@ -96,6 +96,21 @@ describe('staticCause (R13.4)', () => {
     expect(staticCause(row('markdownlint-cli2'), scope({ '.markdownlint-cli2.jsonc': '{ // rules\n  "customRules": ["./r.js"] }' }))).toBe(
       '.markdownlint-cli2.jsonc sets customRules, which loads code',
     );
+  });
+
+  test('a tflint plugin block other than the bundled terraform ruleset skips lint, read as an HCL block label', () => {
+    const tflint = row('tflint');
+    const terraformOnly = 'plugin "terraform" {\n  enabled = true\n  preset  = "recommended"\n}\n';
+    expect(staticCause(tflint, scope({ '.tflint.hcl': terraformOnly }))).toBeNull();
+    expect(staticCause(tflint, scope({ '.tflint.hcl': `${terraformOnly}\nplugin "aws" {\n  enabled = true\n}\n` }))).toBe(
+      '.tflint.hcl sets plugin, which loads code',
+    );
+    // A nested root's own config counts, and a rule block's label is no plugin.
+    expect(staticCause(tflint, scope({ 'envs/prod/.tflint.hcl': '  plugin "google" {\n  }\n' }))).toBe('envs/prod/.tflint.hcl sets plugin, which loads code');
+    expect(staticCause(tflint, scope({ '.tflint.hcl': 'rule "terraform_naming_convention" {\n  enabled = true\n}\n' }))).toBeNull();
+    expect(staticCause(row('terraform-fmt'), scope({}))).toBeNull();
+    expect(staticCause(row('trivy-config'), scope({}))).toBeNull();
+    expect(staticCause(row('terraform-validate'), scope({}))).toBe("terraform-validate isn't a static check");
   });
 
   test('a config file that can’t be read loads nothing, and the built-ins qualify', () => {

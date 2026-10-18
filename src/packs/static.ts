@@ -78,16 +78,23 @@ function valueText(text: string, at: number): string {
   return text.slice(at, close === -1 ? undefined : close + 1);
 }
 
-/** The values `key` holds in a config file's text, JSON or YAML, read as text: each quoted string, else each bare value, a list item's included. */
+/**
+ * The values `key` holds in a config file's text, JSON, YAML or HCL, read as
+ * text: each quoted string, else each bare value, a list item's included,
+ * and the label of each HCL block of that type, `aws` for `plugin "aws" {`.
+ */
 function keyValues(text: string, key: string): string[] {
   const escaped = key.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`(?:^\\s*|["'])${escaped}["']?\\s*[:=]`, 'gm');
-  return [...text.matchAll(pattern)].flatMap((match) => {
+  const block = new RegExp(`^\\s*${escaped}\\s+"([^"]*)"\\s*\\{`, 'gm');
+  const labels = [...text.matchAll(block)].map((match) => match[1] ?? '');
+  const assigned = [...text.matchAll(pattern)].flatMap((match) => {
     const value = valueText(text, (match.index ?? 0) + match[0].length);
     const quoted = [...value.matchAll(/"([^"]*)"|'([^']*)'/g)].map((m) => m[1] ?? m[2] ?? '');
     if (quoted.length > 0) return quoted;
     return value.split('\n').map((line) => line.replace(/\s+#.*$/, '').replace(/^\s*-\s*/, '').trim());
   });
+  return [...labels, ...assigned];
 }
 
 /** The first key of `codeKey` set in `text` so that it loads code, or `null`. */

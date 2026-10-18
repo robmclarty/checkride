@@ -513,6 +513,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   CLI. `unclaimed` now suggests a terraform target for a `.tf` directory no
   target claims. The terraform pack's own adapters arrive in a later release;
   see `docs/packs.md`.
+- **The terraform pack checks Terraform and OpenTofu code.** A terraform
+  target runs tflint (`lint`), `terraform validate` (`types`), and, opted in,
+  `terraform fmt` (`format`) and trivy's config scan (`security`), each
+  `terraform` command as `tofu` where the repo declares OpenTofu. tflint is
+  detected by `.tflint.hcl` or a pin, and trivy by a pin. validate checks only
+  a root module, which a `.terraform.lock.hcl` marks: in a target without one
+  its slot stands down, with the reason
+  `no .terraform.lock.hcl marks a root module here`, even where a config or a
+  shared preset names it. Where `.terraform/` (or the directory `TF_DATA_DIR`
+  names) is missing, validate fails naming `terraform init -backend=false`,
+  or `tofu init -backend=false`, and spawns nothing, since checks never run
+  init. trivy reads its checks from a scratch cache under the check's own
+  artifact directory, which it never writes, so it always runs the checks it
+  ships with, rather than a bundle an earlier scan cached on one machine.
+  Discovery proposes a terraform target for each directory a lock file marks,
+  which claims the `.tf` directories under it, and then one for each
+  top-most `.tf` directory left, and `unclaimed` suggests one target for all
+  the `.tf` files of a directory, printing its remedy once.
+  `checkride target add --lang terraform --add lint` names tflint and
+  scaffolds the blessed `.tflint.hcl`, and `checkride init --add lint` does
+  the same at a Terraform root. `--static-only` keeps fmt, tflint and trivy,
+  and skips tflint where `.tflint.hcl` declares a plugin other than the
+  bundled terraform ruleset (#7). Checked against OpenTofu 1.13.1, tflint
+  0.64.0 and trivy 0.76.0; see `docs/packs.md`.
 
 ### Changed
 
@@ -949,6 +973,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `tool_version`, in the JSON Schema's description and the contract doc. A
   repo without `targets` whose root holds only a Terraform marker now records
   `pack: "terraform"` on its checks.
+- Additive: `PACKS.terraform` gains its rows (`terraform-fmt`, `tflint`,
+  `terraform-validate` and `trivy-config`), and `TOOLS` gains `tflint` and
+  `trivy`. The exported `Adapter` type gains two optional fields: `onlyWith`
+  (a file the adapter applies only beside, and the skip reason its slot
+  stands down with where it's missing) and `setup` (a directory a setup step
+  writes, the step's arguments to the check's command, and a variable that
+  moves the directory, so the check fails naming the step where it's
+  missing).
 - Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
   `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
   keys, in the contract doc and both contract tests.

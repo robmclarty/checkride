@@ -2,7 +2,8 @@
  * R11.4 for the packs that ship: ts targets from `package.json` (a root one
  * claiming every nested package), go targets from `go.work` and `go.mod`, rust
  * targets from `Cargo.toml`, python targets from the top-most Python
- * manifests, one bash target where the shell files no other
+ * manifests, terraform targets from lock files and then the top-most `.tf`
+ * directories left, one bash target where the shell files no other
  * target holds gather, names from roots with collisions numbered, and one
  * target at the root of the root's pack read as the implicit mode a repo
  * already runs in (D68). `discoverRun` applies them in memory (R13.2).
@@ -177,6 +178,33 @@ describe('discoverTargets for python', () => {
       { name: 'app', lang: 'ts', root: '.' },
       { name: 'app-2', lang: 'python', root: '.' },
     ]);
+  });
+
+  test('each lock file proposes a terraform root module that claims the .tf directories under it, then each top-most .tf directory left proposes one more', async () => {
+    for (const path of ['envs/prod/.terraform.lock.hcl', 'envs/prod/main.tf', 'envs/prod/net/vpc.tf', 'envs/stage/.terraform.lock.hcl', 'envs/stage/main.tf']) {
+      await write(path);
+    }
+    for (const path of ['modules/vpc/main.tf', 'modules/vpc/variables.tf', 'modules/vpc/nested/x.tf', 'modules/s3/main.tf', 'shared/locals.tf']) await write(path);
+    // Never read: what `init` installs under .terraform/, and a tfvars file, which marks nothing.
+    await write('envs/prod/.terraform/modules/vpc/main.tf');
+    await write('vars/prod.tfvars');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'prod', lang: 'terraform', root: 'envs/prod' },
+      { name: 'stage', lang: 'terraform', root: 'envs/stage' },
+      { name: 's3', lang: 'terraform', root: 'modules/s3' },
+      { name: 'vpc', lang: 'terraform', root: 'modules/vpc' },
+      { name: 'shared', lang: 'terraform', root: 'shared' },
+    ]);
+  });
+
+  test('a lock file at the root claims every .tf file under it, which is the implicit terraform mode, and a .tf root without one is too', async () => {
+    await write('.terraform.lock.hcl');
+    await write('main.tf');
+    await write('modules/vpc/main.tf');
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'terraform', root: '.' }]);
+    expect(isImplicit(await discoverTargets(repo), 'terraform')).toBe(true);
+    await rm(join(repo, '.terraform.lock.hcl'));
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'terraform', root: '.' }]);
   });
 });
 

@@ -186,6 +186,16 @@ export const TOOLS: readonly Tool[] = [
     install: 'declare it in go.mod with `go get -tool honnef.co/go/tools/cmd/staticcheck`, or pin it with `mise use staticcheck@<version>`',
   },
   { bin: 'stryker', npm: '@stryker-mutator/core', install: 'add @stryker-mutator/core to devDependencies' },
+  {
+    bin: 'tflint',
+    mise: ['tflint', 'aqua:terraform-linters/tflint'],
+    install: 'pin it with `mise use tflint@<version>`, or install tflint (https://github.com/terraform-linters/tflint)',
+  },
+  {
+    bin: 'trivy',
+    mise: ['trivy', 'aqua:aquasecurity/trivy'],
+    install: 'pin it with `mise use trivy@<version>`, or install trivy (https://trivy.dev)',
+  },
   { bin: 'tsc', npm: 'typescript', install: 'add typescript to devDependencies' },
   {
     bin: 'typos',

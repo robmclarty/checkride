@@ -55,14 +55,16 @@ function outPrefix(repo: string, out: string | undefined): string | null {
 
 /**
  * Every marker under `repo` no target in `input` claims, in path order, each
- * with the target that would claim it. Markers under the output directory,
- * under a directory none is reported from, or matched by an `ignore` glob are
- * left out.
+ * with the target that would claim it, which markers of one kind in one
+ * directory share, as the `.tf` files of one module do. Markers under the
+ * output directory, under a directory none is reported from, or matched by an
+ * `ignore` glob are left out.
  */
 export async function findUnclaimed(repo: string, input: UnclaimedInput, git: GitRunner = realGit(repo)): Promise<Unclaimed[]> {
   const ignore = (input.ignore ?? []).map(globRegExp);
   const out = outPrefix(repo, input.out);
   const taken = new Set([...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, ...input.targets.map((t) => t.name)]);
+  const suggested = new Map<string, string>();
   const paths = await repoFiles(repo, git);
   return paths.flatMap((path) => {
     const kind = markerKind(path);
@@ -70,18 +72,28 @@ export async function findUnclaimed(repo: string, input: UnclaimedInput, git: Gi
     if (out !== null && isWithin(path, out)) return [];
     const dir = posix.dirname(path);
     if (input.targets.some((t) => t.pack === kind && isWithin(dir, t.root))) return [];
-    return [{ path, kind, suggest: { name: suggestName(dir, kind, taken), lang: kind, root: dir } }];
+    const key = `${kind}:${dir}`;
+    const name = suggested.get(key) ?? suggestName(dir, kind, taken);
+    suggested.set(key, name);
+    return [{ path, kind, suggest: { name, lang: kind, root: dir } }];
   });
 }
 
-/** How to quiet one unclaimed marker: the target entry that would claim it, or the ignore. */
+/** How to quiet unclaimed markers: the target entry that would claim them, or the ignore. */
 function remedy({ suggest }: Unclaimed): string {
   return `  claim it: "${suggest.name}": { "lang": "${suggest.lang}", "root": "${suggest.root}" } under targets, or list it in unclaimed.ignore`;
 }
 
-/** The lines a red `unclaimed` prints: each marker, and how to quiet it. */
+/**
+ * The lines a red `unclaimed` prints: the markers one target would claim, in
+ * the order the first of them was found, then how to quiet them, once.
+ */
 function explain(found: readonly Unclaimed[]): string {
-  const lines = found.flatMap((u) => [`unclaimed: ${u.path} marks ${u.kind} code that no ${u.kind} target checks.`, remedy(u)]);
+  const groups = Map.groupBy(found, (u) => `${u.kind}:${u.suggest.root}`);
+  const lines = [...groups.values()].flatMap((group) => [
+    ...group.map((u) => `unclaimed: ${u.path} marks ${u.kind} code that no ${u.kind} target checks.`),
+    ...group.slice(0, 1).map(remedy),
+  ]);
   return `${lines.join('\n')}\n`;
 }
 
