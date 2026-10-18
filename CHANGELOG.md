@@ -537,6 +537,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and skips tflint where `.tflint.hcl` declares a plugin other than the
   bundled terraform ruleset (#7). Checked against OpenTofu 1.13.1, tflint
   0.64.0 and trivy 0.76.0; see `docs/packs.md`.
+- **tflint's findings join the baseline, and terraform validate's and
+  trivy's reach `checkride/findings`.** tflint's JSON parses to one finding
+  per issue, keyed `<file>:<rule>:<message>`, each gating at or above the
+  argv's `--minimum-failure-severity`, which by default takes every issue, a
+  notice included, and none under `--force`, so `init --baseline`
+  grandfathers a failing terraform `lint`. A tflint report with an entry in
+  `errors`, as on a plugin `tflint --init` never installed, is untrustworthy,
+  so the ratchet keeps its keys. A nested module that tflint names through a
+  symlinked working directory, as `../../../private/tmp/...`, names its file
+  from the repo root. validate's diagnostics parse for the findings API only,
+  each message its summary and detail, an error gating and a warning not, and
+  one about the whole configuration naming no file. trivy's failed checks
+  parse for the findings API only, keyed on their ID at the line their cause
+  starts on, and gate only under a nonzero `--exit-code`, then when
+  `--severity` lists their level or is absent.
 
 ### Changed
 
@@ -981,6 +996,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes, the step's arguments to the check's command, and a variable that
   moves the directory, so the check fails naming the step where it's
   missing).
+- Additive: `checkride/findings` parses `tflint`, `terraform-validate` and
+  `trivy-config`, so `isParseable` is true for each, and
+  `checkride.baseline.json` takes tflint's keys, in the contract doc and both
+  contract tests.
 - Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
   `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
   keys, in the contract doc and both contract tests.

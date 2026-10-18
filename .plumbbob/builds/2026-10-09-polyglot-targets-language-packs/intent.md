@@ -921,7 +921,7 @@ reference rules and porting trap apply as written there.
 62. [x] feat(launch): pin terraform or tofu by version file and harden its env, **done when:** `.terraform-version` or `.opentofu-version` declares the CLI; an exact version is checked before the run, and a mismatch fails naming the required one; the terraform pack's environment applies R6.4
     - seam: `src/launch/terraform.ts`, `src/launch/env.ts`
     - model: sonnet
-63. [ ] feat(packs): add the terraform pack, **done when:** a `terraform` target runs `terraform fmt` (opt-in), tflint, `terraform validate` and trivy config (opt-in) per R5.8; validate fails naming `terraform init -backend=false` when `.terraform/` is missing (F42) and skips where no lock file marks a root module; `.tf` files feed `unclaimed` (F43) and discovery
+63. [x] feat(packs): add the terraform pack, **done when:** a `terraform` target runs `terraform fmt` (opt-in), tflint, `terraform validate` and trivy config (opt-in) per R5.8; validate fails naming `terraform init -backend=false` when `.terraform/` is missing (F42) and skips where no lock file marks a root module; `.tf` files feed `unclaimed` (F43) and discovery
     - seam: `src/packs/terraform.ts`, `src/packs/tools.ts`, `src/targets/`,
       `templates/terraform/`
     - model: opus (tflint's and trivy's flags and exit codes must be verified at the pinned versions)

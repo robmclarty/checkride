@@ -418,6 +418,13 @@ an earlier online scan downloaded would stand in for them, and one machine's
 findings would differ from another's. Its log on stderr says so, as
 `Falling back to embedded checks`.
 
+tflint's issues key `checkride.baseline.json`, so `init --baseline`
+grandfathers a failing `lint`, while validate's diagnostics and trivy's
+misconfigurations reach `checkride/findings` and never the baseline: a type
+error or a security finding is something to fix, not a debt to carry. A
+tflint run that stopped short, its `errors` list holding an entry, is read as
+untrustworthy, so the ratchet keeps every key it holds.
+
 `--static-only` keeps fmt, tflint and trivy, since each reads the
 configuration as data, and skips validate. It skips tflint too where a
 `.tflint.hcl` under the target declares a `plugin` other than `terraform`,

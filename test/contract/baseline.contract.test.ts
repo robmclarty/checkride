@@ -214,6 +214,16 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('basedpyright', JSON.stringify({ generalDiagnostics: [], summary: {} }))).toBeNull();
   });
 
+  test('tflint keys as <file>:<rule>:<message>, every issue at its default severity, and neither validate nor trivy keys', () => {
+    const tflint = JSON.stringify({
+      issues: [{ rule: { name: 'terraform_unused_declarations', severity: 'warning' }, message: 'variable "x" is declared but not used', range: { filename: 'main.tf', start: { line: 1, column: 1 } } }],
+      errors: [],
+    });
+    expect(fingerprint('tflint', tflint)).toEqual(new Set(['main.tf:terraform_unused_declarations:variable "x" is declared but not used']));
+    expect(fingerprint('terraform-validate', JSON.stringify({ valid: false, diagnostics: [{ severity: 'error', summary: 'x' }] }))).toBeNull();
+    expect(fingerprint('trivy-config', JSON.stringify({ SchemaVersion: 2, Results: [] }))).toBeNull();
+  });
+
   test.each<{ label: string; raw: string; expected: Baseline | null }>([
     { label: 'an unknown top-level field is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, extra: true }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a missing schema_version reads as 1', raw: JSON.stringify({ slots: { lint: ['a'] } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 63 — feat(packs): add the terraform pack
+**Current step:** 64 — feat(findings): parse tflint, terraform validate and trivy output
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -89,7 +89,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 60. feat(findings): parse ruff, mypy and basedpyright output
 - ☑ 61. test(examples): move examples/polyglot onto the python pack
 - ☑ 62. feat(launch): pin terraform or tofu by version file and harden its env
-- ☐ 63. feat(packs): add the terraform pack
+- ☑ 63. feat(packs): add the terraform pack
 - ☐ 64. feat(findings): parse tflint, terraform validate and trivy output
 - ☐ 65. test(examples): add terraform-roots with plants
 - ☐ 66. feat(schema): validate data files against JSON Schemas
@@ -170,6 +170,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] fold into R12.3 (verified at basedpyright 1.40.2): a warning fails the run under --warnings or where the config sets failOnWarnings, which the default recommended mode does, so without --warnings the parser leaves gates out; and rebasePath can't relativize ruff's and basedpyright's realpath (/private/tmp/...) against a repoRoot a consumer passes through a symlink, which a realpath fallback in src/findings/paths.ts would fix
 - [ ] R4 and R5.8 read as step 63 shipped them: Adapter gains onlyWith (validate stands down without a lock file, even when named) and setup (fail naming init -backend=false, honoring TF_DATA_DIR, as tofu where the repo runs OpenTofu); trivy-config adds --cache-dir {out}/trivy-cache so its embedded checks always run; tflint's default minimum failure severity fails every issue (tflint 0.64.0)
 - [ ] a terraform target whose .terraform/ is stale (a provider added since init) still fails validate with 'Missing required provider ... tofu init'; an OFFLINE_HINTS row in src/launch/env.ts could print 'run terraform init -backend=false first' instead
+- [ ] R12.3 and R12.4 read as step 64 shipped them: tflint's default minimum failure severity is notice (every issue gates, none under --force), and a nested-module path tflint climbs to / through a symlinked PWD is read as its real path from repoRoot; a trivy finding gates only under a nonzero --exit-code (trivy 0.76.0 exits 0 on findings by default) and leaves gates out under a wrapper; a validate finding's message is its summary and detail, and a rangeless one names no file
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -2508,3 +2509,69 @@ folder, so it rides the branch into the PR.)*
 - 2026-10-18 — step 60 checkpointed · f81d980f0 — feat(findings): parse ruff, mypy and basedpyright output (1 drift, 7m)
 - 2026-10-18 — step 61 checkpointed · fdab7a645 — test(examples): move examples/polyglot onto the python pack (1 drift, 15m)
 - 2026-10-18 — step 62 checkpointed · c10173b4c — feat(launch): pin terraform or tofu by version file and harden its env (1 drift, 17m)
+- 2026-10-18 — step 63 checkpointed · bafc979c5 — feat(packs): add the terraform pack (1 drift, 18m)
+
+  **Summary**: A terraform target now runs terraform fmt (opt-in), tflint, terraform validate and trivy config (opt-in), each verified against OpenTofu 1.13.1, tflint 0.64.0 and trivy 0.76.0, with validate refusing to run before init and standing down outside a root module.
+
+  1. The four rows run the argv R5.8 names, with one flag added to trivy
+  2. validate fails naming init before it spawns (F42), and stands down without a lock file
+  3. Discovery and unclaimed know `.tf` directories (F43)
+  4. tflint's plugin sniff reads HCL block labels
+  5. Seam strays, all needed for the done-when
+
+  **Readout**: Step 63 - feat(packs): add the terraform pack
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    4 of 4 honored
+  constraints  12 of 12 honored
+  seam         strayed: 21 paths outside the seam
+               - CHANGELOG.md
+               - README.md
+               - docs/contract.md
+               - docs/packs.md
+               - docs/targets.md
+               - src/__tests__/config-targets.test.ts
+               - src/__tests__/init.test.ts
+               - src/__tests__/target-command.test.ts
+               - src/adapters.ts
+               - src/cli.ts
+               - src/config.ts
+               - src/init.ts
+               - src/launch/index.ts
+               - src/launch/resolve.ts
+               - src/orchestrator/__tests__/orchestrator.test.ts
+               - src/orchestrator/spawn.ts
+               - src/packs/__tests__/packs.test.ts
+               - src/packs/__tests__/static.test.ts
+               - src/packs/static.ts
+               - src/target-command.ts
+               - test/e2e/terraform-pack.e2e.test.ts
+  diff         +804 -59 across 28 files
+  spent        18 min · 32s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Land it and go on to step 64. The pack's argv, exit codes and pre-flights are proven against the real tools in `test/e2e/terraform-pack.e2e.test.ts`, and the gate is green.
+
+  **1.** The four rows run the argv R5.8 names, with one flag added to trivy
+
+  `PACKS.terraform` gains terraform-fmt, tflint, terraform-validate and trivy-config, and `TOOLS` gains tflint and trivy with their mise ids. Probes at the pinned versions: `fmt -check` exits 3 and skips hidden directories, `.terraform/` among them; tflint exits 2 on any issue, a notice included, since its default minimum failure severity fails them all, and 1 when a plugin is missing; `validate -json` exits 1 on an error; trivy exits 1 on any misconfiguration with `--exit-code 1`. The parked step-30 trivy question is settled by adding `--cache-dir {out}/trivy-cache`: trivy never writes that directory for a config scan (asserted in the e2e), so it always falls back to its embedded checks rather than a bundle an earlier online scan cached on one machine. R5.8's note now holds on every machine, not just a clean one.
+
+  **2.** validate fails naming init before it spawns (F42), and stands down without a lock file
+
+  Two optional, pure-data adapter fields carry this. `setup` names `.terraform/` and the `init -backend=false` step: `defaultRunner` checks it after the launch resolves, so the message names `tofu init -backend=false` where the repo runs OpenTofu, and a set `TF_DATA_DIR` moves the directory it looks for. `onlyWith` names `.terraform.lock.hcl` and the skip reason `no .terraform.lock.hcl marks a root module here`, which both the undetected path and an explicit config entry stand down with, the way `detectScript` already stands `build` down, so a packs-block preset naming validate stays safe on a child-module target.
+
+  **3.** Discovery and unclaimed know `.tf` directories (F43)
+
+  Discovery proposes a target per top-most lock-file directory, which claims the `.tf` directories under it, then one per top-most `.tf` directory left. Unclaimed now gives every marker of one kind in one directory the same suggested target. Before this, a module's second `.tf` file was suggested as `<dir>-terraform`. The red output prints that target's remedy once, after all of its markers. unclaimed is unreleased, so this changes no shipped contract.
+
+  **4.** tflint's plugin sniff reads HCL block labels
+
+  R13.4 says `--static-only` skips tflint where `.tflint.hcl` declares a plugin other than terraform. The text sniff only knew `key: value` and `key = value`, so `keyValues` in `src/packs/static.ts` now also reads an HCL block's label (`plugin "aws" {` gives `aws`), and tflint's code key matches any label but `terraform`.
+
+  **5.** Seam strays, all needed for the done-when
+
+  Besides the seam, the step touched `src/adapters.ts` (the two fields), `src/config.ts` (the stand-down), `src/orchestrator/spawn.ts` and `src/launch/resolve.ts` (the F42 pre-flight and `commandBin`), `src/packs/static.ts`, `src/init.ts` (the `.tflint.hcl` scaffold for `--add lint`), and the CLI help, README, CHANGELOG, `docs/packs.md`, `docs/targets.md` and `docs/contract.md` (C11). Two parks went to the build log: the R4/R5.8 text to fold at harvest, and an offline hint for a stale `.terraform/`.

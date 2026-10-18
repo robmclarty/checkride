@@ -343,3 +343,148 @@ describe('basedpyright', () => {
     expect(attempt('basedpyright', 'No configuration file found.')).toBeNull();
   });
 });
+
+/**
+ * The terraform pack's tools, captured at `/tmp/fixture-tf` (real path
+ * `/private/tmp/fixture-tf`) from a run of this checkride against OpenTofu
+ * 1.13.1, tflint 0.64.0 and trivy 0.76.0: a root module at `infra/` with two
+ * child modules, and a second root at `noinit/` whose provider was never
+ * installed.
+ */
+const TF_REPO = '/private/tmp/fixture-tf';
+
+/** How many of tflint's findings over its fixture gate under `argv`. */
+const tflintGating = (argv: readonly string[]): number => parse('tflint', 'findings-tflint.json', { root: 'infra', argv }).filter((f) => f.gates).length;
+
+/** Findings' keys, sorted, so two parses compare whatever order they came in. */
+const sortedKeys = (findings: readonly KeyedFinding[]): string[] => findings.map((f) => f.key).toSorted();
+
+describe('the terraform pack’s parsers', () => {
+  test('each reads its JSON artifact, and only tflint keys the baseline (R12.2)', () => {
+    for (const adapter of ['tflint', 'terraform-validate', 'trivy-config']) expect(parserFor(adapter)?.stream, adapter).toBe('artifact');
+    expect(baselineParserFor('tflint')).toBe(parserFor('tflint'));
+    expect(baselineParserFor('terraform-validate')).toBeUndefined();
+    expect(baselineParserFor('trivy-config')).toBeUndefined();
+  });
+});
+
+describe('tflint', () => {
+  const registry = ['pnpm', 'exec', 'tflint', '--recursive', '--format=json'];
+
+  test('every issue gates by default, a notice included, keyed on its rule, a nested module’s path joined onto the root', () => {
+    const findings = parse('tflint', 'findings-tflint.json', { root: 'infra', argv: registry });
+    expect(findings).toHaveLength(9);
+    expect(findings.every((f) => f.gates)).toBe(true);
+    expect(findings[0]).toEqual({
+      file: 'infra/main.tf',
+      line: 5,
+      column: 1,
+      rule: 'terraform_unused_declarations',
+      message: 'variable "unused" is declared but not used',
+      severity: 'warning',
+      gates: true,
+      key: 'infra/main.tf:terraform_unused_declarations:variable "unused" is declared but not used',
+    });
+    expect(findings.map((f) => f.file)).toContain('infra/modules/greet/main.tf');
+    expect(findings.filter((f) => f.severity === 'info').map((f) => f.rule)).toEqual(['terraform_documented_outputs', 'terraform_documented_outputs']);
+  });
+
+  test('--minimum-failure-severity lets the issues below it through, in either spelling, and --force lets every one through', () => {
+    expect(tflintGating([...registry, '--minimum-failure-severity=warning'])).toBe(7);
+    expect(tflintGating([...registry, '--minimum-failure-severity', 'error'])).toBe(0);
+    expect(tflintGating([...registry, '--minimum-failure-severity=notice'])).toBe(9);
+    expect(tflintGating([...registry, '--force'])).toBe(0);
+    // A wrapper hides the flags, so every issue counts, as tflint's default does.
+    expect(tflintGating(['sh', '-c', 'tflint --force'])).toBe(9);
+  });
+
+  test('a nested module named through a symlinked PWD is its real path, named from the repo root', () => {
+    const climbed = parse('tflint', 'findings-tflint-symlinked.json', { root: 'infra', repoRoot: TF_REPO });
+    expect(read('findings-tflint-symlinked.json')).toContain('"../../../private/tmp/fixture-tf/infra/modules/greet/main.tf"');
+    expect(sortedKeys(climbed)).toEqual(sortedKeys(parse('tflint', 'findings-tflint.json', { root: 'infra' })));
+    expect(climbed.map((f) => f.file)).toContain('infra/modules/greet/main.tf');
+    // A name that climbs out of the repo, or no repo root to measure from, keeps tflint's own path.
+    const [outside] = attempt('tflint', '{"issues":[{"rule":{"name":"r","severity":"warning"},"message":"m","range":{"filename":"../shared/a.tf","start":{"line":1,"column":1}}}],"errors":[]}') ?? [];
+    expect(outside?.file).toBe('../shared/a.tf');
+  });
+
+  test('a run that stopped short, as on a plugin tflint --init never installed, is untrustworthy; a clean one is no findings', () => {
+    expect(attempt('tflint', read('findings-tflint-plugin-error.json'))).toBeNull();
+    expect(attempt('tflint', '')).toBeNull();
+    expect(attempt('tflint', '{"errors":[]}')).toBeNull();
+    expect(attempt('tflint', '{"issues":[],"errors":[]}')).toEqual([]);
+  });
+});
+
+describe('terraform validate', () => {
+  test('an error gates and a warning does not, each message its summary and detail, a child module’s path joined onto the root', () => {
+    const findings = parse('terraform-validate', 'findings-terraform-validate.json', { root: 'infra' });
+    expect(findings.map((f) => [f.file, f.line, f.column, f.severity, f.gates])).toEqual([
+      ['infra/main.tf', 18, 23, 'warning', false],
+      ['infra/modules/greet/main.tf', 4, 21, 'error', true],
+      ['infra/main.tf', 40, 11, 'error', true],
+    ]);
+    expect(findings[2]).toEqual({
+      file: 'infra/main.tf',
+      line: 40,
+      column: 11,
+      rule: '',
+      message: 'Reference to undeclared resource: There is no managed resource "terraform_data" "nothing" definition in the root module.',
+      severity: 'error',
+      gates: true,
+      key: 'infra/main.tf::Reference to undeclared resource: There is no managed resource "terraform_data" "nothing" definition in the root module.',
+    });
+  });
+
+  test('a diagnostic about the whole configuration stays a gating finding with no file', () => {
+    const [missing] = parse('terraform-validate', 'findings-terraform-validate-noinit.json', { root: 'noinit' });
+    expect(missing).toMatchObject({ file: '', rule: '', severity: 'error', gates: true });
+    expect(missing).not.toHaveProperty('line');
+    expect(missing?.message).toMatch(/^Missing required provider: This configuration requires provider registry\.opentofu\.org\/hashicorp\/null/);
+  });
+
+  test('a valid configuration is no findings, and output with no diagnostics list is untrustworthy', () => {
+    expect(attempt('terraform-validate', '{"format_version":"1.0","valid":true,"error_count":0,"warning_count":0,"diagnostics":[]}')).toEqual([]);
+    expect(attempt('terraform-validate', '')).toBeNull();
+    expect(attempt('terraform-validate', '{"valid":false}')).toBeNull();
+  });
+});
+
+describe('trivy config', () => {
+  const registry = ['pnpm', 'exec', 'trivy', 'config', '--format', 'json', '--exit-code', '1', '--skip-check-update', '--cache-dir', '{out}/trivy-cache', '.'];
+
+  test('every failed check gates under the registry args, keyed on its ID at the line its cause starts on', () => {
+    const findings = parse('trivy-config', 'findings-trivy-config.json', { root: 'infra', argv: registry });
+    expect(findings).toHaveLength(9);
+    expect(findings.every((f) => f.gates)).toBe(true);
+    expect(findings[0]).toEqual({
+      file: 'infra/main.tf',
+      line: 31,
+      rule: 'AWS-0107',
+      message: 'Security group rule allows unrestricted ingress from any IP address.',
+      severity: 'HIGH',
+      gates: true,
+      key: 'infra/main.tf:AWS-0107:Security group rule allows unrestricted ingress from any IP address.',
+    });
+    expect(new Set(findings.slice(1).map((f) => f.file))).toEqual(new Set(['infra/modules/bucket/main.tf']));
+    expect(findings.map((f) => f.severity)).toEqual(['HIGH', 'HIGH', 'HIGH', 'LOW', 'MEDIUM', 'HIGH', 'HIGH', 'LOW', 'HIGH']);
+  });
+
+  test('--severity gates only the levels it lists, without a nonzero --exit-code nothing gates, and a wrapper leaves gates out', () => {
+    const gating = (argv: readonly string[]) => parse('trivy-config', 'findings-trivy-config.json', { root: 'infra', argv }).map((f) => f.gates);
+    expect(gating([...registry, '--severity', 'HIGH,CRITICAL']).filter(Boolean)).toHaveLength(6);
+    expect(gating([...registry, '-s=low']).filter(Boolean)).toHaveLength(2);
+    expect(gating(registry.filter((arg) => arg !== '--exit-code' && arg !== '1')).every((g) => g === false)).toBe(true);
+    expect(gating(['sh', '-c', 'trivy config .']).every((g) => g === undefined)).toBe(true);
+    expect(parse('trivy-config', 'findings-trivy-config.json', { root: 'infra' })[0]?.gates).toBe(true);
+  });
+
+  test('a clean scan, or one with nothing to scan, is no findings; a passed check is none; output that is not its report is untrustworthy', () => {
+    expect(parse('trivy-config', 'findings-trivy-config-clean.json')).toEqual([]);
+    expect(attempt('trivy-config', '{"SchemaVersion":2,"ArtifactName":".","ArtifactType":"filesystem"}')).toEqual([]);
+    const passed = read('findings-trivy-config.json').replaceAll('"Status": "FAIL"', '"Status": "PASS"');
+    expect(attempt('trivy-config', passed)).toEqual([]);
+    expect(attempt('trivy-config', '')).toBeNull();
+    expect(attempt('trivy-config', '[]')).toBeNull();
+  });
+});

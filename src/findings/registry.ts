@@ -23,6 +23,9 @@ import { ruffParser } from './parsers/ruff.js';
 import { rumdlParser } from './parsers/rumdl.js';
 import { shellcheckParser } from './parsers/shellcheck.js';
 import { staticcheckParser } from './parsers/staticcheck.js';
+import { terraformValidateParser } from './parsers/terraform-validate.js';
+import { tflintParser } from './parsers/tflint.js';
+import { trivyConfigParser } from './parsers/trivy.js';
 import { tscParser } from './parsers/tsc.js';
 import { typosParser } from './parsers/typos.js';
 import { valeParser } from './parsers/vale.js';
@@ -53,6 +56,9 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   ruff: ruffParser,
   mypy: mypyParser,
   basedpyright: basedpyrightParser,
+  tflint: tflintParser,
+  'terraform-validate': terraformValidateParser,
+  'trivy-config': trivyConfigParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

@@ -126,6 +126,10 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['ruff', 'mypy', 'basedpyright']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('the terraform pack\'s tflint, terraform validate and trivy output is parseable', () => {
+    for (const adapter of ['tflint', 'terraform-validate', 'trivy-config']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
   test('an adapter with no parser returns null (F45)', () => {
     expect(findings.isParseable('vitest')).toBe(false);
     expect(findings.parseFindings('vitest', 'FAIL src/a.test.ts')).toBeNull();

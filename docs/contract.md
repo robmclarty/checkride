@@ -380,8 +380,8 @@ read is wider — see the tolerance promise below.
 **A key names a finding by what it is, not where it sits.** Every key is a
 string the slot's parser built; a consumer may compare keys, count them, and
 diff them, never parse them. For the diagnostic parsers — oxlint and the go,
-rust, bash and python packs' golangci-lint, staticcheck, clippy, shellcheck
-and ruff (`lint`), ast-grep (`struct`), markdownlint-cli2 and rumdl (`docs`), cspell
+rust, bash, python and terraform packs' golangci-lint, staticcheck, clippy,
+shellcheck, ruff and tflint (`lint`), ast-grep (`struct`), markdownlint-cli2 and rumdl (`docs`), cspell
 and typos (`spell`), and vale (`prose`) — the key is
 `<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
 cspell and typos (`<file>::<message>`). Only a finding that can fail the slot
@@ -399,12 +399,15 @@ is keyed:
 - clippy's `error`-level diagnostics, which the rust pack's `-D warnings`
   makes every one;
 - shellcheck's comments at or above the argv's `--severity`, and rumdl's at or
-  above its `--fail-on`, every one by default.
+  above its `--fail-on`, every one by default;
+- tflint's issues at or above the argv's `--minimum-failure-severity`, every
+  one by default, a notice included, and none under `--force`.
 
 A finding that fails the slot but names no file, such as staticcheck's
 `compile` problem or a typos misspelling in a file name, keys with an empty
-file. Type errors, tsc's, go build's, cargo check's, mypy's and
-basedpyright's, are parsed for `checkride/findings` but never keyed. Line and column are never part of these
+file. Type errors, tsc's, go build's, cargo check's, mypy's,
+basedpyright's and terraform validate's, are parsed for `checkride/findings`
+but never keyed, and so are trivy's misconfigurations. Line and column are never part of these
 keys, so a finding keeps its key when unrelated edits move it — the property
 the ratchet and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the parser documents, and
@@ -1062,8 +1065,8 @@ parsers.** The subpath is public and semver-bound as well, and exports
 - `isParseable(adapter)` says whether an adapter has a parser: `oxlint`,
   `ast-grep`, `cspell`, `vale`, `fallow`, `golangci-lint`, `staticcheck`,
   `clippy`, `cargo-check`, `shellcheck`, `markdownlint-cli2`, `rumdl`,
-  `typos`, `tsc`, `go-build`, `ruff`, `mypy` and `basedpyright` today. The
-  set only grows.
+  `typos`, `tsc`, `go-build`, `ruff`, `mypy`, `basedpyright`, `tflint`,
+  `terraform-validate` and `trivy-config` today. The set only grows.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one
 its report names (`dead`, `dupes` or `health`); `file`, named from the repo
@@ -1073,15 +1076,23 @@ own level string, verbatim; and `gates`, whether the finding can fail the
 check under the argv that ran, or under the adapter's registry args when no
 argv is known, absent when that can't be told, as for a basedpyright warning
 without `--warnings`, which fails the run only where its config sets
-`failOnWarnings`. A path a tool printed relative
+`failOnWarnings`, or a trivy finding whose argv runs trivy through a wrapper.
+A trivy finding gates only under a nonzero `--exit-code`, and then when
+`--severity` lists its level or is absent. A path a tool printed relative
 to a target's root joins that root, and an absolute path inside `repoRoot` is
-made relative to it; one outside stays absolute.
+made relative to it; one outside stays absolute. A nested module's path that
+tflint names through a symlinked working directory, climbing to `/` and back
+down its real path, names its file from `repoRoot` when the file lies inside
+it. A terraform validate diagnostic about the whole configuration, such as a
+provider `init` never installed, names no file.
 
 `null` means the adapter has no parser, the check was skipped, its artifact
 can't be read, or its output can't be trusted (vale's runtime-error report, a
 fallow report checkride can't read, a golangci-lint or shellcheck report with
 no findings list, a rumdl or ruff report that isn't an array, a basedpyright
-report with no `generalDiagnostics` list, markdownlint-cli2
+report with no `generalDiagnostics` list, a tflint report with no `issues`
+list or with an entry in `errors`, a terraform validate report with no
+`diagnostics` list, trivy output that isn't its report object, markdownlint-cli2
 stderr that holds text but no finding, a cargo build that never printed
 `build-finished`). An empty array means parsed and clean.
 The API is best-effort: it never writes under the output directory and never

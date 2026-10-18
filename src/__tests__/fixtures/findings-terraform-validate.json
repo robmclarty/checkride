@@ -1,0 +1,86 @@
+{
+  "format_version": "1.0",
+  "valid": false,
+  "error_count": 2,
+  "warning_count": 1,
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "summary": "Quoted references are deprecated",
+      "detail": "In this context, references are expected literally rather than in quotes. OpenTofu 0.11 and earlier required quotes, but quoted references are now deprecated and will be removed in a future version of OpenTofu. Remove the quotes surrounding this reference to silence this warning.",
+      "range": {
+        "filename": "main.tf",
+        "start": {
+          "line": 18,
+          "column": 23,
+          "byte": 259
+        },
+        "end": {
+          "line": 18,
+          "column": 30,
+          "byte": 266
+        }
+      },
+      "snippet": {
+        "context": "resource \"terraform_data\" \"greeting\"",
+        "code": "    ignore_changes = [\"input\"]",
+        "start_line": 18,
+        "highlight_start_offset": 22,
+        "highlight_end_offset": 29,
+        "values": []
+      }
+    },
+    {
+      "severity": "error",
+      "summary": "Reference to undeclared input variable",
+      "detail": "An input variable with the name \"nobody\" has not been declared. This variable can be declared with a variable \"nobody\" {} block.",
+      "range": {
+        "filename": "modules/greet/main.tf",
+        "start": {
+          "line": 4,
+          "column": 21,
+          "byte": 59
+        },
+        "end": {
+          "line": 4,
+          "column": 31,
+          "byte": 69
+        }
+      },
+      "snippet": {
+        "context": "output \"message\"",
+        "code": "  value = \"hello, ${var.nobody}\"",
+        "start_line": 4,
+        "highlight_start_offset": 20,
+        "highlight_end_offset": 30,
+        "values": []
+      }
+    },
+    {
+      "severity": "error",
+      "summary": "Reference to undeclared resource",
+      "detail": "There is no managed resource \"terraform_data\" \"nothing\" definition in the root module.",
+      "range": {
+        "filename": "main.tf",
+        "start": {
+          "line": 40,
+          "column": 11,
+          "byte": 609
+        },
+        "end": {
+          "line": 40,
+          "column": 33,
+          "byte": 631
+        }
+      },
+      "snippet": {
+        "context": "output \"missing\"",
+        "code": "  value = terraform_data.nothing.output",
+        "start_line": 40,
+        "highlight_start_offset": 10,
+        "highlight_end_offset": 32,
+        "values": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+{"issues":[],"errors":[{"message":"Failed to run in .; exit status 1\n\nFailed to initialize plugins; Plugin \"aws\" not found. Did you run \"tflint --init\"?\n","severity":"error"}]}
