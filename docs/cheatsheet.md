@@ -21,7 +21,9 @@ checkride qa           Read the quality artifacts a previous run left.
 ```
 
 Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly with
-`pnpm exec checkride <command>` / `pnpm dlx checkride <command>`.
+`pnpm exec checkride <command>` / `pnpm dlx checkride <command>`. In a repo
+without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
+<command>`.
 
 ## Run flags
 
@@ -29,8 +31,8 @@ Invoke as `pnpm check` (the alias `init` or `agent-setup` writes), or directly w
 | ---- | ------ |
 | `--bail` | Stop at the first failing check (runs sequentially; overrides `--concurrency`). |
 | `--concurrency <n>` | Max checks running at once within a wave (`1` = sequential; default is a conservative cap from the CPU count). |
-| `--only <a,b>` | Run only the named slots. |
-| `--skip <a,b>` | Run everything except the named slots. |
+| `--only <a,b>` | Run only the named checks, each a token: a slot, a custom check, a target, or `<target>:<slot>`. An unknown token exits 2. |
+| `--skip <a,b>` | Run everything except the named checks, named the same way. It narrows `--only` too. |
 | `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
 | `--changed` | Affected-only mode (incremental types, changed-file tests). |
@@ -62,6 +64,7 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--author <a>` | Package author. |
 | `--add <a,b>` | Scaffold config for the named empty slots. |
 | `--baseline` | (existing repo) Grandfather current debt instead of disabling failing slots. |
+| `--force` | Overwrite existing files (new repo), or refresh an AGENTS.md stanza carrying local edits (existing repo), instead of refusing. |
 | `--hook <a,b>` | Write only these hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). |
 | `--no-hook` | Skip writing the agent hooks (also honored by `agent-setup`). |
 | `--remove-hook <a,b>` | Remove installed hooks — entry + generated script. With `--no-hook`, remove only. |
@@ -79,6 +82,8 @@ rewrite your contract file.
 | `checkride hooks add [a,b]` | Install the named hooks (default: all). |
 | `checkride hooks remove <a,b>` | Tear out the named hooks — entry + generated script. An explicit list is required. |
 
+Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.
+
 ## `checkride recover`
 
 Restore `checkride.baseline.json` from git history after a merge dropped or
@@ -94,8 +99,6 @@ ordinary working-tree edit to review and commit — never a `git checkout`.
 | `--dry-run` | Preview the per-slot delta; write nothing. |
 | `--depth <n>` | Commits of file history to walk (default 25). |
 | `--json` | Machine listing / apply result on stdout. |
-
-Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.
 
 ## npm-script aliases
 
@@ -148,9 +151,13 @@ check between two later without shifting the others.
 | `snippets` | Tagged doc fences type-check | built-in (`tsc`) | opt-in |
 | `unclaimed` | Every toolchain marker sits in a target | built-in | with `targets` |
 
-The last four are the **publish-ready bundle** — opt-in library slots that check
-the shipped artifact (see [Tools](./tools.md#the-publish-ready-bundle)). `build`
-is wave 10 so it runs before `pack`/`smoke`/`snippets`/`publint`/`attw` in wave 20.
+`build`, `publint`, `attw`, `pack`, `smoke` and `snippets` are the
+**publish-ready bundle** — opt-in library slots that check the shipped artifact
+(see [Tools](./tools.md#the-publish-ready-bundle)). `build` is wave 10 so it
+runs before `pack`, `smoke`, `publint` and `attw` in wave 20; `snippets` checks
+your source in any wave, and `snippets-dist`, which checks the built `.d.ts`,
+joins wave 20. The other packs fill these slots with their own tools: see
+[Packs and pins](./packs.md).
 
 A slot only runs if its config file is detected (or its tool is built-in). See
 [Tools and installation](./tools.md) for the detect file and install command
@@ -162,9 +169,10 @@ Every run writes here. Treat it as a stable API for agents.
 
 | File | Contents |
 | ---- | -------- |
-| `summary.json` | Aggregate report: per-check `ok`, `exit_code`, `duration_ms`. |
-| `<slot>.json` | Raw tool JSON when stdout parses as JSON. |
-| `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams when output is not JSON. |
+| `summary.json` | Aggregate report: per-check `ok`, `exit_code`, `duration_ms`, why it runs, and the argv and pin it ran with. |
+| `<slot>.json` / `<slot>.jsonl` | Raw tool JSON, or JSON lines, when the check declares that file and its stdout takes that form. |
+| `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams otherwise. A check refused before it ran says why in its `.stderr.txt`. |
+| `<target>/` | With `targets`, each target's checks write the same files under their target's directory, as `web/lint.json`. |
 | `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
 
 To debug: read `summary.json` for the failing slot, then read that slot's raw
