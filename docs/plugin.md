@@ -124,10 +124,11 @@ Use it whenever `pnpm check` fails, CI is red on the gate, or you need to know
 what to fix first. It produces **one named root cause** plus an explicit list of
 what it is deliberately not reading yet.
 
-The reader runs the repo's own `check` script — that script is the definition of
-done and may carry deliberate `--only` / `--skip` / `--changed` that a direct
-`checkride` invocation would bypass — then branches on the promised 0/1/2 exit
-split before reading anything. A green 17-slot run renders in about 2 KB.
+The reader runs the check the way the repo does — its own `check` script, which
+is the definition of done and may carry deliberate `--only` / `--skip` /
+`--changed` that a direct `checkride` invocation would bypass, or, in a repo with
+no `package.json`, `mise exec -- checkride` where a `mise.toml` pins it — then
+branches on the promised 0/1/2 exit split before reading anything. A green 17-slot run renders in about 2 KB.
 
 It covers the contract corners a plain summary read gets wrong:
 
@@ -182,6 +183,12 @@ the code and the suite still passed — a demonstrated hole, not an opinion), th
 dead code, then structure, then its own reading of the source, and it stops
 where the evidence stops. A short report is a strong one; there is no fixed-size
 finding list, and zero findings is a legitimate answer.
+
+`dead.json`, `dupes.json` and `health.json` are fallow's reports, the only
+format `qa` folds. A `dead` check another tool fills, deadcode or cargo-machete
+in a Go or Rust repo, or knip, writes none, so its ledger row says so and points
+at the check's raw output in the output directory instead, and one that sat out
+names its pack's own tool.
 
 `mutation.json` is stryker's own file, written wherever the repo's stryker
 config's `jsonReporter.fileName` puts it, not an artifact checkride captures. So

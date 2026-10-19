@@ -54,8 +54,14 @@ src/
   adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
   config.ts         checkride.config.json loading and validation, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
-  doctor.ts
+  doctor.ts         `checkride doctor` — the environment and every check's status
   baseline-command.ts  `checkride baseline` — capture the committed baseline
+  recover.ts        `checkride recover` — rebuild the baseline from git history
+  gate.ts           `checkride gate` — the stop-gate verdict, harness-neutral
+  target-command.ts `checkride target add` — declare a target, converting a repo with none
+  target-files.ts   write a targets change: the config as written, and the renamed baseline
+  git.ts            read-only git plumbing: the --changed base and paths, the run's head
+  node-pin.ts       the repo's Node pin, and aligning a child process to it
   links.ts          built-in links check
   pack.ts           built-in pack dry-run check
   smoke.ts          built-in import-liveness check
@@ -78,7 +84,8 @@ src/
   targets/          named (pack, root) targets, and the rules their config keeps
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
-templates/          per-pack scaffold files (shipped): ts/ (shapes, configs, rules), repo/
+templates/          per-pack scaffold files (shipped): ts/ (shapes, configs, rules), repo/,
+                    go/ and rust/ (shapes, configs, rules), python/ and terraform/ (configs)
 test/
   integration/      tests that span modules (run by `pnpm check`)
   contract/         locks on the surfaces in docs/contract.md (run by `pnpm check`)

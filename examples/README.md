@@ -16,7 +16,7 @@ which is the only reason to trust anything written here.
 | [`custom-checks/`](./custom-checks/) | The escape hatch: a bespoke formatter running ahead of the built-ins, `detect`-gated checks that stand down, and a rule no off-the-shelf linter could express | `0` |
 | [`shared-preset/`](./shared-preset/) | One versioned preset package carrying org-wide policy across a fleet — two tiers, deep-merged local overrides, and `detect` keeping it safe in repos with different toolchains | `0` |
 | [`go-module/`](./go-module/) | A Go module as one go target: go build, golangci-lint, deadcode pinned as a `go.mod` tool, and go test, all offline | `0` |
-| [`go-workspace/`](./go-workspace/) | A Go workspace as one go target, whose checks name each module `go.work` uses | `0` |
+| [`go-workspace/`](./go-workspace/) | A Go workspace as one go target, whose checks name each module `go.work` uses, and whose `--changed` runs build a module's importers even with no `require` | `0` |
 | [`rust-workspace/`](./rust-workspace/) | A Cargo workspace as one rust target: the toolchain pinned by `rust-toolchain.toml`, clippy with warnings failing, cargo-machete, the doctests, and the Rust dialect rules | `0` |
 | [`polyglot-stack/`](./polyglot-stack/) | A TypeScript app, a Go service and shell scripts as three targets, with links, the Go dialect rules and `unclaimed` checked once for the whole repo | `0` |
 | [`polyglot-ts-bash/`](./polyglot-ts-bash/) | Two targets in one repo: a TypeScript app checked by tsc from its own root, shell scripts checked by shellcheck over their file list, and `unclaimed` failing on a package no target checks | `0` |
@@ -106,8 +106,10 @@ example is *about* keeps it honest without making it brittle.
 ## Adding an example
 
 1. Create `examples/<name>/` with a `package.json` (`"private": true`, and
-   `"checkride": "link:../.."`), a `pnpm-workspace.yaml`, an `.oxlintrc.json`, a
-   `README.md`, and an `expected.json`.
+   `"checkride": "link:../.."`), a `pnpm-workspace.yaml`, an `.oxlintrc.json`
+   if it runs oxlint, a `README.md`, and an `expected.json`. An example of a
+   repo without Node, like `go-existing-baseline`, skips the first two and
+   runs the built CLI instead.
 2. Run it and confirm the behavior is real before writing it down.
 3. `pnpm test:e2e` — the suite discovers the directory automatically; there is
    no list to register it in.
@@ -128,10 +130,10 @@ repo and breaks in the copy — and the built-in `links` check turns that into a
 red run. Link to a sibling example (or to the main docs) by full URL. Links
 *within* an example are fine, and are checked.
 
-**Every example needs its own `.oxlintrc.json`.** Without one, oxlint walks up
-the directory tree and the example silently inherits the root repo's config —
-it stops being standalone, and behaves differently in-tree than it does copied
-somewhere else.
+**Every example that runs oxlint needs its own `.oxlintrc.json`.** Without one,
+oxlint walks up the directory tree and the example silently inherits the root
+repo's config — it stops being standalone, and behaves differently in-tree than
+it does copied somewhere else.
 
 **The root pipeline has to opt out of oxlint's nested-config discovery.** The
 flip side of the same mechanism: an `.oxlintrc.json` under `examples/` governs

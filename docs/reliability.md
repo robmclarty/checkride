@@ -42,8 +42,10 @@ them with tests, so a promise can't drift without the build going red:
   matter of remembering.
 - **The raw output stays raw.** This is the product's core thesis and it will
   not change: each tool's own bytes land in `.check/<slot>.json` (or the text
-  files beside it), never normalized into some common shape. The summary is an
-  index; the raw file is the truth. Deleting the normalization layer is what
+  files beside it, or under `.check/<target>/` for a target's check), never
+  normalized into some common shape. The summary is an index; the raw file is
+  the truth. `checkride/findings` parses those bytes for a reader that wants
+  findings by file and line, but no verdict depends on its output. Deleting the normalization layer is what
   makes checkride cheap to extend, and keeping it deleted is a promise.
 - **The public surface is exactly what the package exports.** Everything
   importable from `checkride` is semver-bound; everything else is internal by
@@ -193,10 +195,12 @@ a tool a cautious engineering manager is willing to bet a team's workflow on.
 A promise of "works everywhere" that hasn't been tested everywhere is worse
 than a smaller promise that's true. checkride's continuous integration runs the
 full suite — unit, contract, and real end-to-end (projects generated,
-installed, and checked for real) — across macOS and Linux, at both the exact
-supported Node floor and the current release, and the end-to-end suite
-exercises all four package managers it claims to support: pnpm, npm, yarn, and
-bun. That is the envelope, and the README states exactly that.
+installed, and checked for real) — across macOS and Linux, at the exact
+supported Node floor and the two newest majors, and the end-to-end suite
+exercises all four package managers it claims to support, pnpm, npm, yarn, and
+bun, and every language pack against its real tools, which CI installs at
+pinned versions through mise and requires, so no pack's cases are skipped.
+That is the envelope, and the README states exactly that.
 
 Windows is deliberately absent. It isn't tested, so it isn't claimed; it waits
 for a real consumer who needs it rather than being asserted on faith. An honest
