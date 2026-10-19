@@ -13,7 +13,7 @@
     },
     "slots": {
       "type": "object",
-      "description": "Slot name (lint, struct, spell, prose, dead, dupes, health, or a config custom-check key) to the sorted set of grandfathered finding keys. A fingerprintable slot with nothing to grandfather is present with an empty array; a slot whose adapter has no extractor is absent.",
+      "description": "Check name to the sorted set of grandfathered finding keys: the slot (lint, struct, docs, spell, prose, dead, dupes, health) or a config custom-check key, or <target>:<slot> for a target's check in multi-target mode. A fingerprintable slot with nothing to grandfather is present with an empty array; a slot whose adapter has no parser, or whose output that parser can't trust, is absent.",
       "propertyNames": { "minLength": 1 },
       "additionalProperties": {
         "type": "array",
@@ -21,7 +21,7 @@
         "items": {
           "type": "string",
           "minLength": 1,
-          "description": "An opaque finding key built by the slot's extractor: `<file>:<rule>:<message>` for oxlint/ast-grep/cspell/vale (no line or column), category-and-symbol for fallow. Compare and count keys; never parse them."
+          "description": "An opaque finding key built by the slot's extractor: `<file>:<rule>:<message>` for the diagnostic parsers (oxlint, ast-grep, cspell, vale, markdownlint-cli2, rumdl, typos, golangci-lint, staticcheck, clippy, shellcheck, ruff, tflint), with no line or column and the file named from the repo root; category-and-symbol for fallow. Compare and count keys; never parse them."
         }
       }
     }

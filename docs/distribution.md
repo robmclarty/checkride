@@ -33,7 +33,7 @@ node = "22.18.0"
 "npm:checkride" = { version = "<version>", allow_low_downloads = true }
 ```
 
-`<version>` is a checkride release, such as `0.14.0`. `init --lang go|rust`
+`<version>` is a checkride release, such as `0.15.0`. `init --lang go|rust`
 writes that pin at the checkride you ran it with, and a repo that already
 exists can add it in one command:
 

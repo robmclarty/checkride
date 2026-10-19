@@ -52,11 +52,13 @@ export default {
   disableTypeChecks: 'src/**/*.ts',
   incremental: true,
   incrementalFile: 'stryker.incremental.json',
-  // `break` is the gate; `high`/`low` only colour the report. The measured
-  // score is 73.2%, so break sits ~5 points under it rather than right beneath:
-  // a mutant's `Timeout` status depends on machine load, so a threshold within a
-  // point or two of the real score fails on a busy laptop and passes on an idle
-  // one. Ratchet it up as the score climbs — never down to make a run pass.
+  // `break` is the gate; `high`/`low` only colour the report. The last full
+  // run scored 83.13%, so break sits well under it rather than right beneath:
+  // a mutant's `Timeout` status depends on machine load (554 of that run's
+  // results were load-dependent timeouts), so a threshold within a point or two
+  // of the real score fails on a busy laptop and passes on an idle one. Ratchet
+  // it up as the score climbs, deliberately, since a quality floor pins it at
+  // 68 — never down to make a run pass.
   thresholds: { high: 85, low: 70, break: 68 },
   tempDirName: '.stryker-tmp',
   cleanTempDir: true,
