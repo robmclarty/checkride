@@ -1653,7 +1653,8 @@ const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !=
  */
 function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedTarget[], pack: string): TargetChange {
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
-  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS };
+  // Existing mode starts from a root that marks a pack, so its implicit target is always kept.
+  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS, marked: true };
   let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
   for (const target of ordered) {
     const next = addTarget(change.config, target, rules);

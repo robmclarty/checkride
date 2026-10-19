@@ -342,16 +342,23 @@ export function configuredTargets(config: { readonly targets?: unknown } | null)
 const IMPLICIT_ORDER: readonly string[] = ['ts', 'go', 'rust', 'python', 'terraform'];
 
 /**
- * The pack of the one target a repo without `targets` is checked as (R2.1):
- * the first pack, in R2.1's order among the packs that ship, with a marker
- * `atRoot` says the repo root holds, and `ts` when none does. A root
+ * The first pack, in R2.1's order among the packs that ship, with a marker
+ * `atRoot` says the repo root holds, or `null` when it holds none. A root
  * `package.json` or `tsconfig.json` picks `ts` before any other, as 0.13 did.
  * `atRoot` answers for one marker, a file name relative to the root.
  */
-export function implicitPack(atRoot: (marker: string) => boolean): string {
+export function markedPack(atRoot: (marker: string) => boolean): string | null {
   const packs = Object.values(PACKS);
   const shipped = IMPLICIT_ORDER.flatMap((name) => packs.filter((p) => p.name === name));
-  return shipped.find((p) => p.markers.some(atRoot))?.name ?? PACKS.ts.name;
+  return shipped.find((p) => p.markers.some(atRoot))?.name ?? null;
+}
+
+/**
+ * The pack of the one target a repo without `targets` is checked as (R2.1):
+ * the one the root marks ({@link markedPack}), and `ts` when it marks none.
+ */
+export function implicitPack(atRoot: (marker: string) => boolean): string {
+  return markedPack(atRoot) ?? PACKS.ts.name;
 }
 
 /** True when `inner` sits below `outer`. */

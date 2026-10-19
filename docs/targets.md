@@ -30,6 +30,7 @@ the first that matches:
 4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
 5. a root `.terraform.lock.hcl` or `*.tf` file picks `terraform`;
 6. anything else picks `ts`, where every slot stands down as it always has.
+   Such a root becomes a target only when it configures a tool of its own.
 
 A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
@@ -99,7 +100,10 @@ target, which the message names in place of a target to add.
 - `checkride target add <name> --lang <pack> --root <dir>` adds one, adopting
   the tools its root already configures. In a repo without targets, the
   implicit project becomes a target of its pack named `app` at `.`, and its
-  top-level entries and baseline keys move with it.
+  top-level entries and baseline keys move with it. A root that marks no pack
+  becomes that target only when it configures a tool, an `.oxlintrc.json` for
+  one, or an entry picks one; otherwise the new target is declared alone, so
+  a ts target below the root is never blocked by one at `.`.
 - `checkride init` in an existing repo, one whose root holds a `package.json`
   or another pack's marker, adopts the tools it finds through the implicit
   pack, proposes the targets its files suggest, and writes them when there's

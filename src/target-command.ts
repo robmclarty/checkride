@@ -18,13 +18,13 @@
 import { join, posix } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
-import { resolveChecks } from './config.js';
+import { loadConfig, resolveChecks } from './config.js';
 import { generatedSchemaUrl, scaffoldSlotConfigs } from './init.js';
 import type { Out } from './orchestrator/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
-import { addTarget, implicitPack, markerAt, normalizeRoot } from './targets/index.js';
+import { addTarget, implicitPack, markedPack, markerAt, normalizeRoot } from './targets/index.js';
 
 export type TargetAddOptions = {
   cwd?: string;
@@ -86,6 +86,18 @@ function adopted(cwd: string, name: string, pack: TargetPack, root: string): Rec
   );
 }
 
+/**
+ * Whether the repo at `cwd`, which declares no targets, has an implicit target
+ * to keep: its root marks a pack (R2.1), or its config and detection resolve
+ * a target-scope check that runs a tool, such as an `.oxlintrc.json`, a
+ * `fallow.toml` or a `packs.ts.checks` entry gives a markerless root.
+ */
+function implicitIsMarked(cwd: string): boolean {
+  if (markedPack(markerAt(cwd)) !== null) return true;
+  const checks = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: loadConfig(cwd), cwd });
+  return checks.some((r) => TARGET_SLOTS.has(r.slot) && r.adapter !== null && (r.origin === 'detected' || r.origin === 'config'));
+}
+
 /** Print the changes, and what was written, or that nothing was. */
 function report(stdout: Out, heading: string, changes: readonly string[], written: readonly string[], dryRun: boolean): void {
   stdout.write(`\ncheckride target add: ${heading}\n\n`);
@@ -107,6 +119,7 @@ export async function runTargetAdd(options: TargetAddOptions): Promise<TargetAdd
     rootName: options.rootName ?? DEFAULT_ROOT_NAME,
     implicitPack: implicitPack(markerAt(cwd)),
     targetSlots: TARGET_SLOTS,
+    marked: raw['targets'] === undefined && implicitIsMarked(cwd),
   });
   const files = await writeTargetChange(cwd, change, { dryRun, command: 'target add' });
   // A pack with no blessed configs of its own, such as go, names its tool and scaffolds nothing.

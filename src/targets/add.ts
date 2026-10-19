@@ -11,6 +11,13 @@
  * `checks`, where they keep applying to it alone, and its baseline entries
  * move from `lint` to `app:lint`. Their keys already name paths from the repo
  * root, which is its root, so they still match the findings they masked.
+ *
+ * A root that marks no pack is checked as ts only by default, and when it
+ * checks nothing of its own, making it a ts target would only block a later
+ * ts target below it, since two can't nest. So an unmarked root becomes a
+ * target only when an entry of its picks a tool; otherwise the added target
+ * stands alone, and the top-level entries, which can only switch a slot off
+ * or tune it, stay where they are.
  */
 
 import { isRecord } from '../json.js';
@@ -39,6 +46,13 @@ export type ConversionRules = {
   implicitPack: string;
   /** The target-scope slots, whose top-level entries the implicit target takes. */
   targetSlots: ReadonlySet<string>;
+  /**
+   * Whether the implicit target is one to keep: its root marks a pack
+   * (R2.1), or, as `target add` reads it, it resolves a target-scope check
+   * that runs a tool. Unmarked, it becomes a target only when a top-level
+   * entry picks a tool.
+   */
+  marked: boolean;
 };
 
 /** The entries of `checks` that `keep` accepts, by name. */
@@ -73,7 +87,7 @@ function liftImplicit(
 }
 
 /** How `--discover` names the implicit target's successor: the pack the root marks, and the slots its top-level entries fill. */
-export type DiscoveryRules = Omit<ConversionRules, 'rootName'>;
+export type DiscoveryRules = Pick<ConversionRules, 'implicitPack' | 'targetSlots'>;
 
 /**
  * `raw`, an implicit-mode config, with `proposed` declared (R13.2), in their
@@ -116,12 +130,22 @@ function entryOf(target: TargetToAdd): TargetEntry {
   return { ...rest, ...(checks !== undefined && Object.keys(checks).length > 0 ? { checks } : {}) };
 }
 
+/** True when a top-level entry for one of `targetSlots` picks a tool: an adapter's name, `{ use }` or `{ command }`. */
+function picksTool(raw: Record<string, unknown>, targetSlots: ReadonlySet<string>): boolean {
+  const checks = isRecord(raw['checks']) ? raw['checks'] : {};
+  return Object.entries(checks).some(([slot, entry]) => {
+    if (!targetSlots.has(slot)) return false;
+    return typeof entry === 'string' || (isRecord(entry) && ('use' in entry || 'command' in entry));
+  });
+}
+
 /**
  * `raw` with `target` declared (R7.4). A repo with targets gains one more. A
  * repo without them is converted first, and a target of the implicit pack
- * rooted at `.` takes the implicit target over instead of sitting beside it.
- * Throws when the name is taken; every other rule is the config's own,
- * checked once the result is merged and validated.
+ * rooted at `.` takes the implicit target over instead of sitting beside it;
+ * an unmarked implicit target that no entry gives a tool is left out, and
+ * `target` declared alone. Throws when the name is taken; every other rule is
+ * the config's own, checked once the result is merged and validated.
  */
 export function addTarget(raw: Record<string, unknown>, target: TargetToAdd, rules: ConversionRules): TargetChange {
   if (raw['targets'] !== undefined) {
@@ -131,6 +155,9 @@ export function addTarget(raw: Record<string, unknown>, target: TargetToAdd, rul
   }
   if (target.lang === rules.implicitPack && target.root === '.') {
     return liftImplicit(raw, { name: target.name, lang: target.lang, ...(target.checks ? { extra: target.checks } : {}) }, rules.targetSlots);
+  }
+  if (!rules.marked && !picksTool(raw, rules.targetSlots)) {
+    return { config: { ...raw, targets: { [target.name]: entryOf(target) } }, renames: new Map(), changes: addedLines(target) };
   }
   if (target.name === rules.rootName) {
     throw new Error(`target add: the repo's implicit target takes the name ${rules.rootName}; pass --root-name <name> to name it something else`);

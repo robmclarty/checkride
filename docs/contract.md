@@ -771,7 +771,12 @@ implicit target becomes an explicit one of its pack named `--root-name`
 its `checks`, and `checkride.baseline.json`'s entries move from `<slot>` to
 `<name>:<slot>` with their keys unchanged, so the next full run masks exactly
 what the last one did. A target of the implicit pack rooted at `.` takes the
-implicit one over instead. Every change is printed; `--dry-run` prints them and writes nothing.
+implicit one over instead. A root that marks no pack, which resolves as ts
+only by default, converts only when it resolves a target-scope check that
+runs a tool, through detection, an entry or `packs.ts.checks`, or a
+top-level entry picks one; otherwise the new target is declared alone, and
+the top-level entries, which can then only switch a slot off or tune it,
+stay where they are. Every change is printed; `--dry-run` prints them and writes nothing.
 The new config is merged and validated first, so a change that breaks a rule
 (a ts target nesting under the converted root, for one) exits 2 having written
 nothing, as does a baseline that can't be parsed.

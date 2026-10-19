@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 
 import { addTarget, liftDiscovered } from '../add.js';
 
-const rules = { rootName: 'app', implicitPack: 'ts', targetSlots: new Set(['types', 'lint', 'test']) };
+const rules = { rootName: 'app', implicitPack: 'ts', targetSlots: new Set(['types', 'lint', 'test']), marked: true };
 
 describe('addTarget', () => {
   test('converts an implicit repo: the implicit target is named, takes its slots’ entries, and its baseline entries follow', () => {
@@ -41,6 +41,17 @@ describe('addTarget', () => {
     });
     expect(addTarget({}, { name: 's', lang: 'bash', root: 's', checks: {} }, rules).config).toEqual({
       targets: { app: { lang: 'ts', root: '.' }, s: { lang: 'bash', root: 's' } },
+    });
+  });
+
+  test('an unmarked root becomes a target only when an entry picks a tool, and a taken root name then doesn’t matter', () => {
+    const unmarked = { ...rules, marked: false };
+    const alone = addTarget({ checks: { lint: false, test: { timeout: 30 } } }, { name: 'app', lang: 'bash', root: 's' }, unmarked);
+    expect(alone.config).toEqual({ targets: { app: { lang: 'bash', root: 's' } }, checks: { lint: false, test: { timeout: 30 } } });
+    expect(alone.renames.size).toBe(0);
+    expect(alone.changes).toEqual(['targets.app: a bash target rooted at s']);
+    expect(addTarget({ checks: { lint: { use: 'oxlint' } } }, { name: 's', lang: 'bash', root: 's' }, unmarked).config).toEqual({
+      targets: { app: { lang: 'ts', root: '.', checks: { lint: { use: 'oxlint' } } }, s: { lang: 'bash', root: 's' } },
     });
   });
 

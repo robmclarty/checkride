@@ -266,12 +266,16 @@ fields. These are the changes it can notice; each is described in full below.
   `checkride.config.json`, creating the file if needed, and names each tool
   its root already configures. `--add <a,b>` names the blessed tool for more
   slots, scaffolding a ts target's config under its root. In a repo with no
-  targets yet, the implicit ts target becomes `app` (or `--root-name`) at
-  `.`, the top-level entries for target-scope slots move into it, and
-  `checkride.baseline.json`'s entries move from `lint` to `app:lint`, so the
-  next run masks exactly what the last one did. Each change is printed, and
-  `--dry-run` writes nothing. A change that would break the config, such as a
-  ts target nesting under `app`, exits 2 before anything is written. See
+  targets yet, the implicit target becomes one of its pack named `app` (or
+  `--root-name`) at `.`, the top-level entries for target-scope slots move
+  into it, and `checkride.baseline.json`'s entries move from `lint` to
+  `app:lint`, so the next run masks exactly what the last one did. A root
+  that marks no pack becomes that target only when it configures a tool or
+  an entry picks one, so `target add web --lang ts --root apps/web` in a
+  repo with no root marker declares `web` alone rather than nesting it under
+  an invented ts target at `.`. Each change is printed, and `--dry-run`
+  writes nothing. A change that would break the config, such as a ts target
+  nesting under `app`, exits 2 before anything is written. See
   `docs/contract.md`.
 - **`init` in an existing repo proposes targets.** It reads the repo's files
   and proposes a ts target per top-most `package.json` (one at the root when

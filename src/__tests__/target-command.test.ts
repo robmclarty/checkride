@@ -90,12 +90,40 @@ describe('runTargetAdd', () => {
     expect(out.text()).toContain('dry run: nothing written');
   });
 
-  test('creates the config when there is none, naming the schema', async () => {
+  test('creates the config when there is none, naming the schema, and a markerless root that checks nothing becomes no target', async () => {
     await put('scripts/a.sh');
     await add();
     const config = JSON.parse(await read('checkride.config.json')) as Record<string, unknown>;
     expect(config['$schema']).toMatch(/schema\/checkride\.config\.schema\.json$/);
-    expect(config['targets']).toEqual({ app: { lang: 'ts', root: '.' }, scripts: { lang: 'bash', root: 'scripts' } });
+    expect(config['targets']).toEqual({ scripts: { lang: 'bash', root: 'scripts' } });
+  });
+
+  test('in a markerless repo, a ts target below the root is declared alone, where a ts target at . would have blocked it', async () => {
+    await put('apps/web/package.json', '{"name":"web"}');
+    const argv = ['target', 'add', 'web', '--lang', 'ts', '--root', 'apps/web'];
+    expect(await runCli(argv, { cwd: dir, stdout: sink().out, stderr: sink().out, env: {} })).toBe(0);
+    expect(JSON.parse(await read('checkride.config.json')).targets).toEqual({ web: { lang: 'ts', root: 'apps/web' } });
+  });
+
+  test('a markerless root still becomes the ts target app when it configures a tool, or an entry picks one; an entry that only tunes stays put', async () => {
+    await put('scripts/a.sh');
+    await put('.oxlintrc.json', '{}');
+    await add();
+    expect(JSON.parse(await read('checkride.config.json')).targets).toEqual({
+      app: { lang: 'ts', root: '.' },
+      scripts: { lang: 'bash', root: 'scripts' },
+    });
+
+    await rm(join(dir, '.oxlintrc.json'));
+    await put('checkride.config.json', JSON.stringify({ checks: { lint: 'oxlint', test: { timeout: 30 } } }));
+    await add();
+    expect(JSON.parse(await read('checkride.config.json')).targets['app']).toEqual({ lang: 'ts', root: '.', checks: { lint: 'oxlint', test: { timeout: 30 } } });
+
+    await put('checkride.config.json', JSON.stringify({ checks: { test: { timeout: 30 }, lint: false } }));
+    await add();
+    const tuned = JSON.parse(await read('checkride.config.json')) as Record<string, unknown>;
+    expect(tuned['targets']).toEqual({ scripts: { lang: 'bash', root: 'scripts' } });
+    expect(tuned['checks']).toEqual({ test: { timeout: 30 }, lint: false });
   });
 
   test('converting a go.mod root names its implicit target a go one, and a go target at . takes it over (R2.1)', async () => {
@@ -205,6 +233,11 @@ describe('runTargetAdd', () => {
     expect(await run(['target', 'add', '--lang', 'bash', '--root', 'scripts'])).toBe(2);
     expect(await run(['target', 'add', 'doc-snippets', '--lang', 'bash', '--root', 'scripts'])).toBe(2);
     expect(existsSync(join(dir, 'checkride.config.json'))).toBe(false);
+    // A markerless root that checks nothing becomes no target, so --root-name names nothing.
+    expect(await run(['target', 'add', 'scripts', '--lang', 'bash', '--root', 'scripts', '--root-name', 'web'])).toBe(0);
+    expect(Object.keys(JSON.parse(await read('checkride.config.json')).targets)).toEqual(['scripts']);
+    await rm(join(dir, 'checkride.config.json'));
+    await put('package.json', '{"name":"x"}');
     expect(await run(['target', 'add', 'scripts', '--lang', 'bash', '--root', 'scripts', '--root-name', 'web'])).toBe(0);
     expect(Object.keys(JSON.parse(await read('checkride.config.json')).targets)).toEqual(['web', 'scripts']);
   });

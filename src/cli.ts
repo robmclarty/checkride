@@ -378,11 +378,13 @@ Usage: checkride target add <name> --lang <pack> --root <dir>
 
 Adds a target to checkride.config.json, creating the file when there's none.
 The target adopts the tools its root already configures, naming each in its
-checks. In a repo that declares no targets yet, the repo's implicit ts target
-becomes an explicit one named --root-name (default app), rooted at .: the
-top-level checks entries for target-scope slots move into its checks, and
-checkride.baseline.json's entries move from lint to app:lint. A ts target
-rooted at . takes the implicit one over instead. Each change is printed.
+checks. In a repo that declares no targets yet, the repo's implicit target
+becomes an explicit one of its pack named --root-name (default app), rooted
+at .: the top-level checks entries for target-scope slots move into its
+checks, and checkride.baseline.json's entries move from lint to app:lint. A
+target of that pack rooted at . takes the implicit one over instead. A root
+that marks no pack and configures no tool becomes no target, and the new one
+is declared alone. Each change is printed.
 
 Options:
   --lang <pack>       The target's pack: ts, bash, go, rust, python or
