@@ -465,7 +465,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pre-sandbox pass over a checkout nobody has installed keeps a check only
   when its adapter is marked static (prettier, biome, oxlint, ast-grep,
   markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt,
-  `links` and `unclaimed`), or a defaults file vouches for it with
+  ruff, ruff-format, terraform-fmt, tflint, trivy-config, `links` and
+  `unclaimed`), or a defaults file vouches for it with
   `static: true`. An entry in the repo's config, or a preset it extends, that
   adds an argument to a static tool's own, such as prettier's `--plugin`,
   loses the mark, since the repo's config is as untrusted as its code; one
@@ -497,6 +498,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branch's config, `baseline diff`, and reading every finding through
   `checkride/findings`, and says plainly that none of it is a sandbox. An e2e
   case runs both passes over `examples/polyglot-stack` (#7).
+- **Every pack's slots and tools, documented and held to the registry.**
+  `docs/packs.md` gives each of the seven packs a table of its adapters, in
+  the pack's order, with what each runs, what detects it and what it writes,
+  the ts and repo packs' included, and its spawn environment table adds the
+  `--pins` override's `MISE_OFFLINE` and `MISE_IGNORED_CONFIG_PATHS` and the
+  rust pack's emptied `RUSTUP_TOOLCHAIN`. `docs/targets.md` lists every
+  marker `unclaimed` reads and says a rust target is rooted at its
+  workspace. The README's slot table gains a scope column, and its command
+  list gains `baseline diff`, `target add`'s current wording and the run
+  flags it lacked. `docs/contract.md` names the rest of this release's
+  surfaces: every pack, the `schemas` key that's accepted while no run acts on
+  it, `{go-packages}`, `init --lang`, the flags `fix` ignores, and the adapter
+  and tool fields the packs carry. `docs-currency.test.ts` holds the pack,
+  pin-chain, pin-source and environment tables, the target packs and markers,
+  and the README's scopes against `PACKS` and `SLOTS`.
 - **Python targets, offline, running the copy `uv.lock` pins.** A target can
   declare `"lang": "python"`, with a root that holds a `pyproject.toml`,
   `setup.cfg` or `setup.py`, and a repo without `targets` whose root holds

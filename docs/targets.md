@@ -28,7 +28,7 @@ the first that matches:
 2. a root `go.mod` or `go.work` picks `go`;
 3. a root `Cargo.toml` picks `rust`;
 4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
-5. a root `.terraform.lock.hcl` or `.tf` file picks `terraform`;
+5. a root `.terraform.lock.hcl` or `*.tf` file picks `terraform`;
 6. anything else picks `ts`, where every slot stands down as it always has.
 
 A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (`types`,
@@ -75,15 +75,20 @@ nothing changed under.
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`
-and `exclude` globs. [Packs and pins](./packs.md) covers each pack's tools and
+and `exclude` globs. A rust target is rooted at its workspace's root, the
+directory whose `Cargo.toml` holds `[workspace]`, or a lone package's own, as
+discovery proposes it: cargo names each file from the workspace root, so a
+target declared at a member crate would key its findings and baseline entries
+by the wrong paths. [Packs and pins](./packs.md) covers each pack's tools and
 how each tool resolves to the copy that runs.
 
 ## Code no target checks
 
 `unclaimed` runs in every multi-target run and fails when a toolchain marker
-(`package.json`, `tsconfig.json`, `go.mod`, `Cargo.toml`, `pyproject.toml`, a
-`.tf` file) sits outside every target of its language, naming the target that
-would claim it in `.check/unclaimed.json`. A root `package.json` that only
+(`package.json`, `tsconfig.json`, `go.mod`, `go.work`, `Cargo.toml`,
+`pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl` or a `*.tf`
+file) sits outside every target of its language, naming the target that would
+claim it in `.check/unclaimed.json`. A root `package.json` that only
 installs tools, above ts targets in their own directories, goes in
 `unclaimed.ignore`, since two ts targets can't nest.
 

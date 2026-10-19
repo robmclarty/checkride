@@ -8,8 +8,14 @@ checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 packages and workspaces, `python`, which checks Python projects, and
 `terraform`, which checks Terraform and OpenTofu modules. This page covers how a check's
 tool resolves to the copy that runs, what the summary records about that copy,
-the bash pack and the file lists its checks run over, the go, rust, python and
-terraform packs, and the spawn environment each pack sets.
+each pack's slots and the adapters that fill them, the file lists a bash
+target's checks run over, and the spawn environment each pack sets.
+
+Each pack's table lists its adapters in the pack's order, and the first
+adapter for a slot is its blessed default: it wins detection where several
+tools' configs sit, and it's the one `init` and `target add --add` scaffold
+config for. A slot marked opt-in stays out of the default run until a config
+entry names it or `--include` does.
 
 ## Pin chains
 
@@ -32,33 +38,11 @@ every tool through its package manager as it always has. The `repo` pack's
 own chain applies once a repo declares targets. A run given `--pins` puts the
 `override` source at the head of every chain, that one included.
 
-## The repo pack without Node
-
-The repo pack's slots check the repo as a whole, so a repo with no
-`package.json` still needs them. Each slot that runs an npm tool by default has
-a single-binary alternate, which `mise.toml` or `PATH` provides:
-
-| Slot | npm default | Node-free alternate | Detected by |
-| --- | --- | --- | --- |
-| `struct` | `ast-grep`, from `@ast-grep/cli` | the `ast-grep` binary | `sgconfig.yml`, `sgconfig.yaml` |
-| `docs` | `markdownlint-cli2` | `rumdl`, writing `docs.json` | `.rumdl.toml`, `rumdl.toml` |
-| `spell` | `cspell` | `typos` | `_typos.toml`, `typos.toml`, `.typos.toml` |
-| `prose` | `vale`, from `@vvago/vale` | the `vale` binary | `.vale.ini`, `_vale.ini` |
-
-`ast-grep` and `vale` are one adapter each: the copy that runs is whichever the
-chain reaches first, the `package.json` dependency, then a `mise.toml` pin,
-then `PATH`. `rumdl` and `typos` are adapters of their own, after the npm
-default in their slot, so where both configs sit the npm default wins
-detection. rumdl runs `rumdl check --no-cache --output-format json .`, so it
-writes no cache into the checkout, and `checkride fix` runs it with `--fix`.
-typos runs `typos --format brief`, which exits 2 on a typo, and
-`checkride fix` runs `typos --write-changes`.
-
 ## Pin sources
 
 | Source | Declares a tool when | Runs it as | `tool_version` |
 | --- | --- | --- | --- |
-| `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline and with installs off, once `mise where <id>@<version>` confirms that version is installed | the version the file gives |
+| `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline, with installs off and every config file inside the repo ignored, once `mise where <id>@<version>` confirms that version is installed | the version the file gives |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
 | `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
@@ -74,7 +58,9 @@ as `.venv/bin/ruff`, and absolutely when the environment lies outside the
 repo.
 `override` is the consumer's, not the repo's: a review agent's own
 `mise.toml`, named with `--pins` or `CHECKRIDE_PINS`, runs its toolbelt over a
-checkout it can't write to. Each entry is a version string or an inline
+checkout it can't write to. mise reads none of the repo's own config files for
+it, so a `mise.toml` mise hasn't trusted neither refuses the tool nor gets
+trusted, and the repo's `[env]` never reaches it. Each entry is a version string or an inline
 table's `version`; anything else exits 2. It changes which copy of a tool
 runs, never which checks run, since detection reads only the repo. A toolchain
 it names, such as `go`, runs that copy in any pack, a `go tool` included. `rust-toolchain` declares only a tool that
@@ -143,6 +129,82 @@ one short spawn per check that mise launches, and it never asks for a
 version. A `mise.toml` mise hasn't trusted fails the check too, quoting mise's
 own line and naming `mise trust` rather than `mise install`, which would trust
 the file as a side effect.
+
+## The ts pack
+
+A ts target checks a TypeScript or JavaScript project from the directory that
+holds its `package.json` or `tsconfig.json`, and a repo without targets whose
+root holds either is one ts project at its root. Every tool runs through the
+project's package manager, so the Runs column reads as `pnpm exec <tool>` under
+pnpm, `npx --no-install <tool>` under npm, and so on
+([Tools § Package managers](./tools.md#package-managers)).
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `types` | `tsc` | `tsc --build` | `tsconfig.json` | `types.stdout.txt` |
+| `format` (opt-in) | `prettier` | `prettier --check .`, and `prettier --write .` under `checkride fix` | a `.prettierrc` in any of its forms, a `prettier.config.*`, or the `prettier` dependency | `format.stderr.txt`, with a summary in `format.stdout.txt` |
+| `format` (opt-in) | `biome-format` | `biome format .`, and `biome format --write .` under `checkride fix` | `biome.json`, `biome.jsonc` | `format.stderr.txt`, with a summary in `format.stdout.txt` |
+| `lint` | `oxlint` | `oxlint --type-aware --format=json`, and `--fix` under `checkride fix` | `.oxlintrc.json` or the `oxlint` dependency | `lint.json` |
+| `lint` | `biome` | `biome check --reporter=json`, and `biome check --write` under `checkride fix` | `biome.json`, `biome.jsonc` | `lint.json` |
+| `lint` | `eslint` | `eslint . --format json`, and `eslint . --fix` under `checkride fix` | an `eslint.config.*`, `.eslintrc.json`, `.eslintrc.cjs` or `.eslintrc.js` | `lint.json` |
+| `dead` | `fallow` | `fallow dead-code --format json --quiet`, and `fallow fix` under `checkride fix` | `fallow.toml` | `dead.json` |
+| `dead` | `knip` | `knip --reporter json`, and `knip --fix` under `checkride fix` | a `knip.json`, `knip.jsonc`, `.knip.json` or `knip.config.*`, or the `knip` dependency | `dead.json` |
+| `dupes` (opt-in) | `fallow` | `fallow dupes --format json --quiet` | `fallow.toml` | `dupes.json` |
+| `health` (opt-in) | `fallow` | `fallow health --format json --quiet` | `fallow.toml` | `health.json` |
+| `test` | `vitest` | `vitest run --coverage --reporter=default --reporter=json --outputFile={out}/test.json`, with `--changed {base}` under `--changed` | a `vitest.config.*` or the `vitest` dependency | `test.json`, through vitest's own `--outputFile` |
+| `test` | `jest` | `jest --ci --json --outputFile={out}/test.json`, with `--changedSince {base}` under `--changed` | a `jest.config.*` | `test.json`, through jest's own `--outputFile` |
+| `mutation` (opt-in) | `stryker` | `stryker run`, with no timeout | a `stryker.config.*` or `stryker.conf.*` | `mutation.stdout.txt` |
+| `security` (opt-in) | `pnpm-audit` | built-in: `pnpm audit --audit-level=high --json`, with the network | pnpm as the package manager | `security.json` |
+| `build` (opt-in) | `build` | `<pm> run build` | `scripts.build` in `package.json` | `build.stdout.txt` |
+| `publint` (opt-in) | `publint` | `publint` | the `publint` dependency | `publint.stdout.txt` |
+| `attw` (opt-in) | `attw` | `attw --pack . --format json` | the `@arethetypeswrong/cli` dependency | `attw.json` |
+| `pack` (opt-in) | `pack` | built-in: `<pm> pack --dry-run --json` | pnpm or npm as the package manager | `pack.json` |
+| `smoke` (opt-in) | `smoke` | built-in: imports the built package's exports | always | `smoke.json` |
+| `snippets` (opt-in) | `snippets` | built-in: type-checks the tagged doc fences against the source | always | `snippets.json` |
+| `snippets` (opt-in) | `snippets-dist` | built-in: type-checks them against the built `.d.ts`, after `build` | always | `snippets.json` |
+
+[Tools](./tools.md#slot-tools) covers each tool, what to install for it, and
+the built-ins' own rules.
+
+## The repo pack
+
+The repo pack fills the repo-scope slots, which check the repo as a whole, so
+each runs once, from the repo root, however many targets the config declares.
+It has no root marker.
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `struct` | `ast-grep` | `ast-grep scan --json=compact` | `sgconfig.yml`, `sgconfig.yaml` | `struct.json` |
+| `docs` | `markdownlint-cli2` | `markdownlint-cli2`, and `--fix` under `checkride fix` | a `.markdownlint-cli2.*` | `docs.stderr.txt`, with a summary in `docs.stdout.txt` |
+| `docs` | `rumdl` | `rumdl check --no-cache --output-format json .`, and `--fix` under `checkride fix` | `.rumdl.toml`, `rumdl.toml` | `docs.json` |
+| `links` | `links` | built-in: relative markdown links resolve on disk | always | `links.json` |
+| `spell` | `cspell` | `cspell --no-progress --no-summary --reporter=default` | a `cspell.json`, `.cspell.json` or `cspell.config.*`, or the `cspell` dependency | `spell.stdout.txt` |
+| `spell` | `typos` | `typos --format brief`, and `typos --write-changes` under `checkride fix` | `_typos.toml`, `typos.toml`, `.typos.toml` | `spell.stdout.txt` |
+| `prose` (opt-in) | `vale` | `vale --no-global --output=JSON .` | `.vale.ini`, `_vale.ini` | `prose.json` |
+| `unclaimed` | `unclaimed` | built-in: every toolchain marker sits in a target of its pack | `targets` in the config | `unclaimed.json` |
+
+`unclaimed` is inactive in a repo without targets, and
+[Targets](./targets.md#code-no-target-checks) covers what it reports.
+
+### Without Node
+
+A repo with no `package.json` still needs the repo pack's slots. Each slot that
+runs an npm tool by default has a single-binary alternate, which `mise.toml` or
+`PATH` provides:
+
+| Slot | npm default | Node-free alternate | Detected by |
+| --- | --- | --- | --- |
+| `struct` | `ast-grep`, from `@ast-grep/cli` | the `ast-grep` binary | `sgconfig.yml`, `sgconfig.yaml` |
+| `docs` | `markdownlint-cli2` | `rumdl`, writing `docs.json` | `.rumdl.toml`, `rumdl.toml` |
+| `spell` | `cspell` | `typos` | `_typos.toml`, `typos.toml`, `.typos.toml` |
+| `prose` | `vale`, from `@vvago/vale` | the `vale` binary | `.vale.ini`, `_vale.ini` |
+
+`ast-grep` and `vale` are one adapter each: the copy that runs is whichever the
+chain reaches first, the `package.json` dependency, then a `mise.toml` pin,
+then `PATH`. `rumdl` and `typos` are adapters of their own, after the npm
+default in their slot, so where both configs sit the npm default wins
+detection. rumdl runs with `--no-cache`, so it writes no cache into the
+checkout. typos exits 2 on a typo.
 
 ## The bash pack
 
@@ -402,7 +464,10 @@ the directory `TF_DATA_DIR` names when it's set, the check fails before
 anything spawns, naming `terraform init -backend=false`, or
 `tofu init -backend=false` where the repo runs OpenTofu. A check never runs
 init, which downloads providers; `-backend=false` installs them without
-touching the state backend.
+touching the state backend. A `.terraform/` that's there but stale, missing a
+provider the lock file now names, fails validate itself, and its message asks
+for a plain `init`, which reaches for the backend too: run the same
+`init -backend=false`.
 
 tflint lints every directory under the target's root with `--recursive`,
 hidden ones such as `.terraform/` aside, and exits 2 on an issue at any
@@ -509,7 +574,8 @@ because mise hasn't trusted the `mise.toml`, the gate stands down naming
 ## What `doctor` reports
 
 `checkride doctor` names the mode first: `implicit`, where the repo is one
-project at its root, naming the pack its root marks (`ts`, `go` or `rust`, as
+project at its root, naming the pack its root marks (`ts`, `go`, `rust`,
+`python` or `terraform`, as
 [Targets](./targets.md#a-repo-without-targets) explains), or `multi-target`,
 followed by a table of the targets the config declares. Each check gets a row, named `<target>:<slot>` in a target,
 whose tool is looked for where that check runs from, and the row ends with the
@@ -560,9 +626,10 @@ as unset when it's empty. mise exports that variable for its own Rust, and it
 would otherwise override the toolchain the repo's file names, so the verdict
 would depend on the shell that ran it.
 
-Each variable below was checked on 2026-10-16 against the version of its tool
-that this repo's `mise.toml` pins, or against upstream source for a tool it
-doesn't pin.
+Each variable below was checked against the version of its tool that this
+repo's `mise.toml` pins, or against upstream source for a tool it doesn't pin:
+the pack rows and the first mise row on 2026-10-16, and the last three rows on
+2026-10-18.
 
 | Applies to | Variable | Value | Purpose | Verified against |
 | --- | --- | --- | --- | --- |
@@ -580,3 +647,6 @@ doesn't pin.
 | terraform | `TFENV_AUTO_INSTALL`, `TOFUENV_AUTO_INSTALL` | `false` | The version manager never downloads a CLI. | Neither manager is pinned. Upstream source: tfenv v3.2.2 (`lib/tfenv-exec.sh`) and tofuenv v1.0.7 (`lib/tofuenv-exec.sh`) install only while the variable is `true`, its default. |
 | terraform | `TRIVY_SKIP_CHECK_UPDATE` | `true` | trivy never downloads its checks bundle. | trivy 0.76.0: maps `--skip-check-update` to the variable, and logs that it loads no downloadable checks. With an empty cache it falls back to its embedded checks, and with a cached bundle it uses that one, which is why the `trivy-config` adapter points `--cache-dir` at a scratch path no scan writes. |
 | any check launched through mise | `MISE_EXEC_AUTO_INSTALL`, `MISE_NOT_FOUND_AUTO_INSTALL` | `false` | mise never installs a missing tool. | mise 2026.10.4: `mise settings get` reads `false` for `exec_auto_install` and `not_found_auto_install`. A pinned version that isn't installed then runs a copy from `PATH`, which is why the `mise` source asks `mise which` first. |
+| a tool a `--pins` file runs | `MISE_OFFLINE` | `1` | `mise where` and `mise exec` resolve a version against the copies mise has installed, never a remote list. | mise 2026.10.4: `mise where go@1.27` answers with the installed 1.27.2, and an uninstalled version exits 1 with `not installed` and downloads nothing. |
+| a tool a `--pins` file runs | `MISE_IGNORED_CONFIG_PATHS` | the repo root, after any paths the variable already holds | mise reads no config file inside the repo, so an untrusted one there neither refuses the tool nor gets trusted. | mise 2026.10.4: splits the list on `:`, ignores every config file beneath a listed directory, and leaves its `[env]` unset inside `mise exec`. |
+| a rust check where a toolchain file pins the toolchain | `RUSTUP_TOOLCHAIN` | empty | The repo's toolchain file decides, never the Rust mise exports. | rustup 1.29.1: an empty value reads as unset, while mise's exported channel would beat `rust-toolchain.toml`. |

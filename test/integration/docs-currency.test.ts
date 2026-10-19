@@ -21,6 +21,15 @@
  * names each by its `rules/` path, so that list is exact too. Both guides draw
  * the `test/` tree, held to the folders `test-dir-layout.yml` allows.
  *
+ * The packs are the third catalogue. `docs/packs.md` gives each pack a section
+ * whose adapter table lists the pack's rows, in its order, plus tables of pin
+ * chains, pin sources and the variables each pack's checks spawn with;
+ * `docs/targets.md` lists the target packs, the markers that pick an implicit
+ * pack, and the slots that run once for the whole repo. Each is held to
+ * `PACKS` and `SLOTS` exactly, since a row that lags misdocuments a tool and a
+ * stale one names a tool no run spawns. The README's slot table carries each
+ * slot's scope, held to `SLOTS` the same way.
+ *
  * Sibling guards: `./conventions.test.ts` (AGENTS.md's claims about the tree),
  * `./dogfood-config.test.ts` (this repo's config still matches the registry),
  * `./site.test.ts` (the same currency rule for `site/*.html`).
@@ -33,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { SLOTS } from '../../src/adapters.js';
+import { PACKS } from '../../src/packs/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (...parts: string[]): string => readFileSync(join(ROOT, ...parts), 'utf8');
@@ -42,6 +52,12 @@ const CHEATSHEET = read('docs', 'cheatsheet.md');
 const SCHEMA = read('schema', 'checkride.config.schema.json');
 const DEEP_MODULES = read('docs', 'deep-modules.md');
 const GETTING_STARTED = read('docs', 'getting-started.md');
+const PACKS_MD = read('docs', 'packs.md');
+const TARGETS_MD = read('docs', 'targets.md');
+const CONTRACT = read('docs', 'contract.md');
+
+const packs = Object.values(PACKS);
+const scopeOf = (slot: string): string | undefined => SLOTS.find((s) => s.name === slot)?.scope;
 
 const RULES = join('templates', 'ts', 'shared', 'rules');
 const shippedRules = readdirSync(join(ROOT, RULES)).filter((f) => f.endsWith('.yml'));
@@ -73,6 +89,43 @@ function enumeratedAfter(text: string, lead: string): string[] {
     .split(',')
     .map((s) => s.replaceAll('`', '').trim())
     .filter(Boolean);
+}
+
+/** The names a piece of markdown sets in backticks, in order. */
+const backticked = (md: string): string[] => [...md.matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? '');
+
+/** The text from the `## <title>` heading up to the next `## ` heading. */
+function section(md: string, title: string): string {
+  const at = md.indexOf(`\n## ${title}\n`);
+  expect(at, `no "## ${title}" section`).toBeGreaterThan(-1);
+  const next = md.indexOf('\n## ', at + 1);
+  return md.slice(at, next === -1 ? undefined : next);
+}
+
+/** A markdown table row's cells, trimmed. No table these tests read puts a `|` in a cell. */
+const cells = (line: string): string[] =>
+  line
+    .trim()
+    .replace(/^\||\|$/g, '')
+    .split('|')
+    .map((c) => c.trim());
+
+/** The body rows of the first table whose header row opens with `header`'s cells. */
+function tableRows(md: string, ...header: string[]): string[][] {
+  const lines = md.split('\n');
+  const at = lines.findIndex((l) => l.startsWith('|') && cells(l).slice(0, header.length).join('|') === header.join('|'));
+  expect(at, `no table headed "${header.join(' | ')}"`).toBeGreaterThan(-1);
+  const body = lines.slice(at + 2);
+  const end = body.findIndex((l) => !l.startsWith('|'));
+  return body.slice(0, end === -1 ? undefined : end).map(cells);
+}
+
+/** The backticked names inside the parentheses that follow `lead`. */
+function backtickedAfter(text: string, lead: string): string[] {
+  const at = text.indexOf(lead);
+  expect(at, `no "${lead}" enumeration found`).toBeGreaterThan(-1);
+  const open = text.indexOf('(', at);
+  return backticked(text.slice(open + 1, text.indexOf(')', open)));
 }
 
 /** The folders in the tree drawn under a line that reads exactly `test/`. */
@@ -129,5 +182,80 @@ describe('the scaffold docs match the templates', () => {
   ])('%s draws the test/ folders test-dir-layout.yml allows', (_label, md) => {
     expect(testDirs).toHaveLength(5);
     expect(testTree(md).toSorted()).toEqual(testDirs.toSorted());
+  });
+});
+
+describe('docs/packs.md matches PACKS', () => {
+  test.each(packs.map((p) => [p.name, p] as const))('the %s pack section lists its adapter rows, in order', (name, pack) => {
+    const rows = tableRows(section(PACKS_MD, `The ${name} pack`), 'Slot', 'Adapter');
+    const documented = rows.map(([slot = '', adapter = '']) => `${backticked(slot)[0]}:${backticked(adapter)[0]}`);
+    expect(documented).toEqual(pack.adapters.map((a) => `${a.slot}:${a.name}`));
+    for (const [i, row] of rows.entries()) {
+      const adapter = pack.adapters[i];
+      if (adapter === undefined) continue;
+      const optIn = SLOTS.find((s) => s.name === adapter.slot)?.optIn === true;
+      expect(row[0]?.includes('(opt-in)'), `${adapter.name}'s slot cell marks opt-in exactly when its slot is`).toBe(optIn);
+      if (adapter.outputFile !== null) expect(backticked(row.at(-1) ?? ''), `${adapter.name} writes ${adapter.outputFile}`).toContain(adapter.outputFile);
+    }
+  });
+
+  test('the pin chains table gives every pack its chain', () => {
+    const rows = tableRows(PACKS_MD, 'Pack', 'Pin chain').map(([pack = '', chain = '']) => [backticked(pack)[0], backticked(chain)]);
+    expect(rows).toEqual(packs.map((p) => [p.name, [...p.pins]]));
+  });
+
+  test('the pin sources table has a row for every source a chain names, and override', () => {
+    const rows = tableRows(PACKS_MD, 'Source', 'Declares a tool when').map(([source = '']) => backticked(source)[0]);
+    const sources = new Set(['override', ...packs.flatMap((p) => p.pins)]);
+    expect(rows.toSorted()).toEqual([...sources].toSorted());
+  });
+
+  test("the spawn environment table gives every pack's variables and values", () => {
+    const documented: Record<string, Record<string, string>> = {};
+    for (const [appliesTo = '', variables = '', value = ''] of tableRows(PACKS_MD, 'Applies to', 'Variable')) {
+      if (!(appliesTo in PACKS)) continue;
+      for (const variable of backticked(variables)) (documented[appliesTo] ??= {})[variable] = backticked(value)[0] ?? '';
+    }
+    expect(documented).toEqual(Object.fromEntries(packs.filter((p) => Object.keys(p.env).length > 0).map((p) => [p.name, p.env])));
+  });
+});
+
+describe('docs/targets.md matches PACKS', () => {
+  test('the packs table lists every pack a target can name', () => {
+    const rows = tableRows(TARGETS_MD, 'Pack', 'Checks').map(([pack = '']) => backticked(pack)[0]);
+    const targetPacks = packs.filter((p) => p.adapters.some((a) => scopeOf(a.slot) === 'target')).map((p) => p.name);
+    expect(rows).toEqual(targetPacks);
+  });
+
+  test('a repo without targets picks its pack by each pack’s markers, in order', () => {
+    const picks = section(TARGETS_MD, 'A repo without targets')
+      .split('\n')
+      .flatMap((line) => {
+        const m = /^\d+\. (.*) picks `(\w+)`/.exec(line);
+        return m === null ? [] : [[m[2] ?? '', backticked(m[1] ?? '')] as const];
+      })
+      .filter(([, markers]) => markers.length > 0);
+    expect(picks).toEqual(packs.filter((p) => p.markers.length > 0).map((p) => [p.name, [...p.markers]]));
+  });
+
+  test('unclaimed names every marker a pack has', () => {
+    const listed = backtickedAfter(TARGETS_MD, 'fails when a toolchain marker');
+    expect(listed.toSorted()).toEqual(packs.flatMap((p) => p.markers).toSorted());
+  });
+
+  test('the repo-scope slots it names are exactly the catalogue’s', () => {
+    const listed = backtickedAfter(TARGETS_MD, 'The repo-scope slots');
+    expect(listed.toSorted()).toEqual(SLOTS.filter((s) => s.scope === 'repo').map((s) => s.name).toSorted());
+  });
+});
+
+describe('the scope and pack enumerations match the registry', () => {
+  test("README's slot table gives each slot its scope", () => {
+    const rows = tableRows(README, 'Slot', 'Scope').map(([slot = '', scope = '']) => [backticked(slot)[0], scope]);
+    expect(rows).toEqual(SLOTS.map((s) => [s.name, s.scope]));
+  });
+
+  test("docs/contract.md's PACKS sentence names every pack", () => {
+    expect(backtickedAfter(CONTRACT, "`PACKS` maps each pack's name")).toEqual(Object.keys(PACKS));
   });
 });

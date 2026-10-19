@@ -67,8 +67,8 @@ breaking release.
 
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0), per-check `origin`, `detected_by`, `argv`, `pin_source`,
-`tool_version`, `target`, `slot`, `pack` and `cwd`, and top-level `run`, `git`
-and `targets` (0.15.0).
+`tool_version`, `narrowed`, `target`, `slot`, `pack` and `cwd`, `reason` on a
+failed check, and top-level `run`, `git` and `targets` (0.15.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -130,7 +130,7 @@ required ones, so a field can't reach the schema without a row here.
 | Field | Type | Present when |
 | --- | --- | --- |
 | `name` | string | always: the target's name, which names its checks `<name>:<slot>` and its directory `<out>/<name>/` |
-| `pack` | string | always: the pack that checks it (`ts`) |
+| `pack` | string | always: the pack that checks it: `ts`, `bash`, `go`, `rust`, `python` or `terraform` |
 | `root` | string | always: the directory its checks run from, relative to the repo root and normalized, `.` for the root itself |
 | `discovered` | `true` | `--discover` proposed the target |
 
@@ -141,7 +141,7 @@ required ones, so a field can't reach the schema without a row here.
 | `name` | string | always: the slot name (`lint`), or the custom check's config key; `<target>:<slot>` (`web:lint`) for a target's check |
 | `target` | string | multi-target mode, on a target's check: the target it belongs to |
 | `slot` | string | multi-target mode, on every check: the catalogue slot or custom check name it fills |
-| `pack` | string | multi-target mode, on every check, and implicit mode when the repo root marks a pack other than `ts` (a `go.mod`, `go.work` or `Cargo.toml`): the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
+| `pack` | string | multi-target mode, on every check, and implicit mode when the repo root marks a pack other than `ts` (a `go.mod`, `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl` or `*.tf` file): the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
 | `cwd` | string, repo-relative | the check ran from a directory other than the repo root, as a target's check does when its root isn't `.` |
 | `adapter` | string or `null` | always: the adapter that ran or would have run (`oxlint`, or `custom:<key>` for a custom check with no `name`); `null` when the slot resolved to nothing |
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
@@ -242,7 +242,8 @@ out. git reads the tree as the checks start, and a gitignored `.check/`, as
 **A target's slots run once for that target, from its root.** When
 `checkride.config.json` declares `targets`, the run checks the repo as a whole
 once, at its root, and each target once from its own root. A repo-scope slot
-(`struct`, `docs`, `links`, `spell`, `prose`) and a top-level custom check keep
+(`struct`, `docs`, `links`, `spell`, `prose`, `unclaimed`) and a top-level
+custom check keep
 their bare names, run from the repo root and write into the output directory.
 Every other slot runs once for each target whose pack fills it, or whose own
 `checks` or pack block names it, as `<target>:<slot>`. Its entry comes from the
@@ -272,8 +273,9 @@ clearing what those targets left when the config has just dropped its
 
 **Without `targets`, the repo is one target of the pack its root marks.** The
 pack is the first match: a root `package.json` or `tsconfig.json` picks `ts`, a
-root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, and
-nothing picks `ts`. The top-level `checks` are that target's own entries, so
+root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, a root
+`pyproject.toml`, `setup.cfg` or `setup.py` picks `python`, a root
+`.terraform.lock.hcl` or `*.tf` file picks `terraform`, and nothing picks `ts`. The top-level `checks` are that target's own entries, so
 for a target-scope slot or a custom check they rank above
 `packs.<pack>.checks`, as they will once `target add` moves them into the
 target, and the pack block is read for the root's pack alone. A ts root runs
@@ -326,8 +328,8 @@ adapter that declares `failOnOutput` fails its check when the tool exits 0
 with anything but whitespace on stdout: the entry is `ok: false`, keeps the
 tool's `exit_code: 0`, and records `reason` as
 `<adapter> exited 0 but reported findings on stdout`. A baseline can still
-mask the check, as it masks any other. No adapter checkride ships declares
-`failOnOutput` yet.
+mask the check, as it masks any other. The go pack's `gofmt` and `deadcode`
+declare it.
 
 **`output_file` names a file that exists.** It is what the run actually wrote,
 not what the adapter declares it usually writes: a slot that declares
@@ -472,7 +474,20 @@ unknown name is a usage error naming the valid set), `--no-hook` (write none),
 generated script; same usage-error rule, and naming one hook in both `--hook`
 and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
 write them for: `claude`, `cursor`; same usage-error rule). Omitting `--harness`
-selects `claude` plus any harness the repo shows evidence of.
+selects `claude` plus any harness the repo shows evidence of. `init` also
+promises `--lang <ts|go|rust>` for a new project, its `--shape` values for each
+(`flat`, `monorepo` and `hybrid` for ts, `module` and `workspace` for go,
+`crate` and `workspace` for rust), and `--module <path>` for a Go module's
+path. A `--shape` its `--lang` doesn't take is a usage error, and so is a
+`--lang` other than `ts` in an existing repo, which `init` reads the languages
+of for itself.
+
+**`fix` runs the selected fixers over the repo as it stands.** It takes
+`--only`, `--skip`, `--include`, `--all` and `--config` as a run does, and
+accepts the other run flags without acting on any of them: `--changed`,
+`--defaults`, `--discover`, `--pins`, `--static-only` and `--out` change
+neither which fixers run nor which copy of each tool, which is the one the
+repo pins, over the targets its config declares.
 
 **`--config <path>` and `CHECKRIDE_CONFIG` name the config file.** Run,
 `doctor`, `fix` and `baseline` read that file in place of
@@ -528,6 +543,12 @@ toolchain it names, such as `go`, runs that copy too. A version mise hasn't
 installed, as `mise where` reports it, fails the check naming the tool and the
 `mise install` that would fix it, and nothing downloads. It changes which copy
 runs, never which checks run, so detection still reads only the repo's files.
+mise reads no config file inside the repo for such a tool: checkride adds the
+repo root to `MISE_IGNORED_CONFIG_PATHS`, after any paths it already holds, on
+both the `mise where` and the `mise exec`, so a `mise.toml` there that mise
+hasn't trusted neither fails the check nor gets trusted, and its `[env]` never
+reaches the tool. A refusal names `mise trust` only for a config file above the
+repo, which mise still reads.
 The flag beats the variable, an empty variable counts as unset, and a relative
 path resolves against the working directory. A run with it never ratchets and
 never writes `checkride.baseline.json`, its summary records the file as
@@ -554,7 +575,9 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    own don't carry, such as prettier's `--plugin`, whether the repo's config
    sets it or a preset it extends does. An entry that only drops or reorders
    the adapter's arguments, as oxlint without `--type-aware` does, keeps the
-   mark, and a defaults entry with `static: true` keeps its vouch.
+   mark, and a defaults entry with `static: true` keeps its vouch. The skip
+   names what the entry did: the command it swapped in, or the first argument
+   it added.
 2. Its argv carries none of the adapter's flags that need the install, such
    as oxlint's `--type-aware`, which the blessed oxlint invocation carries,
    and none that load code, such as tflint's `--config`. A flag counts with
@@ -567,14 +590,21 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    A key counts however the file's parser would still read it: spelled with
    `\x`, `\u` or `\U` escapes, opening a flow mapping such as
    `{plugins: [./x.mjs]}`, or after a comma. A longer name that ends in it,
-   such as `no-plugins`, doesn't.
+   such as `no-plugins`, doesn't. A key's value is read the way the parser
+   reads it too, so a cspell `import` of a script counts with a `#` inside its
+   quotes, split by YAML's escaped line break, past a comment at column 0 in
+   its list, running on over lines, or behind a tag, and a YAML alias counts
+   without being read.
 5. Its tool resolves without an install. A tool whose pin source can't run it
    here, such as a `pnpm exec` tool missing from `node_modules/.bin`, skips
    with `static-only: needs an install (<detail>)` instead of failing.
 
 The static adapters are prettier, biome and biome-format, oxlint, ast-grep,
-markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt and gofmt, and
-the `links` and `unclaimed` built-ins; the rest never qualify. The run is
+markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt, ruff
+and ruff-format, terraform-fmt, tflint and trivy-config, and the `links` and
+`unclaimed` built-ins; the rest never qualify. A terraform target's tflint
+also skips wherever it would run a plugin binary, as
+[Packs and pins](./packs.md#the-terraform-pack) lists. The run is
 partial, so `run.partial` and `run.static_only` are `true`, and it never
 ratchets or writes `checkride.baseline.json`. `doctor --static-only` reports
 what such a run would do: each check it would skip carries the same
@@ -634,6 +664,12 @@ Repo-scope and top-level checks run as before, and an affected target's checks
 get their `changedArgs`. When git can't list the paths, as outside a git
 repository, no target is skipped and stderr says so. A repo without `targets`
 narrows through `changedArgs` alone, as it always did.
+
+**A Go check names its packages with `{go-packages}`.** An adapter argument
+that is exactly `{go-packages}` expands, in a go target or a Go root without
+targets, to `./...` at a module root, and to `./<dir>/...` for each `use`
+directive at a `go.work` root, in `go.work` order, since a workspace root's own
+`./...` matches none of its modules. `argv` records the expansion.
 
 **A Go workspace narrows to the modules a change touched.** At a go target
 whose root holds a `go.work`, `go build` and `go test` run only the modules
@@ -710,8 +746,9 @@ deepest directory holding them all, named `scripts` when that's `scripts` and
 `app`, with a number added on a collision. One ts target at the root is the
 mode the repo already runs in, so nothing changes. Anything more is printed as
 a `targets` block and written the way `target add` writes it, unless
-`--dry-run`. A config that already declares `targets` is left alone. Each pack
-that ships later adds its own proposals.
+`--dry-run`. A config that already declares `targets` is left alone. The go,
+rust, python and terraform targets it proposes follow the rules `--discover`
+gives above.
 
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files
@@ -976,19 +1013,26 @@ written:
 - A `packs` key names a pack, and every adapter a `packs` block or a target
   names belongs to that pack. A repo-scope slot is configured only at the top
   level.
-- A `schemas` rule's `schema` is never a URL or an absolute path, because a
-  check never fetches.
+- `schemas` is an array of rules, and each rule's `schema` names a bundled
+  `checkride:<id>` schema or a path relative to the repo root, never a URL or
+  an absolute path, because a check never fetches.
 - `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
   sets `static`, which only a defaults file may.
 - A defaults file declares no `targets`, and nor does anything it `extends`.
 
-`ts` is the only pack so far. A run checks each declared target as the
-[summary section](#checksummaryjson) describes, while no run acts on
-`unclaimed` or `schemas` yet. `requirePins` fails a check whose tool resolves
-from `PATH` with no pin, but the `ts` and `repo` packs resolve every tool
-through the project's package manager, so no shipped check reaches `PATH` yet. A config without `targets`
-reads `packs` for the pack its root marks alone, below its top-level `checks`,
-so a 0.13 config, which has no `packs`, resolves exactly as before.
+Seven packs ship, `ts`, `repo`, `bash`, `go`, `rust`, `python` and
+`terraform`, which [Packs and pins](./packs.md) covers. A run checks each
+declared target as the [summary section](#checksummaryjson) describes, and
+reports the code no target checks through `unclaimed`. A `schemas` key is
+accepted, and held to the rule above, but no run acts on it: the `schema` slot
+that reads it waits for a later release, so a config may carry its rules ahead
+of that slot. `requirePins` fails a check whose tool
+resolves from `PATH` with no pin, apart from a toolchain's own executable,
+such as `go`, `cargo`, `terraform` or `tofu`, whose version the project's own
+files bound. A ts root without targets resolves every tool through its
+package manager, so none of its checks reaches `PATH`. A config without
+`targets` reads `packs` for the pack its root marks alone, below its top-level
+`checks`, so a 0.13 config, which has no `packs`, resolves exactly as before.
 [`config.test.ts`](../src/__tests__/config.test.ts) holds
 each rule, its message and its exit code.
 
@@ -1053,13 +1097,14 @@ public and semver-bound:
 `resolveChecks`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`, `SCHEMA_VERSION`,
 `DEFAULT_TIMEOUT_SECONDS` — plus the exported types (`Summary`,
 `SummaryCheck`, `RunFlags`, `RunOptions`, `RunResult`, `CheckrideConfig`,
-`CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`, `Slot`,
-`Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
+`CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`,
+`CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
 `InitResult`, `Shape`).
 
 The four registry exports are plain data, and each survives a JSON round trip
-unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`, `python`) to its adapter
-rows, root markers, pin sources and environment. `ADAPTERS` is the `ts` and
+unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
+`python`, `terraform`) to its adapter rows, root markers, pin sources and
+environment. `ADAPTERS` is the `ts` and
 `repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
 each external tool every pack runs, with the npm package that provides it or
 the `mise.toml` keys that pin it. Each
@@ -1069,6 +1114,28 @@ pack fills. The last, `unclaimed`, also carries `activeWith: 'targets'`, the
 config key it needs before it runs.
 [`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) holds
 each of these promises.
+
+An adapter row's optional fields say how its pack runs it, and a row sets only
+the ones it needs:
+
+- `detectPin` and `detectTable` detect a tool by a pin that declares it, or by
+  a TOML table that configures it, such as `[tool.ruff]` in `pyproject.toml`.
+- `onlyWith` names a file the adapter applies only beside, and the reason its
+  slot stands down without it; `setup` names a directory a setup step writes,
+  so the check fails naming that step where it's missing.
+- `failOnOutput` fails a check whose tool exits 0 having printed to stdout,
+  `narrowsUnderChanged` lets `--changed` narrow a Go check's packages,
+  `network` runs it without the variables that block downloads, and `lock`
+  keeps two checks with the same key from running at once.
+- `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and `codeKeys` (each a
+  `CodeKey`) are what `--static-only` reads, and a resolved adapter's
+  `staticDrop` says what a config entry did to take the `static` mark.
+
+A `TOOLS` row's optional fields say where a tool comes from: `npm`, `goTool`
+and `pypi` name the npm package, the Go package a `go.mod` `tool` directive
+names, and the PyPI package; `mise` the `[tools]` keys that pin it; `run` the
+argv it runs as when it isn't its own executable, such as `cargo clippy`; and
+`component` the rustup component that provides it.
 
 **`checkride/findings` reads a run's findings without reimplementing its
 parsers.** The subpath is public and semver-bound as well, and exports

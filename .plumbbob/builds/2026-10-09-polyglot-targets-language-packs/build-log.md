@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 85 — fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
+**Current step:** 73 — docs: document packs and targets and fold in the contract
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -95,14 +95,11 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 79. fix(packs): keep tflint out of --static-only wherever it would run repo code
 - ☑ 80. fix(packs): keep static adapters out of --static-only wherever the repo's config makes them load code
 - ☑ 82. fix(packs): read a config key's value the way the tool's parser does under --static-only
-- ☐ 66. feat(schema): validate data files against JSON Schemas
-- ☐ 67. feat(schema): bundle the agent-skill and checkride-config schemas
-- ☐ 68. feat(findings): parse the schema slot's report
 - ☑ 72. fix(init): make the mise route install, and test and document it
 - ☑ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
 - ☑ 84. fix(launch): run --pins overrides outside the repo's mise config
 - ☑ 81. feat(doctor): read --pins and --static-only instead of refusing them
-- ☐ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
+- ☑ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
 
@@ -192,8 +189,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo (MISE_IGNORED_CONFIG_PATHS, D83); fold it in at step 73
 - [x] doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown, and one that runs by default fails doctor (examples/go-module's greeter:dead)
 - [x] a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0); should the run record the resolved release too?
-- [ ] examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green; decide whether the example gets a lockfile or the install row reads such a package.json as n/a
-- [ ] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
+- [x] examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green; decide whether the example gets a lockfile or the install row reads such a package.json as n/a
+- [x] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
+- [ ] links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes (a false red for a Go repo that commits vendor/); a behavior change with a test and CHANGELOG line, so it wants a step of its own rather than step 73's docs pass
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -312,6 +310,9 @@ Harvest results this boundary:
 
 - After step 81: "doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D84 (doctor-launcher-probes) and as step 85, ordered to build next, before step 66, so step 73 documents a `doctor` that works in every pack this build adds (step 34 built doctor before steps 41, 44 and 58 added the three sources, so `doctor` exits 1 on a clean Go, Rust or Python repo; `tf-version` was the park's slip, since Terraform's CLI is probed by `which` and never reports `unknown`). Step 85 also takes the package-manager row that step 72's harvest deferred to step 81, which step 81 missed: its done-when didn't name it and the build didn't read the harvest.
 - After step 81: "a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0)..." → **tangent**, killed: R6.3 settles it, since `tool_version` comes from a file read, never a spawn, the `override` row records the version in the `--pins` file, and `doctor --json` is where R6.3 puts probed versions, which step 81 follows.
+
+- After step 85: "examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green..." → **tangent**, killed: the example's README says `pnpm install` first, five examples share the shape (`package.json`, no lockfile committed), and a `package.json` root nobody has installed isn't ready, which is what the install row says; reading a `link:`-only `package.json` as `n/a` would special-case doctor around the example's layout rather than the user's.
+- After step 85: "doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion..." → **tangent**, deferred to a later build: the version is already in the launcher's `Spawn.pin.version`, a file read R6.3 allows, but `docs/contract.md` documents `toolVersion` as override-only, so widening it is a C1 (additive-contract) change with its doc and contract test, not a ride-along for step 73's docs pass, and the run's `summary.json` already records `tool_version` for the same checks.
 
 ## Log
 
@@ -3051,3 +3052,50 @@ folder, so it rides the branch into the PR.)*
   **5.** Two contract tests that held the refusal were rewritten on purpose, and two items are parked
 
   `test/contract/flags.contract.test.ts` pinned "doesn't read it yet" for each flag. Both tests now hold the new behavior: an `override` pin source and a missing file exiting 2 for `--pins`, and the run's skip reasons for `--static-only`. The contract doc and CHANGELOG's Contract entries changed in the same diff (C1 (additive-contract)). `DoctorCheck` gains optional `toolVersion` and `skip`, and `DoctorOptions` gains optional `pins` and `staticOnly`. Parked: doctor marks a `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version` check `unknown` and fails on it (an older gap; examples/go-module's `greeter:dead` hits it). Also parked: whether a `--pins` run should record the resolved release (`0.11.0`) as `tool_version` instead of the file's `0.11`.
+
+- 2026-10-19 — step 85 checkpointed · 36d2de5af — fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them (1 drift, 39m)
+
+  **Summary**: A check whose tool resolves through `go-mod-tool`, `rust-toolchain` or `uv-lock` now gets a real verdict from `doctor`: the row asks the run's own launcher and reports `ok` with what the run would spawn, or `missing` with the refusal the run would fail with, never `unknown`. In a root with no `package.json` the package-manager row is `n/a` and never required. Under mise's go 1.27.2, `examples/go-module`'s `greeter:dead` reports `go-mod-tool` and `ok`.
+
+  1. The three sources are probed by the same ask `--static-only` makes of the launcher
+  2. A missing row's hint is the whole refusal, cause and remedy, on one line
+  3. The package-manager row is `n/a` in a root with no `package.json`
+  4. One clause in `docs/packs.md` sits outside the seam
+  5. The example reads as the plan asks, and its doctor still exits 1 on a row this step doesn't own
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    1 of 1 honored
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → docs/packs.md
+  diff         +231 -22 across 4 files
+  spent        39 min · 1 turn · 49s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and checkpoint. Each case in the done-when has a unit test, the example row reads as the plan asks, and the one judgment call, the hint pairing cause with remedy, matches how doctor's other missing rows read.
+
+  **1.** The three sources are probed by the same ask `--static-only` makes of the launcher
+
+  `probeExecPin` had probes for `js-lockfile`, `mise` and `path` and fell through to `unknown` for everything else. The three language sources now share one probe, `probeLaunch`, fed by the launcher call `needsInstall` already made for `--static-only`; that call is now `askLauncher`, used by both, so a probe and a static skip pass the launcher the same cwd, repo, chain, `--pins` tools, `requirePins` and `staticOnly`. An `ok` row's `found` is the spawn up to the tool it picks (`go tool deadcode`, `mise exec -- go tool deadcode`, `cargo clippy`, `.venv/bin/ruff`), the check's own arguments left off; its `expected` is `declared in <file>: <key>` from the same `pinResolution` the pin column reads. `unknown` is unchanged for a chain naming a source this checkride can't read. Unit tests cover each source `ok` and `missing` through the real launcher on a fake `PATH` and real fixture files, the recorded ask (`staticOnly: false`, the pack's chain, the target's cwd), a mise spawn's `found`, and a three-target repo where no row is `unknown`.
+
+  **2.** A missing row's hint is the whole refusal, cause and remedy, on one line
+
+  D84 says the hint is the refusal's remedy. Taken literally, the go case would read `install Go 1.24 or later …` on a row named `deadcode`, which puzzles without the sentence before it, `needs go to run deadcode, which isn't on PATH`. Doctor's other missing rows (`mise`, `override`) pair cause and remedy in one hint, so `refusalHint` flattens the refusal's non-empty lines into one, drops the `checkride: ` prefix as the skip reason does, and keeps the launcher's indented `declared in:` and `looked for:` details. The run's words, unparaphrased; the JSON carries the same string. A one-line fake refusal is its own hint.
+
+  **3.** The package-manager row is `n/a` in a root with no `package.json`
+
+  `checkPackageManager` gained the gate `checkInstall` already had: no `package.json`, so no package manager to run anything, so `{ status: 'n/a', required: false, found: 'no package.json' }`. Tests cover the row with pnpm off `PATH` (doctor still passes), the table line, and that a `package.json` root still requires it.
+
+  **4.** One clause in `docs/packs.md` sits outside the seam
+
+  The doctor section still said the pin column holds `js-lockfile`, `mise` or `path`. It now lists the three language sources and says what their rows report. C11 (docs-in-step) asks for the doc in the same commit; the change is five lines of prose and nothing else outside the seam moved.
+
+  **5.** The example reads as the plan asks, and its doctor still exits 1 on a row this step doesn't own
+
+  Under the dev `mise.toml` (`mise exec`, go 1.27.2 on `PATH`), `node dist/cli.js doctor --json` in `examples/go-module` gives `greeter:dead` `pinSource: go-mod-tool`, `status: ok`, `found: go tool deadcode`. That doctor's `ok` is still `false`, on the install row: the example has a `package.json` (a `link:../..` devDep and a `check` script) and no lockfile, so D84's no-`package.json` case doesn't apply. Parked, with a second park for carrying the launch's pin version as `toolVersion` on these rows, which `docs/contract.md` documents as override-only today.

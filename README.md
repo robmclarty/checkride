@@ -137,6 +137,10 @@ Task-focused guides live in [docs/](./docs/README.md):
   flags, npm-script aliases, and the `.check/` output files.
 - [Tools and installation](./docs/tools.md) — what each pipeline check runs,
   and how to install a missing tool when `doctor` reports one.
+- [Targets](./docs/targets.md) — checking a repo with more than one language,
+  or one language in more than one place, as named targets.
+- [Packs and pins](./docs/packs.md) — each language pack's slots and tools,
+  where each tool is pinned, and the environment its checks run with.
 - [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (and
   npm/yarn/bun variants), and why gates should pass `--strict`.
 - [The contract](./docs/contract.md) — the surfaces consumers may rely on:
@@ -171,6 +175,8 @@ both:
 checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
   --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
+  --base <ref>  --concurrency <n>  --config <path>  --out <dir>
+  --defaults <path>  --discover  --pins <mise.toml>  --static-only (consumer runs)
 checkride init         Set up a project (new or existing — auto-detected).
   --lang ts|go|rust  --shape flat|monorepo|hybrid (ts), module|workspace (go),
   crate|workspace (rust)  --module <path> (go)
@@ -186,6 +192,8 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
+checkride baseline diff [<ref>]  List the keys the working tree's baseline adds
+                       or drops against <ref>'s (default HEAD); --json for JSON.
 checkride recover      Rebuild checkride.baseline.json candidates from git history
                        and restore one (bare `recover` lists them with deltas).
   --pick <n|sha|union> apply a candidate — additive union with the current file
@@ -194,7 +202,8 @@ checkride recover      Rebuild checkride.baseline.json candidates from git histo
   --depth <n>  commits of file history to walk (default 25)
 checkride target add <name> --lang <pack> --root <dir>
                        Declare a target; a repo without targets converts, its
-                       implicit ts target becoming app at . (--root-name <n>).
+                       implicit target becoming one of its pack, app at .
+                       (--root-name <n>).
   --add <a,b>  name the blessed tool (a ts, python or terraform target also gets its config)
   --dry-run    print the changes; write nothing
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
@@ -222,31 +231,36 @@ default run leaves stdout empty.
 A **slot** is a role in the pipeline (order matters — cheapest first). An
 **adapter** is a concrete tool that fills a slot. Each slot has one blessed
 default; alternates are wired so checkride can run them, but `init` only
-generates config for the blessed default.
+generates config for the blessed default. A slot's **scope** says what it
+checks: a `target` slot checks one language's code, once for each target
+whose pack fills it, and a `repo` slot checks the repo as a whole, once. The
+tools below are the ts and repo packs'; the bash, go, rust, python and
+terraform packs fill the target slots with their own (see
+[Packs and pins](./docs/packs.md)).
 
-| Slot       | Role                                   | Blessed default     | Alternates       |
-| ---------- | -------------------------------------- | ------------------- | ---------------- |
-| `types`    | Type checking                          | `tsc --build`       | —                |
-| `format`   | Formatting (opt-in)                    | `prettier`          | `biome`          |
-| `lint`     | Linting                                | `oxlint`            | `biome`, `eslint`|
-| `struct`   | Structural rules (deep modules by default) | `ast-grep`      | —                |
-| `dead`     | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
-| `dupes`    | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
-| `health`   | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
-| `test`     | Tests + coverage                       | `vitest`            | `jest`           |
-| `docs`     | Markdown lint                          | `markdownlint-cli2` | `rumdl`          |
-| `links`    | Relative markdown links resolve        | built-in            | —                |
-| `spell`    | Spelling                               | `cspell`            | `typos`          |
-| `prose`    | Writing style (opt-in)                 | `vale`              | —                |
-| `mutation` | Mutation testing (opt-in)              | `stryker`           | —                |
-| `security` | Dependency audit (opt-in)              | `pnpm audit`        | —                |
-| `build`    | Runs the consumer's build script (opt-in) | `<pm> run build` | —                |
-| `publint`  | Package publishing lint (opt-in)       | `publint`           | —                |
-| `attw`     | Type resolution across module systems (opt-in) | `attw --pack`| —                |
-| `pack`     | Tarball ships the right files (opt-in) | built-in            | —                |
-| `smoke`    | Built package imports cleanly (opt-in) | built-in            | —                |
-| `snippets` | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
-| `unclaimed` | Every toolchain marker sits in a target (with `targets`) | built-in | — |
+| Slot       | Scope  | Role                                   | Blessed default     | Alternates       |
+| ---------- | ------ | -------------------------------------- | ------------------- | ---------------- |
+| `types`    | target | Type checking                          | `tsc --build`       | —                |
+| `format`   | target | Formatting (opt-in)                    | `prettier`          | `biome`          |
+| `lint`     | target | Linting                                | `oxlint`            | `biome`, `eslint`|
+| `struct`   | repo   | Structural rules (deep modules by default) | `ast-grep`      | —                |
+| `dead`     | target | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
+| `dupes`    | target | Code duplication (opt-in)              | `fallow` (dupes)    | —                |
+| `health`   | target | Complexity / maintainability (opt-in)  | `fallow` (health)   | —                |
+| `test`     | target | Tests + coverage                       | `vitest`            | `jest`           |
+| `docs`     | repo   | Markdown lint                          | `markdownlint-cli2` | `rumdl`          |
+| `links`    | repo   | Relative markdown links resolve        | built-in            | —                |
+| `spell`    | repo   | Spelling                               | `cspell`            | `typos`          |
+| `prose`    | repo   | Writing style (opt-in)                 | `vale`              | —                |
+| `mutation` | target | Mutation testing (opt-in)              | `stryker`           | —                |
+| `security` | target | Dependency audit (opt-in)              | `pnpm audit`        | —                |
+| `build`    | target | Runs the consumer's build script (opt-in) | `<pm> run build` | —                |
+| `publint`  | target | Package publishing lint (opt-in)       | `publint`           | —                |
+| `attw`     | target | Type resolution across module systems (opt-in) | `attw --pack`| —                |
+| `pack`     | target | Tarball ships the right files (opt-in) | built-in            | —                |
+| `smoke`    | target | Built package imports cleanly (opt-in) | built-in            | —                |
+| `snippets` | target | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
+| `unclaimed` | repo   | Every toolchain marker sits in a target (with `targets`) | built-in | — |
 
 Most of these tools you already know. The one unfamiliar name, `fallow`, is a
 Rust-native codebase-analysis tool covering dead code, duplication, and
