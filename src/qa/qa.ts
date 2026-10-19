@@ -27,6 +27,8 @@
 import type { ArtifactFile, SummaryRead } from '../artifacts/index.js';
 import { outDir, outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
 import { configuredSlots } from '../config.js';
+import type { SummaryCheck } from '../orchestrator/index.js';
+import { enableCandidates, enableEntry } from '../orchestrator/index.js';
 import type { DeadExtract } from './dead.js';
 import { extractDead } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -147,8 +149,11 @@ function detailOf(read: ArtifactRead): string | null {
 
 type SlotContext = { configured: string[] | null; ran: Set<string> };
 
-/** One artifact a check wrote: its spec, the check's name, and its path in the output directory. */
-type Instance = { spec: ArtifactSpec; name: string; artifact: string };
+/**
+ * One artifact a check wrote: its spec, the check's name, its path in the
+ * output directory, and the summary's entry for the check, when it lists one.
+ */
+type Instance = { spec: ArtifactSpec; name: string; artifact: string; check: SummaryCheck | undefined };
 
 /**
  * Where each artifact is: one per target's check the summary lists for its
@@ -161,9 +166,37 @@ type Instance = { spec: ArtifactSpec; name: string; artifact: string };
  * routes no file of stryker's own.
  */
 function instancesOf(spec: ArtifactSpec, summary: SummaryRead): Instance[] {
-  const checks = summary.state === 'ok' ? summary.summary.checks.filter((c) => c.target !== undefined && c.slot === spec.slot) : [];
-  if (checks.length === 0) return [{ spec, name: spec.slot, artifact: spec.artifact }];
-  return checks.map((c) => ({ spec, name: c.name, artifact: `${c.target ?? ''}/${spec.artifact}` }));
+  const all = summary.state === 'ok' ? summary.summary.checks : [];
+  const checks = all.filter((c) => c.target !== undefined && c.slot === spec.slot);
+  if (checks.length === 0) return [{ spec, name: spec.slot, artifact: spec.artifact, check: all.find((c) => c.name === spec.slot) }];
+  return checks.map((c) => ({ spec, name: c.name, artifact: `${c.target ?? ''}/${spec.artifact}`, check: c }));
+}
+
+/** The opening every `dead` remedy for a check fallow doesn't fill shares: why there's no fold. */
+const FALLOW_ONLY = "qa reads only fallow's report";
+
+/** The remedy for a `dead` check that sat out: its pack's own tool, or for a ts check, the spec's fallow remedy. */
+function satOutRemedy(spec: ArtifactSpec, check: SummaryCheck): string {
+  const pack = check.pack ?? 'ts';
+  const own = pack === 'ts' ? [] : enableCandidates(spec.slot, pack, []);
+  if (own.length === 0) return spec.remedy;
+  const add = own.map((a) => enableEntry(a, false)).join(', or ');
+  return `${FALLOW_ONLY}, which no ${pack} tool writes. ${check.name} found no tool; add ${add}, then read its raw output in the output directory.`;
+}
+
+/**
+ * What would produce `instance`'s artifact. A `dead` check another tool fills
+ * (deadcode, cargo-machete, knip) writes no fallow report, the only one qa
+ * folds, so its remedy points at the check's raw output instead; one of
+ * another pack that sat out names that pack's own tool, since fallow and knip
+ * check only TypeScript. Every other artifact's remedy is its spec's.
+ */
+function remedyFor(instance: Instance): string {
+  const { spec, check } = instance;
+  if (spec.slot !== 'dead' || check === undefined || check.adapter === 'fallow') return spec.remedy;
+  if (check.adapter === null || check.skipped === true) return satOutRemedy(spec, check);
+  const raw = check.output_file ?? `${instance.artifact.replace(/\.json$/, '')}.stdout.txt`;
+  return `${FALLOW_ONLY}, and ${check.name} ran ${check.adapter}, which writes none: read its raw output, \`${raw}\` in the output directory.`;
 }
 
 /** Fold one artifact's parsed bytes by its slot's extractor, or `null` when they aren't that report. */
@@ -206,7 +239,7 @@ function entryFor(instance: Instance, read: ArtifactRead, context: SlotContext, 
     file: read.file,
     problem: problem === null && !recognized ? 'unrecognized' : problem,
     detail: detailOf(read),
-    remedy: spec.remedy,
+    remedy: remedyFor(instance),
   };
 }
 

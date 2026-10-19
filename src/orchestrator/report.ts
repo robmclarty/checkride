@@ -10,6 +10,8 @@ import { SCHEMA_VERSION } from '../adapters.js';
 import { SUMMARY_FILE } from '../artifacts/index.js';
 import type { CheckOrigin, ResolvedCheck } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
+import { chainCanRun } from '../launch/index.js';
+import { packNamed, TOOLS } from '../packs/index.js';
 import { checkName, selectedBy } from '../targets/index.js';
 import { selectChecks } from './select.js';
 import type { Out, RunFlags, Summary, SummaryCheck, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
@@ -153,14 +155,50 @@ export function buildSummary(
   };
 }
 
-/** What could fill a sat-out slot: each candidate adapter and its first detect file. */
-function enableHint(slot: string, adapters: readonly Adapter[]): string | null {
-  const candidates = adapters.filter((a) => a.slot === slot);
+/** The install hint `TOOLS` gives for `tool`, else a generic one. */
+export function installHint(tool: string): string {
+  return TOOLS.find((t) => t.bin === tool)?.install ?? `install ${tool}, or pin it in mise.toml`;
+}
+
+/**
+ * The adapters that could fill a sat-out check of `slot`: its pack's rows,
+ * or `adapters` for a check with no pack, as implicit ts mode's are, leaving
+ * out each one the check's pin chain can't run (`chainCanRun`), so a ts repo
+ * is never pointed at typos. `doctor` lists the same ones.
+ */
+export function enableCandidates(slot: string, pack: string | undefined, adapters: readonly Adapter[]): Adapter[] {
+  return (packNamed(pack)?.adapters ?? adapters).filter((a) => a.slot === slot && chainCanRun(pack, a));
+}
+
+/**
+ * What would turn `adapter` on, `null` for one detection always picks: each
+ * config it detects by (its first two files, a TOML table, a package script,
+ * a dependency), each after `add ` where `add` asks for the verb, then the
+ * install hint for the tool a pin would declare, such as `go get -tool …`.
+ * `doctor` and the run's vacuous-green warning both say it this way.
+ */
+function enableSignals(adapter: Adapter, add: boolean): string | null {
+  const config = [
+    ...(adapter.detect.length > 0 ? [adapter.detect.slice(0, 2).join(' or ')] : []),
+    ...(adapter.detectTable ?? []).map((t) => `[${t.table}] in ${t.file}`),
+    ...(adapter.detectScript !== undefined ? [`scripts.${adapter.detectScript} in package.json`] : []),
+    ...(adapter.detectDeps ?? []).map((dep) => `${dep} in package.json`),
+  ].map((signal) => (add ? `add ${signal}` : signal));
+  const signals = [...config, ...(adapter.detectPin !== undefined ? [installHint(adapter.detectPin)] : [])];
+  return signals.length === 0 ? null : signals.join(', or ');
+}
+
+/** `adapter`'s name, then what would turn it on, as {@link enableSignals} says it. */
+export function enableEntry(adapter: Adapter, add: boolean): string {
+  const signals = enableSignals(adapter, add);
+  return signals === null ? adapter.name : `${adapter.name} (${signals})`;
+}
+
+/** What could fill a sat-out check: each candidate adapter of its own pack, and what would turn it on. */
+function enableHint(check: SummaryCheck, adapters: readonly Adapter[]): string | null {
+  const candidates = enableCandidates(check.slot ?? check.name, check.pack, adapters);
   if (candidates.length === 0) return null;
-  const parts = candidates.map((a) =>
-    a.detect.length > 0 ? `${a.name} (add ${a.detect[0]})` : a.name,
-  );
-  return `enable with: ${parts.join(', ')}`;
+  return `enable with: ${candidates.map((a) => enableEntry(a, true)).join(', ')}`;
 }
 
 /**
@@ -180,7 +218,7 @@ function warnVacuous(
     writeLine(stderr, '  No slots matched the selection (--only/--skip).');
   }
   for (const c of checks) {
-    const hint = c.adapter === null ? enableHint(c.slot ?? c.name, adapters) : null;
+    const hint = c.adapter === null ? enableHint(c, adapters) : null;
     writeLine(stderr, `  ○ ${c.name}: ${c.reason ?? 'skipped'}${hint ? ` — ${hint}` : ''}`);
   }
   writeLine(stderr, '  Run `checkride doctor` for per-slot detail, or add a custom check to');

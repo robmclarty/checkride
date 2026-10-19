@@ -1030,6 +1030,19 @@ describe('runChecks (vacuous green)', () => {
     expect(text).not.toContain('all checks passed');
   });
 
+  test("a sat-out target check's hint names its own pack's tools, not the ts pack's", async () => {
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'a.sh'), '#!/bin/sh\n');
+    const std = sink();
+    await runChecks({
+      cwd: dir, config: { targets: { scripts: { lang: 'bash', root: 'scripts' } } }, only: ['scripts:lint'],
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    const text = std.lines.join('');
+    expect(text).toContain('enable with: shellcheck (add .shellcheckrc, or pin it with `mise use shellcheck@<version>`');
+    expect(text).not.toContain('oxlint');
+  });
+
   test('--strict turns zero checks running into exit 2', async () => {
     const result = await runChecks({
       cwd: dir, slots: [{ name: 'types' }], adapters: [undetected], config: null, strict: true,

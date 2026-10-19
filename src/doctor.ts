@@ -62,7 +62,7 @@ import {
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator/index.js';
-import { installSkip, provenanceTag, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
+import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
@@ -465,11 +465,6 @@ async function probeExecTool(tool: string, cwd: string, pm: PackageManager, env:
     : missing(`node_modules/.bin/${tool}`);
 }
 
-/** The install hint `TOOLS` gives for `tool`, else a generic one. */
-function installHint(tool: string): string {
-  return TOOLS.find((t) => t.bin === tool)?.install ?? `install ${tool}, or pin it in mise.toml`;
-}
-
 /** A tool a `mise.toml` pins: present when mise is on `PATH` to run it. */
 async function probeMiseTool(tool: string, declaredBy: string | null, env: DoctorEnv): Promise<ToolProbe> {
   const expected = `pinned in ${declaredBy ?? 'mise.toml'}`;
@@ -595,20 +590,15 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
     : { status: 'missing', found: null, expected: `${adapter.command} on PATH`, hint: `Install \`${adapter.command}\`.` };
 }
 
-/** The signal that would turn an adapter on: its detect files, `scripts.<name>`, a dep, or always-available. */
-function enableSignal(a: Adapter): string {
-  if (a.detect.length > 0) return a.detect.slice(0, 2).join(' or ');
-  if (a.detectScript !== undefined) return `scripts.${a.detectScript}`;
-  if (a.detectDeps && a.detectDeps.length > 0) return `dep ${a.detectDeps.join('/')}`;
-  return 'always available';
-}
-
-/** What an unavailable slot could be turned on with: candidate adapters + their detection signals. */
-function possibilitiesHint(slot: string, adapters: readonly Adapter[]): string | null {
-  const candidates = adapters.filter((a) => a.slot === slot);
+/**
+ * What an unavailable check could be turned on with: its own pack's
+ * candidate adapters, or `adapters` for a check with no pack, each with what
+ * would turn it on, as the run's vacuous-green warning names them.
+ */
+function possibilitiesHint(r: ResolvedCheck, adapters: readonly Adapter[]): string | null {
+  const candidates = enableCandidates(r.slot, r.pack, adapters);
   if (candidates.length === 0) return null;
-  const parts = candidates.map((a) => `${a.name} (${enableSignal(a)})`);
-  return `Enable by adding one of: ${parts.join(', ')}.`;
+  return `Enable by adding one of: ${candidates.map((a) => enableEntry(a, false)).join(', ')}.`;
 }
 
 /** The shared prefix of every `tool`-category doctor row: the check's name in the slot column, and its target. */
@@ -646,9 +636,13 @@ const PUBLISH_INSPECTS: Record<string, string> = {
   snippets: 'doc fences tagged `<!-- snippet: check -->` in README.md and docs/*.md',
 };
 
-/** The inspection clause for a publish built-in row, or '' for every other slot. */
-function inspectsClause(slot: string): string {
-  const inspects = PUBLISH_INSPECTS[slot];
+/**
+ * The inspection clause for a publish built-in row, or '' for every other
+ * row: another pack's adapter in one of those slots, as Rust's doctests fill
+ * `snippets`, inspects something else.
+ */
+function inspectsClause(adapter: Adapter, slot: string): string {
+  const inspects = adapter.builtin === undefined ? undefined : PUBLISH_INSPECTS[slot];
   return inspects ? ` Inspects ${inspects}.` : '';
 }
 
@@ -665,7 +659,7 @@ function toolRow(
   const lead = isDefault
     ? probe.hint
     : `Opt-in — run with \`--include ${base.slot}\` or \`--all\`.${probe.status === 'missing' ? ' Tool not installed.' : ''}`;
-  const body = `${lead ?? ''}${inspectsClause(r.slot)}`.trim();
+  const body = `${lead ?? ''}${inspectsClause(adapter, r.slot)}`.trim();
   const hint = body.length > 0 ? body : null;
   const pin = {
     ...(probe.pinSource !== undefined ? { pinSource: probe.pinSource } : {}),
@@ -733,7 +727,7 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   if (off) return off;
   // No adapter fills the slot: nothing to run. Point at what would enable it.
   if (!adapter) {
-    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r.slot, ctx.adapters) };
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r, ctx.adapters) };
   }
   const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);
@@ -812,7 +806,8 @@ function unpinnedTools(resolved: readonly ResolvedCheck[], ctx: Pick<SlotContext
 function unpinnedRows(tools: ReadonlyMap<string, { checks: string[]; byDefault: boolean }>, requirePins: boolean): DoctorCheck[] {
   return [...tools].map(([tool, { checks, byDefault }]) => {
     const id = TOOLS.find((t) => t.bin === tool)?.mise?.[0] ?? tool;
-    const fails = requirePins ? ' requirePins is on, so they fail until it is.' : '';
+    const one = checks.length === 1;
+    const fails = requirePins ? ` requirePins is on, so ${one ? 'it fails' : 'they fail'} until it is.` : '';
     return {
       name: tool,
       category: 'pin',
@@ -820,7 +815,7 @@ function unpinnedRows(tools: ReadonlyMap<string, { checks: string[]; byDefault: 
       status: requirePins ? 'missing' : 'outdated',
       found: 'unpinned (from PATH)',
       expected: 'a pin in mise.toml',
-      hint: `${checks.join(', ')} run whatever \`${tool}\` PATH holds; pin it with: mise use ${id}@<version>.${fails}`,
+      hint: `${checks.join(', ')} ${one ? 'runs' : 'run'} whatever \`${tool}\` PATH holds; pin it with: mise use ${id}@<version>.${fails}`,
     };
   });
 }

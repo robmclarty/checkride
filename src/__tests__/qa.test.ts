@@ -173,6 +173,17 @@ describe('the artifact ledger', () => {
     expect(rowFor(report, 'dead').remedy).not.toContain('--include dead');
   });
 
+  test("an implicit go repo's dead check, which deadcode fills, points at its raw output instead of fallow's", async () => {
+    const summary = { ...summaryOf([]), checks_run: 1, checks: [{ name: 'dead', pack: 'go', adapter: 'deadcode', description: 'deadcode', ok: true, exit_code: 0, duration_ms: 10, output_file: null }] };
+    const { report } = await run({ artifacts: { 'summary.json': { json: summary } } });
+    expect(rowFor(report, 'dead').remedy).toBe(
+      "qa reads only fallow's report, and dead ran deadcode, which writes none: read its raw output, `dead.stdout.txt` in the output directory.",
+    );
+    // A dead row fallow fills keeps the fallow remedy.
+    const fallow = { ...summary, checks: [{ ...summary.checks[0], pack: undefined, adapter: 'fallow', output_file: 'dead.json' }] };
+    expect(rowFor((await run({ artifacts: { 'summary.json': { json: fallow } } })).report, 'dead').remedy).toContain('`fallow.toml`');
+  });
+
   test('a repo with no config cannot know what was opted into, and says absent instead', async () => {
     const { report, text } = await run({ ran: ['types'] });
     expect(rowFor(report, 'health').optedIn).toBeNull();

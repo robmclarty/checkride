@@ -7,7 +7,7 @@
  * from a file inside it.
  */
 
-export { PACKS } from './packs.js';
+export { packNamed, PACKS } from './packs.js';
 export { staticCause } from './static.js';
 export type { StaticScope } from './static.js';
 export { CARGO_TOOLCHAIN, GO_TOOLCHAIN, TERRAFORM_TOOLCHAIN, TOFU_TOOLCHAIN, TOOLCHAINS, TOOLS } from './tools.js';

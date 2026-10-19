@@ -125,4 +125,22 @@ describe('the readers in a multi-target run', () => {
     expect(text).toContain('## web:dead');
     expect(text).toContain('## api:dead');
   });
+
+  test("a go target's dead check points at its raw output, since qa reads only fallow's report, and names deadcode when it sat out", async () => {
+    await lay({
+      'summary.json': JSON.stringify(summaryOf([
+        targetCheck('api', 'dead', { pack: 'go', adapter: 'deadcode', cwd: 'svc/api' }),
+        targetCheck('web', 'dead', { pack: 'go', adapter: null, cwd: 'svc/web', skipped: true, exit_code: null, reason: 'no tool detected for slot' }),
+      ])),
+      'api/dead.stdout.txt': 'main.go:3:6: unreachable func: unused\n',
+    });
+    const report = await qaExtract(dir, () => Date.parse(RUN_END_ISO) + 60_000);
+    expect(report.ledger.find((e) => e.name === 'api:dead')?.remedy).toBe(
+      "qa reads only fallow's report, and api:dead ran deadcode, which writes none: read its raw output, `api/dead.stdout.txt` in the output directory.",
+    );
+    const skipped = report.ledger.find((e) => e.name === 'web:dead')?.remedy ?? '';
+    expect(skipped).toBe(
+      "qa reads only fallow's report, which no go tool writes. web:dead found no tool; add deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`), then read its raw output in the output directory.",
+    );
+  });
 });

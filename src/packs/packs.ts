@@ -21,3 +21,8 @@ export const PACKS: Readonly<Record<Pack['name'], Pack>> = {
   python: PYTHON_PACK,
   terraform: TERRAFORM_PACK,
 };
+
+/** The pack named `name`, or `undefined` for none, as for a check of implicit ts mode, which has no pack. */
+export function packNamed(name: string | undefined): Pack | undefined {
+  return Object.values(PACKS).find((p) => p.name === name);
+}

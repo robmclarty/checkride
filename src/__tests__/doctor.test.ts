@@ -661,6 +661,11 @@ describe('output directory workspace row', () => {
   });
 });
 
+/** The hint on the row of the check named `name`. */
+function hintOf(report: { checks: readonly { slot?: string; hint?: string | null }[] }, name: string): string {
+  return report.checks.find((c) => c.slot === name)?.hint ?? '';
+}
+
 describe('runDoctor names the mode, the targets, each tool’s pin source and the code no target checks', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-targets-')); });
@@ -690,6 +695,37 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(report.checks.find((c) => c.name === 'other languages')).toBeUndefined();
     expect(text).toContain('mode: implicit (the repo is one ts project at its root)');
     expect(text.split('\n').find((l) => l.includes(' lint '))).toMatch(/installed +js-lockfile {2}\[detected: \.oxlintrc\.json\]$/);
+  });
+
+  test("an unfilled slot's hint names its own pack's tools, each with what turns it on", async () => {
+    await put('svc/go.mod', 'module example.com/svc\n\ngo 1.24\n');
+    await put('rs/Cargo.toml', '[package]\nname = "rs"\n');
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    const { report } = await doctor({
+      targets: { svc: { lang: 'go', root: 'svc' }, rs: { lang: 'rust', root: 'rs' }, scripts: { lang: 'bash', root: 'scripts' } },
+    });
+    const goLint = hintOf(report, 'svc:lint');
+    expect(goLint).toContain('golangci-lint (.golangci.yml or .golangci.yaml)');
+    expect(goLint).toContain('staticcheck (declare it in go.mod with `go get -tool honnef.co/go/tools/cmd/staticcheck`');
+    expect(goLint).not.toContain('oxlint');
+    expect(hintOf(report, 'svc:dead')).toBe('Enable by adding one of: deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`).');
+    expect(hintOf(report, 'rs:dead')).toContain('cargo-machete (pin it with `mise use ubi:bnjbvr/cargo-machete@<version>`');
+    expect(hintOf(report, 'rs:dead')).not.toContain('fallow');
+    expect(hintOf(report, 'scripts:lint')).toBe(
+      'Enable by adding one of: shellcheck (.shellcheckrc, or pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net)).',
+    );
+  });
+
+  test('a ts repo without targets is never told to add a tool its package manager can’t install', async () => {
+    const { report } = await doctor(null);
+    expect(hintOf(report, 'docs')).toBe('Enable by adding one of: markdownlint-cli2 (.markdownlint-cli2.jsonc or .markdownlint-cli2.json).');
+    expect(hintOf(report, 'spell')).toBe('Enable by adding one of: cspell (cspell.json or .cspell.json, or cspell in package.json).');
+  });
+
+  test('a snippets check that isn’t the built-in carries no note about doc fences', async () => {
+    await put('rs/Cargo.toml', '[package]\nname = "rs"\n');
+    const { report } = await doctor({ targets: { rs: { lang: 'rust', root: 'rs', checks: { snippets: 'cargo-doctest' } } } });
+    expect(hintOf(report, 'rs:snippets')).not.toContain('Inspects');
   });
 
   test('without targets, it hints at other languages’ markers it sees, as a warning that never fails it', async () => {
@@ -737,7 +773,7 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(warned.report.checks.find((c) => c.slot === 'scripts:format')).toMatchObject({ pinSource: 'path', status: 'ok', found: '/usr/bin/shfmt' });
     expect(warned.report.checks.find((c) => c.category === 'pin')).toMatchObject({
       name: 'shfmt', required: false, status: 'outdated', found: 'unpinned (from PATH)',
-      hint: 'scripts:format run whatever `shfmt` PATH holds; pin it with: mise use shfmt@<version>.',
+      hint: 'scripts:format runs whatever `shfmt` PATH holds; pin it with: mise use shfmt@<version>.',
     });
     expect(warned.exitCode).toBe(0);
 
