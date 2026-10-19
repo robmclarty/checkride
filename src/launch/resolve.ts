@@ -364,6 +364,22 @@ export function isReadableSource(name: PinSourceName): boolean {
   return name === 'path' || SOURCES[name] !== undefined;
 }
 
+/**
+ * Whether a check of `pack`, `undefined` for implicit ts mode, can run the
+ * tool `invocation` names through that pack's pin chain. A chain of the
+ * project's package manager alone provides only a tool an npm package ships,
+ * so it can't run rumdl or typos, whose `TOOLS` rows have none. Anything that
+ * isn't a `pnpm exec` tool (a built-in, `pnpm audit`, `pnpm run build`) runs
+ * under any chain, and so does a tool `TOOLS` doesn't describe, since nothing
+ * says it can't.
+ */
+export function chainCanRun(pack: string | undefined, invocation: { command: string; args: readonly string[] }): boolean {
+  if (pinChain(pack).some((source) => source !== 'js-lockfile')) return true;
+  const tool = execTool(invocation.command, invocation.args);
+  const row = tool === null ? undefined : TOOLS.find((t) => t.bin === tool);
+  return row === undefined || row.npm !== undefined;
+}
+
 /** The row for `bin` in `tools`, `TOOLS` by default, or a bare row for a tool it doesn't describe. */
 function toolRow(bin: string, tools: readonly Tool[] = TOOLS): Tool {
   return tools.find((t) => t.bin === bin) ?? { bin, install: `install ${bin}, or pin it in mise.toml` };

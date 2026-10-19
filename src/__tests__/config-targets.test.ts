@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
+import { chainCanRun } from '../launch/index.js';
 import { checkName, implicitPack } from '../targets/index.js';
 
 const NO_MANIFEST = { scripts: new Set<string>(), deps: new Set<string>() };
@@ -380,11 +381,48 @@ describe('a terraform target formats everywhere and validates only a root module
 const repoSlots =(fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
   new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists, manifest: NO_MANIFEST }).map((c) => [checkName(c), c]));
 
+/** What each check resolved to, in order: its name, its adapter, and why it skipped. */
+function shape(checks: Map<string, ResolvedCheck>): (string | null)[][] {
+  return [...checks.values()].map((c) => [checkName(c), c.adapter?.name ?? null, c.skip]);
+}
+
+/** Resolve the catalogue at a root holding `files`, under a defaults layer that names typos for spell. */
+function withDefaults(files: string[]): Map<string, ResolvedCheck> {
+  const checks = resolveChecks({
+    slots: SLOTS, adapters: ADAPTERS, config: null, defaults: { checks: { spell: 'typos' } }, fileExists: present(...files), manifest: NO_MANIFEST,
+  });
+  return new Map(checks.map((c) => [checkName(c), c]));
+}
+
 describe("the repo pack's Node-free alternates", () => {
-  test('rumdl fills docs from its own config, and typos fills spell from its own', () => {
-    const checks = repoSlots(present('.rumdl.toml', '_typos.toml'));
+  test('at a go root, rumdl fills docs from its own config, and typos fills spell from its own', () => {
+    const checks = repoSlots(present('go.mod', '.rumdl.toml', '_typos.toml'));
     expect(check(checks, 'docs')).toMatchObject({ adapter: { name: 'rumdl', outputFile: 'docs.json' }, detectedBy: '.rumdl.toml' });
     expect(check(checks, 'spell')).toMatchObject({ adapter: { name: 'typos' }, detectedBy: '_typos.toml' });
+  });
+
+  // A ts root's checks resolve through its package manager alone, which can't
+  // install either tool, so detecting one would only trade a skip for a refusal.
+  test('a ts root resolves identical checks with and without _typos.toml and .rumdl.toml (C2)', () => {
+    for (const markers of [[], ['package.json'], ['tsconfig.json']]) {
+      expect(shape(repoSlots(present(...markers, '_typos.toml', '.rumdl.toml'))), String(markers)).toEqual(shape(repoSlots(present(...markers))));
+    }
+  });
+
+  test('an explicit typos or rumdl entry still resolves at a ts root', () => {
+    const checks = repoSlots(present('package.json'), { checks: { spell: 'typos', docs: 'rumdl' } });
+    expect(check(checks, 'spell')).toMatchObject({ adapter: { name: 'typos' }, origin: 'config' });
+    expect(check(checks, 'docs')).toMatchObject({ adapter: { name: 'rumdl' }, origin: 'config' });
+  });
+
+  test('a ts root admits every ADAPTERS row but rumdl and typos, and the repo pack admits them all', () => {
+    expect(ADAPTERS.filter((a) => !chainCanRun(undefined, a)).map((a) => a.name)).toEqual(['rumdl', 'typos']);
+    expect(ADAPTERS.filter((a) => !chainCanRun('repo', a))).toEqual([]);
+  });
+
+  test("the defaults layer can't plant typos at a ts root, but fills it at a go root", () => {
+    expect(check(withDefaults(['package.json']), 'spell').adapter).toBeNull();
+    expect(check(withDefaults(['go.mod']), 'spell')).toMatchObject({ adapter: { name: 'typos' }, origin: 'defaults' });
   });
 
   test('the npm default still wins where both configs sit', () => {

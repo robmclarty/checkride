@@ -625,11 +625,16 @@ describe('runChecks (wave scheduler)', () => {
   });
 });
 
-/** The rust pack's row named `name`, its real lock key kept, detected anywhere so implicit mode runs it. */
+/**
+ * The rust pack's row named `name` as these scheduling cases need it: its
+ * real lock key kept, detected anywhere, and run as a plain command, since
+ * implicit mode's pin chain can't provide `cargo-clippy` and detection there
+ * never picks a tool it can't run.
+ */
 function rustRow(name: string): Adapter {
   const row = PACKS.rust.adapters.find((a) => a.name === name);
   if (row === undefined) throw new Error(`the rust pack has no ${name} row`);
-  return { ...row, detect: [] };
+  return fakeAdapter({ name: row.name, slot: row.slot, ...(row.lock !== undefined ? { lock: row.lock } : {}) });
 }
 
 describe('runChecks (lock keys)', () => {

@@ -268,7 +268,11 @@ complexity; the [tools guide](./docs/tools.md) covers it and every other
 adapter.
 
 Zero-config: for each slot, checkride runs the first adapter whose config file
-exists, and skips slots with no detected tool. The core has **no runtime
+exists, and skips slots with no detected tool. The Node-free alternates
+`rumdl` and `typos` are detected only where a tool can come from `mise.toml`
+or `PATH`: a repo that declares `targets`, or one whose root marks another
+pack. A repo checked as ts runs its tools through its package manager alone,
+which can't install them. The core has **no runtime
 dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
 owns the pinned tool versions.
 

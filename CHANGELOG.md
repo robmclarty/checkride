@@ -201,8 +201,12 @@ fields. These are the changes it can notice; each is described in full below.
   Each comes after the npm default in its slot, so a repo with both configs
   keeps running markdownlint-cli2 and cspell, and `checkride fix` runs
   `rumdl check --fix` and `typos --write-changes`. A repo without `targets`
-  still resolves every tool through its package manager alone. See
-  `docs/packs.md`.
+  whose root marks another pack, a `go.mod` for one, uses the same chain. One
+  checked as ts, a `package.json`, a `tsconfig.json` or no marker at its
+  root, still resolves every tool through its package manager alone, which
+  can't install `rumdl` or `typos`, so neither detection nor a `--defaults`
+  file picks them there: a ts repo resolves the same checks with or without
+  a `_typos.toml` or `.rumdl.toml` beside it. See `docs/packs.md`.
 - **Find the code no target checks with `unclaimed`.** Every run of a repo
   with `targets` now runs the repo-scope `unclaimed` check, which fails when a
   toolchain marker sits outside every target of its language, rooted at its
@@ -1004,9 +1008,11 @@ fields. These are the changes it can notice; each is described in full below.
 - Additive: the `repo` pack's rows gain `rumdl` (`docs`) and `typos`
   (`spell`), so `ADAPTERS` gains both, each after its slot's blessed default.
   `PACKS.repo.pins` is `js-lockfile`, `mise`, `path`, the chain a repo-scope
-  check uses once `targets` are declared, while a repo without them still
-  resolves through `js-lockfile` alone. `TOOLS` gains `rumdl` and `typos`, and
-  its `ast-grep` and `vale` rows gain their `mise` ids.
+  check uses once `targets` are declared, or in a repo without them whose
+  root marks another pack, while a ts repo without them still resolves
+  through `js-lockfile` alone and never detects either row. `TOOLS` gains
+  `rumdl` and `typos`, and its `ast-grep` and `vale` rows gain their `mise`
+  ids.
 - Additive: `SLOTS` gains `unclaimed` (scope `repo`) after `snippets`, and the
   exported `Slot` type an optional `activeWith`, the config key a slot needs
   before it runs (`targets` for `unclaimed`). `ADAPTERS` and `PACKS.repo`

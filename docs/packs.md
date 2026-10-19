@@ -32,11 +32,17 @@ order.
 | `python` | `uv-lock`, then `mise`, then `path` |
 | `terraform` | `tf-version`, then `mise`, then `path` |
 
-A check with no pack, which is every check in a repo without `targets`,
-resolves through `js-lockfile` alone, so a repo that declares no targets runs
-every tool through its package manager as it always has. The `repo` pack's
-own chain applies once a repo declares targets. A run given `--pins` puts the
-`override` source at the head of every chain, that one included.
+In a repo without `targets`, a root that marks a pack other than ts (a
+`go.mod`, a `Cargo.toml`, a `pyproject.toml`, a Terraform root) is checked as
+one target of that pack, so its checks resolve through that pack's chain and
+its repo-scope checks through the `repo` pack's. Every other repo without
+`targets`, one whose root holds a `package.json` or `tsconfig.json` or no
+marker at all, is checked as ts, with no pack: each check resolves through
+`js-lockfile` alone, as it always has. Detection there never picks a tool
+that chain can't provide, so `rumdl` and `typos` never fill a slot, and
+neither can a `--defaults` file. The `repo` pack's own chain applies once a
+repo declares targets. A run given `--pins` puts the `override` source at the
+head of every chain, that one included.
 
 ## Pin sources
 
@@ -205,6 +211,14 @@ then `PATH`. `rumdl` and `typos` are adapters of their own, after the npm
 default in their slot, so where both configs sit the npm default wins
 detection. rumdl runs with `--no-cache`, so it writes no cache into the
 checkout. typos exits 2 on a typo.
+
+The alternates need a chain that reaches past the package manager: a repo
+that declares `targets`, or one whose root marks a pack other than ts. A
+repo without `targets` whose root holds a `package.json` or `tsconfig.json`,
+or no marker at all, is checked as ts through its package manager alone,
+which can't install `rumdl` or `typos`. Detection never picks either there,
+whatever config sits beside them, and an entry that names one is refused
+when it runs. Declare `targets` to run them.
 
 ## The bash pack
 

@@ -27,5 +27,15 @@ export type { MiseAnswer } from './mise.js';
 export { loadPinsFile, miseHasInstalled, PINS_ENV } from './mise.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, OverrideCause, Spawn } from './resolve.js';
-export { commandBin, isReadableSource, launchCheck, overrideCause, overridePin, pinChain, pinDeclaration, pinResolution } from './resolve.js';
+export {
+  chainCanRun,
+  commandBin,
+  isReadableSource,
+  launchCheck,
+  overrideCause,
+  overridePin,
+  pinChain,
+  pinDeclaration,
+  pinResolution,
+} from './resolve.js';
 export { isAvailableUnder, translateExec } from './translate.js';

@@ -30,7 +30,7 @@ import { join, posix, relative, resolve } from 'node:path';
 import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
 import { SLOTS } from './adapters.js';
 import { isRecord } from './json.js';
-import { pinChain, pinDeclaration } from './launch/index.js';
+import { chainCanRun, pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
@@ -877,16 +877,27 @@ function hasAnySignal(a: Adapter): boolean {
  * TOML table one of them opens (`[tool.ruff]`, or `null` when it opens none),
  * its package.json, and where a pin declares a tool for a check there
  * (`<file>: <key>`, or `null` when nothing but `PATH` would provide it).
+ * `admits` says whether a check there can run an adapter's tool at all
+ * (`chainCanRun`): one it can't is never picked by detection or the defaults
+ * layer, since that would only trade a skip for a refusal, and the repo's
+ * own config naming it still does.
  */
 type Detection = {
   fileExists: (file: string) => boolean;
   tableIn: (signal: TableSignal) => string | null;
   manifest: Manifest;
   pinned: (bin: string) => string | null;
+  admits: (adapter: Adapter) => boolean;
 };
 
 /** Detection that finds nothing, so a dry resolution runs only the entry's own rules. */
-const NO_DETECTION: Detection = { fileExists: () => false, tableIn: () => null, manifest: EMPTY_MANIFEST, pinned: () => null };
+const NO_DETECTION: Detection = {
+  fileExists: () => false,
+  tableIn: () => null,
+  manifest: EMPTY_MANIFEST,
+  pinned: () => null,
+  admits: () => true,
+};
 
 /**
  * The first header in a TOML file's text that opens `table` or a sub-table of
@@ -974,14 +985,14 @@ function detectionSignal(a: Adapter, detection: Detection): Signal | undefined {
   return depSignal(a, detection.manifest) ?? pinSignal(a, detection.pinned) ?? (hasAnySignal(a) ? undefined : null);
 }
 
-/** First adapter for `slot` whose detection fires, plus the signal that matched (for the report). */
+/** First adapter for `slot` the check can run whose detection fires, plus the signal that matched (for the report). */
 function detectAdapter(
   slot: string,
   adapters: readonly Adapter[],
   detection: Detection,
 ): { adapter: Adapter; signal: Signal } | null {
   for (const a of adapters) {
-    if (a.slot !== slot) continue;
+    if (a.slot !== slot || !detection.admits(a)) continue;
     const signal = detectionSignal(a, detection);
     if (signal !== undefined) return { adapter: a, signal };
   }
@@ -1404,7 +1415,7 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
     ? (bin: string) => pinDeclaration(bin, { cwd: join(repo, root), repo, pins: pinChain(pack) })
     : () => null;
   const tableIn = repo !== undefined ? (signal: TableSignal) => tableAt(join(repo, root), signal) : () => null;
-  return { fileExists, tableIn, manifest, pinned };
+  return { fileExists, tableIn, manifest, pinned, admits: (adapter) => chainCanRun(pack, adapter) };
 }
 
 /**
@@ -1443,7 +1454,8 @@ type Fallback = {
  * defaults never beat a tool detection found or a repo entry that decides the
  * slot (a `false`, or a pick the registry lacks, included), and never wake an
  * inactive slot. A defaults `false`, or a pick this check can't run (a ts
- * linter, for a go target), leaves the gap as it was. A slot the defaults fill
+ * linter, for a go target, or typos at a ts root, whose package manager can't
+ * install it), leaves the gap as it was. A slot the defaults fill
  * keeps the opt-in status the repo gave it, since the defaults pick a tool and
  * the flags pick the run, and the repo's tuning applies over theirs.
  */
@@ -1453,8 +1465,9 @@ function filledByDefaults(resolved: ResolvedCheck, entry: Layer, fallback: Fallb
   if (!fallback.defaults.some(decides)) return resolved;
   const layered = layeredEntry([...fallback.repo, ...fallback.defaults], fallback.slot.name);
   const filled = resolveOne(fallback.slot, layered, fallback.adapters, fallback.detection);
-  // A `false`, a pick the check's adapters lack, and a script-gated tool with no script all fill nothing.
-  if (filled.adapter === null) return resolved;
+  // A `false`, a pick the check's adapters lack, a script-gated tool with no
+  // script, and a tool the check's pin chain can't provide all fill nothing.
+  if (filled.adapter === null || !fallback.detection.admits(filled.adapter)) return resolved;
   return { ...filled, origin: 'defaults', explicit: resolved.explicit === true };
 }
 
