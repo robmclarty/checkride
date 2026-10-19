@@ -451,6 +451,13 @@ under the same rules — which is what `recover` is built on.
 **Who writes to it.** Keys are added only by `checkride baseline` and
 `recover --pick`; a normal run only removes them, and only on a fully observed
 run — the ratchet rule in [Timeouts and interrupts](#timeouts-and-interrupts).
+A check observes its entry only when it reached a verdict on its own findings.
+One that timed out, failed to spawn or was interrupted (exit `-1`), or that
+failed without a single finding its parser could read (a refusal, missing
+setup, a crash), observes nothing: it prunes none of its keys, and it is never
+masked green, so a timeout whose partial output holds only grandfathered keys
+stays red. `checkride baseline` keeps such an entry's previous keys and names
+the check on stderr, rather than writing it empty.
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
 
@@ -1177,7 +1184,8 @@ provider `init` never installed, names no file.
 `null` means the adapter has no parser, the check was skipped, its artifact
 can't be read, or its output can't be trusted (vale's runtime-error report, a
 fallow report checkride can't read, a golangci-lint or shellcheck report with
-no findings list, a rumdl or ruff report that isn't an array, a basedpyright
+no findings list, an oxlint report with no `diagnostics` list, an ast-grep,
+rumdl or ruff report that isn't an array, a basedpyright
 report with no `generalDiagnostics` list, a tflint report with no `issues`
 list or with an entry in `errors`, a terraform validate report with no
 `diagnostics` list, trivy output that isn't its report object, markdownlint-cli2
@@ -1217,7 +1225,10 @@ technically importable.
   vacuous, never hung.
 - An interrupted run (SIGKILL, power loss) never tears an artifact (see
   crash-consistency above) and never prunes the baseline — the ratchet only
-  runs on a fully observed run.
+  runs on a fully observed run. Within one, a check that timed out, was
+  refused, or failed with nothing its parser could read observes nothing, so
+  it prunes none of its keys either
+  ([`checkride.baseline.json`](#checkridebaselinejson)).
 
 These promises live with their machinery rather than in `test/contract/`: the
 timeout kill and grandchild reaping in

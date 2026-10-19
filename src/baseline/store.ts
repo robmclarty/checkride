@@ -145,8 +145,9 @@ export function applyBaseline(
 /**
  * Ratchet the baseline against a fully observed run: for every slot observed this
  * run, keep only the grandfathered keys still present (a fixed diagnostic is
- * dropped); a slot absent from `observed` — disabled, without an extractor, or
- * not run — is preserved untouched. The result never grows: genuinely new findings
+ * dropped); a slot absent from `observed` — disabled, without an extractor, not
+ * run, or run without reaching a verdict (`observedFingerprint`) — is preserved
+ * untouched. The result never grows: genuinely new findings
  * are the run's failures, not new debt, so only a `checkride baseline` capture
  * ever adds keys. Callers gate this on a full run (no `--only`/`--skip`/
  * `--changed`, no early `--bail` break) so a partial run can't prune keys it

@@ -47,7 +47,8 @@ export function isParseable(adapter: string): boolean {
 /**
  * Parse one adapter's raw output into findings, or `null` when the adapter has
  * no parser or its output can't be trusted (vale's runtime-error report, an
- * unreadable fallow report). An empty array means parsed and clean.
+ * unreadable fallow report, oxlint or ast-grep output that isn't the JSON
+ * shape they print). An empty array means parsed and clean.
  *
  * Without `argv`, a finding's `gates` follows the adapter's registry args,
  * the argv checkride spawns it with when no config overrides it (R12.3). A

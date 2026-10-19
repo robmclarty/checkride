@@ -60,6 +60,16 @@ function runnerFor(payloads: Record<string, string>): CheckRunner {
   };
 }
 
+/**
+ * What each fingerprintable slot's tool prints on a clean run: a JSON tool's
+ * empty report, not empty output, which its parser reads as a run that never
+ * finished.
+ */
+const CLEAN: Record<string, string> = { lint: '{"diagnostics":[]}', struct: '[]', spell: '' };
+
+/** Every slot passes, printing its clean payload. */
+const GREEN: CheckRunner = (r) => Promise.resolve({ ok: true, exit_code: 0, stdout: CLEAN[r.slot] ?? '', stderr: '' });
+
 const RED = runnerFor({ lint: OXLINT, struct: AST_GREP, spell: CSPELL });
 
 describe('runBaseline', () => {
@@ -101,11 +111,31 @@ describe('runBaseline', () => {
 
   test('a fingerprintable-but-clean slot records an empty array (opted in, no debt)', async () => {
     await runBaseline({
-      cwd: dir, slots, adapters, config: null, runner: runnerFor({}), stdout: sink(), stderr: sink(),
+      cwd: dir, slots, adapters, config: null, runner: GREEN, stdout: sink(), stderr: sink(),
     });
     const written = await readBaseline();
     // Every fingerprintable slot that ran is present; each is empty since nothing failed.
     expect(written.slots).toEqual({ lint: [], struct: [], spell: [] });
+  });
+
+  test('an unrun check keeps its previous keys', async () => {
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, stdout: sink(), stderr: sink() });
+    const before = await readBaseline();
+    // Re-captured, but cspell refuses this time: exit 1 and nothing on stdout,
+    // which its line-based parser can't tell from a clean run.
+    const refusing: CheckRunner = (r, ctx) =>
+      r.slot === 'spell' ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'cspell refused' }) : RED(r, ctx);
+    const warnings: string[] = [];
+    await runBaseline({
+      cwd: dir, slots, adapters, config: null, runner: refusing, stdout: sink(),
+      stderr: { write: (text: string) => { warnings.push(text); return true; } },
+    });
+    const after = await readBaseline();
+
+    expect(before.slots['spell']?.length).toBeGreaterThan(0);
+    expect(after.slots['spell']).toEqual(before.slots['spell']);
+    expect(after.slots['lint']).toEqual(before.slots['lint']);
+    expect(warnings.join('')).toContain(`baseline: spell didn't run to a verdict`);
   });
 
   test('a red prose slot is captured, and the capture masks it green', async () => {

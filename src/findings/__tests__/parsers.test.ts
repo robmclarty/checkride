@@ -101,6 +101,23 @@ describe('parsers return every finding, and say which gate', () => {
     expect(parserFor('vale')?.parse(read('baseline-vale-error.json'), { argv: undefined, root: undefined })).toBeNull();
   });
 
+  test.each([
+    ['oxlint', ''],
+    ['oxlint', 'Failed to parse configuration file'],
+    ['oxlint', '[]'],
+    ['oxlint', '{"diagnostics":"nope"}'],
+    ['ast-grep', ''],
+    ['ast-grep', 'error: no sgconfig.yml found'],
+    ['ast-grep', '{"matches":[]}'],
+  ])('%s returns null for output that is not the JSON it prints: %j', (adapter, raw) => {
+    expect(parserFor(adapter)?.parse(raw, { argv: undefined, root: undefined })).toBeNull();
+  });
+
+  test('a clean oxlint or ast-grep report is an empty array, not null', () => {
+    expect(parse('oxlint', '{"diagnostics":[]}')).toEqual([]);
+    expect(parse('ast-grep', '[]')).toEqual([]);
+  });
+
   test('cspell names no rule and no severity, and every unknown word gates', () => {
     const findings = parse('cspell', read('baseline-cspell.txt'), undefined, 'apps/web');
     expect(findings).toHaveLength(4);

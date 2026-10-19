@@ -14,7 +14,7 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
-import { applyBaseline, findingText, fingerprint, reportVerdict } from '../baseline/index.js';
+import { applyBaseline, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { isAvailableUnder, offlineHint, packEnv, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
@@ -129,24 +129,29 @@ type MaskScope = { key: string; root: string | undefined; repoRoot: string; base
  * everything else masks the adapter's fingerprint, keyed under the argv the
  * check ran with (`scope` fills its placeholders, and under `--changed` its
  * `base` adds the `changedArgs`). Either reads the stream the adapter's parser
- * declares (D49). `observed` is non-null only when the run's findings could be
- * read — the ratchet must never prune from an unreadable run.
+ * declares (D49).
+ *
+ * `observed` is non-null only for a run whose findings can be trusted
+ * (`observedFingerprint`): the ratchet must never prune from a run that never
+ * reached a verdict. Such a run is never masked either, so its verdict is the
+ * raw outcome: a timeout whose partial output holds only grandfathered keys
+ * stays red rather than passing on findings it never finished reading.
  */
 function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
   const verdict = reportVerdict(adapter.name);
   const keys = baseline ? (baseline.slots[scope.key] ?? []) : null;
-  const raw = findingText(adapter.name, outcome);
   if (verdict) {
-    const v = verdict(raw, keys, scope.root);
-    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed: v.observed ? v.findings : null };
+    const v = verdict(findingText(adapter.name, outcome), keys, scope.root);
+    const observed = v.observed && outcome.exit_code !== -1 ? v.findings : null;
+    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed };
   }
   const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
-  const current = keys !== null ? fingerprint(adapter.name, raw, argv, scope.root, scope.repoRoot) : null;
+  const current = keys !== null ? observedFingerprint(adapter.name, outcome, argv, scope.root, scope.repoRoot) : null;
   if (keys !== null && current !== null) {
     const adj = applyBaseline(current, keys, outcome.ok);
     return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: failureLine(outcome), observed: current };
   }
-  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: failureLine(outcome), observed: null };
+  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: failureLine(outcome), observed: current };
 }
 
 /**

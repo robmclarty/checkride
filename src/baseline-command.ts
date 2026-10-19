@@ -12,6 +12,9 @@
  * slot records an empty array (it opted in and had nothing to grandfather),
  * while a slot with no parser (tsc, links, …) simply never appears — exactly
  * the "supported vs. unsupported" distinction the fingerprint contract draws.
+ * A supported slot whose check never reached a verdict (refused, timed out,
+ * crashed) keeps the keys the file already held for it, so a re-capture can't
+ * empty a slot it never observed.
  * The fallow slots (dead/dupes/health) are fingerprintable, so `checkride
  * baseline` grandfathers their findings like any other. Running each check under
  * the resolved package manager and capturing raw
@@ -29,8 +32,9 @@ import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
   diffBaselines,
-  findingText,
-  fingerprint,
+  isFingerprintable,
+  loadBaseline,
+  observedFingerprint,
   readBaselineAt,
   readBaselineStatus,
   writeBaseline,
@@ -38,7 +42,7 @@ import {
 import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
-import type { CheckRunner, Out, RunOptions } from './orchestrator/index.js';
+import type { CheckRun, CheckRunner, Out, RunOptions } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 
@@ -60,6 +64,36 @@ export type BaselineOptions = {
 };
 
 export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline };
+
+/**
+ * The keys a capture records, per check. A capture run is never `--changed`,
+ * so each check ran its declared args. Keys go under the check's name,
+ * `<target>:<slot>` for a target's check, with its paths joined onto the
+ * target's root and an absolute path made relative to the repo root, as a run
+ * masks with them, read from the stream the adapter's parser declares.
+ *
+ * A check whose adapter has a parser but whose run wasn't observed (a refusal,
+ * timeout or crash — see `observedFingerprint`) keeps the keys `previous`
+ * holds for it, and stderr names it. Leaving it out instead would write the
+ * file without it, which masks exactly what an empty entry does: the capture
+ * would throw away debt the run never looked at.
+ */
+function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): Record<string, string[]> {
+  const slots: Record<string, string[]> = {};
+  for (const run of runs) {
+    const { adapter, outcome } = run;
+    if (!isFingerprintable(adapter.name)) continue;
+    const keys = observedFingerprint(adapter.name, outcome, [adapter.command, ...adapter.args], run.root, cwd);
+    if (keys !== null) {
+      slots[run.name] = [...keys].toSorted();
+      continue;
+    }
+    const kept = previous?.slots[run.name];
+    if (kept !== undefined) slots[run.name] = kept;
+    stderr.write(`baseline: ${run.name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${kept?.length ?? 0} previous key(s)\n`);
+  }
+  return slots;
+}
 
 /**
  * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
@@ -88,20 +122,7 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
     ...(options.stdout !== undefined ? { stdout: options.stdout } : {}),
   };
   const result = await runChecks(runOptions);
-
-  // A capture run is never `--changed`, so each check ran its declared args.
-  // Keys go under the check's name, `<target>:<slot>` for a target's check, with
-  // its paths joined onto the target's root and an absolute path made relative
-  // to the repo root, as a run masks with them, read from the stream the
-  // adapter's parser declares.
-  const slots: Record<string, string[]> = {};
-  for (const run of result.runs) {
-    const { adapter, outcome } = run;
-    const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, cwd);
-    if (keys === null) continue;
-    slots[run.name] = [...keys].toSorted();
-  }
-
+  const slots = capturedSlots(result.runs, loadBaseline(cwd), cwd, stderr);
   const baseline: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots };
   await writeBaseline(cwd, baseline);
 

@@ -57,11 +57,15 @@ export type KeyedFinding = {
 /**
  * One tool format's parser. `parse` never throws: it returns the findings it
  * read, an empty array for a clean run or a payload its format can't tell from
- * one, and `null` only for output the format can say is untrustworthy (vale's
- * runtime-error report, a cargo build that never finished), which a reader
- * takes as "not observed". `parseOnly` marks a parser that serves
- * `checkride/findings` but never the baseline: a type checker's errors aren't
- * grandfathered (D31).
+ * one, and `null` for output the format can say is untrustworthy, which a
+ * reader takes as "not observed": vale's runtime-error report, a cargo build
+ * that never finished, or a JSON format whose payload isn't the shape a clean
+ * run prints (oxlint's `diagnostics` record, the array ast-grep, ruff and
+ * golangci-lint print). A line-based format (cspell, typos, staticcheck) can't
+ * tell empty output from a clean run, so the baseline also asks whether the
+ * check reached a verdict before it trusts an empty one. `parseOnly` marks a
+ * parser that serves `checkride/findings` but never the baseline: a type
+ * checker's errors aren't grandfathered (D31).
  */
 export type Parser = {
   readonly stream: FindingStream;

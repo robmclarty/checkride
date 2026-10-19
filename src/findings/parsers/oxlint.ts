@@ -36,15 +36,20 @@ function firstSpan(d: Record<string, unknown>): Record<string, unknown> {
  * is marked as not gating, so the baseline doesn't key it: an advisory
  * warning's key would block masking when it first appears on an otherwise
  * grandfathered red run, though it could never fail the check itself.
+ *
+ * Returns `null` unless the payload is a record holding a `diagnostics`
+ * array: a clean run prints `{"diagnostics":[]}`, while a config oxlint can't
+ * load, or a crash, prints something else or nothing, and reading that as
+ * clean would let the ratchet prune every grandfathered key.
  */
 export const oxlintParser: Parser = {
   stream: 'artifact',
   parse: (raw, context) => {
+    const payload = parseJson(raw);
+    if (!isRecord(payload) || !Array.isArray(payload['diagnostics'])) return null;
     const findings: KeyedFinding[] = [];
     const all = oxlintWarningsGate(context.argv);
-    const payload = parseJson(raw);
-    const diagnostics = isRecord(payload) ? asArray(payload['diagnostics']) : [];
-    for (const d of diagnostics) {
+    for (const d of asArray(payload['diagnostics'])) {
       if (!isRecord(d)) continue;
       const file = str(d['filename']);
       const message = str(d['message']);

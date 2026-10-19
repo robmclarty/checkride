@@ -748,6 +748,18 @@ fields. These are the changes it can notice; each is described in full below.
 
 ### Fixed
 
+- **A check that never reached a verdict no longer empties its baseline
+  entry.** A refused check, or one missing its setup, exits non-zero with
+  nothing on stdout, and a check that timed out or couldn't spawn exits `-1`.
+  cspell, typos and staticcheck read empty output as a clean run, and oxlint
+  and ast-grep read any output that wasn't their JSON the same way, so the
+  next full run pruned every grandfathered key from the entry, and
+  `checkride baseline` wrote it empty: a refused cspell wiped `spell`. A
+  check now observes its entry only when it reached a verdict on its own
+  findings. One that exited `-1`, or failed with no finding its parser could
+  read, prunes nothing and is never masked green, so a timeout whose partial
+  output holds only grandfathered keys stays red. `checkride baseline` keeps
+  such an entry's previous keys and names the check on stderr.
 - **An advisory a repo ignores no longer keeps `security` red.** The
   built-in now counts each severity from the audit report's `advisories` map,
   falling back to `metadata.vulnerabilities` only for a report without one. An
@@ -904,6 +916,13 @@ fields. These are the changes it can notice; each is described in full below.
   `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
   written before keeps masking, since the same findings now produce a subset
   of its keys, and the next full run ratchets its warning keys away.
+- Narrowed: oxlint output that isn't a record holding a `diagnostics` list,
+  and ast-grep output that isn't an array, empty output included, now reads
+  as untrustworthy rather than clean, as ruff's and golangci-lint's already
+  did. `parseFindings` and `findingsFor` return `null` for it where they
+  returned `[]`, and the baseline neither keys nor prunes from it, in the
+  contract doc. A clean report (`{"diagnostics":[]}`, `[]`) is still an empty
+  array.
 - Additive: the package root exports `PACKS` and `TOOLS`, with the types
   `Pack` and `Tool`. `PACKS` maps each pack's name to its adapter rows, root
   markers, pin sources and environment: `ts` holds the toolchain-bound

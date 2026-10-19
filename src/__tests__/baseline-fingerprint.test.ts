@@ -512,10 +512,13 @@ describe('fingerprint — support boundary', () => {
     for (const adapter of ['oxlint', 'cspell', 'fallow', 'tsc']) expect(findingText(adapter, output), adapter).toBe('out');
   });
 
-  test('malformed output fingerprints to an empty set, never throws', () => {
-    expect(fingerprint('oxlint', 'not json at all')).toEqual(new Set());
-    expect(fingerprint('oxlint', '{"diagnostics":"nope"}')).toEqual(new Set());
-    expect(fingerprint('ast-grep', '{"not":"an array"}')).toEqual(new Set());
+  test('malformed output is unobserved (null), never throws', () => {
+    // Read as clean, any of these would let the ratchet prune every key.
+    expect(fingerprint('oxlint', 'not json at all')).toBeNull();
+    expect(fingerprint('oxlint', '{"diagnostics":"nope"}')).toBeNull();
+    expect(fingerprint('oxlint', '')).toBeNull();
+    expect(fingerprint('ast-grep', '{"not":"an array"}')).toBeNull();
+    expect(fingerprint('ast-grep', '')).toBeNull();
   });
 });
 

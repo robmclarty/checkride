@@ -1393,6 +1393,58 @@ describe('runChecks (baseline-aware)', () => {
     expect((await readWritten()).slots['lint']).toEqual([KEY_A]);
   });
 
+  // 1.1: a check that never reached a verdict contributes nothing to the ratchet,
+  // so a refusal/spawn-failure/timeout can't silently empty its baseline slot.
+  const mixSlots = [{ name: 'lint' }, { name: 'spell' }];
+  const mixAdapters = [
+    fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' }),
+    fakeAdapter({ name: 'cspell', slot: 'spell' }),
+  ];
+
+  test('a refused cspell (exit 1, empty) never prunes spell, even while lint ratchets', async () => {
+    const lint = lintRunner(oneA);
+    const runner: CheckRunner = (r, rc) =>
+      r.slot === 'spell'
+        ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'check-spell: cspell refused' })
+        : lint(r, rc);
+    await runChecks({
+      cwd: dir, slots: mixSlots, adapters: mixAdapters, config: null, runner,
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B], spell: ['doc.md::teh'] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    const written = await readWritten();
+    expect(written.slots['lint']).toEqual([KEY_A]); // lint ratcheted: KEY_B fixed
+    expect(written.slots['spell']).toEqual(['doc.md::teh']); // spell untouched despite the refusal
+  });
+
+  test('a spawn failure (exit -1) never prunes', async () => {
+    const lint = lintRunner(oneA);
+    const runner: CheckRunner = (r, rc) =>
+      r.slot === 'spell'
+        ? Promise.resolve({ ok: false, exit_code: -1, stdout: '', stderr: 'Failed to spawn cspell' })
+        : lint(r, rc);
+    await runChecks({
+      cwd: dir, slots: mixSlots, adapters: mixAdapters, config: null, runner,
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B], spell: ['doc.md::teh'] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect((await readWritten()).slots['spell']).toEqual(['doc.md::teh']);
+  });
+
+  test('a cspell timeout whose partial output is all grandfathered stays red and never prunes', async () => {
+    const key = 'doc.md::Unknown word (teh)';
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'spell' }], adapters: [fakeAdapter({ name: 'cspell', slot: 'spell' })], config: null,
+      // Timed out after printing one finding, which the baseline grandfathers.
+      runner: () => Promise.resolve({ ok: false, exit_code: -1, stdout: 'doc.md:3:1 - Unknown word (teh)\n', stderr: 'cspell: timed out after 60s' }),
+      baseline: { schema_version: 1, slots: { spell: [key] } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.ok).toBe(false); // an unverified run is never masked green
+    expect(result.summary.checks.find((c) => c.name === 'spell')).toMatchObject({ ok: false });
+    expect(existsSync(baselineFile())).toBe(false); // nothing observed, nothing pruned
+  });
+
   test('the next full run ratchets away the oxlint warning keys an older release captured (D27)', async () => {
     // Before gating keys, `checkride baseline` keyed oxlint's warnings too. With
     // no --deny-warnings in argv they can't fail the slot, so no run observes

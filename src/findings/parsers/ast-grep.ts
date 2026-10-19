@@ -42,13 +42,18 @@ function rangeStart(m: Record<string, unknown>): Record<string, unknown> {
 /**
  * Every match that names a file and a message. One that can only advise is
  * marked as not gating, for the reason the oxlint parser gives.
+ *
+ * Returns `null` for output that isn't an array, as the ruff parser does: a
+ * clean scan prints `[]`, and anything else is a scan that never finished.
  */
 export const astGrepParser: Parser = {
   stream: 'artifact',
   parse: (raw, context) => {
+    const payload = parseJson(raw);
+    if (!Array.isArray(payload)) return null;
     const findings: KeyedFinding[] = [];
     const raised = astGrepRaised(context.argv);
-    for (const m of asArray(parseJson(raw))) {
+    for (const m of asArray(payload)) {
       if (!isRecord(m)) continue;
       const file = str(m['file']);
       const message = str(m['message']);

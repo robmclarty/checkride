@@ -86,9 +86,12 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  *
  * `null` therefore has two readings, and callers treat them the same way: no
  * parser for this adapter (decided by name, before any output), or a parser
- * that read its output and could not trust it — vale's runtime-error report
- * being the one case a format can say that about. Either way the run
- * contributes nothing to the baseline and prunes nothing from it.
+ * that read its output and could not trust it — vale's runtime-error report,
+ * or a JSON format whose payload isn't the shape it prints (oxlint's
+ * `diagnostics` record, ast-grep's array). Either way the run contributes
+ * nothing to the baseline and prunes nothing from it. Whether the *run* can be
+ * trusted is a further question this function doesn't ask; see
+ * {@link observedFingerprint}.
  *
  * `argv` is the check's command and then its args, as declared for the run
  * (`changedArgs` included under `--changed`). Only findings that can fail the
@@ -113,6 +116,39 @@ export function fingerprint(
 ): Fingerprint | null {
   const findings = baselineParserFor(adapter)?.parse(raw, { argv, root, repoRoot });
   return findings === undefined || findings === null ? null : gatingKeys(findings);
+}
+
+/** The parts of a check's outcome the trust rule reads: its streams, its verdict, and its exit code. */
+type ObservedOutcome = CheckOutput & { readonly ok: boolean; readonly exit_code: number };
+
+/**
+ * The fingerprint one run *observed*: the one both the ratchet and a
+ * `checkride baseline` capture key from, so the two can't disagree about which
+ * runs count. `null` when there is nothing to observe — the adapter has no
+ * parser or its parser couldn't trust the output ({@link fingerprint}) — and
+ * also when the check never reached a verdict on its own findings:
+ *
+ * - `exit_code === -1`: a timeout, spawn failure or interrupt. Whatever the
+ *   tool printed before it stopped is partial, so its findings say nothing
+ *   about the ones it never got to.
+ * - `!ok` with no finding: a refusal, missing setup, or a crash before the tool
+ *   printed anything parseable. A line-based parser reads empty output as
+ *   clean, and keying that would prune every grandfathered key.
+ *
+ * A clean run (`ok` with no findings) stays observed, so a slot whose debt was
+ * all fixed still ratchets to empty. `argv`, `root` and `repoRoot` are
+ * {@link fingerprint}'s.
+ */
+export function observedFingerprint(
+  adapter: string,
+  outcome: ObservedOutcome,
+  argv?: readonly string[],
+  root?: string,
+  repoRoot?: string,
+): Fingerprint | null {
+  const current = fingerprint(adapter, findingText(adapter, outcome), argv, root, repoRoot);
+  if (current === null || outcome.exit_code === -1 || (!outcome.ok && current.size === 0)) return null;
+  return current;
 }
 
 /**
