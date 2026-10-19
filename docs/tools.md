@@ -1,10 +1,15 @@
 # Tools and installation
 
-checkride has **no runtime dependency on any tool it runs**. For each slot it
-spawns `<pm> exec <tool>` — where `<pm>` is your repo's package manager (see
-[Package managers](#package-managers) below) — so the tools are ordinary project
-`devDependencies`, pinned and owned by your repository. "Installing a missing
-tool" therefore means adding an npm package — not a separate system binary.
+checkride has **no runtime dependency on any tool it runs**. This page covers
+the ts and repo packs, the tools a TypeScript repo runs: for each of their
+slots checkride spawns `<pm> exec <tool>` — where `<pm>` is your repo's package
+manager (see [Package managers](#package-managers) below) — so the tools are
+ordinary project `devDependencies`, pinned and owned by your repository.
+"Installing a missing tool" therefore means adding an npm package — not a
+separate system binary. The bash, go, rust, python and terraform packs resolve
+their tools through their own pin chains instead (`go.mod`,
+`rust-toolchain.toml`, `uv.lock`, `.terraform-version`, a `mise.toml`, then
+`PATH`); [Packs and pins](./packs.md) covers each one.
 
 The tooling has two layers:
 
@@ -229,7 +234,8 @@ same verdict either way.
 ## Slot tools
 
 Each slot is filled by one tool. A slot runs only when its detect file is
-present (built-in checks always run). The default tool per slot:
+present (built-in checks always run). The default tool per slot in the ts and
+repo packs (every other pack's are in [Packs and pins](./packs.md)):
 
 | Slot | Tool | Install with | Detect file |
 | ---- | ---- | ------------ | ----------- |
@@ -308,7 +314,7 @@ fails a repo on duplication or complexity it never signed up for. Enable them by
 naming them in `checkride.config.json` (`"dupes": "fallow"`) or with `--include
 dupes,health` / `--all`. All three share the one `fallow.toml`.
 
-**checkride owns the pass/fail decision for fallow.** Unlike every other slot —
+**checkride owns the pass/fail decision for fallow.** Unlike most slots —
 where the tool's exit code is the verdict — checkride reads fallow's JSON and
 gates on the issue count. That is deliberate: fallow's JSON/combined modes exit
 `0` even with findings (and `fallow dupes` never fails on its own), so keying off
@@ -316,7 +322,7 @@ the exit code would let a green ✔ hide real issues. Reading the count gates al
 three analyses uniformly, and an **unrecognized report fails loudly** rather than
 passing silently.
 
-This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.9.1`.
+This needs **fallow ≥ 3.5** (JSON `schema_version` 7); checkride pins `3.31.0`.
 An older fallow (2.x emitted `schema_version` 4) fails the slot with an explicit
 "unsupported schema_version" message — upgrade with `pnpm up fallow`.
 
@@ -325,8 +331,8 @@ Baselines work two ways, and you can use either:
 - **checkride's own baseline** (`checkride baseline`) fingerprints each fallow
   finding (kind + file + symbol) into `checkride.baseline.json`, grandfathering
   today's findings so only *new* ones fail. This is the same baseline that covers
-  `lint`/`struct`/`spell`, and it ratchets: a fixed finding is dropped on the
-  next full run.
+  `lint`, `struct`, `docs`, `spell` and `prose`, and it ratchets: a fixed
+  finding is dropped on the next full run.
 - **fallow's native suppression baseline** (`fallow dead-code --save-baseline
   <file>`, then gate with `--baseline <file>`) is an alternative if you prefer
   fallow to own the grandfathering. Prefer `--save-baseline` (exact-finding
@@ -339,8 +345,11 @@ no coverage setting of its own.
 
 Some slots accept alternates that checkride will also run if it detects their
 config: `format` → `biome`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`
-→ `jest`. The blessed default is the one `init` scaffolds; the rest just need their
-own config file present.
+→ `jest`; `docs` → `rumdl`; `spell` → `typos`. The blessed default is the one
+`init` scaffolds; the rest just need their own config file present. rumdl and
+typos are single binaries with no npm package, so they're detected only where a
+tool can come from `mise.toml` or `PATH`: a repo that declares targets, or one
+whose root marks a pack other than ts.
 
 The `format` slot is **opt-in**: `checkride init --add format` scaffolds
 `.prettierrc.json`, then enable it by naming it in `checkride.config.json`
@@ -423,11 +432,13 @@ a **built-in** (or runs the consumer's own `build`/`tsc`), so enabling them adds
 | `build` | 10 | The package won't build — runs the consumer's `build` script so the checks below inspect fresh output, not stale `dist/`. |
 | `pack` | 20 | The tarball ships the wrong files — packs a dry-run and fails if a required file (a resolved `exports`/`main`/`types`/`bin` target, or `README`) is missing, or a forbidden one (`src/`, tests, `.ts` sources) is present. |
 | `smoke` | 20 | The built package throws on `import` — loads every `exports` entry through the package's own resolution and asserts each declared value export is live at runtime. |
-| `snippets` | 20 / any | Doc examples have rotted — type-checks the fenced code blocks tagged `<!-- snippet: check -->` in `README.md` and `docs/*.md`. |
+| `snippets` | any / 20 | Doc examples have rotted — type-checks the fenced code blocks tagged `<!-- snippet: check -->` in `README.md` and `docs/*.md`, against your source in any wave, or, as `snippets-dist`, against the built `.d.ts` in wave 20. |
 
 Because they carry waves, the bundle **orders itself with no config**: `build`
-runs first (wave 10), then `pack`, `smoke`, `snippets`, `publint`, and `attw`
-share wave 20 and run concurrently against the built artifact. Enable the bundle
+runs first (wave 10), then `pack`, `smoke`, `publint` and `attw` share wave 20
+and run concurrently against the built artifact. `snippets` checks your source
+by default, so it needs no build and runs in any wave; `snippets-dist`, which
+checks the built `.d.ts`, joins wave 20. Enable the bundle
 with `--all`, with `--include build,pack,smoke,snippets`, or by naming the slots
 in `checkride.config.json`; `checkride init` on a library can scaffold it for you.
 
@@ -732,7 +743,8 @@ grow the tells your own repo accumulates.
 To adopt a published third-party style — Google, Microsoft, `write-good` —
 add a `Packages` line to `.vale.ini` and run `pnpm exec vale sync` yourself:
 it downloads packages into `StylesPath`, so re-run it when you add or bump a
-package. It is a setup command, never part of a check — a check never touches
+package. It is a setup command, never part of a check — no check but the ones
+that audit dependencies (`security`, and a rust target's cargo-deny) touches
 the network — which is also why the scaffold's default path needs no sync at
 all.
 
