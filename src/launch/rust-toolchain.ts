@@ -8,8 +8,9 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { delimiter, dirname, join, relative } from 'node:path';
 
+import { findOnPath } from './path.js';
 import { dirsUpTo } from './walk.js';
 
 /** The files rustup reads a directory's toolchain from, in the order it prefers them. */
@@ -41,15 +42,46 @@ export function toolchainChannel(text: string): string | undefined {
   return only !== undefined && /^[\w.-]+$/.test(only) ? only : undefined;
 }
 
+/** The environment whose `PATH` a spawn searches. */
+type PathEnv = Readonly<Record<string, string | undefined>>;
+
+/**
+ * The `cargo` beside the first `rustup` on `env`'s `PATH`: rustup's proxy,
+ * the one `cargo` that reads a toolchain file, or `null` when rustup isn't on
+ * `PATH` or has no `cargo` beside it. rustup installs both into one directory,
+ * as `~/.cargo/bin` and mise's Rust both hold them.
+ */
+export function rustupCargo(env: PathEnv): string | null {
+  const rustup = findOnPath('rustup', env);
+  return rustup === null ? null : findOnPath('cargo', { PATH: dirname(rustup) });
+}
+
+/**
+ * `PATH` with rustup's directory first, where another `cargo`, such as
+ * Homebrew's, comes before rustup's proxy on it, so every `cargo` a spawn
+ * runs, a plugin's `cargo <sub>` and a custom check's among them, is the one
+ * that reads the toolchain file; nothing where the proxy comes first already,
+ * or there's none.
+ */
+function rustupFirst(env: PathEnv): { PATH?: string } {
+  const proxy = rustupCargo(env);
+  const first = findOnPath('cargo', env);
+  if (proxy === null || first === null || first === proxy) return {};
+  return { PATH: `${dirname(proxy)}${delimiter}${env['PATH'] ?? ''}` };
+}
+
 /**
  * The variables a check spawns with where a toolchain file from `cwd` up to
  * `repo` pins the toolchain: an empty `RUSTUP_TOOLCHAIN`, which rustup reads as
  * unset, so a version an outer shell exported, as mise does for its own Rust,
- * can't override the one the file names (checked against rustup 1.29.1).
- * Where no file pins it, none, and rustup's own choice stands.
+ * can't override the one the file names (checked against rustup 1.29.1), and
+ * rustup's directory first on `PATH` where `env`'s puts another `cargo` before
+ * its proxy. Where no file pins it, none, and rustup's own choice stands. A
+ * `mise.toml` that pins `rust` is the one gap: mise sets `RUSTUP_TOOLCHAIN`
+ * inside the `mise exec` a check runs through, after this clears it.
  */
-export function toolchainFileEnv(cwd: string, repo: string): Readonly<Record<string, string>> {
-  return rustToolchainDeclaration(cwd, repo) === null ? {} : { RUSTUP_TOOLCHAIN: '' };
+export function toolchainFileEnv(cwd: string, repo: string, env: PathEnv): Readonly<Record<string, string>> {
+  return rustToolchainDeclaration(cwd, repo) === null ? {} : { RUSTUP_TOOLCHAIN: '', ...rustupFirst(env) };
 }
 
 /** True for a channel that names one exact release, such as `1.85.0`, which `tool_version` can record. */

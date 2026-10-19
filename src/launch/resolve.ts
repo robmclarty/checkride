@@ -19,7 +19,7 @@
  * source.
  */
 
-import { isAbsolute, relative } from 'node:path';
+import { dirname, isAbsolute, relative } from 'node:path';
 
 import { isInside } from '../artifacts/index.js';
 import type { PinSourceName, Tool } from '../packs/index.js';
@@ -32,7 +32,7 @@ import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, overrid
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
 import type { RustToolchainDeclaration } from './rust-toolchain.js';
-import { isExactChannel, rustToolchainDeclaration, toolchainFileEnv } from './rust-toolchain.js';
+import { isExactChannel, rustToolchainDeclaration, rustupCargo, toolchainFileEnv } from './rust-toolchain.js';
 import type { TfVersionDeclaration } from './terraform.js';
 import { cliVersion, terraformCli, tfVersionDeclaration } from './terraform.js';
 import { translateExec } from './translate.js';
@@ -248,8 +248,9 @@ const GO_MOD_TOOL: Source = {
  * the repo root pins with the toolchain it names, run through rustup's `cargo`
  * from `PATH`, which reads that file (R6.1). Only rustup reads it, so without
  * rustup on `PATH` the check fails rather than run a `cargo` that ignores the
- * pin. It records the file's channel when it names one exact release (R6.3).
- * A tool that isn't a component is never declared here.
+ * pin, and so does a `cargo` with no rustup beside it, which isn't rustup's
+ * proxy. It records the file's channel when it names one exact release
+ * (R6.3). A tool that isn't a component is never declared here.
  */
 const RUST_TOOLCHAIN: Source = {
   declares: (req) => {
@@ -259,6 +260,8 @@ const RUST_TOOLCHAIN: Source = {
   run: (req, declared) => {
     if (findOnPath(RUSTUP, req.env) === null) return { refusal: rustupMissingRefusal(req, declared?.toolchain ?? null) };
     if (findOnPath(CARGO_TOOLCHAIN.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, CARGO_TOOLCHAIN) };
+    // Only rustup's own proxy reads the file, and launchCheck puts it first on PATH.
+    if (rustupCargo(req.env) === null) return { refusal: proxyMissingRefusal(req) };
     const [command = CARGO_TOOLCHAIN.bin, ...args] = argvOf(req.tool, req.args);
     const channel = declared?.toolchain?.channel;
     const version = channel !== undefined && isExactChannel(channel) ? { version: channel } : {};
@@ -465,16 +468,34 @@ export function overridePin(command: string, args: readonly string[], at: PinQue
 }
 
 /**
+ * The `cargo <sub>` a check's invocation runs, as a cargo plugin such as
+ * nextest runs, or `null` for anything else, a toolchain component included,
+ * which the `rust-toolchain` source governs itself.
+ */
+function cargoPlugin(command: string, args: readonly string[], ctx: LaunchContext): string | null {
+  const tool = execTool(command, args);
+  const row = tool === null ? null : toolRow(tool, ctx.tools);
+  return row?.component === undefined && row?.run?.[0] === CARGO_TOOLCHAIN.bin ? row.run.join(' ') : null;
+}
+
+/**
  * Launch the tool a check's `command` and `args` declare, for the check
  * filling `slot` from `ctx.cwd`. `args` arrive with their placeholders already
  * expanded. A fix launches the same way, so it runs the copy the check runs
  * and is refused where the check would be. Whatever it spawns carries the
  * variables the check's pack sets (R6.4), a command spawned as written
- * included, and, in a chain that reads `rust-toolchain`, the ones that let a
- * toolchain file there pick the toolchain.
+ * included, and, in a chain that reads `rust-toolchain` where a toolchain
+ * file pins the toolchain, the ones that let it: rustup's proxy first on
+ * `PATH`, and no `RUSTUP_TOOLCHAIN` from the shell. A cargo plugin there
+ * builds through `cargo`, so without rustup to read the file it's refused.
  */
 export function launchCheck(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
-  const pinned = ctx.pins?.includes('rust-toolchain') === true ? toolchainFileEnv(ctx.cwd, ctx.repo ?? ctx.cwd) : {};
+  const toolchain = ctx.pins?.includes('rust-toolchain') === true ? rustToolchainDeclaration(ctx.cwd, ctx.repo ?? ctx.cwd) : null;
+  if (toolchain === null) return withPackEnv(resolveLaunch(slot, command, args, ctx), { ...ctx.packEnv });
+  const env = ctx.env ?? process.env;
+  const plugin = cargoPlugin(command, args, ctx);
+  if (plugin !== null && findOnPath(RUSTUP, env) === null) return { refusal: pluginRefusal(slot, plugin, toolchain) };
+  const pinned = toolchainFileEnv(ctx.cwd, ctx.repo ?? ctx.cwd, env);
   return withPackEnv(resolveLaunch(slot, command, args, ctx), { ...ctx.packEnv, ...pinned });
 }
 
@@ -746,11 +767,51 @@ function overrideRefusal(req: ToolRequest, spec: string, detail: string, cause: 
 const RUSTUP = 'rustup';
 
 /** The refusal for a component a toolchain file pins when rustup, the only reader of that file, isn't on `PATH`. */
+/** The line naming where a toolchain file pins the toolchain, and its channel, as a refusal shows it. */
+function declaredLine(declared: RustToolchainDeclaration): string {
+  return `  declared in: ${declared.file}${declared.channel !== undefined ? ` (channel ${declared.channel})` : ''}`;
+}
+
+/**
+ * The refusal for a cargo plugin, such as `cargo nextest`, where a toolchain
+ * file pins the toolchain and rustup isn't on PATH: the plugin builds through
+ * `cargo`, and only rustup's would read the file.
+ */
+function pluginRefusal(slot: string, plugin: string, declared: RustToolchainDeclaration): string {
+  return [
+    `checkride: the \`${slot}\` slot's \`${plugin}\` builds with the toolchain \`${declared.file}\` pins, but \`rustup\` isn't on PATH to honor it.`,
+    '',
+    declaredLine(declared),
+    '',
+    'Only rustup reads that file, so a `cargo` without it would build with',
+    'whatever toolchain it came with instead of the pinned one. Install rustup',
+    '(https://rustup.rs), or remove the file.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * The refusal for a toolchain component where rustup is on PATH with no
+ * `cargo` beside it, so the only `cargo` there is another one, which would
+ * ignore the toolchain file.
+ */
+function proxyMissingRefusal(req: ToolRequest): string {
+  const rustup = findOnPath(RUSTUP, req.env) ?? RUSTUP;
+  return [
+    `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by a toolchain file, but no \`cargo\` sits beside \`rustup\` in ${dirname(rustup)} to read it.`,
+    '',
+    'The `cargo` on PATH isn\'t rustup\'s proxy, so it would run whatever',
+    'toolchain it came with instead of the pinned one. Reinstall Rust with',
+    'rustup (https://rustup.rs), or remove the file.',
+    '',
+  ].join('\n');
+}
+
 function rustupMissingRefusal(req: ToolRequest, declared: RustToolchainDeclaration | null): string {
   return [
     `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by a toolchain file, but \`rustup\` isn't on PATH.`,
     '',
-    ...(declared !== null ? [`  declared in: ${declared.file}${declared.channel !== undefined ? ` (channel ${declared.channel})` : ''}`, ''] : []),
+    ...(declared !== null ? [declaredLine(declared), ''] : []),
     'Only rustup reads that file, so a `cargo` without it would run whatever',
     'toolchain it came with instead of the pinned one. Install rustup',
     '(https://rustup.rs), or remove the file.',

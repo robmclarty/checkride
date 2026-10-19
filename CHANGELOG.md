@@ -360,8 +360,12 @@ fields. These are the changes it can notice; each is described in full below.
   the doctests (`snippets`, opt-in), cargo-deny (`security`, opt-in) and
   cargo-mutants (`mutation`, opt-in), each from the target's root. One
   target's cargo runs never overlap. A component the toolchain file pins
-  fails its check when `rustup` isn't on `PATH`, rather than run a `cargo`
-  that would ignore the pin, and cargo-mutants writes its report into the
+  fails its check when `rustup` isn't on `PATH`, or has no `cargo` proxy
+  beside it, rather than run a `cargo` that would ignore the pin, and so does
+  a cargo plugin such as nextest, which builds through `cargo`. Where another
+  `cargo` comes before rustup's on `PATH`, every spawn under a toolchain file
+  puts rustup's directory first, so the file governs a plugin's and a custom
+  check's `cargo` too. cargo-mutants writes its report into the
   check's own artifact directory and ships uncapped (`timeout: 0`), as
   stryker does, since it builds and tests the crate once per mutant; only a
   per-check `timeout` caps it. Each tool's flags were checked against the

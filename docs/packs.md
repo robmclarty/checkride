@@ -71,9 +71,12 @@ table's `version`; anything else exits 2. It changes which copy of a tool
 runs, never which checks run, since detection reads only the repo. A toolchain
 it names, such as `go`, runs that copy in any pack, a `go tool` included. `rust-toolchain` declares only a tool that
 `TOOLS` names as a rustup component: `cargo` itself, rustfmt and clippy. Only
-rustup reads a toolchain file, so a component the file pins fails its check
-when `rustup` isn't on `PATH`, rather than run a `cargo` that ignores the
-pin. `go-mod-tool`
+rustup reads a toolchain file, through the `cargo` proxy it installs beside
+itself, so a component the file pins fails its check when `rustup` isn't on
+`PATH`, or has no `cargo` beside it, rather than run a `cargo` that ignores
+the pin. A cargo plugin such as nextest builds through `cargo` too, so under
+a toolchain file it fails the same way without `rustup`, with its own
+message. `go-mod-tool`
 declares a tool only when `TOOLS` gives its Go package, which it does for
 staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
 never as a `go tool`.
@@ -645,7 +648,13 @@ Where a `rust-toolchain.toml` or `rust-toolchain` pins the toolchain, every
 spawn of a rust check also clears `RUSTUP_TOOLCHAIN`, which rustup 1.29.1 reads
 as unset when it's empty. mise exports that variable for its own Rust, and it
 would otherwise override the toolchain the repo's file names, so the verdict
-would depend on the shell that ran it.
+would depend on the shell that ran it. Where another `cargo`, such as
+Homebrew's, comes before rustup's proxy on `PATH`, the spawn also puts
+rustup's directory first, so a component, a plugin's `cargo <sub>` and a
+custom check's `cargo` all reach the one that reads the file; argv and
+`pin_source` don't change. One gap remains: a `mise.toml` that pins `rust`
+runs its checks through `mise exec`, which sets `RUSTUP_TOOLCHAIN` again
+inside.
 
 Each variable below was checked against the version of its tool that this
 repo's `mise.toml` pins, or against upstream source for a tool it doesn't pin:

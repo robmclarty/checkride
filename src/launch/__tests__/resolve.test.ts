@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
@@ -740,12 +740,38 @@ describe('the rust-toolchain source (R6.1)', () => {
     withScratch(async (s) => {
       await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
       await s.tool('cargo-machete');
+      await s.tool('rustup');
       expect(launchCheck('dead', 'pnpm', ['exec', 'cargo-machete'], s.at('.', { pins: RUST_CHAIN, tools: [MACHETE] }))).toEqual({
         command: 'cargo',
         args: ['machete'],
         env: { RUSTUP_TOOLCHAIN: '', MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
         pin: { source: 'path' },
       });
+    }));
+
+  test('a cargo plugin under a toolchain file refuses without rustup, since its cargo would ignore the file', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('cargo-machete');
+      await s.tool('cargo');
+      const refusal = refusalOf(launchCheck('dead', 'pnpm', ['exec', 'cargo-machete'], s.at('.', { pins: RUST_CHAIN, tools: [MACHETE] }))) ?? '';
+      expect(refusal).toContain("the `dead` slot's `cargo machete` builds with the toolchain `rust-toolchain.toml` pins, but `rustup` isn't on PATH to honor it");
+      expect(refusal).toContain('declared in: rust-toolchain.toml (channel 1.85.0)');
+      // With no toolchain file, it runs as it always has.
+      await rm(join(s.repo, 'rust-toolchain.toml'));
+      expect(launchCheck('dead', 'pnpm', ['exec', 'cargo-machete'], s.at('.', { pins: RUST_CHAIN, tools: [MACHETE] }))).toMatchObject({ pin: { source: 'path' } });
+    }));
+
+  test('a declared component needs the cargo beside rustup, its proxy, and fails naming it when another cargo is all there is', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      await s.tool('rustup');
+      const other = join(s.bin, '..', 'other');
+      await mkdir(other);
+      await writeFile(join(other, 'cargo'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const at = { ...s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }), env: { PATH: `${s.bin}${delimiter}${other}` } };
+      const refusal = refusalOf(launchCheck('lint', 'pnpm', RUN_CLIPPY, at)) ?? '';
+      expect(refusal).toContain(`the \`lint\` slot's \`cargo-clippy\` is pinned by a toolchain file, but no \`cargo\` sits beside \`rustup\` in ${s.bin} to read it`);
     }));
 
   test('a toolchain file pins cargo itself, a rustup component like clippy', () =>
@@ -782,6 +808,25 @@ describe('a toolchain file picks the toolchain over one the shell exported', () 
       await s.tool('rustup');
       expect(launchCheck('types', 'cargo', ['check'], s.at('.', { pins: RUST_CHAIN }))).toMatchObject({ env: { RUSTUP_TOOLCHAIN: '' } });
       expect(launchCheck('custom', 'make', ['check'], s.at('.', { pins: RUST_CHAIN }))).toEqual({ command: 'make', args: ['check'], env: { RUSTUP_TOOLCHAIN: '' } });
+    }));
+
+  test("puts rustup's directory first on PATH where another cargo comes before its proxy, for a tool and a custom check alike", () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      const rustup = join(s.bin, '..', 'rustup-home');
+      await mkdir(rustup);
+      for (const bin of ['rustup', 'cargo']) await writeFile(join(rustup, bin), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      await s.tool('cargo');
+      const path = `${s.bin}${delimiter}${rustup}`;
+      const at = { ...s.at('.', { pins: RUST_CHAIN }), env: { PATH: path } };
+      const first = `${rustup}${delimiter}${path}`;
+      expect(launchCheck('types', 'cargo', ['check'], at)).toMatchObject({
+        command: 'cargo', args: ['check'], env: { RUSTUP_TOOLCHAIN: '', PATH: first }, pin: { source: 'rust-toolchain', version: '1.85.0' },
+      });
+      expect(launchCheck('custom', 'make', ['check'], at)).toEqual({ command: 'make', args: ['check'], env: { RUSTUP_TOOLCHAIN: '', PATH: first } });
+      // With rustup's proxy first already, PATH is left as it is.
+      const own = { ...at, env: { PATH: `${rustup}${delimiter}${s.bin}` } };
+      expect(launchCheck('custom', 'make', ['check'], own)).toEqual({ command: 'make', args: ['check'], env: { RUSTUP_TOOLCHAIN: '' } });
     }));
 
   test("leaves it alone with no file, and in a chain that doesn't read rust-toolchain", () =>
