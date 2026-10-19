@@ -153,6 +153,30 @@ describe('withStaticOnly', () => {
     expect(checks.find((c) => c.slot === 'lint' && c.target === 'web')?.skip).toBe('no tool detected for slot');
   });
 
+  test('a root prettier.config.js skips the format check of a target below it, since prettier searches upward', async () => {
+    await put('prettier.config.js');
+    await put('apps/web/src/index.ts');
+    const checks = await withStaticOnly(
+      resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: { targets: { web: { lang: 'ts', root: 'apps/web', checks: { format: 'prettier' } } } }, cwd: repo }),
+      repo,
+    );
+    expect(checks.find((c) => c.slot === 'format' && c.target === 'web')?.skip).toBe('static-only: prettier.config.js is code prettier would run');
+  });
+
+  test('a config inside node_modules is never read, nor a dependency named prettier', async () => {
+    await put('node_modules/x/package.json', '{ "prettier": "shared-config" }');
+    await put('node_modules/x/prettier.config.js');
+    await put('package.json', '{ "devDependencies": { "prettier": "3.9.6" } }');
+    const checks = await filtered({ checks: { format: 'prettier' } });
+    expect(checks.get('format')?.skip).toBeNull();
+  });
+
+  test('a root .tflint.hcl naming a plugin doesn’t reach infra:lint, since tflint reads only its own directory’s', async () => {
+    await put('.tflint.hcl', 'plugin "aws" {\n  enabled = true\n}\n');
+    await put('infra/main.tf');
+    expect(await lintSkip()).toBeNull();
+  });
+
   describe('reads the disk under a check’s directory, as tflint walks it', () => {
     const plant = '.tflint.d/plugins/tflint-ruleset-terraform';
 

@@ -39,8 +39,12 @@ const DEFAULT_INCLUDE: readonly string[] = ['**/*.sh', '**/*.bash'];
 /** Directories the walk outside a git repo never enters. */
 const WALK_SKIP: ReadonlySet<string> = new Set(['.git', 'node_modules', 'target', 'vendor']);
 
-/** The one directory a walk of everything on disk never enters: git's own. */
-const GIT_DIR: ReadonlySet<string> = new Set(['.git']);
+/**
+ * The directories a walk of everything on disk never enters: git's own, and
+ * installed JavaScript packages, whose own configs no tool that reads the
+ * walk takes as the repo's, and which can hold tens of thousands of files.
+ */
+const DISK_SKIP: ReadonlySet<string> = new Set(['.git', 'node_modules']);
 
 /**
  * A shell shebang: `#!/bin/sh`, `#!/usr/bin/env bash` or `#!/bin/dash -e`, by
@@ -227,12 +231,12 @@ function walk(dir: string, enters: Enters, prefix = ''): string[] {
 /**
  * Every entry on disk under `dir` that isn't a directory, relative to it and
  * sorted: files, symlinks and the rest, under dependency directories and the
- * ones git ignores alike, `.git` aside. It's what a tool that walks the disk
- * can reach, as tflint does, where git's list leaves out an ignored file and
- * a submodule's contents.
+ * ones git ignores alike, `.git` and `node_modules` aside. It's what a tool
+ * that walks the disk can reach, as tflint does, where git's list leaves out
+ * an ignored file and a submodule's contents.
  */
 export function filesOnDisk(dir: string): string[] {
-  return walk(dir, skipping(GIT_DIR)).toSorted();
+  return walk(dir, skipping(DISK_SKIP)).toSorted();
 }
 
 /** Directories a Go module's packages never sit under, by name: vendored copies and test data, and installed JavaScript packages. */

@@ -174,12 +174,12 @@ describe('filesOnDisk', () => {
     await writeFile(join(repo, path), '');
   };
 
-  test('lists every entry but a directory, sorted, under the directories a file list skips and the ones git ignores, .git aside', async () => {
+  test('lists every entry but a directory, sorted, under the directories a file list skips and the ones git ignores, .git and node_modules aside', async () => {
     execFileSync('git', ['init', '-q'], { cwd: repo, stdio: 'ignore' });
     for (const path of ['.gitignore', 'z.tf', 'vendor/m/a', 'node_modules/p/b', 'target/c', 'testdata/d', '.tflint.d/plugins/e']) await put(path);
     await writeFile(join(repo, '.gitignore'), '.tflint.d/\n');
     await mkdir(join(repo, 'empty'));
-    expect(filesOnDisk(repo)).toEqual(['.gitignore', '.tflint.d/plugins/e', 'node_modules/p/b', 'target/c', 'testdata/d', 'vendor/m/a', 'z.tf']);
+    expect(filesOnDisk(repo)).toEqual(['.gitignore', '.tflint.d/plugins/e', 'target/c', 'testdata/d', 'vendor/m/a', 'z.tf']);
   });
 
   test('lists a symlink without entering it, reads a directory through one, and finds nothing where there is none', async () => {

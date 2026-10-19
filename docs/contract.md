@@ -589,11 +589,25 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    as oxlint's `--type-aware`, which the blessed oxlint invocation carries,
    and none that load code, such as tflint's `--config`. A flag counts with
    its value after `=` as well.
-3. None of the adapter's code configs, such as `.markdownlint-cli2.cjs` or
-   `prettier.config.js`, sits under the check's directory, in any case of its
-   name. The sniffs read what's on disk there, files git ignores included.
+3. None of the adapter's code configs, such as `.markdownlint-cli2.cjs`,
+   `oxlint.config.ts` or `prettier.config.mts`, sits where the tool reads a
+   config, in any case of its name: under the check's directory, and for
+   prettier, which takes the nearest config above a file, directly inside
+   each directory above a target's root too, up to the repo root. The sniffs
+   read what's on disk there, files git ignores included, but never inside a
+   `node_modules`, whose packages' configs no static tool reads; a vale
+   `StylesPath` or a cspell `import` that reaches into one counts instead,
+   since what it names goes unread.
 4. None of the config keys that load code is set in a config file it reads,
-   such as `jsPlugins` in `.oxlintrc.json` or a script in cspell's `import`.
+   such as `jsPlugins` or `extends` in `.oxlintrc.json`, `outputFormatters` in
+   `.markdownlint-cli2.jsonc`, or a script, JavaScript or TypeScript, in
+   cspell's `import`, in any of the config names cspell reads. A config held
+   in `package.json` counts the same way, read from its `prettier`, `cspell`
+   or `markdownlint-cli2` property, and a dependency of that name doesn't. A
+   config that names a shared config, as a `.prettierrc` or `package.json`'s
+   `prettier` can by holding a module's name as a string, counts, and so does
+   a `package.json` that won't parse. A vale style that `extends: script`
+   counts in any directory, since `StylesPath` can name any.
    A key counts however the file's parser would still read it: spelled with
    `\x`, `\u` or `\U` escapes, opening a flow mapping such as
    `{plugins: [./x.mjs]}`, or after a comma. A longer name that ends in it,
@@ -609,7 +623,10 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
 The static adapters are prettier, biome and biome-format, oxlint, ast-grep,
 markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt, ruff
 and ruff-format, terraform-fmt, tflint and trivy-config, and the `links` and
-`unclaimed` built-ins; the rest never qualify. A terraform target's tflint
+`unclaimed` built-ins; the rest never qualify. Three ways to load code are
+known and not sniffed: a `prettier` key in a `package.yaml`, a cspell
+`import` of a bare package name that resolves to a script, and whatever
+trivy-config's own config can load. A terraform target's tflint
 also skips wherever it would run a plugin binary, as
 [Packs and pins](./packs.md#the-terraform-pack) lists. The run is
 partial, so `run.partial` and `run.static_only` are `true`, and it never
@@ -1139,9 +1156,12 @@ the ones it needs:
   `narrowsUnderChanged` lets `--changed` narrow a Go check's packages,
   `network` runs it without the variables that block downloads, and `lock`
   keeps two checks with the same key from running at once.
-- `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and `codeKeys` (each a
-  `CodeKey`) are what `--static-only` reads, and a resolved adapter's
-  `staticDrop` says what a config entry did to take the `static` mark.
+- `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs`, `codeKeys` (each a
+  `CodeKey`) and `configSearchesUp` are what `--static-only` reads, and a
+  resolved adapter's `staticDrop` says what a config entry did to take the
+  `static` mark. A `CodeKey`'s `under` names the JSON property its config
+  sits in, as `package.json`'s `prettier`, and `shared` marks a file that
+  may hold a shared config's module name instead.
 
 A `TOOLS` row's optional fields say where a tool comes from: `npm`, `goTool`
 and `pypi` name the npm package, the Go package a `go.mod` `tool` directive

@@ -13,6 +13,44 @@
 
 import type { Pack } from './types.js';
 
+/** The markdownlint-cli2 config keys that load code: rules, markdown-it plugins, output formatters, and where it resolves them from. */
+const MARKDOWNLINT_CODE_KEYS: readonly string[] = ['customRules', 'markdownItPlugins', 'outputFormatters', 'modulePaths'];
+
+/**
+ * A reference that reaches into a `node_modules`, which the sniffs never
+ * read, so whatever it names can't be vouched for and counts.
+ */
+const INTO_NODE_MODULES = '(?:^|[\\\\/])node_modules(?:[\\\\/]|$)';
+
+/**
+ * A cspell `import` loads code when it names a script, JavaScript or
+ * TypeScript, rather than a dictionary or a JSON config, and may when it
+ * reaches into a `node_modules`, whose JSON config could import one.
+ */
+const CSPELL_SCRIPT = `\\.[cm]?[jt]s$|${INTO_NODE_MODULES}`;
+
+/** Every config name cspell 10 reads as data, each of which can `import` a script. */
+const CSPELL_DATA_CONFIGS: readonly string[] = [
+  'cspell.json',
+  '.cspell.json',
+  'cspell.jsonc',
+  '.cspell.jsonc',
+  'cspell.yaml',
+  '.cspell.yaml',
+  'cspell.yml',
+  '.cspell.yml',
+  'cspell.config.json',
+  '.cspell.config.json',
+  'cspell.config.jsonc',
+  '.cspell.config.jsonc',
+  'cspell.config.yaml',
+  '.cspell.config.yaml',
+  'cspell.config.yml',
+  '.cspell.config.yml',
+  'cspell.config.toml',
+  '.cspell.config.toml',
+];
+
 export const REPO_PACK: Pack = {
   name: 'repo',
   markers: [],
@@ -52,8 +90,10 @@ export const REPO_PACK: Pack = {
       static: true,
       codeConfigs: ['.markdownlint-cli2.cjs', '.markdownlint-cli2.mjs', '.markdownlint.cjs', '.markdownlint.mjs'],
       codeKeys: [
-        { file: '.markdownlint-cli2.jsonc', keys: ['customRules', 'markdownItPlugins'] },
-        { file: '.markdownlint-cli2.yaml', keys: ['customRules', 'markdownItPlugins'] },
+        { file: '.markdownlint-cli2.jsonc', keys: [...MARKDOWNLINT_CODE_KEYS] },
+        { file: '.markdownlint-cli2.json', keys: [...MARKDOWNLINT_CODE_KEYS] },
+        { file: '.markdownlint-cli2.yaml', keys: [...MARKDOWNLINT_CODE_KEYS] },
+        { file: 'package.json', keys: [...MARKDOWNLINT_CODE_KEYS], under: 'markdownlint-cli2' },
       ],
       devDeps: { 'markdownlint-cli2': '0.23.3' },
     },
@@ -100,15 +140,23 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'cspell', '--no-progress', '--no-summary', '--reporter=default'],
       outputFile: null,
       static: true,
-      codeConfigs: ['cspell.config.js', 'cspell.config.cjs', 'cspell.config.mjs'],
+      codeConfigs: [
+        'cspell.config.js',
+        'cspell.config.cjs',
+        'cspell.config.mjs',
+        'cspell.config.ts',
+        'cspell.config.mts',
+        'cspell.config.cts',
+        '.cspell.config.js',
+        '.cspell.config.cjs',
+        '.cspell.config.mjs',
+        '.cspell.config.ts',
+        '.cspell.config.mts',
+        '.cspell.config.cts',
+      ],
       codeKeys: [
-        { file: 'cspell.json', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: '.cspell.json', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: 'cspell.config.json', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: 'cspell.config.yaml', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: 'cspell.config.yml', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: 'cspell.yaml', keys: ['import'], value: '\\.[cm]?js$' },
-        { file: 'cspell.yml', keys: ['import'], value: '\\.[cm]?js$' },
+        ...CSPELL_DATA_CONFIGS.map((file) => ({ file, keys: ['import'], value: CSPELL_SCRIPT })),
+        { file: 'package.json', keys: ['import'], value: CSPELL_SCRIPT, under: 'cspell' },
       ],
       devDeps: { cspell: '10.3.6' },
     },
@@ -144,9 +192,12 @@ export const REPO_PACK: Pack = {
       args: ['exec', 'vale', '--no-global', '--output=JSON', '.'],
       outputFile: 'prose.json',
       static: true,
+      // `StylesPath` can name any directory, so a style can sit anywhere, and
+      // one inside a node_modules, which the sniffs never read, counts unread.
       codeKeys: [
-        { file: '.vale/styles/**/*.yml', keys: ['extends'], value: '^script$' },
-        { file: 'styles/**/*.yml', keys: ['extends'], value: '^script$' },
+        { file: '**/*.yml', keys: ['extends'], value: '^script$' },
+        { file: '.vale.ini', keys: ['StylesPath'], value: INTO_NODE_MODULES },
+        { file: '_vale.ini', keys: ['StylesPath'], value: INTO_NODE_MODULES },
       ],
       devDeps: { '@vvago/vale': '3.24.0' },
     },

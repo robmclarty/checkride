@@ -7,8 +7,8 @@
  * `--static-only` filter. Shared by `runChecks` and `runFix`.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, posix } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
 import type { ResolvedCheck } from '../config.js';
@@ -257,15 +257,41 @@ export function withGoPackages(selected: readonly ResolvedCheck[], repo: string,
 /** The prefix every reason `--static-only` gives a check it skips. */
 const STATIC_ONLY = 'static-only';
 
+/** Each directory above `dir`, a repo-relative directory, nearest first, through the repo root `.`; none above `.` itself. */
+function ancestorsOf(dir: string): string[] {
+  const out: string[] = [];
+  for (let at = dir; at !== '.';) {
+    at = posix.dirname(at);
+    out.push(at);
+  }
+  return out;
+}
+
+/** The names of the entries directly inside `abs` that aren't directories, or none when it can't be read. */
+function namesIn(abs: string): string[] {
+  try {
+    return readdirSync(abs, { withFileTypes: true }).filter((entry) => !entry.isDirectory()).map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/** The entries directly inside each directory above `dir` that aren't directories, repo-relative: where a tool that searches upward finds a config. */
+function filesAbove(repo: string, dir: string): string[] {
+  return ancestorsOf(dir).flatMap((at) => namesIn(join(repo, at)).map((name) => (at === '.' ? name : `${at}/${name}`)));
+}
+
 /**
  * Under `--static-only`, skip each selected check that may run the repo's
  * code or need its install (R13.4), with `static-only: <cause>`. A check keeps
  * its place, so it still prints and records its skipped row, and one already
  * skipped keeps its own reason. The sniffs read what sits on disk under a
  * check's directory, as its tool does, files git ignores and a submodule's
- * included, and each directory is walked once, when a check run from it is
- * left to classify. Whether a kept check's tool resolves without an install,
- * the last of R13.4's rules, is the runner's to say.
+ * included, `node_modules` aside, and each directory is walked once, when a
+ * check run from it is left to classify. For a tool that searches upward for
+ * its config, they read the files directly inside each directory above the
+ * check's too. Whether a kept check's tool resolves without an install, the
+ * last of R13.4's rules, is the runner's to say.
  */
 export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: string): Promise<ResolvedCheck[]> {
   const walked = new Map<string, readonly string[]>();
@@ -279,7 +305,8 @@ export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: s
   return selected.map((r) => {
     if (r.skip !== null || r.adapter === null) return r;
     const dir = r.root ?? '.';
-    const cause = staticCause(r.adapter, { dir, files: filesUnder(dir), read });
+    const above = r.adapter.configSearchesUp === true ? { above: filesAbove(repo, dir) } : {};
+    const cause = staticCause(r.adapter, { dir, files: filesUnder(dir), read, ...above });
     return cause === null ? r : { ...r, skip: `${STATIC_ONLY}: ${cause}` };
   });
 }

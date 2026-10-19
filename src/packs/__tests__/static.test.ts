@@ -248,13 +248,103 @@ describe('staticCause (R13.4)', () => {
     expect(staticCause({ ...row('prettier'), static: false }, scope({}))).toBe("prettier isn't a static check");
   });
 
-  test('a vale style that extends script skips prose, through the styles path glob', () => {
+  test('a vale style that extends script skips prose, wherever it sits, since StylesPath can name any directory', () => {
     const vale = row('vale');
     expect(staticCause(vale, scope({ '.vale/styles/Repo/Count.yml': 'extends: script\nscript: |\n  x\n' }))).toBe(
       '.vale/styles/Repo/Count.yml sets extends, which loads code',
     );
     expect(staticCause(vale, scope({ '.vale/styles/Repo/Words.yml': 'extends: existence # a list\ntokens: [a]\n' }))).toBeNull();
-    expect(staticCause(vale, scope({ 'other/Count.yml': 'extends: script\n' }))).toBeNull();
+    expect(staticCause(vale, scope({ 'docs/styles/Acme/Count.yml': 'extends: script\n' }))).toBe('docs/styles/Acme/Count.yml sets extends, which loads code');
+    expect(staticCause(vale, scope({ '.github/workflows/ci.yml': 'on: push\njobs: {}\n' }))).toBeNull();
+  });
+
+  describe('the paths each tool loads code through', () => {
+    test('a TypeScript config module, .mts and .cts included, is code each tool would run', () => {
+      expect(staticCause(row('prettier'), scope({ 'prettier.config.mts': '' }))).toBe('prettier.config.mts is code prettier would run');
+      expect(staticCause(row('prettier'), scope({ '.prettierrc.cts': '' }))).toBe('.prettierrc.cts is code prettier would run');
+      expect(staticCause(plainOxlint, scope({ 'oxlint.config.ts': '' }))).toBe('oxlint.config.ts is code oxlint would run');
+      expect(staticCause(row('cspell'), scope({ '.cspell.config.mts': '' }))).toBe('.cspell.config.mts is code cspell would run');
+    });
+
+    test('a cspell import of a TypeScript module counts, from every config name cspell 10 reads', () => {
+      const cspell = row('cspell');
+      expect(staticCause(cspell, scope({ 'cspell.json': '{ "import": ["./words.mts"] }' }))).toBe('cspell.json sets import, which loads code');
+      const names = [
+        'cspell.jsonc', '.cspell.jsonc', '.cspell.yaml', '.cspell.yml', 'cspell.config.jsonc', '.cspell.config.json',
+        '.cspell.config.jsonc', '.cspell.config.yaml', '.cspell.config.yml', 'cspell.config.toml', '.cspell.config.toml',
+      ];
+      for (const file of names) {
+        const text = file.endsWith('.toml') ? 'import = ["./plugin.ts"]\n' : file.includes('json') ? '{ "import": ["./plugin.ts"] }' : 'import:\n  - ./plugin.ts\n';
+        expect(staticCause(cspell, scope({ [file]: text })), file).toBe(`${file} sets import, which loads code`);
+      }
+    });
+
+    test('markdownlint-cli2’s outputFormatters and modulePaths load code, in .markdownlint-cli2.json too', () => {
+      const markdownlint = row('markdownlint-cli2');
+      expect(staticCause(markdownlint, scope({ '.markdownlint-cli2.jsonc': '{ "outputFormatters": [["./out.js"]] }' }))).toBe(
+        '.markdownlint-cli2.jsonc sets outputFormatters, which loads code',
+      );
+      expect(staticCause(markdownlint, scope({ '.markdownlint-cli2.json': '{ "modulePaths": ["./lib"] }' }))).toBe(
+        '.markdownlint-cli2.json sets modulePaths, which loads code',
+      );
+    });
+
+    test('an .oxlintrc.json that extends another config counts, since that one can add jsPlugins', () => {
+      expect(staticCause(plainOxlint, scope({ '.oxlintrc.json': '{ "extends": ["./base.json"] }' }))).toBe('.oxlintrc.json sets extends, which loads code');
+    });
+
+    test('a .prettierrc that names a shared config counts, as JSON or YAML, and one that holds options doesn’t', () => {
+      const prettier = row('prettier');
+      expect(staticCause(prettier, scope({ '.prettierrc': '"@acme/prettier-config"\n' }))).toBe('.prettierrc names a shared config, which loads code');
+      expect(staticCause(prettier, scope({ '.prettierrc.yaml': '# shared\nprettier-config-acme\n' }))).toBe('.prettierrc.yaml names a shared config, which loads code');
+      expect(staticCause(prettier, scope({ '.prettierrc.json': '{ "semi": false }' }))).toBeNull();
+      expect(staticCause(prettier, scope({ '.prettierrc': 'semi: false\nsingleQuote: true\n' }))).toBeNull();
+      expect(staticCause(prettier, scope({ '.prettierrc.yml': '' }))).toBeNull();
+    });
+
+    test('package.json’s prettier counts as a shared config or with plugins, and a file that won’t parse counts; a dependency named prettier doesn’t', () => {
+      const prettier = row('prettier');
+      expect(staticCause(prettier, scope({ 'package.json': '{ "prettier": "@acme/prettier-config" }' }))).toBe(
+        'package.json sets prettier to a shared config, which loads code',
+      );
+      expect(staticCause(prettier, scope({ 'package.json': '{ "prettier": { "plugins": ["prettier-plugin-x"] } }' }))).toBe(
+        'package.json sets prettier.plugins, which loads code',
+      );
+      expect(staticCause(prettier, scope({ 'package.json': '{ "name": "x", ' }))).toBe("package.json can't be parsed, so its prettier may load code");
+      expect(staticCause(prettier, scope({ 'package.json': '{ "devDependencies": { "prettier": "3.9.6" }, "prettier": { "semi": false } }' }))).toBeNull();
+      // A byte-order mark is no reason to fail closed.
+      expect(staticCause(prettier, scope({ 'package.json': '﻿{ "name": "x" }' }))).toBeNull();
+    });
+
+    test('package.json’s cspell and markdownlint-cli2 count when they hold a key that loads code', () => {
+      expect(staticCause(row('cspell'), scope({ 'package.json': '{ "cspell": { "import": ["./x.mjs"] } }' }))).toBe('package.json sets cspell.import, which loads code');
+      expect(staticCause(row('cspell'), scope({ 'package.json': '{ "cspell": { "import": ["@cspell/dict-x/cspell-ext.json"] } }' }))).toBeNull();
+      expect(staticCause(row('markdownlint-cli2'), scope({ 'package.json': '{ "markdownlint-cli2": { "customRules": ["./r.js"] } }' }))).toBe(
+        'package.json sets markdownlint-cli2.customRules, which loads code',
+      );
+    });
+
+    test('no file under node_modules is read: no tool here takes its config from an installed package', () => {
+      const installed = { 'node_modules/x/package.json': '{ "prettier": "shared" }', 'node_modules/x/prettier.config.js': '' };
+      expect(staticCause(row('prettier'), scope(installed))).toBeNull();
+    });
+
+    test('a config that reaches into node_modules, which the sniffs never read, counts: a vale StylesPath, a cspell import', () => {
+      expect(staticCause(row('vale'), scope({ '.vale.ini': 'StylesPath = node_modules/acme/styles\nMinAlertLevel = suggestion\n' }))).toBe(
+        '.vale.ini sets StylesPath, which loads code',
+      );
+      expect(staticCause(row('vale'), scope({ '_vale.ini': 'StylesPath = .vale/styles\n' }))).toBeNull();
+      expect(staticCause(row('cspell'), scope({ 'cspell.json': '{ "import": ["./node_modules/x/cspell-ext.json"] }' }))).toBe(
+        'cspell.json sets import, which loads code',
+      );
+    });
+
+    test('prettier reads a config in the directories above its root, and tflint, which searches no further than its own, doesn’t', () => {
+      const above: Record<string, string> = { 'prettier.config.js': '', '.tflint.hcl': 'plugin "aws" {}\n' };
+      const at = (dir: string): StaticScope => ({ dir, files: [], read: (path) => above[path] ?? null, above: Object.keys(above) });
+      expect(staticCause(row('prettier'), at('web'))).toBe('prettier.config.js is code prettier would run');
+      expect(staticCause(row('tflint'), at('infra'))).toBeNull();
+    });
   });
 
   test('ast-grep’s customLanguages and markdownlint-cli2’s customRules are read from YAML and JSONC alike', () => {

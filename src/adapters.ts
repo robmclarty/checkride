@@ -205,10 +205,11 @@ export type Adapter = {
   lock?: string;
   /**
    * The tool reads the repo as data, so `--static-only` may keep its check
-   * (R13.4), unless one of the four fields below says this run would need the
-   * install or load code. Omitted, the check needs the repo's install or runs
-   * its code, and `--static-only` skips it. A best-effort classification,
-   * never a sandbox.
+   * (R13.4), unless `nonStaticArgs`, `codeArgs`, `codeConfigs` or `codeKeys`
+   * says this run would need the install or load code, read where
+   * `configSearchesUp` says the tool looks. Omitted, the check needs the
+   * repo's install or runs its code, and `--static-only` skips it. A
+   * best-effort classification, never a sandbox.
    */
   static?: boolean;
   /**
@@ -232,13 +233,21 @@ export type Adapter = {
   codeArgs?: string[];
   /**
    * Files that are code the tool would run, matched by name, in any case, at
-   * any depth under the check's directory. A name ending in `/` names a
-   * directory, and any entry through one of that name counts, as a plugin
-   * under tflint's `.tflint.d/` does.
+   * any depth under the check's directory, though never under a
+   * `node_modules`. A name ending in `/` names a directory, and any entry
+   * through one of that name counts, as a plugin under tflint's `.tflint.d/`
+   * does.
    */
   codeConfigs?: string[];
   /** Keys in the tool's config files that load code (R13.4). */
   codeKeys?: CodeKey[];
+  /**
+   * The tool also reads its config from the directories above the one it runs
+   * in, as prettier does, so for a check rooted below the repo root, each
+   * `codeConfigs` and `codeKeys` file given by name alone also counts directly
+   * inside each directory above it, up to the repo root.
+   */
+  configSearchesUp?: boolean;
   /** Pinned versions `init` writes into package.json. */
   devDeps: Record<string, string>;
 };
@@ -253,8 +262,16 @@ export type Adapter = {
  * occurrence of a key counts unless it opens a block whose label `value`
  * rejects, so tflint's `plugin "aws" {` counts and `plugin "terraform" {`
  * doesn't.
+ *
+ * `under` names the top-level property of a JSON file that holds the tool's
+ * config, as `package.json`'s `prettier` does: `keys` are read inside it, and
+ * a string there, which names a shared config's module, counts, as does a
+ * file that won't parse. A file without the property loads nothing, so a
+ * dependency named `prettier` doesn't count. `shared` marks a file whose
+ * whole value may instead be such a string, as a `.prettierrc` can be, which
+ * counts too.
  */
-export type CodeKey = { file: string; keys: string[]; value?: string };
+export type CodeKey = { file: string; keys: string[]; value?: string; under?: string; shared?: true };
 
 /** A TOML table whose header in `file` detects an adapter: `table` is its dotted name, `tool.ruff` for `[tool.ruff]`. */
 export type TableSignal = { file: string; table: string };

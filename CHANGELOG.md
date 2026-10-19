@@ -504,8 +504,18 @@ fields. These are the changes it can notice; each is described in full below.
   argv has to carry no flag that needs the install, such as oxlint's
   `--type-aware`, and none that loads code. No code config of its own may sit
   on disk under its directory, in any case of its name, such as
-  `.markdownlint-cli2.cjs`, and no config key that loads code may be set,
-  such as `jsPlugins`, however the file's parser would still read it: spelled
+  `.markdownlint-cli2.cjs`, `oxlint.config.ts` or `prettier.config.mts`, nor
+  for prettier, which takes the nearest config above a file, in a directory
+  above a target's root. Nothing inside a `node_modules` is read, so a vale
+  `StylesPath` or a cspell `import` that reaches into one counts. No config
+  key that loads code may be set, such as `jsPlugins` or `extends` in
+  `.oxlintrc.json`, `outputFormatters` in markdownlint-cli2's config, or a
+  script, JavaScript or TypeScript, in cspell's `import` under any config
+  name cspell reads, `package.json`'s `prettier`, `cspell` and
+  `markdownlint-cli2` properties included. A `.prettierrc` or `prettier`
+  property that names a shared config counts, as does a `package.json` that
+  won't parse, and a vale style that `extends: script` counts in any
+  directory. Keys count however the file's parser would still read them: spelled
   with `\x`, `\u` or `\U` escapes, opening a YAML flow mapping such as
   `{plugins: [./x.mjs]}`, or after a comma. A key's value is read the way the
   parser reads it as well, so a cspell `import` of a script counts with a `#`
@@ -516,7 +526,10 @@ fields. These are the changes it can notice; each is described in full below.
   entry took a static tool's mark names what the entry did, the command it
   swapped in or the first argument it added. The run is partial, so it never
   ratchets. It's a best-effort selector, not a sandbox:
-  a tool release can add a way to load code that these sniffs don't know.
+  a tool release can add a way to load code that these sniffs don't know,
+  and three known ones go unsniffed, a `package.yaml` `prettier` key, a cspell
+  `import` of a bare package name that resolves to a script, and trivy's own
+  config.
   `doctor --static-only` reports each check such a run would skip, with the
   same reason, asks the run's launcher whether each kept check's tool
   resolves without an install, and warns about a missing install rather than
@@ -858,8 +871,10 @@ fields. These are the changes it can notice; each is described in full below.
   optional `overrides`, and `DoctorCheck` an optional `toolVersion`.
 - Additive: the run flag `--static-only`, the summary's `run.static_only`,
   which a run now writes, and `run.partial`, now also true under it. Adapter
-  rows gain optional `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and
-  `codeKeys` (the `Adapter` type, and a new exported `CodeKey`), set on the
+  rows gain optional `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs`,
+  `codeKeys` and `configSearchesUp` (the `Adapter` type, and a new exported
+  `CodeKey`, whose optional `under` and `shared` read a config held in a JSON
+  property and one that names a shared config), set on the
   static adapters in `PACKS` and `ADAPTERS`, and a resolved adapter an optional
   `staticDrop`, which no row sets; the config schema's slot and
   custom check entries gain `static`, which only a defaults file may set. The

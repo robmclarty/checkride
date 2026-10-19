@@ -3,21 +3,32 @@
  * data, so it can run before the repo is installed or sandboxed. Its adapter
  * has to be marked `static` in the registry, or vouched for by the defaults
  * layer; its argv has to carry none of the adapter's `nonStaticArgs` or
- * `codeArgs`; none of its `codeConfigs` may sit under the check's directory;
- * and none of its `codeKeys` may be set in a config file it reads.
+ * `codeArgs`; none of its `codeConfigs` may sit where it reads a config; and
+ * none of its `codeKeys` may be set in a config file it reads.
+ *
+ * A config is looked for where the tool looks: at any depth under the check's
+ * directory, never inside a `node_modules`, whose packages' configs no tool
+ * here reads, and for a tool that searches upward (`configSearchesUp`),
+ * directly inside each directory above it too. Since a `node_modules` goes
+ * unread, a config that reaches into one, as a vale `StylesPath` or a cspell
+ * `import` can, counts in its place (the rows' `value`s say so). A config
+ * can also sit in a JSON file's property, as `package.json`'s `prettier`
+ * does, or be a string naming a shared config's module, which is code.
  *
  * Every rule here is a best-effort sniff of names and known keys, read as
  * plain text, and a tool release can add a way to load code that it doesn't
  * know. It's a selector for runs with nothing installed, never a sandbox. When
  * a sniff is unsure, it errs toward skipping the check: a name matches in any
  * case, since a case-insensitive filesystem, macOS's default, opens a config
- * by any case of its name. Whether the tool resolves without an install is the
- * launcher's to say, as the check starts.
+ * by any case of its name, and a file that won't parse counts. Whether the
+ * tool resolves without an install is the launcher's to say, as the check
+ * starts.
  */
 
 import { posix } from 'node:path';
 
 import type { Adapter, CodeKey } from '../adapters.js';
+import { isRecord } from '../json.js';
 
 /** What the sniffs read: the check's directory relative to the repo root, the files under it, and a reader for one of them. */
 export type StaticScope = {
@@ -27,6 +38,12 @@ export type StaticScope = {
   files: readonly string[];
   /** The text of a repo file, by its repo-relative path, or `null` when it can't be read. */
   read: (path: string) => string | null;
+  /**
+   * The entries directly inside each directory above the check's, up to the
+   * repo root, relative to it: read only for an adapter that sets
+   * `configSearchesUp`, and absent where none was listed.
+   */
+  above?: readonly string[];
 };
 
 /** `path`, relative to `dir`, or `null` when it lies outside it. */
@@ -63,12 +80,22 @@ function names(pattern: string, rel: string): boolean {
   return name.includes('/') ? globRegExp(name).test(path) : posix.basename(path) === name;
 }
 
-/** Each repo file under the check's directory that `pattern` names, as its repo-relative path. */
-function filesNamed(pattern: string, scope: StaticScope): string[] {
-  return scope.files.filter((path) => {
+/** True for a path through a `node_modules` directory, in any case. */
+function installed(rel: string): boolean {
+  return rel.toLowerCase().split('/').includes('node_modules');
+}
+
+/**
+ * Each repo file `pattern` names, as its repo-relative path: under the
+ * check's directory, never through a `node_modules`, and, for a pattern that
+ * is a file's name alone, each of `above` that bears it.
+ */
+function filesNamed(pattern: string, scope: StaticScope, above: readonly string[]): string[] {
+  const below = scope.files.filter((path) => {
     const rel = under(path, scope.dir);
-    return rel !== null && names(pattern, rel);
+    return rel !== null && !installed(rel) && names(pattern, rel);
   });
+  return pattern.includes('/') ? below : [...below, ...above.filter((path) => names(pattern, path))];
 }
 
 /**
@@ -295,18 +322,82 @@ function codeKeyIn(file: string, text: string, codeKey: CodeKey): string | null 
   return codeKey.keys.find((key) => readings.some((reading) => setsKey(reading, key, value, syntaxes))) ?? null;
 }
 
+/** A YAML document's opening marker, which the document's value can follow on the same line. */
+const DOCUMENT_START = /^---(?=\s|$)/;
+
+/** How a mapping or a list opens: a flow collection's bracket or brace, a block sequence's dash, or an explicit key's `?`. */
+const COLLECTION_START = /^(?:[[{]|[-?](?:\s|$))/;
+
+/**
+ * True when `text`, a config file read as `syntax` reads it, holds a string
+ * rather than a mapping or a list: one quoted string, or a bare scalar no
+ * line of which opens a mapping entry. That is a shared config's module name,
+ * as a `.prettierrc` can hold. Comments and a YAML document marker are passed
+ * over, and an empty file holds nothing.
+ */
+function holdsString(text: string, syntax: Syntax): boolean {
+  const body = lifted(text, syntax).text.trim().replace(DOCUMENT_START, '').trim();
+  if (body === '' || COLLECTION_START.test(body)) return false;
+  return /^\0\d+\0$/.test(body) || !body.split('\n').some((line) => ENTRY.test(line));
+}
+
+/** What stands for a JSON file that won't parse, or doesn't parse to an object: a sniff that can't read one counts it. */
+const UNREADABLE = Symbol('unreadable');
+
+/** The value `text`, a JSON file read past any byte-order mark, holds under its top-level property `key`, or {@link UNREADABLE}. */
+function topLevel(text: string, key: string): unknown {
+  try {
+    const parsed: unknown = JSON.parse(text.replace(/^﻿/, ''));
+    return isRecord(parsed) ? parsed[key] : UNREADABLE;
+  } catch {
+    return UNREADABLE;
+  }
+}
+
+/**
+ * Why the config `file`'s top-level property `property` holds loads code, or
+ * `null`: a string there names a shared config, a file that won't parse
+ * can't be vouched for, and an object is read for `codeKey`'s keys.
+ */
+function underCause(file: string, text: string, codeKey: CodeKey, property: string): string | null {
+  const config = topLevel(text, property);
+  if (config === UNREADABLE) return `${file} can't be parsed, so its ${property} may load code`;
+  if (typeof config === 'string') return `${file} sets ${property} to a shared config, which loads code`;
+  if (!isRecord(config)) return null;
+  const key = codeKeyIn(file, JSON.stringify(config, null, 2), codeKey);
+  return key === null ? null : `${file} sets ${property}.${key}, which loads code`;
+}
+
+/** Why `codeKey` says the config in `file`, whose text is `text`, loads code, or `null` when it doesn't. */
+function keyCause(file: string, text: string, codeKey: CodeKey): string | null {
+  if (codeKey.under !== undefined) return underCause(file, text, codeKey, codeKey.under);
+  if (codeKey.shared === true && syntaxesOf(file).some((syntax) => holdsString(text, syntax))) {
+    return `${file} names a shared config, which loads code`;
+  }
+  const key = codeKeyIn(file, text, codeKey);
+  return key === null ? null : `${file} sets ${key}, which loads code`;
+}
+
+/** Why one of the files `codeKey` names here loads code, the first that does, or `null`. A file that can't be read loads nothing. */
+function filesCause(codeKey: CodeKey, scope: StaticScope, above: readonly string[]): string | null {
+  for (const file of filesNamed(codeKey.file, scope, above)) {
+    const text = scope.read(file);
+    const cause = text === null ? null : keyCause(file, text, codeKey);
+    if (cause !== null) return cause;
+  }
+  return null;
+}
+
 /** Why `adapter`'s config would load code here, from its code configs and keys, or `null` when it reads none that does. */
 function codeCause(adapter: Adapter, scope: StaticScope): string | null {
+  const above = adapter.configSearchesUp === true ? (scope.above ?? []) : [];
   for (const config of adapter.codeConfigs ?? []) {
-    const [file] = filesNamed(config, scope);
+    const [file] = filesNamed(config, scope, above);
     if (file !== undefined) return `${file} is code ${adapter.name} would run`;
   }
   for (const codeKey of adapter.codeKeys ?? []) {
-    for (const file of filesNamed(codeKey.file, scope)) {
-      const text = scope.read(file);
-      const key = text === null ? null : codeKeyIn(file, text, codeKey);
-      if (key !== null) return `${file} sets ${key}, which loads code`;
-    }
+    const cause = filesCause(codeKey, scope, above);
+    if (cause !== null) return cause;
   }
   return null;
 }

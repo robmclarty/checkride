@@ -62,18 +62,30 @@ export const TS_PACK: Pack = {
         'prettier.config.js',
         'prettier.config.cjs',
         'prettier.config.mjs',
+        'prettier.config.ts',
+        'prettier.config.mts',
+        'prettier.config.cts',
         '.prettierrc.js',
         '.prettierrc.cjs',
         '.prettierrc.mjs',
+        '.prettierrc.ts',
+        '.prettierrc.mts',
+        '.prettierrc.cts',
       ],
+      // An rc file may instead name a shared config, a module prettier loads,
+      // and so may package.json's `prettier`.
       codeKeys: [
-        { file: '.prettierrc', keys: ['plugins'] },
-        { file: '.prettierrc.json', keys: ['plugins'] },
-        { file: '.prettierrc.json5', keys: ['plugins'] },
-        { file: '.prettierrc.yaml', keys: ['plugins'] },
-        { file: '.prettierrc.yml', keys: ['plugins'] },
+        { file: '.prettierrc', keys: ['plugins'], shared: true },
+        { file: '.prettierrc.json', keys: ['plugins'], shared: true },
+        { file: '.prettierrc.json5', keys: ['plugins'], shared: true },
+        { file: '.prettierrc.yaml', keys: ['plugins'], shared: true },
+        { file: '.prettierrc.yml', keys: ['plugins'], shared: true },
         { file: '.prettierrc.toml', keys: ['plugins'] },
+        { file: 'package.json', keys: ['plugins'], under: 'prettier' },
       ],
+      // prettier takes the nearest config above a file, so one at the repo
+      // root reaches a target below it.
+      configSearchesUp: true,
       devDeps: { prettier: '3.9.6' },
     },
     {
@@ -100,7 +112,9 @@ export const TS_PACK: Pack = {
       fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
       static: true,
       nonStaticArgs: ['--type-aware'],
-      codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins'] }],
+      codeConfigs: ['oxlint.config.ts', 'oxlint.config.mts', 'oxlint.config.cts', 'oxlint.config.js', 'oxlint.config.mjs', 'oxlint.config.cjs'],
+      // A config it extends can add jsPlugins, and the sniff doesn't follow it.
+      codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins', 'extends'] }],
       devDeps: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003' },
     },
     {
