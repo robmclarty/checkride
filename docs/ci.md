@@ -130,7 +130,57 @@ Replace the pnpm steps; the checkride invocation is identical.
 
 The `security` slot (`pnpm audit`) is pnpm-specific and reports itself
 unavailable under the others — see
-[Package managers](./tools.md#package-managers).
+[Package managers](./tools.md#package-managers). That's the ts pack's
+`security`. Each other pack fills the slot with its own tool, tied to no
+package manager: govulncheck for a go target, cargo-deny for a rust one, and
+trivy's config scan for a terraform one. Each is opt-in, and cargo-deny is
+the one besides `pnpm audit` that uses the network.
+
+## A repo without Node
+
+A Go, Rust, Python or Terraform repo with no `package.json` pins checkride in
+its `mise.toml` (`init --lang go` and `--lang rust` write it), so CI installs
+it with mise rather than a package manager. Checks never download, so fetch
+dependencies first:
+
+```yaml
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # mise loads no mise.toml it hasn't trusted; this one is the repo's own.
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Installs every tool mise.toml pins: checkride and its Node, and the
+      # language's own tools, such as go and golangci-lint.
+      - uses: jdx/mise-action@v5
+
+      # One per pack the repo uses: checks run offline, so a missing module,
+      # crate, package or provider fails rather than downloads.
+      - run: go mod download # cargo fetch, uv sync, terraform init -backend=false
+
+      - run: mise exec -- checkride --strict
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-report
+          path: .check/
+```
+
+`MISE_TRUSTED_CONFIG_PATHS` is what lets mise read the repo's `mise.toml`
+without a `mise trust` step; checkride's own pin there sets a tool option,
+which mise won't load from an untrusted file. See
+[Installing checkride](./distribution.md) for the pin itself.
 
 ## Any other CI
 
