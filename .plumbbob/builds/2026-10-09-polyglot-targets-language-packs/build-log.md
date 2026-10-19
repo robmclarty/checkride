@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 86 — fix(security): patch braces and keep the advisories a repo ignores out of the gate
+**Current step:** none (at the boundary)
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -102,7 +102,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
 - ☑ 73. docs: document packs and targets and fold in the contract
 - ☑ 74. chore: retire the drafts and run the opt-in audit
-- ☐ 86. fix(security): patch braces and keep the advisories a repo ignores out of the gate
+- ☑ 86. fix(security): patch braces and keep the advisories a repo ignores out of the gate
 
 ## Park list
 
@@ -194,7 +194,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
 - [x] links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes (a false red for a Go repo that commits vendor/); a behavior change with a test and CHANGELOG line, so it wants a step of its own rather than step 73's docs pass
 - [x] pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release, reached only through the dev dependency markdownlint-cli2 0.23.3 (globby, micromatch); a low, GHSA-238p-pmpm-9mq7 katex <0.18.2 through markdownlint, has a fix a pnpm override could take. Neither ships, since checkride has no runtime dependencies
-- [ ] fascicle's pnpm-workspace.yaml says its security slot stays red on the ignored braces advisory until pnpm 12.4; once fascicle takes the checkride release carrying step 86 that comment is stale, and its audit.ignore could move to auditConfig.ignoreGhsas, the key pnpm audit --ignore writes
+- [x] fascicle's pnpm-workspace.yaml says its security slot stays red on the ignored braces advisory until pnpm 12.4; once fascicle takes the checkride release carrying step 86 that comment is stale, and its audit.ignore could move to auditConfig.ignoreGhsas, the key pnpm audit --ignore writes
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -319,6 +319,8 @@ Harvest results this boundary:
 
 - After step 74: "links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes..." → **tangent**, deferred to a later build: a false red, never a false green, every planned step has landed, and the fix is a behavior change with its own test and `CHANGELOG.md` line, so it takes a step of its own; a repo that commits `vendor/` meanwhile names it in the `links` check's `exclude` option.
 - After step 74: "pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release..." → **blocker**, handled now (the maintainer's call, "patch it like we did in other repos"): folded into `intent.md` as D86 (braces-patched) and as step 86 in a new Phase 15, built with `/plumbbob:build 86-86`. It copies fascicle's braces patch (micromatch/braces#88) and audit ignore, and, since pnpm 11.28.5 still counts an ignored advisory in `metadata.vulnerabilities` (probed: with the GHSA ignored, `advisories` drops braces and the totals keep `high: 1`), has the `security` built-in gate on the report's `advisories` so the slot goes green. katex's low stays, below the gate, since its fix crosses micromark-extension-math's `^0.16.0` range.
+
+- After step 86: "fascicle's pnpm-workspace.yaml says its security slot stays red on the ignored braces advisory until pnpm 12.4..." → **tangent**, handed off to fascicle as [robmclarty/fascicle#14](https://github.com/robmclarty/fascicle/issues/14) (the maintainer's call): the fix lives in another repo, nothing here depends on it, the comment only goes stale once fascicle bumps checkride past 0.14.0, and fascicle's `audit.ignore` already works on pnpm 11.28.5, so moving it to `auditConfig.ignoreGhsas` is consistency, not a fix.
 
 ## Log
 
@@ -3108,3 +3110,49 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-10-19 — step 73 checkpointed · f4f91b6c2 — docs: document packs and targets and fold in the contract (1 drift, 18m)
 - 2026-10-19 — step 74 checkpointed · ea333e474 — chore: retire the drafts and run the opt-in audit (1 drift, 11m)
+- 2026-10-19 — step 86 checkpointed · b742fa131 — fix(security): patch braces and keep the advisories a repo ignores out of the gate (1 drift, 28m)
+
+  **Summary**: braces 3.0.3 now carries the upstream nesting fix as a pnpm patch, the workspace ignores its advisory, and the `security` built-in counts severities from the report's `advisories` map, so an ignored advisory leaves the gate. `pnpm check --include security` is green, and so is the whole e2e suite with toolchains required (20 files, 169 tests).
+
+  1. The braces patch is fascicle's file byte for byte, and it does what the done-when asks
+  2. The ignore lives under `auditConfig.ignoreGhsas`, the key pnpm writes itself
+  3. The gate reads the map, falls back wider, and its clean reason now names the level
+  4. Three reports captured from pnpm 11.28.5 hold it, and two of their tests fail without the fix
+  5. `pnpm-lock.yaml` moved outside the seam, as any patch requires
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → pnpm-lock.yaml
+  diff         +382 -20 across 11 files
+  spent        28 min · 1 turn · 35s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve with `looks good`, accepting `pnpm-lock.yaml` beside the seam. The patch and the gate change are what D86 (braces-patched) decided, the security slot and the whole e2e suite are green, and the one lockfile change is the hash pnpm writes for any patch. This closes Phase 15, a release point under D52 (e2e-cadence), so a `/version` call after it lands is yours to make.
+
+  **1.** The braces patch is fascicle's file byte for byte, and it does what the done-when asks
+
+  `patches/braces@3.0.3.patch` is a `cp` of fascicle's copy (`cmp` reports them identical), and it carries micromatch/braces#88: the parser refuses nesting deeper than 128, and the walkers check depth before recursing. Probed on Node 24.15.0 with `'{' x 5000 + '}' x 5000`, which is exactly the 10,000-character cap. braces resolved through micromatch, the copy the tree uses, throws `SyntaxError: Brace AST exceeds safe depth of 128`. The stale unpatched store copy still throws `RangeError: Maximum call stack size exceeded`. The `pnpm-workspace.yaml` comment gives the advisory and says why no override can help: 3.0.3 is the latest release and every version is in range. It also says how to retire the patch (delete the entry, the patch and the ignore, re-install, run `pnpm check --include security`). It notes why katex's low stays: it sits below `--audit-level=high`, and its fix, 0.18.2, is outside micromark-extension-math's `^0.16.0`, which I read from the installed package.json.
+
+  **2.** The ignore lives under `auditConfig.ignoreGhsas`, the key pnpm writes itself
+
+  I ran `pnpm audit --ignore GHSA-vfj7-8cjw-p6xm` against a backup of the file, and pnpm 11.28.5 wrote `auditConfig: ignoreGhsas:`. I then swapped in fascicle's `audit: ignore:` and probed again: 11.28.5 honors that too (0 advisories, exit 0). Both keys work, so I kept the one pnpm's own command round-trips, as the plan's note on step 86 leans. The parked line covers fascicle's comment, which says its slot stays red until pnpm 12.4. That goes stale once fascicle takes a checkride release that carries this step.
+
+  **3.** The gate reads the map, falls back wider, and its clean reason now names the level
+
+  `src/security.ts` counts one per `advisories` entry by its `severity`. The `metadata.vulnerabilities` totals are used only when the report has no map, or when an entry carries no severity, so a malformed map widens the gate instead of narrowing it. A report without `metadata.vulnerabilities` is still "could not verify" (`exit_code: -1`), map or not. One behavior surfaced in the probes: pnpm also filters the map by `--audit-level` (at `high`, katex's low is absent from `advisories` but counted in the totals). So the clean reason changed from `no advisories; gate clean` to `no advisories at or above --audit-level=high; gate clean`. The old wording would have been false with katex in the tree. Nothing in the repo, the docs or the e2e suite asserted on the old string. The CHANGELOG's Fixed entry names the new wording.
+
+  **4.** Three reports captured from pnpm 11.28.5 hold it, and two of their tests fail without the fix
+
+  All three were captured in this repo, at the exit codes pnpm gave: braces ignored at `--audit-level=high` (`advisories: {}` with the totals still `high: 1`, exit 0, which is green now), the same report without the ignore (`1 high`, red), and braces ignored at the default level (katex's low in the map, `1 low`, red, braces absent). I re-captured the ignored pair after the patch and the final config, and they matched byte for byte. With `src/security.ts` stashed, the ignored and level-low tests fail, which is C9 (real-fixtures) doing its job. The synthetic `auditJson` helper now emits one map entry per count, so the older tests exercise the map path, and new cases cover the totals fallback, a severity-less entry, and a map without totals.
+
+  **5.** `pnpm-lock.yaml` moved outside the seam, as any patch requires
+
+  Adding a `patchedDependencies` entry makes `pnpm install` record the patch hash in the lockfile's `patchedDependencies` and re-key braces' snapshot as `braces@3.0.3(patch_hash=…)`. Without that diff the patch doesn't install under `--frozen-lockfile` in CI. It is three hunks, nothing re-resolved, and there is no way to land the patch without it.
