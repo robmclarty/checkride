@@ -3,10 +3,10 @@
 This document names the surfaces a consumer may **rely on** — the promises, as
 opposed to today's incidental behavior. Every surface listed here is backed by
 a test that fails the build if it drifts — most in
-[`test/contract/`](../test/contract/); the timeout and crash-consistency
-promises are exercised where the machinery lives, in the suites named in
-[their section](#timeouts-and-interrupts) below, and so are the config rules,
-in the suite their [paragraph](#cli) names. Anything *not* listed here is
+[`test/contract/`](../test/contract/), and the rest in the unit suites under
+`src/` beside the machinery they cover: the timeout and crash-consistency
+promises in the suites named in [their section](#timeouts-and-interrupts)
+below, and the config rules in the suite their [paragraph](#cli) names. Anything *not* listed here is
 internal by definition and may change in any release.
 
 Consumers of these promises include coding agents reading `.check/`, CI
@@ -43,8 +43,9 @@ distinguishable by every consumer:
   a run where every check skipped itself is a zero-run, and `--strict` exits 2
   on it.
 - `snippets` and `smoke` are **skipped**, not failed, when the scratch
-  directory they generate files in, `<repo>/.check/`, can't be written, as in
-  a read-only checkout that `--out` sent the artifacts away from. Their
+  directory they generate files in, the `.check/` under their working
+  directory (the repo root, or a target's root), can't be written, as in a
+  read-only checkout that `--out` sent the artifacts away from. Their
   `reason` is `needs a writable ./.check for scratch files`.
 - An active slot whose tool is not installed **fails** (exit 1); it does not
   skip. A skip would let the slot's absence read as coverage. Under
@@ -219,9 +220,11 @@ channel when it names an exact release, for `uv-lock`, the version the
 lock pins the tool's package at, and for `tf-version`, the file's release when
 it names one exactly. `mise` and `path` record none,
 since mise or the machine decides it. `pin_source` appears exactly where
-`argv` does, apart from a custom check's own command, such as
-`node scripts/x.mjs`, which spawns as written through no pin source and
-records only its `argv`. A declared pin whose source can't run the tool fails
+`argv` does, apart from a command spawned as written through no pin source,
+such as a custom check's `node scripts/x.mjs`, which records only its `argv`.
+A custom check whose command is `pnpm exec <tool>` or another `pnpm`
+subcommand, or a toolchain in a chain that reads `mise`, resolves and records
+its `pin_source` as a catalogue check does. A declared pin whose source can't run the tool fails
 the check with exit 1, naming the source; checkride never falls back to
 another copy.
 
@@ -737,9 +740,7 @@ marks one language's code: `package.json` and `tsconfig.json` for `ts`,
 `setup.cfg` and `setup.py` for `python`, and `.terraform.lock.hcl` and every
 `*.tf` file for `terraform`. A marker is claimed when a target of its pack is
 rooted at the marker's directory or above it, so a target at the root of a
-workspace claims every package in it. Until a language's pack ships, no target
-can claim its markers, and the message says to list them in
-`unclaimed.ignore`. Every marker no target claims fails the check (exit 1),
+workspace claims every package in it. Every marker no target claims fails the check (exit 1),
 except one under `node_modules/`,
 `vendor/`, `target/`, `.venv/`, `.terraform/`, `.check/`, the output directory,
 any `testdata/` or any `test/fixtures/`, and one an `unclaimed.ignore` glob
@@ -772,8 +773,8 @@ name, runs either way.
 none.** `checkride target add <name> --lang <pack> --root <dir>` adds the
 target to `checkride.config.json`, creating the file when it's absent, and
 names in its `checks` each non-opt-in tool detection finds under its root.
-`--add <a,b>` names the blessed tool for those slots too, and for a ts target
-scaffolds its config under the root. In a repo that declares no targets, the
+`--add <a,b>` names the blessed tool for those slots too, and for a ts,
+python or terraform target scaffolds its config under the root. In a repo that declares no targets, the
 implicit target becomes an explicit one of its pack named `--root-name`
 (default `app`), rooted at `.`: the top-level `checks` entries for target-scope slots move into
 its `checks`, and `checkride.baseline.json`'s entries move from `<slot>` to
@@ -794,10 +795,12 @@ reads the repo's files as `unclaimed` does and proposes a ts target at the root
 when the root holds a `package.json` or `pnpm-workspace.yaml`, claiming every
 nested package, and otherwise one for each top-most `package.json`. Shell files
 outside every other proposed target's root propose one bash target, at the
-deepest directory holding them all, named `scripts` when that's `scripts` and
-`shell` otherwise. Names come from each root's last segment, `.` becoming
-`app`, with a number added on a collision. One ts target at the root is the
-mode the repo already runs in, so nothing changes. Anything more is printed as
+deepest directory holding them all, named `scripts` when that directory is
+the root's `scripts/` and `shell` otherwise. Other names come from each
+root's last segment, `.` becoming `app`, and any name gets a number added on
+a collision. When it proposes no more than one target at the root, of the
+pack the root marks, that is the mode the repo already runs in, so nothing
+changes. Anything more is printed as
 a `targets` block and written the way `target add` writes it, unless
 `--dry-run`. A config that already declares `targets` is left alone. The go,
 rust, python and terraform targets it proposes follow the rules `--discover`
@@ -1170,8 +1173,11 @@ unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
 `python`, `terraform`) to its adapter rows, root markers, pin sources and
 environment. `ADAPTERS` is the `ts` and
 `repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
-each external tool every pack runs, with the npm package that provides it or
-the `mise.toml` keys that pin it. Each
+each external tool the packs run as a tool, with the npm package that
+provides it or the `mise.toml` keys that pin it. The executables a toolchain
+ships, which an adapter runs directly, such as `go`, `gofmt`, `cargo`,
+`terraform` and `tofu`, have no row there: each resolves through its
+toolchain's own pin. Each
 `SLOTS` entry carries a `scope`: `repo` for the slots the repo pack fills,
 which check the repo as a whole, and `target` for the rest, which a language
 pack fills. The last, `unclaimed`, also carries `activeWith: 'targets'`, the
