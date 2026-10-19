@@ -1,5 +1,5 @@
 /**
- * Checkride — an agent harness for TypeScript repositories.
+ * Checkride — an agent harness for code repositories.
  *
  * The primary interface is the `checkride` CLI (see `src/cli.ts`). This module is
  * the package's programmatic surface: the command entry points, the adapter

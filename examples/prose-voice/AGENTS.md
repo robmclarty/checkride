@@ -1,4 +1,4 @@
-<!-- checkride:begin hash=v1b02b8bf37c8d2274 -->
+<!-- checkride:begin hash=v12096900b5d54f498 -->
 
 ## Checkride: the definition of done
 
@@ -9,7 +9,9 @@ complete; any other exit code means it is not. Never claim a task is finished wh
 When it fails:
 
 1. Read `.check/summary.json` to see which check failed.
-2. Read that check's raw output (`.check/<slot>.json` or `.check/<slot>.stdout.txt`).
+2. Read that check's raw output: `.check/<slot>.json` or `.jsonl`, `.check/<slot>.stdout.txt`,
+   or `.check/<slot>.stderr.txt`, where a check refused before it ran says why. A
+   target's check writes under `.check/<target>/` instead.
 3. Fix the root cause, then re-run.
 
 `pnpm exec checkride triage` runs this procedure in full and reads `.check/` for you
@@ -22,9 +24,9 @@ If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.jso
 it runs the check when a turn ends — so while iterating, prefer the narrow commands
 above rather than running the full check yourself every loop. Read the gate's verdict
 rather than assuming it covered everything: a repo can narrow the gate with `gate` in
-`checkride.config.json`, and a narrowed one prints `NOT the full check` in every
-verdict. That green is not the "done" defined above; run `pnpm check` in full before you
-claim the work is finished.
+`checkride.config.json`, and a narrowed one names its narrowing (`only …`, `without …`,
+`affected-only`) in every verdict. That green is not the "done" defined above; run
+`pnpm check` in full before you claim the work is finished.
 
 ### Baseline
 

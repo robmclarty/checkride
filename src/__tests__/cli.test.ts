@@ -143,14 +143,6 @@ describe('runCli help and version', () => {
     expect(out.text()).toContain('Usage: checkride');
   });
 
-  test('--include help names all five opt-in slots', async () => {
-    const out = sink();
-    await runCli(['--help'], { cwd: process.cwd(), stdout: out, stderr: sink() });
-    for (const slot of ['format', 'mutation', 'security', 'publint', 'attw']) {
-      expect(out.text()).toContain(slot);
-    }
-  });
-
   test('--version prints a semver and exits 0', async () => {
     const out = sink();
     const code = await runCli(['--version'], { cwd: process.cwd(), stdout: out, stderr: sink() });

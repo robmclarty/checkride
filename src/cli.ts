@@ -126,7 +126,7 @@ const RECOVER_OPTIONS = {
   json: { type: 'boolean', default: false },
 } as const;
 
-const HELP_TEXT = `checkride — an agent harness for TypeScript repositories
+const HELP_TEXT = `checkride — an agent harness for code repositories
 
 Usage: checkride [command] [options]
 
@@ -166,7 +166,9 @@ Run options:
   --only <a,b>     Run only these checks, each named by a slot, a custom check,
                    a target, or <target>:<slot>; an unknown name is exit 2
   --skip <a,b>     Skip these checks, named the same way
-  --include <a,b>  Add opt-in slots (format, dupes, health, mutation, security, publint, attw) to the run
+  --include <a,b>  Add opt-in slots (format, dupes, health, prose, mutation,
+                   security, build, publint, attw, pack, smoke, snippets) to
+                   the run
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
   --static-only    Keep only checks that read the repo as data, skipping any
@@ -210,10 +212,13 @@ const INIT_HELP_TEXT = `checkride init — set up a project (new or existing, au
 
 Usage: checkride init [options]
 
-New project (no package.json, go.mod, go.work or Cargo.toml): scaffolds a full
-project. Refuses to overwrite existing files unless --force.
-Existing project: adopts detectable slots, through the go or rust pack at a
-go.mod, go.work or Cargo.toml root; --baseline grandfathers current debt.
+New project: scaffolds a full project. Refuses to overwrite existing files
+unless --force.
+Existing project, whose root holds a package.json, go.mod, go.work,
+Cargo.toml, pyproject.toml, setup.cfg, setup.py, .terraform.lock.hcl or *.tf
+file (a tsconfig.json alone doesn't make one): adopts detectable slots
+through the root's pack, and proposes the targets its files suggest;
+--baseline grandfathers current debt.
 Either mode refuses (exit 2) rather than overwrite an AGENTS.md stanza that has
 been edited since checkride wrote it.
 
@@ -248,9 +253,12 @@ const GATE_HELP_TEXT = `checkride gate — run the check script as an agent stop
 
 Usage: checkride gate [options]
 
-Runs \`<pm> run check --strict --digest\` and reports the verdict in the calling
-harness's stop-hook protocol. The generated hook scripts invoke this; you rarely
-run it by hand.
+Runs the repo's check with --strict --digest and reports the verdict in the
+calling harness's stop-hook protocol. It runs the check the way the repo does:
+\`<pm> run check\` from a package.json, \`mise exec -- checkride\` where
+mise.toml pins checkride and package.json holds no check script, or
+\`checkride\` from PATH where neither applies. The generated hook scripts
+invoke this; you rarely run it by hand.
 
 Options:
   --harness <h>    Protocol to answer in (${HARNESS_NAMES.join(' | ')}; default claude)
@@ -272,6 +280,10 @@ Environment:
                        from the repo's own base.
   CHECKRIDE_OUT        Ignored the same way: the gate's run always writes
                        .check/, where the gate reads its verdict.
+  CHECKRIDE_DEFAULTS   Ignored the same way: the gate's run fills no slot from
+                       a consumer's defaults file.
+  CHECKRIDE_PINS       Ignored the same way: the gate's run uses the repo's own
+                       pins.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does

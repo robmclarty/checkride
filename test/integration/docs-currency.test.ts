@@ -42,6 +42,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { SLOTS } from '../../src/adapters.js';
+import { runCli } from '../../src/cli.js';
 import { PACKS } from '../../src/packs/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -166,6 +167,14 @@ describe('opt-in enumerations match the registry exactly', () => {
 
   test('the cheat sheet --include row names every opt-in slot', () => {
     const listed = enumeratedAfter(CHEATSHEET, 'Add opt-in slots');
+    expect(listed.toSorted()).toEqual(optInNames.toSorted());
+  });
+
+  test("the CLI help's --include names every opt-in slot, and only those", async () => {
+    let help = '';
+    const stdout = { write: (text: string): boolean => { help += text; return true; } };
+    await runCli(['--help'], { cwd: process.cwd(), stdout, stderr: { write: () => true } });
+    const listed = enumeratedAfter(help, 'Add opt-in slots');
     expect(listed.toSorted()).toEqual(optInNames.toSorted());
   });
 });
