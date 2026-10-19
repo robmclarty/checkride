@@ -6,6 +6,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Upgrading from 0.14
+
+A TypeScript repo that sets no new flag or config key runs the same checks,
+in the same order, spawning the same commands, and its summary only gains
+fields. These are the changes it can notice; each is described in full below.
+
+- **One `checkride.baseline.json` diff.** The first full run prunes the
+  oxlint and ast-grep warning keys that can't fail their check. In a repo
+  with many open branches, land that prune once on the main branch, so each
+  branch doesn't rewrite the file on its own.
+- **`--skip` narrows `--only`**, on the command line and in a gate profile
+  that sets both keys, so such a profile runs fewer checks.
+- **A slot entry that only tunes the slot now tunes it**, so a `timeout` or
+  `order` that used to be ignored applies.
+- **A few config mistakes that were ignored now exit 2**, and a typo in
+  `gate.only` or `gate.skip` stops the gate before it runs.
+- **`links` skips more directories**: any named `fixtures`, `vendor`,
+  `.venv` or `target`, beside `node_modules` and the rest.
+- **Status lines end with a tag** saying why each check runs, and `--only`,
+  `--skip` and `--include` call an unknown name a token. Both are on stderr.
+- **A root with no `package.json` or `tsconfig.json`** but a `go.mod`,
+  `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`, `setup.py`,
+  `.terraform.lock.hcl` or `.tf` file is now checked as a project of that
+  pack rather than as a ts one, so it runs that language's checks. See
+  `docs/targets.md`.
+
 ### Added
 
 - **A custom check can say it couldn't run here.** Give it a `skipExitCode`
@@ -144,10 +170,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file as a side effect. The new `path` source runs a tool nothing declares
   from `PATH`, recorded as unpinned. With `requirePins: true` such a tool
   fails instead, with
-  `<tool> is not pinned; pin it with: mise use <id>@<version>`. The `ts` and
-  `repo` packs still resolve every tool through the project's package
-  manager alone, so no existing run changes; the packs that reach mise and
-  `PATH` arrive next. See `docs/packs.md`.
+  `<tool> is not pinned; pin it with: mise use <id>@<version>`. A ts root
+  without `targets` still resolves every tool through the project's package
+  manager alone, so no existing run changes. See `docs/packs.md`.
 - **Check shell scripts with a `bash` target.** Declare one
   (`"scripts": { "lang": "bash", "root": "scripts" }`) and `scripts:lint`
   runs shellcheck over the target's scripts, writing `lint.json`, while the
@@ -181,11 +206,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Find the code no target checks with `unclaimed`.** Every run of a repo
   with `targets` now runs the repo-scope `unclaimed` check, which fails when a
   toolchain marker sits outside every target of its language, rooted at its
-  directory or above it: `package.json` or `tsconfig.json` for ts, and
-  `go.mod`, `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`,
-  `setup.py`, `.terraform.lock.hcl` or a `.tf` file for the languages whose
-  packs haven't shipped, which says so and points at `unclaimed.ignore`
-  until they do. It writes `unclaimed.json`, listing each such
+  directory or above it: `package.json` or `tsconfig.json` for ts, `go.mod`
+  or `go.work` for go, `Cargo.toml` for rust, `pyproject.toml`, `setup.cfg`
+  or `setup.py` for python, and `.terraform.lock.hcl` or a `.tf` file for
+  terraform. It writes `unclaimed.json`, listing each such
   marker with the target that would claim it (`"gen": { "lang": "ts",
   "root": "tools/gen" }`), and prints the same on stderr. It leaves out
   `node_modules/`, `vendor/`, `.check/`, the output directory, `testdata/`,
@@ -356,7 +380,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exports `parseFindings`, which parses one adapter's raw output, and
   `findingsFor`, which takes a `summary.json` check entry and the output
   directory and opens that check's own artifact. `isParseable` says which
-  adapters it can read: oxlint, ast-grep, cspell, vale and fallow so far.
+  adapters it can read: 21 across every pack, listed under Contract.
   Each finding names its adapter and slot, the file from the repo root, a
   1-based line and column, the rule, the message, the tool's own severity,
   and whether it can fail the check under the argv that ran. A reviewer or an
@@ -572,9 +596,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runs with `CHECKPOINT_DISABLE`, `TF_IN_AUTOMATION`, `TF_INPUT=0`, the
   `TFENV_AUTO_INSTALL` and `TOFUENV_AUTO_INSTALL` switches off and
   `TRIVY_SKIP_CHECK_UPDATE`, so nothing prompts, calls home or downloads a
-  CLI. `unclaimed` now suggests a terraform target for a `.tf` directory no
-  target claims. The terraform pack's own adapters arrive in a later release;
-  see `docs/packs.md`.
+  CLI. `unclaimed` suggests a terraform target for a `.tf` directory no
+  target claims. See `docs/packs.md`.
 - **The terraform pack checks Terraform and OpenTofu code.** A terraform
   target runs tflint (`lint`), `terraform validate` (`types`), and, opted in,
   `terraform fmt` (`format`) and trivy's config scan (`security`), each
@@ -733,11 +756,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   counts it in those totals, which the slot read. A clean slot's reason now
   reads `no advisories at or above --audit-level=<level>`, since pnpm's map
   also leaves out the advisories below the level. See `docs/tools.md`.
-- **`links` no longer reads the providers `terraform init` installs.** It
-  walks the filesystem, not git, so in any Terraform repo where `init` had
-  run, it read the README each provider package unpacks under `.terraform/`
-  and failed on that README's links into docs the package doesn't ship.
-  `.terraform` joins `node_modules` in its built-in excludes.
+- **`links` no longer reads the dependencies a toolchain installs in the
+  tree.** It walks the filesystem, not git, so it read the READMEs under a
+  Go `vendor/`, the gitignored `.venv/` that `uv sync` fills, Cargo's
+  `target/` and the `.terraform/` that `terraform init` fills, and failed on
+  their links into docs the packages don't ship. A Python repo failed
+  `links` as soon as its environment was synced. `vendor`, `.venv`,
+  `target` and `.terraform` join `node_modules` in its built-in excludes, so
+  markdown kept under a directory of one of those names is no longer
+  checked.
 - **A new lint or struct warning no longer keeps a baselined slot red.**
   The baseline now keys only the oxlint and ast-grep findings that can fail
   their check, as it already did for vale: `error` severity, plus warnings
@@ -851,8 +878,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `git` (`head`, `dirty`, and `base` as `{ ref, sha }` under `--changed`),
   in the JSON Schema, the contract doc's field tables and
   `summary.contract.test.ts`. The schema and the doc also define
-  `run.static_only`, `run.discover`, `run.defaults` and `run.pins` for flags
-  checkride doesn't have yet, so no run writes them. The exported
+  `run.static_only`, `run.discover`, `run.defaults` and `run.pins`, which
+  the flags of those names write. The exported
   `Summary` type gains a required `run` and an optional `git`. A run whose
   checks finish before git answers waits for it, and `total_duration_ms`
   counts the wait, so `timestamp - total_duration_ms` stays the run's start.
@@ -887,16 +914,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Each `SLOTS` entry gains `scope` (`target` or `repo`), and the exported
   `Slot` type an optional `scope`. All four exports are plain data that
   survive a JSON round trip, held by `exports.contract.test.ts`.
-- Additive: the config keys `targets`, `packs`, `requirePins` and
-  `unclaimed`, in the JSON Schema and the exported `CheckrideConfig` type,
+- Additive: the config keys `targets`, `packs`, `requirePins`, `unclaimed`
+  and `schemas`, in the JSON Schema and the exported `CheckrideConfig` type,
   with the rules `docs/contract.md` lists. A config that breaks one exits 2
   before anything runs, `schema` and `unclaimed` are reserved as target
-  names ahead of their slots, and a target can't share a name with any
-  custom check, a target's or a pack's included. The schema's slot entry
+  names, and a target can't share a name with any custom check, a target's
+  or a pack's included. A `schemas` rule (`files`, `schema`, and optional
+  `format` and `note`) is checked and otherwise inert: no run acts on it
+  until the `schema` slot ships in a later release. The schema's slot entry
   also takes an object that only tunes a detected slot (`optIn`, `timeout`,
-  `order`, `note`), which the loader always accepted. `ts` is the only pack
-  so far, runs act on `targets`, `packs` and `requirePins` but not yet on
-  `unclaimed`, and a config without `targets` resolves as before.
+  `order`, `note`), which the loader always accepted. A config without
+  `targets` resolves as before.
 - Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
   take selection tokens: a slot or custom-check name, a target name (every
   check of that target a full run would run), or `<target>:<slot>` (one
@@ -929,14 +957,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose keys are equal never run at once, even in one wave, with `{root}` in
   a key expanded to the check's target root; the check that waits isn't
   started, so its timeout and `duration_ms` don't count the wait.
-  `docs/contract.md` describes it under check ordering. No row of `ADAPTERS`
-  or `PACKS` declares one yet, so every existing run schedules as before.
+  `docs/contract.md` describes it under check ordering. No `ts` or `repo` row
+  declares one, so every existing run schedules as before.
 - Additive: per-check summary fields `pin_source` and `tool_version`, in the
   JSON Schema, the contract doc's field table and `summary.contract.test.ts`.
   `pin_source` is one of `override`, `js-lockfile`, `go-mod-tool`,
-  `rust-toolchain`, `uv-lock`, `tf-version`, `mise` or `path`; a run writes
-  only `js-lockfile`, `mise` and `path` so far, and the schema names the rest
-  ahead of the packs and flag that use them. `tool_version` is a string,
+  `rust-toolchain`, `uv-lock`, `tf-version`, `mise` or `path`. `tool_version` is a string,
   present with `pin_source` when a file read found the version. The exported
   `SummaryCheck` type gains both, a `CheckRunner` may resolve both with its
   outcome, and the `CheckRunner` context gains optional `repo`, `pins` and
@@ -998,7 +1024,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `<name>.stdout.txt` whatever it prints, as before.
 - Additive: `PACKS` gains `go` (markers `go.mod` and `go.work`, the pin
   chain `go-mod-tool`, `mise`, `path`, the environment `GOTOOLCHAIN=local`
-  and `GOPROXY=off`, and no adapter rows yet), the exported `Pack` type's
+  and `GOPROXY=off`), the exported `Pack` type's
   `name` takes `go`, and the config schema's pack names take `go`. The
   exported `Tool` type gains an optional `goTool` (the package a `go.mod`
   `tool` directive names), and `Adapter` an optional `network`, which drops
@@ -1023,12 +1049,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carry the new reason `no Go module changed under <root>`.
 - Additive: `PACKS` gains `rust` (marker `Cargo.toml`, the pin chain
   `rust-toolchain`, `mise`, `path`, the environment `CARGO_NET_OFFLINE`,
-  `RUSTUP_AUTO_INSTALL` and `CARGO_TERM_COLOR`, and no adapter rows yet), the
+  `RUSTUP_AUTO_INSTALL` and `CARGO_TERM_COLOR`), the
   exported `Pack` type's `name` takes `rust`, and the config schema's pack
   names take `rust`. The exported `Tool` type gains optional `run` (the argv
   a tool runs as, such as `cargo clippy`) and `component` (the rustup
-  component that provides it). `TOOLS` and `ADAPTERS` are unchanged, so no
-  run writes `pin_source: "rust-toolchain"` yet.
+  component that provides it).
 - Additive: `PACKS.rust` gains its adapter rows (`cargo-check`, `rustfmt`,
   `clippy`, `cargo-machete`, `nextest`, `cargo-test`, `cargo-doctest`,
   `cargo-deny` and `cargo-mutants`), each with `lock: "cargo:{root}"`, and
@@ -1067,11 +1092,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `DoctorReport` gains an optional `pack`, present in implicit mode.
 - Additive: `PACKS` gains `python` (markers `pyproject.toml`, `setup.cfg` and
   `setup.py`, the pin chain `uv-lock`, `mise`, `path`, the environment
-  `PYTHONDONTWRITEBYTECODE`, `PIP_NO_INDEX` and `UV_OFFLINE`, and no adapter
-  rows yet), the exported `Pack` type's `name` takes `python`, and the config
+  `PYTHONDONTWRITEBYTECODE`, `PIP_NO_INDEX` and `UV_OFFLINE`), the exported `Pack` type's `name` takes `python`, and the config
   schema's pack names take `python`. The exported `Tool` type gains an
-  optional `pypi` (the PyPI package that provides the tool). `TOOLS` and
-  `ADAPTERS` are unchanged, so no run writes `pin_source: "uv-lock"` yet. A
+  optional `pypi` (the PyPI package that provides the tool). A
   repo without `targets` whose root holds only a Python marker now records
   `pack: "python"` on its checks.
 - Additive: `PACKS.python` gains its rows (`ruff`, `ruff-format`, `mypy`,
@@ -1086,7 +1109,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   doc.
 - Additive: `PACKS` gains `terraform` (markers `.terraform.lock.hcl` and
   `*.tf`, a glob, the pin chain `tf-version`, `mise`, `path`, R6.4's six
-  variables, and no adapter rows yet), the exported `Pack` type's `name`
+  variables), the exported `Pack` type's `name`
   takes `terraform`, and the config schema's pack names take `terraform`.
   `TOOLCHAINS` gains `terraform` and `tofu`, also exported on their own. A run
   now writes `pin_source: "tf-version"`, with the version file's release as

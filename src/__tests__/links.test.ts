@@ -73,6 +73,15 @@ test('ignores markdown under excluded directories', async () => {
   expect(out.ok).toBe(true);
 });
 
+test('never walks the dependencies Go, uv and Cargo install in the tree', async () => {
+  await write('vendor/github.com/acme/y/README.md', '[contributing](CONTRIBUTING.md)\n');
+  await write('.venv/lib/python3.12/site-packages/pkg/README.md', '[guide](docs/guide.md)\n');
+  await write('target/package/crate-0.1.0/README.md', '[changes](CHANGELOG.md)\n');
+  await write('README.md', '# clean\n');
+  const out = await checkLinks(dir);
+  expect(out.ok).toBe(true);
+});
+
 test('never walks a fixtures directory, at any depth', async () => {
   await write('test/fixtures/probe/README.md', '[deliberately broken](./nope.md)\n');
   await write('packages/core/test/fixtures/README.md', '[deliberately broken](./nope.md)\n');

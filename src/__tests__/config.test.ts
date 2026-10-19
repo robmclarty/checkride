@@ -1305,6 +1305,21 @@ describe('published JSON Schema', () => {
     expect(validate({ unclaimed: { ignored: [] } })).toBe(false);
   });
 
+  test('accepts the schemas rules the loader accepts, and rejects what V8 rules out', () => {
+    const rules: CheckrideConfig['schemas'] = [
+      { files: ['skills/*/SKILL.md'], schema: 'checkride:agent-skill', format: 'frontmatter', note: 'why' },
+      { files: ['data/*.json'], schema: 'schemas/data.json' },
+    ];
+    expect(validate({ schemas: rules })).toBe(true);
+    expect(validate({ schemas: [] })).toBe(true);
+    for (const ref of ['https://example.com/s.json', 'HTTP://example.com/s.json', '/etc/s.json', '']) {
+      expect(validate({ schemas: [{ files: ['a.json'], schema: ref }] }), ref).toBe(false);
+    }
+    expect(validate({ schemas: [{ files: ['a.json'] }] })).toBe(false);
+    expect(validate({ schemas: [{ files: ['a.json'], schema: 'a.json', format: 'toml' }] })).toBe(false);
+    expect(validate({ schemas: { files: ['a.json'], schema: 'a.json' } })).toBe(false);
+  });
+
   /** A definition's `enum`, read out of the schema file. */
   const definitionEnum = (path: readonly string[]): unknown => {
     let node: unknown = schema;

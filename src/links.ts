@@ -61,14 +61,19 @@ export type LinksOptions = {
 
 /**
  * Directories never walked for markdown — build output, VCS, tool caches,
- * installed dependencies (`node_modules`, and the providers `terraform init`
- * unpacks under `.terraform/`, each with a README whose links point into docs
- * it doesn't ship), and test fixtures, whose markdown is test data and whose
- * broken links are usually deliberate. `exclude` only adds to this set, so a
- * repo can't opt a `fixtures/` directory back in.
+ * installed dependencies (`node_modules`, Go's `vendor/`, the `.venv/` that
+ * `uv sync` fills, Cargo's `target/`, and the providers `terraform init`
+ * unpacks under `.terraform/`, each holding READMEs whose links point into
+ * docs the package doesn't ship), and test fixtures, whose markdown is test
+ * data and whose broken links are usually deliberate. The walk reads the
+ * filesystem, not git, so a gitignored `.venv/` would be read too. `exclude`
+ * only adds to this set, so a repo can't opt a `fixtures/` directory back in.
  */
 const DEFAULT_EXCLUDE_DIRS: readonly string[] = [
   'node_modules',
+  'vendor',
+  '.venv',
+  'target',
   '.terraform',
   'dist',
   '.check',

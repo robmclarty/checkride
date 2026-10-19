@@ -44,6 +44,33 @@
         }
       }
     },
+    "schemas": {
+      "type": "array",
+      "description": "Rules for the schema slot, which validates data files against JSON Schemas. That slot ships in a later release: until then a run checks each rule's schema reference and acts on nothing else here.",
+      "items": {
+        "type": "object",
+        "required": ["files", "schema"],
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Globs, relative to the repo root, for the files this rule validates."
+          },
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?!/)",
+            "description": "A bundled checkride:<id> schema or a path relative to the repo root. Never a URL or an absolute path, because a check never fetches."
+          },
+          "format": {
+            "enum": ["json", "jsonc", "yaml", "frontmatter"],
+            "description": "How each file is read. Unset, it follows the extension: .json, .jsonc, .yml or .yaml, and .md (frontmatter)."
+          },
+          "note": { "$ref": "#/definitions/note" }
+        }
+      }
+    },
     "targets": {
       "type": "object",
       "minProperties": 1,

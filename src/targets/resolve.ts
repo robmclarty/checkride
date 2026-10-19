@@ -337,7 +337,7 @@ export function configuredTargets(config: { readonly targets?: unknown } | null)
 
 /**
  * R2.1's order: the packs a repo's root can be checked as without targets,
- * first match first. The two that haven't shipped join as their packs do.
+ * first match first.
  */
 const IMPLICIT_ORDER: readonly string[] = ['ts', 'go', 'rust', 'python', 'terraform'];
 

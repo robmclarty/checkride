@@ -181,6 +181,20 @@ type TargetConfig = Noted & {
 /** Slot config for every target of one pack. */
 type PackConfig = Noted & { checks?: Record<string, SlotConfig> };
 
+/**
+ * One rule for the `schema` slot: the files it validates and the JSON Schema
+ * they must satisfy. The slot ships in a later release; until then the loader
+ * holds `schema` to its rule and no run acts on the rest.
+ */
+type SchemaRule = Noted & {
+  /** Globs, relative to the repo root, for the files the rule validates. */
+  files: string[];
+  /** A bundled `checkride:<id>` schema or a repo-relative path, never a URL or an absolute path. */
+  schema: string;
+  /** How each file is read; unset, it follows the extension. */
+  format?: 'json' | 'jsonc' | 'yaml' | 'frontmatter';
+};
+
 /** Shape of `checkride.config.json`. */
 export type CheckrideConfig = Noted & {
   /** URL of the JSON Schema for this file, for editor validation. Ignored by the runner. */
@@ -220,6 +234,8 @@ export type CheckrideConfig = Noted & {
   requirePins?: boolean;
   /** The `unclaimed` check's settings: marker paths it never reports. */
   unclaimed?: { ignore?: string[] };
+  /** Data-file rules for the `schema` slot, which a later release ships. */
+  schemas?: SchemaRule[];
 };
 
 /**
