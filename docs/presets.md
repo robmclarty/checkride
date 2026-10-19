@@ -28,7 +28,7 @@ Three moving parts:
      "$schema": "./node_modules/checkride/schema/checkride.config.schema.json",
      "extends": "@acme/checkride-preset",
      "checks": {
-       "test": { "timeout": 120000 }
+       "test": { "timeout": 120 }
      }
    }
    ```
@@ -161,7 +161,7 @@ A shared preset is a floor, not a straitjacket. Local config always wins over an
 inherited preset, so a repo can adjust without forking the preset:
 
 - **Tweak one field** — objects deep-merge, so
-  `"test": { "timeout": 300000 }` overrides just the timeout and keeps the
+  `"test": { "timeout": 300 }` overrides just the timeout (in seconds) and keeps the
   inherited command and args.
 - **Replace a list** — arrays replace rather than concatenate, so setting
   `args` or `detect` locally supplies the whole new list.
