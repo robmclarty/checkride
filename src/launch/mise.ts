@@ -179,11 +179,11 @@ export function miseCanRun(
 }
 
 /**
- * Whether mise answered yes, or the line of its error that says why it
- * didn't, and whether that's a config file mise hasn't trusted, with the path
- * mise names for it when it names one.
+ * Whether mise answered yes, with what it printed, or the line of its error
+ * that says why it didn't, and whether that's a config file mise hasn't
+ * trusted, with the path mise names for it when it names one.
  */
-export type MiseAnswer = { ok: true } | { ok: false; detail: string; untrusted: boolean; config?: string };
+export type MiseAnswer = { ok: true; stdout: string } | { ok: false; detail: string; untrusted: boolean; config?: string };
 
 /**
  * The line mise gives a config file it won't read until someone runs `mise
@@ -197,14 +197,14 @@ const UNTRUSTED_PATH = /^Config files in (.+) are not trusted\b/;
 
 /**
  * Ask mise `args` from `cwd` with `env`, waiting at most
- * {@link MISE_WHICH_TIMEOUT_MS}: a zero exit is yes, and otherwise the detail
- * is mise's line for an untrusted config, else its first error line, its
- * `WARN` lines (an update notice, say) passed over.
+ * {@link MISE_WHICH_TIMEOUT_MS}: a zero exit is yes, with mise's stdout, and
+ * otherwise the detail is mise's line for an untrusted config, else its first
+ * error line, its `WARN` lines (an update notice, say) passed over.
  */
 function askMise(mise: string, args: readonly string[], cwd: string, env: Readonly<Record<string, string | undefined>>): MiseAnswer {
   try {
-    execFileSync(mise, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], timeout: MISE_WHICH_TIMEOUT_MS });
-    return { ok: true };
+    const stdout = execFileSync(mise, args, { cwd, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: MISE_WHICH_TIMEOUT_MS });
+    return { ok: true, stdout };
   } catch (error) {
     const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr) : '';
     const lines = stderr.split('\n').filter((l) => !l.startsWith('mise WARN'));
@@ -320,8 +320,9 @@ export function loadPinsFile(path: string): ReadonlyMap<string, string> {
 /**
  * Whether mise has installed `spec` (`<id>@<version>`), asked through
  * `mise where` from `cwd` under {@link overrideEnv} for the repo at `repo`,
- * which exits 1 for a version it hasn't installed and downloads nothing, or
- * why not when it hasn't.
+ * which prints the install's directory, named for the version a prefix
+ * resolved to, or exits 1 for a version it hasn't installed and downloads
+ * nothing, or why not when it hasn't.
  */
 export function miseHasInstalled(
   mise: string,

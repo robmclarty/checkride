@@ -319,7 +319,8 @@ describe('CLI defaults layer (--defaults / CHECKRIDE_DEFAULTS)', () => {
  * Contract: `--pins <mise.toml>` and `CHECKRIDE_PINS` name an override pin
  * file (R13.3). The summary records it as `run.pins`, the flag beats the
  * variable, a missing file or an entry with no version is exit 2 naming the
- * file, and `doctor` refuses the flag rather than ignore it.
+ * file, and `doctor` probes each tool the file pins through the `override`
+ * source, as a run launches it.
  */
 describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
   let dir: string;
@@ -361,10 +362,19 @@ describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
     expect(existsSync(join(dir, '.check', 'summary.json'))).toBe(true);
   });
 
-  test('doctor refuses --pins rather than probe copies the run wouldn’t use', async () => {
-    const stderr = capture();
-    expect(await runCli(['doctor', '--pins', 'pins.toml'], deps(stderr))).toBe(2);
-    expect(stderr.text()).toContain("--pins applies to a run; doctor doesn't read it yet");
+  test('doctor reads --pins: a check whose tool the file pins resolves through override, and a bad file exits 2', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { scripts: { lang: 'bash', root: 'scripts' } }, checks: { links: false } }));
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'a.sh'), '#!/bin/sh\n');
+    await writeFile(join(dir, 'scripts', '.shellcheckrc'), '');
+    const stdout = capture();
+    const code = await runCli(['doctor', '--pins', 'pins.toml', '--json'], deps(capture(), {}, stdout));
+    expect([0, 1]).toContain(code);
+    const report = JSON.parse(stdout.text()) as { checks: { slot?: string; pinSource?: string; expected: string | null }[] };
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({ pinSource: 'override', expected: 'shellcheck@0.11.0 installed' });
+    const missing = capture();
+    expect(await runCli(['doctor', '--pins', 'nope.toml'], deps(missing))).toBe(2);
+    expect(missing.text()).toContain('--pins names a missing file');
   });
 });
 
@@ -372,7 +382,8 @@ describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
  * Contract: `--static-only` keeps only the checks that read the repo as data
  * (R13.4). Every other selected check is skipped with a `static-only:` reason,
  * one whose tool needs an install included, and the run records
- * `run.static_only` and `run.partial`. `doctor` refuses it for now.
+ * `run.static_only` and `run.partial`. `doctor --static-only` reports the
+ * same skips with the same reasons, and an uninstalled checkout fails nothing.
  */
 describe('CLI static-only (--static-only)', () => {
   let dir: string;
@@ -416,10 +427,17 @@ describe('CLI static-only (--static-only)', () => {
     expect(ran).toEqual(['links']);
   });
 
-  test('doctor refuses it rather than report checks a static run wouldn’t keep', async () => {
-    const stderr = capture();
-    expect(await runCli(['doctor', '--static-only'], { cwd: dir, stdout: capture(), stderr, env: {} })).toBe(2);
-    expect(stderr.text()).toContain("--static-only applies to a run; doctor doesn't read it yet");
+  test('doctor reports each check a static run skips, with the run’s reason, and passes the uninstalled repo', async () => {
+    const stdout = capture();
+    expect(await runCli(['doctor', '--static-only', '--json'], { cwd: dir, stdout, stderr: capture(), env: {} })).toBe(0);
+    const report = JSON.parse(stdout.text()) as { checks: { slot?: string; skip?: string; required: boolean }[] };
+    const skip = (slot: string): string | undefined => report.checks.find((c) => c.slot === slot)?.skip;
+    expect(skip('types')).toBe("static-only: tsc isn't a static check");
+    expect(skip('lint')).toBe('static-only: oxlint runs with --type-aware, which needs the install');
+    expect(skip('test')).toBe("static-only: vitest isn't a static check");
+    expect(skip('docs')).toMatch(/^static-only: needs an install \(the `docs` slot needs `markdownlint-cli2`/);
+    expect(skip('spell')).toMatch(/^static-only: needs an install \(the `spell` slot needs `cspell`/);
+    expect(skip('links')).toBeUndefined();
   });
 });
 

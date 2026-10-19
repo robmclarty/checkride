@@ -167,8 +167,9 @@ Run options:
   --all            Include every opt-in slot
   --changed        Affected-only mode (incremental)
   --static-only    Keep only checks that read the repo as data, skipping any
-                   that would run its code or need its install. A selector for
-                   a run before the install, not a sandbox; never ratchets.
+                   that would run its code or need its install (also on
+                   doctor). A selector for a run before the install, not a
+                   sandbox; never ratchets.
   --discover       Check the targets the repo's files propose, as if the
                    config declared them (where it declares some, those run,
                    with a note; also on doctor). Writes nothing and never
@@ -193,7 +194,8 @@ Run options:
                    doctor). A run with it never ratchets the baseline.
   --pins <mise.toml>  Run each tool this file's [tools] pins as that version,
                    through mise, ahead of the repo's own pins (or set
-                   CHECKRIDE_PINS). Never installs; never ratchets the baseline.
+                   CHECKRIDE_PINS; also on doctor). Never installs; never
+                   ratchets the baseline.
   -h, --help       Show this help
   -V, --version    Show the version
 
@@ -738,15 +740,15 @@ async function doctorConfig(discover: boolean, named: NamedConfig | null, deps: 
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   const { flags, config, out, defaults, pins } = parseCliArgs(argv);
-  // Refused rather than ignored: doctor's probes don't read either yet.
-  if (pins !== undefined) throw new Error("--pins applies to a run; doctor doesn't read it yet");
-  if (flags.staticOnly === true) throw new Error("--static-only applies to a run; doctor doesn't read it yet");
   const named = namedConfig(config, deps);
   const layer = namedDefaults(defaults, deps);
+  const overrides = namedPins(pins, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
     ...(await doctorConfig(flags.discover === true, named, deps)),
     ...(layer ? { defaults: layer.config } : {}),
+    ...(overrides ? { pins: overrides } : {}),
+    ...(flags.staticOnly === true ? { staticOnly: true } : {}),
     ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,

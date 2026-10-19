@@ -456,7 +456,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   no version string exits 2 naming the file. Detection still reads only the
   repo, so the file changes which copy runs, never which checks run. A run
   with it never ratchets the baseline, its summary records `run.pins`, and
-  the stop gate strips the variable. `doctor` refuses the flag for now (#7).
+  the stop gate strips the variable. `doctor --pins` probes the same copies:
+  each check whose tool or toolchain the file pins reports the `override`
+  source and the version `mise where` finds for it, a version mise hasn't
+  installed names the `mise install` it needs, and a tool the file pins
+  leaves the unpinned rows (#7).
 - **Run only the checks that read the repo as data with `--static-only`.** A
   pre-sandbox pass over a checkout nobody has installed keeps a check only
   when its adapter is marked static (prettier, biome, oxlint, ast-grep,
@@ -483,7 +487,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   swapped in or the first argument it added. The run is partial, so it never
   ratchets. It's a best-effort selector, not a sandbox:
   a tool release can add a way to load code that these sniffs don't know.
-  `doctor` refuses the flag for now (#7).
+  `doctor --static-only` reports each check such a run would skip, with the
+  same reason, asks the run's launcher whether each kept check's tool
+  resolves without an install, and warns about a missing install rather than
+  fail for it (#7).
 - **A guide to running checkride from outside a repo.** `docs/consumers.md`
   walks a reviewer, a CI job or an agent through the consumer flags, a
   defaults file, the pre-sandbox and sandbox passes, comparing the base
@@ -766,9 +773,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `discovered`, and exits as the run would without it. The exported
   `RunFlags` type gains an optional `discover`.
 - Additive: the run flag `--pins <mise.toml>`, the variable `CHECKRIDE_PINS`,
-  the `pin_source` value `override` and `run.pins`, which runs now write. The
-  exported `RunOptions` type gains an optional `pins` (`{ path, tools }`), and
-  the `CheckRunner` context an optional `overrides`.
+  the `pin_source` value `override` and `run.pins`, which runs now write, and
+  `doctor` reads too. The exported `RunOptions` and `DoctorOptions` types gain
+  an optional `pins` (`{ path, tools }`), the `CheckRunner` context an
+  optional `overrides`, and `DoctorCheck` an optional `toolVersion`.
 - Additive: the run flag `--static-only`, the summary's `run.static_only`,
   which a run now writes, and `run.partial`, now also true under it. Adapter
   rows gain optional `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs` and
@@ -777,7 +785,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `staticDrop`, which no row sets; the config schema's slot and
   custom check entries gain `static`, which only a defaults file may set. The
   exported `RunFlags` type gains an optional `staticOnly`, and the
-  `CheckRunner` context an optional `staticOnly`.
+  `CheckRunner` context an optional `staticOnly`. `doctor` takes the flag
+  too: `DoctorOptions` gains an optional `staticOnly`, and `DoctorCheck` an
+  optional `skip`.
 - Additive: the config schema's custom check entry gains `skipExitCode`
   (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
   `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A

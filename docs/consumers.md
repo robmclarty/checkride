@@ -98,6 +98,16 @@ The checks that remain run your pinned copies wherever your `mise.toml` names
 the tool: each records `pin_source: "override"` and the version it ran. Both
 passes are consumer runs, so neither touches the repo's baseline.
 
+`doctor` takes the same flags and runs no check. Before the first pass, it
+lists each check that pass would skip, with the same reason, and for each tool
+your `mise.toml` pins, the version mise has installed, or the `mise install` a
+version it lacks needs:
+
+```bash
+checkride doctor --discover --defaults /agent/defaults.json \
+  --pins /agent/mise.toml --static-only
+```
+
 mise reads no config file inside the repo for a tool your pins run. checkride
 adds the repo root to `MISE_IGNORED_CONFIG_PATHS`, after any paths your
 environment already names, both for the `mise where` that confirms the version

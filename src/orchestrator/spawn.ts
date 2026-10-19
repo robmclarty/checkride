@@ -303,6 +303,21 @@ function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: 
   return run === undefined ? null : run({ adapter, ctx, base: { cwd: ctx.cwd, spawn: spawnCheck, timeoutSec: timeout } });
 }
 
+/** A refusal's first line, its `checkride: ` prefix and closing period dropped, as a skip reason quotes it. */
+function refusalDetail(refusal: string): string {
+  const first = refusal.split('\n').find((line) => line.trim() !== '') ?? refusal;
+  return first.replace(/^checkride:\s*/, '').replace(/\.$/, '');
+}
+
+/**
+ * The reason `--static-only` skips a check with when the launcher refuses its
+ * tool, which `doctor --static-only` gives the same check: the tool needs an
+ * install, in the refusal's own words.
+ */
+export function installSkip(refusal: string): string {
+  return `static-only: needs an install (${refusalDetail(refusal)})`;
+}
+
 /**
  * The outcome a check records when the launcher refuses to spawn it: the
  * launcher's message on stderr, and exit 1.
@@ -314,15 +329,9 @@ function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: 
  * surface, and the one the reader has to act on. Reporting it as -1 would tell
  * them to ignore it.
  */
-/** A refusal's first line, its `checkride: ` prefix and closing period dropped, as a skip reason quotes it. */
-function refusalDetail(refusal: string): string {
-  const first = refusal.split('\n').find((line) => line.trim() !== '') ?? refusal;
-  return first.replace(/^checkride:\s*/, '').replace(/\.$/, '');
-}
-
 function refusedOutcome(refusal: string, ctx: Parameters<CheckRunner>[1]): CheckOutcome {
   // Under --static-only, a tool that needs an install is a skip, not a failure (R6.2).
-  if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: `static-only: needs an install (${refusalDetail(refusal)})` };
+  if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: installSkip(refusal) };
   return { ok: false, exit_code: 1, stdout: '', stderr: refusal };
 }
 

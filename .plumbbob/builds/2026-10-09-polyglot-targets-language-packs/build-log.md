@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 84 — fix(launch): run --pins overrides outside the repo's mise config
+**Current step:** 81 — feat(doctor): read --pins and --static-only instead of refusing them
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -100,7 +100,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☐ 68. feat(findings): parse the schema slot's report
 - ☑ 72. fix(init): make the mise route install, and test and document it
 - ☑ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
-- ☐ 84. fix(launch): run --pins overrides outside the repo's mise config
+- ☑ 84. fix(launch): run --pins overrides outside the repo's mise config
 - ☐ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
@@ -188,7 +188,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a mise.toml mise hasn't trusted, which every language scaffold is until mise trust runs since checkride's entry sets a tool option, makes each mise-pinned check refuse with only mise's first stderr line ('error parsing config file') and name mise install, and the gate hook's mise which checkride test reads it as not installed; both should name mise trust
 - [x] under --pins, mise where reads the repo's own mise.toml, so an untrusted one refuses the override and its refusal asks a consumer to trust a repo it may be reviewing; consider having the override ignore the repo's config (MISE_IGNORED_CONFIG_PATHS, or asking from outside the repo)
 - [x] checkride's own mise calls can trust a repo's mise.toml unasked: an inherited MISE_YES makes the launcher's mise which trust it, and outside paranoid mode the gate hook's mise exec -- checkride trusts it (mise 2026.10.4); decide whether the launcher strips MISE_YES and whether docs/distribution.md says exec trusts
-- [ ] docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo (MISE_IGNORED_CONFIG_PATHS, D83); fold it in at step 73
+- [x] docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo (MISE_IGNORED_CONFIG_PATHS, D83); fold it in at step 73
+- [ ] doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown, and one that runs by default fails doctor (examples/go-module's greeter:dead)
+- [ ] a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0); should the run record the resolved release too?
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -302,6 +304,8 @@ Harvest results this boundary:
 
 - After step 83: "under --pins, mise where reads the repo's own mise.toml ..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D83 (override-outside-repo) and as step 84, ordered to build next, before step 81, so the override runs the consumer's toolbelt without reading, refusing on, or trusting any config inside the repo, and step 81's `doctor --pins` probes through that path (probed: the repo root in `MISE_IGNORED_CONFIG_PATHS` lets `mise where` and `mise exec <id>@<version>` succeed in an untrusted repo, ignores every config beneath it, and leaves the file untrusted).
 - After step 83: "checkride's own mise calls can trust a repo's mise.toml unasked ..." → **tangent**, deferred: an inherited `MISE_YES` is the user saying yes to mise's prompts on their own machine, the gate's `mise exec` trusting the file is mise's documented normal-mode behavior on the entry command the repo chose, and once step 84 lands a consumer's `--pins` run never reaches a trust prompt. Stripping `MISE_YES` from the launcher's mise calls was offered as a ride-along on step 84 and not taken; step 73's docs pass may note that `exec` trusts.
+
+- After step 84: "docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo ..." → **tangent**, deferred to step 73 (doc-only: step 84's behavior is unit- and e2e-tested, and step 73's done-when already asks `docs/packs.md` to cover every pin source and environment variable and `docs/contract.md` to name every surface this build added; step 81, whose seam holds `docs/contract.md` and edits the same `--pins` paragraph, may fix the contract half on the way).
 
 ## Log
 
@@ -2939,3 +2943,45 @@ folder, so it rides the branch into the PR.)*
   **5.** Two docs outside the seam got one sentence each, under C11 (docs-in-step)
 
   `docs/packs.md` describes how the `mise` source asks `mise which` and what the hook script tests, so both passages now mention the untrusted case. `docs/distribution.md` now says each check fails naming `mise trust` until the file is trusted. The CHANGELOG changes amend the three unreleased entries (the pin chain, the no-`package.json` gate, and `--pins`) rather than adding a Fixed entry, because none of this behavior shipped in 0.14.0. That's the same approach step 72 took.
+
+- 2026-10-18 — step 84 checkpointed · 5b8323c2d — fix(launch): run --pins overrides outside the repo's mise config (1 drift, 13m)
+
+  **Summary**: Under `--pins`, mise now reads no config file inside the repo, for both the `mise where` that confirms a version and the `mise exec` that runs it. A fresh clone whose `mise.toml` mise hasn't trusted no longer refuses the override and never gets trusted by it, and the repo's `[env]` stays out of the check.
+
+  1. The override asks and runs mise with the repo root ignored
+  2. A refusal names mise trust only for a config outside the repo
+  3. An e2e runs --pins in an untrusted go scaffold, and the file stays untrusted
+  4. The docs say so, and two more docs are parked for step 73
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    3 of 3 honored
+  constraints  12 of 12 honored
+  seam         strayed: 1 path outside the seam
+               → src/launch/__tests__/resolve.test.ts
+  diff         +241 -52 across 6 files
+  spent        13 min · 1 turn · 89s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land step 84. Step 81's `doctor --pins` can then probe through `miseHasInstalled`, which already takes the repo root, so doctor reads the same way the run does.
+
+  **1.** The override asks and runs mise with the repo root ignored
+
+  `src/launch/mise.ts` gains `overrideEnv(repo, env)`. It returns the old offline, no-install variables plus `MISE_IGNORED_CONFIG_PATHS`, with the repo root added after any paths the environment already names (colon-joined). `miseHasInstalled` now takes `{ cwd, repo }` and asks `mise where` under that environment, and `runOverride` in `src/launch/resolve.ts` puts the same variables on the `mise exec` spawn. Every override path shares `runOverride`, so a pinned tool, a pinned toolchain such as `go`, a `go tool` run through a pinned `go`, and terraform-as-tofu all carry the variable. `OVERRIDE_ENV` is no longer exported, since nothing outside `mise.ts` needs it. I probed mise 2026.10.4 before writing this. It splits the list on `:` and resolves a symlinked `/tmp` path itself. A config in a subdirectory is ignored too, and an `[env]` variable stays unset inside `mise exec` even with `MISE_YES=1`. The orchestrator always passes the run root as `repo` (`execute.ts` and `fix.ts`), so a target-scope check ignores the root's config as well as its own.
+
+  **2.** A refusal names mise trust only for a config outside the repo
+
+  mise's answer now carries the path its trust line names (`Config files in <path> are not trusted.`). `overrideCause` sorts a refusal three ways. If the version isn't installed, the refusal names `mise install <id>@<version>`, as before. If the untrusted config is outside the repo, it opens "mise won't read a config file outside the repo until it's trusted" and keeps the `mise trust` remedy. If the config is inside the repo, or mise names no path, the refusal names neither `mise trust` nor an install: it says this mise ignored `MISE_IGNORED_CONFIG_PATHS` and asks for a mise upgrade instead, since trusting the file would let a repo under review set the check's environment. The inside-or-outside test reuses `isInside` from `src/artifacts/`, which compares real paths, so macOS's `/var` symlink can't flip it. There are unit tests for each case: the variable on `mise where` (recorded by a fake mise) and on `mise exec`, a value already set in the environment, the go toolchain, and all three refusal causes.
+
+  **3.** An e2e runs --pins in an untrusted go scaffold, and the file stays untrusted
+
+  `test/e2e/consumers.e2e.test.ts` gains a case. It scaffolds `init --lang go`, keeps mise's trust state in a directory of its own, and runs `--pins <agent>/mise.toml --only app:types` with go pinned at the dev version. It finds `ok: true`, `pin_source: "override"`, the pinned `tool_version`, and argv `mise exec go@<version>`. Then `mise trust --show` still reports the scaffold untrusted. The run sets `MISE_YES=1` on purpose, because under it mise trusts any config it reads, so only the ignore keeps the file untrusted. I checked that the case bites: with `overrideEnv` reverted in `dist/`, it fails because mise had trusted the scaffold, and it passes once the file is restored. My first draft put the pins file in the scaffold's parent directory, where mise read it as an ancestor config, so it now lives in its own `agent/` directory. The whole consumers e2e file passes with `CHECKRIDE_REQUIRE_TOOLCHAINS=1` (4 of 4).
+
+  **4.** The docs say so, and two more docs are parked for step 73
+
+  `docs/consumers.md` gains a paragraph under the two passes. The `--pins` entry in `CHANGELOG.md` is still unreleased, so I amended it instead of adding a Fixed line, as step 83 did. `docs/packs.md`'s override row and `docs/contract.md`'s `--pins` paragraph still say only "offline and with installs off". Both are outside the seam, so I parked them for step 73, which folds in the contract.

@@ -524,7 +524,10 @@ holds another language's markers, such as a `go.mod` below a ts root, which
 the one implicit project leaves unchecked, as a hint to declare targets.
 Neither row ever fails `doctor`. `doctor --json` carries the same as `mode`,
 `pack` (implicit mode only), `targets`, `unclaimed`, and each row's `target`
-and `pinSource`.
+and `pinSource`. Under `--pins`, a check whose tool the file pins resolves
+through `override` first, as in a run, and its row's `toolVersion` is the
+version `mise where` finds. Under `--static-only`, a check a static run would
+skip carries that run's `static-only:` reason as `skip`, and fails nothing.
 
 ## The spawn environment
 

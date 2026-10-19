@@ -532,7 +532,13 @@ The flag beats the variable, an empty variable counts as unset, and a relative
 path resolves against the working directory. A run with it never ratchets and
 never writes `checkride.baseline.json`, its summary records the file as
 `run.pins`, and `gate` strips `CHECKRIDE_PINS` from the check it spawns.
-`doctor` refuses the flag for now, exit 2, rather than probe the wrong copies.
+`doctor` reads the flag and the variable the same way, and probes the copies
+such a run would launch: each check whose tool or toolchain the file pins
+reports `pinSource: "override"` and, as `toolVersion`, the version
+`mise where` finds for it, a prefix resolved to the installed release. A
+version mise hasn't installed reports the tool missing, naming the
+`mise install` that would fix it, and a tool the file pins leaves the
+unpinned rows.
 
 **`--static-only` keeps only the checks that read the repo as data.** It's
 a selector for a run before the repo is installed or sandboxed, and it isn't
@@ -570,8 +576,11 @@ The static adapters are prettier, biome and biome-format, oxlint, ast-grep,
 markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt and gofmt, and
 the `links` and `unclaimed` built-ins; the rest never qualify. The run is
 partial, so `run.partial` and `run.static_only` are `true`, and it never
-ratchets or writes `checkride.baseline.json`. `doctor` refuses the flag for
-now.
+ratchets or writes `checkride.baseline.json`. `doctor --static-only` reports
+what such a run would do: each check it would skip carries the same
+`static-only: <cause>` as `skip` and fails nothing, the run's own launcher
+says whether each kept check's tool resolves without an install, and a
+missing install is a warning rather than a failure.
 
 **`--discover` checks the targets the repo's files propose.** Run and
 `doctor` take the targets discovery proposes, the ones existing-mode `init`

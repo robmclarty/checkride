@@ -161,7 +161,7 @@ function runOverride(req: ToolRequest, pinned: Override, argv: readonly string[]
   const mise = findOnPath('mise', req.env);
   if (mise === null) return { refusal: overrideRefusal(req, spec, "`mise` isn't on PATH", 'uninstalled') };
   const has = miseHasInstalled(mise, spec, req, req.env);
-  if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`, overrideCause(req, has)) };
+  if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`, overrideCause(req.repo, has)) };
   const env = overrideEnv(req.repo, req.env);
   return { command: 'mise', args: ['exec', spec, '--', ...argv], env, pin: { source: 'override', version: pinned.version } };
 }
@@ -388,8 +388,17 @@ function languageSignal(declared: Declared, tool: Tool): string | null {
   return null;
 }
 
-/** Where a check's tool is looked up: the directory it runs from, the repo root a search stops at, and its pin chain. */
-type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[] };
+/**
+ * Where a check's tool is looked up: the directory it runs from, the repo
+ * root a search stops at, its pin chain, and the `--pins` file's tools, which
+ * an `override` source in that chain reads.
+ */
+type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[]; overrides?: ReadonlyMap<string, string> };
+
+/** The overrides a query's chain reads: the `--pins` file's tools when an `override` source heads it, else none. */
+function queryOverrides(at: PinQuery): ReadonlyMap<string, string> {
+  return at.pins.includes('override') ? (at.overrides ?? new Map()) : new Map();
+}
 
 /**
  * The source a check's tool would resolve through, found by file reads alone,
@@ -401,7 +410,7 @@ type PinQuery = { cwd: string; repo: string; pins: readonly PinSourceName[] };
  */
 export function pinResolution(bin: string, at: PinQuery): { source: PinSourceName; declaredBy: string | null } | null {
   const tool = toolRow(bin);
-  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {}, overrides: new Map(), staticOnly: false };
+  const req: ToolRequest = { slot: '', tool, args: [], cwd: at.cwd, repo: at.repo, pm: 'pnpm', chain: at.pins, requirePins: false, env: {}, overrides: queryOverrides(at), staticOnly: false };
   const sources = at.pins.filter((n) => n !== 'path');
   for (const name of sources) {
     const source = SOURCES[name];
@@ -420,6 +429,23 @@ export function pinResolution(bin: string, at: PinQuery): { source: PinSourceNam
  */
 export function pinDeclaration(bin: string, at: PinQuery): string | null {
   return pinResolution(bin, at)?.declaredBy ?? null;
+}
+
+/**
+ * The copy of a tool or toolchain the `--pins` file pins for a check's
+ * invocation, found by file reads alone as the launcher finds it: a tool the
+ * `override` source at the head of `at.pins` declares, or a toolchain the
+ * check runs, which runs the file's copy in any chain (R13.3). `null` when
+ * the check runs nothing the file pins, or no `override` source heads its
+ * chain.
+ */
+export function overridePin(command: string, args: readonly string[], at: PinQuery): { bin: string; id: string; version: string } | null {
+  if (!at.pins.includes('override')) return null;
+  const ctx: LaunchContext = { cwd: at.cwd, repo: at.repo, pm: 'pnpm', pins: at.pins, overrides: queryOverrides(at) };
+  const tool = execTool(command, args);
+  const asked = tool === null ? chosenToolchain(command, at.pins, ctx) : toolRow(tool);
+  const pinned = asked === undefined ? null : overrideOf(toolRequest('', asked, [], at.pins, ctx), asked);
+  return asked === undefined || pinned === null ? null : { bin: asked.bin, ...pinned };
 }
 
 /**
@@ -642,16 +668,17 @@ function unpinnedRefusal(req: ToolRequest, found: string): string {
  * outside the repo it hasn't trusted, or one inside the repo, which a mise
  * honoring `MISE_IGNORED_CONFIG_PATHS` never reads (D83).
  */
-type OverrideCause = 'uninstalled' | 'untrusted' | 'repo-config';
+export type OverrideCause = 'uninstalled' | 'untrusted' | 'repo-config';
 
 /**
- * Why `mise where` refused an override pin. An untrusted config counts as
- * one outside the repo only when mise names a path there, so a refusal never
- * asks a consumer to trust a file in a repo it may be reviewing.
+ * Why `mise where` refused an override pin for the repo at `repo`. An
+ * untrusted config counts as one outside the repo only when mise names a path
+ * there, so a refusal never asks a consumer to trust a file in a repo it may
+ * be reviewing.
  */
-function overrideCause(req: ToolRequest, why: MiseRefusal): OverrideCause {
+export function overrideCause(repo: string, why: MiseRefusal): OverrideCause {
   if (!why.untrusted) return 'uninstalled';
-  return why.config !== undefined && !isInside(req.repo, why.config) ? 'untrusted' : 'repo-config';
+  return why.config !== undefined && !isInside(repo, why.config) ? 'untrusted' : 'repo-config';
 }
 
 /** How an override refusal's headline ends, and what it asks for, by cause. */

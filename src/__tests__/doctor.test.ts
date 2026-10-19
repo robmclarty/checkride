@@ -12,6 +12,7 @@ import type { DoctorCheck, DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PinEnv } from '../node-pin.js';
 import type { PackageManager } from '../launch/index.js';
+import { launchCheck } from '../launch/index.js';
 
 function sink(): { write: (text: string) => boolean; text: () => string } {
   const lines: string[] = [];
@@ -29,6 +30,8 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
     readEngines: () => ({ node: '>=22.18.0', pnpm: '>=9.0.0' }),
     platform: () => ({ os: 'linux', arch: 'x64' }),
     packageManager: () => 'pnpm',
+    miseWhere: (_mise: string, spec: string) => Promise.resolve({ ok: true, stdout: `/home/dev/.local/share/mise/installs/${spec.replace('@', '/')}\n` }),
+    launch: (_slot: string, command: string, args: readonly string[]) => ({ command, args: [...args] }),
     ...over,
   };
 }
@@ -814,5 +817,189 @@ describe('runDoctor in a root with no package.json', () => {
     const result = await doctorWhere((p) => !p.endsWith('pnpm-lock.yaml'));
     expect(result.report.checks.find((c) => c.name === 'install')).toMatchObject({ status: 'missing', required: true, expected: 'pnpm-lock.yaml present' });
     expect(result.ok).toBe(false);
+  });
+});
+
+/** A `mise where` that fails the test if doctor asks it at all. */
+const neverAsked: DoctorEnv['miseWhere'] = () => { throw new Error('asked mise where without --pins'); };
+
+/** A `mise where` that finds no copy at the version it's asked for. */
+const notInstalled: DoctorEnv['miseWhere'] = (_mise, spec) => Promise.resolve({ ok: false, detail: `${spec} not installed`, untrusted: false });
+
+/** A `mise where` that refuses because mise hasn't trusted the config file at `config`. */
+const untrustedAt = (config: string): Partial<DoctorEnv> => ({
+  miseWhere: () => Promise.resolve({ ok: false, detail: `Config files in ${config} are not trusted.`, untrusted: true, config }),
+});
+
+/**
+ * `doctor --pins` probes the copies a `--pins` run would launch (R13.3): each
+ * check whose tool or toolchain the file pins resolves through the `override`
+ * source, reports the version `mise where` finds, and names a version mise
+ * hasn't installed, and the unpinned list reads the file as a run does.
+ */
+describe('runDoctor under --pins', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-pins-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const put = async (path: string, content = ''): Promise<void> => {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), content);
+  };
+  const scripts: CheckrideConfig = { targets: { scripts: { lang: 'bash', root: 'scripts', checks: { format: 'shfmt' } } }, checks: { links: false } };
+  const pinned = (tools: Record<string, string>) => ({ path: join(dir, 'agent.toml'), tools: new Map(Object.entries(tools)) });
+  const doctor = (config: CheckrideConfig | null, tools: Record<string, string> | null, over: Partial<DoctorEnv> = {}, json = true) => {
+    const std = sink();
+    return runDoctor({ cwd: dir, config, env: fakeEnv(over), stdout: std, json, ...(tools !== null ? { pins: pinned(tools) } : {}) })
+      .then((result) => ({ ...result, text: std.text(), row: (slot: string) => result.report.checks.find((c) => c.slot === slot) }));
+  };
+
+  test('a tool the file pins resolves through override, with the version mise where finds, and leaves the unpinned list', async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    await put('scripts/.shellcheckrc');
+    const asked: { spec: string; cwd: string; repo: string }[] = [];
+    const miseWhere: DoctorEnv['miseWhere'] = (_mise, spec, at) => {
+      asked.push({ spec, ...at });
+      return Promise.resolve({ ok: true, stdout: `/home/dev/.local/share/mise/installs/shfmt/3.14.1\n` });
+    };
+    const { row, report, text, exitCode } = await doctor(scripts, { shfmt: '3.14' }, { miseWhere }, false);
+    expect(row('scripts:format')).toMatchObject({
+      pinSource: 'override', status: 'ok', toolVersion: '3.14.1', found: '/home/dev/.local/share/mise/installs/shfmt/3.14.1', expected: 'shfmt@3.14 installed',
+    });
+    expect(asked).toEqual([{ spec: 'shfmt@3.14', cwd: join(dir, 'scripts'), repo: dir }]);
+    // shellcheck, which the file doesn't pin, keeps the repo's own chain.
+    expect(row('scripts:lint')).toMatchObject({ pinSource: 'path' });
+    expect(report.checks.filter((c) => c.category === 'pin').map((c) => c.name)).toEqual(['shellcheck']);
+    expect(text.split('\n').find((l) => l.includes(' scripts:format '))).toMatch(/installed +override 3\.14\.1 {2}\[config\]$/);
+    expect(exitCode).toBe(0);
+  });
+
+  test('without --pins the same tool stays unpinned, and mise is never asked', async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    await put('scripts/.shellcheckrc');
+    const { row, report } = await doctor(scripts, null, { miseWhere: neverAsked });
+    expect(row('scripts:format')).toMatchObject({ pinSource: 'path' });
+    expect(row('scripts:format')).not.toHaveProperty('toolVersion');
+    expect(report.checks.filter((c) => c.category === 'pin').map((c) => c.name)).toEqual(['shfmt', 'shellcheck']);
+  });
+
+  test('a version mise hasn’t installed is named, and fails a check that runs by default, as the run fails it', async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    const { row, exitCode } = await doctor(scripts, { shfmt: '9.9.9' }, { miseWhere: notInstalled });
+    expect(row('scripts:format')).toMatchObject({ pinSource: 'override', status: 'missing', required: true, found: null, expected: 'shfmt@9.9.9 installed' });
+    expect(row('scripts:format')?.hint).toBe('mise where shfmt@9.9.9: shfmt@9.9.9 not installed. Checks never install a tool: run `mise install shfmt@9.9.9`.');
+    expect(exitCode).toBe(1);
+  });
+
+  test('an untrusted config names mise trust only when it sits outside the repo, and mise off PATH names mise', async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    const outside = await doctor(scripts, { shfmt: '3.14.1' }, untrustedAt('/home/dev/mise.toml'));
+    expect(outside.row('scripts:format')?.hint).toContain("mise won't read /home/dev/mise.toml until it's trusted");
+    expect(outside.row('scripts:format')?.hint).toContain('`mise trust`');
+    const inside = await doctor(scripts, { shfmt: '3.14.1' }, untrustedAt(join(dir, 'mise.toml')));
+    expect(inside.row('scripts:format')?.hint).toContain('Upgrade mise');
+    expect(inside.row('scripts:format')?.hint).not.toContain('mise trust');
+    const noMise = await doctor(scripts, { shfmt: '3.14.1' }, { which: (cmd: string) => Promise.resolve(cmd === 'mise' ? null : `/usr/bin/${cmd}`) });
+    expect(noMise.row('scripts:format')).toMatchObject({ pinSource: 'override', status: 'missing' });
+    expect(noMise.row('scripts:format')?.hint).toContain('Install mise');
+  });
+
+  test('a toolchain the file pins runs that copy in any chain, gofmt under go’s key included', async () => {
+    await put('go.mod', 'module example.com/m\n');
+    const specs: string[] = [];
+    const miseWhere: DoctorEnv['miseWhere'] = (_mise, spec) => {
+      specs.push(spec);
+      return Promise.resolve({ ok: true, stdout: '/home/dev/.local/share/mise/installs/go/1.27.2\n' });
+    };
+    const { row } = await doctor(null, { go: '1.27' }, { miseWhere });
+    expect(row('types')).toMatchObject({ adapter: 'go-build', pinSource: 'override', toolVersion: '1.27.2', status: 'ok' });
+    expect(row('format')).toMatchObject({ adapter: 'gofmt', pinSource: 'override', toolVersion: '1.27.2' });
+    expect(new Set(specs)).toEqual(new Set(['go@1.27']));
+  });
+});
+
+/** A checkout nobody has installed: whatever sits on disk, and no node_modules. */
+const uninstalled = (path: string): boolean => existsSync(path) && !path.includes('node_modules');
+
+/**
+ * `doctor --static-only` reports what a static run would do (R13.4): each
+ * check its sniffs skip, and each whose tool the launcher says needs an
+ * install, with the reason the run's summary records, and an uninstalled
+ * checkout fails nothing for it.
+ */
+describe('runDoctor under --static-only', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-static-'));
+    const files: Record<string, string> = {
+      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', cspell: '9.0.0', prettier: '3.6.0', typescript: '5.9.3' } }),
+      'pnpm-lock.yaml': '',
+      'tsconfig.json': '{}',
+      '.oxlintrc.json': '{}',
+      'cspell.json': '{}',
+      'prettier.config.js': 'export default {};\n',
+      'README.md': '# x\n',
+    };
+    for (const [path, text] of Object.entries(files)) await writeFile(join(dir, path), text);
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const doctor = (staticOnly: boolean, over: Partial<DoctorEnv> = {}, json = true) => {
+    const std = sink();
+    // The run's own launcher, unless a test swaps it, so a probe and a launch read the same checkout.
+    return runDoctor({ cwd: dir, config: { checks: { format: 'prettier' } }, env: fakeEnv({ exists: uninstalled, launch: launchCheck, ...over }), stdout: std, json, staticOnly })
+      .then((result) => ({ ...result, text: std.text(), row: (slot: string) => result.report.checks.find((c) => c.slot === slot) }));
+  };
+
+  test('each check the sniffs skip reports its static-only reason, and fails nothing', async () => {
+    const { row, exitCode } = await doctor(true);
+    expect(row('types')).toMatchObject({ skip: "static-only: tsc isn't a static check", status: 'n/a', required: false, enablement: 'default' });
+    expect(row('lint')).toMatchObject({ skip: 'static-only: oxlint runs with --type-aware, which needs the install', required: false });
+    expect(row('format')?.skip).toMatch(/^static-only: .*prettier\.config\.js/);
+    // An opt-in slot the config names runs by default, and still fails nothing when skipped.
+    expect(row('format')).toMatchObject({ enablement: 'default', origin: 'config', required: false });
+    expect(row('links')).not.toHaveProperty('skip');
+    expect(exitCode).toBe(0);
+  });
+
+  test('a kept check whose tool the launcher refuses is skipped as needing an install, as the run skips it', async () => {
+    const asked: { slot: string; staticOnly?: boolean; pins?: readonly string[] }[] = [];
+    const launch: DoctorEnv['launch'] = (slot, command, args, ctx) => {
+      asked.push({ slot, ...(ctx.staticOnly !== undefined ? { staticOnly: ctx.staticOnly } : {}), ...(ctx.pins !== undefined ? { pins: ctx.pins } : {}) });
+      return slot === 'spell'
+        ? { refusal: 'checkride: the `spell` slot needs `cspell`, which is not installed in this project.\n\n  looked for: …\n' }
+        : { command, args: [...args] };
+    };
+    const { row, exitCode } = await doctor(true, { launch });
+    expect(row('spell')).toMatchObject({
+      skip: 'static-only: needs an install (the `spell` slot needs `cspell`, which is not installed in this project)', status: 'n/a', required: false,
+    });
+    // Only the checks the sniffs kept, and never a built-in, reach the launcher.
+    expect(asked).toEqual([{ slot: 'spell', staticOnly: true, pins: ['js-lockfile'] }]);
+    expect(exitCode).toBe(0);
+  });
+
+  test('the launcher pre-flights node_modules/.bin under every package manager but a PnP install (R13.4)', async () => {
+    for (const pm of ['npm', 'yarn', 'bun'] as const) {
+      const { row } = await doctor(true, { packageManager: () => pm });
+      expect(row('spell')?.skip, pm).toMatch(/^static-only: needs an install \(the `spell` slot needs `cspell`, which is not installed in this project\)$/);
+    }
+  });
+
+  test('the install row warns rather than fails, and the table marks each skip with its reason', async () => {
+    const { report, text, exitCode } = await doctor(true, {}, false);
+    expect(report.checks.find((c) => c.name === 'install')).toMatchObject({ required: false, status: 'outdated', found: 'lockfile only' });
+    expect(report.checks.find((c) => c.name === 'install')?.hint).toContain('A --static-only run needs no install');
+    expect(text).toMatch(/· types +tsc +default +skipped/);
+    expect(text).toContain("-> static-only: tsc isn't a static check");
+    expect(text).toMatch(/skipped by --static-only\n/);
+    expect(exitCode).toBe(0);
+  });
+
+  test('without the flag the same checkout fails on its install, and no row carries a skip', async () => {
+    const { report, exitCode } = await doctor(false);
+    expect(report.checks.find((c) => c.name === 'install')).toMatchObject({ required: true, status: 'missing' });
+    expect(report.checks.some((c) => c.skip !== undefined)).toBe(false);
+    expect(exitCode).toBe(1);
   });
 });
