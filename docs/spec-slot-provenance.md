@@ -4,7 +4,10 @@
 
 # Spec: slot provenance — say *why* each check runs
 
-**Status:** draft (not yet built)
+**Status:** superseded by [the polyglot spec](./spec-polyglot.md), which absorbed
+both features as [D16 (provenance)](./spec-polyglot.md#d16): step 6 records `origin` and `detected_by` on
+every check, with the status line's bracket suffix, and step 18 has new-mode
+`init` write a config naming every slot it scaffolds. Kept as the design record.
 **Motivation:** a real adopter surprise, observed 2026-07-10 in volley: its
 `checkride.config.json` names three slots (`test`, `spell: false`, `docs: false`),
 yet a run executes eight. The other five arrive via zero-config detection

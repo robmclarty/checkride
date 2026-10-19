@@ -1,6 +1,8 @@
 # Spec: a test layout that `init` scaffolds and enforces
 
-**Status:** draft (not yet built). Written 2026-10-04, to be absorbed by `/plumbbob:plan`.
+**Status:** implemented by [the polyglot spec](./spec-polyglot.md)'s Phase 4, steps 12 to 17
+and 19, which built it as written, with Q1 to Q3 settled on their leans
+([D44 (test-layout-in)](./spec-polyglot.md#d44)). Written 2026-10-04; kept as the design record.
 
 **Provenance:** found while scaffolding `@robmclarty/keyframes` with `checkride init --shape flat`
 (0.13.0). That repo is the working reference: its `rules/` and

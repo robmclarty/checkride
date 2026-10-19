@@ -1117,7 +1117,7 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 
 ### Phase 14: close-out
 
-73. [ ] docs: document packs and targets and fold in the contract, **done when:** `docs/packs.md` and `docs/targets.md` cover every pack, slot, pin source and environment variable; the README slot table gains a scope column; `docs/contract.md` names every surface this build added, and says a `schemas` key is accepted while no run acts on it until a later build ([D85 (schema-deferred)](#d85)); docs-currency tests hold the pack tables against `PACKS`
+73. [x] docs: document packs and targets and fold in the contract, **done when:** `docs/packs.md` and `docs/targets.md` cover every pack, slot, pin source and environment variable; the README slot table gains a scope column; `docs/contract.md` names every surface this build added, and says a `schemas` key is accepted while no run acts on it until a later build ([D85 (schema-deferred)](#d85)); docs-currency tests hold the pack tables against `PACKS`
     - seam: `docs/packs.md`, `docs/targets.md`, `docs/contract.md`, `README.md`,
       `test/docs-currency.test.ts`
     - model: sonnet

@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 73 — docs: document packs and targets and fold in the contract
+**Current step:** 74 — chore: retire the drafts and run the opt-in audit
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -100,7 +100,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 84. fix(launch): run --pins overrides outside the repo's mise config
 - ☑ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☑ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
-- ☐ 73. docs: document packs and targets and fold in the contract
+- ☑ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
 
 ## Park list
@@ -192,6 +192,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green; decide whether the example gets a lockfile or the install row reads such a package.json as n/a
 - [x] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
 - [ ] links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes (a false red for a Go repo that commits vendor/); a behavior change with a test and CHANGELOG line, so it wants a step of its own rather than step 73's docs pass
+- [ ] pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release, reached only through the dev dependency markdownlint-cli2 0.23.3 (globby, micromatch); a low, GHSA-238p-pmpm-9mq7 katex <0.18.2 through markdownlint, has a fix a pnpm override could take. Neither ships, since checkride has no runtime dependencies
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -3099,3 +3100,5 @@ folder, so it rides the branch into the PR.)*
   **5.** The example reads as the plan asks, and its doctor still exits 1 on a row this step doesn't own
 
   Under the dev `mise.toml` (`mise exec`, go 1.27.2 on `PATH`), `node dist/cli.js doctor --json` in `examples/go-module` gives `greeter:dead` `pinSource: go-mod-tool`, `status: ok`, `found: go tool deadcode`. That doctor's `ok` is still `false`, on the install row: the example has a `package.json` (a `link:../..` devDep and a `check` script) and no lockfile, so D84's no-`package.json` case doesn't apply. Parked, with a second park for carrying the launch's pin version as `toolVersion` on these rows, which `docs/contract.md` documents as override-only today.
+
+- 2026-10-19 — step 73 checkpointed · f4f91b6c2 — docs: document packs and targets and fold in the contract (1 drift, 18m)
