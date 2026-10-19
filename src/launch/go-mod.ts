@@ -7,8 +7,14 @@
  *
  * Only what the source needs is read: `tool` and `require` directives, in
  * their one-line and block forms, with `//` comments dropped. Go owns the rest
- * of the file's meaning, `replace` included. A `go.work`'s `use` directives,
- * read the same way, say which packages `{go-packages}` names.
+ * of the file's meaning. A `go.work`'s `use` directives, read the same way,
+ * say which packages `{go-packages}` names.
+ *
+ * Under `--changed`, a workspace's module graph (R10.4) is read the same way
+ * from the `module`, `require` and local `replace` directives of its `go.mod`
+ * files and its `go.work`, and from the import declarations of each module's
+ * Go source ({@link goImports}), since a workspace resolves an import no
+ * `require` names. Which files a module holds is the caller's to list.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -83,16 +89,26 @@ export function goModTools(text: string): string[] {
 }
 
 /**
+ * The module of `modules` that provides package `pkg`, as Go resolves it: the
+ * one whose path, read by `pathOf`, is `pkg` or the longest prefix of it, or
+ * `undefined` when none provides it. Longest wins, so in a workspace holding
+ * `example.com/shop` and `example.com/shop/api`, `example.com/shop/api/x`
+ * belongs to the second.
+ */
+function providerOf<T>(pkg: string, modules: readonly T[], pathOf: (module: T) => string): T | undefined {
+  return modules
+    .filter((m) => pkg === pathOf(m) || pkg.startsWith(`${pathOf(m)}/`))
+    .toSorted((a, b) => pathOf(b).length - pathOf(a).length)[0];
+}
+
+/**
  * The version a `go.mod` requires for the module that provides package `pkg`:
  * the required module whose path is `pkg` or the longest prefix of it, or
  * `undefined` when none provides it.
  */
 export function goModRequiredVersion(text: string, pkg: string): string | undefined {
-  const providers = directives(text)
-    .filter((d) => d.verb === 'require' && d.args.length >= 2)
-    .filter(({ args: [path = ''] }) => pkg === path || pkg.startsWith(`${path}/`))
-    .toSorted((a, b) => (b.args[0] ?? '').length - (a.args[0] ?? '').length);
-  return providers[0]?.args[1];
+  const requires = directives(text).filter((d) => d.verb === 'require' && d.args.length >= 2);
+  return providerOf(pkg, requires, (d) => d.args[0] ?? '')?.args[1];
 }
 
 /** Where a `go.mod` declares a tool: the file, relative to the repo root, and the version it requires, when it does. */
@@ -192,7 +208,8 @@ export type WorkModule = { dir: string; path: string; requires: string[]; replac
 /**
  * A Go workspace (R10.4): the modules its `go.work` uses, in `use` order, and
  * the directories its own local `replace` directives point at, by the module
- * path each replaces.
+ * path each replaces. It holds what the workspace's files declare; what its
+ * modules' Go source imports is read only when {@link withDependents} asks.
  */
 export type GoWorkspace = { modules: WorkModule[]; replaces: ReadonlyMap<string, string> };
 
@@ -248,29 +265,94 @@ export function readGoWorkspace(root: string): GoWorkspace | null | 'unreadable'
 }
 
 /**
+ * Go source's comments, and the literals a comment marker can sit inside
+ * without opening one: interpreted strings, raw strings and runes. A match
+ * with group 1 is a literal, kept whole; any other is a comment.
+ */
+const GO_COMMENT_OR_LITERAL = /("(?:[^"\\\n]|\\.)*"|`[^`]*`|'(?:[^'\\\n]|\\.)*')|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+
+/** A Go file's package clause, which every import declaration follows. */
+const GO_PACKAGE_CLAUSE = /^\s*package\s+[\p{L}_][\p{L}\p{N}_]*\s*;?/u;
+
+/** One import declaration: a single spec up to the line's end, or a parenthesized group of them. */
+const GO_IMPORT_DECL = /^\s*import\b\s*(\([^)]*\)|[^\n;]*)\s*;?/;
+
+/** An import spec's path: an interpreted or a raw string literal. */
+const GO_IMPORT_PATH = /"((?:[^"\\\n]|\\.)*)"|`([^`]*)`/g;
+
+/**
+ * The import paths `text`, one Go source file, declares: the path of each
+ * import spec, single declarations and grouped ones alike, with any name, `.`
+ * or `_` before it ignored. Go allows import declarations only straight after
+ * the package clause, so the read stops at the first declaration that isn't
+ * one. A file with no package clause declares none.
+ */
+export function goImports(text: string): string[] {
+  let rest = text.replaceAll(GO_COMMENT_OR_LITERAL, (_match, literal?: string) => literal ?? ' ');
+  const clause = GO_PACKAGE_CLAUSE.exec(rest);
+  if (clause === null) return [];
+  rest = rest.slice(clause[0].length);
+  const paths: string[] = [];
+  for (let decl = GO_IMPORT_DECL.exec(rest); decl !== null; decl = GO_IMPORT_DECL.exec(rest)) {
+    for (const spec of (decl[1] ?? '').matchAll(GO_IMPORT_PATH)) paths.push(spec[1] ?? spec[2] ?? '');
+    rest = rest.slice(decl[0].length);
+  }
+  return paths;
+}
+
+/**
+ * What a module's Go source imports, for {@link withDependents}: every import
+ * path its files declare, or `null` when a file of it can't be read, which
+ * makes the module depend on every other.
+ */
+export type ModuleImports = (module: WorkModule) => readonly string[] | null;
+
+/**
+ * The module paths of `modules` that `imports` reach: each path mapped to the
+ * module that provides it ({@link providerOf}), and every module when the
+ * imports can't be known.
+ */
+function importedModules(modules: readonly WorkModule[], imports: readonly string[] | null): ReadonlySet<string> {
+  if (imports === null) return new Set(modules.map((m) => m.path));
+  const paths = imports.flatMap((pkg) => providerOf(pkg, modules, (m) => m.path)?.path ?? []);
+  return new Set(paths);
+}
+
+/**
  * Whether `a` depends on `b` (R10.4): `a`'s `go.mod` requires `b`'s module
  * path, or replaces something with `b`'s directory, or requires a module the
- * `go.work` replaces with `b`'s directory.
+ * `go.work` replaces with `b`'s directory, or `a`'s Go source imports a
+ * package of `b`'s, which `imported` holds as the module paths `a` imports.
+ * A workspace resolves an import with no `require`, so `go.mod` alone misses
+ * that last edge.
  */
-function dependsOn(a: WorkModule, b: WorkModule, replaces: ReadonlyMap<string, string>): boolean {
+function dependsOn(a: WorkModule, b: WorkModule, replaces: ReadonlyMap<string, string>, imported: () => ReadonlySet<string>): boolean {
   if (a === b) return false;
   if (a.requires.includes(b.path) || a.replacedBy.includes(b.dir)) return true;
-  return a.requires.some((path) => replaces.get(path) === b.dir);
+  return a.requires.some((path) => replaces.get(path) === b.dir) || imported().has(b.path);
 }
 
 /**
  * The modules `changed` names together with every module that depends on one
  * of them, transitively, as indices into `workspace.modules`, in `use` order.
- * Only edges between the workspace's own modules count.
+ * Only edges between the workspace's own modules count. `importsOf` reads a
+ * module's imports, and is asked at most once per module; without it, only
+ * `go.mod` and `go.work` say what depends on what.
  */
-export function withDependents(workspace: GoWorkspace, changed: ReadonlySet<number>): number[] {
+export function withDependents(workspace: GoWorkspace, changed: ReadonlySet<number>, importsOf: ModuleImports = () => []): number[] {
   const { modules, replaces } = workspace;
+  const imported = new Map<WorkModule, ReadonlySet<string>>();
+  const importedBy = (module: WorkModule) => (): ReadonlySet<string> => {
+    const known = imported.get(module) ?? importedModules(modules, importsOf(module));
+    imported.set(module, known);
+    return known;
+  };
   const affected = new Set(changed);
   const queue = [...changed];
   for (let at = queue.shift(); at !== undefined; at = queue.shift()) {
     const target = modules[at];
     for (const [i, module] of modules.entries()) {
-      if (target === undefined || affected.has(i) || !dependsOn(module, target, replaces)) continue;
+      if (target === undefined || affected.has(i) || !dependsOn(module, target, replaces, importedBy(module))) continue;
       affected.add(i);
       queue.push(i);
     }

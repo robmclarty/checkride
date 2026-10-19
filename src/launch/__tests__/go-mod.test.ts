@@ -4,7 +4,8 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { expandGoPackages, goModRequiredVersion, goModTools, goPackagePatterns, readGoWorkspace, takesGoPackages, withDependents } from '../go-mod.js';
+import type { GoWorkspace, WorkModule } from '../go-mod.js';
+import { expandGoPackages, goImports, goModRequiredVersion, goModTools, goPackagePatterns, readGoWorkspace, takesGoPackages, withDependents } from '../go-mod.js';
 
 /** A go.mod as `go get -tool` leaves it, with both directive forms and comments. */
 const GO_MOD = [
@@ -145,5 +146,97 @@ describe('readGoWorkspace', () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('goImports', () => {
+  test('reads single and grouped declarations, with names, dots, blanks and raw strings', () => {
+    const source = [
+      '// Package api serves.',
+      '//go:build linux',
+      '',
+      'package api // the api',
+      '',
+      'import "fmt"',
+      'import str "strings"',
+      'import (',
+      '\t"os" // the os',
+      '\t. "example.com/dot"',
+      '\t_ "example.com/blank"',
+      '\t/* a block',
+      '\t   comment */',
+      '\traw `example.com/raw`',
+      ')',
+      'import ("example.com/a"; "example.com/b")',
+      '',
+      'func main() {}',
+    ].join('\n');
+    expect(goImports(source)).toEqual([
+      'fmt', 'strings', 'os', 'example.com/dot', 'example.com/blank', 'example.com/raw', 'example.com/a', 'example.com/b',
+    ]);
+  });
+
+  test('stops at the first declaration that is not an import, and reads no import inside a comment or a string', () => {
+    const source = [
+      'package main',
+      '/* import "example.com/commented" */',
+      'import "example.com/real"',
+      'var s = "import \\"example.com/string\\""',
+      'import "example.com/late"',
+    ].join('\n');
+    expect(goImports(source)).toEqual(['example.com/real']);
+  });
+
+  test('a file with no package clause declares none', () => {
+    expect(goImports('import "fmt"\n')).toEqual([]);
+    expect(goImports('')).toEqual([]);
+  });
+});
+
+/** A workspace module with no `require` or `replace`. */
+function mod(dir: string, path: string): WorkModule {
+  return { dir, path, requires: [], replacedBy: [] };
+}
+
+/** A workspace of `modules` whose `go.work` replaces nothing. */
+function workspace(...modules: WorkModule[]): GoWorkspace {
+  return { modules, replaces: new Map() };
+}
+
+/** An import lookup that answers from `byDir`, and records each module it was asked about. */
+function lookup(byDir: Record<string, readonly string[] | null>, asked: string[] = []): (m: WorkModule) => readonly string[] | null {
+  return (m) => {
+    asked.push(m.dir);
+    return Object.hasOwn(byDir, m.dir) ? (byDir[m.dir] ?? null) : [];
+  };
+}
+
+describe('withDependents: imports', () => {
+
+  test('an import is an edge to the module with the longest matching path, so a root module gets none from a nested one', () => {
+    const ws = workspace(mod('.', 'example.com/shop'), mod('api', 'example.com/shop/api'), mod('web', 'example.com/shop/web'));
+    const imports = lookup({ web: ['example.com/shop/api/handlers'] });
+    expect(withDependents(ws, new Set([1]), imports)).toEqual([1, 2]);
+    expect(withDependents(ws, new Set([0]), imports)).toEqual([0]);
+  });
+
+  test('a package directory named like a module directory belongs to the module whose path holds it', () => {
+    const ws = workspace(mod('greet', 'example.com/greet'), mod('api', 'example.com/api'), mod('web', 'example.com/web'));
+    const imports = lookup({ web: ['example.com/api/greet'] });
+    expect(withDependents(ws, new Set([0]), imports)).toEqual([0]);
+    expect(withDependents(ws, new Set([1]), imports)).toEqual([1, 2]);
+  });
+
+  test('a module whose imports cannot be read depends on every module, and each module is asked at most once', () => {
+    const ws = workspace(mod('a', 'example.com/a'), mod('b', 'example.com/b'), mod('c', 'example.com/c'));
+    const asked: string[] = [];
+    expect(withDependents(ws, new Set([0]), lookup({ c: null }, asked))).toEqual([0, 2]);
+    expect(asked.toSorted()).toEqual(['b', 'c']);
+  });
+
+  test('without a lookup, only go.mod and go.work make edges', () => {
+    const ws = workspace(mod('a', 'example.com/a'), { ...mod('b', 'example.com/b'), requires: ['example.com/a'] });
+    expect(withDependents(ws, new Set([0]))).toEqual([0, 1]);
+    expect(withDependents(ws, new Set([1]))).toEqual([1]);
   });
 });

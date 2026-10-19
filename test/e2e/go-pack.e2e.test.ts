@@ -168,4 +168,21 @@ describeWithToolchain('go')('the go pack', () => {
     expect(lint.Issues.map((i) => i.Pos.Filename).toSorted()).toEqual(['a/a.go', 'b/b.go']);
     expect(checks.get('ws:lint')).toMatchObject({ ok: false });
   });
+
+  test('under --changed, a change to a module also builds the modules that import it with no require', async () => {
+    await rm(dir, { recursive: true, force: true });
+    await cp(join(here, '..', '..', 'examples', 'go-workspace'), dir, { recursive: true });
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, stdio: 'pipe' });
+    };
+    git('init', '-q', '-b', 'main');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    // api calls greet.Hello, and its go.mod requires nothing: go.work resolves the import.
+    const greet = join(dir, 'greet', 'greet.go');
+    await writeFile(greet, (await readFile(greet, 'utf8')).replace('func Hello(', 'func Greet('));
+    const { code, checks, stderr } = await run('--changed', '--base', 'HEAD', '--only', 'shop:types');
+    expect(code, stderr).toBe(1);
+    expect(checks.get('shop:types')).toMatchObject({ ok: false, narrowed: { units: ['./greet/...', './api/...'], total: 2 } });
+  });
 });

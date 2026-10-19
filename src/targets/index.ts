@@ -12,7 +12,17 @@ export type { TargetChange } from './add.js';
 export { changedGoModules, changedUnder, noChangesReason, noGoModuleChangedReason, pathsUnder } from './changed.js';
 export { declaredNote, discoverRun, discoverTargets, isImplicit } from './discover.js';
 export type { ProposedTarget } from './discover.js';
-export { argvBytes, expandFiles, filesOnDisk, isFileListPack, MAX_FILES_ARGV_BYTES, NO_FILES_REASON, takesFiles, targetFiles } from './files.js';
+export {
+  argvBytes,
+  expandFiles,
+  filesOnDisk,
+  goSourceFiles,
+  isFileListPack,
+  MAX_FILES_ARGV_BYTES,
+  NO_FILES_REASON,
+  takesFiles,
+  targetFiles,
+} from './files.js';
 export { markerAt } from './markers.js';
 export { configProblem, configuredTargets, implicitPack, normalizeRoot, presetProblem, skipExitCodeProblem } from './resolve.js';
 export type { Target } from './resolve.js';

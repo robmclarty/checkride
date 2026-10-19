@@ -17,7 +17,8 @@
 export type { EntryCommand, EntryLike } from './entry.js';
 export { asEntry, entryArgv, entryCheckride, entryText, PIN_CHECKRIDE, resolveEntry } from './entry.js';
 export { offlineHint, packEnv } from './env.js';
-export { expandGoPackages, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
+export type { ModuleImports } from './go-mod.js';
+export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
 export type { PackageManager } from './package-manager.js';
 export { detectPackageManager, nearestPackageManager } from './package-manager.js';
 export type { LaunchRefusal } from './refusal.js';

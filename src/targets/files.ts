@@ -10,10 +10,14 @@
  * extensionless file whose first line is a shell shebang. Globs are relative to
  * the target's root and take `**`, `*`, `?` and `{a,b}`, matched here with no
  * dependency.
+ *
+ * The same walk lists what a tool that reads the disk reaches: every file
+ * under a directory (`filesOnDisk`), and a Go module's source files
+ * (`goSourceFiles`), which `--changed` reads a workspace's imports from.
  */
 
 import type { Dirent } from 'node:fs';
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import type { GitRunner } from '../git.js';
@@ -198,16 +202,25 @@ function entriesOf(dir: string): Dirent[] {
   }
 }
 
+/** Whether a walk enters the directory named `name`, at `abs`. */
+type Enters = (name: string, abs: string) => boolean;
+
+/** A walk that enters every directory but the ones `skip` names. */
+function skipping(skip: ReadonlySet<string>): Enters {
+  return (name) => !skip.has(name);
+}
+
 /**
- * Every entry under `dir` that isn't a directory, relative to it, entering no
- * directory `skip` names. A symlink is an entry, never followed, though `dir`
- * itself is read through one.
+ * Every entry under `dir` that isn't a directory, relative to it, entering
+ * only the directories `enters` accepts. A symlink is an entry, never
+ * followed, though `dir` itself is read through one.
  */
-function walk(dir: string, skip: ReadonlySet<string>, prefix = ''): string[] {
+function walk(dir: string, enters: Enters, prefix = ''): string[] {
   return entriesOf(dir).flatMap((entry) => {
     const rel = prefix === '' ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isDirectory()) return skip.has(entry.name) ? [] : walk(join(dir, entry.name), skip, rel);
-    return [rel];
+    if (!entry.isDirectory()) return [rel];
+    const abs = join(dir, entry.name);
+    return enters(entry.name, abs) ? walk(abs, enters, rel) : [];
   });
 }
 
@@ -219,7 +232,31 @@ function walk(dir: string, skip: ReadonlySet<string>, prefix = ''): string[] {
  * a submodule's contents.
  */
 export function filesOnDisk(dir: string): string[] {
-  return walk(dir, GIT_DIR).toSorted();
+  return walk(dir, skipping(GIT_DIR)).toSorted();
+}
+
+/** Directories a Go module's packages never sit under, by name: vendored copies and test data, and installed JavaScript packages. */
+const GO_SKIP: ReadonlySet<string> = new Set(['vendor', 'testdata', 'node_modules']);
+
+/**
+ * Whether a module's `./...` reaches into the directory `name` at `abs`: not
+ * one Go skips by name (`vendor`, `testdata`, or one whose name starts with
+ * `.` or `_`), and not the root of another module, which holds a `go.mod`.
+ */
+function inGoModule(name: string, abs: string): boolean {
+  if (GO_SKIP.has(name) || name.startsWith('.') || name.startsWith('_')) return false;
+  return !existsSync(join(abs, 'go.mod'));
+}
+
+/**
+ * The Go source files of the module rooted at `dir`, relative to it and
+ * sorted: each `.go` file its `./...` reaches, `_test.go` files included, so a
+ * package that only its tests import is still read. The walk stops at a
+ * directory that holds its own `go.mod`, since that is another module, and
+ * reads the module boundary from the disk rather than any directory's name.
+ */
+export function goSourceFiles(dir: string): string[] {
+  return walk(dir, inGoModule).filter((path) => path.endsWith('.go')).toSorted();
 }
 
 /**
@@ -232,7 +269,7 @@ export function filesOnDisk(dir: string): string[] {
 export async function listFiles(repo: string, root: string, git: GitRunner, what: string): Promise<string[]> {
   const listed = await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', root]);
   if (!listed.ok) {
-    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, root), WALK_SKIP);
+    if (listed.error === 'missing' || listed.error === 'not-a-repo') return walk(join(repo, root), skipping(WALK_SKIP));
     throw new Error(`can't list the files of ${what}: ${listed.detail}`);
   }
   const strip = root === '.' ? '' : `${root}/`;

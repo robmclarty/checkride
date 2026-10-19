@@ -6,7 +6,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -225,5 +225,72 @@ describe('{go-packages} under --changed (R10.4)', () => {
     });
     expect(args.get('test')).toEqual(['test', '-json', './...']);
     expect(result.summary.checks.find((c) => c.name === 'api:test')).not.toHaveProperty('narrowed');
+  });
+});
+
+/**
+ * examples/go-workspace's shape: `api` imports `greet` with no `require`,
+ * which go.work resolves on its own, and `web` imports it only from a test.
+ * `greet/tools` is a module of its own that go.work never uses, so what it
+ * imports is no edge of `greet`'s.
+ */
+const SHOP: Record<string, string> = {
+  'go.work': 'go 1.24\n\nuse (\n\t./greet\n\t./api\n\t./web\n)\n',
+  'greet/go.mod': 'module example.com/shop/greet\n\ngo 1.24\n',
+  'greet/greet.go': 'package greet\n\n// Hello greets name.\nfunc Hello(name string) string { return name }\n',
+  'greet/tools/go.mod': 'module example.com/shop/greet/tools\n\ngo 1.24\n',
+  'greet/tools/tools.go': 'package tools\n\nimport (\n\t"example.com/shop/api"\n\t_ "example.com/shop/web"\n)\n',
+  'api/go.mod': 'module example.com/shop/api\n\ngo 1.24\n',
+  'api/main.go': 'package main\n\nimport (\n\t"fmt"\n\n\t"example.com/shop/greet"\n)\n\nfunc main() { fmt.Println(greet.Hello("gopher")) }\n',
+  'web/go.mod': 'module example.com/shop/web\n\ngo 1.24\n',
+  'web/web.go': 'package web\n',
+  'web/web_test.go': 'package web_test\n\nimport (\n\t"testing"\n\n\tg "example.com/shop/greet"\n)\n\nfunc TestHello(t *testing.T) { _ = g.Hello("x") }\n',
+  '.gitignore': '.check/\n',
+};
+
+describe('{go-packages} under --changed: the imports go.work resolves (R10.4)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-go-imports-'));
+    git(dir, 'init', '-q', '-b', 'main');
+    for (const [rel, content] of Object.entries(SHOP)) {
+      await mkdir(dirname(join(dir, rel)), { recursive: true });
+      await writeFile(join(dir, rel), content);
+    }
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'base');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Change `rel` and run `shop:test` under `--changed` against main, returning its args and summary entry. */
+  async function changing(rel: string): Promise<{ args: readonly string[] | undefined; entry: SummaryCheck | undefined }> {
+    await writeFile(join(dir, rel), '// changed\n', { flag: 'a' });
+    let args: readonly string[] | undefined;
+    const result = await runChecks({
+      cwd: dir,
+      config: { targets: { shop: { lang: 'go', root: '.', checks: { test: 'go-test' } } } },
+      runner: (r) => { args = r.adapter?.args; return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' }); },
+      baseline: null, changed: true, base: { ref: 'main', from: '--base' }, only: ['shop:test'], json: true, stdout: sink(), stderr: sink(),
+    });
+    return { args, entry: result.summary.checks.find((c) => c.name === 'shop:test') };
+  }
+
+  test('a change to greet runs every module that imports it, with no require, and from a _test.go alone', async () => {
+    const { args, entry } = await changing('greet/greet.go');
+    expect(args).toEqual(['test', '-json', './greet/...', './api/...', './web/...']);
+    expect(entry?.narrowed).toEqual({ units: ['./greet/...', './api/...', './web/...'], total: 3 });
+  });
+
+  test("a nested go.mod's imports are its own module's, so a change to api runs api alone", async () => {
+    const { args } = await changing('api/main.go');
+    expect(args).toEqual(['test', '-json', './api/...']);
+  });
+
+  test('a .go file that cannot be read makes its module depend on every module', async () => {
+    await symlink('nowhere.go', join(dir, 'web/broken.go'));
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'a dangling link');
+    const { args } = await changing('api/main.go');
+    expect(args).toEqual(['test', '-json', './api/...', './web/...']);
   });
 });

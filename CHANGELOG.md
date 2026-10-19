@@ -321,8 +321,9 @@ fields. These are the changes it can notice; each is described in full below.
 - **`--changed` narrows a Go workspace to the modules a change touched.** At
   a go target whose root holds a `go.work`, `go build` and `go test` run only
   the modules a changed path lies in and every module that depends on them,
-  read offline from `go.work` and each `go.mod`, and the summary records what
-  they ran as `narrowed`. A change to `go.work`, `go.work.sum` or a `go.mod`
+  read offline from `go.work`, each `go.mod` and the imports of each module's
+  `.go` files, since a workspace resolves an import no `require` names, and
+  the summary records what they ran as `narrowed`. A change to `go.work`, `go.work.sum` or a `go.mod`
   runs every module, and a change under none of them skips both checks with
   `no Go module changed under <root>`. deadcode and govulncheck always read
   the whole program.

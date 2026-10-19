@@ -683,8 +683,13 @@ whose root holds a `go.work`, `go build` and `go test` run only the modules
 that hold a changed path, the deepest `use` directory winning, and every
 module that depends on one of them, transitively, where a module depends on
 another by requiring its module path or replacing a module with its
-directory, in its `go.mod` or the `go.work`. Their argv names
-`./<dir>/...` for each, in `go.work` order, and the entry records
+directory, in its `go.mod` or the `go.work`, or by importing one of its
+packages from any `.go` file, a `_test.go` file included, since a workspace
+resolves an import no `require` names. An import belongs to the workspace
+module whose path is the longest prefix of it; a module's files are the ones
+its `./...` reaches, stopping at a directory that holds its own `go.mod`, and
+a `.go` file checkride can't read makes its module depend on every other.
+Their argv names `./<dir>/...` for each, in `go.work` order, and the entry records
 `narrowed: { units, total }`. A change to `go.work`, `go.work.sum` or any
 `go.mod`, or a workspace file checkride can't read, runs every module and
 records no `narrowed`; a change under none of the modules skips both checks

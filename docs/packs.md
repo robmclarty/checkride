@@ -289,9 +289,15 @@ Under `--changed`, `go build` and `go test` at a workspace root narrow to the
 modules a change touched, each changed path counting toward the deepest `use`
 directory it lies under, plus every module that depends on one of them,
 transitively. A module depends on another when its `go.mod` requires the
-other's module path or replaces a module with the other's directory, or when
-it requires a module the `go.work` replaces that way; edges to modules outside
-the workspace don't count, and nothing is fetched to read them. The summary
+other's module path or replaces a module with the other's directory, when it
+requires a module the `go.work` replaces that way, or when any of its `.go`
+files, tests included, imports one of the other's packages. A workspace
+resolves that last kind with no `require` at all, so `examples/go-workspace`'s
+`api` depends on `greet` through its import alone. An import belongs to the
+module whose path is its longest prefix, a module's files stop at a directory
+holding another `go.mod`, and a `.go` file checkride can't read makes its
+module depend on every other. Edges to modules outside the workspace don't
+count, and nothing is fetched to read them. The summary
 records `narrowed: { units, total }`. A change to `go.work`, `go.work.sum` or
 any `go.mod`, or a workspace file checkride can't read, runs every module, and
 a change under none of the modules skips the two checks with

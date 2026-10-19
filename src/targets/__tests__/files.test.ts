@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { GitRunner } from '../../git.js';
-import { argvBytes, expandFiles, filesOnDisk, globRegExp, isFileListPack, MAX_FILES_ARGV_BYTES, takesFiles, targetFiles } from '../files.js';
+import { argvBytes, expandFiles, filesOnDisk, globRegExp, goSourceFiles, isFileListPack, MAX_FILES_ARGV_BYTES, takesFiles, targetFiles } from '../files.js';
 
 /** A git that fails the way an unsafe repo does. */
 const failing: GitRunner = () => Promise.resolve({ ok: false, error: 'failed', detail: 'detected dubious ownership' });
@@ -189,5 +189,25 @@ describe('filesOnDisk', () => {
     expect(filesOnDisk(join(repo, 'root'))).toEqual(['.tflint.d/plugins/x']);
     expect(filesOnDisk(repo)).toEqual(['linked', 'real/.tflint.d/plugins/x', 'root']);
     expect(filesOnDisk(join(repo, 'missing'))).toEqual([]);
+  });
+});
+
+describe('goSourceFiles', () => {
+  let repo: string;
+  beforeEach(async () => { repo = await mkdtemp(join(tmpdir(), 'checkride-go-src-')); });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  test("lists a module's .go files, tests included, and enters no directory Go skips or that holds another module", async () => {
+    const paths = [
+      'go.mod', 'main.go', 'main_test.go', 'README.md', 'internal/x/x.go',
+      'vendor/v/v.go', 'testdata/t.go', 'node_modules/n/n.go', '.hidden/h.go', '_skip/s.go',
+      'tools/go.mod', 'tools/tools.go', 'tools/deep/d.go',
+    ];
+    for (const path of paths) {
+      await mkdir(dirname(join(repo, path)), { recursive: true });
+      await writeFile(join(repo, path), '');
+    }
+    expect(goSourceFiles(repo)).toEqual(['internal/x/x.go', 'main.go', 'main_test.go']);
+    expect(goSourceFiles(join(repo, 'tools'))).toEqual(['deep/d.go', 'tools.go']);
   });
 });
