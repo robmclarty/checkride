@@ -279,7 +279,7 @@ root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, a root
 for a target-scope slot or a custom check they rank above
 `packs.<pack>.checks`, as they will once `target add` moves them into the
 target, and the pack block is read for the root's pack alone. A ts root runs
-exactly as 0.13 did when its config has no `packs`, and its entries carry no
+exactly as 0.14 did when its config has no `packs`, and its entries carry no
 `pack`. Any other root resolves as a target of its pack rooted at `.` would,
 its pin chain and spawn environment included, and the repo-scope slots and
 top-level custom checks as the `repo` pack, but every check keeps its bare
@@ -686,7 +686,7 @@ then `CHECKRIDE_BASE` (an empty variable counts as unset), then the config's
 `changedBase`, then `origin/main` when it names a commit, then `HEAD`. A check's
 `changedArgs` say `{base}` where they need it: vitest runs `--changed {base}` and
 jest `--changedSince {base}`, so with nothing named and `origin/main` present the
-argv is the one 0.13 spawned. A base that `--base`, the variable or the config
+argv is the one 0.14 spawned. A base that `--base`, the variable or the config
 names and that doesn't name a commit exits 2 before anything runs, because
 narrowing from some other base would check a different change. A defaulted
 `origin/main` that doesn't resolve, as in a clone without that remote, falls
@@ -829,7 +829,7 @@ pointers, and the `triage` and `qa` reports. It's written relative to the
 working directory when it sits inside it, so `.check/` by default, and absolute
 when it sits outside. `{out}` in a check's `args` or `changedArgs`, a custom
 check's included, expands to the same directory: `.check` with no flag or
-variable, so 0.13's argv holds, and the absolute path when one names it. With
+variable, so 0.14's argv holds, and the absolute path when one names it. With
 `targets` declared it's always absolute, and a target's check gets its own
 `<dir>/<target>` ([above](#checksummaryjson)).
 Scratch isn't output. `snippets` and `smoke` generate files that have to
@@ -1096,7 +1096,7 @@ such as `go`, `cargo`, `terraform` or `tofu`, whose version the project's own
 files bound. A ts root without targets resolves every tool through its
 package manager, so none of its checks reaches `PATH`. A config without
 `targets` reads `packs` for the pack its root marks alone, below its top-level
-`checks`, so a 0.13 config, which has no `packs`, resolves exactly as before.
+`checks`, so a 0.14 config, which has no `packs`, resolves exactly as before.
 [`config.test.ts`](../src/__tests__/config.test.ts) holds
 each rule, its message and its exit code.
 

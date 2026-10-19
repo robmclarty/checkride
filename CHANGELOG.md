@@ -6,6 +6,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Highlights
+
+- **Five language packs join TypeScript.** Bash, Go, Rust, Python and
+  Terraform each bring their own tools, resolved through the repo's own pin
+  files (`go.mod`, `rust-toolchain.toml`, `uv.lock`, `.terraform-version`)
+  or a `mise.toml`, and run offline. A repo whose root holds a `go.mod`,
+  `Cargo.toml`, `pyproject.toml` or Terraform root and no `package.json`
+  runs that pack with no config at all.
+- **Targets check each part of a repo from its own root.** Declare `targets`
+  in the config, or let `checkride target add` and `init` propose them, and
+  every target runs its pack's checks as `web:lint`, `api:test` and so on.
+  `unclaimed` fails a run when code sits outside every target.
+- **No Node required.** The repo pack's Node-free alternates, rumdl and
+  typos, and the ast-grep and vale binaries fill its slots from `mise.toml`
+  or `PATH`, and the stop gate, the hooks and the skills run
+  `mise exec -- checkride` in a repo without a `package.json`.
+- **Run checkride over a repo you don't own.** `--discover`, `--defaults`,
+  `--pins`, `--static-only`, `--out`, `--config` and `--base` let a review
+  agent or a CI job check a checkout with its own toolbelt and write nothing
+  into it; `docs/consumers.md` walks through them.
+- **Read a run's findings with `checkride/findings`.** One parser per tool
+  serves 21 adapters, the same parsers the baseline keys with, so Go, Rust,
+  shell, Python, Terraform, markdown and spelling findings join the baseline
+  too.
+- **Every check says why it runs and which copy ran.** A status line ends
+  with its `origin`, the summary records `argv`, `pin_source` and
+  `tool_version`, a check refused before it spawns says why, and `doctor`
+  reports the same.
+- **`--changed` runs less.** It skips the targets a change didn't touch, and
+  narrows a Go workspace to the modules a change touched and the ones that
+  import them.
+
 ### Upgrading from 0.14
 
 A TypeScript repo that sets no new flag or config key runs the same checks,
@@ -27,7 +59,11 @@ fields. These are the changes it can notice; each is described in full below.
   stops the gate before it runs, and a top-level key nothing reads, such as
   `check`, prints a warning on stderr.
 - **`links` skips more directories**: any named `fixtures`, `vendor`,
-  `.venv` or `target`, beside `node_modules` and the rest.
+  `.venv`, `target` or `.terraform`, beside `node_modules` and the rest.
+- **`--changed` without `origin/main` measures from `HEAD`.** Where the
+  remote branch doesn't resolve, as in a sandbox clone, the run warns on
+  stderr and hands vitest and jest `HEAD` instead of `origin/main`, so their
+  argv changes there; 0.14 passed them a ref they couldn't read.
 - **Status lines end with a tag** saying why each check runs, and `--only`,
   `--skip` and `--include` call an unknown name a token. Both are on stderr.
 - **A root with no `package.json` or `tsconfig.json`** but a `go.mod`,
@@ -95,11 +131,12 @@ fields. These are the changes it can notice; each is described in full below.
   they can't read. The stop gate strips `CHECKRIDE_BASE` from the check it
   runs.
 - **A summary says what the run covered and which commit it read.** Every
-  `summary.json` now carries `run`, which lists the selection flags the run
-  was given (`--only`, `--skip`, `--include`, `--all`, `--changed`,
-  `--config`) and says `partial: true` when the run saw less than the whole
-  pipeline: `--only`, `--skip`, `--changed`, or `--bail` stopping at a
-  failure. That's the same test that keeps a run from ratcheting the
+  `summary.json` now carries `run`, which lists the selection and consumer
+  flags the run was given (`--only`, `--skip`, `--include`, `--all`,
+  `--changed`, `--static-only`, `--discover`, and the files `--config`,
+  `--defaults`, `--pins` and `--out` named) and says `partial: true` when the
+  run saw less than the whole pipeline: `--only`, `--skip`, `--changed`,
+  `--static-only`, or `--bail` stopping at a failure. That's the same test that keeps a run from ratcheting the
   baseline, so the two never disagree. Inside a git work tree it also carries
   `git`: the commit `HEAD` named, whether the tree held uncommitted or
   untracked changes, and under `--changed` the base it measured from. git is
@@ -148,8 +185,11 @@ fields. These are the changes it can notice; each is described in full below.
   it belongs to and the `cwd` it ran from. Baseline keys for a target's checks
   sit under `<target>:<slot>` and name files from the repo root, so they stay
   valid when a later release moves where tools are run from. `checkride fix`
-  runs a target's fixers from its root. Selection tokens such as `--only web`
-  and `--only web:lint` now select these checks.
+  runs a target's fixers from its root. A target's checks and fixers run
+  under the package manager nearest its root, the first lockfile or
+  `packageManager` field from there up to the repo root, so a workspace
+  package that declares neither runs under the root's. Selection tokens such
+  as `--only web` and `--only web:lint` now select these checks.
 - **`--changed` skips the targets your change didn't touch.** With
   `targets`, a `--changed` run lists the paths that differ from the merge
   base of its base and `HEAD`, committed, staged, unstaged or untracked, and
@@ -245,12 +285,19 @@ fields. These are the changes it can notice; each is described in full below.
   language's markers it sees, such as a `go.mod`, as a hint to declare
   targets. A tool a `mise.toml` pins is no longer reported missing from
   `node_modules`, and a root with no `package.json` gets an `n/a` install row
-  instead of failing for a lockfile it never needs. See `docs/packs.md`.
+  instead of failing for a lockfile it never needs. A tool that resolves
+  through a language's own pin file (`go-mod-tool`, `rust-toolchain` or
+  `uv-lock`) is probed through the run's own launcher, as `--static-only`
+  does: `ok` where it would spawn, naming what it spawns (`go tool
+  deadcode`, `cargo clippy`, `.venv/bin/ruff`), and `missing` where it would
+  refuse, with the refusal's cause and remedy as the hint; `unknown` stays
+  for a pin source this checkride can't read. See `docs/packs.md`.
 - **Gate a repo with no `package.json`.** The stop-hook gate, the hook
   scripts, the AGENTS.md stanza and the plugin skills now run checkride the
   way the repo does: `<pm> run check` wherever there's a `package.json`, as
   before; `mise exec -- checkride` in a repo whose root `mise.toml` pins
-  `npm:checkride` or `github:robmclarty/checkride`; and the `checkride` on
+  `npm:checkride` or `github:robmclarty/checkride` (no standalone binary
+  ships yet, so that second id waits on a later release); and the `checkride` on
   `PATH` otherwise, which `doctor` reports as the harness unpinned. Where
   nothing pins it, `doctor` and the gate name
   `mise use 'npm:checkride[allow_low_downloads=true]@<version>'`, quoted so
@@ -312,8 +359,8 @@ fields. These are the changes it can notice; each is described in full below.
   its check when the tool exits 0 but prints to stdout, the way `gofmt -l`
   lists unformatted files and exits 0: the check is red, keeps
   `exit_code: 0`, and says `<adapter> exited 0 but reported findings on
-  stdout`. No adapter checkride ships does either yet; the Go and Rust packs
-  will.
+  stdout`. The Go pack's `gofmt` fails that way, and `go build`, clippy and
+  `cargo check` capture their JSON lines as `.jsonl`.
 - **Go targets, with Go's downloads switched off.** A target can declare
   `"lang": "go"`, with a root that holds a `go.mod` or `go.work`. Every check
   of a go target, the target's own custom checks included, runs with
@@ -342,10 +389,10 @@ fields. These are the changes it can notice; each is described in full below.
   the modules a changed path lies in and every module that depends on them,
   read offline from `go.work`, each `go.mod` and the imports of each module's
   `.go` files, since a workspace resolves an import no `require` names, and
-  the summary records what they ran as `narrowed`. A change to `go.work`, `go.work.sum` or a `go.mod`
-  runs every module, and a change under none of them skips both checks with
-  `no Go module changed under <root>`. deadcode and govulncheck always read
-  the whole program.
+  the summary records what they ran as `narrowed`. A change to `go.work`,
+  `go.work.sum` or a `go.mod` runs every module, and a change under none of
+  them skips both checks with `no Go module changed under <root>`. deadcode
+  and govulncheck always read the whole program (#6).
 - **Rust targets, offline, on the toolchain the repo pins.** A target can
   declare `"lang": "rust"`, with a root that holds a `Cargo.toml`. Every check
   of a rust target, the target's own custom checks included, runs with
@@ -412,7 +459,7 @@ fields. These are the changes it can notice; each is described in full below.
   and whether it can fail the check under the argv that ran. A reviewer or an
   agent can comment on lines without reimplementing checkride's parsers, and
   the findings come from the same parsers the baseline keys with. It never
-  writes under the output directory or decides a verdict (#6). See
+  writes under the output directory or decides a verdict (#6, #7). See
   `docs/contract.md`.
 - **Go, Rust and shell lint findings join the baseline.** checkride now
   parses golangci-lint, staticcheck, clippy and shellcheck, so
@@ -472,8 +519,8 @@ fields. These are the changes it can notice; each is described in full below.
   the file, whether or not that entry fills a slot in this repo. A run with
   it never ratchets the baseline, its summary records the file as
   `run.defaults`, and the stop gate strips `CHECKRIDE_DEFAULTS` from the check
-  it runs (#7). A config error from a `--config` file now names that file
-  too, where it used to say `checkride.config.json`.
+  it runs (#7). A config error from a `--defaults` file names that file, as
+  one from a `--config` file does.
 - **Check a polyglot repo's parts without declaring them, with
   `--discover`.** Run and `doctor` take the targets the repo's files propose,
   the ones existing-mode `init` would write, and apply them in memory: the
@@ -518,7 +565,7 @@ fields. These are the changes it can notice; each is described in full below.
   leaves the unpinned rows (#7).
 - **Run only the checks that read the repo as data with `--static-only`.** A
   pre-sandbox pass over a checkout nobody has installed keeps a check only
-  when its adapter is marked static (prettier, biome, oxlint, ast-grep,
+  when its adapter is marked static (prettier, biome, biome-format, oxlint, ast-grep,
   markdownlint-cli2, rumdl, cspell, typos, vale, shellcheck, shfmt, gofmt,
   ruff, ruff-format, terraform-fmt, tflint, trivy-config, `links` and
   `unclaimed`), or a defaults file vouches for it with
@@ -596,8 +643,8 @@ fields. These are the changes it can notice; each is described in full below.
   `UV_PROJECT_ENVIRONMENT` names, and records the version the lock pins;
   where that environment doesn't exist yet or lacks the tool, the check fails
   naming the `uv sync` to run, and nothing downloads. A red check whose
-  `uv run` found a package missing from uv's cache prints `run uv sync first`
-  under its status. See `docs/packs.md`.
+  `uv run` found a package missing from uv's cache says so under its status,
+  ending "run `uv sync` first". See `docs/packs.md`.
 - **The python pack checks Python code.** A python target runs ruff
   (`lint`, and `format`, opt-in), mypy, or basedpyright where the config
   names it or only its config sits there (`types`), and pytest (`test`), each
@@ -626,7 +673,7 @@ fields. These are the changes it can notice; each is described in full below.
   `information` don't, and a basedpyright warning gates under `--warnings`
   and otherwise leaves `gates` out, since its config's `failOnWarnings`,
   which its default mode turns on, decides. ruff and basedpyright print
-  absolute paths, which `repoRoot` names from the repo root.
+  absolute paths, which `repoRoot` names from the repo root (#7).
 - **Terraform targets run the CLI their version file pins.** A target can
   declare `"lang": "terraform"`, with a root that holds a
   `.terraform.lock.hcl` or a `.tf` file, and a repo without `targets` whose
@@ -687,10 +734,7 @@ fields. These are the changes it can notice; each is described in full below.
   one about the whole configuration naming no file. trivy's failed checks
   parse for the findings API only, keyed on their ID at the line their cause
   starts on, and gate only under a nonzero `--exit-code`, then when
-  `--severity` lists their level or is absent.
-
-### Changed
-
+  `--severity` lists their level or is absent (#7).
 - **`examples/terraform-roots` shows the terraform pack.** Two root modules,
   `envs/staging` and `envs/production`, each commit the `.terraform.lock.hcl`
   their `tofu init -backend=false` wrote for the `hashicorp/random` provider,
@@ -701,6 +745,9 @@ fields. These are the changes it can notice; each is described in full below.
   `expected.json` runs both inits as setup and plants an unformatted line, an
   unused variable, an undeclared reference and an unclaimed `.tf` directory,
   each failing the check it names (#7).
+
+### Changed
+
 - **`examples/polyglot` is now `examples/python-project`, on the python
   pack.** It drops its `package.json` and custom Python checks: ruff, mypy and
   pytest are detected from `pyproject.toml` and run from the `.venv` that
@@ -708,7 +755,7 @@ fields. These are the changes it can notice; each is described in full below.
   still enforces its two Python rules, and one custom check, `uv lock
   --check`, shows the route for what no pack ships. Its plants fail `lint`,
   `types`, `test`, `struct` and that custom check. The legacy invariance
-  golden keeps checking the 0.13 example from a frozen copy under
+  golden keeps checking the 0.14 example from a frozen copy under
   `test/fixtures/invariance/examples/`, so its recorded runs are unchanged.
 - **New projects start with a test layout, and the rules that hold it.**
   `init` in an empty directory now writes ten ast-grep rules instead of four.
@@ -759,7 +806,7 @@ fields. These are the changes it can notice; each is described in full below.
   `__tests__/`, so a unit test can share code from `test/helpers/`. A repo
   that takes the rule alone with `--add struct` gets the exemption without
   `src-never-imports-test`, so copy that rule from
-  `node_modules/checkride/templates/shared/rules/` too if `src/` must never
+  `node_modules/checkride/templates/ts/shared/rules/` too if `src/` must never
   import `test/`.
 - **The `links` check skips every directory named `fixtures`.** Markdown
   there is test data, and a broken link in it is usually deliberate, so
@@ -770,7 +817,8 @@ fields. These are the changes it can notice; each is described in full below.
   key on a check entry, a `skipExitCode` on an entry with no `command`, and a
   `schemas` rule whose `schema` is a URL or an absolute path each fail the run
   with `invalid checkride.config.json: <reason>`. The published JSON Schema
-  already rejected the first two. Each is one of the rules that arrive with
+  already rejected the first two. `schemas` stays inert otherwise: no slot
+  reads it until a later release ships the `schema` check. Each is one of the rules that arrive with
   the `targets` and `packs` keys (see Contract).
 - **A typo in `gate.only` or `gate.skip` stops the gate before it runs.**
   The gate now checks its profile's names before it spawns the check script.
@@ -848,12 +896,6 @@ fields. These are the changes it can notice; each is described in full below.
   already refused such a tool, but `fix`, which writes files, ran it. Now
   that fixer fails with the same message and install command, and the other
   fixers still run.
-- **A target with its own package manager runs under it.** A ts target whose
-  root holds its own lockfile or `packageManager` field ran under the repo
-  root's manager, and recorded that manager's argv. Each target's checks and
-  fixers now take the nearest declaration from the target's root up to the
-  repo root, so a workspace package that declares neither still runs under
-  the root's. A repo without `targets` detects as before.
 - **A slot entry that only tunes the slot now tunes it.** An entry like
   `"lint": { "timeout": 60, "order": 1 }`, which leaves the tool to
   detection, used to have its `timeout` and `order` ignored, though the
@@ -866,19 +908,74 @@ fields. These are the changes it can notice; each is described in full below.
   schema was written to `checkride.baseline.json` with an empty list, as if
   it had been clean. It's now left out, as a vale runtime error already was.
   The run is still red, and no existing key is pruned.
-- **`doctor` probes the tools a language's own pin file declares.** A check
-  whose tool resolves through `go-mod-tool`, `rust-toolchain` or `uv-lock`
-  reported `unknown`, and since those checks run by default, `doctor` exited
-  1 on a clean Go, Rust or Python repo (`examples/go-module`'s `greeter:dead`
-  among them). Its row now asks the run's own launcher, as `--static-only`
-  already did: `ok` where the launcher would spawn, naming what it spawns
-  (`go tool deadcode`, `cargo clippy`, `.venv/bin/ruff`), and `missing` where
-  it would refuse, with the run's refusal, cause and remedy, as the hint.
-  `unknown` stays for a pin source this checkride can't read. In a root with
-  no `package.json`, the package-manager row is now `n/a` and never required,
-  as the install row already was.
+- **`doctor` no longer requires a package manager in a root with no
+  `package.json`.** Its package-manager row is now `n/a` and never required
+  there, as the install row already was, so a repo without Node doesn't fail
+  `doctor` for want of a lockfile.
 
 ### Contract
+
+The changes that aren't additive come first; the rest are grouped by the
+surface they add to.
+
+#### Not additive
+
+- Changed: `--skip` narrows `--only`, on the command line and in a gate
+  profile that sets both. A check both name sits out, recorded as
+  `skipped by --skip`, where `--only` used to ignore `--skip` whenever both
+  were given.
+- Changed: a `gate.only` or `gate.skip` token no check answers to stops
+  the gate before it spawns the check, with a "could not run" verdict that
+  names the key and every valid token. 0.14 handed the run an `--only` it
+  refused and reported the missing summary as a red.
+- Changed: `checkride baseline` exits 2 on a stray argument, where it
+  ignored one, so a misplaced `diff` can't rewrite the file (#6).
+- Changed: config mistakes 0.14 ignored exit 2 with
+  `invalid checkride.config.json: <reason>`: a `static` key in the repo's
+  config, a `skipExitCode` on an entry with no `command`, and a `schemas`
+  rule whose `schema` is a URL or an absolute path. The JSON Schema already
+  rejected the first two.
+- Changed: a repo without `targets` is checked as one project of the pack
+  its root marks. A root that holds a `go.mod`, `go.work`, `Cargo.toml`,
+  `pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl` or `.tf`
+  file, and no `package.json` or `tsconfig.json`, now runs that pack's checks,
+  each entry recording its `pack`, where 0.14 checked it as ts. A root with a
+  ts marker, or no marker at all, resolves as before.
+- Changed: in the exported TypeScript types, `Summary` gains a required
+  `run`, `DoctorReport` a required `mode`, and `CheckRun` a required `name`,
+  so code that builds one by hand must set it; `Shape` gains `module`,
+  `workspace` and `crate`, and `DoctorCheck`'s `category` gains `pin`, so an
+  exhaustive switch over either needs the new cases.
+- Validated: `gate` holds only `only` and `skip`, each a list of check names,
+  `changed`, a boolean, `preflight`, a string, and `note`; any other key or
+  kind of value exits 2, where 0.14 ignored it. The gate turns that error,
+  and any config it can't read, into its "could not run" verdict rather than
+  an exit 2, and so exits 0 under Cursor. A `--pins` file that pins no tool
+  exits 2. A top-level config key the schema doesn't declare warns on stderr
+  under a run, `fix` and `doctor`, naming the file that holds it; the
+  exported `loadConfig` takes an optional `warn` hook for it, and
+  `DoctorOptions` an optional `stderr`, where it goes.
+- `fix` refuses, with exit 2, the run flags new in this release that would
+  change which files its fixers rewrite or with which tool: `--static-only`,
+  `--discover`, `--base`, `--out`, `--defaults` and `--pins`, each named with
+  why, in the contract doc and `flags.contract.test.ts`. The run flags 0.14
+  accepted on `fix` (`--changed`, `--bail`, `--json`, `--digest`, `--strict`)
+  are still accepted and ignored, and `fix` reads `CHECKRIDE_CONFIG` but never
+  `CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT` or `CHECKRIDE_BASE`.
+- Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
+  fail the check under its argv, and `docs/contract.md` and
+  `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
+  written before keeps masking, since the same findings now produce a subset
+  of its keys, and the next full run ratchets its warning keys away.
+- Narrowed: oxlint output that isn't a record holding a `diagnostics` list,
+  and ast-grep output that isn't an array, empty output included, now reads
+  as untrustworthy rather than clean, as ruff's and golangci-lint's already
+  did. `parseFindings` and `findingsFor` return `null` for it where they
+  returned `[]`, and the baseline neither keys nor prunes from it, in the
+  contract doc. A clean report (`{"diagnostics":[]}`, `[]`) is still an empty
+  array.
+
+#### Commands, flags and variables
 
 - Additive: the run and `doctor` flag `--defaults <path>`, the variable
   `CHECKRIDE_DEFAULTS`, the per-check `origin` value `defaults` (in the JSON
@@ -910,33 +1007,48 @@ fields. These are the changes it can notice; each is described in full below.
   `CheckRunner` context an optional `staticOnly`. `doctor` takes the flag
   too: `DoctorOptions` gains an optional `staticOnly`, and `DoctorCheck` an
   optional `skip`.
-- Additive: the config schema's custom check entry gains `skipExitCode`
-  (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
-  `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A
-  self-skip writes the existing skipped entry, with a new kind of `reason`.
 - Additive: the run flag `--config <path>` and the variable
   `CHECKRIDE_CONFIG`, accepted by run, `doctor`, `fix` and `baseline`. The
   exported `RunOptions` type gains an optional `configPath`, which only
   decides whether the run may ratchet; the caller still passes `config`.
-- Validated: `gate` holds only `only` and `skip`, each a list of check names,
-  `changed`, a boolean, `preflight`, a string, and `note`; any other key or
-  kind of value exits 2, where 0.14 ignored it. The gate turns that error,
-  and any config it can't read, into its "could not run" verdict rather than
-  an exit 2, and so exits 0 under Cursor. A `--pins` file that pins no tool
-  exits 2. A top-level config key the schema doesn't declare warns on stderr
-  under a run, `fix` and `doctor`, naming the file that holds it; the
-  exported `loadConfig` takes an optional `warn` hook for it, and
-  `DoctorOptions` an optional `stderr`, where it goes.
-- `fix` refuses, with exit 2, the run flags new in this release that would
-  change which files its fixers rewrite or with which tool: `--static-only`,
-  `--discover`, `--base`, `--out`, `--defaults` and `--pins`, each named with
-  why, in the contract doc and `flags.contract.test.ts`. The run flags 0.14
-  accepted on `fix` (`--changed`, `--bail`, `--json`, `--digest`, `--strict`)
-  are still accepted and ignored, and `fix` reads `CHECKRIDE_CONFIG` but never
-  `CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT` or `CHECKRIDE_BASE`.
 - Additive: the subcommand `baseline diff [<ref>] [--json]`, whose JSON
   carries `ref`, `sha` (the full sha), `added`, `removed`, `added_count` and
   `removed_count`, held by `baseline.contract.test.ts`.
+- Additive: the run flag `--base <ref>`, the variable `CHECKRIDE_BASE`, the
+  config key `changedBase` and the `{base}` placeholder in `changedArgs`. The
+  vitest and jest rows of `ADAPTERS` carry `{base}` in place of
+  `origin/main`. The exported `RunOptions` type gains an optional `base`
+  (`{ ref, from }`), and the `CheckRunner` context an optional `base`, present
+  under `--changed`.
+- Additive: the run flag `--out <dir>` and the variable `CHECKRIDE_OUT`,
+  accepted by run, `baseline`, `doctor`, `triage` and `qa`, and the summary's
+  `run.out`. `{out}` in any check's `args` or `changedArgs`, a custom check's
+  included, expands to the output directory: `.check` by default, so existing
+  argv is unchanged, and the absolute directory under `--out`. `snippets` and
+  `smoke` record a skipped entry with the reason
+  `needs a writable ./.check for scratch files` when that scratch directory
+  can't be written. The exported `RunOptions` type gains an optional `out`,
+  the `CheckRunner` context an optional `out` (what `{out}` expands to), and
+  a `CheckRunner` may resolve an optional `skip` reason, which records the
+  check as skipped.
+- Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
+  take selection tokens: a slot or custom-check name, a target name (every
+  check of that target a full run would run), or `<target>:<slot>` (one
+  check). A bare slot selects it in every target whose pack fills it.
+  `docs/contract.md` has the table. Naming a slot still opts it in, and a
+  target token opts in nothing. In a repo without targets every token is a
+  slot or custom-check name, as before.
+- Additive: the command `target add <name> --lang <pack> --root <dir>
+  [--add <a,b>] [--root-name <n>] [--dry-run]`, which exits 0 once the target
+  is declared and 2 on a usage error or a config the change would break. The
+  config rules reserve the target name `doc-snippets`, which the config schema's reserved
+  names now list.
+- Additive: the exported `Shape` type takes `module`, `workspace` and
+  `crate`, and `InitOptions` gains optional `lang` (`ts`, `go` or `rust`)
+  and `module`; `init` takes `--lang` and `--module`.
+
+#### `summary.json`
+
 - Additive: per-check summary fields `origin` (`config`, `detected`,
   `built-in` or `custom`, present exactly when `adapter` isn't `null`) and
   `detected_by` (present when `origin` is `detected`), in the JSON Schema and
@@ -944,12 +1056,6 @@ fields. These are the changes it can notice; each is described in full below.
   optional `origin` and `detectedBy`, `SummaryCheck` gains `origin` and
   `detected_by`, and `DoctorCheck` gains `origin` and `detectedBy`.
   `ResolvedCheck.detectedVia` keeps its values.
-- Additive: the run flag `--base <ref>`, the variable `CHECKRIDE_BASE`, the
-  config key `changedBase` and the `{base}` placeholder in `changedArgs`. The
-  vitest and jest rows of `ADAPTERS` carry `{base}` in place of
-  `origin/main`. The exported `RunOptions` type gains an optional `base`
-  (`{ ref, from }`), and the `CheckRunner` context an optional `base`, present
-  under `--changed`.
 - Additive: top-level summary fields `run`, always present with `partial`,
   and `git` (`head`, `dirty`, and `base` as `{ ref, sha }` under `--changed`),
   in the JSON Schema, the contract doc's field tables and
@@ -964,57 +1070,6 @@ fields. These are the changes it can notice; each is described in full below.
   contract doc's field table and `summary.contract.test.ts`. The exported
   `SummaryCheck` type gains an optional `argv`, and a `CheckRunner` may
   resolve an optional `argv` with its outcome, which the summary records.
-- Additive: the run flag `--out <dir>` and the variable `CHECKRIDE_OUT`,
-  accepted by run, `baseline`, `doctor`, `triage` and `qa`, and the summary's
-  `run.out`. `{out}` in any check's `args` or `changedArgs`, a custom check's
-  included, expands to the output directory: `.check` by default, so existing
-  argv is unchanged, and the absolute directory under `--out`. `snippets` and
-  `smoke` record a skipped entry with the reason
-  `needs a writable ./.check for scratch files` when that scratch directory
-  can't be written. The exported `RunOptions` type gains an optional `out`,
-  the `CheckRunner` context an optional `out` (what `{out}` expands to), and
-  a `CheckRunner` may resolve an optional `skip` reason, which records the
-  check as skipped.
-- Narrowed: oxlint and ast-grep baseline keys cover only the findings that can
-  fail the check under its argv, and `docs/contract.md` and
-  `baseline.contract.test.ts` say so. Key strings keep their form. A baseline
-  written before keeps masking, since the same findings now produce a subset
-  of its keys, and the next full run ratchets its warning keys away.
-- Narrowed: oxlint output that isn't a record holding a `diagnostics` list,
-  and ast-grep output that isn't an array, empty output included, now reads
-  as untrustworthy rather than clean, as ruff's and golangci-lint's already
-  did. `parseFindings` and `findingsFor` return `null` for it where they
-  returned `[]`, and the baseline neither keys nor prunes from it, in the
-  contract doc. A clean report (`{"diagnostics":[]}`, `[]`) is still an empty
-  array.
-- Additive: the package root exports `PACKS` and `TOOLS`, with the types
-  `Pack` and `Tool`. `PACKS` maps each pack's name to its adapter rows, root
-  markers, pin sources and environment: `ts` holds the toolchain-bound
-  adapters, and `repo` the five that check the repo as a whole (`ast-grep`,
-  `markdownlint-cli2`, `links`, `cspell` and `vale`). `TOOLS` has one row for
-  each external tool those rows run, with the npm package that provides it.
-  `ADAPTERS` keeps every row and its order, now drawn from the two packs.
-  Each `SLOTS` entry gains `scope` (`target` or `repo`), and the exported
-  `Slot` type an optional `scope`. All four exports are plain data that
-  survive a JSON round trip, held by `exports.contract.test.ts`.
-- Additive: the config keys `targets`, `packs`, `requirePins`, `unclaimed`
-  and `schemas`, in the JSON Schema and the exported `CheckrideConfig` type,
-  with the rules `docs/contract.md` lists. A config that breaks one exits 2
-  before anything runs, `schema` and `unclaimed` are reserved as target
-  names, and a target can't share a name with any custom check, a target's
-  or a pack's included. A `schemas` rule (`files`, `schema`, and optional
-  `format` and `note`) is checked and otherwise inert: no run acts on it
-  until the `schema` slot ships in a later release. The schema's slot entry
-  also takes an object that only tunes a detected slot (`optIn`, `timeout`,
-  `order`, `note`), which the loader always accepted. A config without
-  `targets` resolves as before.
-- Additive: `--only`, `--skip`, `--include`, `gate.only` and `gate.skip`
-  take selection tokens: a slot or custom-check name, a target name (every
-  check of that target a full run would run), or `<target>:<slot>` (one
-  check). A bare slot selects it in every target whose pack fills it.
-  `docs/contract.md` has the table. Naming a slot still opts it in, and a
-  target token opts in nothing. In a repo without targets every token is a
-  slot or custom-check name, as before.
 - Additive: with `targets` declared, a target-scope check is named
   `<target>:<slot>`, runs from its target's root and writes into
   `<out>/<target>/`, so its `output_file` is `<target>/<file>` and `{out}` in
@@ -1036,12 +1091,6 @@ fields. These are the changes it can notice; each is described in full below.
   `resolveChecks` resolves each target's slots against its pack's rows in
   `PACKS`. Without `targets`, names, argv, output files and summaries are
   unchanged, and `test/contract/targets.contract.test.ts` holds the rest.
-- Additive: the exported `Adapter` type gains an optional `lock`. Two checks
-  whose keys are equal never run at once, even in one wave, with `{root}` in
-  a key expanded to the check's target root; the check that waits isn't
-  started, so its timeout and `duration_ms` don't count the wait.
-  `docs/contract.md` describes it under check ordering. No `ts` or `repo` row
-  declares one, so every existing run schedules as before.
 - Additive: per-check summary fields `pin_source` and `tool_version`, in the
   JSON Schema, the contract doc's field table and `summary.contract.test.ts`.
   `pin_source` is one of `override`, `js-lockfile`, `go-mod-tool`,
@@ -1052,6 +1101,93 @@ fields. These are the changes it can notice; each is described in full below.
   `requirePins`. The exported `Tool` type gains an optional `mise` (the
   `[tools]` keys that declare the tool), and `Pack`'s `pins` takes any of the
   eight source names. `requirePins` now acts on a run and on `fix`.
+- Additive: `output_file` may name a `.jsonl` file, written when a check
+  declares one and every non-empty line of its stdout parses as JSON, and an
+  executed check that failed may carry `reason`, the
+  `<adapter> exited 0 but reported findings on stdout` of an adapter that
+  declares `failOnOutput` or the first line of a refusal that stopped its
+  tool spawning, in the JSON Schema's descriptions, the contract
+  doc and `summary.contract.test.ts`. The exported `Adapter` type gains an
+  optional `failOnOutput`. A check that declares no `outputFile` writes
+  `<name>.stdout.txt` whatever it prints, as before.
+- Additive: per-check summary field `narrowed` (`{ units, total }`: the
+  package patterns a Go check ran and the workspace's module count), present
+  when `--changed` narrowed it, in the JSON Schema, the contract doc's field
+  table and `summary.contract.test.ts`. The exported `SummaryCheck` and
+  `ResolvedCheck` types gain an optional `narrowed`, and `Adapter` an
+  optional `narrowsUnderChanged`. A skipped Go check under `--changed` may
+  carry the new reason `no Go module changed under <root>`.
+- Additive: the per-check summary field `pack` is now also present in a run
+  without `targets` whose root marks a pack other than `ts` (a `go.mod`,
+  `go.work` or `Cargo.toml`), in the JSON Schema's description, the contract
+  doc and `summary.contract.test.ts`; a ts root's entries still carry none.
+  The exported `ResolvedCheck` and `SummaryCheck` types document the same,
+  and `DoctorReport` gains an optional `pack`, present in implicit mode.
+
+#### `checkride.config.json`
+
+- Additive: the config schema's custom check entry gains `skipExitCode`
+  (integer, 1 to 255; a `{ use }` entry rejects it), and the exported
+  `CustomCheck` and `ResolvedCheck` types gain an optional `skipExitCode`. A
+  self-skip writes the existing skipped entry, with a new kind of `reason`.
+- Additive: the config keys `targets`, `packs`, `requirePins`, `unclaimed`
+  and `schemas`, in the JSON Schema and the exported `CheckrideConfig` type,
+  with the rules `docs/contract.md` lists. A config that breaks one exits 2
+  before anything runs, `schema` and `unclaimed` are reserved as target
+  names, and a target can't share a name with any custom check, a target's
+  or a pack's included. A `schemas` rule (`files`, `schema`, and optional
+  `format` and `note`) is checked and otherwise inert: no run acts on it
+  until the `schema` slot ships in a later release. The schema's slot entry
+  also takes an object that only tunes a detected slot (`optIn`, `timeout`,
+  `order`, `note`), which the loader always accepted. A config without
+  `targets` resolves as before.
+
+#### `checkride.baseline.json` and `checkride/findings`
+
+- Additive: the `checkride/findings` subpath in `package.json`'s `exports`,
+  exporting `parseFindings`, `findingsFor` and `isParseable` and the types
+  `Finding`, `ParseOptions` and `FindingsCheck`, in the contract doc and
+  `exports.contract.test.ts`. The package root's exports are unchanged.
+- Additive: `isParseable` answers `true` for `golangci-lint`, `staticcheck`,
+  `clippy`, `cargo-check` and `shellcheck`, and `checkride.baseline.json`
+  takes keys for all but `cargo-check`, whose build errors, like a type
+  checker's, aren't grandfathered, in the `<file>:<rule>:<message>` form, with
+  an empty file for a failing finding that names none, in the contract doc,
+  `baseline.contract.test.ts` and `exports.contract.test.ts`. A key's
+  absolute path inside the repo is now named from the repo root; the
+  0.14 tools print relative paths, so no existing key changes.
+- Additive: `isParseable` answers `true` for `markdownlint-cli2`, `rumdl`,
+  `typos`, `tsc` and `go-build`, and `checkride.baseline.json` takes keys for
+  the first three, in the contract doc and both contract tests. The
+  `exports.contract.test.ts` case for an adapter with no parser now names
+  `vitest`, since `tsc` has one.
+- Additive: `checkride/findings` parses `tflint`, `terraform-validate` and
+  `trivy-config`, so `isParseable` is true for each, and
+  `checkride.baseline.json` takes tflint's keys, in the contract doc and both
+  contract tests.
+- Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
+  `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
+  keys, in the contract doc and both contract tests.
+
+#### Packs, adapters and the exported types
+
+- Additive: the package root exports `PACKS` and `TOOLS`, with the types
+  `Pack` and `Tool`. `PACKS` maps each pack's name to its adapter rows, root
+  markers, pin sources and environment: `ts` holds the toolchain-bound
+  adapters, and `repo` the eight that check the repo as a whole (`ast-grep`,
+  `markdownlint-cli2`, `rumdl`, `links`, `cspell`, `typos`, `vale` and
+  `unclaimed`). `TOOLS` has one row for
+  each external tool those rows run, with the npm package that provides it.
+  `ADAPTERS` keeps every row and its order, now drawn from the two packs.
+  Each `SLOTS` entry gains `scope` (`target` or `repo`), and the exported
+  `Slot` type an optional `scope`. All four exports are plain data that
+  survive a JSON round trip, held by `exports.contract.test.ts`.
+- Additive: the exported `Adapter` type gains an optional `lock`. Two checks
+  whose keys are equal never run at once, even in one wave, with `{root}` in
+  a key expanded to the check's target root; the check that waits isn't
+  started, so its timeout and `duration_ms` don't count the wait.
+  `docs/contract.md` describes it under check ordering. No `ts` or `repo` row
+  declares one, so every existing run schedules as before.
 - Additive: `PACKS` gains `bash` (`shellcheck` for `lint`, `shfmt` for the
   opt-in `format`, pinned through `mise` then `path`), `TOOLS` gains
   `shellcheck` and `shfmt`, and a target's `lang` and the config schema's
@@ -1081,7 +1217,7 @@ fields. These are the changes it can notice; each is described in full below.
   leaves such a check out unless an `--only` or `--include` token names it,
   and a named one records a skipped entry with a new kind of `reason`. Every
   multi-target summary gains the `unclaimed` entry, and
-  `targets.contract.test.ts` lists it in R8.4's order. `AdapterOptions`
+  `targets.contract.test.ts` lists it in the summary's check order. `AdapterOptions`
   gains `unclaimed` (`targets` and `ignore`), and the config schema's
   catalogue and reserved target names name `unclaimed` as a slot. A repo
   without `targets` resolves, selects and reports exactly as before.
@@ -1092,22 +1228,8 @@ fields. These are the changes it can notice; each is described in full below.
   `<target>:<slot>` in a target. In a repo with no `package.json`, a
   `harness` row names the entry command: `ok` for mise's pinned copy,
   `outdated` for the one on `PATH`.
-- Additive: the command `target add <name> --lang <pack> --root <dir>
-  [--add <a,b>] [--root-name <n>] [--dry-run]`, which exits 0 once the target
-  is declared and 2 on a usage error or a config the change would break. V2
-  reserves the target name `doc-snippets`, which the config schema's reserved
-  names now list.
 - Additive: the exported `InitOptions` type gains an optional
   `discoverTargets`, the discovery existing mode runs, injectable for tests.
-- Additive: `output_file` may name a `.jsonl` file, written when a check
-  declares one and every non-empty line of its stdout parses as JSON, and an
-  executed check that failed may carry `reason`, the
-  `<adapter> exited 0 but reported findings on stdout` of an adapter that
-  declares `failOnOutput` or the first line of a refusal that stopped its
-  tool spawning, in the JSON Schema's descriptions, the contract
-  doc and `summary.contract.test.ts`. The exported `Adapter` type gains an
-  optional `failOnOutput`. A check that declares no `outputFile` writes
-  `<name>.stdout.txt` whatever it prints, as before.
 - Additive: `PACKS` gains `go` (markers `go.mod` and `go.work`, the pin
   chain `go-mod-tool`, `mise`, `path`, the environment `GOTOOLCHAIN=local`
   and `GOPROXY=off`), the exported `Pack` type's
@@ -1126,13 +1248,6 @@ fields. These are the changes it can notice; each is described in full below.
   with `tool_version` from `go.mod`, and a `go` or `gofmt` a go target's check
   spawns records `mise` or `path`, in the JSON Schema's descriptions and the
   contract doc.
-- Additive: per-check summary field `narrowed` (`{ units, total }`: the
-  package patterns a Go check ran and the workspace's module count), present
-  when `--changed` narrowed it, in the JSON Schema, the contract doc's field
-  table and `summary.contract.test.ts`. The exported `SummaryCheck` and
-  `ResolvedCheck` types gain an optional `narrowed`, and `Adapter` an
-  optional `narrowsUnderChanged`. A skipped Go check under `--changed` may
-  carry the new reason `no Go module changed under <root>`.
 - Additive: `PACKS` gains `rust` (marker `Cargo.toml`, the pin chain
   `rust-toolchain`, `mise`, `path`, the environment `CARGO_NET_OFFLINE`,
   `RUSTUP_AUTO_INSTALL` and `CARGO_TERM_COLOR`), the
@@ -1146,36 +1261,10 @@ fields. These are the changes it can notice; each is described in full below.
   `TOOLS` gains `cargo-fmt` and `cargo-clippy` as rustup components and
   `cargo-machete`, `cargo-nextest`, `cargo-deny` and `cargo-mutants` as cargo
   plugins. `ADAPTERS` is unchanged. A run now writes
-  `pin_source: "rust-toolchain"`, with the channel as `tool_version`, and a
-  `cargo` a rust target's check spawns records `mise` or `path`, in the JSON
+  `pin_source: "rust-toolchain"`, with the channel as `tool_version`, for a
+  component a toolchain file pins, and for `cargo` itself where one does;
+  a `cargo` no toolchain file pins records `mise` or `path`, in the JSON
   Schema's descriptions and the contract doc.
-- Additive: the exported `Shape` type takes `module`, `workspace` and
-  `crate`, and `InitOptions` gains optional `lang` (`ts`, `go` or `rust`)
-  and `module`; `init` takes `--lang` and `--module`. A run writes
-  `pin_source: "rust-toolchain"` for `cargo` itself where a toolchain file
-  pins it, and the JSON Schema's description says so.
-- Additive: the `checkride/findings` subpath in `package.json`'s `exports`,
-  exporting `parseFindings`, `findingsFor` and `isParseable` and the types
-  `Finding`, `ParseOptions` and `FindingsCheck`, in the contract doc and
-  `exports.contract.test.ts`. The package root's exports are unchanged.
-- Additive: `isParseable` answers `true` for `golangci-lint`, `staticcheck`,
-  `clippy`, `cargo-check` and `shellcheck`, and `checkride.baseline.json`
-  takes keys for the first four in the `<file>:<rule>:<message>` form, with
-  an empty file for a failing finding that names none, in the contract doc,
-  `baseline.contract.test.ts` and `exports.contract.test.ts`. A key's
-  absolute path inside the repo is now named from the repo root; the
-  0.13 tools print relative paths, so no existing key changes.
-- Additive: `isParseable` answers `true` for `markdownlint-cli2`, `rumdl`,
-  `typos`, `tsc` and `go-build`, and `checkride.baseline.json` takes keys for
-  the first three, in the contract doc and both contract tests. The
-  `exports.contract.test.ts` case for an adapter with no parser now names
-  `vitest`, since `tsc` has one.
-- Additive: the per-check summary field `pack` is now also present in a run
-  without `targets` whose root marks a pack other than `ts` (a `go.mod`,
-  `go.work` or `Cargo.toml`), in the JSON Schema's description, the contract
-  doc and `summary.contract.test.ts`; a ts root's entries still carry none.
-  The exported `ResolvedCheck` and `SummaryCheck` types document the same,
-  and `DoctorReport` gains an optional `pack`, present in implicit mode.
 - Additive: `PACKS` gains `python` (markers `pyproject.toml`, `setup.cfg` and
   `setup.py`, the pin chain `uv-lock`, `mise`, `path`, the environment
   `PYTHONDONTWRITEBYTECODE`, `PIP_NO_INDEX` and `UV_OFFLINE`), the exported `Pack` type's `name` takes `python`, and the config
@@ -1194,10 +1283,10 @@ fields. These are the changes it can notice; each is described in full below.
   `pyproject.toml: [tool.ruff]`, in the schema's description and the contract
   doc.
 - Additive: `PACKS` gains `terraform` (markers `.terraform.lock.hcl` and
-  `*.tf`, a glob, the pin chain `tf-version`, `mise`, `path`, R6.4's six
-  variables), the exported `Pack` type's `name`
-  takes `terraform`, and the config schema's pack names take `terraform`.
-  `TOOLCHAINS` gains `terraform` and `tofu`, also exported on their own. A run
+  `*.tf`, a glob, the pin chain `tf-version`, `mise`, `path`, and six
+  variables: `CHECKPOINT_DISABLE`, `TF_IN_AUTOMATION`, `TF_INPUT`,
+  `TFENV_AUTO_INSTALL`, `TOFUENV_AUTO_INSTALL` and `TRIVY_SKIP_CHECK_UPDATE`), the exported `Pack` type's `name`
+  takes `terraform`, and the config schema's pack names take `terraform`. A run
   now writes `pin_source: "tf-version"`, with the version file's release as
   `tool_version`, in the JSON Schema's description and the contract doc. A
   repo without `targets` whose root holds only a Terraform marker now records
@@ -1210,13 +1299,6 @@ fields. These are the changes it can notice; each is described in full below.
   writes, the step's arguments to the check's command, and a variable that
   moves the directory, so the check fails naming the step where it's
   missing).
-- Additive: `checkride/findings` parses `tflint`, `terraform-validate` and
-  `trivy-config`, so `isParseable` is true for each, and
-  `checkride.baseline.json` takes tflint's keys, in the contract doc and both
-  contract tests.
-- Additive: `checkride/findings` parses `ruff`, `mypy` and `basedpyright`, so
-  `isParseable` is true for each, and `checkride.baseline.json` takes ruff's
-  keys, in the contract doc and both contract tests.
 
 ### Internal
 
@@ -1238,7 +1320,7 @@ fields. These are the changes it can notice; each is described in full below.
   `src/findings/parsers/`, which `checkride/findings` serves too. Each parser
   declares the stream it reads, and the baseline hands it that stream rather
   than always stdout. A golden test holds every key each fixture yields to
-  what 0.13 wrote, apart from the warnings the baseline stopped keying above,
+  what 0.14 wrote, apart from the warnings the baseline stopped keying above,
   and holds a target's keys to the repo-root paths this release adds. A new
   structural rule, `findings-never-imports-orchestrator`, keeps the parse API
   free of the orchestrator.
@@ -1258,8 +1340,8 @@ fields. These are the changes it can notice; each is described in full below.
   now the shipped copy, which also flags a value defined in an `index.ts`.
 - Every argv a check or a fix spawns now comes from a launcher in
   `src/launch/`, through the `js-lockfile` pin source, which took over
-  `src/pm/`'s package-manager detection, translation and tool lookup.
-  `src/pm/` only re-exports those names. No check resolves, orders or spawns
+  `src/pm/`'s package-manager detection, translation and tool lookup,
+  leaving `src/pm/` as re-exports until it went (above). No check resolves, orders or spawns
   differently. A new structural rule, `no-pack-name-literal`, stops the
   orchestrator and the launcher from spelling a pack's name, so a later pack
   adds rows instead of branches.
@@ -1281,6 +1363,35 @@ fields. These are the changes it can notice; each is described in full below.
   in `mise.ts`, the `path` source in `path.ts` and the upward search they
   share, bounded at the repo root, in `walk.ts`. `launchFix` is gone: a fix
   launches through `launchCheck`, as a check does.
+- `TOOLCHAINS`, beside `TOOLS` in `src/packs/tools.ts`, lists the
+  executables a toolchain ships that an adapter runs directly: `go`, `cargo`,
+  `terraform`, `tofu` and `gofmt`, each resolving through its toolchain's own
+  pin. It's exported from `src/packs/` but not from the package root.
+- Legacy invariance is pinned in two halves. `test/contract/invariance.contract.test.ts`
+  drives the real CLI in-process with every spawn faked and holds the
+  resolved checks, argv and summaries the examples produced before this
+  release to the goldens under `test/fixtures/invariance/`;
+  `test/e2e/invariance.e2e.test.ts` runs the same examples for real. A
+  release that moves a check, an argv or a summary field fails one of them.
+- `test/contract/flags.contract.test.ts` locks each run flag and consumer
+  variable: `--config`, `--out`, `--defaults`, `--pins`, `--static-only`,
+  `--discover` and `--base`, the variables behind them, and the flags `fix`
+  refuses.
+- `docs/contract.md` tables every `summary.json` field, top-level and per
+  check, with its type and when it's present, taken from the code's writers,
+  and `summary.contract.test.ts` fails when a table's names or its "always"
+  rows drift from the JSON Schema.
+- The repo's root `mise.toml` pins every e2e toolchain at the version its
+  rows were checked against, and `test/helpers/toolchains.ts` gates each
+  pack's e2e cases on them; CI installs them with `jdx/mise-action` and sets
+  `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, as the publish workflow does.
+- A full stryker run starts from its sandbox: it runs the tests through
+  `vitest.stryker.config.ts`, which leaves out the one integration test whose
+  `git ls-files` reads nothing in the gitignored `.stryker-tmp` and failed
+  every unscoped dry run. `pnpm check` still runs that test.
+- `docs/diagrams/polyglot-run.svg` draws a run once a repo has targets:
+  toolchain markers becoming targets, the six stages a run goes through with
+  the flags that steer each, and what a run writes and who reads it.
 
 ## [0.14.0] - 2026-10-09
 
