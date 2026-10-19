@@ -20,8 +20,12 @@ fields. These are the changes it can notice; each is described in full below.
   that sets both keys, so such a profile runs fewer checks.
 - **A slot entry that only tunes the slot now tunes it**, so a `timeout` or
   `order` that used to be ignored applies.
-- **A few config mistakes that were ignored now exit 2**, and a typo in
-  `gate.only` or `gate.skip` stops the gate before it runs.
+- **A few config mistakes that were ignored now exit 2**, a malformed `gate`
+  among them: 0.14 ignored a value it couldn't use, such as
+  `"changed": "true"` or `"only": "lint"`, and a run now refuses it, while
+  the gate blocks the turn naming it. A typo in `gate.only` or `gate.skip`
+  stops the gate before it runs, and a top-level key nothing reads, such as
+  `check`, prints a warning on stderr.
 - **`links` skips more directories**: any named `fixtures`, `vendor`,
   `.venv` or `target`, beside `node_modules` and the rest.
 - **Status lines end with a tag** saying why each check runs, and `--only`,
@@ -914,6 +918,15 @@ fields. These are the changes it can notice; each is described in full below.
   `CHECKRIDE_CONFIG`, accepted by run, `doctor`, `fix` and `baseline`. The
   exported `RunOptions` type gains an optional `configPath`, which only
   decides whether the run may ratchet; the caller still passes `config`.
+- Validated: `gate` holds only `only` and `skip`, each a list of check names,
+  `changed`, a boolean, `preflight`, a string, and `note`; any other key or
+  kind of value exits 2, where 0.14 ignored it. The gate turns that error,
+  and any config it can't read, into its "could not run" verdict rather than
+  an exit 2, and so exits 0 under Cursor. A `--pins` file that pins no tool
+  exits 2. A top-level config key the schema doesn't declare warns on stderr
+  under a run, `fix` and `doctor`, naming the file that holds it; the
+  exported `loadConfig` takes an optional `warn` hook for it, and
+  `DoctorOptions` an optional `stderr`, where it goes.
 - `fix` refuses, with exit 2, the run flags new in this release that would
   change which files its fixers rewrite or with which tool: `--static-only`,
   `--discover`, `--base`, `--out`, `--defaults` and `--pins`, each named with

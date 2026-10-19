@@ -400,6 +400,37 @@ export const DEFAULTS_ENV = 'CHECKRIDE_DEFAULTS';
 const DEFAULTS_KEYS: ReadonlySet<string> = new Set(['$schema', 'note', 'checks', 'packs', 'timeout', 'requirePins', 'schemas']);
 
 /**
+ * Every top-level key a config file may hold, as the config schema's root
+ * declares them. Any other is read by nothing, a typo most often, so a run,
+ * `fix` and `doctor` warn about it rather than let it sit unnoticed.
+ */
+export const CONFIG_KEYS: ReadonlySet<string> = new Set([
+  '$schema',
+  'note',
+  'extends',
+  'timeout',
+  'changedBase',
+  'requirePins',
+  'unclaimed',
+  'schemas',
+  'targets',
+  'packs',
+  'gate',
+  'checks',
+]);
+
+/** Where a config read reports a warning: one line, its `checkride:` prefix included. */
+export type ConfigWarning = (message: string) => void;
+
+/** One warning for each top-level key of `own`, one file's own keys, that no part of checkride reads, naming `file`. */
+function unknownKeyWarnings(own: Record<string, unknown>, file: string): string[] {
+  const known = [...CONFIG_KEYS].join(', ');
+  return Object.keys(own)
+    .filter((key) => !CONFIG_KEYS.has(key))
+    .map((key) => `checkride: ${file} has an unknown top-level key ${JSON.stringify(key)}, which nothing reads (the keys are ${known})`);
+}
+
+/**
  * Recursive deep-merge with local-wins semantics: plain objects merge key by
  * key; arrays, scalars, and type mismatches from `over` replace `base` (arrays
  * are never concatenated).
@@ -617,13 +648,14 @@ function applyOptIn(check: ResolvedCheck, entry: SlotConfig | undefined, context
  * a cycle; `label`, how a message names this file, the root's name for the
  * root itself or a path relative to the working directory for an inherited
  * base; and `root`, the file the chain started from, which every error's
- * `invalid <file>:` prefix names.
+ * `invalid <file>:` prefix names. `warn`, when given, hears about each
+ * top-level key a file in the chain holds that nothing reads.
  */
-type Chain = { stack: readonly string[]; label: string; root: string };
+type Chain = { stack: readonly string[]; label: string; root: string; warn?: ConfigWarning };
 
 /** The chain a root config file starts, named `file` in every error. */
-function rootChain(file: string): Chain {
-  return { stack: [], label: file, root: file };
+function rootChain(file: string, warn?: ConfigWarning): Chain {
+  return { stack: [], label: file, root: file, ...(warn !== undefined ? { warn } : {}) };
 }
 
 /** Read and parse a config file into an object, or throw a friendly error. */
@@ -658,7 +690,7 @@ function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain
       const reason = err instanceof Error ? err.message : String(err);
       invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err, root);
     }
-    const base = resolveConfigFile(baseAbs, { stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs), root });
+    const base = resolveConfigFile(baseAbs, { ...chain, stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs) });
     const problem = presetProblem(base, spec, label);
     if (problem !== null) invalidConfig(problem, undefined, root);
     merged = deepMerge(merged, base);
@@ -668,13 +700,17 @@ function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain
 
 /**
  * Read, parse, and fully resolve a config file's `extends` chain into a single
- * merged object, with `extends` folded away.
+ * merged object, with `extends` folded away. Each file's own unknown keys are
+ * reported as it's read, before presets merge in, so a warning names the file
+ * that holds the key, the repo's own or a preset.
  */
 function resolveConfigFile(absPath: string, chain: Chain): Record<string, unknown> {
   if (chain.stack.includes(absPath)) {
     invalidConfig(`circular extends: ${[...chain.stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`, undefined, chain.root);
   }
-  const { extends: ext, ...own } = parseConfigJson(absPath, chain);
+  const parsed = parseConfigJson(absPath, chain);
+  if (chain.warn !== undefined) for (const warning of unknownKeyWarnings(parsed, chain.label)) chain.warn(warning);
+  const { extends: ext, ...own } = parsed;
   const merged = resolveExtends(normalizeExtends(ext), absPath, chain);
   return deepMerge(merged, own);
 }
@@ -697,12 +733,13 @@ function validated(config: Record<string, unknown>, cwd: string, file: string): 
  * Read, resolve and validate `checkride.config.json` from `cwd`, or `null`
  * when absent. Any `extends` presets (file paths or package specifiers) are
  * resolved and merged in — local keys win, arrays replace — with `extends`
- * folded away.
+ * folded away. `warn`, when given, hears about each top-level key a file
+ * holds that nothing reads.
  */
-export function loadConfig(cwd: string): CheckrideConfig | null {
+export function loadConfig(cwd: string, warn?: ConfigWarning): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE)), cwd, CONFIG_FILE);
+  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE, warn)), cwd, CONFIG_FILE);
 }
 
 /**
@@ -723,12 +760,12 @@ export function validateConfigObject(raw: Record<string, unknown>, path: string,
  * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
  * relative `extends` resolve against that file, while paths inside its values
  * stay relative to the repo being checked, `cwd`. Every error it raises, and
- * every one resolving it raises later, names `path`. The caller has already
- * confirmed the file exists, since a named file that is missing is a usage
- * error, not "no config".
+ * every one resolving it raises later, names `path`, and so does every
+ * warning `warn` hears. The caller has already confirmed the file exists,
+ * since a named file that is missing is a usage error, not "no config".
  */
-export function loadConfigFile(path: string, cwd: string): CheckrideConfig {
-  return validated(resolveConfigFile(path, rootChain(path)), cwd, path);
+export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning): CheckrideConfig {
+  return validated(resolveConfigFile(path, rootChain(path, warn)), cwd, path);
 }
 
 /** The first top-level key a defaults file can't hold, as a problem, or `null`. */

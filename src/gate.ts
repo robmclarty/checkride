@@ -323,19 +323,44 @@ function profileProblem(cwd: string, profile: GateProfile | null): string | null
 /** The cause a profile with an unknown token reports, in the words a refusal uses. */
 const PROFILE_REFUSAL = 'the gate profile names a token no check answers to';
 
+/** The cause a gate reports when the repo's config can't be read at all. */
+const CONFIG_REFUSAL = "checkride.config.json can't be read";
+
+/** Why the gate can't run as the repo configures it: the cause it reports, the mistake, and where to fix it. */
+type ProfileBlock = { refusal: string; problem: string; fix: string };
+
 /**
  * The verdict for a profile that can't run. Nothing ran, as with a launch
  * refusal, but the fix is the repo's, so it blocks rather than standing down.
  */
-function profileVerdict(problem: string, elapsedMs: number): Verdict {
+function profileVerdict(block: ProfileBlock, elapsedMs: number): Verdict {
   return {
-    status: headline('could not run', '⚠', elapsedMs, PROFILE_REFUSAL),
+    status: headline('could not run', '⚠', elapsedMs, block.refusal),
     instruction:
-      `checkride: the gate could not run — ${problem} Fix \`gate\` in checkride.config.json. ` +
+      `checkride: the gate could not run — ${block.problem} ${block.fix} ` +
       'Nothing ran: no check executed and no artifact was written.',
-    refusal: PROFILE_REFUSAL,
+    refusal: block.refusal,
     standDown: false,
   };
+}
+
+/**
+ * The profile the gate runs with (`given`, else the repo's), and why the gate
+ * can't run as configured, or `null`: a token no check answers to, or a config
+ * it can't read at all, a malformed `gate` among them. Read before anything
+ * spawns. A config error is the repo's to fix, as a bad token is, so it
+ * blocks with a message rather than exiting 2, which Cursor reads as a broken
+ * hook.
+ */
+function readProfile(cwd: string, given: GateProfile | null | undefined): { profile: GateProfile | null; block: ProfileBlock | null } {
+  try {
+    const profile = given !== undefined ? given : gateProfile(cwd);
+    const problem = profileProblem(cwd, profile);
+    return { profile, block: problem === null ? null : { refusal: PROFILE_REFUSAL, problem, fix: 'Fix `gate` in checkride.config.json.' } };
+  } catch (error) {
+    const problem = error instanceof Error ? error.message : String(error);
+    return { profile: null, block: { refusal: CONFIG_REFUSAL, problem: `${problem}.`, fix: 'Fix checkride.config.json.' } };
+  }
 }
 
 /**
@@ -869,12 +894,11 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   const pm = options.pm ?? detectPackageManager({ cwd });
   // The gate runs the check the way the repo runs it (R6.6).
   const entry = resolveEntry(cwd, pm);
-  const profile = options.profile !== undefined ? options.profile : gateProfile(cwd);
   const startedAt = now();
-  const problem = profileProblem(cwd, profile);
-  if (problem !== null) {
-    const exitCode = reportRed(harness, { stdout, stderr }, profileVerdict(problem, now() - startedAt), env);
-    return { exitCode, ran: true, green: false, refusal: PROFILE_REFUSAL };
+  const { profile, block } = readProfile(cwd, options.profile);
+  if (block !== null) {
+    const exitCode = reportRed(harness, { stdout, stderr }, profileVerdict(block, now() - startedAt), env);
+    return { exitCode, ran: true, green: false, refusal: block.refusal };
   }
   const alignment = alignNode(cwd, pinEnv);
   const childEnv = announceAlignment(alignment, withoutConsumerVars(env), stderr);

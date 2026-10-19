@@ -550,7 +550,12 @@ type NamedConfig = { path: string; config: CheckrideConfig };
  */
 function namedConfig(flag: string | undefined, deps: CliDeps): NamedConfig | null {
   const path = namedFile('--config', flag, CONFIG_ENV, deps);
-  return path === null ? null : { path, config: loadConfigFile(path, deps.cwd) };
+  return path === null ? null : { path, config: loadConfigFile(path, deps.cwd, warnOn(deps)) };
+}
+
+/** Where a config read reports a key nothing reads: the command's stderr, a line each. */
+function warnOn(deps: CliDeps): (message: string) => void {
+  return (message) => deps.stderr.write(`${message}\n`);
 }
 
 /**
@@ -738,7 +743,7 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
  */
 async function doctorConfig(discover: boolean, named: NamedConfig | null, deps: CliDeps): Promise<{ config?: CheckrideConfig | null }> {
   if (!discover) return named ? { config: named.config } : {};
-  const found = await discoverRun(deps.cwd, named?.config ?? loadConfig(deps.cwd), null);
+  const found = await discoverRun(deps.cwd, named?.config ?? loadConfig(deps.cwd, warnOn(deps)), null);
   if (found.declared.length > 0) deps.stderr.write(`${declaredNote(found.declared)}\n`);
   return { config: found.config };
 }
@@ -757,6 +762,7 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
     ...outOption(out, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
+    stderr: deps.stderr,
   });
   return result.exitCode;
 }

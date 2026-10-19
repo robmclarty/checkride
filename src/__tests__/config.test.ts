@@ -11,7 +11,7 @@ import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { Adapter } from '../adapters.js';
 import { runCli } from '../cli.js';
 import type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig } from '../config.js';
-import { configSchemaUrl, configuredSlots, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
+import { CONFIG_KEYS, configSchemaUrl, configuredSlots, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
 import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
 import { configProblem } from '../targets/index.js';
@@ -1116,6 +1116,17 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     expect(problem({ unclaimed: { ignored: ['x'] } })).toMatch(/unclaimed has an unknown key 'ignored' \(expected ignore\)/);
   });
 
+  test('gate holds only its own keys: lists of check names, a boolean, a preflight path and a note', () => {
+    expect(problem({ gate: { only: ['types'], skip: [], changed: true, preflight: 'gate.sh', note: 'fast' } })).toBeNull();
+    expect(problem({ gate: 'fast' })).toMatch(/gate must be an object \(got "fast"\)/);
+    expect(problem({ gate: { only: 'lint' } })).toMatch(/gate\.only must be a list of check names \(got "lint"\)/);
+    expect(problem({ gate: { skip: [1] } })).toMatch(/gate\.skip must be a list of check names \(got \[1\]\)/);
+    expect(problem({ gate: { changed: 'true' } })).toMatch(/gate\.changed must be true or false \(got "true"\)/);
+    expect(problem({ gate: { preflight: ['gate.sh'] } })).toMatch(/gate\.preflight must be a path \(got \["gate\.sh"\]\)/);
+    expect(problem({ gate: { note: 3 } })).toMatch(/'gate' note must be a string/);
+    expect(problem({ gate: { onlyy: ['lint'] } })).toMatch(/gate has an unknown key 'onlyy' \(expected only, skip, changed, preflight, note\)/);
+  });
+
   test('--config reads target roots against the repo, not the config file’s directory', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'checkride-outside-'));
     try {
@@ -1155,6 +1166,11 @@ describe('published JSON Schema', () => {
   };
   const schema: unknown = JSON.parse(readFileSync(schemaPath, 'utf8'));
   const validate = new (Ajv as unknown as AjvCtor)({ strict: false, allErrors: true }).compile(schema);
+
+  test('the top-level keys checkride reads are exactly the schema root’s', () => {
+    const root = schema as { properties: Record<string, unknown> };
+    expect([...CONFIG_KEYS].toSorted()).toEqual(Object.keys(root.properties).toSorted());
+  });
 
   test('validates a representative config exercising every branch', () => {
     const config: CheckrideConfig = {
@@ -1348,6 +1364,28 @@ describe('loadConfig', () => {
 
   test('returns null when no config file exists', () => {
     expect(loadConfig(dir)).toBeNull();
+  });
+
+  test('an unknown top-level key warns, naming the file that holds it, the repo’s or a preset’s, and the config still loads', async () => {
+    await writeFile(join(dir, 'base.json'), JSON.stringify({ timeout: 60, gaet: { only: ['lint'] } }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './base.json', check: { lint: false } }));
+    const warned: string[] = [];
+    expect(loadConfig(dir, (message) => warned.push(message))).toMatchObject({ timeout: 60 });
+    expect(warned).toHaveLength(2);
+    expect(warned[0]).toBe(
+      'checkride: checkride.config.json has an unknown top-level key "check", which nothing reads (the keys are $schema, note, extends, timeout, changedBase, requirePins, unclaimed, schemas, targets, packs, gate, checks)',
+    );
+    expect(warned[1]).toMatch(/^checkride: \S*base\.json has an unknown top-level key "gaet", which nothing reads/);
+    // Without a hook it stays silent, as every caller but a run, fix and doctor wants.
+    expect(() => loadConfig(dir)).not.toThrow();
+  });
+
+  test('a --config file’s unknown key names that file', async () => {
+    const path = join(dir, 'review.json');
+    await writeFile(path, JSON.stringify({ check: {} }));
+    const warned: string[] = [];
+    loadConfigFile(path, dir, (message) => warned.push(message));
+    expect(warned).toEqual([expect.stringMatching(new RegExp(`^checkride: ${path.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')} has an unknown top-level key "check"`))]);
   });
 
   test('reads and parses checkride.config.json', async () => {

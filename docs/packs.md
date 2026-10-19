@@ -66,8 +66,9 @@ repo.
 `mise.toml`, named with `--pins` or `CHECKRIDE_PINS`, runs its toolbelt over a
 checkout it can't write to. mise reads none of the repo's own config files for
 it, so a `mise.toml` mise hasn't trusted neither refuses the tool nor gets
-trusted, and the repo's `[env]` never reaches it. Each entry is a version string or an inline
-table's `version`; anything else exits 2. It changes which copy of a tool
+trusted, and the repo's `[env]` never reaches it. Each entry is a version
+string or an inline table's `version`; anything else exits 2, and so does a
+file that pins no tool, a `[tool]` typo among them. It changes which copy of a tool
 runs, never which checks run, since detection reads only the repo. A toolchain
 it names, such as `go`, runs that copy in any pack, a `go tool` included. `rust-toolchain` declares only a tool that
 `TOOLS` names as a rustup component: `cargo` itself, rustfmt and clippy. Only

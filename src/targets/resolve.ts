@@ -135,6 +135,30 @@ function noteProblem(note: unknown, where: string): string | null {
   return note === undefined || typeof note === 'string' ? null : `'${where}' note must be a string (got ${show(note)})`;
 }
 
+/** What each `gate` key holds, and how a message names it; `note` is any config note's. */
+const GATE_SHAPE: Readonly<Record<string, { holds: (value: unknown) => boolean; is: string } | null>> = {
+  only: { holds: isStringArray, is: 'a list of check names' },
+  skip: { holds: isStringArray, is: 'a list of check names' },
+  changed: { holds: (value) => typeof value === 'boolean', is: 'true or false' },
+  preflight: { holds: (value) => typeof value === 'string', is: 'a path' },
+  note: null,
+};
+
+/**
+ * `gate`'s shape: an object holding only its own keys, each the kind it
+ * takes. A value the gate couldn't use, such as `"only": "lint"`, would
+ * otherwise narrow nothing, or fail far from the mistake.
+ */
+function gateProblem(gate: unknown): string | null {
+  if (gate === undefined) return null;
+  if (!isRecord(gate)) return `gate must be an object (got ${show(gate)})`;
+  const unknown = unknownKeyProblem(gate, 'gate', Object.keys(GATE_SHAPE));
+  if (unknown !== null) return unknown;
+  const wrong = Object.entries(GATE_SHAPE).find(([key, shape]) => shape !== null && gate[key] !== undefined && !shape.holds(gate[key]));
+  if (wrong !== undefined) return `gate.${wrong[0]} must be ${wrong[1]?.is ?? ''} (got ${show(gate[wrong[0]])})`;
+  return noteProblem(gate['note'], 'gate');
+}
+
 /**
  * V12's first half: a custom check's `skipExitCode`, an integer from 1 to 255
  * on a `{ command }` entry. 0 already means a pass, and no process exits above
@@ -499,7 +523,8 @@ export function configProblem(config: Record<string, unknown>, context: Validati
     targetsProblem(config, cat) ??
     topChecksProblem(config['checks'], declaredTargets(config['targets']), cat) ??
     packsProblem(config['packs'], cat) ??
-    schemasProblem(config['schemas'])
+    schemasProblem(config['schemas']) ??
+    gateProblem(config['gate'])
   );
 }
 

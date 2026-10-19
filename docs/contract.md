@@ -547,7 +547,9 @@ spawns.
 **`--pins <mise.toml>` and `CHECKRIDE_PINS` override the repo's pins.** A
 run reads the named file's `[tools]` entries with their versions, each a
 string or an inline table's `version`; an entry with no version, a
-`[tools.<id>]` table, or a missing file exits 2, naming the file. The file
+`[tools.<id>]` table, a file that pins no tool at all (no `[tools]` table, a
+mistyped `[tool]` among them, or an empty one), or a missing file exits 2,
+naming the file. The file
 becomes an `override` source at the head of every pack's pin chain, ahead of
 the repo's own pins: a tool whose mise id it names runs as
 `mise exec <id>@<version> -- <bin>`, offline and with mise's installs off, and
@@ -974,7 +976,10 @@ preflight narrows nothing, so it never puts narrowing words on a verdict.
 **A gate profile narrows the gate, and the gate says so.** `checkride.config.json`
 may carry a `gate` key (`only`, `skip`, `changed`) that applies to the stop-gate
 run and nothing else; its flags are appended after the check script's own, so the
-profile wins. The promise is the disclosure: while a profile is active, every
+profile wins. A profile token no check answers to, or a config the gate can't
+read, a malformed `gate` included, blocks the turn with a "could not run"
+verdict naming the mistake, before anything spawns, rather than exiting 2,
+which Cursor would read as a broken hook. The promise is the disclosure: while a profile is active, every
 verdict the gate emits names the narrowing in its parenthetical — `only types,
 lint`, `without test`, `affected-only` — so a narrowed green can never read as a
 full green. That would be the vacuous pass this contract exists to prevent, so
@@ -1070,6 +1075,14 @@ written:
 - `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
   sets `static`, which only a defaults file may.
 - A defaults file declares no `targets`, and nor does anything it `extends`.
+- `gate` holds only `only` and `skip`, each a list of check names, `changed`,
+  a boolean, `preflight`, a path, and `note`.
+
+A top-level key the config schema doesn't declare is no error, since nothing
+reads it, but a run, `fix` and `doctor` each print a warning on stderr naming
+the file that holds it, the repo's config, a preset it extends, or a
+`--config` file, so a misspelled key such as `check` doesn't sit there
+unnoticed while the run ignores it.
 
 Seven packs ship, `ts`, `repo`, `bash`, `go`, `rust`, `python` and
 `terraform`, which [Packs and pins](./packs.md) covers. A run checks each

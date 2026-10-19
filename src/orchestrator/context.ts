@@ -48,13 +48,15 @@ type CommonContext = {
  */
 export function resolveCommonOptions(options: CommonOptions): CommonContext {
   const cwd = options.cwd ?? process.cwd();
+  const stderr = options.stderr ?? process.stderr;
   return {
     cwd,
     slots: options.slots ?? SLOTS,
     adapters: options.adapters ?? ADAPTERS,
-    config: options.config !== undefined ? options.config : loadConfig(cwd),
+    // A key the config holds that nothing reads warns on stderr as it loads.
+    config: options.config !== undefined ? options.config : loadConfig(cwd, (message) => stderr.write(`${message}\n`)),
     stdout: options.stdout ?? process.stdout,
-    stderr: options.stderr ?? process.stderr,
+    stderr,
   };
 }
 

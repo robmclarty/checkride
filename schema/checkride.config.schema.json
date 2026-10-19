@@ -93,7 +93,7 @@
         "only": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Run only these checks in the gate, each named as --only takes them: a slot, a custom check, a target, or <target>:<slot>. A name no check answers to stops the gate with exit 2."
+          "description": "Run only these checks in the gate, each named as --only takes them: a slot, a custom check, a target, or <target>:<slot>. A name no check answers to blocks the turn with a could-not-run verdict naming it, before anything runs."
         },
         "skip": {
           "type": "array",

@@ -303,7 +303,8 @@ export function miseToolVersions(text: string): ReadonlyMap<string, string> | { 
 
 /**
  * The pins the `--pins` file at `path` declares, or throw the friendly
- * `invalid <path>: <reason>` error, a usage error, when it can't be read.
+ * `invalid <path>: <reason>` error, a usage error, when it can't be read or
+ * pins no tool at all.
  */
 export function loadPinsFile(path: string): ReadonlyMap<string, string> {
   let text: string;
@@ -314,6 +315,8 @@ export function loadPinsFile(path: string): ReadonlyMap<string, string> {
   }
   const pins = miseToolVersions(text);
   if ('problem' in pins) throw new Error(`invalid ${path}: ${pins.problem}`);
+  // A file that pins nothing, a `[tool]` typo most often, would change nothing silently.
+  if (pins.size === 0) throw new Error(`invalid ${path}: it pins no tool; a --pins file names each tool under [tools], as mise.toml does`);
   return pins;
 }
 

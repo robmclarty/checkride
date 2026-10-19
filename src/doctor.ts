@@ -184,6 +184,8 @@ export type DoctorOptions = {
   cwd?: string;
   json?: boolean;
   stdout?: Out;
+  /** Where a warning about the config goes, such as a key nothing reads; `process.stderr` by default. */
+  stderr?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
   config?: CheckrideConfig | null;

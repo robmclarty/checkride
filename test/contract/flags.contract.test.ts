@@ -333,6 +333,14 @@ describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
 
   const deps = (stderr = capture(), env: Record<string, string> = {}, stdout = capture()): CliDeps => ({ cwd: dir, stdout, stderr, env });
 
+  test('a pins file with no [tools] table, or an empty one, exits 2 before anything runs', async () => {
+    await writeFile(join(dir, 'pins.toml'), '[tool]\nshellcheck = "0.11.0"\n');
+    const err = capture();
+    expect(await runCli(['--pins', 'pins.toml'], deps(err))).toBe(2);
+    expect(err.text()).toContain('it pins no tool');
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
   test('--pins <mise.toml> parses to its raw value', () => {
     expect(parseCliArgs(['--pins', 'agent.toml']).pins).toBe('agent.toml');
     expect(parseCliArgs([]).pins).toBeUndefined();

@@ -427,6 +427,11 @@ describe('runCli fix', () => {
   });
 });
 
+/** The warning a config read prints for a top-level key nothing reads. */
+function warning(file: string, key: string): string {
+  return `checkride: ${file} has an unknown top-level key "${key}", which nothing reads`;
+}
+
 describe('runCli --config and CHECKRIDE_CONFIG', () => {
   let dir: string;
   let outside: string;
@@ -442,6 +447,20 @@ describe('runCli --config and CHECKRIDE_CONFIG', () => {
   function deps(env: Record<string, string> = {}, stderr = sink(), stdout = sink()): CliDeps {
     return { cwd: dir, stdout, stderr, env };
   }
+
+  test('run, fix and doctor warn on stderr about an unknown top-level key, in the repo’s config or a named one, and go on', async () => {
+    const config = JSON.parse(probeConfig(0)) as Record<string, unknown>;
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ ...config, check: {} }));
+    await writeFile(join(outside, 'ci.json'), JSON.stringify({ ...config, gaet: {} }));
+    for (const argv of [['--only', 'probe'], ['fix'], ['doctor']]) {
+      const err = sink();
+      expect(await runCli(argv, deps({}, err)), argv.join(' ')).not.toBe(2);
+      expect(err.text(), argv.join(' ')).toContain(warning('checkride.config.json', 'check'));
+      const named = sink();
+      await runCli([...argv, '--config', join(outside, 'ci.json')], deps({}, named));
+      expect(named.text(), argv.join(' ')).toContain(warning(join(outside, 'ci.json'), 'gaet'));
+    }
+  });
 
   test('--config reads that file instead of the repo’s', async () => {
     await writeFile(join(dir, 'checkride.config.json'), probeConfig(1));

@@ -963,6 +963,26 @@ describe('runGate — the gate profile', () => {
     }
   });
 
+  /**
+   * A config the gate can't read is a mistake of the repo's too, so it blocks
+   * the same way, naming it, rather than exiting 2 as a broken hook would.
+   */
+  test('a config the gate can’t read blocks naming the mistake, and under Cursor rides a followup at exit 0', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { only: 'lint' } }));
+    const { spawn, args } = capturingArgs();
+    const stdout = capture();
+    const result = await runGate({ cwd: dir, spawn, stdout, stderr: capture(), pinEnv: pinEnv() });
+    expect(result).toMatchObject({ exitCode: 2, ran: true, green: false, refusal: "checkride.config.json can't be read" });
+    const body = JSON.parse(stdout.text()) as { decision: string; reason: string };
+    expect(body.decision).toBe('block');
+    expect(body.reason).toContain('could not run');
+    expect(body.reason).toContain('gate.only must be a list of check names (got "lint")');
+    const cursor = capture();
+    expect((await runGate({ cwd: dir, harness: 'cursor', spawn, stdout: cursor, stderr: capture(), pinEnv: pinEnv() })).exitCode).toBe(0);
+    expect((JSON.parse(cursor.text()) as { followup_message: string }).followup_message).toContain('gate.only must be a list of check names');
+    expect(args()).toEqual([]);
+  });
+
   /** Cursor reads a non-zero stop hook as a broken one, so the same refusal rides its followup at exit 0. */
   test('under Cursor the same refusal is a followup at exit 0', async () => {
     const { spawn, args } = capturingArgs();

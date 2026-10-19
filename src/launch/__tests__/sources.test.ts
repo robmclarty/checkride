@@ -178,4 +178,13 @@ describe('miseToolVersions reads what a --pins file pins (R13.3)', () => {
       await writeFile(path, '[tools]\nnode = "22"\n');
       expect(loadPinsFile(path)).toEqual(new Map([['node', '22']]));
     }));
+
+  test('a pins file that pins nothing is an error, a mistyped [tool] table among them', () =>
+    inTemp(async (dir) => {
+      const path = join(dir, 'pins.toml');
+      for (const text of ['[tool]\nnode = "22"\n', '[tools]\n', '# nothing yet\n']) {
+        await writeFile(path, text);
+        expect(() => loadPinsFile(path), text).toThrow(`invalid ${path}: it pins no tool; a --pins file names each tool under [tools], as mise.toml does`);
+      }
+    }));
 });
