@@ -147,7 +147,7 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout` |
+| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt` |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |

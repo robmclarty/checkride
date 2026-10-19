@@ -270,16 +270,18 @@ type Produced = { file: string | null; place: Place; durationMs: number; reason:
 
 /**
  * The entry an executed check records: what it is, how it ended after the
- * baseline's masking, why it failed when its tool exited 0 (R8.3), and the file
+ * baseline's masking, why it failed when it says (its tool exited 0 with
+ * findings (R8.3), or it was refused before its tool spawned), and the file
  * it wrote, named relative to the output directory, `<target>/` included.
  */
 function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: Produced, multiTarget: boolean): SummaryCheck {
+  const reason = written.reason ?? run.outcome.refusal ?? null;
   return {
     ...checkIdentity(r, multiTarget),
     adapter: run.adapter.name,
     description: run.adapter.description,
     ok: mask.ok,
-    ...(!mask.ok && written.reason !== null ? { reason: written.reason } : {}),
+    ...(!mask.ok && reason !== null ? { reason } : {}),
     exit_code: run.outcome.exit_code,
     duration_ms: written.durationMs,
     output_file: written.file === null ? null : `${written.place.prefix}${written.file}`,

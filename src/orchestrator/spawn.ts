@@ -320,7 +320,7 @@ export function installSkip(refusal: string): string {
 
 /**
  * The outcome a check records when the launcher refuses to spawn it: the
- * launcher's message on stderr, and exit 1.
+ * launcher's message on stderr, its first line as `refusal`, and exit 1.
  *
  * Exit 1, not -1. Nothing spawned, so there is no real status to report — but
  * -1 is reserved for a spawn failure or timeout, which `triage` discounts as
@@ -332,7 +332,7 @@ export function installSkip(refusal: string): string {
 function refusedOutcome(refusal: string, ctx: Parameters<CheckRunner>[1]): CheckOutcome {
   // Under --static-only, a tool that needs an install is a skip, not a failure (R6.2).
   if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: installSkip(refusal) };
-  return { ok: false, exit_code: 1, stdout: '', stderr: refusal };
+  return { ok: false, exit_code: 1, stdout: '', stderr: refusal, refusal: refusalDetail(refusal) };
 }
 
 /**
@@ -374,7 +374,7 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
   ].join('\n');
   // Exit 1 for the same reason as refusedOutcome above: nothing spawned, but
   // this is the finding the run exists to surface, not a harness problem.
-  return { ok: false, exit_code: 1, stdout: '', stderr };
+  return { ok: false, exit_code: 1, stdout: '', stderr, refusal: refusalDetail(stderr) };
 }
 
 /**

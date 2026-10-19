@@ -273,6 +273,21 @@ describe('summary.json shape', () => {
   });
 
   /**
+   * Contract: a check refused before it spawns, failed with exit 1, records
+   * why as `reason`, the one-line form of what its stderr holds. A `prose`
+   * entry whose `exemplars` directory is missing is refused with no tool
+   * installed.
+   */
+  test('a check refused before it spawns records ok false, exit_code 1 and the refusal as its reason', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { prose: { use: 'vale', exemplars: 'docs/voice' } } }));
+    const summary = await runAndValidate(['--only', 'prose']);
+    expect((summary['checks'] as unknown[])[0]).toMatchObject({
+      name: 'prose', ok: false, exit_code: 1, output_file: null,
+      reason: 'the `prose` slot names `docs/voice` as its voice exemplars, and that path does not exist',
+    });
+  });
+
+  /**
    * Contract: `argv` is present exactly when the check spawned its own tool,
    * as spawned, and absent on built-ins and on every skipped entry, a custom
    * check that skipped itself included (R8.2).

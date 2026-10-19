@@ -36,7 +36,7 @@ export type SlotRow = {
   durationMs: number;
   /** Findings a committed baseline grandfathered; `null` when none were masked. */
   baselined: number | null;
-  /** Why a skipped slot sat out. */
+  /** Why a skipped slot sat out, or why a failed one said it failed: refused before it spawned, or findings behind a clean exit. */
   reason: string | null;
   raw: RawOutput | null;
 };

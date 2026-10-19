@@ -72,6 +72,13 @@ fields. These are the changes it can notice; each is described in full below.
   the same tag, which replaces the "Detected via" clause in its hints. A
   repo that runs eight checks while its config names three can now see where
   the other five came from (#6).
+- **A check refused before it spawns says why.** A tool the project never
+  installed, a setup step such as `terraform init` not yet run, or `prose`
+  exemplars that are missing fail the check with exit 1 before anything
+  spawns, and the reason used to sit only in its `.stderr.txt` under a bare
+  red status line. The refusal's first line now prints under the ✘, the
+  summary records it as the check's `reason`, and `checkride triage` lists
+  it beside the failing check.
 - **Choose what `--changed` measures from.** `--base <ref>`, then the
   `CHECKRIDE_BASE` variable, then a `changedBase` key in
   `checkride.config.json` name the base; with none of them it stays
@@ -1068,7 +1075,8 @@ fields. These are the changes it can notice; each is described in full below.
   declares one and every non-empty line of its stdout parses as JSON, and an
   executed check that failed may carry `reason`, the
   `<adapter> exited 0 but reported findings on stdout` of an adapter that
-  declares `failOnOutput`, in the JSON Schema's descriptions, the contract
+  declares `failOnOutput` or the first line of a refusal that stopped its
+  tool spawning, in the JSON Schema's descriptions, the contract
   doc and `summary.contract.test.ts`. The exported `Adapter` type gains an
   optional `failOnOutput`. A check that declares no `outputFile` writes
   `<name>.stdout.txt` whatever it prints, as before.

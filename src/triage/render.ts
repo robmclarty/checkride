@@ -372,7 +372,8 @@ function failingLine(row: SlotRow, index: number, out: string): string {
   const where = row.raw === null
     ? `no output file found under \`${out}/\` — the tool wrote nothing this reader can locate`
     : `read \`${out}/${row.raw.chosen.file}\` (${formatBytes(row.raw.chosen.bytes)})${alternatesClause(row.raw, out)}`;
-  return `${index + 1}. **${row.slot}** (${row.adapter ?? 'no adapter'}) — exit ${row.exitCode ?? '—'} — ${where}`;
+  const why = row.reason === null ? '' : ` — ${row.reason}`;
+  return `${index + 1}. **${row.slot}** (${row.adapter ?? 'no adapter'}) — exit ${row.exitCode ?? '—'}${why} — ${where}`;
 }
 
 function renderFailing(report: TriageReport): string {

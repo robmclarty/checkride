@@ -141,6 +141,15 @@ describe('exit code branching', () => {
     expect(text).toContain('**red** — 1 of 2 executed check(s) failed');
   });
 
+  test('a failed check that says why carries its reason into the failing list', async () => {
+    const reason = 'the `lint` slot needs `oxlint`, which is not installed in this project';
+    const { text } = await run(
+      { summary: summaryOf([check('lint', { ok: false, exit_code: 1, reason }), check('types')]) },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(text).toContain(`1. **lint** (lint) — exit 1 — ${reason} — `);
+  });
+
   /**
    * A package manager refusing to start the script exits 1 — the same code a
    * red pipeline uses. Left unclassified, this reader confirmed the red a gate

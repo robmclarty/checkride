@@ -83,6 +83,11 @@ export type SummaryCheck = {
   description: string;
   ok: boolean;
   skipped?: boolean;
+  /**
+   * Why a skipped check sat out; why a failed check whose adapter declares
+   * `failOnOutput` failed with exit 0; or, for a check refused before its tool
+   * spawned (exit 1), the refusal's first line. Absent otherwise.
+   */
   reason?: string;
   exit_code: number | null;
   duration_ms: number;

@@ -36,6 +36,14 @@ export type CheckOutcome = {
    * as skipped, with this as its reason, and persists nothing.
    */
   skip?: string;
+  /**
+   * Set when the check was refused before its tool spawned, as a missing
+   * tool, a missing setup step or missing `prose` exemplars refuse one: the
+   * refusal's first line, which the summary records as the failed check's
+   * `reason`, as `FixOutcome.refusal` does for a fixer. The whole message is
+   * on stderr.
+   */
+  refusal?: string;
 };
 
 type LinkMiss = {

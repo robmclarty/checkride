@@ -885,9 +885,24 @@ describe('runChecks (real subprocess)', () => {
       cwd: dir, slots: [{ name: 'lint' }], adapters: [adapter], config: null, pm: 'npm', json: true,
       stdout: sink().out, stderr: sink().out,
     });
-    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: 1 });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: 1, reason: expect.stringContaining('`checkride-nonexistent-tool`') });
     expect(result.summary.checks[0]).not.toHaveProperty('argv');
     expect(result.summary.checks[0]).not.toHaveProperty('pin_source');
+  });
+
+  test('a refused check prints its reason under its status line', async () => {
+    const adapter = fakeAdapter({ name: 'absent', slot: 'lint', command: 'pnpm', args: ['exec', 'checkride-nonexistent-tool'] });
+    const std = sink();
+    const result = await runChecks({ cwd: dir, slots: [{ name: 'lint' }], adapters: [adapter], config: null, pm: 'npm', json: false, stdout: sink().out, stderr: std.out });
+    const reason = result.summary.checks[0]?.reason ?? 'no reason';
+    expect(std.lines.join('')).toContain(`✘ lint`);
+    expect(std.lines.join('')).toContain(`           ${reason}\n`);
+  });
+
+  test('a check whose setup step never ran is refused, naming the step as its reason', async () => {
+    const adapter = fakeAdapter({ name: 'validate', slot: 'types', command: 'node', args: ['-e', ''], setup: { dir: '.terraform', args: ['init', '-backend=false'] } });
+    const result = await runChecks({ cwd: dir, slots: [{ name: 'types' }], adapters: [adapter], config: null, json: true, stdout: sink().out, stderr: sink().out });
+    expect(result.summary.checks[0]).toMatchObject({ ok: false, exit_code: 1, reason: expect.stringMatching(/^validate reads \.terraform\/, which `.*init -backend=false` writes/) });
   });
 
   test('a fast check completes normally under a generous timeout', async () => {
