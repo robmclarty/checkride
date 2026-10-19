@@ -214,7 +214,7 @@ The provenance of a tool is a fair thing to weigh, but the weighing should be
 against the artifact, not the author. The relevant questions are testable:
 Does it have a frozen, contract-tested public surface? ([Yes](./contract.md).)
 Is the tested envelope stated honestly? ([Yes](./reliability.md) — two
-operating systems, two Node versions, four package managers, and Windows
+operating systems, three Node versions, four package managers, and Windows
 explicitly not claimed.) Is the exit cheap? (Yes — see above.) Does it change
 your tools' behavior? (No — it runs your pinned versions against your
 configs.) A tool that clears those bars doesn't become worse because a
@@ -243,18 +243,20 @@ that genuinely is unique fits in a custom check without forking the contract.
 
 **"What about non-TypeScript checks? Our repo is a TS frontend plus a
 backend in a compiled server language."**
-The blessed slots are TypeScript-first, but the pipeline isn't: a
-[custom check](../README.md#custom-checks) runs any command with any
-arguments, and its exit code participates in the gate like every built-in.
-The backend's `go vet ./...` or `cargo check` becomes an entry in
-`checkride.config.json`, its output lands in `.check/` beside the linter's,
-and one `pnpm check` — one exit code — gates the whole repo. A mixed repo
-almost always has a `package.json` already (the frontend brought one); if a
-repo somehow doesn't, adding one purely to anchor the check harness is a
-one-file change. What you give up for the non-TS side is only the blessed
-conveniences — scaffolded configs, `fix` integration, baseline fingerprints —
-not the contract: exit-code taxonomy, timeouts, atomic artifacts, the
-summary schema, and the agent contract all apply to custom checks unchanged.
+Declare each half as a [target](./targets.md). A `go`, `rust`, `python`,
+`terraform` or `bash` target runs its [language pack](./packs.md)'s tools from
+its own root: `go build`, golangci-lint and `go test` for a Go backend,
+`cargo check`, clippy and nextest for a Rust one, each resolving the copy the
+repo pins through `go.mod`, `rust-toolchain.toml`, `uv.lock` or a `mise.toml`,
+offline. Their output lands in `.check/<target>/` beside the frontend's, their
+findings join the baseline, `fix` runs their fixers, and one `pnpm check` —
+one exit code — gates the whole repo. `checkride init` proposes the targets a
+repo's files suggest, and `unclaimed` fails the run when code sits outside
+every target, so a new service can't slip in unchecked. A repo with no
+`package.json` at all runs checkride through mise. Anything no pack ships
+still fits a [custom check](../README.md#custom-checks), under the same
+contract: exit-code taxonomy, timeouts, atomic artifacts, the summary schema
+and the agent contract.
 
 **"Adopting it means fixing years of debt first."**
 No — this is exactly what the [baseline](../README.md#baseline) exists for.
@@ -277,14 +279,14 @@ done, and no tool choice will paper over the difference.
 checkride is not for everyone, and pretending otherwise would undercut the
 rest of this page.
 
-- It's TypeScript-first. Custom checks let a mixed repo gate its non-TS half
-  (see the objection above), but the blessed adapters, scaffolding, and
-  baseline all speak TypeScript; a first-class polyglot story may come, but
-  it isn't claimed today.
-- It runs the pipeline once from the repo root — there is no per-package
-  orchestration. A very large monorepo whose teams need independently gated
-  packages wants a task runner *underneath* whatever definition of done it
-  adopts.
+- Its packs cover TypeScript, Go, Rust, Python, Terraform and shell. Another
+  language runs through custom checks, without blessed adapters, scaffolding
+  or baseline keys of its own.
+- Targets run each part of a repo from its own root, and `--changed` skips
+  the ones a change didn't touch, but checkride is a gate, not a build
+  system: it caches nothing between runs. A very large monorepo whose teams
+  need independently gated packages wants a task runner *underneath*
+  whatever definition of done it adopts.
 - A solo developer with one repo and no agents gets the least from it — the
   returns are in fleets, gates, and delegation.
 
