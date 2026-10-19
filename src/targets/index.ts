@@ -7,7 +7,7 @@
  * `../targets/index.js`, never from a file inside it.
  */
 
-export { addTarget } from './add.js';
+export { addTarget, liftDiscovered } from './add.js';
 export type { TargetChange } from './add.js';
 export { changedGoModules, changedUnder, noChangesReason, noGoModuleChangedReason, pathsUnder } from './changed.js';
 export { declaredNote, discoverRun, discoverTargets, isImplicit } from './discover.js';

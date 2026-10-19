@@ -79,20 +79,31 @@ export async function findUnclaimed(repo: string, input: UnclaimedInput, git: Gi
   });
 }
 
-/** How to quiet unclaimed markers: the target entry that would claim them, or the ignore. */
-function remedy({ suggest }: Unclaimed): string {
+/**
+ * How to quiet unclaimed markers: the target entry that would claim them, or
+ * the ignore. When that target would hold one of `targets` of its pack, which
+ * two targets of one pack can't do (V4), as a root `go.mod` above a `go.work`
+ * target's would, only the ignore can, and the line says why.
+ */
+function remedy({ suggest }: Unclaimed, targets: readonly Claimant[]): string {
+  const inner = targets.find((t) => t.pack === suggest.lang && isWithin(t.root, suggest.root));
+  if (inner !== undefined) {
+    const held = `the ${inner.pack} target ${inner.name} at ${inner.root}`;
+    return `  no ${suggest.lang} target can claim it: one rooted at ${suggest.root} would hold ${held}, and two targets of one pack can't nest; list it in unclaimed.ignore`;
+  }
   return `  claim it: "${suggest.name}": { "lang": "${suggest.lang}", "root": "${suggest.root}" } under targets, or list it in unclaimed.ignore`;
 }
 
 /**
  * The lines a red `unclaimed` prints: the markers one target would claim, in
- * the order the first of them was found, then how to quiet them, once.
+ * the order the first of them was found, then how to quiet them, once, read
+ * against the `targets` that claim.
  */
-function explain(found: readonly Unclaimed[]): string {
+function explain(found: readonly Unclaimed[], targets: readonly Claimant[]): string {
   const groups = Map.groupBy(found, (u) => `${u.kind}:${u.suggest.root}`);
   const lines = [...groups.values()].flatMap((group) => [
     ...group.map((u) => `unclaimed: ${u.path} marks ${u.kind} code that no ${u.kind} target checks.`),
-    ...group.slice(0, 1).map(remedy),
+    ...group.slice(0, 1).map((u) => remedy(u, targets)),
   ]);
   return `${lines.join('\n')}\n`;
 }
@@ -113,5 +124,5 @@ export async function checkUnclaimed(repo: string, input: UnclaimedInput, git?: 
   }
   const stdout = `${JSON.stringify({ unclaimed: found }, null, 2)}\n`;
   if (found.length === 0) return { ok: true, exit_code: 0, stdout, stderr: '' };
-  return { ok: false, exit_code: 1, stdout, stderr: explain(found) };
+  return { ok: false, exit_code: 1, stdout, stderr: explain(found, input.targets) };
 }

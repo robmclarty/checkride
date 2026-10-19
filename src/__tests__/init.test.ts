@@ -14,6 +14,7 @@ import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
 import type { CheckRunner } from '../orchestrator/index.js';
 import { selectChecks } from '../orchestrator/index.js';
+import { configProblem } from '../targets/index.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
 
 /** A capturing stdout for the few tests that read init's summary lines. */
@@ -678,6 +679,22 @@ describe('existing-project adoption (idempotent)', () => {
       app: { lang: 'go', root: '.', checks: { types: 'go-build', test: 'go-test' } },
       scripts: { lang: 'bash', root: 'scripts' },
     });
+  });
+
+  test('real discovery of a go.work below a root go.mod declares the workspace alone, and writes a config that holds', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
+    await mkdir(join(dir, 'svc', 'api'), { recursive: true });
+    await writeFile(join(dir, 'svc', 'go.work'), 'go 1.24\n\nuse ./api\n');
+    await writeFile(join(dir, 'svc', 'api', 'go.mod'), 'module example.com/api\n\ngo 1.24\n');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    // The root module is no target's, so its adopted entries have no home, and say so.
+    expect(cfg['targets']).toEqual({ svc: { lang: 'go', root: 'svc' } });
+    expect(cfg['checks'] ?? {}).not.toHaveProperty('types');
+    expect(out.text()).toContain('targets.svc: a go target rooted at svc');
+    expect(out.text()).toContain('checks.types dropped: no go target sits at the repo root to take it');
+    expect(configProblem(cfg, { cwd: dir, layer: 'repo' })).toBeNull();
   });
 
   test('adopts detected tools and refreshes idempotently', async () => {

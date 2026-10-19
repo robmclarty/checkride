@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { declaredNote, discoverRun, discoverTargets, isImplicit } from '../discover.js';
+import { checkUnclaimed } from '../unclaimed.js';
 
 describe('discoverTargets', () => {
   let repo: string;
@@ -133,6 +134,32 @@ describe('discoverTargets for go and rust (D68)', () => {
     expect(isImplicit(proposed, 'go')).toBe(true);
   });
 
+  // Across a pack's two rules the inner root wins, and the outer one's markers stay unclaimed.
+  test('a root go.mod above a go.work proposes the workspace alone, and shell files at the root then gather into a bash target', async () => {
+    await write('go.mod', 'module example.com/app\n');
+    await write('svc/go.work', 'go 1.24\n\nuse ./api\n');
+    await write('svc/api/go.mod', 'module example.com/api\n');
+    await write('build.sh', '#!/bin/sh\n');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'svc', lang: 'go', root: 'svc' },
+      { name: 'shell', lang: 'bash', root: '.' },
+    ]);
+  });
+
+  test('a root [package] above a [workspace] proposes the workspace alone', async () => {
+    await write('Cargo.toml', '[package]\nname = "app"\n');
+    await write('tools/Cargo.toml', '[workspace]\nmembers = ["gen"]\n');
+    await write('tools/gen/Cargo.toml', '[package]\nname = "gen"\n');
+    expect(await discoverTargets(repo)).toEqual([{ name: 'tools', lang: 'rust', root: 'tools' }]);
+  });
+
+  test('a cargo-fuzz harness is no root, so its crate is proposed and claims it', async () => {
+    await write('Cargo.toml', '[package]\nname = "app"\n');
+    // What `cargo fuzz init` writes, its own [workspace] included.
+    await write('fuzz/Cargo.toml', '[package]\nname = "app-fuzz"\npublish = false\n\n[package.metadata]\ncargo-fuzz = true\n\n[workspace]\nmembers = ["."]\n');
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'rust', root: '.' }]);
+  });
+
   test('a root package.json beside a go.mod proposes both, and the second root target takes a number', async () => {
     await write('package.json', '{}');
     await write('go.mod', 'module example.com/app\n');
@@ -197,6 +224,11 @@ describe('discoverTargets for python', () => {
     ]);
   });
 
+  test('a lock file below a .tf directory proposes the root module alone, leaving the .tf files above it unclaimed', async () => {
+    for (const path of ['main.tf', 'envs/dev/.terraform.lock.hcl', 'envs/dev/main.tf']) await write(path);
+    expect(await discoverTargets(repo)).toEqual([{ name: 'dev', lang: 'terraform', root: 'envs/dev' }]);
+  });
+
   test('a lock file at the root claims every .tf file under it, which is the implicit terraform mode, and a .tf root without one is too', async () => {
     await write('.terraform.lock.hcl');
     await write('main.tf');
@@ -252,6 +284,21 @@ describe('discoverRun (R13.2)', () => {
     await write('api/go.mod', 'module example.com/api\n');
     const config = { targets: { site: { lang: 'ts', root: 'web' } }, checks: { lint: false } };
     expect(await discoverRun(repo, config, baseline)).toEqual({ config, targets: [], declared: ['site'], dropped: [], baseline });
+  });
+
+  test("nested roots of one pack declare the inner one, and unclaimed says why the outer one can't be claimed", async () => {
+    await write('go.mod', 'module example.com/app\n');
+    await write('svc/go.work', 'go 1.24\n\nuse ./api\n');
+    await write('svc/api/go.mod', 'module example.com/api\n');
+    const found = await discoverRun(repo, { checks: { lint: 'golangci-lint' } }, null);
+    expect(found.targets.map((t) => [t.name, t.pack, t.root])).toEqual([['svc', 'go', 'svc']]);
+    expect(found.dropped).toEqual(['lint']);
+    const outcome = await checkUnclaimed(repo, { targets: found.targets });
+    expect(outcome).toMatchObject({ ok: false, exit_code: 1 });
+    expect(outcome.stderr).toBe(
+      'unclaimed: go.mod marks go code that no go target checks.\n' +
+        "  no go target can claim it: one rooted at . would hold the go target svc at svc, and two targets of one pack can't nest; list it in unclaimed.ignore\n",
+    );
   });
 
   test('the note names the declared targets as the reason', () => {

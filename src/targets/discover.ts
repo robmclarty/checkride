@@ -11,7 +11,9 @@
  *   its `use` directives name, and each `go.mod` no go target claims proposes
  *   one more.
  * - Each `Cargo.toml` with a `[workspace]` table proposes a `rust` target, and
- *   each `[package]` manifest no rust target claims proposes one more.
+ *   each `[package]` manifest no rust target claims proposes one more. A
+ *   cargo-fuzz harness, whose `[package.metadata]` sets `cargo-fuzz = true`,
+ *   proposes nothing: it's built through its crate, whose target claims it.
  * - Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
  *   `setup.py` proposes a `python` target, which claims the nested ones, a uv
  *   workspace's members among them.
@@ -25,6 +27,12 @@
  *
  * A target claims every marker of its pack at or below its root, as
  * `unclaimed` reads a claim, so two targets of one pack never nest (V4).
+ * Within one of a pack's rules the top-most root wins and claims the ones
+ * under it. Across a pack's two rules the inner root wins: a lock-file root
+ * over the `.tf` directory above it, a `[workspace]` over a `[package]`, a
+ * `go.work` over a `go.mod`. The outer root then proposes nothing, and
+ * `unclaimed` reports its markers rather than the run failing on two nested
+ * targets.
  *
  * A target is named after its root's last segment, `.` becoming `app`, with
  * a number added when another target, a slot or a reserved name holds it. One
@@ -78,10 +86,15 @@ function depthOf(dir: string): number {
   return dir === '.' ? 0 : dir.split('/').length;
 }
 
-/** `roots` plus each of `candidates` none of them, nor an earlier candidate, holds: the top-most ones. */
+/**
+ * `roots` plus each of `candidates`, top-most first, that neither lies within
+ * one of them or an earlier candidate nor holds one: within a rule the
+ * top-most root, and across rules, where `roots` are the first rule's, the
+ * inner one.
+ */
 function unclaimedRoots(roots: readonly string[], candidates: readonly string[]): string[] {
   const out = [...roots];
-  for (const dir of candidates) if (!out.some((root) => isWithin(dir, root))) out.push(dir);
+  for (const dir of candidates) if (!out.some((root) => isWithin(dir, root) || isWithin(root, dir))) out.push(dir);
   return out;
 }
 
@@ -102,21 +115,46 @@ function goRoots(repo: string, files: readonly string[]): string[] {
   return unclaimedRoots(works, dirsOf(files, 'go.mod').filter((dir) => !used.includes(dir)));
 }
 
-/** True when the TOML at `path` opens a table named `table`, as `[workspace]` or `[package]`. */
-function hasTable(path: string, table: string): boolean {
+/** A TOML table's header line, as `[workspace]` or `[package.metadata]`, a comment after it allowed. */
+function headerOf(table: string): RegExp {
+  return new RegExp(`^\\s*\\[${table.replaceAll('.', '\\.')}\\]\\s*(?:#.*)?$`);
+}
+
+/** True when `toml` opens a table named `table`. */
+function hasTable(toml: string, table: string): boolean {
+  return toml.split(/\r?\n/).some((line) => headerOf(table).test(line));
+}
+
+/** True when `toml` is a cargo-fuzz harness's manifest: its `[package.metadata]` table sets `cargo-fuzz = true`. */
+function isFuzzHarness(toml: string): boolean {
+  const lines = toml.split(/\r?\n/);
+  const at = lines.findIndex((line) => headerOf('package.metadata').test(line));
+  if (at === -1) return false;
+  const end = lines.findIndex((line, i) => i > at && /^\s*\[/.test(line));
+  return lines.slice(at + 1, end === -1 ? undefined : end).some((line) => /^\s*cargo-fuzz\s*=\s*true\s*(?:#.*)?$/.test(line));
+}
+
+/** The text of the file at `path`, or `null` when it can't be read. */
+function readText(path: string): string | null {
   try {
-    return new RegExp(`^\\s*\\[${table}\\]\\s*(?:#.*)?$`, 'm').test(readFileSync(path, 'utf8'));
+    return readFileSync(path, 'utf8');
   } catch {
-    return false;
+    return null;
   }
 }
 
-/** The rust roots: each top-most `[workspace]` manifest's directory, then each top-most `[package]` one no rust root claims. */
+/**
+ * The rust roots: each top-most `[workspace]` manifest's directory, then each
+ * top-most `[package]` one no rust root claims. A cargo-fuzz harness is
+ * neither, since `cargo fuzz` builds it through the crate above it.
+ */
 function rustRoots(repo: string, files: readonly string[]): string[] {
-  const manifests = dirsOf(files, 'Cargo.toml');
-  const at = (dir: string, table: string): boolean => hasTable(join(repo, dir, 'Cargo.toml'), table);
-  const workspaces = unclaimedRoots([], manifests.filter((dir) => at(dir, 'workspace')));
-  return unclaimedRoots(workspaces, manifests.filter((dir) => at(dir, 'package')));
+  const manifests = dirsOf(files, 'Cargo.toml').flatMap((dir) => {
+    const toml = readText(join(repo, dir, 'Cargo.toml'));
+    return toml === null || isFuzzHarness(toml) ? [] : [{ dir, toml }];
+  });
+  const workspaces = unclaimedRoots([], manifests.filter((m) => hasTable(m.toml, 'workspace')).map((m) => m.dir));
+  return unclaimedRoots(workspaces, manifests.filter((m) => hasTable(m.toml, 'package')).map((m) => m.dir));
 }
 
 /** The python roots: each top-most directory holding one of the python pack's markers. */

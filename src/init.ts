@@ -37,7 +37,7 @@ import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, markerAt } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, liftDiscovered, markerAt } from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -1647,20 +1647,11 @@ type Discovery = { proposed: ProposedTarget[]; changes: string[] };
 const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !== 'repo').map((s) => s.name));
 
 /**
- * Existing mode's discovery (R11.4, R7.5): when the repo's files propose more
- * than its one implicit target, declare them, converting the config the way
- * `target add` does (the root target, of the pack the root marks (R2.1),
- * takes the top-level slot entries and the baseline's entries), unless
- * `--dry-run`. A config that already declares targets has made its choice,
- * and is left alone.
+ * `raw` with `proposed` declared one by one, as `target add` declares each:
+ * the root target first, so it takes the implicit target over rather than
+ * nesting beside one, and otherwise the implicit target named `app`.
  */
-async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
-  const raw = readRawConfig(cwd, () => ({}));
-  if (raw['targets'] !== undefined) return null;
-  const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
-  const pack = implicitPack(markerAt(cwd));
-  if (isImplicit(proposed, pack)) return null;
-  // The root target first, so it takes the implicit target over rather than nesting beside one.
+function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedTarget[], pack: string): TargetChange {
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
   const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS };
   let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
@@ -1668,6 +1659,40 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
     const next = addTarget(change.config, target, rules);
     change = { config: next.config, renames: new Map([...change.renames, ...next.renames]), changes: [...change.changes, ...next.changes] };
   }
+  return change;
+}
+
+/**
+ * True when naming the implicit target, rooted at `.`, would nest one of
+ * `proposed` of its own pack, which two targets of one pack can't do (V4).
+ * Discovery proposes no root target of `pack` exactly when an inner root of
+ * it won, as a `go.work` below a root `go.mod`.
+ */
+function nestsImplicit(proposed: readonly ProposedTarget[], pack: string): boolean {
+  const ofPack = proposed.filter((t) => t.lang === pack);
+  return ofPack.length > 0 && ofPack.every((t) => t.root !== '.');
+}
+
+/**
+ * Existing mode's discovery (R11.4, R7.5): when the repo's files propose more
+ * than its one implicit target, declare them, converting the config the way
+ * `target add` does (the root target, of the pack the root marks (R2.1),
+ * takes the top-level slot entries and the baseline's entries), unless
+ * `--dry-run`. Where an inner root of the root's pack won, no target sits at
+ * the root to take those entries, so they're dropped, as `--discover` drops
+ * them, and each is printed. A config that already declares targets has made
+ * its choice, and is left alone.
+ */
+async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
+  const raw = readRawConfig(cwd, () => ({}));
+  if (raw['targets'] !== undefined) return null;
+  const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
+  const pack = implicitPack(markerAt(cwd));
+  if (isImplicit(proposed, pack)) return null;
+  // Where an inner root won, the root is no target's, as `--discover` reads it.
+  const change = nestsImplicit(proposed, pack)
+    ? liftDiscovered(raw, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS })
+    : addedInOrder(raw, proposed, pack);
   const files = await writeTargetChange(cwd, change, { dryRun: w.dryRun, command: 'init' });
   w.written.push(...files.files.map((file) => `${file} (targets)`));
   return { proposed, changes: [...change.changes, ...files.changes] };

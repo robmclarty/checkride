@@ -90,7 +90,9 @@ how each tool resolves to the copy that runs.
 file) sits outside every target of its language, naming the target that would
 claim it in `.check/unclaimed.json`. A root `package.json` that only
 installs tools, above ts targets in their own directories, goes in
-`unclaimed.ignore`, since two ts targets can't nest.
+`unclaimed.ignore`, since two ts targets can't nest, and so does any marker
+above a target of its own pack, such as a root `go.mod` above a `go.work`
+target, which the message names in place of a target to add.
 
 ## Declaring targets
 
@@ -114,7 +116,11 @@ installs tools, above ts targets in their own directories, goes in
   top-most `pyproject.toml`, `setup.cfg` or `setup.py` directory, which
   claims the ones under it, a terraform target for each top-most
   `.terraform.lock.hcl` directory and then each top-most directory of `.tf`
-  files none of those claims, beside the ts and bash rules.
+  files none of those claims, beside the ts and bash rules. Where a pack's
+  second rule finds a root above one its first proposed, a `go.mod` above a
+  `go.work`, a `[package]` above a `[workspace]` or `.tf` files above a lock
+  file, the inner root wins, and `unclaimed` reports the outer one's markers.
+  A cargo-fuzz harness is no root: its crate's target claims it.
 - `checkride doctor` names the mode and the implicit pack, lists the targets,
   and reports each check's pin source and the markers no target claims.
   `doctor --discover` shows what `--discover` would check.

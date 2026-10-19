@@ -650,11 +650,18 @@ Each top-most `go.work` directory proposes a `go` target that claims the
 modules its `use` directives name, and each top-most `go.mod` no go target
 claims proposes one more. Each top-most `Cargo.toml` with a `[workspace]` table
 proposes a `rust` target, and each top-most `[package]` manifest outside it one
-more. Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
-`setup.py` proposes a `python` target. Each top-most directory holding a
-`.terraform.lock.hcl` proposes a `terraform` target, and each top-most
-directory holding `.tf` files that none of those claims proposes one more. The
-shell files outside all of those gather into one `bash` target. A
+more; a cargo-fuzz harness, whose `[package.metadata]` sets `cargo-fuzz =
+true`, proposes nothing, so the crate above it claims it. Each top-most
+directory holding a `pyproject.toml`, `setup.cfg` or `setup.py` proposes a
+`python` target. Each top-most directory holding a `.terraform.lock.hcl`
+proposes a `terraform` target, and each top-most directory holding `.tf`
+files that none of those claims proposes one more. Where a pack's second rule
+finds a root above one its first rule proposed (a `go.mod` above a `go.work`,
+a `[package]` above a `[workspace]`, `.tf` files above a lock file), the inner
+root wins and the outer one proposes nothing, since two targets of one pack
+can't nest: its markers stay unclaimed, so `unclaimed` reports them rather
+than the run failing. The shell files outside all of those gather into one
+`bash` target, those at such an outer root included. A
 target is named after its root's last segment, `.` becoming `app`, numbered on
 a collision. When discovery proposes nothing, or only one target at the root of
 the pack the root marks, the repo stays in implicit mode and the run is
@@ -741,7 +748,10 @@ directory, in checkride's own format, even when it passes:
 directory, or `app` at the root, with the kind or a number added when a slot,
 a target or another suggestion holds that name. A root `package.json` above
 ts targets in their own directories is unclaimed, and because two ts targets
-can't nest, the way to quiet it is `unclaimed.ignore: ["package.json"]`.
+can't nest, the way to quiet it is `unclaimed.ignore: ["package.json"]`. The
+same holds for any marker whose suggested target would hold a target of its
+pack, such as a root `go.mod` above a `go.work` discovery proposed, and the
+message says so in place of suggesting that target.
 Without `targets`, `unclaimed` is **inactive**: absent from `checks`, as an
 unselected opt-in slot is, but under `--all` too. Its name stays a valid token,
 so `--only unclaimed` or `--include unclaimed` records one skipped entry with

@@ -81,7 +81,7 @@ export type DiscoveryRules = Omit<ConversionRules, 'rootName'>;
  * target over, as `target add` hands it over: the top-level entries for
  * target-scope slots move into its `checks`, and the baseline's entries take
  * its name. With no such target those entries go nowhere, so they're dropped,
- * each named in `dropped`, and nothing is renamed.
+ * each named in `dropped` and in `changes`, and nothing is renamed.
  */
 export function liftDiscovered(
   raw: Record<string, unknown>,
@@ -94,10 +94,12 @@ export function liftDiscovered(
   const targets = Object.fromEntries(proposed.map((t) => [t.name, t === heir ? own[t.name] : entryOf(t)]));
   const checks = isRecord(raw['checks']) ? raw['checks'] : {};
   const dropped = heir === undefined ? Object.keys(checks).filter((name) => rules.targetSlots.has(name)) : [];
+  const added = proposed.filter((t) => t !== heir).flatMap(addedLines);
+  const gone = dropped.map((slot) => `checks.${slot} dropped: no ${rules.implicitPack} target sits at the repo root to take it`);
   return {
     config: { ...lifted.config, targets },
     renames: heir === undefined ? new Map() : lifted.renames,
-    changes: lifted.changes,
+    changes: heir === undefined ? [...added, ...gone] : [...lifted.changes, ...added],
     dropped,
   };
 }

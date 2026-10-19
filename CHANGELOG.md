@@ -466,9 +466,14 @@ fields. These are the changes it can notice; each is described in full below.
   meets, whether it declares targets or not. Discovery, for `init` too, now
   proposes a go target for each top-most `go.work` (claiming its `use`
   modules) and each `go.mod` outside one, and a rust target for each top-most
-  `Cargo.toml` with `[workspace]` and each `[package]` manifest outside it. A
-  lone root target counts as the implicit one only when its pack is the one
-  the root marks, so a Go root with nested modules stays implicit (#7).
+  `Cargo.toml` with `[workspace]` and each `[package]` manifest outside it,
+  a cargo-fuzz harness aside, since its crate's target claims it. Where a
+  `go.mod` sits above a `go.work`, or a `[package]` above a `[workspace]`,
+  the inner root wins and the outer one proposes nothing, its markers left
+  for `unclaimed` to report with why no target can claim them, rather than
+  two nested targets failing the run or `init` with exit 2. A lone root
+  target counts as the implicit one only when its pack is the one the root
+  marks, so a Go root with nested modules stays implicit (#7).
 - **Run your own toolbelt over a repo with `--pins <mise.toml>`.** A run reads
   the named file, or the one `CHECKRIDE_PINS` names, and puts an `override`
   pin source at the head of every chain: a tool it pins runs as
@@ -632,7 +637,8 @@ fields. These are the changes it can notice; each is described in full below.
   ships with, rather than a bundle an earlier scan cached on one machine.
   Discovery proposes a terraform target for each directory a lock file marks,
   which claims the `.tf` directories under it, and then one for each
-  top-most `.tf` directory left, and `unclaimed` suggests one target for all
+  top-most `.tf` directory left, `.tf` files above a lock file proposing
+  nothing, and `unclaimed` suggests one target for all
   the `.tf` files of a directory, printing its remedy once.
   `checkride target add --lang terraform --add lint` names tflint and
   scaffolds the blessed `.tflint.hcl`, and `checkride init --add lint` does
