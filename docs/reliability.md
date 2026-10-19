@@ -108,9 +108,10 @@ bounded pool, each carries its own timeout and each is killed and
 process-group-reaped on its own, so one hung check in a wave can neither stall nor
 leak the rest. The cap is tunable per check and globally, and `0` disables it. The
 one slot that ships uncapped by default is `mutation`: a real stryker run
-legitimately takes fifteen to twenty minutes — past the ten-minute cap — and
+legitimately takes fifteen to twenty minutes, and cargo-mutants builds and
+tests a Rust crate once per mutant, both past the ten-minute cap, and
 because `mutation` is opt-in and never part of the definition-of-done gate the cap
-protects, its adapter carries `timeout: 0` so it runs to completion instead of
+protects, both adapters carry `timeout: 0` so a run goes to completion instead of
 being cut off mid-run. For every gating slot the safe behavior is what you get
 without configuring anything, because the person most likely to be bitten by an
 unbounded hang is the one who never thought to set a timeout.

@@ -400,7 +400,8 @@ cargo-nextest 0.9.148, cargo-deny 0.20.2 and cargo-mutants 27.1.0. cargo-deny
 prints its JSON lines on stderr, so they land in `security.stderr.txt`, and
 nextest reports on stderr too. cargo-mutants writes its `mutants.out/` into
 the check's artifact directory through `--output`, rather than the source
-tree.
+tree, and ships uncapped (`timeout: 0`), as stryker does, since it builds and
+tests the crate once per mutant; only a per-check `timeout` caps it.
 
 ## The python pack
 

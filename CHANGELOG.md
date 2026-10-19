@@ -351,7 +351,9 @@ fields. These are the changes it can notice; each is described in full below.
   target's cargo runs never overlap. A component the toolchain file pins
   fails its check when `rustup` isn't on `PATH`, rather than run a `cargo`
   that would ignore the pin, and cargo-mutants writes its report into the
-  check's own artifact directory. Each tool's flags were checked against the
+  check's own artifact directory and ships uncapped (`timeout: 0`), as
+  stryker does, since it builds and tests the crate once per mutant; only a
+  per-check `timeout` caps it. Each tool's flags were checked against the
   versions this repo pins; `docs/packs.md` has the table.
 - **`init --lang go|rust` scaffolds Go and Rust projects.** `--lang go`
   writes a `module` (`--module` names it) or a `workspace`, and

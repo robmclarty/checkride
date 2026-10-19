@@ -266,9 +266,10 @@ describe('registry invariants', () => {
     }
   });
 
-  test('the stryker adapter ships uncapped (timeout: 0) — the one catalogue default (D4)', () => {
+  test('the stryker adapter ships uncapped (timeout: 0) — the one default among ADAPTERS (D4)', () => {
     expect(ADAPTERS.find((a) => a.name === 'stryker')?.timeout).toBe(0);
-    // No other adapter pins a timeout; the rest defer to the config/600s default.
+    // No other ts or repo row pins a timeout; the rest defer to the config/600s
+    // default. The rust pack's cargo-mutants ships uncapped too (packs.test.ts).
     for (const adapter of ADAPTERS) {
       if (adapter.name !== 'stryker') expect(adapter.timeout).toBeUndefined();
     }

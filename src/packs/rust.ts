@@ -143,6 +143,11 @@ export const RUST_PACK: Pack = {
       // rather than the source tree.
       args: ['exec', 'cargo-mutants', '--output', '{out}'],
       outputFile: null,
+      // Ships uncapped (`0`), as stryker does. A real mutation run builds and
+      // tests the crate once per mutant, which takes far past the 600s default
+      // cap; `mutation` is opt-in and never in the definition-of-done gate the
+      // cap protects, so it runs to completion rather than tripping a timeout.
+      timeout: 0,
       lock: LOCK,
       devDeps: {},
     },

@@ -180,6 +180,10 @@ describe('the rust pack (R5.6)', () => {
     ]);
   });
 
+  test('ships cargo-mutants uncapped, as stryker ships, and no other row with a timeout', () => {
+    expect(PACKS.rust.adapters.filter((a) => a.timeout !== undefined).map((a) => [a.name, a.timeout])).toEqual([['cargo-mutants', 0]]);
+  });
+
   test('fails clippy on warnings, and runs cargo-deny alone with the network', () => {
     expect(PACKS.rust.adapters.find((a) => a.name === 'clippy')?.args.slice(-3)).toEqual(['--', '-D', 'warnings']);
     expect(PACKS.rust.adapters.filter((a) => a.network === true).map((a) => a.name)).toEqual(['cargo-deny']);

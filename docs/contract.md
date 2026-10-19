@@ -1253,9 +1253,10 @@ technically importable.
 - Every check runs under a timeout by **default**: the check's own `timeout`,
   else the config-level `timeout`, else `DEFAULT_TIMEOUT_SECONDS` (600). `0`
   at any level disables the cap. A definition-of-done gate must not be able
-  to hang forever. One catalogue default exercises the check-level clause: the
-  `mutation` slot's stryker adapter ships `timeout: 0`, so mutation runs uncapped
-  out of the box — it is opt-in and never in the gate the cap protects.
+  to hang forever. One catalogue slot exercises the check-level clause:
+  `mutation`, whose stryker and cargo-mutants adapters ship `timeout: 0`, so
+  mutation runs uncapped out of the box. It is opt-in and never in the gate
+  the cap protects, and only a per-check `timeout` caps it.
 - A timed-out check is killed (SIGTERM, then SIGKILL after a short grace) and
   recorded as **failed** with a `timed out after <n>s` note — red, never
   vacuous, never hung.

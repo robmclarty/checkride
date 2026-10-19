@@ -259,8 +259,10 @@ Note the npm package names differ from the binary names: `ast-grep` ships in the
 ships in `@arethetypeswrong/cli`, and `vale` ships in `@vvago/vale`.
 
 The `mutation` slot ships **uncapped** (`timeout: 0`) by default — the one
-catalogue slot that does. A real stryker run legitimately takes fifteen to twenty
-minutes, past the ten-minute cap every other slot runs under, and because
+catalogue slot that does, in the rust pack's cargo-mutants as in stryker. A
+real stryker run legitimately takes fifteen to twenty minutes, and
+cargo-mutants builds and tests a crate once per mutant, both past the
+ten-minute cap every other slot runs under, and because
 `mutation` is opt-in and never part of the definition-of-done gate that cap
 protects, letting it run to completion costs the gate nothing. It also runs
 `single` (exclusive, nothing else in flight) because stryker saturates every core.
