@@ -3,10 +3,11 @@
 A pack is one language's adapters, together with where its tools are pinned
 and the environment its checks run with. Seven packs ship: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
-`docs`, `links`, `spell` and `prose`), `bash`, which checks shell scripts,
-`go`, which checks Go modules and workspaces, `rust`, which checks Cargo
-packages and workspaces, `python`, which checks Python projects, and
-`terraform`, which checks Terraform and OpenTofu modules. This page covers how a check's
+`docs`, `links`, `spell`, `prose` and, with targets, `unclaimed`), `bash`,
+which checks shell scripts, `go`, which checks Go modules and workspaces,
+`rust`, which checks Cargo packages and workspaces, `python`, which checks
+Python projects, and `terraform`, which checks Terraform and OpenTofu
+modules. This page covers how a check's
 tool resolves to the copy that runs, what the summary records about that copy,
 each pack's slots and the adapters that fill them, the file lists a bash
 target's checks run over, and the spawn environment each pack sets.
@@ -70,8 +71,9 @@ trusted, and the repo's `[env]` never reaches it. Each entry is a version
 string or an inline table's `version`; anything else exits 2, and so does a
 file that pins no tool, a `[tool]` typo among them. It changes which copy of a tool
 runs, never which checks run, since detection reads only the repo. A toolchain
-it names, such as `go`, runs that copy in any pack, a `go tool` included. `rust-toolchain` declares only a tool that
-`TOOLS` names as a rustup component: `cargo` itself, rustfmt and clippy. Only
+it names, such as `go`, runs that copy in any pack, a `go tool` included.
+`rust-toolchain` declares only a rustup component: `cargo` itself, which
+`TOOLCHAINS` describes, and rustfmt and clippy, which `TOOLS` does. Only
 rustup reads a toolchain file, through the `cargo` proxy it installs beside
 itself, so a component the file pins fails its check when `rustup` isn't on
 `PATH`, or has no `cargo` beside it, rather than run a `cargo` that ignores
@@ -91,8 +93,10 @@ runs when a `mise.toml` up to the repo root pins `go`, recorded as
 same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
 the check, as any mise pin does, and a `go` from `PATH` runs even under
 `requirePins`, since `go.mod`'s `go` line sets the oldest version it accepts
-and `GOTOOLCHAIN=local` stops Go fetching a newer one. In a repo without
-targets, a custom check's `go` spawns as written, as it always has.
+and `GOTOOLCHAIN=local` stops Go fetching a newer one. A repo checked as ts
+without targets resolves through `js-lockfile` alone, which reads no
+`mise.toml`, so a custom check's `go` there spawns as written, as it always
+has.
 Every search stops at the repo root: a `mise.toml` or a `node_modules` above
 the checkout isn't the repo's pin.
 
@@ -117,8 +121,13 @@ the checkout isn't the repo's pin.
    earlier source declared, which keeps the package manager running every
    tool as before.
 
-A custom check's own command, such as `node scripts/x.mjs`, spawns as written
-through no pin source, and records `argv` but no `pin_source`. `checkride fix`
+A custom check resolves the way a catalogue check does. A `pnpm exec <tool>`
+command resolves the tool through its pack's chain, any other `pnpm`
+subcommand, such as `pnpm run lint:ci`, runs under the project's package
+manager as `js-lockfile`, and a toolchain such as `go`, `cargo` or
+`terraform` resolves through the chain when it reads `mise`, each recording
+its `pin_source`. Any other command, such as `node scripts/x.mjs`, spawns as
+written through no pin source, and records `argv` but no `pin_source`. `checkride fix`
 launches each fixer the way its check is launched, so a fixer runs the same
 copy and is refused where the check would be.
 
@@ -164,7 +173,7 @@ pnpm, `npx --no-install <tool>` under npm, and so on
 | `test` | `vitest` | `vitest run --coverage --reporter=default --reporter=json --outputFile={out}/test.json`, with `--changed {base}` under `--changed` | a `vitest.config.*` or the `vitest` dependency | `test.json`, through vitest's own `--outputFile` |
 | `test` | `jest` | `jest --ci --json --outputFile={out}/test.json`, with `--changedSince {base}` under `--changed` | a `jest.config.*` | `test.json`, through jest's own `--outputFile` |
 | `mutation` (opt-in) | `stryker` | `stryker run`, with no timeout | a `stryker.config.*` or `stryker.conf.*` | `mutation.stdout.txt` |
-| `security` (opt-in) | `pnpm-audit` | built-in: `pnpm audit --audit-level=high --json`, with the network | pnpm as the package manager | `security.json` |
+| `security` (opt-in) | `pnpm-audit` | built-in: `pnpm audit --audit-level=high --json --fetch-retries=1 --fetch-timeout=15000`, with the network | pnpm as the package manager | `security.json` |
 | `build` (opt-in) | `build` | `<pm> run build` | `scripts.build` in `package.json` | `build.stdout.txt` |
 | `publint` (opt-in) | `publint` | `publint` | the `publint` dependency | `publint.stdout.txt` |
 | `attw` (opt-in) | `attw` | `attw --pack . --format json` | the `@arethetypeswrong/cli` dependency | `attw.json` |
@@ -384,9 +393,10 @@ holds its `Cargo.toml`:
 | `security` (opt-in) | `cargo-deny` | `cargo deny --format json check`, with the network | `deny.toml` | `security.stderr.txt` |
 | `mutation` (opt-in) | `cargo-mutants` | `cargo mutants --output {out}` | a pin | `mutants.out/` in the check's directory |
 
-`cargo` itself resolves as a toolchain, through a `mise.toml` pin of `rust`,
-else `PATH`. rustfmt and clippy resolve through the toolchain file first, as
-rustup components, and cargo-machete, cargo-nextest, cargo-deny and
+`cargo` itself resolves as a toolchain: through the toolchain file where one
+pins it, else a `mise.toml` pin of `rust`, else `PATH`. rustfmt and clippy
+resolve through the toolchain file first, as rustup components, and
+cargo-machete, cargo-nextest, cargo-deny and
 cargo-mutants are cargo plugins, each its own binary that a `mise.toml` pins,
 such as `"ubi:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. Clippy's
 `-D warnings` fails the check on a warning, rustc's `dead_code` lint among
@@ -533,8 +543,8 @@ configuration as data, and skips validate. It skips tflint wherever tflint
   `version` option skips it too.
 - a `.tflint.json` there, which tflint reads where no `.tflint.hcl` sits, that
   declares any plugin or sets one of those keys.
-- argv that passes `--chdir`, `--config` or `--enable-plugin`, which reach
-  past what the sniff reads.
+- argv that passes `--chdir`, `--config` (or `-c`) or `--enable-plugin`,
+  which reach past what the sniff reads.
 
 Names match in any case, since macOS opens a file by any case of its name,
 and the sniff reads what sits on disk, so files git ignores and a submodule's
@@ -581,12 +591,15 @@ Terraform 1.9.8 and OpenTofu 1.13.1.
 The entry command is how the stop-hook gate, the AGENTS.md stanza and the
 plugin skills run checkride in a repo, chosen from the repo root:
 
-1. A root `package.json`: its `check` script, `<pm> run check`, as every
+1. A root `package.json` with a `check` script: `<pm> run check`, as every
    release has run it. `init` writes that script.
-2. No `package.json`, and a root `mise.toml` or `.mise.toml` whose `[tools]`
-   declares `npm:checkride` or `github:robmclarty/checkride`:
-   `mise exec -- checkride`.
-3. Neither: the `checkride` on `PATH`, which nothing pins, so `doctor`
+2. Otherwise, a root `mise.toml` or `.mise.toml` whose `[tools]` declares
+   `npm:checkride` or `github:robmclarty/checkride`: `mise exec -- checkride`.
+   No standalone binary ships yet, so the second id waits on a later
+   release.
+3. Otherwise, a root `package.json` with no `check` script: still
+   `<pm> run check`, which fails naming the missing script.
+4. None of those: the `checkride` on `PATH`, which nothing pins, so `doctor`
    reports the harness unpinned.
 
 The gate runs the entry command with `--strict --digest` and the gate
