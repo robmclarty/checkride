@@ -23,6 +23,13 @@ const MARKDOWNLINT_CODE_KEYS: readonly string[] = ['customRules', 'markdownItPlu
 const INTO_NODE_MODULES = '(?:^|[\\\\/])node_modules(?:[\\\\/]|$)';
 
 /**
+ * A vale `StylesPath` whose styles the sniffs never read: one inside a
+ * `node_modules`, or one outside the repo, absolute, under the home
+ * directory, or climbing out with `..`.
+ */
+const UNREAD_STYLES = `${INTO_NODE_MODULES}|^(?:[/\\\\~]|[A-Za-z]:[/\\\\])|(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$)`;
+
+/**
  * A cspell `import` loads code when it names a script, JavaScript or
  * TypeScript, rather than a dictionary or a JSON config, and may when it
  * reaches into a `node_modules`, whose JSON config could import one.
@@ -193,11 +200,12 @@ export const REPO_PACK: Pack = {
       outputFile: 'prose.json',
       static: true,
       // `StylesPath` can name any directory, so a style can sit anywhere, and
-      // one inside a node_modules, which the sniffs never read, counts unread.
+      // one the sniffs never read, in a node_modules or outside the repo,
+      // counts unread.
       codeKeys: [
         { file: '**/*.yml', keys: ['extends'], value: '^script$' },
-        { file: '.vale.ini', keys: ['StylesPath'], value: INTO_NODE_MODULES },
-        { file: '_vale.ini', keys: ['StylesPath'], value: INTO_NODE_MODULES },
+        { file: '.vale.ini', keys: ['StylesPath'], value: UNREAD_STYLES },
+        { file: '_vale.ini', keys: ['StylesPath'], value: UNREAD_STYLES },
       ],
       devDeps: { '@vvago/vale': '3.24.0' },
     },

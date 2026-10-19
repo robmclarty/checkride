@@ -597,7 +597,8 @@ rule holds, and is otherwise skipped with the reason `static-only: <cause>`:
    read what's on disk there, files git ignores included, but never inside a
    `node_modules`, whose packages' configs no static tool reads; a vale
    `StylesPath` or a cspell `import` that reaches into one counts instead,
-   since what it names goes unread.
+   since what it names goes unread, as does a `StylesPath` outside the repo:
+   absolute, under the home directory, or climbing out with `..`.
 4. None of the config keys that load code is set in a config file it reads,
    such as `jsPlugins` or `extends` in `.oxlintrc.json`, `outputFormatters` in
    `.markdownlint-cli2.jsonc`, or a script, JavaScript or TypeScript, in

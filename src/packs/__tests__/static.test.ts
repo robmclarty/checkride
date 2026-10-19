@@ -334,6 +334,11 @@ describe('staticCause (R13.4)', () => {
         '.vale.ini sets StylesPath, which loads code',
       );
       expect(staticCause(row('vale'), scope({ '_vale.ini': 'StylesPath = .vale/styles\n' }))).toBeNull();
+      // Nor are the styles a StylesPath outside the repo names.
+      for (const path of ['/opt/styles', '../shared/styles', 'docs/../../styles', '~/styles', 'C:\\styles']) {
+        expect(staticCause(row('vale'), scope({ '.vale.ini': `StylesPath = ${path}\n` })), path).toBe('.vale.ini sets StylesPath, which loads code');
+      }
+      expect(staticCause(row('vale'), scope({ '.vale.ini': 'StylesPath = docs/..styles\n' }))).toBeNull();
       expect(staticCause(row('cspell'), scope({ 'cspell.json': '{ "import": ["./node_modules/x/cspell-ext.json"] }' }))).toBe(
         'cspell.json sets import, which loads code',
       );

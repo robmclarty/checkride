@@ -512,7 +512,8 @@ fields. These are the changes it can notice; each is described in full below.
   `.markdownlint-cli2.cjs`, `oxlint.config.ts` or `prettier.config.mts`, nor
   for prettier, which takes the nearest config above a file, in a directory
   above a target's root. Nothing inside a `node_modules` is read, so a vale
-  `StylesPath` or a cspell `import` that reaches into one counts. No config
+  `StylesPath` or a cspell `import` that reaches into one counts, as does a
+  `StylesPath` outside the repo. No config
   key that loads code may be set, such as `jsPlugins` or `extends` in
   `.oxlintrc.json`, `outputFormatters` in markdownlint-cli2's config, or a
   script, JavaScript or TypeScript, in cspell's `import` under any config
