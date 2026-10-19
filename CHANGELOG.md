@@ -570,7 +570,7 @@ fields. These are the changes it can notice; each is described in full below.
   list gains `baseline diff`, `target add`'s current wording and the run
   flags it lacked. `docs/contract.md` names the rest of this release's
   surfaces: every pack, the `schemas` key that's accepted while no run acts on
-  it, `{go-packages}`, `init --lang`, the flags `fix` ignores, and the adapter
+  it, `{go-packages}`, `init --lang`, the flags `fix` refuses, and the adapter
   and tool fields the packs carry. `docs-currency.test.ts` holds the pack,
   pin-chain, pin-source and environment tables, the target packs and markers,
   and the README's scopes against `PACKS` and `SLOTS`.
@@ -910,6 +910,13 @@ fields. These are the changes it can notice; each is described in full below.
   `CHECKRIDE_CONFIG`, accepted by run, `doctor`, `fix` and `baseline`. The
   exported `RunOptions` type gains an optional `configPath`, which only
   decides whether the run may ratchet; the caller still passes `config`.
+- `fix` refuses, with exit 2, the run flags new in this release that would
+  change which files its fixers rewrite or with which tool: `--static-only`,
+  `--discover`, `--base`, `--out`, `--defaults` and `--pins`, each named with
+  why, in the contract doc and `flags.contract.test.ts`. The run flags 0.14
+  accepted on `fix` (`--changed`, `--bail`, `--json`, `--digest`, `--strict`)
+  are still accepted and ignored, and `fix` reads `CHECKRIDE_CONFIG` but never
+  `CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT` or `CHECKRIDE_BASE`.
 - Additive: the subcommand `baseline diff [<ref>] [--json]`, whose JSON
   carries `ref`, `sha` (the full sha), `added`, `removed`, `added_count` and
   `removed_count`, held by `baseline.contract.test.ts`.

@@ -490,11 +490,17 @@ path. A `--shape` its `--lang` doesn't take is a usage error, and so is a
 of for itself.
 
 **`fix` runs the selected fixers over the repo as it stands.** It takes
-`--only`, `--skip`, `--include`, `--all` and `--config` as a run does, and
-accepts the other run flags without acting on any of them: `--changed`,
-`--defaults`, `--discover`, `--pins`, `--static-only` and `--out` change
-neither which fixers run nor which copy of each tool, which is the one the
-repo pins, over the targets its config declares.
+`--only`, `--skip`, `--include`, `--all`, `--concurrency` and `--config` as
+a run does, and `CHECKRIDE_CONFIG` too. It refuses, with exit 2 before
+anything runs, the flags that would change which files its fixers rewrite
+or with which tool: `--static-only`, `--discover`, `--base`, `--out`,
+`--defaults` and `--pins`, each named with why, as in `fix doesn't take
+--static-only: fixers rewrite files and can load the repo's code`. It
+accepts the other run flags 0.14 accepted, `--changed`, `--bail`, `--json`,
+`--digest` and `--strict`, without acting on any of them, and it never reads
+`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT` or
+`CHECKRIDE_BASE`. Each fixer is the copy of its tool the repo pins, over the
+targets its config declares.
 
 **`--config <path>` and `CHECKRIDE_CONFIG` name the config file.** Run,
 `doctor`, `fix` and `baseline` read that file in place of

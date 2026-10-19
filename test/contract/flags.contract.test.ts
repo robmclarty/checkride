@@ -385,6 +385,42 @@ describe('CLI override pins (--pins / CHECKRIDE_PINS)', () => {
  * `run.static_only` and `run.partial`. `doctor --static-only` reports the
  * same skips with the same reasons, and an uninstalled checkout fails nothing.
  */
+/**
+ * Contract: `fix` refuses the consumer flags, which would change which files
+ * its fixers rewrite or with which tool, with exit 2 before anything runs.
+ * The run flags 0.14 accepted on `fix` and ignored stay accepted and ignored.
+ */
+describe('CLI fix refuses the consumer flags', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-fix-flags-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test.each([
+    [['--static-only'], 'fixers rewrite files and can load the repo\'s code'],
+    [['--discover'], 'fixers run over the targets the config declares'],
+    [['--base', 'main'], 'fixers rewrite the repo as it stands'],
+    [['--out', 'o'], 'fix writes no artifacts'],
+    [['--defaults', 'd.json'], 'fixers are the ones the repo\'s own config picks'],
+    [['--pins', 'p.toml'], 'fixers run each tool the repo pins'],
+  ])('fix %j exits 2, saying why', async (flag, why) => {
+    const err = capture();
+    expect(await runCli(['fix', ...flag], { cwd: dir, stdout: capture(), stderr: err, env: {} })).toBe(2);
+    expect(err.text()).toBe(`checkride: fix doesn't take ${flag[0] ?? ''}: ${why}\n`);
+  });
+
+  test('the run flags 0.14 accepted still parse, and change nothing', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false } }));
+    const argv = ['fix', '--changed', '--bail', '--json', '--digest', '--strict', '--concurrency', '2'];
+    expect(await runCli(argv, { cwd: dir, stdout: capture(), stderr: capture(), env: {} })).toBe(0);
+  });
+
+  test('the consumer variables are ignored, CHECKRIDE_CONFIG aside', async () => {
+    const env = { CHECKRIDE_PINS: 'nope.toml', CHECKRIDE_DEFAULTS: 'nope.json', CHECKRIDE_OUT: 'o', CHECKRIDE_BASE: 'nope' };
+    expect(await runCli(['fix'], { cwd: dir, stdout: capture(), stderr: capture(), env })).toBe(0);
+    expect(await runCli(['fix'], { cwd: dir, stdout: capture(), stderr: capture(), env: { CHECKRIDE_CONFIG: 'nope.json' } })).toBe(2);
+  });
+});
+
 describe('CLI static-only (--static-only)', () => {
   let dir: string;
   beforeEach(async () => {

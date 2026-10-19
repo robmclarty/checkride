@@ -137,7 +137,10 @@ Commands:
                    overwrite existing files (--force to override). Existing mode:
                    --baseline grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
-  fix              Run every active adapter's fix command.
+  fix              Run every active adapter's fix command. Takes --only, --skip,
+                   --include, --all, --concurrency and --config; refuses
+                   --static-only, --discover, --base, --out, --defaults and
+                   --pins (exit 2).
   baseline         Record current diagnostics as a committed baseline.
                    \`baseline diff [<ref>]\` lists the keys added and removed
                    since <ref> (default HEAD).
@@ -758,8 +761,32 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
+/**
+ * Why `fix` refuses the consumer flag `parsed` carries, or `null` when it
+ * carries none. Each would change which files the fixers rewrite or with
+ * which tool, and a fixer writes into the repo, so each is a usage error
+ * rather than a flag `fix` takes and ignores, as it does the run flags 0.14
+ * accepted. The variables behind them (`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`,
+ * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`) aren't read here at all.
+ */
+function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
+  const given: readonly (readonly [boolean, string, string])[] = [
+    [parsed.flags.staticOnly === true, '--static-only', "fixers rewrite files and can load the repo's code"],
+    [parsed.flags.discover === true, '--discover', 'fixers run over the targets the config declares'],
+    [parsed.base !== undefined, '--base', 'fixers rewrite the repo as it stands'],
+    [parsed.out !== undefined, '--out', 'fix writes no artifacts'],
+    [parsed.defaults !== undefined, '--defaults', "fixers are the ones the repo's own config picks"],
+    [parsed.pins !== undefined, '--pins', 'fixers run each tool the repo pins'],
+  ];
+  const refused = given.find(([on]) => on);
+  return refused === undefined ? null : `fix doesn't take ${refused[1]}: ${refused[2]}`;
+}
+
 async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config } = parseCliArgs(argv);
+  const parsed = parseCliArgs(argv);
+  const refusal = fixRefusal(parsed);
+  if (refusal !== null) throw new Error(refusal);
+  const { flags, config } = parsed;
   const named = namedConfig(config, deps);
   const result = await runFix({ ...flags, ...(named ? { config: named.config } : {}), cwd: deps.cwd, stderr: deps.stderr });
   return result.exitCode;

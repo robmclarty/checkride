@@ -415,6 +415,16 @@ describe('runCli fix', () => {
     expect(await runCli(['fix', '--only', 'lints'], { cwd: dir, stdout: sink(), stderr: err })).toBe(2);
     expect(err.text()).toContain("'lints'");
   });
+
+  test('refuses --static-only, saying why, and writes nothing', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, tidy: { command: 'node', args: ['-e', ''], fixArgs: ['-e', 'require("fs").writeFileSync("touched", "")'] } },
+    }));
+    const err = sink();
+    expect(await runCli(['fix', '--static-only'], { cwd: dir, stdout: sink(), stderr: err })).toBe(2);
+    expect(err.text()).toBe("checkride: fix doesn't take --static-only: fixers rewrite files and can load the repo's code\n");
+    expect(existsSync(join(dir, 'touched'))).toBe(false);
+  });
 });
 
 describe('runCli --config and CHECKRIDE_CONFIG', () => {
