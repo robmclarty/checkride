@@ -11,11 +11,13 @@ enforces module boundaries so parallel changes stay out of each other's way.
 Together those give an LLM agent the two things it otherwise lacks: a
 definition of done, and lanes to stay inside.
 
-It is built first for TypeScript, but it is not TypeScript-only: built-in
-checks stand down when their tool isn't in the repo, and custom checks run any
-command — so the same gate works for a plain-JavaScript package, a
-mixed-language monorepo, or a different ecosystem entirely (delivered through
-npm either way, for now).
+It checks TypeScript, Go, Rust, Python, Terraform and shell code through
+[language packs](./docs/packs.md), each running its own tools from the copy
+the repo pins, and a mixed-language monorepo's parts as named
+[targets](./docs/targets.md), each from its own root. A repo with no Node
+installs and pins checkride through [mise](./docs/distribution.md); built-in
+checks stand down when their tool isn't in the repo, and custom checks run
+any other command.
 
 ## The thesis
 
@@ -41,9 +43,11 @@ both halves of that problem.
    languages (see [Conventions](#conventions)).
 
 One design choice to know up front: because the consumer of the output is an
-LLM, checkride never normalizes diagnostics into a common format. Each tool
-writes its own raw JSON to `.check/`, and the agent reads whatever the tool
-emits. Skipping normalization deletes the adapter-maintenance layer that makes
+LLM, checkride never normalizes diagnostics into a common format to reach a
+verdict. Each tool writes its own raw output to `.check/`, which stays
+authoritative, and the agent reads whatever the tool emits; a reader that
+wants findings by file and line can parse them with `checkride/findings`.
+Skipping normalization deletes the adapter-maintenance layer that makes
 traditional run-all-my-tools wrappers expensive to extend.
 
 ## Install
@@ -143,6 +147,15 @@ Task-focused guides live in [docs/](./docs/README.md):
   where each tool is pinned, and the environment its checks run with.
 - [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (and
   npm/yarn/bun variants), and why gates should pass `--strict`.
+- [Running checkride from outside a repo](./docs/consumers.md) — what a
+  reviewer, a CI job or an agent passes to check a checkout it didn't write:
+  `--discover`, `--defaults`, `--pins`, `--static-only` and `--out`.
+- [Shared presets](./docs/presets.md) — one versioned config for a fleet of
+  repos, through `extends`.
+- [Deep modules](./docs/deep-modules.md) — the default convention `init`
+  scaffolds, the `struct` and `dead` rules that hold it, and how to swap it.
+- [Ordering in practice](./docs/ordering-in-practice.md) — what `order` and
+  waves buy on a real repository, measured.
 - [The contract](./docs/contract.md) — the surfaces consumers may rely on:
   exit codes, the `summary.json` schema discipline, the baseline file format,
   flags, exports, and the pin policy.
@@ -183,7 +196,8 @@ checkride init         Set up a project (new or existing — auto-detected).
   --name <n>  --scope <@s>  --license <id>  --author <a>
   --add <a,b>  (existing mode) scaffold blessed configs for the named empty slots
   --baseline   (existing mode) grandfather current debt instead of disabling slots
-  --force      (new mode) overwrite existing files instead of refusing
+  --force      overwrite existing files (new mode), or refresh an edited
+               AGENTS.md stanza (existing mode), instead of refusing
   --hook <a,b> write only these hooks (gate | dirty | protect)
   --no-hook    skip writing the agent hooks
   --remove-hook <a,b>  remove these installed hooks (entry + generated script)
@@ -273,9 +287,10 @@ exists, and skips slots with no detected tool. The Node-free alternates
 `rumdl` and `typos` are detected only where a tool can come from `mise.toml`
 or `PATH`: a repo that declares `targets`, or one whose root marks another
 pack. A repo checked as ts runs its tools through its package manager alone,
-which can't install them. The core has **no runtime
-dependency** on any checked tool — it spawns `<pm> exec <tool>`; the project
-owns the pinned tool versions.
+which can't install them. The core has **no runtime dependency** on any
+checked tool: it spawns each one through its pack's pin chain (the project's
+package manager, a language's own pin file such as `go.mod`, a `mise.toml`,
+then `PATH`), so the project owns the pinned tool versions.
 
 **Opt-in slots** (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `build`,
 `publint`, `attw`, `pack`, `smoke`, `snippets`) stay out of the
@@ -415,7 +430,7 @@ prints the same report. Full details in [docs/plugin.md](./docs/plugin.md).
 
 ```jsonc
 {
-  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.4.0/schema/checkride.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/v0.15.0/schema/checkride.config.schema.json",
   "extends": "@acme/checkride-preset", // inherit a shared preset, then override below
   "timeout": 1200,          // global per-check timeout in seconds (default: 600)
   "changedBase": "origin/develop", // what --changed measures from (default: origin/main, else HEAD)
@@ -571,10 +586,13 @@ fix — so treat re-running it as a reviewed change: do it deliberately (say,
 after adopting a stricter rule set) and read the `checkride.baseline.json`
 diff in the PR like code.
 
-Only slots whose tool has a fingerprint extractor participate (currently `lint` via
-oxlint, `struct` via ast-grep, `spell` via cspell, `prose` via vale — keying only the
-findings that can fail the slot — and the fallow slots `dead`/`dupes`/`health`); other slots (`types`,
-`test`, …) never appear in the baseline. The file's shape is a promised surface — see
+Only slots whose tool has a parser the baseline keys with participate: oxlint,
+golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint for `lint`,
+ast-grep for `struct`, markdownlint-cli2 and rumdl for `docs`, cspell and typos
+for `spell`, vale for `prose`, and fallow for `dead`, `dupes` and `health`,
+each keying only the findings that can fail the slot. A type checker's or a
+build's errors (`types`) and tests are never grandfathered, so those slots never
+appear in the baseline. The file's shape is a promised surface — see
 [the contract](./docs/contract.md#checkridebaselinejson). A crash or empty output is
 never masked — a slot only goes green when there are findings and all of them are
 grandfathered.
@@ -601,13 +619,15 @@ rules ship under `rules/`. See [getting started](./docs/getting-started.md).
 
 Every generated shape is green out of the box — an end-to-end test enforces it.
 
-At runtime, checkride itself is workspace-agnostic: whatever the shape, it runs
-each tool **once, from the repo root** — one pipeline, one `.check/`. Workspace
-awareness comes from the tools' own configs, which is what the monorepo scaffold
-sets up: `tsc --build` follows the root tsconfig's project references, and
-vitest, oxlint, ast-grep, and the rest walk the whole tree. checkride itself
-does no per-package orchestration and offers no way to check a single package —
-narrow a run with `--only`/`--changed`, not per-directory.
+At runtime, a repo without `targets` is one project: checkride runs each tool
+**once, from the repo root** — one pipeline, one `.check/` — and workspace
+awareness comes from the tools' own configs, which is what the monorepo
+scaffold sets up: `tsc --build` follows the root tsconfig's project
+references, and vitest, oxlint, ast-grep, and the rest walk the whole tree. To
+check each part from its own root instead, declare
+[targets](./docs/targets.md): each runs its pack's checks from its root, as
+`web:lint` or `api:test`, writing under `.check/<target>/`. `--only web` runs
+one target, and `--changed` skips the ones a change didn't touch.
 
 ## Conventions
 
@@ -645,16 +665,18 @@ checkride ships an opinionated default; it does not lock you to it.
 
 Every push runs the full suite — unit, contract, and end-to-end (generated
 projects, installed and checked for real) — on **macOS and Linux**, at **Node
-22.18.0 (the exact supported floor), Node 24 and Node 26**, and the e2e suite exercises
-the full package-manager quartet: **pnpm, npm, yarn, and bun**. Windows is not
-tested and not claimed; it waits for a real consumer who needs it.
+22.18.0 (the exact supported floor), Node 24 and Node 26**. The e2e suite
+exercises the full package-manager quartet, **pnpm, npm, yarn, and bun**, and
+every language pack against its real tools, which CI installs at pinned
+versions through mise, so no pack's cases are skipped. Windows is not tested
+and not claimed; it waits for a real consumer who needs it.
 
 The promised surfaces (exit codes, `summary.json` shape, flags, exports) are
 locked by a dedicated [contract suite](./test/contract/) — see
 [docs/contract.md](./docs/contract.md). Beyond line coverage (enforced at 70%),
 the test suite is itself tested: Stryker mutation testing runs with a hard
-floor of 55; the current mutation score is **69%** (`pnpm mutation` to
-reproduce).
+floor of 68, and the last full run scored **83%** (`pnpm mutation` reproduces
+it, in about three hours).
 
 See [AGENTS.md](./AGENTS.md) for the contract agents follow,
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the release ritual, and
@@ -675,10 +697,13 @@ const result: RunResult = await runChecks({ cwd: process.cwd(), strict: true });
 process.exitCode = result.exitCode;
 ```
 
-`runChecks` sits alongside `runInit`, `runDoctor`, `runFix`, and the
-`loadConfig`/`resolveChecks` pair; the adapter registry (`SLOTS`, `ADAPTERS`) and
-every public type are re-exported too. The full surface is the package's
-`exports`, and it is part of the [contract](./docs/contract.md).
+`runChecks` sits alongside `runInit`, `runDoctor`, `runFix`, `selectChecks`
+and the `loadConfig`/`resolveChecks` pair; the adapter registry (`SLOTS`,
+`ADAPTERS`), the language packs and the tools they run (`PACKS`, `TOOLS`), and
+every public type are re-exported too. A second entry point,
+`checkride/findings`, parses a run's raw artifacts into findings, with
+`parseFindings`, `findingsFor` and `isParseable`. The full surface is the
+package's `exports`, and it is part of the [contract](./docs/contract.md).
 
 ## License
 
