@@ -53,8 +53,8 @@
     <div style="display:flex; gap:30px; align-items:center; font-size:14px; font-weight:500;">
       <a href="#why">Why</a>
       <a href="#gate">The gate</a>
-      <a href="#agents">Agents</a>
       <a href="#pipeline">Pipeline</a>
+      <a href="#packs">Packs</a>
       <a href="docs.html">Docs</a>
       <a href="agents.html">Agents</a>
       <a href="api.html">API</a>
@@ -88,17 +88,17 @@
             <div style="margin-left:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">{{ fileName }}</div>
           </div>
           <div style="padding:22px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85; color:#DCE9DF; overflow-x:auto; min-height:300px;">
-            <sc-for list="{{ termLines }}" as="ln" hint-placeholder-count="12">
+            <sc-for list="{{ termLines }}" as="ln" hint-placeholder-count="13">
               <div style="white-space:pre; min-height:1.85em;"><sc-for list="{{ ln.tokens }}" as="tk" hint-placeholder-count="4"><span style="color:{{ tk.color }};">{{ tk.t }}</span></sc-for></div>
             </sc-for>
           </div>
         </div>
         <div id="slots" style="margin-top:40px;">
           <div style="margin-bottom:12px;">
-            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#52675B;">16 SLOTS · ONE COMMAND · ONE EXIT CODE</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#52675B;">21 SLOTS · ONE COMMAND · ONE EXIT CODE</div>
           </div>
           <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
-            <sc-for list="{{ slotChips }}" as="s" hint-placeholder-count="16">
+            <sc-for list="{{ slotChips }}" as="s" hint-placeholder-count="21">
               <div onClick="{{ s.select }}" style="cursor:pointer; padding:7px 12px; border:2px solid #14231B; background:{{ s.bg }}; color:{{ s.fg }}; transition:transform .06s;">{{ s.name }}</div>
             </sc-for>
           </div>
@@ -187,7 +187,7 @@
         <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0; color:#E9F0EA;">The agent can't declare victory on a <span style="font-style:italic; color:#D45B4A;">red pipeline.</span></h2>
         <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#D9A13B;">checkride init</span> writes the contract into the repo: an AGENTS.md stanza stating the "exit 0 = done" rule, and a <strong style="color:#E9F0EA;">stop-gate hook</strong> for Claude Code and Cursor that fires when the agent tries to finish — a red pipeline blocks the stop and sends the agent back to work until it's green.</p>
         <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:18px 0 0;">When a check fails, the agent reads <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/summary.json</span>, then the failing slot's raw JSON. On a big red repo, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes a token-bounded excerpt so the agent starts from a capped index, not a wall of text.</p>
-        <a href="docs.html" style="display:inline-block; margin-top:28px; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:14px; padding:13px 24px; border:3px solid #E9F0EA; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">Set up the harness →</a>
+        <a href="docs.html#agents" style="display:inline-block; margin-top:28px; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:14px; padding:13px 24px; border:3px solid #E9F0EA; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">Set up the harness →</a>
       </div>
 
       <div style="flex:1; min-width:0;">
@@ -201,7 +201,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "pnpm run check || { echo &apos;checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish (do not stop while checkride is red).&apos; >&2; exit 2; }"
+            "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\"",
+            "timeout": 900
           }
         ]
       }
@@ -209,8 +210,9 @@
   }
 }' style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:5px 11px; cursor:pointer;">COPY</button>
           </div>
-          <div style="padding:24px 26px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.9; color:#DCE9DF; white-space:pre; overflow-x:auto;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"pnpm run check || { echo 'checkride: the gate is red — read .check/summary.json, fix the failing slot, then finish.' &gt;&amp;2; exit 2; }"</span><br>    }] }]<br>  }<br>}</div>
+          <div style="padding:24px 26px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.9; color:#DCE9DF; white-space:pre; overflow-x:auto;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\""</span>,<br>      <span style="color:#D9A13B;">"timeout"</span>: <span style="color:#D9A13B;">900</span><br>    }] }]<br>  }<br>}</div>
         </div>
+        <div style="font-size:14px; line-height:1.6; color:#93A79A; margin-top:14px;">The script, which checkride owns and refreshes, runs <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#D9A13B;">checkride gate</span>: the repo's check with <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--strict --digest</span> — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;pm&gt; run check</span>, or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise exec -- checkride</span> in a repo without Node — answered in the harness's own hook protocol.</div>
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:24px;">
           <div style="border-left:3px solid #1E7A4A; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">AGENTS.md stanza</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The rule, the conventions, and the narrow commands — loaded into context by Claude Code, Codex, Cursor, Amp.</div></div>
           <div style="border-left:3px solid #2456A6; padding:4px 0 4px 14px;"><div style="font-weight:700; font-size:15px; color:#E9F0EA;">Stop gate</div><div style="font-size:13.5px; line-height:1.5; color:#93A79A; margin-top:4px;">The generated hook runs <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">checkride gate</span> when the agent tries to finish — red blocks, under Claude Code and Cursor. Guidance becomes enforcement.</div></div>
@@ -249,9 +251,9 @@
   <!-- ===================== PIPELINE ===================== -->
   <div id="pipeline" style="position:relative; padding:96px 40px; max-width:1320px; margin:0 auto;">
     <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">05 · THE PIPELINE</div>
-    <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">Sixteen <span style="font-style:italic; color:#2456A6;">slots</span>, filled by the tools you already have.</h2>
-    <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:680px; margin:18px 0 24px;">A <strong>slot</strong> is a role in the pipeline; an <strong>adapter</strong> is the concrete tool that fills it. Zero-config: checkride runs the first adapter whose config file exists and skips slots with no detected tool. The core has <strong>no runtime dependency</strong> on any checked tool — your repo owns the pinned versions.</p>
-    <p style="font-size:16px; line-height:1.6; color:#48594F; max-width:680px; margin:0 0 40px;">Opt-in slots stay out of the default run, so adopting checkride — or bumping its version — never turns a repo red on a check it didn't ask for. The last four are the <strong>publish-ready bundle</strong>: they gate the artifact a consumer actually installs.</p>
+    <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">Twenty-one <span style="font-style:italic; color:#2456A6;">slots</span>, filled by the tools you already have.</h2>
+    <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:680px; margin:18px 0 24px;">A <strong>slot</strong> is a role in the pipeline; an <strong>adapter</strong> is the concrete tool that fills it. Zero-config: checkride runs the first adapter whose config file exists and skips slots with no detected tool. The core has <strong>no runtime dependency</strong> on any checked tool — your repo owns the pinned versions. The table shows the TypeScript and repo-wide tools; <a href="#packs" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">the other packs</a> fill the same slots with their own.</p>
+    <p style="font-size:16px; line-height:1.6; color:#48594F; max-width:680px; margin:0 0 40px;">Opt-in slots stay out of the default run, so adopting checkride — or bumping its version — never turns a repo red on a check it didn't ask for. The six from <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">build</span> to <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">snippets</span> are the <strong>publish-ready bundle</strong>: they gate the artifact a consumer actually installs. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">unclaimed</span> joins the default run once the config declares targets.</p>
 
     <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B, 7px 7px 0 #14231B, 8px 8px 0 #14231B; overflow:hidden;">
       <table style="width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:13.5px;">
@@ -264,7 +266,7 @@
           </tr>
         </thead>
         <tbody>
-          <sc-for list="{{ pipelineRows }}" as="row" hint-placeholder-count="16">
+          <sc-for list="{{ pipelineRows }}" as="row" hint-placeholder-count="21">
             <tr style="border-top:2px solid #14231B; background:{{ row.bg }};">
               <td style="text-align:left; padding:12px 18px; font-weight:700; color:{{ row.accent }};">{{ row.name }}</td>
               <td style="text-align:left; padding:12px 12px; font-family:'Space Grotesk',sans-serif; font-size:14px; color:#2A3A31;">{{ row.role }}</td>
@@ -275,7 +277,46 @@
         </tbody>
       </table>
     </div>
-    <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#52675B; margin-top:14px;">✅ default run · ○ opt-in — enable with --include &lt;slot&gt;, --all, or by naming it in checkride.config.json · full catalogue in the <a href="api.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">API reference</a></div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#52675B; margin-top:14px;">✅ default run · ○ opt-in — enable with --include &lt;slot&gt;, --all, or by naming it in checkride.config.json · with targets — runs once the config declares targets · full catalogue in the <a href="api.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">API reference</a></div>
+  </div>
+
+  <!-- ===================== PACKS & TARGETS ===================== -->
+  <div id="packs" style="position:relative; background:#DBE6DD; border-top:3px solid #14231B; padding:96px 40px;">
+    <div style="max-width:1320px; margin:0 auto;">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">06 · PACKS AND TARGETS</div>
+      <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:54px; line-height:1; margin:0;">TypeScript-first, <span style="font-style:italic; color:#2456A6;">not TypeScript-only.</span></h2>
+      <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:720px; margin:18px 0 44px;">A <strong>pack</strong> fills the slots with one language's tools, and runs each from the copy the repo pins — its lockfile, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">go.mod</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">rust-toolchain.toml</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">uv.lock</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">.terraform-version</span>, then a <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">mise.toml</span>, then <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">PATH</span>. A monorepo names its parts as <strong>targets</strong>, and each part is checked by its pack from its own root.</p>
+
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:18px;">
+        <sc-for list="{{ packCards }}" as="pk" hint-placeholder-count="7">
+          <div style="background:#E9F0EA; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 22px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:19px; color:{{ pk.accent }};">{{ pk.name }}</div>
+            <div style="font-size:14.5px; color:#2A3A31; margin-top:4px;">{{ pk.what }}</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.65; color:#48594F; margin-top:12px;">{{ pk.tools }}</div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; color:#52675B; margin-top:14px; border-top:1px dashed #52675B; padding-top:9px;">PINNED BY {{ pk.pins }}</div>
+          </div>
+        </sc-for>
+        <div style="background:#14231B; color:#B7C8BC; border:3px solid #14231B; padding:20px 22px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:19px; color:#D9A13B;">custom</div>
+          <div style="font-size:14.5px; color:#E9F0EA; margin-top:4px;">Anything else</div>
+          <div style="font-size:13.5px; line-height:1.55; margin-top:12px;">A custom check runs any command, under the same timeout, exit codes and <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">.check/</span> output as the rest.</div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:52px; align-items:start;">
+        <div style="border:3px solid #14231B; background:#E9F0EA; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B;">
+          <div style="padding:12px 16px; border-bottom:3px solid #14231B; font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:700; color:#1E7A4A;">checkride.config.json</div>
+          <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"targets"</span>: {<br>    <span style="color:#D9A13B;">"web"</span>:   { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"ts"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"apps/web"</span> },<br>    <span style="color:#D9A13B;">"api"</span>:   { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"go"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"services/api"</span> },<br>    <span style="color:#D9A13B;">"infra"</span>: { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"terraform"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"infra"</span> }<br>  }<br>}</div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:14px; font-size:15.5px; line-height:1.55; color:#2A3A31;">
+          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>A target's checks are named <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;target&gt;:&lt;slot&gt;</span> — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">api:lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">web:test</span> — and write their raw output under <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/&lt;target&gt;/</span>. <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--only api</span> runs one target; the repo-wide checks run once.</span></div>
+          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">unclaimed</span> fails when a toolchain marker, such as a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">package.json</span> or a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">go.mod</span>, sits outside every target of its language: a directory of code no check reads.</span></div>
+          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride target add</span> declares a target; <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">init</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--discover</span> propose them from the repo's own files.</span></div>
+          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>No Node? <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">init --lang go</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--lang rust</span> writes a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise.toml</span> that pins checkride beside the language's tools, and the gate runs <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise exec -- checkride</span>.</span></div>
+          <a href="docs.html#getting-started" style="align-self:flex-start; margin-top:8px; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Get started in a Go or Rust repo →</a>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ===================== CTA ===================== -->
@@ -306,11 +347,12 @@
         <div>
           <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#D9A13B; margin-bottom:14px;">DOCS</div>
           <div style="display:flex; flex-direction:column; gap:10px; font-size:14px;">
-            <a href="docs.html">Getting started</a>
-            <a href="docs.html">Working with agents</a>
+            <a href="docs.html#getting-started">Getting started</a>
+            <a href="docs.html#agents">Working with agents</a>
             <a href="agents.html">The plugin &amp; harnesses</a>
-            <a href="docs.html">The baseline</a>
-            <a href="docs.html">Running in CI</a>
+            <a href="docs.html#baseline">The baseline</a>
+            <a href="docs.html#ci">Running in CI</a>
+            <a href="#packs">Packs &amp; targets</a>
             <a href="api.html">API reference</a>
           </div>
         </div>
@@ -381,29 +423,42 @@ class Component extends DCLogic {
   renderVals() {
     const INK = '#DCE9DF', DIM = '#7E9187', GRN = '#3FA26F', AMB = '#D9A13B', RED = '#D45B4A', STR = '#3FA26F';
 
-    // slot catalogue: [name, role, tool, optIn, note]
+    // slot catalogue: [name, role, tool, adapter, output_file, mode, note], where
+    // adapter and output_file are what summary.json records for the blessed tool
+    // and mode is 'default', 'opt-in' or 'targets' (runs once targets exist).
     const SLOTS = [
-      ['types',    'Type checking',                          'tsc --build',       false, 'The cheapest check runs first. Uses your tsconfig project references.'],
-      ['format',   'Formatting',                             'prettier',          true,  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome.'],
-      ['lint',     'Linting',                                'oxlint',            false, 'Alternates: biome, eslint. checkride fix runs oxlint --fix.'],
-      ['struct',   'Structural rules (deep modules)',        'ast-grep',          false, 'Enforces the module boundaries: index.ts-only surfaces, no reaching internals.'],
-      ['dead',     'Dead code, deps, cycles, boundaries',    'fallow',            false, 'fallow dead-code. Alternate: knip. checkride gates on the issue count.'],
-      ['dupes',    'Code duplication',                       'fallow',            true,  'Opt-in. fallow dupes — clone detection, baselines like lint.'],
-      ['health',   'Complexity / maintainability',           'fallow',            true,  'Opt-in. fallow health — function complexity hotspots.'],
-      ['test',     'Tests + coverage',                       'vitest',            false, 'Coverage thresholds live in vitest.config.ts. Alternate: jest.'],
-      ['docs',     'Markdown lint',                          'markdownlint-cli2', false, 'checkride fix runs markdownlint-cli2 --fix.'],
-      ['links',    'Relative markdown links resolve',        'built-in',          false, 'No tool to install — checkride ships this one.'],
-      ['spell',    'Spelling',                               'cspell',            false, 'Fingerprinted for the baseline like lint and struct.'],
-      ['prose',    'Writing style',                          'vale',              true,  'Opt-in. Style, not spelling — cspell keeps the word list.'],
-      ['mutation', 'Mutation testing',                       'stryker',           true,  'Opt-in. Ships uncapped (timeout: 0) and runs exclusive — stryker takes a while.'],
-      ['security', 'Dependency audit',                       'pnpm audit',        true,  'Opt-in. Fails on advisories at or above the configured severity.'],
-      ['build',    "Runs the consumer's build script",       '<pm> run build',    true,  'Publish-ready bundle, wave 10 — fresh output for the wave-20 checks.'],
-      ['publint',  'Package publishing lint',                'publint',           true,  'Opt-in. Wave 20 — lints the publish surface of the fresh build.'],
-      ['attw',     'Type resolution across module systems',  'attw --pack',       true,  'Opt-in. "Are the types wrong?" from both CJS and ESM consumers.'],
-      ['pack',     'Tarball ships the right files',          'built-in',          true,  'Fails if a required file is missing or src/, tests, or .ts sources leak in.'],
-      ['smoke',    'Built package imports cleanly',          'built-in',          true,  'Loads every exports entry through real resolution; asserts exports are live.'],
-      ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    true,  'Type-checks fenced examples tagged <!-- snippet: check --> in README + docs.'],
-      ['unclaimed', 'Every toolchain marker sits in a target', 'built-in',          false, 'Runs once the config declares targets: fails on a toolchain marker no target claims.'],
+      ['types',    'Type checking',                          'tsc --build',       'tsc',               null,             'default', 'The cheapest check runs first. Uses your tsconfig project references.'],
+      ['format',   'Formatting',                             'prettier',          'prettier',          null,             'opt-in',  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome.'],
+      ['lint',     'Linting',                                'oxlint',            'oxlint',            'lint.json',      'default', 'Alternates: biome, eslint. checkride fix runs oxlint --fix.'],
+      ['struct',   'Structural rules (deep modules)',        'ast-grep',          'ast-grep',          'struct.json',    'default', 'Enforces the module boundaries: index.ts-only surfaces, no reaching internals.'],
+      ['dead',     'Dead code, deps, cycles, boundaries',    'fallow',            'fallow',            'dead.json',      'default', 'fallow dead-code. Alternate: knip. checkride gates on the issue count.'],
+      ['dupes',    'Code duplication',                       'fallow',            'fallow',            'dupes.json',     'opt-in',  'Opt-in. fallow dupes — clone detection, baselines like lint.'],
+      ['health',   'Complexity / maintainability',           'fallow',            'fallow',            'health.json',    'opt-in',  'Opt-in. fallow health — function complexity hotspots.'],
+      ['test',     'Tests + coverage',                       'vitest',            'vitest',            null,             'default', 'Coverage thresholds live in vitest.config.ts; vitest writes .check/test.json itself. Alternate: jest.'],
+      ['docs',     'Markdown lint',                          'markdownlint-cli2', 'markdownlint-cli2', null,             'default', 'checkride fix runs markdownlint-cli2 --fix. Alternate: rumdl.'],
+      ['links',    'Relative markdown links resolve',        'built-in',          'links',             'links.json',     'default', 'No tool to install — checkride ships this one.'],
+      ['spell',    'Spelling',                               'cspell',            'cspell',            null,             'default', 'Fingerprinted for the baseline like lint and struct. Alternate: typos.'],
+      ['prose',    'Writing style',                          'vale',              'vale',              'prose.json',     'opt-in',  'Opt-in. Style, not spelling — cspell keeps the word list.'],
+      ['mutation', 'Mutation testing',                       'stryker',           'stryker',           null,             'opt-in',  'Opt-in. Ships uncapped (timeout: 0) and runs exclusive — stryker takes a while.'],
+      ['security', 'Dependency audit',                       'pnpm audit',        'pnpm-audit',        'security.json',  'opt-in',  'Opt-in. Fails on advisories at or above the configured severity.'],
+      ['build',    "Runs the consumer's build script",       '<pm> run build',    'build',             null,             'opt-in',  'Publish-ready bundle, wave 10 — fresh output for the wave-20 checks.'],
+      ['publint',  'Package publishing lint',                'publint',           'publint',           null,             'opt-in',  'Opt-in. Wave 20 — lints the publish surface of the fresh build.'],
+      ['attw',     'Type resolution across module systems',  'attw --pack',       'attw',              'attw.json',      'opt-in',  'Opt-in. "Are the types wrong?" from both CJS and ESM consumers.'],
+      ['pack',     'Tarball ships the right files',          'built-in',          'pack',              'pack.json',      'opt-in',  'Fails if a required file is missing or src/, tests, or .ts sources leak in.'],
+      ['smoke',    'Built package imports cleanly',          'built-in',          'smoke',             'smoke.json',     'opt-in',  'Loads every exports entry through real resolution; asserts exports are live.'],
+      ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    'snippets',          'snippets.json',  'opt-in',  'Type-checks fences tagged <!-- snippet: check --> against your source; snippets-dist checks the built .d.ts.'],
+      ['unclaimed', 'Every toolchain marker sits in a target', 'built-in',        'unclaimed',         'unclaimed.json', 'targets', 'Fails on a toolchain marker, such as a package.json or a go.mod, that no target claims.'],
+    ];
+
+    // packs: [name, what it checks, blessed tools, where its tools are pinned]
+    const PACKS = [
+      ['ts',        'TypeScript',                  'tsc · oxlint · fallow · vitest · stryker',                       'the lockfile'],
+      ['go',        'Go modules and workspaces',   'go build · golangci-lint · deadcode · go test · govulncheck',    'go.mod → mise.toml → PATH'],
+      ['rust',      'Cargo packages and workspaces', 'cargo check · clippy · cargo-machete · nextest · cargo-mutants', 'rust-toolchain.toml → mise.toml → PATH'],
+      ['python',    'Python projects',             'ruff · mypy · pytest',                                           'uv.lock → mise.toml → PATH'],
+      ['terraform', 'Terraform and OpenTofu',      'terraform validate · tflint · trivy',                            '.terraform-version → mise.toml → PATH'],
+      ['bash',      'Shell scripts',               'shellcheck · shfmt',                                             'mise.toml → PATH'],
+      ['repo',      'The repo as a whole',         'ast-grep · markdownlint-cli2 · cspell · vale · links · unclaimed', 'the lockfile → mise.toml → PATH'],
     ];
 
     const sel = this.state.slot;
@@ -413,39 +468,46 @@ class Component extends DCLogic {
     let termLines, fileName;
     if (!sel) {
       fileName = 'pnpm check';
-      const row = (name, tool, dur) => line([
-        ['✓ ', GRN], [name.padEnd(9), INK], [tool.padEnd(20), DIM], [dur.padStart(5), DIM],
+      const row = (name, ms, adapter) => line([
+        ['✔ ', GRN], [name.padEnd(7), INK], [(ms + 'ms').padStart(7), DIM], ['  ' + adapter, DIM],
       ]);
       termLines = [
         line([['$ ', GRN], ['pnpm check', INK]]),
         blank(),
-        row('types', 'tsc --build', '2.1s'),
-        row('lint', 'oxlint', '0.4s'),
-        row('struct', 'ast-grep', '0.8s'),
-        row('dead', 'fallow dead-code', '1.9s'),
-        row('test', 'vitest', '6.3s'),
-        row('docs', 'markdownlint-cli2', '0.5s'),
-        row('links', 'built-in', '0.1s'),
-        row('spell', 'cspell', '1.2s'),
+        row('types', 2104, 'tsc'),
+        row('lint', 412, 'oxlint'),
+        row('struct', 803, 'ast-grep'),
+        row('dead', 1911, 'fallow'),
+        row('test', 6342, 'vitest'),
+        row('docs', 517, 'markdownlint-cli2'),
+        row('links', 112, 'links'),
+        row('spell', 1208, 'cspell'),
         blank(),
-        line([['8 checks passed', GRN], [' · ', DIM], ['exit 0', INK], [' — done', GRN]]),
+        line([['✔ all checks passed in 7480ms', GRN]]),
+        line([['report: .check/summary.json', DIM]]),
       ];
     } else {
-      const s = SLOTS.find(x => x[0] === sel);
+      const [name, role, , adapter, out, mode, note] = SLOTS.find(x => x[0] === sel);
       fileName = '.check/summary.json → checks[]';
+      const status = {
+        'default': ['✅ runs in the default gate', GRN],
+        'opt-in': ['○ opt-in — enable with --include ' + name, AMB],
+        'targets': ['◇ runs once checkride.config.json declares targets', AMB],
+      }[mode];
       termLines = [
-        line([['// ', DIM], [s[1], DIM]]),
+        line([['// ', DIM], [role, DIM]]),
         line([['{', INK]]),
-        line([['  "name"', AMB], [': ', INK], ['"' + s[0] + '"', STR], [',', INK]]),
-        line([['  "adapter"', AMB], [': ', INK], ['"' + s[2] + '"', STR], [',', INK]]),
+        line([['  "name"', AMB], [': ', INK], ['"' + name + '"', STR], [',', INK]]),
+        line([['  "adapter"', AMB], [': ', INK], ['"' + adapter + '"', STR], [',', INK]]),
         line([['  "ok"', AMB], [': ', INK], ['true', GRN], [',', INK]]),
         line([['  "exit_code"', AMB], [': ', INK], ['0', AMB], [',', INK]]),
         line([['  "duration_ms"', AMB], [': ', INK], ['470', AMB], [',', INK]]),
-        line([['  "output_file"', AMB], [': ', INK], ['"' + s[0] + '.json"', STR]]),
+        line([['  "output_file"', AMB], [': ', INK], out ? ['"' + out + '"', STR] : ['null', AMB]]),
         line([['}', INK]]),
+        line([[out ? '// raw JSON: .check/' + out : '// raw text, if any: .check/' + name + '.stdout.txt', DIM]]),
         blank(),
-        line([[s[3] ? '○ opt-in — enable with --include ' + s[0] : '✅ runs in the default gate', s[3] ? AMB : GRN]]),
-        line([[s[4], DIM]]),
+        line([status]),
+        line([[note, DIM]]),
       ];
     }
 
@@ -460,14 +522,17 @@ class Component extends DCLogic {
 
     // pipeline table
     const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
-    const pipelineRows = SLOTS.map(([name, role, tool, optIn], i) => ({
+    const pipelineRows = SLOTS.map(([name, role, tool, , , mode], i) => ({
       name, role, tool,
-      def: optIn ? '○' : '✅',
+      def: { 'default': '✅', 'opt-in': '○', 'targets': 'with targets' }[mode],
       accent: accents[i % 4],
       bg: i % 2 ? '#DBE6DD' : '#E9F0EA',
     }));
 
-    return { termLines, fileName, slotChips, selectionNote, pipelineRows, copy: (e) => this.copy(e) };
+    const packAccents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const packCards = PACKS.map(([name, what, tools, pins], i) => ({ name, what, tools, pins, accent: packAccents[i % 4] }));
+
+    return { termLines, fileName, slotChips, selectionNote, pipelineRows, packCards, copy: (e) => this.copy(e) };
   }
 }
 </script>
