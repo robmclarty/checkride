@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 81 — feat(doctor): read --pins and --static-only instead of refusing them
+**Current step:** 85 — fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -101,7 +101,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 72. fix(init): make the mise route install, and test and document it
 - ☑ 83. fix(launch): name mise trust where mise hasn't trusted the repo's mise.toml
 - ☑ 84. fix(launch): run --pins overrides outside the repo's mise config
-- ☐ 81. feat(doctor): read --pins and --static-only instead of refusing them
+- ☑ 81. feat(doctor): read --pins and --static-only instead of refusing them
+- ☐ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
 - ☐ 73. docs: document packs and targets and fold in the contract
 - ☐ 74. chore: retire the drafts and run the opt-in audit
 
@@ -189,8 +190,10 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] under --pins, mise where reads the repo's own mise.toml, so an untrusted one refuses the override and its refusal asks a consumer to trust a repo it may be reviewing; consider having the override ignore the repo's config (MISE_IGNORED_CONFIG_PATHS, or asking from outside the repo)
 - [x] checkride's own mise calls can trust a repo's mise.toml unasked: an inherited MISE_YES makes the launcher's mise which trust it, and outside paranoid mode the gate hook's mise exec -- checkride trusts it (mise 2026.10.4); decide whether the launcher strips MISE_YES and whether docs/distribution.md says exec trusts
 - [x] docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo (MISE_IGNORED_CONFIG_PATHS, D83); fold it in at step 73
-- [ ] doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown, and one that runs by default fails doctor (examples/go-module's greeter:dead)
-- [ ] a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0); should the run record the resolved release too?
+- [x] doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown, and one that runs by default fails doctor (examples/go-module's greeter:dead)
+- [x] a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0); should the run record the resolved release too?
+- [ ] examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green; decide whether the example gets a lockfile or the install row reads such a package.json as n/a
+- [ ] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -306,6 +309,9 @@ Harvest results this boundary:
 - After step 83: "checkride's own mise calls can trust a repo's mise.toml unasked ..." → **tangent**, deferred: an inherited `MISE_YES` is the user saying yes to mise's prompts on their own machine, the gate's `mise exec` trusting the file is mise's documented normal-mode behavior on the entry command the repo chose, and once step 84 lands a consumer's `--pins` run never reaches a trust prompt. Stripping `MISE_YES` from the launcher's mise calls was offered as a ride-along on step 84 and not taken; step 73's docs pass may note that `exec` trusts.
 
 - After step 84: "docs/packs.md's override row and docs/contract.md's --pins paragraph don't yet say the override reads no config file inside the repo ..." → **tangent**, deferred to step 73 (doc-only: step 84's behavior is unit- and e2e-tested, and step 73's done-when already asks `docs/packs.md` to cover every pin source and environment variable and `docs/contract.md` to name every surface this build added; step 81, whose seam holds `docs/contract.md` and edits the same `--pins` paragraph, may fix the contract half on the way).
+
+- After step 81: "doctor probes only js-lockfile, mise and path: a go-mod-tool, rust-toolchain, uv-lock or tf-version check reports status unknown..." → **blocker**, handled now (the maintainer's call): folded into `intent.md` as D84 (doctor-launcher-probes) and as step 85, ordered to build next, before step 66, so step 73 documents a `doctor` that works in every pack this build adds (step 34 built doctor before steps 41, 44 and 58 added the three sources, so `doctor` exits 1 on a clean Go, Rust or Python repo; `tf-version` was the park's slip, since Terraform's CLI is probed by `which` and never reports `unknown`). Step 85 also takes the package-manager row that step 72's harvest deferred to step 81, which step 81 missed: its done-when didn't name it and the build didn't read the harvest.
+- After step 81: "a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0)..." → **tangent**, killed: R6.3 settles it, since `tool_version` comes from a file read, never a spawn, the `override` row records the version in the `--pins` file, and `doctor --json` is where R6.3 puts probed versions, which step 81 follows.
 
 ## Log
 
@@ -2985,3 +2991,63 @@ folder, so it rides the branch into the PR.)*
   **4.** The docs say so, and two more docs are parked for step 73
 
   `docs/consumers.md` gains a paragraph under the two passes. The `--pins` entry in `CHANGELOG.md` is still unreleased, so I amended it instead of adding a Fixed line, as step 83 did. `docs/packs.md`'s override row and `docs/contract.md`'s `--pins` paragraph still say only "offline and with installs off". Both are outside the seam, so I parked them for step 73, which folds in the contract.
+
+- 2026-10-19 — step 81 checkpointed · 18a31a58e — feat(doctor): read --pins and --static-only instead of refusing them (1 drift, 580m)
+
+  **Summary**: `doctor` now accepts `--pins` and `--static-only` and reports what a run with those flags would do, using the run's own code for each answer. Neither flag exits 2 any more, and the contract doc, CHANGELOG and contract tests all say so.
+
+  1. doctor --pins probes each pinned copy through the run's own override chain
+  2. doctor --static-only reuses the run's sniffs and launcher, so each skip carries the run's exact reason
+  3. Under --static-only the install row warns instead of failing, which goes past the done-when's text
+  4. The diff goes past the seam, with small exports so doctor shares the run's code instead of copying it
+  5. Two contract tests that held the refusal were rewritten on purpose, and two items are parked
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    honored
+               - D71 (consumer-calls)
+               - D80 (binary-deferred)
+               - D83 (override-outside-repo)
+  constraints  12 of 12 honored
+  seam         strayed: 11 paths outside the seam
+               - CHANGELOG.md
+               - docs/cheatsheet.md
+               - docs/consumers.md
+               - docs/packs.md
+               - src/__tests__/doctor.test.ts
+               - src/launch/index.ts
+               - src/launch/mise.ts
+               - src/launch/resolve.ts
+               - src/orchestrator/index.ts
+               - src/orchestrator/spawn.ts
+               - test/contract/flags.contract.test.ts
+  diff         +569 -103 across 14 files
+  spent        9h 40m · 1 turn · 31s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve and land it. Both flags now report what a run would do, using the run's own resolver, classifier and launcher. Wherever the step goes past the seam, it exports the run's code rather than copying it, and the full gate plus the real-mise consumers e2e are green.
+
+  **1.** doctor --pins probes each pinned copy through the run's own override chain
+
+  Under `--pins`, every check's chain starts with `override`, as `runnerContext` builds it. A new `overridePin` in `src/launch/resolve.ts` follows the same steps as `resolveLaunch`: a `pnpm exec` tool the file pins, or a toolchain command the file pins (`go`, `gofmt` under go's key, `terraform` switched to `tofu` when the file pins OpenTofu). Those rows probe with `mise where <id>@<version>` through the same `miseHasInstalled` the run calls, so they are offline and read no config file inside the repo (D83 (override-outside-repo)). `askMise` now keeps mise's stdout, so the row records the install directory as `found` and its basename as a new `toolVersion` field. The pin column shows that version too, for example `override 0.11.0`. A version mise hasn't installed is a `missing` row. It fails `doctor` when its check runs by default, as the run fails it, and its hint names `mise install <spec>`. An untrusted config names `mise trust` only when it sits outside the repo, and an untrusted config inside the repo says to upgrade mise. That is the same three-way cause the run uses, now exported as `overrideCause(repo, why)`. `pinResolution` reads the override too, so a tool the file pins drops out of the unpinned rows. I checked this against real mise: `shellcheck = "0.11"` resolved to `override 0.11.0` in examples/polyglot-ts-bash, and `opentofu = "9.9.9"` in examples/terraform-roots named `mise install opentofu@9.9.9` on every root.
+
+  **2.** doctor --static-only reuses the run's sniffs and launcher, so each skip carries the run's exact reason
+
+  Rules 1 to 4 come from the run's own `withStaticOnly`, now exported. Rule 5 asks the run's own launcher, through a new injectable `DoctorEnv.launch` that defaults to `launchCheck`, with `staticOnly: true`. That passes `everyManager` through, so `node_modules/.bin` is checked under every package manager except a PnP install (D71 (consumer-calls)). A refusal becomes `static-only: needs an install (...)` through `installSkip`, which `spawn.ts` now shares with `refusedOutcome`, so the wording cannot drift between the two. A skipped row carries the reason in a new `skip` field. It never fails `doctor`, its tool goes unprobed, it stays out of the unpinned list, and the table prints it as `· … skipped` with the reason underneath. The contract test asserts the same five reasons that F39's run asserts on the same repo. On examples/go-module, `--pins --static-only` exited 0 with four skips, and `gofmt` showed `override 1.27.2`.
+
+  **3.** Under --static-only the install row warns instead of failing, which goes past the done-when's text
+
+  Without this, `doctor --static-only` exits 1 on the very checkout it exists for, one nobody has installed, while the matching run passes. So the row becomes a non-required `outdated` (⚠) warning, and its hint says a static run skips each check whose tool needs the install. The row is unchanged without the flag, and a test holds that. One more thing to know: under the flag, `doctor` spawns the probes a run's launcher spawns (`mise which`, `mise where`, `terraform version -json`). That is why `docs/consumers.md` says it "runs no check", not "runs nothing".
+
+  **4.** The diff goes past the seam, with small exports so doctor shares the run's code instead of copying it
+
+  The seam lists `src/doctor.ts`, `src/cli.ts` and `docs/contract.md`. The step also touches `src/launch/{mise,resolve,index}.ts` (stdout on `MiseAnswer`'s ok branch, `PinQuery.overrides`, `overridePin`, and `overrideCause` exported), `src/orchestrator/{spawn,index}.ts` (`installSkip`, `withStaticOnly` exported) and the CHANGELOG the done-when names. It also adds a sentence each to `docs/packs.md`, `docs/consumers.md` and `docs/cheatsheet.md` under C11 (docs-in-step). Run behavior doesn't change: the consumers e2e passes 4/4 against real mise. `classifySlot` and `unpinnedTools` were split until fallow's health gate cleared.
+
+  **5.** Two contract tests that held the refusal were rewritten on purpose, and two items are parked
+
+  `test/contract/flags.contract.test.ts` pinned "doesn't read it yet" for each flag. Both tests now hold the new behavior: an `override` pin source and a missing file exiting 2 for `--pins`, and the run's skip reasons for `--static-only`. The contract doc and CHANGELOG's Contract entries changed in the same diff (C1 (additive-contract)). `DoctorCheck` gains optional `toolVersion` and `skip`, and `DoctorOptions` gains optional `pins` and `staticOnly`. Parked: doctor marks a `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version` check `unknown` and fails on it (an older gap; examples/go-module's `greeter:dead` hits it). Also parked: whether a `--pins` run should record the resolved release (`0.11.0`) as `tool_version` instead of the file's `0.11`.

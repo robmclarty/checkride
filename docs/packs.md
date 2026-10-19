@@ -513,9 +513,12 @@ project at its root, naming the pack its root marks (`ts`, `go` or `rust`, as
 [Targets](./targets.md#a-repo-without-targets) explains), or `multi-target`,
 followed by a table of the targets the config declares. Each check gets a row, named `<target>:<slot>` in a target,
 whose tool is looked for where that check runs from, and the row ends with the
-pin source the tool resolves through (`js-lockfile`, `mise` or `path`), read
-from files alone. A tool `mise.toml` pins reports missing when mise isn't on
-`PATH`. Each tool nothing pins gets an **unpinned tools** row naming the checks
+pin source the tool resolves through (`js-lockfile`, `mise`, `path`, or a
+language's own `go-mod-tool`, `rust-toolchain` or `uv-lock`), read from files
+alone. A tool `mise.toml` pins reports missing when mise isn't on `PATH`. A
+tool a language's own pin file declares is probed by asking the run's
+launcher: `ok` names what the run would spawn for it, and `missing` carries
+the refusal the run would fail with. Each tool nothing pins gets an **unpinned tools** row naming the checks
 that run it and the `mise use` that would pin it: a warning, or with
 `requirePins: true` a failure (exit 1) when a check that runs by default
 uses it. Last, a **workspace** row lists the markers no target claims, the ones

@@ -757,6 +757,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   schema was written to `checkride.baseline.json` with an empty list, as if
   it had been clean. It's now left out, as a vale runtime error already was.
   The run is still red, and no existing key is pruned.
+- **`doctor` probes the tools a language's own pin file declares.** A check
+  whose tool resolves through `go-mod-tool`, `rust-toolchain` or `uv-lock`
+  reported `unknown`, and since those checks run by default, `doctor` exited
+  1 on a clean Go, Rust or Python repo (`examples/go-module`'s `greeter:dead`
+  among them). Its row now asks the run's own launcher, as `--static-only`
+  already did: `ok` where the launcher would spawn, naming what it spawns
+  (`go tool deadcode`, `cargo clippy`, `.venv/bin/ruff`), and `missing` where
+  it would refuse, with the run's refusal, cause and remedy, as the hint.
+  `unknown` stays for a pin source this checkride can't read. In a root with
+  no `package.json`, the package-manager row is now `n/a` and never required,
+  as the install row already was.
 
 ### Contract
 

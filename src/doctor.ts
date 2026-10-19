@@ -40,7 +40,7 @@ import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
-import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager } from './launch/index.js';
+import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
   detectPackageManager,
   entryText,
@@ -361,9 +361,14 @@ const PM_LOCKFILES: Record<PackageManager, readonly string[]> = {
 
 /**
  * pnpm has a documented `>=9` floor; npm, yarn, and bun are presence-only
- * (no per-PM minimums pinned).
+ * (no per-PM minimums pinned). A root with no `package.json` has no package
+ * manager to run anything, as {@link checkInstall} has no install to check
+ * there, so its row is `n/a` and never required (D84).
  */
-function checkPackageManager(pm: PackageManager, pnpmMin: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+async function checkPackageManager(cwd: string, pm: PackageManager, pnpmMin: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+  if (!env.exists(join(cwd, 'package.json'))) {
+    return { name: pm, category: 'env', required: false, status: 'n/a', found: 'no package.json', expected: null, hint: null };
+  }
   return pm === 'pnpm' ? checkVersioned('pnpm', 'pnpm', pnpmMin, env) : checkPresent(pm, pm, env);
 }
 
@@ -482,16 +487,57 @@ async function probePathTool(tool: string, env: DoctorEnv): Promise<ToolProbe> {
   return path ? { status: 'ok', found: path, expected, hint: null } : { status: 'missing', found: null, expected, hint: `${installHint(tool)}.` };
 }
 
-/** Probe a tool where its pin source says it comes from, recording that source. */
-async function probeExecPin(tool: string, at: ProbeAt, env: DoctorEnv): Promise<ToolProbe> {
+/**
+ * A refusal as a row's hint: its cause and remedy in the run's own words, on
+ * the one line every hint takes, its `checkride: ` prefix dropped as a skip
+ * reason drops it.
+ */
+function refusalHint(refusal: string): string {
+  const lines = refusal.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+  return lines.join(' ').replace(/^checkride:\s*/, '');
+}
+
+/**
+ * What a launch spawns, up to the tool it picks and no further: `go tool
+ * deadcode`, `mise exec -- go tool deadcode`, `cargo clippy` or
+ * `.venv/bin/ruff`, with the check's own arguments, the `toolArgs` after
+ * `pnpm exec <tool>`, left off.
+ */
+function spawnShown(spawn: Spawn, toolArgs: readonly string[]): string {
+  return [spawn.command, ...spawn.args.slice(0, spawn.args.length - toolArgs.length)].join(' ');
+}
+
+/**
+ * A tool a language's own pin file declares, probed by asking the run's
+ * launcher, as `--static-only` asks it (D84): the launcher holds each
+ * source's rules and remedies, so the row is `ok` where it would spawn,
+ * naming what it spawns, and `missing` where it would refuse, its hint the
+ * refusal.
+ */
+function probeLaunch(launch: Launch, declaredBy: string | null, source: PinSourceName, toolArgs: readonly string[]): ToolProbe {
+  const expected = `declared in ${declaredBy ?? source}`;
+  if ('refusal' in launch) return { status: 'missing', found: null, expected, hint: refusalHint(launch.refusal) };
+  return { status: 'ok', found: spawnShown(launch, toolArgs), expected, hint: null };
+}
+
+/**
+ * Probe a tool where its pin source says it comes from, recording that
+ * source. `unknown` stays for a source this checkride can't read, which may
+ * be the one that declares the tool.
+ */
+async function probeExecPin(tool: string, toolArgs: readonly string[], at: ProbeAt, env: DoctorEnv, launch: () => Launch): Promise<ToolProbe> {
   const pin = pinResolution(tool, at);
   if (pin === null) {
     return { status: 'unknown', found: null, expected: null, hint: `\`${tool}\` resolves through a pin source this checkride can't read. Upgrade checkride.` };
   }
+  const viaLauncher = (): Promise<ToolProbe> => Promise.resolve(probeLaunch(launch(), pin.declaredBy, pin.source, toolArgs));
   const probes: { readonly [K in PinSourceName]?: () => Promise<ToolProbe> } = {
     'js-lockfile': () => probeExecTool(tool, at.cwd, at.pm, env),
     mise: () => probeMiseTool(tool, pin.declaredBy, env),
     path: () => probePathTool(tool, env),
+    'go-mod-tool': viaLauncher,
+    'rust-toolchain': viaLauncher,
+    'uv-lock': viaLauncher,
   };
   const probe = await (probes[pin.source]?.() ?? Promise.resolve<ToolProbe>({ status: 'unknown', found: null, expected: null, hint: null }));
   return { ...probe, pinSource: pin.source };
@@ -529,9 +575,10 @@ async function probeOverride(pin: { bin: string; id: string; version: string }, 
 /**
  * Presence-only probe: does the adapter's tool resolve? Dispatch by adapter
  * shape, after the copy a `--pins` file pins, which runs ahead of every
- * source the repo declares.
+ * source the repo declares. `launch` asks the run's launcher what it would
+ * spawn for the check, for the sources only it can answer for.
  */
-async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv): Promise<ToolProbe> {
+async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: () => Launch): Promise<ToolProbe> {
   if (adapter.builtin) {
     return { status: 'ok', found: 'built-in', expected: null, hint: null };
   }
@@ -540,7 +587,7 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv): Promise
   if (adapter.command === 'pnpm' && adapter.args[0] === 'exec') {
     const tool = execTool(adapter.command, adapter.args);
     if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
-    return probeExecPin(tool, at, env);
+    return probeExecPin(tool, adapter.args.slice(2), at, env, launch);
   }
   const path = await env.which(adapter.command);
   return path
@@ -691,7 +738,7 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);
   // Adapter resolved: probe the tool where its pin chain finds it, classify by default-run membership.
-  const probe = await probeTool(adapter, at, ctx.env);
+  const probe = await probeTool(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx));
   return toolRow(base, r, adapter, ctx.defaultActive, probe);
 }
 
@@ -711,6 +758,23 @@ function launchedTool(r: ResolvedCheck): string | null {
 }
 
 /**
+ * What a run would spawn for `adapter`'s check from `at`, or the refusal it
+ * would fail with, asked of the launcher the run spawns it through, with the
+ * chain, `--pins` tools and flags that run would give it.
+ */
+function askLauncher(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotContext): Launch {
+  return ctx.env.launch(r.slot, adapter.command, adapter.args, {
+    cwd: at.cwd,
+    pm: at.pm,
+    repo: at.repo,
+    pins: at.pins,
+    requirePins: ctx.requirePins,
+    staticOnly: ctx.staticOnly,
+    ...(at.overrides !== undefined ? { overrides: at.overrides } : {}),
+  });
+}
+
+/**
  * Under `--static-only`, the reason a kept check is skipped because its tool
  * needs an install, asked of the launcher a run spawns it through, which
  * pre-flights `node_modules/.bin` under every package manager but a PnP
@@ -719,15 +783,7 @@ function launchedTool(r: ResolvedCheck): string | null {
  */
 function needsInstall(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotContext): string | null {
   if (adapter.builtin !== undefined) return null;
-  const launch = ctx.env.launch(r.slot, adapter.command, adapter.args, {
-    cwd: at.cwd,
-    pm: at.pm,
-    repo: at.repo,
-    pins: at.pins,
-    requirePins: ctx.requirePins,
-    staticOnly: true,
-    ...(at.overrides !== undefined ? { overrides: at.overrides } : {}),
-  });
+  const launch = askLauncher(r, adapter, at, ctx);
   return 'refusal' in launch ? installSkip(launch.refusal) : null;
 }
 
@@ -1080,7 +1136,7 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
   return [
     await checkVersioned('node', 'node', nodeMin, env),
     ...(nodePin === null ? [] : [nodePin]),
-    await checkPackageManager(pm, pnpmMin, env),
+    await checkPackageManager(cwd, pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
     ...(harness === null ? [] : [harness]),
     staticOnly ? staticInstall(checkInstall(cwd, pm, env)) : checkInstall(cwd, pm, env),

@@ -677,6 +677,17 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   `mise exec go@1.27.2` succeed from the root and from a nested directory, configs at the root,
   in a subdirectory and under `.config/` are all ignored, and the file stays untrusted (the
   maintainer's call at step 83's harvest, from step 83's parks).
+- <a id="d84"></a>**D84 (doctor-launcher-probes)**: `doctor` probes a check whose tool resolves
+  through `go-mod-tool`, `rust-toolchain` or `uv-lock` by asking the run's own launcher, as
+  `--static-only` does since step 81: where the launcher would spawn, the row is `ok`, and where
+  it would refuse, the row is `missing`, its hint the refusal's remedy. `unknown` stays for a
+  source this checkride can't read. In a root with no `package.json`, the package-manager row is
+  `n/a` and never required, as step 72 made the install row, *because* step 34 built doctor when
+  only `js-lockfile`, `mise` and `path` existed and steps 41, 44 and 58 added the other three
+  without it, so `doctor` exits 1 on a clean repo of three packs this build adds
+  (`examples/go-module`'s `greeter:dead` reports `unknown`), the launcher already holds each
+  source's rules and remedies, and step 81 missed the package-manager row that step 72's harvest
+  deferred to it (the maintainer's call at step 81's harvest, from step 81's parks).
 
 ## Constraints
 
@@ -738,7 +749,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 10. Python | 58 to 61 | the python pack |
 | 11. Terraform | 62 to 65, 79, 80, 82 | the terraform pack, and a `--static-only` that fails closed |
 | 12. The schema slot | 66 to 68 | `schema` and its bundled schemas (draft M5) |
-| 13. The mise route and doctor | 72, 83, 84, 81 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, `--pins` run outside the repo's mise config, and doctor's last two refusals gone; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
+| 13. The mise route and doctor | 72, 83, 84, 81, 85 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, `--pins` run outside the repo's mise config, doctor's last two refusals gone, and doctor probing every pin source a pack resolves through; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
 
 Every phase ends at a release point, and its last step runs the whole `pnpm test:e2e`
@@ -1091,9 +1102,12 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
     - seam: `src/launch/mise.ts`, `src/launch/resolve.ts`, `test/e2e/consumers.e2e.test.ts`,
       `docs/consumers.md`, `CHANGELOG.md`
     - model: sonnet (one variable on two spawns, settled by D83's probe, and an e2e beside the consumer cases)
-81. [ ] feat(doctor): read --pins and --static-only instead of refusing them, **done when:** `doctor --pins <mise.toml>` probes each tool the file pins through the `override` source, reports the version `mise where <id>@<version>` finds, names a version mise hasn't installed, and reads its pin rows and unpinned list the way a run does (R13.3); `doctor --static-only` reports each check a static run would skip, with its `static-only:` cause, and pre-flights every package manager's install as the run does (R13.4); neither flag exits 2 any longer, and `docs/contract.md` and `CHANGELOG.md` drop "doctor refuses the flag for now" ([D71 (consumer-calls)](#d71), [D80 (binary-deferred)](#d80))
+81. [x] feat(doctor): read --pins and --static-only instead of refusing them, **done when:** `doctor --pins <mise.toml>` probes each tool the file pins through the `override` source, reports the version `mise where <id>@<version>` finds, names a version mise hasn't installed, and reads its pin rows and unpinned list the way a run does (R13.3); `doctor --static-only` reports each check a static run would skip, with its `static-only:` cause, and pre-flights every package manager's install as the run does (R13.4); neither flag exits 2 any longer, and `docs/contract.md` and `CHANGELOG.md` drop "doctor refuses the flag for now" ([D71 (consumer-calls)](#d71), [D80 (binary-deferred)](#d80))
     - seam: `src/doctor.ts`, `src/cli.ts`, `docs/contract.md`
     - model: opus (doctor has to probe the copies a consumer run would use, through the same chain)
+85. [ ] fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them, **done when:** a check whose tool resolves through `go-mod-tool`, `rust-toolchain` or `uv-lock` gets a `doctor` row carrying that `pinSource`, with a status the run's launcher decides: `ok` where it would spawn, `missing` where it would refuse, its hint the refusal's remedy, never `unknown`, which stays for a source this checkride can't read; in a root with no `package.json`, the package-manager row is `n/a` and never required, as step 72 made the install row ([D84 (doctor-launcher-probes)](#d84)); each case has a unit test; with the dev `mise.toml`'s toolchains on `PATH`, `examples/go-module`'s `greeter:dead` row reports `go-mod-tool` and `ok`; `CHANGELOG.md` says so
+    - seam: `src/doctor.ts`, `src/__tests__/doctor.test.ts`, `CHANGELOG.md`
+    - model: sonnet (doctor already asks the launcher under `--static-only`; this asks it for three more sources, and adds one `n/a` row)
 
 ### Phase 14: close-out
 
@@ -1112,7 +1126,7 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
 *(Step 20 builds first, per [D51 (golden-placement)](#d51), and the rest follow in document
 order. `plumbbob order` maintains the line below; it isn't edited by hand.)*
 
-84, 81, 66, 67, 68, 73, 74
+85, 66, 67, 68, 73, 74
 
 ## Deferred to a later build
 

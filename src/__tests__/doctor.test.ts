@@ -813,6 +813,22 @@ describe('runDoctor in a root with no package.json', () => {
     expect(result.ok).toBe(true);
   });
 
+  test('reports the package-manager row n/a and not required, so a root with no package manager on PATH passes (D84)', async () => {
+    const std = sink();
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, stdout: std, json: false,
+      env: fakeEnv({ exists: (p) => !p.endsWith('package.json'), which: (cmd) => Promise.resolve(cmd === 'pnpm' ? null : `/usr/bin/${cmd}`) }),
+    });
+    expect(result.report.checks.find((c) => c.name === 'pnpm')).toMatchObject({ category: 'env', status: 'n/a', required: false, found: 'no package.json', hint: null });
+    expect(std.text()).toMatch(/· pnpm +no package\.json\n/);
+    expect(result.ok).toBe(true);
+  });
+
+  test('still requires the package manager in a package.json root', async () => {
+    const result = await doctorWhere(() => true);
+    expect(result.report.checks.find((c) => c.name === 'pnpm')).toMatchObject({ status: 'ok', required: true });
+  });
+
   test('still fails a package.json root that has no lockfile', async () => {
     const result = await doctorWhere((p) => !p.endsWith('pnpm-lock.yaml'));
     expect(result.report.checks.find((c) => c.name === 'install')).toMatchObject({ status: 'missing', required: true, expected: 'pnpm-lock.yaml present' });
@@ -1001,5 +1017,128 @@ describe('runDoctor under --static-only', () => {
     expect(report.checks.find((c) => c.name === 'install')).toMatchObject({ required: true, status: 'missing' });
     expect(report.checks.some((c) => c.skip !== undefined)).toBe(false);
     expect(exitCode).toBe(1);
+  });
+});
+
+/**
+ * A tool a language's own pin file declares, through `go-mod-tool`,
+ * `rust-toolchain` or `uv-lock`, is probed by asking the run's launcher
+ * (D84): `ok` where it would spawn, naming what it spawns, and `missing`
+ * where it would refuse, with the refusal as the hint. Never `unknown`,
+ * which stays for a source this checkride can't read.
+ */
+describe('runDoctor probes go-mod-tool, rust-toolchain and uv-lock tools through the launcher (D84)', () => {
+  let dir: string;
+  let bin: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-launcher-'));
+    bin = await mkdtemp(join(tmpdir(), 'checkride-doctor-path-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(bin, { recursive: true, force: true });
+  });
+
+  const put = async (path: string, content = ''): Promise<void> => {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), content);
+  };
+  /** Fake executables on the probe's PATH, so the launcher finds a toolchain without this machine's. */
+  const onPath = async (...names: string[]): Promise<void> => {
+    for (const name of names) await writeFile(join(bin, name), '#!/bin/sh\n', { mode: 0o755 });
+  };
+  /** The run's own launcher, searching the fake PATH alone, so a probe reads the fixture and nothing this machine has. */
+  const launchOnPath: DoctorEnv['launch'] = (slot, command, args, ctx) => launchCheck(slot, command, args, { ...ctx, env: { PATH: bin } });
+  const doctor = (over: Partial<DoctorEnv> = {}) => {
+    const std = sink();
+    return runDoctor({ cwd: dir, config: null, env: fakeEnv({ exists: existsSync, launch: launchOnPath, ...over }), stdout: std, json: false })
+      .then((result) => ({ ...result, text: std.text(), row: (slot: string) => result.report.checks.find((c) => c.slot === slot) }));
+  };
+
+  const goMod = 'module example.com/m\n\ngo 1.26.0\n\ntool golang.org/x/tools/cmd/deadcode\n\nrequire golang.org/x/tools v0.52.0 // indirect\n';
+
+  test('a go.mod tool is ok where the launcher would run it through go, and names the spawn', async () => {
+    await put('go.mod', goMod);
+    await onPath('go', 'gofmt');
+    const { row, text, exitCode } = await doctor();
+    expect(row('dead')).toMatchObject({
+      adapter: 'deadcode', pinSource: 'go-mod-tool', status: 'ok', required: true,
+      found: 'go tool deadcode', expected: 'declared in go.mod: golang.org/x/tools/cmd/deadcode', hint: null, detectedBy: 'go.mod: golang.org/x/tools/cmd/deadcode',
+    });
+    expect(text.split('\n').find((l) => l.includes(' dead '))).toMatch(/installed +go-mod-tool {2}\[detected: go\.mod: golang\.org\/x\/tools\/cmd\/deadcode\]$/);
+    expect(exitCode).toBe(0);
+  });
+
+  test('a go.mod tool is missing, with the refusal as its hint, where the launcher would refuse for want of go', async () => {
+    await put('go.mod', goMod);
+    const { row } = await doctor();
+    expect(row('dead')).toMatchObject({ pinSource: 'go-mod-tool', status: 'missing', required: true, found: null, expected: 'declared in go.mod: golang.org/x/tools/cmd/deadcode' });
+    expect(row('dead')?.hint).toBe(
+      'the `dead` slot needs `go` to run `deadcode`, which isn\'t on PATH. install Go 1.24 or later (https://go.dev/dl), or pin it with `mise use go@<version>`',
+    );
+  });
+
+  test('the launcher is asked as the run asks it, and a spawn through mise is named as one', async () => {
+    await put('go.mod', goMod);
+    const asked: { slot: string; cwd: string; repo: string | undefined; pins: readonly string[] | undefined; staticOnly: boolean | undefined; requirePins: boolean | undefined }[] = [];
+    const launch: DoctorEnv['launch'] = (slot, _command, _args, ctx) => {
+      asked.push({ slot, cwd: ctx.cwd, repo: ctx.repo, pins: ctx.pins, staticOnly: ctx.staticOnly, requirePins: ctx.requirePins });
+      return { command: 'mise', args: ['exec', '--', 'go', 'tool', 'deadcode', '-test', '{go-packages}'], pin: { source: 'go-mod-tool', version: 'v0.52.0' } };
+    };
+    const { row } = await doctor({ launch });
+    expect(row('dead')).toMatchObject({ pinSource: 'go-mod-tool', status: 'ok', found: 'mise exec -- go tool deadcode' });
+    expect(asked).toEqual([{ slot: 'dead', cwd: dir, repo: dir, pins: ['go-mod-tool', 'mise', 'path'], staticOnly: false, requirePins: false }]);
+  });
+
+  test('a rustup component a toolchain file pins is ok with rustup and cargo on PATH, and missing with the refusal without rustup', async () => {
+    await put('Cargo.toml', '[package]\nname = "m"\nversion = "0.1.0"\n');
+    await put('rust-toolchain.toml', '[toolchain]\nchannel = "1.99.0"\n');
+    await onPath('rustup', 'cargo');
+    const ok = await doctor();
+    expect(ok.row('lint')).toMatchObject({
+      adapter: 'clippy', pinSource: 'rust-toolchain', status: 'ok', found: 'cargo clippy', expected: 'declared in rust-toolchain.toml: clippy', hint: null,
+    });
+    await rm(join(bin, 'rustup'));
+    const missing = await doctor();
+    expect(missing.row('lint')).toMatchObject({ pinSource: 'rust-toolchain', status: 'missing', required: true, found: null });
+    expect(missing.row('lint')?.hint).toContain("`cargo-clippy` is pinned by a toolchain file, but `rustup` isn't on PATH.");
+    expect(missing.row('lint')?.hint).toContain('declared in: rust-toolchain.toml (channel 1.99.0)');
+    expect(missing.row('lint')?.hint).toContain('Install rustup (https://rustup.rs), or remove the file.');
+  });
+
+  test('a tool uv.lock locks is ok from the project environment, and missing naming uv sync before one exists', async () => {
+    await put('pyproject.toml', '[project]\nname = "m"\nversion = "0.1.0"\n');
+    await put('uv.lock', '[[package]]\nname = "ruff"\nversion = "0.14.0"\n');
+    const missing = await doctor();
+    expect(missing.row('lint')).toMatchObject({ adapter: 'ruff', pinSource: 'uv-lock', status: 'missing', required: true, found: null, expected: 'declared in uv.lock: ruff' });
+    expect(missing.row('lint')?.hint).toContain("the `lint` slot's `ruff` is locked in uv.lock, but the project environment it runs from doesn't exist yet.");
+    expect(missing.row('lint')?.hint).toContain('declared in: uv.lock (ruff 0.14.0)');
+    expect(missing.row('lint')?.hint).toContain('Sync the environment from the lock, then re-run: uv sync');
+    await put('.venv/bin/ruff', '#!/bin/sh\n');
+    const ok = await doctor();
+    expect(ok.row('lint')).toMatchObject({ pinSource: 'uv-lock', status: 'ok', found: '.venv/bin/ruff', expected: 'declared in uv.lock: ruff', hint: null });
+  });
+
+  test('no row of the three sources is ever unknown', async () => {
+    await put('go.mod', goMod);
+    await put('svc/Cargo.toml', '[package]\nname = "m"\nversion = "0.1.0"\n');
+    await put('svc/rust-toolchain.toml', '[toolchain]\nchannel = "stable"\n');
+    await put('py/pyproject.toml', '[project]\nname = "m"\nversion = "0.1.0"\n');
+    await put('py/uv.lock', '[[package]]\nname = "ruff"\nversion = "0.14.0"\n');
+    const std = sink();
+    const config: CheckrideConfig = {
+      targets: { greeter: { lang: 'go', root: '.' }, svc: { lang: 'rust', root: 'svc' }, py: { lang: 'python', root: 'py' } },
+      unclaimed: { ignore: ['svc', 'py'] },
+    };
+    const { report } = await runDoctor({ cwd: dir, config, env: fakeEnv({ exists: existsSync, launch: launchOnPath }), stdout: std, json: true });
+    const probed = report.checks.filter((c) => ['go-mod-tool', 'rust-toolchain', 'uv-lock'].includes(c.pinSource ?? ''));
+    expect(probed.map((c) => `${c.slot} ${c.pinSource} ${c.status}`).toSorted()).toEqual([
+      'greeter:dead go-mod-tool missing',
+      'py:format uv-lock missing',
+      'py:lint uv-lock missing',
+      'svc:format rust-toolchain missing',
+      'svc:lint rust-toolchain missing',
+    ]);
+    expect(report.checks.some((c) => c.status === 'unknown')).toBe(false);
   });
 });
