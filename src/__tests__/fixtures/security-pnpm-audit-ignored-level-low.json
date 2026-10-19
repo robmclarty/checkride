@@ -1,0 +1,39 @@
+{
+  "advisories": {
+    "1241206": {
+      "findings": [
+        {
+          "version": "0.16.47",
+          "paths": [
+            ".>markdownlint-cli2>markdownlint>micromark-extension-math>katex"
+          ],
+          "dev": true,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1241206,
+      "title": "KaTeX: Existing prototype pollution can bypass trust restrictions",
+      "module_name": "katex",
+      "vulnerable_versions": ">=0.11.0 <0.18.2",
+      "patched_versions": ">=0.18.2",
+      "severity": "low",
+      "cwe": "CWE-807",
+      "github_advisory_id": "GHSA-238p-pmpm-9mq7",
+      "url": "https://github.com/advisories/GHSA-238p-pmpm-9mq7"
+    }
+  },
+  "metadata": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 1,
+      "moderate": 0,
+      "high": 1,
+      "critical": 0
+    },
+    "dependencies": 0,
+    "devDependencies": 565,
+    "optionalDependencies": 94,
+    "totalDependencies": 565
+  }
+}

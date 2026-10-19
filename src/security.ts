@@ -5,9 +5,9 @@
  * (only table mode lets the level gate the exit code), so judging this slot by
  * exit code made it gate at zero advisories of any severity — not the level
  * the adapter's args declare. The evaluator here runs the audit with `--json`,
- * parses `metadata.vulnerabilities`, and fails only when advisories sit at or
- * above the threshold parsed from the args themselves, so a consumer override
- * of `--audit-level` keeps meaning what it says.
+ * counts the report's advisories by severity, and fails only when advisories
+ * sit at or above the threshold parsed from the args themselves, so a consumer
+ * override of `--audit-level` keeps meaning what it says.
  *
  * "Could not run" (registry unreachable, malformed output) is distinguished
  * from "ran; everything below the level": the former fails with the error
@@ -45,13 +45,38 @@ export function auditLevelFromArgs(args: readonly string[]): AuditLevel {
   return LEVELS.find((l) => l === value) ?? 'low';
 }
 
-/** Per-severity advisory counts out of `metadata.vulnerabilities`, absent keys as 0. */
+/**
+ * One count per entry of the report's `advisories` map, by its `severity`.
+ * pnpm leaves out of that map every advisory the repo's `auditConfig` ignores,
+ * while `metadata.vulnerabilities` still counts them (pnpm 11.28.5), so only
+ * the map lets an ignored advisory leave the gate. Null when the report has no
+ * map, or an entry carries no severity, so the caller falls back to the totals:
+ * wider, never narrower.
+ */
+function advisoryCounts(advisories: unknown): Record<string, number> | null {
+  if (!isRecord(advisories)) return null;
+  const counts: Record<string, number> = {};
+  for (const advisory of Object.values(advisories)) {
+    const severity = isRecord(advisory) ? advisory['severity'] : undefined;
+    if (typeof severity !== 'string') return null;
+    counts[severity] = (counts[severity] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/**
+ * Per-severity advisory counts, absent keys as 0: out of the `advisories` map
+ * where the report has one, else out of `metadata.vulnerabilities`. A report
+ * without `metadata.vulnerabilities` is no audit report at all, map or not.
+ */
 function severityCounts(value: unknown): Record<string, number> | null {
   if (!isRecord(value)) return null;
   const metadata = value['metadata'];
   if (!isRecord(metadata)) return null;
   const vulnerabilities = metadata['vulnerabilities'];
   if (!isRecord(vulnerabilities)) return null;
+  const fromMap = advisoryCounts(value['advisories']);
+  if (fromMap) return fromMap;
   const counts: Record<string, number> = {};
   for (const [severity, count] of Object.entries(vulnerabilities)) {
     counts[severity] = typeof count === 'number' ? count : 0;
@@ -127,7 +152,12 @@ export async function checkSecurity(opts: {
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   if (above.length === 0) {
-    const note = total > 0 ? `${total} advisor${total === 1 ? 'y' : 'ies'} below --audit-level=${level}` : 'no advisories';
+    // pnpm's map also drops advisories below `--audit-level`, so a zero here
+    // speaks only for the gated severities.
+    const note =
+      total > 0
+        ? `${total} advisor${total === 1 ? 'y' : 'ies'} below --audit-level=${level}`
+        : `no advisories at or above --audit-level=${level}`;
     return {
       ok: true,
       exit_code: 0,

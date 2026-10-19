@@ -725,6 +725,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An advisory a repo ignores no longer keeps `security` red.** The
+  built-in now counts each severity from the audit report's `advisories` map,
+  falling back to `metadata.vulnerabilities` only for a report without one. An
+  advisory listed in `pnpm-workspace.yaml`'s `auditConfig.ignoreGhsas` used
+  to stay in the gate: pnpm 11 drops it from the map and exits 0, but still
+  counts it in those totals, which the slot read. A clean slot's reason now
+  reads `no advisories at or above --audit-level=<level>`, since pnpm's map
+  also leaves out the advisories below the level. See `docs/tools.md`.
 - **`links` no longer reads the providers `terraform init` installs.** It
   walks the filesystem, not git, so in any Terraform repo where `init` had
   run, it read the README each provider package unpacks under `.terraform/`
@@ -1103,6 +1111,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Internal
 
+- The dev tree's braces 3.0.3, which markdownlint-cli2 globs through, now
+  carries micromatch/braces#88 as a pnpm patch, copied from fascicle, so a
+  brace pattern nested past 128 throws a `SyntaxError` instead of overflowing
+  the stack (GHSA-vfj7-8cjw-p6xm, high, which no braces release fixes).
+  `pnpm-workspace.yaml` ignores that advisory in `auditConfig.ignoreGhsas`,
+  since `pnpm audit` matches by version and can't see a patch, and its comment
+  says how to retire both. katex's low GHSA-238p-pmpm-9mq7 stays: it sits
+  below the slot's `--audit-level=high`, and its fix is outside
+  micromark-extension-math's range. `pnpm check --include security` is green.
+  AGENTS.md now counts three patched dependencies. Nothing here ships, since
+  checkride has no runtime dependencies.
 - The publish workflow installs every pack's e2e toolchain with
   `jdx/mise-action` and sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, as CI does, so
   a release can't publish with a pack's e2e cases skipped.

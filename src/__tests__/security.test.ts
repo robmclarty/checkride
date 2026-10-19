@@ -1,18 +1,38 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, test } from 'vitest';
 
 import type { CheckOutcome } from '../links.js';
 import type { AuditSpawn } from '../security.js';
 import { auditLevelFromArgs, checkSecurity } from '../security.js';
 
-/** A canned `pnpm audit --json` payload with the given per-severity counts. */
-function auditJson(counts: Partial<Record<'info' | 'low' | 'moderate' | 'high' | 'critical', number>>): string {
-  return JSON.stringify({
-    actions: [],
-    advisories: {},
-    metadata: {
-      vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, ...counts },
-    },
-  });
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
+
+type Counts = Partial<Record<'info' | 'low' | 'moderate' | 'high' | 'critical', number>>;
+
+/** The per-severity totals of a canned report, every severity present. */
+function totals(counts: Counts): Record<string, number> {
+  return { info: 0, low: 0, moderate: 0, high: 0, critical: 0, ...counts };
+}
+
+/** A canned `pnpm audit --json` payload: one `advisories` entry per count, and the totals beside them. */
+function auditJson(counts: Counts): string {
+  const entries = Object.entries(counts).flatMap(([severity, n]) => Array.from({ length: n }, () => severity));
+  const advisories = Object.fromEntries(entries.map((severity, i) => [String(1000 + i), { id: 1000 + i, severity }]));
+  return JSON.stringify({ actions: [], advisories, metadata: { vulnerabilities: totals(counts) } });
+}
+
+/** A canned payload with the totals alone, the shape of a report that carries no `advisories` map. */
+function totalsOnly(counts: Counts): string {
+  return JSON.stringify({ metadata: { vulnerabilities: totals(counts) } });
+}
+
+/** A spawner that hands back a report captured from pnpm, with the exit code pnpm gave it. */
+function capturedSpawn(fixture: string, exitCode: number): AuditSpawn {
+  return () => Promise.resolve({ ok: exitCode === 0, exit_code: exitCode, stdout: read(fixture), stderr: '' });
 }
 
 /**
@@ -51,6 +71,10 @@ const endpointTimeoutSpawn: AuditSpawn = () =>
 /** Parseable JSON that is not an audit payload at all. */
 const weirdSpawn: AuditSpawn = () =>
   Promise.resolve({ ok: true, exit_code: 0, stdout: '{"unexpected": true}', stderr: '' });
+
+/** An empty `advisories` map with no totals beside it, under a clean exit. */
+const mapOnlySpawn: AuditSpawn = () =>
+  Promise.resolve({ ok: true, exit_code: 0, stdout: '{"advisories": {}}', stderr: '' });
 
 /** Run the security check over a canned audit `payload`, recording the argv it spawned. */
 function runAudit(payload: string, args: readonly string[] = DEFAULT_ARGS, record?: string[][]): Promise<CheckOutcome> {
@@ -137,5 +161,60 @@ describe('checkSecurity', () => {
     const preamble: AuditSpawn = () => Promise.resolve({ ok: false, exit_code: 1, stdout: payload, stderr: '' });
     const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: preamble });
     expect(outcome.ok).toBe(true); // 1 low sits below --audit-level=high
+  });
+});
+
+describe('checkSecurity counts from the advisories map', () => {
+  test('a report with no advisories map falls back to metadata.vulnerabilities', async () => {
+    expect((await runAudit(totalsOnly({ high: 1 }))).ok).toBe(false);
+    const below = await runAudit(totalsOnly({ moderate: 2 }));
+    expect(below.ok).toBe(true);
+    expect(below.stderr).toContain('2 advisories below --audit-level=high');
+  });
+
+  test('an entry without a severity falls back to the totals, so the gate widens rather than narrows', async () => {
+    const payload = JSON.stringify({ advisories: { 1: { id: 1 } }, metadata: { vulnerabilities: totals({ high: 1 }) } });
+    const outcome = await runAudit(payload);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.stderr).toContain('1 high');
+  });
+
+  test('an advisories map without metadata.vulnerabilities is still no audit report', async () => {
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: mapOnlySpawn });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.exit_code).toBe(-1);
+  });
+
+  // The three reports below were captured from pnpm 11.28.5 in this repo on
+  // 2026-10-19, `--audit-level=high` unless named, with braces 3.0.3
+  // (GHSA-vfj7-8cjw-p6xm, high) and katex 0.16.47 (GHSA-238p-pmpm-9mq7, low)
+  // in the dev tree.
+
+  test('an advisory the repo ignores leaves the gate, though the totals still count it', async () => {
+    // braces ignored in `auditConfig.ignoreGhsas`: pnpm drops it from the map
+    // and exits 0, while the totals keep `high: 1`, the count that held the
+    // slot red before the gate read the map.
+    const fixture = 'security-pnpm-audit-ignored.json';
+    expect(JSON.parse(read(fixture))).toMatchObject({ advisories: {}, metadata: { vulnerabilities: { high: 1 } } });
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn: capturedSpawn(fixture, 0) });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.exit_code).toBe(0);
+    expect(outcome.stderr).toBe('check-security: no advisories at or above --audit-level=high; gate clean\n');
+    expect(outcome.stdout).toBe(read(fixture));
+  });
+
+  test('the same advisory, not ignored, still fails the gate', async () => {
+    const spawn = capturedSpawn('security-pnpm-audit.json', 1);
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: DEFAULT_ARGS, spawn });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.exit_code).toBe(1);
+    expect(outcome.stderr).toBe('check-security: advisories at or above --audit-level=high: 1 high\n');
+  });
+
+  test('at --audit-level=low the map keeps katex and still leaves the ignored braces out', async () => {
+    const spawn = capturedSpawn('security-pnpm-audit-ignored-level-low.json', 1);
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: ['audit', '--json'], spawn });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.stderr).toBe('check-security: advisories at or above --audit-level=low: 1 low\n');
   });
 });

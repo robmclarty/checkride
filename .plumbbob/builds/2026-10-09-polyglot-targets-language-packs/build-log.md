@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: polyglot targets, language packs, and what a review agent needs
 
-**Current step:** 74 — chore: retire the drafts and run the opt-in audit
+**Current step:** 86 — fix(security): patch braces and keep the advisories a repo ignores out of the gate
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -101,7 +101,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 81. feat(doctor): read --pins and --static-only instead of refusing them
 - ☑ 85. fix(doctor): probe go-mod-tool, rust-toolchain and uv-lock tools where the launcher finds them
 - ☑ 73. docs: document packs and targets and fold in the contract
-- ☐ 74. chore: retire the drafts and run the opt-in audit
+- ☑ 74. chore: retire the drafts and run the opt-in audit
+- ☐ 86. fix(security): patch braces and keep the advisories a repo ignores out of the gate
 
 ## Park list
 
@@ -191,8 +192,9 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] a --pins run records the file's version as tool_version (shellcheck 0.11) while doctor --pins reports the release mise where resolves it to (0.11.0); should the run record the resolved release too?
 - [x] examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green; decide whether the example gets a lockfile or the install row reads such a package.json as n/a
 - [x] doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion (go.mod's module version, an exact rust channel, the locked PyPI version), as override rows do; docs/contract.md documents toolVersion as override-only today
-- [ ] links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes (a false red for a Go repo that commits vendor/); a behavior change with a test and CHANGELOG line, so it wants a step of its own rather than step 73's docs pass
-- [ ] pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release, reached only through the dev dependency markdownlint-cli2 0.23.3 (globby, micromatch); a low, GHSA-238p-pmpm-9mq7 katex <0.18.2 through markdownlint, has a fix a pnpm override could take. Neither ships, since checkride has no runtime dependencies
+- [x] links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes (a false red for a Go repo that commits vendor/); a behavior change with a test and CHANGELOG line, so it wants a step of its own rather than step 73's docs pass
+- [x] pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release, reached only through the dev dependency markdownlint-cli2 0.23.3 (globby, micromatch); a low, GHSA-238p-pmpm-9mq7 katex <0.18.2 through markdownlint, has a fix a pnpm override could take. Neither ships, since checkride has no runtime dependencies
+- [ ] fascicle's pnpm-workspace.yaml says its security slot stays red on the ignored braces advisory until pnpm 12.4; once fascicle takes the checkride release carrying step 86 that comment is stale, and its audit.ignore could move to auditConfig.ignoreGhsas, the key pnpm audit --ignore writes
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -314,6 +316,9 @@ Harvest results this boundary:
 
 - After step 85: "examples/go-module doctor exits 1 on its install row (a package.json holding only a link: devDep, no lockfile) though every check row is green..." → **tangent**, killed: the example's README says `pnpm install` first, five examples share the shape (`package.json`, no lockfile committed), and a `package.json` root nobody has installed isn't ready, which is what the install row says; reading a `link:`-only `package.json` as `n/a` would special-case doctor around the example's layout rather than the user's.
 - After step 85: "doctor rows for go-mod-tool, rust-toolchain and uv-lock could carry the launch's pin version as toolVersion..." → **tangent**, deferred to a later build: the version is already in the launcher's `Spawn.pin.version`, a file read R6.3 allows, but `docs/contract.md` documents `toolVersion` as override-only, so widening it is a C1 (additive-contract) change with its doc and contract test, not a ride-along for step 73's docs pass, and the run's `summary.json` already records `tool_version` for the same checks.
+
+- After step 74: "links walks the filesystem: add vendor, .venv and target to src/links.ts's built-in excludes..." → **tangent**, deferred to a later build: a false red, never a false green, every planned step has landed, and the fix is a behavior change with its own test and `CHANGELOG.md` line, so it takes a step of its own; a repo that commits `vendor/` meanwhile names it in the `links` check's `exclude` option.
+- After step 74: "pnpm audit (2026-10-18) is red on GHSA-vfj7-8cjw-p6xm, braces <=3.0.3 with no patched release..." → **blocker**, handled now (the maintainer's call, "patch it like we did in other repos"): folded into `intent.md` as D86 (braces-patched) and as step 86 in a new Phase 15, built with `/plumbbob:build 86-86`. It copies fascicle's braces patch (micromatch/braces#88) and audit ignore, and, since pnpm 11.28.5 still counts an ignored advisory in `metadata.vulnerabilities` (probed: with the GHSA ignored, `advisories` drops braces and the totals keep `high: 1`), has the `security` built-in gate on the report's `advisories` so the slot goes green. katex's low stays, below the gate, since its fix crosses micromark-extension-math's `^0.16.0` range.
 
 ## Log
 
@@ -3102,3 +3107,4 @@ folder, so it rides the branch into the PR.)*
   Under the dev `mise.toml` (`mise exec`, go 1.27.2 on `PATH`), `node dist/cli.js doctor --json` in `examples/go-module` gives `greeter:dead` `pinSource: go-mod-tool`, `status: ok`, `found: go tool deadcode`. That doctor's `ok` is still `false`, on the install row: the example has a `package.json` (a `link:../..` devDep and a `check` script) and no lockfile, so D84's no-`package.json` case doesn't apply. Parked, with a second park for carrying the launch's pin version as `toolVersion` on these rows, which `docs/contract.md` documents as override-only today.
 
 - 2026-10-19 — step 73 checkpointed · f4f91b6c2 — docs: document packs and targets and fold in the contract (1 drift, 18m)
+- 2026-10-19 — step 74 checkpointed · ea333e474 — chore: retire the drafts and run the opt-in audit (1 drift, 11m)

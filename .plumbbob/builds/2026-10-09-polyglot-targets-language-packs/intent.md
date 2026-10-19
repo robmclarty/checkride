@@ -703,6 +703,17 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
   would be the one slot that validates in-process rather than spawning a pinned tool, while
   R14.1's plan to bundle the three into the binary lets the later build settle both at once (the
   maintainer's call at step 85's boundary, from [Q12 (schema-keep)](#q12)).
+- <a id="d86"></a>**D86 (braces-patched)**: the dev tree's braces 3.0.3 carries
+  micromatch/braces#88 as a pnpm patch, copied from fascicle, which refuses brace nesting deeper
+  than 128 and has the walkers check depth before recursing, and the workspace's audit config
+  ignores GHSA-vfj7-8cjw-p6xm. The `security` built-in counts each severity from the report's
+  `advisories`, falling back to `metadata.vulnerabilities` where the report has no map, so an
+  advisory the repo ignores leaves the gate. katex's low GHSA-238p-pmpm-9mq7 stays, noted beside
+  the patch, *because* no braces release fixes it and its maintainer disputes the CVE, `pnpm
+  audit` matches by version and can't see a patch, pnpm 11.28.5 still counts an ignored advisory
+  in `metadata.vulnerabilities` (probed 2026-10-18), so the patch and the ignore alone leave the
+  slot red, and katex sits below the gate's `--audit-level=high` while its fix, 0.18.2, crosses
+  micromark-extension-math's `^0.16.0` range (the maintainer's call at step 74's harvest).
 
 ## Constraints
 
@@ -766,6 +777,7 @@ baseline subtract (gating keys only) ─► <out>/summary.json (+ digest.md) ─
 | 12. The schema slot | none | nothing in this build: steps 66 to 68, `schema` and its bundled schemas (draft M5), wait for a later build ([D85 (schema-deferred)](#d85)) |
 | 13. The mise route and doctor | 72, 83, 84, 81, 85 | a scaffolded mise route that installs and is tested, an untrusted `mise.toml` named as one, `--pins` run outside the repo's mise config, doctor's last two refusals gone, and doctor probing every pin source a pack resolves through; the binary, steps 69 to 71, waits for a later build ([D80 (binary-deferred)](#d80)) |
 | 14. Close-out | 73 to 74 | the pack and target docs, retiring the drafts, running the opt-in audit |
+| 15. The audit | 86 | a patched braces, and a `security` slot that leaves the advisories a repo ignores out of its gate ([D86 (braces-patched)](#d86)) |
 
 Every phase ends at a release point, and its last step runs the whole `pnpm test:e2e`
 ([D52 (e2e-cadence)](#d52)). Cutting a release is the maintainer's `/version` call, never a step.
@@ -1121,9 +1133,17 @@ Steps 69 to 71, the binary, moved under `## Deferred to a later build`
     - seam: `docs/packs.md`, `docs/targets.md`, `docs/contract.md`, `README.md`,
       `test/docs-currency.test.ts`
     - model: sonnet
-74. [ ] chore: retire the drafts and run the opt-in audit, **done when:** the slot provenance draft's status line points here as superseded; this spec's status reads implemented, apart from the binary and the `schema` slot a later build takes up ([D80 (binary-deferred)](#d80), [D85 (schema-deferred)](#d85)); `pnpm check --include security` has run and the build report records its result; the build report lists each request in #6 and #7 beside the step that shipped it, ready to paste as a closing comment; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
+74. [x] chore: retire the drafts and run the opt-in audit, **done when:** the slot provenance draft's status line points here as superseded; this spec's status reads implemented, apart from the binary and the `schema` slot a later build takes up ([D80 (binary-deferred)](#d80), [D85 (schema-deferred)](#d85)); `pnpm check --include security` has run and the build report records its result; the build report lists each request in #6 and #7 beside the step that shipped it, ready to paste as a closing comment; the whole `pnpm test:e2e` is green ([D52 (e2e-cadence)](#d52))
     - seam: `docs/spec-slot-provenance.md`, `docs/spec-polyglot.md`
     - model: sonnet
+
+### Phase 15: the audit
+
+86. [ ] fix(security): patch braces and keep the advisories a repo ignores out of the gate, **done when:** `patches/braces@3.0.3.patch` carries micromatch/braces#88 and `pnpm-workspace.yaml`'s `patchedDependencies` names it, with a comment that gives the advisory, why no override can fix it, and how to retire it, and notes why katex's low advisory stays; with the patch installed, `braces.expand` of a pattern nested 5,000 deep throws a `SyntaxError`, not a `RangeError`; the workspace's audit config ignores GHSA-vfj7-8cjw-p6xm; the `security` built-in counts each severity from the report's `advisories`, falling back to `metadata.vulnerabilities` where the report has no map, held by unit tests on a report captured from pnpm 11.28.5 with an ignored advisory ([C9 (real-fixtures)](#c9)); AGENTS.md's patched dependencies count three; `docs/tools.md` and `CHANGELOG.md` say so; `pnpm check --include security` and the whole `pnpm test:e2e` are green ([D86 (braces-patched)](#d86), [D52 (e2e-cadence)](#d52))
+    - seam: `src/security.ts`, `src/__tests__/security.test.ts`, `src/__tests__/fixtures/`,
+      `pnpm-workspace.yaml`, `patches/braces@3.0.3.patch`, `AGENTS.md`, `docs/tools.md`,
+      `CHANGELOG.md`
+    - model: sonnet (fascicle's patch is copied as is, and the gate change reads a map the report already carries)
 
 <!-- markdownlint-enable MD029 -->
 
@@ -1209,6 +1229,7 @@ five ranges:
 | `/plumbbob:build 48-57` | 10 | Phase 9 | the review agent's findings and consumer mode are whole, and step 57's e2e parses every finding through step 49's new surface; stop at 52 instead to release findings on their own |
 | `/plumbbob:build 58-65` | 8 | Phase 11 | [Q1 (scope-cut)](#q1)'s cut call is due |
 | `/plumbbob:build 73-74` | 2 | the plan's end | nothing; [Q12 (schema-keep)](#q12) cut Phase 12 as [D85 (schema-deferred)](#d85), so the planned `66-74` became `73-74` |
+| `/plumbbob:build 86-86` | 1 | Phase 15 | nothing; step 74's harvest added it as [D86 (braces-patched)](#d86), and `pnpm check --include security` going green is its review |
 
 What each range should watch for:
 
@@ -1227,6 +1248,10 @@ What each range should watch for:
   [D80 (binary-deferred)](#d80) and `schema` by [D85 (schema-deferred)](#d85); their notes moved
   with them under `## Deferred to a later build`. Step 74's audit needs the network, and it
   records whatever the day's advisory feed says.
+- **86.** The audit and the patched install need the network. The global pnpm config refuses
+  releases under 48 hours old, which a patch of braces 3.0.3, from 2024, doesn't touch. If pnpm
+  writes the ignore under another key than fascicle's `audit.ignore`, keep the one pnpm 11.28.5
+  reads, which `pnpm audit --ignore` writes as `auditConfig.ignoreGhsas`.
 
 **Leans to settle before the ranges.** Each one is a call parked for a step in a range that
 would otherwise stop there to ask. Once approved, each folds into Decisions as D67 onward and

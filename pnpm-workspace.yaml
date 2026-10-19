@@ -78,6 +78,38 @@ overrides:
 # bump, grep the new dist/index.cjs for it. If it's still there, re-create the
 # patch with the new version's links, each asset's browser_download_url in
 #   gh api repos/vale-cli/vale/releases/tags/v<version>
+#
+# braces 3.0.3 limits a pattern's length but not its nesting, and its
+# recursive walkers overflow the stack on a deeply nested one: on Node 24,
+# `braces.expand` of '{' x 5000 + '}' x 5000, which sits inside the 10,000
+# character cap, throws RangeError (GHSA-vfj7-8cjw-p6xm, high). No override
+# can fix it: 3.0.3 is the latest release, every version is in the advisory's
+# range, and upstream has a dozen open pull requests and no merge since
+# January 2025. The patch is micromatch/braces#88, copied from fascicle: the
+# parser refuses nesting deeper than 128 and the walkers check depth before
+# recursing, so such a pattern throws SyntaxError instead. braces reaches the
+# tree only through markdownlint-cli2's globbing (globby, micromatch), which
+# reads patterns from this repo, and nothing here ships.
+#
+# Retire it when braces ships a fix: delete the entry, the patch file, and the
+# `auditConfig` ignore below, re-install, and run
+# `pnpm check --include security`. If the slot is green, the release fixed it.
+#
+# katex's low advisory (GHSA-238p-pmpm-9mq7, katex <0.18.2, via markdownlint's
+# micromark-extension-math) stays. It sits below the `security` slot's
+# `--audit-level=high`, so it never gates, and its fix, 0.18.2, is outside
+# micromark-extension-math's `^0.16.0` range, so an override would hand
+# markdownlint a minor it never declared.
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch
   '@vvago/vale@3.24.0': patches/@vvago__vale@3.24.0.patch
+  braces@3.0.3: patches/braces@3.0.3.patch
+
+# pnpm audit matches advisories by version, so it can't see a patch. This
+# tells it the braces advisory is handled above. pnpm 11 drops an ignored
+# advisory from the report's `advisories` but still counts it in
+# `metadata.vulnerabilities`, which is why the `security` built-in counts from
+# `advisories` (src/security.ts). This is the key `pnpm audit --ignore` writes.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-vfj7-8cjw-p6xm # braces 3.0.3, patched above

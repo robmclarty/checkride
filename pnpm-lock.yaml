@@ -11,6 +11,7 @@ overrides:
 patchedDependencies:
   '@stryker-mutator/vitest-runner@10.0.0': 890316bd6edb446e7b450b23c08fe314a14cbba08ae7adedb1ce5614d07913e0
   '@vvago/vale@3.24.0': 678870ad574085490e38f9e31bf857036b4c36839972df2369f16300f08090bc
+  braces@3.0.3: 71ea5f0bf966dab515b803ce9dfc672ab704835e1ac17e1e176dc02e5d0c1581
 
 importers:
 
@@ -3677,7 +3678,7 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
-  braces@3.0.3:
+  braces@3.0.3(patch_hash=71ea5f0bf966dab515b803ce9dfc672ab704835e1ac17e1e176dc02e5d0c1581):
     dependencies:
       fill-range: 7.1.1
 
@@ -4470,7 +4471,7 @@ snapshots:
 
   micromatch@4.0.8:
     dependencies:
-      braces: 3.0.3
+      braces: 3.0.3(patch_hash=71ea5f0bf966dab515b803ce9dfc672ab704835e1ac17e1e176dc02e5d0c1581)
       picomatch: 2.3.2
 
   minimalistic-assert@1.0.1: {}

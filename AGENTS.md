@@ -99,13 +99,17 @@ same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 
 `pnpm-workspace.yaml` carries `patchedDependencies`: fixes upstream hasn't
 shipped yet, with the diffs under `patches/`. Each entry's comment names its
-issue and how to retire it. Today there are two. One fixes
+issue and how to retire it. Today there are three. One fixes
 `@stryker-mutator/vitest-runner` for vitest 5 (stryker-js #6210), and
 `test/e2e/mutation-canary.e2e.test.ts` fails if mutation testing stops killing
-mutants. The other points `@vvago/vale`'s postinstall at the release's
+mutants. Another points `@vvago/vale`'s postinstall at the release's
 github.com download links instead of GitHub's API, whose anonymous limit (60
 requests an hour per IP, shared on hosted CI runners) fails the install with a
-403.
+403. The third carries micromatch/braces#88 into braces 3.0.3, which
+markdownlint-cli2 globs through, so a brace pattern nested past 128 throws a
+`SyntaxError` instead of overflowing the stack (GHSA-vfj7-8cjw-p6xm, which no
+braces release fixes). `pnpm audit` matches by version and can't see a patch,
+so `auditConfig.ignoreGhsas` ignores that advisory beside it.
 
 - **When a patched package moves,** `pnpm install` stops with
   `ERR_PNPM_UNUSED_PATCH`. Don't silence it: delete the entry and its patch
@@ -116,6 +120,9 @@ requests an hour per IP, shared on hosted CI runners) fails the install with a
   the new version's `dist/index.cjs` for `api.github.com`. If it's gone, the
   patch is retired. If not, re-create the patch with the new version's links;
   its `pnpm-workspace.yaml` comment says where to find them.
+- **When braces ships a fix,** delete its entry, the patch file and the
+  `auditConfig` ignore, re-install, and run `pnpm check --include security`.
+  If the slot is green, the release fixed it.
 - **When vitest, stryker or TypeScript moves,** run `pnpm test:e2e` before
   trusting the result. A mutation run that kills nothing passes every other
   check.

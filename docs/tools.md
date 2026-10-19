@@ -102,13 +102,30 @@ the other: its built-in speaks pnpm's and npm's `pack --dry-run --json`, and
 reports itself unavailable under yarn or bun the same way). checkride
 evaluates the audit JSON itself and gates at the `--audit-level` the adapter's
 args declare — pnpm's own JSON-mode exit code fails on *any* advisory
-regardless of level, so it is never trusted as the verdict. The audit is a
+regardless of level, so it is never trusted as the verdict. It counts each
+severity from the report's `advisories` map, and falls back to the
+`metadata.vulnerabilities` totals only for a report without one. So an
+advisory the repo ignores in `pnpm-workspace.yaml`'s
+`auditConfig.ignoreGhsas` leaves the gate: pnpm 11 drops it from the map but
+still counts it in the totals. The audit is a
 network call, so its wait is bounded: the adapter passes `--fetch-retries=1
 --fetch-timeout=15000`, and an advisory endpoint that never answers turns the
 slot red in about 40 seconds rather than pnpm's default four minutes. That red
 is reported as `exit_code: -1` — could not verify, not a finding — with pnpm's
 own message on the slot's reason line and in `.check/security.stderr.txt`.
 Every other slot runs identically regardless of manager.
+
+A repo whose `docs` slot runs markdownlint-cli2 has braces 3.0.3 in its tree,
+through globby and micromatch, and braces has a high advisory no release fixes
+(GHSA-vfj7-8cjw-p6xm): a pattern nested about 5,000 deep, inside its length
+cap, overflows the stack. Since every braces version is in the advisory's
+range, no override clears it. checkride carries the upstream fix,
+micromatch/braces#88, as a pnpm patch that refuses nesting deeper than 128,
+[`patches/braces@3.0.3.patch`](../patches/braces@3.0.3.patch), and ignores the
+advisory in `auditConfig.ignoreGhsas`, since `pnpm audit` matches by version
+and can't see a patch. A project can carry the same pair (copy the file, its
+`patchedDependencies` entry, and the `auditConfig` block in
+`pnpm-workspace.yaml`).
 
 ### Launcher quirks checkride works around
 
