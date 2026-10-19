@@ -41,8 +41,10 @@ tool detected). Exit `0` means you are ready to run.
 ## Add checkride to a project
 
 `init` auto-detects whether the current directory is a new or existing project
-by looking for a `package.json`, or a `go.mod`, `go.work` or `Cargo.toml`,
-which it adopts through the go or rust pack.
+by looking for a root marker: a `package.json`, or another pack's, a `go.mod`
+or `go.work`, a `Cargo.toml`, a `pyproject.toml`, `setup.cfg` or `setup.py`,
+or a `.terraform.lock.hcl` or `.tf` file, which it adopts through that pack. A
+`tsconfig.json` alone doesn't make a project existing.
 
 ### An existing repository
 
@@ -269,7 +271,10 @@ Every run writes machine-readable output to `.check/`. To debug a failure:
    `ok` is `false`.
 2. Read that slot's raw output — **`.check/<slot>.json`** (for example
    `.check/lint.json`), or `.check/<slot>.stdout.txt` when the tool's output is
-   not JSON.
+   not JSON. A check refused before it ran, for a tool that isn't installed
+   or a setup step that hasn't run, says why in `.check/<slot>.stderr.txt`,
+   and in a repo with targets a target's check writes under
+   `.check/<target>/` instead, as `.check/web/lint.json`.
 3. Fix the root cause, not the symptom.
 4. Re-run `pnpm check`.
 
@@ -352,9 +357,11 @@ select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
   `.cursor/hooks/checkride-gate.sh`); checkride overwrites that script freely
   on refresh, so put customization in a sibling script, never inside it. The
   script is a thin adapter over [`checkride gate`](#the-gate-command), which
-  runs your **detected package manager**'s `run check` with `--strict
-  --digest` and on red points the agent at `.check/digest.md` (the capped
-  failure excerpt) when it exists, `.check/summary.json` otherwise.
+  runs the check the way your repo does — your **detected package manager**'s
+  `run check` where there's a `package.json`, or `mise exec -- checkride` in a
+  repo whose `mise.toml` pins checkride — with `--strict --digest`, and on red
+  points the agent at `.check/digest.md` (the capped failure excerpt) when it
+  exists, `.check/summary.json` otherwise.
 - **`dirty`** — touches an edit marker, `.check/.dirty`. The gate exits 0
   immediately when the marker is absent, so pure-conversation turns don't pay
   for a pipeline run; a green gate clears it. (File writes made through a shell
@@ -382,8 +389,12 @@ Under Claude Code, one generated file:
 .claude/hooks/checkride-gate.sh
 ```
 
-`protect` is a pair of `permissions.deny` rules and `dirty` is an inline
-command, so neither needs a script. That is not only tidier — Claude Code
+In a repo without a `package.json`, that script runs `mise exec --
+checkride` through the `mise.toml` that pins checkride, which
+`init --lang go` or `--lang rust` writes, so mise has to be on the `PATH`
+your harness gives its hooks; nothing else lands. `protect` is a pair of
+`permissions.deny` rules and `dirty` is an inline command, so neither needs a
+script. That is not only tidier — Claude Code
 evaluates a deny rule regardless of what a `PreToolUse` hook returns, so
 `protect` is now enforced *below* the layer it used to live in, and costs
 nothing per tool call instead of spawning Node on every edit:
