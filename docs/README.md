@@ -17,29 +17,37 @@ Start here:
   `package.json`.
 - **[Cheat sheet](./cheatsheet.md)** — one-screen reference for commands, flags,
   npm-script aliases, and the `.check/` output files.
-- **[Tools and installation](./tools.md)** — what each pipeline slot runs, and
-  how to install a missing tool (fallow, ast-grep, oxlint, …) when `doctor`
-  reports one as not installed.
+- **[Tools and installation](./tools.md)** — what each slot of the ts and repo
+  packs runs, and how to install a missing tool (fallow, ast-grep, oxlint, …)
+  when `doctor` reports one as not installed. The other packs' tools are in
+  Packs and pins below.
 - **[Targets](./targets.md)** — checking a repo with more than one language,
   or one language in more than one place: declaring targets, what each runs,
   the bash pack's file lists, and `unclaimed`.
-- **[Packs and pins](./packs.md)** — how a check's tool resolves to the copy
-  that runs: each pack's pin chain, the `js-lockfile`, `mise` and `path`
-  sources, `requirePins`, and the spawn environment that keeps a check from
-  downloading anything. Read this to know which copy of a tool produced a
-  finding.
+- **[Packs and pins](./packs.md)** — each pack's slots and tools, and how a
+  check's tool resolves to the copy that runs: each pack's pin chain, its pin
+  sources (`js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`,
+  `tf-version`, `mise` and `path`), `requirePins`, and the spawn environment
+  that keeps a check from downloading anything. Read this to know which copy
+  of a tool produced a finding.
+- **[A polyglot repo, end to end](./polyglot.md)** — a worked example: a
+  TypeScript app, a Go API, OpenTofu and shell scripts in one repo, taken from
+  install through `init`'s proposal, the targets it keeps, pins, the daily
+  loop, existing debt and CI, with the real output at each step. Read this
+  before adopting checkride in a repo with more than one language.
 - **[Running checkride from outside a repo](./consumers.md)** — for a
   reviewer, CI job or agent checking a checkout it didn't write: the
-  `--defaults`, `--pins`, `--discover` and `--static-only` flags, the
-  pre-sandbox and sandbox passes, and reading findings through
-  `checkride/findings`. None of it is a sandbox.
+  `--defaults`, `--pins`, `--discover`, `--static-only`, `--out` and
+  `--config` flags, the pre-sandbox and sandbox passes, and reading findings
+  through `checkride/findings`. None of it is a sandbox.
 - **[Deep modules](./deep-modules.md)** — the module-boundary convention the
   `struct` slot enforces: the Ousterhout idea behind it, how it's held in place,
   and how to swap it for a different convention or language. Read this to
   understand the "structured boundaries" half of checkride's thesis.
-- **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (and
-  npm/yarn/bun variants), why gates should pass `--strict`, and the baseline
-  note for legacy repos.
+- **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (with
+  npm/yarn/bun variants, and a mise one for a repo without Node), why gates
+  should pass `--strict`, writing artifacts elsewhere with `--out`, and the
+  baseline note for legacy repos.
 - **[Running a fleet with shared presets](./presets.md)** — operating checkride
   across many repos: one versioned preset package, rolling a rule out as a
   release instead of a wave of pull requests, and keeping the shared config safe
@@ -74,6 +82,7 @@ Deeper background lives in the repository root:
 
 ## The one rule
 
-`pnpm check` is the single source of truth for "done". Exit `0` means the work
-is complete; any other exit code means it is not. Everything else in these docs
-is detail around that one rule.
+`pnpm check` (or `mise exec -- checkride`, in a repo without Node) is the
+single source of truth for "done". Exit `0` means the work is complete; any
+other exit code means it is not. Everything else in these docs is detail
+around that one rule.

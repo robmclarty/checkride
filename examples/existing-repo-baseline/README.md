@@ -76,7 +76,7 @@ pnpm check
 Exit 1, and the report separates the two populations:
 
 ```text
-✘ lint    Oxlint with tsgolint type-aware rules
+✘ lint    Oxlint with tsgolint type-aware rules  [detected: .oxlintrc.json]
      3 baselined (grandfathered)
      1 new, not in baseline:
        src/new-feature.ts:eslint(no-unused-vars):Variable 'pendingRewrite' is declared ...

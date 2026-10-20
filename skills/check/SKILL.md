@@ -13,10 +13,10 @@ else" — it turns a red gate into **one named root cause** plus an explicit lis
 of what it is deliberately not reading yet.
 
 It replaces reading `.check/summary.json` by hand. That habit is wrong in two
-directions at once: it is unbounded (`mutation.json` runs to 2.3 MB in
-checkride's own repo, `test.json` to 650 KB, and opening one spends the context
+directions at once: it is unbounded (`mutation.json` runs past 12 MB in
+checkride's own repo, `test.json` to nearly 3 MB, and opening one spends the context
 you need for the fix), and it is credulous (every run overwrites `summary.json`,
-so an `ok: true` on disk may describe three of seventeen slots from fourteen
+so an `ok: true` on disk may describe three of twenty-one slots from fourteen
 minutes ago).
 
 ## 1. Run the reader
@@ -209,7 +209,7 @@ size. Open the one belonging to your chosen root cause, and nothing else.
   labelled stale, it belongs to an earlier run; do not read it as this one's.
 - Prefer the file the report chose. When a slot has both a `.json` and a
   `.stdout.txt`, the reader already picked the small one (`test.stdout.txt` is
-  6 KB against `test.json`'s 650 KB) and the `(+1)` marks the one it passed over.
+  21 KB against `test.json`'s nearly 3 MB) and the `(+1)` marks the one it passed over.
 - **If the chosen file gives you a count but not a location, open the `(+1)`.**
   The reader prefers stdout because checkride's own stream discipline puts machine
   output there and progress on stderr — but not every tool obeys it.

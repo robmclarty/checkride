@@ -154,8 +154,10 @@ the file as a side effect.
 A ts target checks a TypeScript or JavaScript project from the directory that
 holds its `package.json` or `tsconfig.json`, and a repo without targets whose
 root holds either is one ts project at its root. Every tool runs through the
-project's package manager, so the Runs column reads as `pnpm exec <tool>` under
-pnpm, `npx --no-install <tool>` under npm, and so on
+project's package manager, the one nearest the check's directory: the first
+lockfile or `packageManager` field from there up to the repo root, else pnpm.
+So the Runs column reads as `pnpm exec <tool>` under pnpm,
+`npx --no-install <tool>` under npm, and so on
 ([Tools § Package managers](./tools.md#package-managers)).
 
 | Slot | Adapter | Runs | Detected by | Writes |
@@ -391,7 +393,7 @@ holds its `Cargo.toml`:
 | `test` | `cargo-test` | `cargo test --workspace --no-fail-fast` | `Cargo.toml` | `test.stdout.txt` |
 | `snippets` (opt-in) | `cargo-doctest` | `cargo test --doc --workspace` | `Cargo.toml` | `snippets.stdout.txt` |
 | `security` (opt-in) | `cargo-deny` | `cargo deny --format json check`, with the network | `deny.toml` | `security.stderr.txt` |
-| `mutation` (opt-in) | `cargo-mutants` | `cargo mutants --output {out}` | a pin | `mutants.out/` in the check's directory |
+| `mutation` (opt-in) | `cargo-mutants` | `cargo mutants --output {out}` | a pin | `mutants.out/` in the check's artifact directory |
 
 `cargo` itself resolves as a toolchain: through the toolchain file where one
 pins it, else a `mise.toml` pin of `rust`, else `PATH`. rustfmt and clippy
@@ -611,18 +613,22 @@ because mise hasn't trusted the `mise.toml`, the gate stands down naming
 
 ## What `doctor` reports
 
-`checkride doctor` names the mode first: `implicit`, where the repo is one
-project at its root, naming the pack its root marks (`ts`, `go`, `rust`,
-`python` or `terraform`, as
+`checkride doctor` names the mode under its package-manager line: `implicit`,
+where the repo is one project at its root, naming the pack its root marks
+(`ts`, `go`, `rust`, `python` or `terraform`, as
 [Targets](./targets.md#a-repo-without-targets) explains), or `multi-target`,
 followed by a table of the targets the config declares. Each check gets a row, named `<target>:<slot>` in a target,
-whose tool is looked for where that check runs from, and the row ends with the
-pin source the tool resolves through (`js-lockfile`, `mise`, `path`, or a
-language's own `go-mod-tool`, `rust-toolchain` or `uv-lock`), read from files
-alone. A tool `mise.toml` pins reports missing when mise isn't on `PATH`. A
-tool a language's own pin file declares is probed by asking the run's
-launcher: `ok` names what the run would spawn for it, and `missing` carries
-the refusal the run would fail with. Each tool nothing pins gets an **unpinned tools** row naming the checks
+whose tool is looked for where that check runs from. The row names the pin
+source the tool resolves through (`js-lockfile`, `mise`, `path`, or a
+language's own `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version`),
+and ends with the tag a run's status line gives the check, such as
+`[detected: .golangci.yml]`. A tool `mise.toml` pins reports missing when mise
+isn't on `PATH`. A tool a language's own pin file declares, and a toolchain's
+own executable (`go`, `gofmt`, `cargo`, and `terraform`, which runs as `tofu`
+where the version file names OpenTofu), are probed by asking the run's
+launcher: `ok` names what the run would spawn, with the source it resolves
+through and the version that source names, such as `tf-version 1.13.1`, and
+`missing` carries the refusal the run would fail with. Each tool nothing pins gets an **unpinned tools** row naming the checks
 that run it and the `mise use` that would pin it: a warning, or with
 `requirePins: true` a failure (exit 1) when a check that runs by default
 uses it. Last, a **workspace** row lists the markers no target claims, the ones

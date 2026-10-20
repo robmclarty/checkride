@@ -14,9 +14,13 @@ is the supported way to run checkride in a repo without Node.
 ## npm
 
 ```bash
-pnpm add -D checkride   # or: npm i -D, yarn add -D, bun add -d
+pnpm add -D -E checkride   # or: npm i -D -E, yarn add -D -E, bun add -d -E
 pnpm exec checkride init
 ```
+
+`-E` pins the exact release, as the
+[pin policy](./contract.md#versioning-and-pin-policy) asks while checkride is
+below 1.0, where a minor release may break.
 
 `init` writes a `check` script, so `pnpm check` (or `npm run check`, and so
 on) runs the gate, and the hooks, the AGENTS.md stanza and the plugin skills
@@ -47,6 +51,7 @@ command. Then:
 ```bash
 mise trust                   # once per clone
 mise install                 # every pin, node and checkride among them
+mise exec -- checkride init  # once: adopt the repo's tools, write the stanza and hooks
 mise exec -- checkride       # the gate
 ```
 

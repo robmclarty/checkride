@@ -40,6 +40,13 @@ Three moving parts:
 The result: the rules live in one place, every repo runs the subset that applies
 to it, and updating the fleet is a `pnpm publish` of the preset.
 
+A preset is the repo's own choice: its `extends` names it, and its entries are
+config entries, so they beat detection. A reviewer or CI job that brings its
+own config to repos it doesn't own wants the other layer, `--defaults`, which
+sits below the repo's config and detection, fills only the slots they leave
+empty, and never touches the repo's baseline. See
+[Running checkride from outside a repo](./consumers.md#a-defaults-file).
+
 ## Authoring the preset package
 
 The package is just a checkride config shipped under a name. A minimal one:
@@ -64,17 +71,43 @@ resolve.
 
 ## Keeping the preset safe across a heterogeneous fleet
 
-A single org-wide preset will list checks for tools that not every repo has —
-a Terraform check, a Rust check, a Python check. Without gating, those checks
-would light up red in a repo that has no Terraform. `detect` closes that:
+A single org-wide preset will name tools that not every repo has — a Go
+linter, a Terraform formatter, a Python type checker. For a language checkride
+has a [pack](./packs.md) for, put those picks in a `packs.<pack>.checks`
+block. A block reaches only a target of its pack, or a repo whose root marks
+that pack, so the Go block never touches a TypeScript repo and needs no gate:
+
+```json
+{
+  "packs": {
+    "ts": { "checks": { "lint": "oxlint" } },
+    "go": { "checks": { "lint": "golangci-lint" } },
+    "terraform": { "checks": { "format": "terraform-fmt" } }
+  }
+}
+```
+
+Naming an opt-in slot in a block, as `format` is here, opts it in for every
+repo the block reaches. A tool pick in the preset's top-level `checks` lands
+safely too: where it can't apply at the top level, because the repo declares
+[targets](./targets.md) or the pack its root marks has no such adapter,
+checkride moves it into the `packs.<pack>.checks` block of the pack that has
+that adapter. A preset's `"lint": "oxlint"` then lints a TypeScript repo, and
+each ts target of a repo with targets, and leaves a Go repo's golangci-lint
+alone, where it used to switch that repo's linter off, and fail a repo with
+targets outright. The repo's own top-level picks keep the stricter rule:
+once it declares targets, an entry there only switches a slot off or tunes
+it. A preset can't declare `targets` either; only the repo knows its parts.
+
+For a tool no pack ships, `detect` closes the gap:
 
 ```json
 {
   "checks": {
-    "terraform-fmt": {
-      "command": "terraform",
-      "args": ["fmt", "-check", "-recursive"],
-      "detect": [".terraform.lock.hcl", "main.tf"]
+    "dockerfile": {
+      "command": "hadolint",
+      "args": ["Dockerfile"],
+      "detect": ["Dockerfile"]
     }
   }
 }
@@ -132,10 +165,11 @@ to.
   former for reproducibility and let an update bot (below) turn each bump into a
   reviewable PR.
 - **Ship a grace path for big changes.** When a new rule will fail many repos at
-  once, lean on checkride's own ratchet: land the rule, let each repo adopt with
-  `checkride --baseline` to grandfather existing debt so it is green on day one
-  while any *new* violation still fails. See the baseline note in
-  [Running in CI](./ci.md).
+  once, lean on checkride's own ratchet: land the rule, and let each repo run
+  `checkride baseline` on its bump branch to grandfather the existing debt, so
+  it is green on day one while any *new* violation still fails.
+  `checkride baseline diff` then lists the keys it added, for whoever reviews
+  the bump. See the baseline note in [Running in CI](./ci.md).
 
 ## Automating the bump
 
@@ -165,9 +199,10 @@ inherited preset, so a repo can adjust without forking the preset:
   inherited command and args.
 - **Replace a list** — arrays replace rather than concatenate, so setting
   `args` or `detect` locally supplies the whole new list.
-- **Drop an inherited check** — set its key to `false` (or any value without a
-  `command`) and it falls out of the run; use the same `"slot": false` form to
-  turn off a built-in slot the preset enabled.
+- **Drop an inherited check** — set its key to `false` and it falls out of the
+  run; use the same `"slot": false` form to turn off a built-in slot the preset
+  enabled. An object won't drop it: objects deep-merge, so even `{}` keeps the
+  inherited `command`.
 
 Keep these overrides rare and visible — a repo that overrides half the preset has
 quietly left the fleet. When an override recurs across many repos, that is a

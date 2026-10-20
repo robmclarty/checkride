@@ -15,7 +15,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v6 # reads the version from packageManager
 
@@ -32,7 +32,7 @@ jobs:
 
       # On failure, keep the raw diagnostics for humans and agents.
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: check-report
           path: .check/
@@ -131,10 +131,11 @@ Replace the pnpm steps; the checkride invocation is identical.
 The `security` slot (`pnpm audit`) is pnpm-specific and reports itself
 unavailable under the others — see
 [Package managers](./tools.md#package-managers). That's the ts pack's
-`security`. Each other pack fills the slot with its own tool, tied to no
-package manager: govulncheck for a go target, cargo-deny for a rust one, and
-trivy's config scan for a terraform one. Each is opt-in, and cargo-deny is
-the one besides `pnpm audit` that uses the network.
+`security`. The go, rust and terraform packs fill the slot with their own
+tools, tied to no package manager: govulncheck for a go target, cargo-deny for
+a rust one, and trivy's config scan for a terraform one. Each is opt-in.
+govulncheck and cargo-deny read their advisory databases over the network, as
+`pnpm audit` does, while trivy's scan runs offline on the checks it ships with.
 
 ## A repo without Node
 
@@ -158,7 +159,7 @@ jobs:
       # mise loads no mise.toml it hasn't trusted; this one is the repo's own.
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Installs every tool mise.toml pins: checkride and its Node, and the
       # language's own tools, such as go and golangci-lint.
@@ -171,16 +172,36 @@ jobs:
       - run: mise exec -- checkride --strict
 
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: check-report
           path: .check/
 ```
 
-`MISE_TRUSTED_CONFIG_PATHS` is what lets mise read the repo's `mise.toml`
-without a `mise trust` step; checkride's own pin there sets a tool option,
-which mise won't load from an untrusted file. See
-[Installing checkride](./distribution.md) for the pin itself.
+`MISE_TRUSTED_CONFIG_PATHS` trusts the repo's `mise.toml`, which mise won't
+load untrusted while checkride's own pin there sets a tool option. mise already
+trusts every config file when it detects a CI run, as on GitHub Actions; the
+variable says so explicitly, and keeps the job working on a runner mise
+doesn't recognize as CI. See [Installing checkride](./distribution.md) for the
+pin itself.
+
+## A repo with targets in other languages
+
+A repo with a `package.json` and targets of other packs keeps the pnpm recipe
+above, checkride still a devDependency, and adds what those targets need: the
+step that puts their tools on `PATH`, and each pack's fetch, run from its
+target's root:
+
+```yaml
+      - run: pnpm install --frozen-lockfile
+      - uses: jdx/mise-action@v5 # go, golangci-lint, shellcheck, as mise.toml pins them
+      - run: go mod download
+        working-directory: services/api
+      - run: pnpm exec checkride --strict
+```
+
+[A polyglot repo, end to end](./polyglot.md#in-ci) has the whole job for a
+repo with TypeScript, Go and OpenTofu targets.
 
 ## Any other CI
 
@@ -193,6 +214,10 @@ gate on the exit code:
 pnpm install --frozen-lockfile
 pnpm exec checkride --strict   # or the npx / yarn / bunx form
 ```
+
+A repo on the mise route runs `mise install` instead, with `mise trust` first
+where mise doesn't detect CI, fetches its dependencies, and runs
+`mise exec -- checkride --strict`.
 
 If the platform supports build artifacts, archive `.check/` on failure the way
 the GitHub recipe does — that is where humans and agents read the diagnostics.

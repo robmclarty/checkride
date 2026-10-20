@@ -24,6 +24,9 @@ The tooling has two layers:
 | a package manager | pnpm `>=9` (default) / npm / yarn / bun | pnpm: `corepack enable && corepack prepare pnpm@latest --activate` |
 | git  | any | <https://git-scm.com/downloads> |
 
+A repo with no `package.json` runs checkride through mise instead, which
+installs Node beside it; see [Installing checkride](./distribution.md).
+
 `--changed`, `recover` and `baseline diff` read history through git.
 `checkride baseline diff <ref>` resolves `<ref>` in the local repository, so
 in a shallow clone (CI's `fetch-depth: 1`, a sandbox checkout) fetch the ref
@@ -233,9 +236,10 @@ same verdict either way.
 
 ## Slot tools
 
-Each slot is filled by one tool. A slot runs only when its detect file is
-present (built-in checks always run). The default tool per slot in the ts and
-repo packs (every other pack's are in [Packs and pins](./packs.md)):
+Each slot is filled by one tool. A slot no config entry names runs only when
+its detect file is present (built-in checks always run). The default tool per
+slot in the ts and repo packs (every other pack's are in
+[Packs and pins](./packs.md)):
 
 | Slot | Tool | Install with | Detect file |
 | ---- | ---- | ------------ | ----------- |
@@ -251,7 +255,7 @@ repo packs (every other pack's are in [Packs and pins](./packs.md)):
 | `links` | built-in | — (always available) | — |
 | `spell` | `cspell` | `pnpm add -D cspell` | `cspell.json` |
 | `prose` | `vale` (opt-in) | `pnpm add -D @vvago/vale` | `.vale.ini` |
-| `mutation` | `stryker` | `pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner` | `stryker.config.mjs` |
+| `mutation` | `stryker` (opt-in) | `pnpm add -D @stryker-mutator/core @stryker-mutator/vitest-runner` | `stryker.config.mjs` |
 | `security` | `pnpm audit` | — (built into pnpm) | — (opt-in) |
 | `publint` | `publint` | `pnpm add -D publint` | — (opt-in) |
 | `attw` | `attw` | `pnpm add -D @arethetypeswrong/cli` | — (opt-in) |
@@ -266,7 +270,8 @@ ships in `@arethetypeswrong/cli`, and `vale` ships in `@vvago/vale`.
 
 The `mutation` slot ships **uncapped** (`timeout: 0`) by default — the one
 catalogue slot that does, in the rust pack's cargo-mutants as in stryker. A
-real stryker run legitimately takes fifteen to twenty minutes, and
+real stryker run legitimately takes from fifteen minutes to hours (a full run
+over checkride itself takes about three), and
 cargo-mutants builds and tests a crate once per mutant, both past the
 ten-minute cap every other slot runs under, and because
 `mutation` is opt-in and never part of the definition-of-done gate that cap
@@ -344,7 +349,7 @@ the board), not in `checkride.config.json`. checkride just runs vitest; it has
 no coverage setting of its own.
 
 Some slots accept alternates that checkride will also run if it detects their
-config: `format` → `biome`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`
+config: `format` → `biome-format`; `lint` → `biome` or `eslint`; `dead` → `knip`; `test`
 → `jest`; `docs` → `rumdl`; `spell` → `typos`. The blessed default is the one
 `init` scaffolds; the rest just need their own config file present. rumdl and
 typos are single binaries with no npm package, so they're detected only where a
@@ -589,6 +594,12 @@ pnpm add -D @ast-grep/cli
 That keeps the version pinned in your lockfile and resolvable at
 `node_modules/.bin/ast-grep`, which is exactly what `doctor` probes for.
 
+The standalone binary has its place in a repo checked past its package
+manager, one that declares `targets` or whose root marks a pack other than
+ts: there the same adapter runs the copy a `mise.toml` pins, or the one on
+`PATH`, when no `package.json` dependency provides it. See
+[Packs and pins](./packs.md#without-node).
+
 ### The `struct` slot runs *your* rules
 
 `struct` is not tied to any one convention. It runs `ast-grep scan` over the
@@ -604,7 +615,9 @@ those files:
   checkride itself.
 - **Another language.** ast-grep is polyglot; set each rule's `language`
   (`typescript`, `python`, `go`, `rust`, …) and the same slot enforces
-  boundaries in that language.
+  boundaries in that language. `init --lang go` and `init --lang rust` write
+  such rules under `rules/go/` and `rules/rust/`; see
+  [Deep modules](./deep-modules.md#making-it-your-own).
 - **Beyond ast-grep.** When a boundary lives in another ecosystem's linter —
   `import-linter` (Python), `depguard` (Go), `dependency-cruiser` (JS) —
   express it as a [custom check](#when-to-write-a-custom-check) that runs that
@@ -743,10 +756,10 @@ grow the tells your own repo accumulates.
 To adopt a published third-party style — Google, Microsoft, `write-good` —
 add a `Packages` line to `.vale.ini` and run `pnpm exec vale sync` yourself:
 it downloads packages into `StylesPath`, so re-run it when you add or bump a
-package. It is a setup command, never part of a check — no check but the ones
-that audit dependencies (`security`, and a rust target's cargo-deny) touches
-the network — which is also why the scaffold's default path needs no sync at
-all.
+package. It is a setup command, never part of a check — no check but a
+dependency audit in the `security` slot (`pnpm audit`, govulncheck or
+cargo-deny) touches the network — which is also why the scaffold's default
+path needs no sync at all.
 
 ### Voice exemplars
 

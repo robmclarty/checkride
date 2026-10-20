@@ -101,7 +101,7 @@ node ../../dist/cli.js
 Exit 1:
 
 ```text
-✘ lint    golangci-lint: Go linters
+✘ lint    golangci-lint: Go linters  [detected: .golangci.yml]
      3 baselined (grandfathered)
      1 new, not in baseline:
        internal/report/prune.go:errcheck:Error return value of `os.Remove` is not checked

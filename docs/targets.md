@@ -16,7 +16,15 @@ multi-target mode.
 ```
 
 [`examples/polyglot-ts-bash`](../examples/polyglot-ts-bash/) runs this config
-end to end.
+end to end, and [A polyglot repo, end to end](./polyglot.md) walks a
+four-language repo from `init`'s proposal to the targets it keeps.
+
+A target's name starts with a lowercase letter and holds only lowercase
+letters, digits and hyphens, 32 characters at most. It can't be a slot's name
+or a custom check's, since `--only <name>` has to mean one thing, nor
+`doc-snippets`, where the `snippets` check keeps its scratch files. Its `root`
+is a directory inside the repo, relative to the repo root, and only the repo's
+own config declares targets: a preset that `extends` names can't.
 
 ## A repo without targets
 
@@ -30,7 +38,8 @@ the first that matches:
 4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
 5. a root `.terraform.lock.hcl` or `*.tf` file picks `terraform`;
 6. anything else picks `ts`, where every slot stands down as it always has.
-   Such a root becomes a target only when it configures a tool of its own.
+   When [`target add`](#declaring-targets) converts such a repo, its root
+   becomes a target only if it configures a tool of its own.
 
 A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
@@ -59,9 +68,17 @@ slot may only switch it off or tune it (`optIn`, `timeout`, `order`), because
 the tool depends on the pack. Each check writes under `.check/<target>/` (or
 `<out>/<target>/`), and its baseline keys name files from the repo root.
 
+A ts target's checks run under the package manager nearest its root: the first
+lockfile or `packageManager` field from there up to the repo root, else pnpm.
+`checkride fix` runs each target's fixers from its root, through the same pin
+chain as its checks.
+
 `--only`, `--skip` and `--include` take a slot (every target's), a target (all
-of its checks), or `<target>:<slot>` (one check). `--changed` skips each target
-nothing changed under.
+of its checks), or `<target>:<slot>` (one check). `--changed` skips each check
+of a target nothing changed under, with the reason `no changes under <root>`.
+It reads the paths that differ from the merge base of its base and `HEAD`,
+committed, staged, unstaged or untracked, so build output git doesn't ignore
+counts as a change.
 
 ## The packs
 
@@ -105,22 +122,30 @@ target, which the message names in place of a target to add.
   one, or an entry picks one; otherwise the new target is declared alone, so
   a ts target below the root is never blocked by one at `.`.
 - `checkride init` in an existing repo, one whose root holds a `package.json`
-  or another pack's marker, adopts the tools it finds through the implicit
-  pack, proposes the targets its files suggest, and writes them when there's
-  more than the one project at the root. Where that pack isn't `ts`, `--add`
+  or another pack's marker, or holds none but has a project below it, adopts
+  the tools it finds through the implicit pack, proposes the targets its
+  files suggest, and writes them when there's more than the one project at
+  the root. Where that pack isn't `ts`, `--add`
   takes `docs`, `spell` and `prose`, and the pack's own blessed configs where
   it has them (python's `lint`, `format`, `types` and `test`, terraform's
   `lint`), and exits 2 on a slot whose blessed config is the ts pack's.
 - `checkride --discover` checks the targets `init` would propose without
   writing them: the top-level entries and baseline keys move to the target at
   the root, in memory. A repo whose config already declares targets checks
-  those, with a note on stderr saying they stand in. Discovery proposes a go target for each top-most `go.work` and each
-  `go.mod` outside one, a rust target for each top-most `[workspace]`
+  those, with a note on stderr saying they stand in. Discovery proposes a ts
+  target at the root when the root holds a `package.json`,
+  `pnpm-workspace.yaml` or `tsconfig.json` and runs a ts tool of its own (a
+  config entry picks one, or detection finds a default ts check's config file
+  or package there), claiming every ts project under it, and otherwise one
+  for each top-most `package.json` or `tsconfig.json` directory below the
+  root, with a root `package.json` listed in `unclaimed.ignore`. It proposes
+  a go target for each top-most `go.work` and each `go.mod` outside one, a rust target for each top-most `[workspace]`
   manifest and each `[package]` one outside it, and a python target for each
   top-most `pyproject.toml`, `setup.cfg` or `setup.py` directory, which
   claims the ones under it, a terraform target for each top-most
   `.terraform.lock.hcl` directory and then each top-most directory of `.tf`
-  files none of those claims, beside the ts and bash rules. Where a pack's
+  files none of those claims, and a bash target where the shell files outside
+  every other target gather. Where a pack's
   second rule finds a root above one its first proposed, a `go.mod` above a
   `go.work`, a `[package]` above a `[workspace]` or `.tf` files above a lock
   file, the inner root wins, and `unclaimed` reports the outer one's markers.

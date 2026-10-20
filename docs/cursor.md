@@ -8,6 +8,12 @@ writes all of it.
 pnpm exec checkride agent-setup --harness cursor
 ```
 
+In a repo with no `package.json`, run it as
+`mise exec -- checkride agent-setup --harness cursor` where a `mise.toml` pins
+checkride. The gate script then runs checkride the same way, and while mise
+hasn't trusted that `mise.toml` it stands down naming `mise trust` rather than
+blocking.
+
 Without `--harness`, Cursor is included when the repo already has a `.cursor/`
 directory, and Claude Code always. That asymmetry is deliberate: seeding
 `.cursor/` into every repo checkride touches would put config in front of people

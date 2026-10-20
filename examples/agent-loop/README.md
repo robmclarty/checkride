@@ -111,7 +111,7 @@ beats Claude Code's 600s default, since a *cancelled* Stop hook is read as a
 broken one and lets the turn end. `statusMessage` names the command in the
 spinner, so the minute the pipeline takes reads as work rather than as a hang —
 and when it finishes, the gate reports the verdict and the wall clock
-(`checkride ✔ green in 38.2s — 15 checks, slowest test 21.4s`).
+(`checkride green in 38.2s ✔ (15 checks, slowest: test in 21.4s)`).
 
 `AGENTS.md` carries the same contract in prose, for agents that read
 instructions but do not run hooks.

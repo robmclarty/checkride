@@ -60,8 +60,9 @@ declaring what already held.
 ### Pinning
 
 Because pre-1.0 minor versions may break by the semver rule, consumers should
-pin checkride **exactly** (`"checkride": "0.3.0"`, no caret) and upgrade
-deliberately. A caret range is the intended usage only after 1.0. A consumer
+pin checkride **exactly** (`"checkride": "0.15.0"`, no caret, or the same exact
+version on a `mise.toml`'s `npm:checkride` entry in a repo without Node) and
+upgrade deliberately. A caret range is the intended usage only after 1.0. A consumer
 sitting on an exact old pin isn't behind — it's following policy correctly.
 
 ## The vacuous-green problem
@@ -79,8 +80,9 @@ consumer, not just one that was clever enough to hand-roll a check for it.
 checkride makes it visible three ways:
 
 - **`checks_run`** in the summary counts the checks that actually executed.
-  `ok: true` with `checks_run: 0` is the unmistakable signature of a vacuous
-  pass — any consumer can read it.
+  A custom check that exits its `skipExitCode` because it couldn't run there
+  doesn't count. `ok: true` with `checks_run: 0` is the unmistakable signature
+  of a vacuous pass — any consumer can read it.
 - **A loud warning** on a zero-run names why each slot sat out (the config file
   it looked for and didn't find) and what to do about it, so the answer to "why
   didn't anything run?" doesn't require reading source. `checkride doctor`
@@ -95,9 +97,17 @@ yet; the warning tells them what's happening. The hard line is opt-in, and the
 things that need the hard line are exactly the automated ones that can ask for
 it.
 
+A narrow green is the same problem at a smaller scale: a pass over the part
+of the pipeline someone asked for. The summary's `run` names the selection
+flags the run was given and says `partial: true` when it saw less than the
+whole pipeline (`--only`, `--skip`, `--changed`, `--static-only`, or a
+`--bail` that stopped at a failure), so a consumer can tell "the gate passed"
+from "the part I asked for passed". It's the same test that keeps such a run
+from pruning the baseline, so the two never disagree.
+
 ## The failure modes that had to close
 
-A gate is judged on its worst day, not its average one. Three failure modes
+A gate is judged on its worst day, not its average one. These failure modes
 mattered enough to close by default rather than leave as configuration.
 
 **A hung tool can't hang the definition of done.** Every check in the gate runs
@@ -110,7 +120,7 @@ bounded pool, each carries its own timeout and each is killed and
 process-group-reaped on its own, so one hung check in a wave can neither stall nor
 leak the rest. The cap is tunable per check and globally, and `0` disables it. The
 one slot that ships uncapped by default is `mutation`: a real stryker run
-legitimately takes fifteen to twenty minutes, and cargo-mutants builds and
+legitimately takes from fifteen minutes to hours, and cargo-mutants builds and
 tests a Rust crate once per mutant, both past the ten-minute cap, and
 because `mutation` is opt-in and never part of the definition-of-done gate the cap
 protects, both adapters carry `timeout: 0` so a run goes to completion instead of
@@ -137,6 +147,19 @@ absent, and that the baseline is untouched. The baseline's logical safety (it
 never prunes on a partial run, so an unobserved finding can't be mistaken for a
 fixed one) was already covered; this covers the physical half — no torn bytes
 on disk.
+
+**A verdict doesn't depend on what the machine happens to hold.** Each check
+runs the copy of its tool the repo pins, the first its pack's pin chain finds
+in a lockfile, `go.mod`, `rust-toolchain.toml`, `uv.lock`, version file or
+`mise.toml`, before anything on `PATH`, and never fetches one: no launcher
+downloads a missing package, Go, cargo, pip and uv run with their downloads
+switched off, and mise never installs. A missing tool fails its check naming
+the install, rather than passing on a laptop whose cache happens to hold it
+and failing on a clean CI runner. `requirePins` goes a step further and fails
+a check whose tool only `PATH` provides. Each summary entry records which copy
+ran (`pin_source`, `tool_version`) and what it spawned (`argv`), so two runs
+that disagree can say why. [Packs and pins](./packs.md) has the chains and the
+spawn environment.
 
 ## What the static publish checks can't see
 
@@ -199,8 +222,11 @@ installed, and checked for real) — across macOS and Linux, at the exact
 supported Node floor and the two newest majors, and the end-to-end suite
 exercises all four package managers it claims to support, pnpm, npm, yarn, and
 bun, and every language pack against its real tools, which CI installs at
-pinned versions through mise and requires, so no pack's cases are skipped.
-That is the envelope, and the README states exactly that.
+pinned versions through mise. On a laptop that lacks a pack's tools, that
+pack's cases skip and say why; CI sets `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, which
+turns a missing tool into a failure, so a broken install can't pass as a skip
+and no pack's cases are skipped. That is the envelope, and the README states
+exactly that.
 
 Windows is deliberately absent. It isn't tested, so it isn't claimed; it waits
 for a real consumer who needs it rather than being asserted on faith. An honest

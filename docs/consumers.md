@@ -96,7 +96,9 @@ static-only: needs an install (the `docs` slot needs `markdownlint-cli2`, which 
 
 The checks that remain run your pinned copies wherever your `mise.toml` names
 the tool: each records `pin_source: "override"` and the version it ran. Both
-passes are consumer runs, so neither touches the repo's baseline.
+passes are consumer runs, so neither touches the repo's baseline. A pass that
+skips every check has verified nothing: its summary's `checks_run` is `0`, and
+`--strict` turns it into exit 2 rather than a green.
 
 `doctor` takes the same flags and runs no check. Before the first pass, it
 lists each check that pass would skip, with the same reason, and for each tool

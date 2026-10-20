@@ -28,10 +28,10 @@ It exits **0**:
 ```text
 ○ python-format    skip  no detect file present
 ○ terraform-fmt    skip  no detect file present
-✔ license-headers  org policy (strict tier): every source file carries a license header
-✔ no-todos         org policy: no TODO comments (waived for src/legacy until Q3)
-✔ types            TypeScript type checking
-✔ lint             Oxlint
+✔ license-headers  org policy (strict tier): every source file carries a license header  [custom]
+✔ no-todos         org policy: no TODO comments (waived for src/legacy until Q3)  [custom]
+✔ types            TypeScript type checking (incremental, via project references)  [detected: tsconfig.json]
+✔ lint             Oxlint with tsgolint type-aware rules  [detected: .oxlintrc.json]
 ```
 
 ## The shape of it

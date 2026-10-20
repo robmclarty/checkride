@@ -26,14 +26,17 @@ pnpm check
 It exits **0**, and the run looks like this:
 
 ```text
-✔ tidy           Normalize the JSON fixtures before anything else reads them
-✔ types          TypeScript type checking
-✔ lint           Oxlint
+✔ tidy           Normalize the JSON fixtures before anything else reads them  [custom]
+✔ types          TypeScript type checking (incremental, via project references)  [detected: tsconfig.json]
+✔ lint           Oxlint with tsgolint type-aware rules  [detected: .oxlintrc.json]
 ...
-✔ openapi        The OpenAPI document parses and declares every route
+✔ openapi        The OpenAPI document parses and declares every route the app serves  [custom]
 ○ terraform-fmt  skip  no detect file present
-✔ licenses       Every installed dependency carries an allowed license
+✔ licenses       Every installed dependency carries an allowed license  [custom]
 ```
+
+Each line ends with why the check is in the run: `[custom]` for a custom
+check, `[detected: <file>]` for a slot whose tool detection found.
 
 ## 1. Running *before* the built-ins
 

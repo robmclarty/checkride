@@ -8,6 +8,11 @@ Every example is exercised by [`test/e2e/examples.e2e.test.ts`](../test/e2e/exam
 on every push. An example that stops behaving as its README claims fails CI,
 which is the only reason to trust anything written here.
 
+The language examples (`go-*`, `rust-workspace`, `python-project`,
+`terraform-roots` and the two polyglot ones) each show one pack or one mix.
+[A polyglot repo, end to end](../docs/polyglot.md) puts them together: one
+repo adopted from install to CI, with the output at each step.
+
 | Example | Shows | Exits |
 | ------- | ----- | ----- |
 | [`agent-loop/`](./agent-loop/) | What an agent reads when the gate is red — `summary.json`, the token-bounded `digest.md`, the Claude Code Stop hook that blocks it from finishing anyway | `1` (on purpose) |
@@ -62,6 +67,12 @@ install resolves fresh against the exact versions pinned in each
 pack runs each tool at the version that lock pins, and so is each
 `terraform-roots` root module's `.terraform.lock.hcl`, which pins its
 providers and marks it as a root.
+
+A README's sample of a red run pairs each failing check with the finding that
+failed it, as you'd read it from the check's raw output under `.check/`. The
+run itself prints the check's status line, plus the new keys when a baseline
+is in play, so the lines under a ✘ in a sample are a summary of `.check/`, not
+stderr.
 
 ## The `expected.json` contract
 

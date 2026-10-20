@@ -17,7 +17,9 @@ the repo pins, and a mixed-language monorepo's parts as named
 [targets](./docs/targets.md), each from its own root. A repo with no Node
 installs and pins checkride through [mise](./docs/distribution.md); built-in
 checks stand down when their tool isn't in the repo, and custom checks run
-any other command.
+any other command. [A worked example](./docs/polyglot.md) takes a repo with a
+TypeScript app, a Go API, OpenTofu and shell scripts from install to a green
+gate.
 
 ## The thesis
 
@@ -89,14 +91,18 @@ configs a bare repository lacks (`init --add struct,dead`, for example).
 
 For a **repo without Node**, such as a Go or Rust project with no
 `package.json`, mise installs checkride beside a pinned `node` and runs it as
-`mise exec -- checkride`. `init --lang go|rust` writes that `mise.toml`;
+`mise exec -- checkride`. `init --lang go|rust` writes that `mise.toml` for a
+new project. A Go, Rust, Python or Terraform repo that already exists adds the
+pin with `mise use`, then runs `mise exec -- checkride init`, which adopts the
+tools its root configures through that language's pack.
 [Installing checkride](./docs/distribution.md) shows the pin, and the
 `allow_low_downloads = true` opt-in mise needs before it installs checkride.
 
-Both paths end in the same place — `init` auto-detects which case it is in.
-It writes a `"check": "checkride"` script alias, so daily usage is `pnpm check`
-(`npm run check`, `yarn run check`, or `bun run check` under the others)
-regardless of the tool's name. It also writes the agent contract: an AGENTS.md
+Every path ends in the same place — `init` auto-detects which case it is in.
+Where the repo has a `package.json`, it writes a `"check": "checkride"` script
+alias, so daily usage is `pnpm check` (`npm run check`, `yarn run check`, or
+`bun run check` under the others) regardless of the tool's name. It also
+writes the agent contract: an AGENTS.md
 stanza stating the "exit 0 = done" rule, and **hooks** in your agent harness's
 config — `.claude/settings.json` for Claude Code, `.cursor/hooks.json` for
 Cursor. Three of them: a stop gate (a checkride-owned script that runs your
@@ -139,14 +145,18 @@ Task-focused guides live in [docs/](./docs/README.md):
   the mise route, and how a repo without Node pins checkride.
 - [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
   flags, npm-script aliases, and the `.check/` output files.
-- [Tools and installation](./docs/tools.md) — what each pipeline check runs,
-  and how to install a missing tool when `doctor` reports one.
+- [Tools and installation](./docs/tools.md) — what each check of the ts and
+  repo packs runs, and how to install a missing tool when `doctor` reports one.
 - [Targets](./docs/targets.md) — checking a repo with more than one language,
   or one language in more than one place, as named targets.
 - [Packs and pins](./docs/packs.md) — each language pack's slots and tools,
   where each tool is pinned, and the environment its checks run with.
-- [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (and
-  npm/yarn/bun variants), and why gates should pass `--strict`.
+- [A polyglot repo, end to end](./docs/polyglot.md) — a worked example: one
+  repo with a TypeScript app, a Go API, OpenTofu and shell scripts, from
+  install through targets, pins, the daily loop and CI.
+- [Running in CI](./docs/ci.md) — a copy-paste GitHub Actions recipe (with
+  npm/yarn/bun variants, and a mise one for a repo without Node), and why
+  gates should pass `--strict`.
 - [Running checkride from outside a repo](./docs/consumers.md) — what a
   reviewer, a CI job or an agent passes to check a checkout it didn't write:
   `--discover`, `--defaults`, `--pins`, `--static-only` and `--out`.
@@ -170,9 +180,10 @@ Task-focused guides live in [docs/](./docs/README.md):
 
 Runnable counterparts live in [examples/](./examples/): standalone projects you
 can install and run on their own, each demonstrating one thing — what an agent
-reads when the gate is red, or how a repo with existing debt adopts checkride
-without a cleanup project first. Each one declares the run it expects, and the
-end-to-end suite asserts it on every push.
+reads when the gate is red, how a repo with existing debt adopts checkride
+without a cleanup project first, or how a pack checks a Go, Rust, Python,
+Terraform or mixed-language repo. Each one declares the run it expects, and
+the end-to-end suite asserts it on every push.
 
 The rest of this README is the reference: the command surface, the pipeline
 model, the `.check/` output contract, configuration, and the baseline.
@@ -227,10 +238,14 @@ checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to 
   --remove-hook <a,b>  remove these installed hooks; with --no-hook, remove only
   --harness <a,b> which harnesses to write for (claude | cursor; default: detected)
   --force      refresh a stanza that has local edits (refused otherwise)
+checkride hooks add [a,b] | remove <a,b>
+                       Install or remove agent hooks on their own, without
+                       touching AGENTS.md (--harness <a,b>, --dry-run).
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
-checkride triage       Triage a red gate: run it, then read .check/ as a bounded report.
-checkride qa           Read the quality artifacts a previous run left.
+checkride triage [<repo>]  Triage a red gate: run it, then read .check/ as a
+                       bounded report (--out <dir> for another output directory).
+checkride qa [<repo>]  Read the quality artifacts a previous run left (--out <dir>).
 ```
 
 During iteration, narrow the loop: `checkride --bail`, `checkride --only
@@ -256,7 +271,7 @@ terraform packs fill the target slots with their own (see
 | Slot       | Scope  | Role                                   | Blessed default     | Alternates       |
 | ---------- | ------ | -------------------------------------- | ------------------- | ---------------- |
 | `types`    | target | Type checking                          | `tsc --build`       | —                |
-| `format`   | target | Formatting (opt-in)                    | `prettier`          | `biome`          |
+| `format`   | target | Formatting (opt-in)                    | `prettier`          | `biome-format`   |
 | `lint`     | target | Linting                                | `oxlint`            | `biome`, `eslint`|
 | `struct`   | repo   | Structural rules (deep modules by default) | `ast-grep`      | —                |
 | `dead`     | target | Dead code, deps, cycles, boundaries    | `fallow` (dead-code)| `knip`           |
@@ -320,28 +335,60 @@ ship to npm to make "the published artifact is correct" part of your definition 
 captured to `.check/attw.json`). Both stay opt-in so apps that never publish don't run
 them.
 
+### Language packs
+
+A **pack** fills the target slots for one language: its tools, resolved
+through the pins the repo already keeps, and an environment that keeps its
+checks offline. A repo whose root marks one language runs that pack with no
+config. A repo with several, or one language in several places, declares
+[targets](./docs/targets.md), and each target runs its pack's checks from its
+own root, as `web:lint` or `api:test`. Each pack's blessed tool per slot, with
+the alternates and every argv in [Packs and pins](./docs/packs.md):
+
+| Pack | Root marker | `types` | `lint` | `dead` | `test` | Opt-in | Pinned by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `ts` | `package.json`, `tsconfig.json` | tsc | oxlint | fallow | vitest | prettier, fallow's dupes and health, stryker, pnpm audit, the publish bundle | the lockfile |
+| `go` | `go.mod`, `go.work` | go build | golangci-lint | deadcode | go test | gofmt, govulncheck | `go.mod` tool directives, then `mise.toml`, then `PATH` |
+| `rust` | `Cargo.toml` | cargo check | clippy | cargo-machete | nextest | rustfmt, doctests, cargo-deny, cargo-mutants | `rust-toolchain.toml`, then `mise.toml`, then `PATH` |
+| `python` | `pyproject.toml`, `setup.cfg`, `setup.py` | mypy | ruff | — | pytest | ruff format | `uv.lock`, then `mise.toml`, then `PATH` |
+| `terraform` | `.terraform.lock.hcl`, `*.tf` | terraform validate | tflint | — | — | terraform fmt, trivy | `.terraform-version` or `.opentofu-version`, then `mise.toml`, then `PATH` |
+| `bash` | none: a target's shell files | — | shellcheck | — | — | shfmt | `mise.toml`, then `PATH` |
+
+The repo pack's slots (`struct`, `docs`, `links`, `spell`, `prose` and
+`unclaimed`) run once for the whole repo, whatever languages it holds, with
+the tools in the table above. A check never downloads anything: Go, cargo, pip
+and uv run with their downloads switched off, so the repo fetches first
+(`go mod download`, `cargo fetch`, `uv sync`, `terraform init -backend=false`),
+and a check that needs the step names it. Each check records the copy that ran
+as `pin_source` and `tool_version` in the summary, and `requirePins: true`
+fails a check whose tool only `PATH` provides.
+
 ### Package managers
 
 checkride is package-manager-agnostic. It resolves the repo's manager from the
 `packageManager` field in `package.json` first, then from the lockfile —
 `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`, `yarn.lock`, `package-lock.json`,
-first match wins — and falls back to **pnpm** when neither exists. Every
+first match wins — and falls back to **pnpm** when neither exists. With
+targets, a target's checks run under the manager nearest its root: the first
+`packageManager` field or lockfile from there up to the repo root. Every
 command checkride generates is spelled for that manager: the `check` alias the
 hooks run, the AGENTS.md stanza, and each adapter's canonical `pnpm exec <tool>`
 (which becomes `npx --no-install`, `yarn`, or `bunx --no-install`). `doctor`
 reports the detected manager on its first line; `init` and `agent-setup` report
-it under their headline. Two slots are manager-specific: the opt-in `security`
-slot is `pnpm audit` (pnpm only), and the `pack` slot's dry-run speaks pnpm's
-and npm's `pack --json` (pnpm or npm); each reports itself **unavailable**
-elsewhere rather than failing. The lockfile-to-exec table and the "a check
-never fetches a tool" rule live in
+it under their headline. Two of the ts pack's slots are manager-specific: its
+opt-in `security` slot is `pnpm audit` (pnpm only), and the `pack` slot's
+dry-run speaks pnpm's and npm's `pack --json` (pnpm or npm); each reports
+itself **unavailable** elsewhere rather than failing. The go, rust and
+terraform packs fill `security` with govulncheck, cargo-deny and trivy. The
+lockfile-to-exec table and the "a check never fetches a tool" rule live in
 [Tools § Package managers](./docs/tools.md#package-managers).
 
 ## The `.check/` contract
 
-Every run writes to `.check/`. This is a public API for agents — the promised
-surfaces (exit codes, summary shape, flags, exports) are spelled out in
-[docs/contract.md](./docs/contract.md) and locked by a `test/contract/` suite.
+Every run writes to `.check/`, or to the directory `--out` names. This is a
+public API for agents — the promised surfaces (exit codes, summary shape,
+flags, exports) are spelled out in [docs/contract.md](./docs/contract.md) and
+locked by a `test/contract/` suite.
 The summary shape is published as a JSON Schema at
 [`schema/checkride.summary.schema.json`](./schema/checkride.summary.schema.json);
 fields are additive-only under a given `schema_version`.
@@ -359,10 +406,19 @@ fields are additive-only under a given `schema_version`.
     "git": { "head": "…", "dirty": false }, // the commit the checks read, in a git work tree
     "checks": [
       { "name": "lint", "adapter": "oxlint", "description": "…",
-        "ok": true, "exit_code": 0, "duration_ms": 470, "output_file": "lint.json" }
+        "ok": true, "exit_code": 0, "duration_ms": 470, "output_file": "lint.json",
+        "origin": "detected", "detected_by": ".oxlintrc.json", // why it ran
+        "argv": ["pnpm", "…", "exec", "oxlint", "--format=json"], // what it spawned
+        "pin_source": "js-lockfile", "tool_version": "1.87.0" } // which copy ran
     ]
   }
   ```
+
+  A check that sat out carries `skipped: true` and a `reason`, and a check
+  refused before its tool spawned (a tool the project never installed, say)
+  fails with its `reason`. With [targets](./docs/targets.md), the summary
+  lists them under `targets`, and each target's check is named
+  `<target>:<slot>` (`api:lint`).
 
   `ok: true` with `checks_run: 0` means **nothing was verified** — every slot
   sat out (no tool detected, disabled, or skipped). That state is a **vacuous
@@ -371,8 +427,10 @@ fields are additive-only under a given `schema_version`.
   "nothing ran" for "everything passed". Anything that gates on checkride (CI,
   commit hooks) should pass `--strict`.
 
-- `<slot>.json` — the raw tool JSON when stdout parses as JSON; otherwise
-  `<slot>.stdout.txt` / `<slot>.stderr.txt`. Tools that write their own files
+- `<slot>.json` — the raw tool JSON when stdout parses as JSON, or
+  `<slot>.jsonl` for a tool that prints JSON lines, such as `go test -json`;
+  otherwise `<slot>.stdout.txt` / `<slot>.stderr.txt`. A target's checks write
+  the same files under `.check/<target>/`. Tools that write their own files
   (vitest `--outputFile`, stryker) keep doing so.
 
 When a [baseline](#baseline) masks a slot's findings, that check gains an additive
@@ -407,7 +465,8 @@ nothing else:
 ```
 
 - **`/checkride:check`** — triage a red gate. It runs the repo's own `check`
-  script, branches on the promised 0/1/2 exit split, and names **one root cause**
+  script (or `mise exec -- checkride` in a repo with no `package.json`),
+  branches on the promised 0/1/2 exit split, and names **one root cause**
   plus what it is deliberately not reading. It covers the corners a summary read
   by hand gets wrong — exit 2 versus exit 1, vacuous green, a narrow run's green,
   `baselined` counts, `skipped` slots, `exit_code: -1`, stale artifacts — then
@@ -417,13 +476,13 @@ nothing else:
   nothing, and reports which dimensions were never measured rather than guessing
   at them.
 
-Both are **readers**: no new command, no new flag, no config, no hook. They
-exist because reading `.check/` by hand is unbounded (`mutation.json` is 2.2 MB
-in this repo) and credulous (every run overwrites `summary.json`, so an
-`ok: true` on disk may describe three of seventeen slots from a while ago). The
-readers ship prebuilt in `dist/`, so installing the plugin needs no build step,
-and they run without it too — `node node_modules/checkride/dist/triage/cli.js`
-prints the same report. Full details in [docs/plugin.md](./docs/plugin.md).
+Both are **readers**: no new flag, no config, no hook. They exist because
+reading `.check/` by hand is unbounded (`mutation.json` is over 12 MB in this
+repo) and credulous (every run overwrites `summary.json`, so an `ok: true` on
+disk may describe three of twenty-one slots from a while ago). The readers ship
+prebuilt in `dist/`, so installing the plugin needs no build step, and they run
+without it too: `checkride triage` and `checkride qa` print the same reports.
+Full details in [docs/plugin.md](./docs/plugin.md).
 
 ## Configuration
 
@@ -478,6 +537,34 @@ Schema (VS Code and friends). `checkride init` writes a version-pinned pointer
 into the config it generates; the schema itself ships in the package at
 [`schema/checkride.config.schema.json`](./schema/checkride.config.schema.json).
 
+### Targets and per-pack config
+
+A repo with more than one language declares its parts as `targets`, each a
+pack and a root. `packs` sets one pack's checks for every target of it, and
+`unclaimed.ignore` names the markers no target has to claim:
+
+```jsonc
+{
+  "targets": {
+    "web": { "lang": "ts", "root": "web" },
+    "api": { "lang": "go", "root": "api", "checks": { "lint": "staticcheck" } },
+    "infra": { "lang": "terraform", "root": "infra" }
+  },
+  "packs": {
+    "terraform": { "checks": { "format": "terraform-fmt" } } // opts every terraform target into fmt
+  },
+  "requirePins": true,                          // a tool only PATH provides fails its check
+  "unclaimed": { "ignore": ["package.json"] }   // the root package.json only installs tools
+}
+```
+
+A target's slot takes its tool from the target's own `checks`, then
+`packs.<pack>.checks`, then the top level, then detection at the target's
+root. Once targets exist, a top-level entry for a target slot may only turn it
+off or tune it (`optIn`, `timeout`, `order`), since the tool depends on the
+pack. `checkride target add` writes a target for you, and
+[Targets](./docs/targets.md) holds the rules.
+
 ### Custom checks
 
 A custom check (one keyed by a name that isn't a built-in slot) runs *after* the
@@ -487,7 +574,14 @@ the tree before the linters and tests look at it. `"order": "last"` is the expli
 form of the default. Within each group, custom checks run in the order they appear
 in the config.
 
-For formatting, the blessed `format` slot (prettier, or biome) is the paved road —
+A custom check that can't run everywhere can say so. Give it a `skipExitCode`
+(an integer from 1 to 255; 77 is the usual one) and exit with that code, and
+the run records the check as skipped, not failed, with its last stderr line as
+the `reason`. A skipped check stays out of `checks_run`, so `--strict` still
+refuses a run in which every check skipped itself. See
+[Tools § A custom check that can't run everywhere](./docs/tools.md#a-custom-check-that-cant-run-everywhere).
+
+For formatting, the blessed `format` slot (prettier, or biome-format) is the paved road —
 enable it with `"format": "prettier"` and `checkride fix` writes formatting for you.
 The `order: "first"` custom-check hatch coexists with it, for a one-off formatter the
 slot doesn't cover; the slot didn't retire it.
@@ -508,7 +602,11 @@ Use `"extends"` to inherit a shared preset — a file path (`"./base.json"`) or 
 installed package (`"@acme/checkride-preset"`), or an array of them to layer
 several. Bases merge left to right and your local config wins over all of them:
 objects deep-merge (so overriding one field of a check keeps the rest), while
-arrays and scalars replace outright — arrays are **not** concatenated. Pair it
+arrays and scalars replace outright — arrays are **not** concatenated. A
+preset's top-level tool pick that a repo can't take at its top level, because
+it declares targets or its root's pack lacks that tool, lands in that tool's
+`packs.<pack>.checks` block instead, so `"lint": "oxlint"` in a fleet preset
+lints the TypeScript repos and leaves a Go repo's golangci-lint alone. Pair it
 with `detect` above to publish one org-wide preset that stays safe across repos
 that don't all use the same tools. An `extends` that can't be found, or a config
 that extends itself in a loop, fails fast with
@@ -526,9 +624,9 @@ day. The default cap is a generous **600 seconds per check**; a check that hits
 it gets SIGTERM (then SIGKILL after a short grace) and is recorded as failed
 with a `timed out after 600s` note — red, never vacuous. Tune it with a global
 `timeout` (seconds), override it per check (`"timeout": <n>`), or set
-`"timeout": 0` (globally or per check) to disable the cap. Give `dead`, `test`,
-and `mutation` a higher cap — or `0` — on a large repo where they legitimately
-run long.
+`"timeout": 0` (globally or per check) to disable the cap. Give `dead` and
+`test` a higher cap — or `0` — on a large repo where they legitimately run
+long. The `mutation` adapters, stryker and cargo-mutants, ship uncapped.
 
 ## Baseline
 
@@ -550,11 +648,15 @@ raw output:
 {
   "schema_version": 1,
   "slots": {
-    "lint":  ["src/legacy.ts:eslint(no-explicit-any):Unexpected any"],
+    "lint":  ["src/legacy.ts:typescript(no-explicit-any):Unexpected `any`. Specify a different type."],
     "spell": ["docs/old.md::teh"]
   }
 }
 ```
+
+A target's checks key under their own names, such as `api:lint`, and every
+key names its file from the repo root, so a key stays valid wherever the tool
+ran from.
 
 Once it exists, every normal run is **baseline-aware**:
 
@@ -585,7 +687,10 @@ file's git history and restores one additively; see `checkride recover --help`.
 *everything* currently failing — including brand-new debt you might rather
 fix — so treat re-running it as a reviewed change: do it deliberately (say,
 after adopting a stricter rule set) and read the `checkride.baseline.json`
-diff in the PR like code.
+diff in the PR like code. `checkride baseline diff [<ref>]` lists the keys the
+working tree adds and drops against `<ref>`'s copy (default `HEAD`), per check,
+or as JSON under `--json`, so a reviewer sees exactly what a change
+grandfathers.
 
 Only slots whose tool has a parser the baseline keys with participate: oxlint,
 golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint for `lint`,
@@ -605,8 +710,8 @@ disable.
 
 ## Project shapes
 
-`init` scaffolds three shapes. They share everything except `tsconfig.json`,
-`fallow.toml`, and `pnpm-workspace.yaml`:
+`init` scaffolds three TypeScript shapes. They share everything except
+`tsconfig.json`, `fallow.toml`, and `pnpm-workspace.yaml`:
 
 - **flat** — a single package using the deep-modules layout under `src/`.
 - **monorepo** — a pnpm workspace of `apps/*` (deployable leaves) and `libs/*`
@@ -655,7 +760,12 @@ encode:
   allowed-import list — and `struct` enforces the new shape unchanged.
 - **Another language.** ast-grep is polyglot; set each rule's `language`
   (`typescript`, `python`, `go`, `rust`, …) and the same slot covers boundaries
-  there.
+  there. `init --lang go` and `init --lang rust` start you off with their
+  packs' dialect rules under `rules/go/` and `rules/rust/` (no dot imports,
+  import aliases or `init` outside `package main` in Go; no glob imports or
+  glob re-exports in Rust), and
+  [`examples/python-project`](./examples/python-project/) writes its rules
+  for Python.
 - **Beyond ast-grep.** When a rule can't be expressed in ast-grep, or lives in
   another ecosystem's tooling (`import-linter`, `depguard`, `dependency-cruiser`),
   wire it as a [custom check](./docs/tools.md#when-to-write-a-custom-check).
@@ -685,10 +795,10 @@ See [AGENTS.md](./AGENTS.md) for the contract agents follow,
 
 ## Programmatic API
 
-The CLI is the primary interface, but every command is also a function. Import
-from the package root to run the pipeline inside your own tooling; the result
-carries the same summary written to `.check/summary.json`, plus the exit code the
-CLI would return:
+The CLI is the primary interface, but the run, `init`, `doctor` and `fix` are
+also functions. Import from the package root to run the pipeline inside your
+own tooling; the result carries the same summary written to
+`.check/summary.json`, plus the exit code the CLI would return:
 
 <!-- snippet: check -->
 ```ts
@@ -700,11 +810,12 @@ process.exitCode = result.exitCode;
 
 `runChecks` sits alongside `runInit`, `runDoctor`, `runFix`, `selectChecks`
 and the `loadConfig`/`resolveChecks` pair; the adapter registry (`SLOTS`,
-`ADAPTERS`), the language packs and the tools they run (`PACKS`, `TOOLS`), and
-every public type are re-exported too. A second entry point,
-`checkride/findings`, parses a run's raw artifacts into findings, with
-`parseFindings`, `findingsFor` and `isParseable`. The full surface is the
-package's `exports`, and it is part of the [contract](./docs/contract.md).
+`ADAPTERS`), the language packs and the tools they run (`PACKS`, `TOOLS`),
+`SCHEMA_VERSION`, `DEFAULT_TIMEOUT_SECONDS` and every public type are
+re-exported too. A second entry point, `checkride/findings`, parses a run's
+raw artifacts into findings, with `parseFindings`, `findingsFor` and
+`isParseable`. The full surface is the package's `exports`, and it is part of
+the [contract](./docs/contract.md).
 
 ## License
 

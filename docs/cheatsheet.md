@@ -11,7 +11,7 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only).
 checkride fix          Run every active adapter's fix command (oxlint --fix, …).
 checkride baseline     Record current diagnostics as a committed baseline.
-checkride baseline diff [<ref>]  Keys the working tree's baseline adds or drops against <ref>'s (default HEAD).
+checkride baseline diff [<ref>]  Keys the working tree's baseline adds or drops against <ref>'s (default HEAD); --json for JSON.
 checkride target add   Declare a target (<name> --lang <pack> --root <dir>); a repo without targets converts.
 checkride recover      Restore checkride.baseline.json from git history (--pick applies).
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
@@ -35,7 +35,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--skip <a,b>` | Run everything except the named checks, named the same way. It narrows `--only` too. |
 | `--include <a,b>` | Add opt-in slots (`format`, `dupes`, `health`, `prose`, `mutation`, `security`, `publint`, `attw`, `build`, `pack`, `smoke`, `snippets`) to the default run. |
 | `--all` | Run every slot, including opt-in ones. |
-| `--changed` | Affected-only mode (incremental types, changed-file tests). |
+| `--changed` | Affected-only mode (incremental types, changed-file tests). With `targets`, skips each target nothing changed under, and a Go workspace's build and tests narrow to the modules a change touched and the ones that depend on them. |
 | `--base <ref>` | The ref `--changed` measures from (or set `CHECKRIDE_BASE`, or `changedBase` in the config; the flag wins). Default `origin/main`, else `HEAD` with a warning. A named ref that doesn't resolve exits 2. |
 | `--config <path>` | Read this config file instead of `./checkride.config.json` (or set `CHECKRIDE_CONFIG`; the flag wins). Also on `doctor`, `fix` and `baseline`. A file outside the repo never ratchets the baseline. |
 | `--out <dir>` | Write the summary, raw output and digest to `<dir>` instead of `./.check` (or set `CHECKRIDE_OUT`; the flag wins). Also on `baseline`, `triage` and `qa`; `doctor` probes it. A directory outside the repo never ratchets the baseline. |
@@ -44,7 +44,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. Where the config declares `targets`, those run instead, with a note on stderr. Also on `doctor`. Never ratchets the baseline. |
 | `--defaults <path>` | Fill the slots the repo's config and detection leave empty from this config file, marked `[defaults]` (or set `CHECKRIDE_DEFAULTS`; the flag wins). It never beats a detected tool, and can't declare `targets`. Also on `doctor`. A run with it never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
-| `--digest` | Write a token-bounded excerpt of the failing slots to `.check/digest.md` (empty run → removed). |
+| `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary; a green run removes any stale one. |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
@@ -70,6 +70,21 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--remove-hook <a,b>` | Remove installed hooks — entry + generated script. With `--no-hook`, remove only. |
 | `--harness <a,b>` | Write hooks for these harnesses: `claude`, `cursor`. Default: `claude`, plus `cursor` when `.cursor/` exists. |
 | `--dry-run` | Print what would be written; change nothing. |
+
+## `checkride target add`
+
+`checkride target add <name> --lang <pack> --root <dir>` declares a target in
+`checkride.config.json`, naming each tool its root already configures. In a
+repo with no targets yet, the implicit project becomes a target of its pack
+named `app` at `.`, its top-level entries and baseline keys moving with it.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--lang <pack>` | The target's pack: `ts`, `bash`, `go`, `rust`, `python` or `terraform`. |
+| `--root <dir>` | Its directory, relative to the repo root (`.` for the root). |
+| `--add <a,b>` | Name the blessed tool for these slots; a ts, python or terraform target also gets its config scaffolded under the root. |
+| `--root-name <n>` | The name a converted repo's implicit target takes (default `app`). |
+| `--dry-run` | Print the changes; write nothing. |
 
 ## `checkride hooks`
 
@@ -102,7 +117,9 @@ ordinary working-tree edit to review and commit — never a `git checkout`.
 
 ## npm-script aliases
 
-`init` writes these into `package.json`:
+A new project's `package.json` carries these. In an existing repo, `init` and
+`agent-setup` add `check` alone, and a repo without a `package.json` runs
+`mise exec -- checkride <args>` instead:
 
 | Script | Runs |
 | ------ | ---- |
@@ -159,7 +176,9 @@ your source in any wave, and `snippets-dist`, which checks the built `.d.ts`,
 joins wave 20. The other packs fill these slots with their own tools: see
 [Packs and pins](./packs.md).
 
-A slot only runs if its config file is detected (or its tool is built-in). See
+A slot only runs when `checkride.config.json` names its tool, detection finds
+one (its config file, a dependency, or for another pack a pin or the root's own
+marker, such as `go.mod`), or its tool is built-in. See
 [Tools and installation](./tools.md) for the detect file and install command
 per slot.
 
@@ -169,9 +188,9 @@ Every run writes here. Treat it as a stable API for agents.
 
 | File | Contents |
 | ---- | -------- |
-| `summary.json` | Aggregate report: per-check `ok`, `exit_code`, `duration_ms`, why it runs, and the argv and pin it ran with. |
+| `summary.json` | Aggregate report: the flags the run was given and the commit it read (`run`, `git`), and per check `ok`, `exit_code`, `duration_ms`, why it runs, the argv and pin it ran with, and the `reason` it was refused or skipped. |
 | `<slot>.json` / `<slot>.jsonl` | Raw tool JSON, or JSON lines, when the check declares that file and its stdout takes that form. |
-| `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams otherwise. A check refused before it ran says why in its `.stderr.txt`. |
+| `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams otherwise. A check refused before it ran prints why under its ✘ and keeps the full text in its `.stderr.txt`. |
 | `<target>/` | With `targets`, each target's checks write the same files under their target's directory, as `web/lint.json`. |
 | `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
 
@@ -184,7 +203,10 @@ output for structured diagnostics. On a big repo, `--digest` writes a capped
 | Symptom | Do this |
 | ------- | ------- |
 | Not sure the environment is ready | `pnpm exec checkride doctor` |
-| `doctor` says a tool is not installed | `pnpm install`, or `pnpm add -D <pkg>` |
+| `doctor` says a tool is not installed | `pnpm install`, or `pnpm add -D <pkg>`; `mise install` for a tool `mise.toml` pins; otherwise the command its hint names, such as `uv sync` |
+| A check runs that your config never named | Its status line's tag names why, as `[detected: <file>]`; set `"<slot>": false` to stop it |
+| Checks fail naming `mise trust` | mise won't read a `mise.toml` it hasn't trusted: review the file, then `mise trust` |
+| `unclaimed` fails | A toolchain marker sits outside every target: `checkride target add <name> --lang <pack> --root <dir>`, or add a glob for its path to `unclaimed.ignore` |
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |

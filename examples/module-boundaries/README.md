@@ -70,7 +70,7 @@ Each of these is a real violation you can reproduce in about ten seconds.
 Add an import of billing to `src/domains/catalog/product.ts`:
 
 ```text
-✘ dead    Fallow: unused code, cycles, and boundary violations
+✘ dead    Fallow: unused code, cycles, and boundary violations (dead-code)  [detected: fallow.toml]
             boundary_violations: 1
             circular_dependencies: 1
 ```

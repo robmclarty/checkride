@@ -48,8 +48,10 @@ obey that property mechanically.
 
 ## checkride's default convention
 
-checkride's `init` scaffolds one embodiment of the deep-module idea, tuned for
-TypeScript. The unit of encapsulation is a **module**:
+For a TypeScript project, checkride's `init` scaffolds one embodiment of the
+deep-module idea. (Go and Rust scaffolds lean on their compilers instead; see
+[Making it your own](#making-it-your-own).) The unit of encapsulation is a
+**module**:
 
 - A single file is a module. Its exported names are its interface; everything
   else in the file is implementation.
@@ -127,7 +129,7 @@ laid out the same way.
 
 ## How it's enforced
 
-Two tools, covering different scopes. Everything runs as part of `pnpm check`.
+Three tools, covering different scopes. Everything runs as part of `pnpm check`.
 
 | Scope     | Tool     | Rule                                                    |
 | --------- | -------- | ------------------------------------------------------- |
@@ -248,7 +250,14 @@ ast-grep rules live in your `rules/` directory, so you own the convention:
   shape with no change to checkride.
 - **Another language.** ast-grep is polyglot. Set each rule's `language`
   (`typescript`, `python`, `go`, `rust`, …) and the same slot enforces module
-  boundaries there.
+  boundaries there. `init --lang go` and `init --lang rust` start you off.
+  Their compilers already hold the boundary, Go's at `internal/` and Rust's at
+  its module privacy, so the dialect rules they ship under `rules/go/` and
+  `rules/rust/` keep each interface legible instead: no dot imports, no import
+  aliases and no `init` outside `package main` in Go, and no glob imports or
+  glob re-exports in Rust.
+  [`examples/python-project`](../examples/python-project/) runs two Python
+  rules the same way.
 - **Beyond ast-grep.** When a boundary is easier to express in another
   ecosystem's tool — `import-linter` (Python), `depguard` (Go),
   `dependency-cruiser` (JS) — wire it up as a

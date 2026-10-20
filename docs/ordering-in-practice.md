@@ -84,7 +84,10 @@ the config now *is* the execution plan.
 ## What it looks like at runtime
 
 The waves are visible as the run happens. The `▸` markers show a whole wave
-launching as a set; the `✔` lines show it draining before the next wave starts:
+launching as a set; the `✔` lines show it draining before the next wave starts.
+The output below is condensed: each wave's launches share one line here, and
+each check's description, and the `[config]` tag its `✔` line ends with, are
+trimmed.
 
 ```text
 Running 8 check(s)...
@@ -101,7 +104,7 @@ Running 8 check(s)...
   ▸ test                                          ← runs alone
   ✔ test      39186ms
 
-✔ all checks passed in 40803ms
+✔ all checks passed in 40803ms — only 7 of 8 checks ran, 1 skipped
 ```
 
 A reviewer who has never seen the config can read the schedule off the terminal.

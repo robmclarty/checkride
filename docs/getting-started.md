@@ -21,12 +21,20 @@ The examples in this guide use pnpm's forms; on another manager, substitute
 yours (`npx` / `yarn` / `bunx` for `pnpm exec`, and so on) — see
 [Package managers](./tools.md#package-managers) for the exact mapping.
 
+A repo with no `package.json`, such as a Go or Rust project, needs
+[mise](https://mise.jdx.dev) in place of the first two rows: mise installs
+Node and checkride from the repo's `mise.toml`, and runs it as
+`mise exec -- checkride` ([Installing checkride](./distribution.md)).
+
 Everything else (oxlint, ast-grep, fallow, vitest, …) is a project
 `devDependency` and is restored by `pnpm install`. That full list describes a
 new-project scaffold; an existing repo has only the tools it already installed —
 checkride detects what is present and skips the rest. See
 [Tools and installation](./tools.md) for the full list and how to add a missing
-one.
+one. Another language's tools come from the repo's own pins instead: a `go.mod`
+`tool` directive, a `rust-toolchain.toml`, a `uv.lock`, a
+`.terraform-version`, or a `mise.toml`, as [Packs and pins](./packs.md)
+describes.
 
 Verify the environment at any time:
 
@@ -34,9 +42,11 @@ Verify the environment at any time:
 pnpm exec checkride doctor
 ```
 
-`doctor` is read-only. It checks Node/pnpm/git versions, that the project is
-installed, and reports every slot's status (installed, opt-in, disabled, or no
-tool detected). Exit `0` means you are ready to run.
+`doctor` is read-only. It checks Node/pnpm/git versions and that the project is
+installed, names how the repo is checked (one project of the pack its root
+marks, or the targets its config declares), and reports every slot's status
+(installed, opt-in, disabled, or no tool detected) with the pin source its tool
+resolves through. Exit `0` means you are ready to run.
 
 ## Add checkride to a project
 
@@ -44,7 +54,10 @@ tool detected). Exit `0` means you are ready to run.
 by looking for a root marker: a `package.json`, or another pack's, a `go.mod`
 or `go.work`, a `Cargo.toml`, a `pyproject.toml`, `setup.cfg` or `setup.py`,
 or a `.terraform.lock.hcl` or `.tf` file, which it adopts through that pack. A
-`tsconfig.json` alone doesn't make a project existing.
+`tsconfig.json` alone doesn't make a project existing. A root with no marker
+is an existing repo too when a project sits below it, as in a repo whose
+languages all live in subdirectories; only a directory with neither gets a
+new project scaffolded.
 
 ### An existing repository
 
@@ -58,6 +71,19 @@ what is missing (a `checkride.config.json`, a `check` script alias, an AGENTS.md
 stanza), and never overwrites an existing tool config. Any adopted check that
 fails on the first run is recorded as disabled so the initial `pnpm check` is
 green — re-enable each slot as you fix it.
+
+When the repo's files suggest more than one project, such as a `go.mod` in
+`services/api/` beside the app, `init` proposes a target for each, writes them
+to `checkride.config.json`, and prints what it proposed. A root `package.json`
+that runs a ts tool of its own (a `tsconfig.json`, a linter or test config
+beside it, or such a tool among its dependencies) becomes one ts target at
+`.`, which claims every package below it and the shell scripts under it too,
+so declare a bash target for those with `checkride target add`. A workspace
+root that only installs tools proposes each package below it instead, and
+its `package.json` goes in `unclaimed.ignore`. `--dry-run` previews the proposal, and
+`checkride --discover` checks it without writing anything.
+[Targets](./targets.md) has the rules, and
+[the polyglot walkthrough](./polyglot.md) adopts such a repo step by step.
 
 Disabling is the blunt fallback. For a repo with real existing findings, prefer
 the **baseline ratchet**:
@@ -105,6 +131,36 @@ where tests live — are decisions your repo has already made, so adopting a che
 does not hand you nine of them to argue with. They are listed in
 [deep modules](./deep-modules.md#how-its-enforced) if you want them; copy in the
 ones you agree with.
+
+### An existing repository without Node
+
+A Go, Rust, Python or Terraform repo with no `package.json` pins checkride in
+its `mise.toml`, beside a `node` for it to run on, and runs it through mise:
+
+```bash
+mise use node@22.18.0 'npm:checkride[allow_low_downloads=true]@<version>'
+mise trust
+mise install
+mise exec -- checkride init
+mise exec -- checkride
+```
+
+`init` adopts the repo through the pack its root marks. It names the checks
+the tools it finds fill, `types` and `test` for a `go.mod`, say, plus `lint`
+where a `.golangci.yml` sits, writes the AGENTS.md stanza and the hooks
+spelled `mise exec -- checkride`, and writes no `check` script, since there's
+no `package.json` to hold one. `--baseline` grandfathers today's findings here
+as it does anywhere. Pin the pack's own tools in the same `mise.toml`
+(`mise use golangci-lint@<version>`, for one), and run the setup step a check
+won't, such as `go mod download` or `uv sync`, before the first run.
+[Installing checkride](./distribution.md) explains the pin and its
+`allow_low_downloads` opt-in.
+
+A repo whose languages all live in subdirectories, with no `go.mod`,
+`Cargo.toml`, `pyproject.toml` or `.tf` file at the root and nothing there but
+the `mise.toml`, is adopted the same way: `init` finds the projects below the
+root and declares a target for each, as
+[the polyglot walkthrough](./polyglot.md) shows.
 
 ### A new project
 
@@ -258,7 +314,8 @@ While iterating, narrow the loop so feedback is fast:
 ```bash
 pnpm check --bail            # stop at the first failing check
 pnpm check --only types,lint # run just the named slots
-pnpm check --changed         # affected-only (incremental types, changed tests)
+pnpm check --only api        # one target's checks, where the config declares targets
+pnpm check --changed         # affected-only (incremental types, changed tests, untouched targets skipped)
 ```
 
 Run the full `pnpm check` once at the end to confirm green.
@@ -271,12 +328,19 @@ Every run writes machine-readable output to `.check/`. To debug a failure:
    `ok` is `false`.
 2. Read that slot's raw output — **`.check/<slot>.json`** (for example
    `.check/lint.json`), or `.check/<slot>.stdout.txt` when the tool's output is
-   not JSON. A check refused before it ran, for a tool that isn't installed
-   or a setup step that hasn't run, says why in `.check/<slot>.stderr.txt`,
-   and in a repo with targets a target's check writes under
-   `.check/<target>/` instead, as `.check/web/lint.json`.
+   not JSON. In a repo with targets, a target's check writes under
+   `.check/<target>/` instead, as `.check/web/lint.json`. A check refused
+   before it ran, for a tool that isn't installed or a setup step that hasn't
+   run, prints why under its ✘, records it as the check's `reason` in the
+   summary, and keeps the full text in `.check/<slot>.stderr.txt`.
 3. Fix the root cause, not the symptom.
 4. Re-run `pnpm check`.
+
+Each status line ends with a tag that says why the check ran: `[config]` when
+`checkride.config.json` names it, `[detected: <file>]` when detection found its
+tool, as in `[detected: .golangci.yml]`, and `[built-in]` or `[custom]`
+otherwise. A check you didn't expect names the file that brought it in, and
+`"<slot>": false` in the config turns it off.
 
 Some failures have a one-shot fix. `checkride fix` runs every active adapter's
 fix command (`oxlint --fix`, `markdownlint-cli2 --fix`, and so on):
@@ -298,8 +362,9 @@ adopts the "exit 0 = done" rule on its own.
 
 - **`AGENTS.md`** — a stanza, between `<!-- checkride:begin … -->` and
   `<!-- checkride:end -->` markers, stating that `pnpm check` is the definition
-  of done, how to read `.check/` when it fails, the module-boundary conventions,
-  and the tight-loop commands.
+  of done (`mise exec -- checkride` in a repo whose `mise.toml` pins
+  checkride), how to read `.check/` when it fails, the module-boundary
+  conventions, and the tight-loop commands.
 - **`CLAUDE.md`** — a short pointer to `AGENTS.md` (written only if you do not
   already have one).
 
@@ -444,7 +509,7 @@ checkride green in 4.1s ✔ (only types, lint, struct, affected-only)
 ```
 
 Naming the narrowing is the price of the feature and it is not optional. A gate
-that runs three of eighteen slots and reports a bare `green ✔` has told you the
+that runs three of twenty-one slots and reports a bare `green ✔` has told you the
 work is done, which is exactly what it does not know — the vacuous pass this
 whole tool exists to prevent, arrived at from the comfortable direction. A
 narrowed red likewise points past itself, because fixing what the profile found
@@ -538,7 +603,8 @@ output is indistinguishable from a model that has hung. Two things say otherwise
 under Claude Code:
 
 - **While it runs**, the Stop entry carries a `statusMessage`, so the spinner
-  reads `checkride gate — running \`pnpm check\`` instead of nothing. The entry
+  reads `` checkride gate — running `pnpm check` `` (or the repo's own check
+  command, such as `mise exec -- checkride`) instead of nothing. The entry
   also raises `timeout` to 900s: Claude Code's default is 600, and a cancelled
   Stop hook is a *broken* one, which ends the turn — a pipeline slower than the
   default would stop gating without saying so.
@@ -567,11 +633,12 @@ silent, and nothing in Cursor's documented hook API can change that today. See
 A gate that *could not run at all* answers one question before deciding what to
 do: **can this turn fix it?**
 
-If it can — the repo has no `check` script, no package.json — the gate blocks in
+If it can — the repo's `package.json` has no `check` script — the gate blocks in
 both harnesses, exactly as a red does. The agent has the edit tools, so blocking
 is what gets it fixed.
 
-If it cannot — checkride was never installed, the hook's Node does not satisfy
+If it cannot — checkride was never installed, mise hasn't installed the copy
+`mise.toml` pins or hasn't trusted that file, the hook's Node does not satisfy
 the repo's `engines` pin, corepack will not verify the package manager — the gate
 **says so and lets the turn end**. Nothing here is silent: Claude Code gets a
 `systemMessage` naming the fix (`pnpm install`, or the `CHECKRIDE_NODE_BIN`
@@ -585,7 +652,9 @@ reports "could not run" beats a removed one.
 
 The commonest case by far is a fresh clone, or a branch that newly added
 checkride, opened before `<pm> install`. The gate names the package manager and
-the fact that checkride is a devDependency, because that is the whole fix.
+the fact that checkride is a devDependency, because that is the whole fix. In a
+repo whose `mise.toml` pins checkride, it names `mise install`, or `mise trust`
+for a `mise.toml` mise hasn't trusted yet.
 
 The generated scripts bound this in one more place. Claude Code's Stop payload
 carries `stop_hook_active` and Cursor's a `loop_count`; on the **second**
@@ -668,7 +737,8 @@ is:
 ## Uninstalling
 
 No lock-in needs undoing. checkride's whole footprint is: the `checkride`
-devDependency, `checkride.config.json`, `checkride.baseline.json` (if you
+devDependency (or the `npm:checkride` pin in `mise.toml`),
+`checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if
 `init` created it), the hook entries in `.claude/settings.json` and
@@ -684,6 +754,10 @@ run exactly as before; you have merely dropped the orchestrator.
 - [Cheat sheet](./cheatsheet.md) — every command and flag at a glance.
 - [Installing checkride](./distribution.md) — npm, and the mise route for a
   repo without Node.
+- [A polyglot repo, end to end](./polyglot.md) — adopting checkride in a repo
+  with more than one language, from install to CI.
+- [Targets](./targets.md) and [Packs and pins](./packs.md) — the rules behind
+  that walkthrough: declaring targets, and which copy of each tool runs.
 - [Tools and installation](./tools.md) — installing a missing tool, slot by slot.
 - [README](../README.md) — the slot/adapter model and the `.check/` contract.
 - [AGENTS.md](../AGENTS.md) — the contract for coding agents.

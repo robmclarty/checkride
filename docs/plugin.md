@@ -18,11 +18,11 @@ checkride is a checkride feature request, not a plugin feature.
 Reading the summary by hand is the procedure `checkride init` writes into
 AGENTS.md, and it works. It is also wrong in two directions at once.
 
-**It is unbounded.** In checkride's own repo, `mutation.json` is 2.2 MB and
-`test.json` is 650 KB. Opening one spends the context you need for the fix.
+**It is unbounded.** In checkride's own repo, `mutation.json` is over 12 MB
+and `test.json` nearly 3 MB. Opening one spends the context you need for the fix.
 
 **It is credulous.** Every run overwrites `summary.json`, so an `ok: true` on
-disk may describe three of seventeen slots from fourteen minutes ago, and the
+disk may describe three of twenty-one slots from fourteen minutes ago, and the
 other artifacts beside it may belong to some other run entirely. Nothing in the
 schema says so — the summary is an *index*, not evidence.
 
@@ -72,8 +72,10 @@ Each takes one optional argument, a repo path that defaults to the current
 directory, and `--out <dir>` (or `CHECKRIDE_OUT`) for a run that wrote its
 artifacts somewhere other than `.check/`; `triage` hands that directory to the
 run it starts. Each writes Markdown to stdout and exits 0 whenever a report was
-produced. What you lose is the skill — the procedure and the judgment that turn
-a report into a diagnosis.
+produced. In a repo with no `package.json`, run them as
+`mise exec -- checkride triage` where a `mise.toml` pins checkride, or through
+the `checkride` on `PATH`, as the skills do. What you lose is the skill — the
+procedure and the judgment that turn a report into a diagnosis.
 
 The same readers also ship as plain Node entry points, which is how the plugin
 invokes them in a repo that does not depend on checkride:
@@ -130,7 +132,7 @@ The reader runs the check the way the repo does — its own `check` script, whic
 is the definition of done and may carry deliberate `--only` / `--skip` /
 `--changed` that a direct `checkride` invocation would bypass, or, in a repo with
 no `package.json`, `mise exec -- checkride` where a `mise.toml` pins it — then
-branches on the promised 0/1/2 exit split before reading anything. A green 17-slot run renders in about 2 KB.
+branches on the promised 0/1/2 exit split before reading anything. A green 18-check run renders in about 2 KB.
 
 It covers the contract corners a plain summary read gets wrong:
 
@@ -143,6 +145,7 @@ It covers the contract corners a plain summary read gets wrong:
 | narrow green | `ok: true` over a subset — the header states covered slots and the run's age before any finding |
 | `baselined: N` | that many findings are grandfathered, so the pass is not clean |
 | `skipped` + `reason` | that slot verified nothing this run |
+| a refusal | a check that failed before it spawned (a tool the project never installed, a `terraform init` not yet run) carries a `reason`, which the failing list prints beside it |
 | `exit_code: -1` | a spawn failure, a timeout, or a built-in that ran without reaching a verdict (`security` with the advisory endpoint down) — a harness problem wearing a failure's clothes, not a finding |
 | a bumped `schema_version` | the reader is pinned to 1 and stops loudly rather than guessing |
 | a stale artifact | anything older than the run's start is labelled with its age, never silently dropped |
@@ -162,7 +165,7 @@ anything, and where is the risk". It reads the four quality artifacts checkride
 already writes — `mutation.json`, `dead.json`, `dupes.json`, `health.json` —
 and runs **nothing at all**: not stryker, not fallow, not the gate.
 
-The 2.2 MB of `mutation.json` folds to a ranked page; the whole report stays
+More than 12 MB of `mutation.json` folds to a ranked page; the whole report stays
 under 8 KB, the same ceiling `--digest` uses. That bound is the only reason a
 mutation finding is affordable in a conversation.
 

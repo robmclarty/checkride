@@ -42,7 +42,7 @@ render the identical report.
 
 It **runs nothing** — no stryker, no fallow, not the gate. It opens `.check/`,
 folds each artifact to a ranked short list, and renders under 8 KB (the same
-ceiling `--digest` uses). In checkride's own repo that is 2.3 MB of
+ceiling `--digest` uses). In checkride's own repo that is over 12 MB of
 `mutation.json` reduced to a page, which is the only reason a mutation finding
 is affordable at all.
 
@@ -64,7 +64,7 @@ very nearly the *whole* report.
 - **`summary`** — what the artifacts beside it belong to, and how long ago. If it
   reads `` `schema_version` is 2, not 1; STOP ``, then **stop**: the reader is
   pinned to schema 1, and guessing across a version is how you invent a finding.
-- **`covered`** — the slots that run actually touched. Three of seventeen means
+- **`covered`** — the slots that run actually touched. Three of twenty-one means
   the artifacts on disk mostly belong to *some other* run, and the ledger's
   staleness column is the only thing standing between you and reporting them as
   current. `covered: nothing` means there is no readable summary at all, so no

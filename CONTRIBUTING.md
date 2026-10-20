@@ -32,9 +32,11 @@ pnpm check        # the definition of done — exit 0 or it isn't finished
 ```
 
 `pnpm check` is checkride running on itself: types, lint, structure, dead code,
-duplication, complexity health, tests + coverage, docs, links, spelling. For
-faster iteration: `pnpm check --bail`, `pnpm check --only types,lint`, `pnpm
-check --changed`. Always finish with a full `pnpm check`.
+duplication, complexity health, tests + coverage, docs, links, spelling, prose,
+a type check of the tests, and the publish-ready bundle (build, publint, attw,
+pack, smoke, snippets). For faster iteration: `pnpm check --bail`,
+`pnpm check --only types,lint`, `pnpm check --changed`. Always finish with a
+full `pnpm check`.
 
 Slower suites, run before a release (CI runs e2e on every push):
 

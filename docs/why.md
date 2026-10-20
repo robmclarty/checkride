@@ -36,8 +36,9 @@ superlinear across many. This is the part that's easiest to miss when
 evaluating checkride against a single repository's setup, so it's worth
 spelling out.
 
-Consider an organization with a handful of TypeScript repos — a product
-backend, a frontend, some internal tools, a couple of libraries. Each one
+Consider an organization with a handful of repos — a TypeScript frontend, a
+Go or Python backend, some internal tools, a couple of libraries, and the
+Terraform that deploys them. Each one
 accumulated its own check setup at a different time, by a different person,
 with different tools at different versions. Individually, each setup is fine.
 Collectively, they impose four recurring costs:
@@ -61,7 +62,8 @@ Factoring the "check" concern into a shared package converts all four from
 per-repo costs into one amortized cost:
 
 - **Learn once, apply everywhere.** `pnpm check` means the same thing in every
-  repo. The flags are the same. `.check/summary.json` has the same shape. A
+  repo, and so does `mise exec -- checkride` in a repo without Node. The flags
+  are the same. `.check/summary.json` has the same shape. A
   developer — or an agent — who knows one repo's check discipline knows all of
   them.
 - **Fix once, upgrade everywhere.** A bug or friction found in *any* adopting
@@ -73,8 +75,7 @@ per-repo costs into one amortized cost:
   different configuration — a monorepo here, a published library there, a
   legacy codebase with a baseline somewhere else. Every edge case one repo
   hits and fixes hardens the package for all the others. This is the standard
-  open-source leverage argument, applied to the one concern every TypeScript
-  repo shares.
+  open-source leverage argument, applied to the one concern every repo shares.
 - **The agent contract becomes uniform.** The AGENTS.md stanza, the Stop hook,
   the "exit 0 = done" rule — identical in every repo, written by
   `checkride agent-setup`, upgraded centrally. An organization adopting
@@ -125,8 +126,9 @@ CI file), here is what checkride returns and what it costs.
 
 **What it costs:**
 
-- One dev dependency, exact-pinned, with **no runtime dependency on any
-  checked tool** — the repo keeps owning its tool versions and configs.
+- One dev dependency, exact-pinned (or one `mise.toml` pin in a repo without
+  Node), with **no runtime dependency on any checked tool** — the repo keeps
+  owning its tool versions and configs.
 - Learning one command and a handful of flags.
 - The discipline of treating exit 0 as the definition of done — which is a
   cost only if the team didn't want a definition of done.
@@ -214,8 +216,9 @@ The provenance of a tool is a fair thing to weigh, but the weighing should be
 against the artifact, not the author. The relevant questions are testable:
 Does it have a frozen, contract-tested public surface? ([Yes](./contract.md).)
 Is the tested envelope stated honestly? ([Yes](./reliability.md) — two
-operating systems, three Node versions, four package managers, and Windows
-explicitly not claimed.) Is the exit cheap? (Yes — see above.) Does it change
+operating systems, three Node versions, four package managers, every language
+pack against its real tools, and Windows explicitly not claimed.) Is the exit
+cheap? (Yes — see above.) Does it change
 your tools' behavior? (No — it runs your pinned versions against your
 configs.) A tool that clears those bars doesn't become worse because a
 colleague wrote it; if anything, the maintainer being in the room is the one
@@ -256,7 +259,8 @@ every target, so a new service can't slip in unchecked. A repo with no
 `package.json` at all runs checkride through mise. Anything no pack ships
 still fits a [custom check](../README.md#custom-checks), under the same
 contract: exit-code taxonomy, timeouts, atomic artifacts, the summary schema
-and the agent contract.
+and the agent contract. [A polyglot repo, end to end](./polyglot.md) shows the
+whole adoption on a repo of that shape, with the output at each step.
 
 **"Adopting it means fixing years of debt first."**
 No — this is exactly what the [baseline](../README.md#baseline) exists for.
