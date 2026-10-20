@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="t d">
-  <!-- The README hero. checkride_hero.png is this file rendered at 1.5x (2400 by 1200) with the site's fonts: DM Serif Display, Space Grotesk and JetBrains Mono. -->
+  <!-- The README hero. hero.png is this file rendered at 1.5x (2400 by 1200) with the site's fonts: DM Serif Display, Space Grotesk and JetBrains Mono. -->
   <title id="t">checkride: exit 0, or go around</title>
   <desc id="d">A coding agent, drawn as a robot pilot in a small plane, approaches a runway. Beside it stands a control tower named checkride, built on your repo. Eight approach lights, one per check (types, lint, struct, dead, test, docs, links and spell), all run by one command, pnpm check, are green, so the tower shines a green light: exit 0, cleared to land, and the sign by the runway reads DONE. A dashed loop shows the earlier approach, where a failed test meant exit 1 and a go-around.</desc>
   <defs>
