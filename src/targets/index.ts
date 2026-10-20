@@ -10,7 +10,7 @@
 export { addTarget, liftDiscovered } from './add.js';
 export type { TargetChange } from './add.js';
 export { changedGoModules, changedUnder, noChangesReason, noGoModuleChangedReason, pathsUnder } from './changed.js';
-export { declaredNote, discoverRun, discoverTargets, isImplicit } from './discover.js';
+export { declaredNote, discoverRun, discoverTargets, ignoreToolsRoot, isImplicit, rootRunsTsTool } from './discover.js';
 export type { ProposedTarget } from './discover.js';
 export {
   argvBytes,

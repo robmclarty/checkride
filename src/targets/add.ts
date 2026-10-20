@@ -131,7 +131,7 @@ function entryOf(target: TargetToAdd): TargetEntry {
 }
 
 /** True when a top-level entry for one of `targetSlots` picks a tool: an adapter's name, `{ use }` or `{ command }`. */
-function picksTool(raw: Record<string, unknown>, targetSlots: ReadonlySet<string>): boolean {
+export function picksTool(raw: Record<string, unknown>, targetSlots: ReadonlySet<string>): boolean {
   const checks = isRecord(raw['checks']) ? raw['checks'] : {};
   return Object.entries(checks).some(([slot, entry]) => {
     if (!targetSlots.has(slot)) return false;

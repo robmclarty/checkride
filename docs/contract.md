@@ -656,8 +656,17 @@ check those targets as they would without the flag, and stderr carries one
 note naming them as the reason, `--discover: the config declares its targets
 (web, api), so they stand in for discovery`. The summary still records
 `run.discover`, no target carries `discovered`, and the run never ratchets.
-Otherwise, discovery reads the files git lists. A root `package.json` or `pnpm-workspace.yaml` proposes one
-`ts` target at the root, else each top-most `package.json` proposes its own.
+Otherwise, discovery reads the files git lists. A root that holds a
+`package.json`, `pnpm-workspace.yaml` or `tsconfig.json` and runs a ts tool
+of its own proposes one `ts` target at the root, which claims every nested ts
+project. The root runs one when the config picks a tool for a target-scope
+slot, at its top level or in `packs.ts.checks`, or when detection finds a
+default ts check's tool there: a config file such as a `tsconfig.json`, an
+`.oxlintrc.json` or a vitest config, or a package the root `package.json`
+lists in `dependencies` or `devDependencies`. Otherwise each top-most
+directory below the root holding a `package.json` or `tsconfig.json`
+proposes its own, and a root `package.json`, which only installs tools, is
+added to `unclaimed.ignore` in memory, since no ts target can claim it.
 Each top-most `go.work` directory proposes a `go` target that claims the
 modules its `use` directives name, and each top-most `go.mod` no go target
 claims proposes one more. Each top-most `Cargo.toml` with a `[workspace]` table
@@ -796,11 +805,13 @@ shipped pack's marker, or, holding none, when discovery proposes a project
 below it, as in a repo whose languages all live in subdirectories; only a
 directory with neither gets a new project scaffolded. `init` reads the repo's
 files as `unclaimed` does and proposes a ts target at the root when the root
-holds a `package.json` or `pnpm-workspace.yaml`, claiming every nested
-package, and otherwise one for each top-most `package.json`. The repo's
-implicit target becomes a target of its own only when its root marks a pack,
-so `init` never declares a ts target at `.` for a root that marks nothing.
-Shell files
+holds a `package.json`, `pnpm-workspace.yaml` or `tsconfig.json` and runs a ts
+tool of its own, as `--discover` reads it, claiming every nested package, and
+otherwise one for each top-most `package.json` or `tsconfig.json` directory
+below it, listing a root `package.json` in `unclaimed.ignore`. The repo's
+implicit target becomes a target of its own only when its root marks a pack
+and, for a ts root, runs a ts tool of its own, so `init` never declares a ts
+target at `.` that checks nothing. Shell files
 outside every other proposed target's root propose one bash target, at the
 deepest directory holding them all, named `scripts` when that directory is
 the root's `scripts/` and `shell` otherwise. Other names come from each

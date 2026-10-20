@@ -1,6 +1,7 @@
 /**
- * R11.4 for the packs that ship: ts targets from `package.json` (a root one
- * claiming every nested package), go targets from `go.work` and `go.mod`, rust
+ * R11.4 for the packs that ship: ts targets from `package.json` and
+ * `tsconfig.json` (a root that runs a ts tool of its own claiming every nested
+ * package, and a workspace root that runs none proposing its packages), go targets from `go.work` and `go.mod`, rust
  * targets from `Cargo.toml`, python targets from the top-most Python
  * manifests, terraform targets from lock files and then the top-most `.tf`
  * directories left, one bash target where the shell files no other
@@ -15,7 +16,7 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { declaredNote, discoverRun, discoverTargets, isImplicit } from '../discover.js';
+import { declaredNote, discoverRun, discoverTargets, ignoreToolsRoot, isImplicit, rootRunsTsTool } from '../discover.js';
 import { checkUnclaimed } from '../unclaimed.js';
 
 describe('discoverTargets', () => {
@@ -30,16 +31,45 @@ describe('discoverTargets', () => {
     }
   };
 
-  test('a root package.json proposes one ts target that claims every package, and the shell files under it', async () => {
-    await put('package.json', 'packages/a/package.json', 'scripts/deploy.sh');
+  test('a root package.json that runs a ts tool proposes one ts target that claims every package, and the shell files under it', async () => {
+    await put('package.json', 'tsconfig.json', 'packages/a/package.json', 'scripts/deploy.sh');
     const proposed = await discoverTargets(repo);
     expect(proposed).toEqual([{ name: 'app', lang: 'ts', root: '.' }]);
     expect(isImplicit(proposed, 'ts')).toBe(true);
   });
 
-  test('a root pnpm-workspace.yaml proposes the root target too', async () => {
-    await put('pnpm-workspace.yaml', 'apps/web/package.json');
+  test('a root pnpm-workspace.yaml that runs a ts tool proposes the root target too', async () => {
+    await put('pnpm-workspace.yaml', 'vitest.config.ts', 'apps/web/package.json');
     expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'ts', root: '.' }]);
+  });
+
+  test('a root package.json that runs no ts tool of its own proposes its packages, and the shell files then gather into a bash target', async () => {
+    await put('package.json', 'pnpm-workspace.yaml', 'web/package.json', 'web/tsconfig.json', 'api/go.mod', 'scripts/deploy.sh');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'web', lang: 'ts', root: 'web' },
+      { name: 'api', lang: 'go', root: 'api' },
+      { name: 'scripts', lang: 'bash', root: 'scripts' },
+    ]);
+  });
+
+  test('a root runs a ts tool when its package.json lists one, or the config names one, at the top level or for the ts pack', async () => {
+    await put('web/package.json');
+    await writeFile(join(repo, 'package.json'), JSON.stringify({ devDependencies: { checkride: '0.15.0' } }));
+    expect(rootRunsTsTool(repo, null)).toBe(false);
+    expect(rootRunsTsTool(repo, { checks: { lint: false, links: 'links' } })).toBe(false);
+    expect(rootRunsTsTool(repo, { checks: { lint: 'oxlint' } })).toBe(true);
+    expect(rootRunsTsTool(repo, { packs: { ts: { checks: { test: { use: 'vitest' } } } } })).toBe(true);
+    await writeFile(join(repo, 'package.json'), JSON.stringify({ devDependencies: { vitest: '5.0.3' } }));
+    expect(rootRunsTsTool(repo, null)).toBe(true);
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'ts', root: '.' }]);
+  });
+
+  test('a tsconfig.json marks a ts project below the root as a package.json does', async () => {
+    await put('web/tsconfig.json', 'web/src/tsconfig.worker.json', 'tools/gen/package.json');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'gen', lang: 'ts', root: 'tools/gen' },
+      { name: 'web', lang: 'ts', root: 'web' },
+    ]);
   });
 
   test('without one, each top-most package.json proposes a target, and the shell files outside them gather into one bash target', async () => {
@@ -160,8 +190,9 @@ describe('discoverTargets for go and rust (D68)', () => {
     expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'rust', root: '.' }]);
   });
 
-  test('a root package.json beside a go.mod proposes both, and the second root target takes a number', async () => {
+  test('a root package.json that runs a ts tool beside a go.mod proposes both, and the second root target takes a number', async () => {
     await write('package.json', '{}');
+    await write('tsconfig.json', '{}');
     await write('go.mod', 'module example.com/app\n');
     expect(await discoverTargets(repo)).toEqual([
       { name: 'app', lang: 'ts', root: '.' },
@@ -196,10 +227,11 @@ describe('discoverTargets for python', () => {
     ]);
   });
 
-  test('reads no marker from a virtual environment, and a python root beside a package.json proposes both', async () => {
+  test('reads no marker from a virtual environment, and a python root beside a ts root proposes both', async () => {
     await write('.venv/lib/site/pyproject.toml');
     expect(await discoverTargets(repo)).toEqual([]);
     await write('package.json');
+    await write('tsconfig.json');
     await write('pyproject.toml');
     expect(await discoverTargets(repo)).toEqual([
       { name: 'app', lang: 'ts', root: '.' },
@@ -253,6 +285,7 @@ describe('discoverRun (R13.2)', () => {
 
   test('declares the proposed targets in memory, the root target taking the slot entries and the baseline’s', async () => {
     await write('package.json');
+    await write('tsconfig.json');
     await write('services/api/go.mod', 'module example.com/api\n');
     const found = await discoverRun(repo, { checks: { lint: false, links: false } }, baseline);
     expect(found.config).toEqual({
@@ -299,6 +332,24 @@ describe('discoverRun (R13.2)', () => {
       'unclaimed: go.mod marks go code that no go target checks.\n' +
         "  no go target can claim it: one rooted at . would hold the go target svc at svc, and two targets of one pack can't nest; list it in unclaimed.ignore\n",
     );
+  });
+
+  test('a root package.json that runs no ts tool goes in unclaimed.ignore, so unclaimed holds', async () => {
+    await write('package.json', JSON.stringify({ devDependencies: { checkride: '0.15.0' } }));
+    await write('web/package.json');
+    await write('api/go.mod', 'module example.com/api\n');
+    const found = await discoverRun(repo, { unclaimed: { ignore: ['tools/**'] } }, null);
+    expect(found.targets.map((t) => [t.name, t.pack, t.root])).toEqual([['web', 'ts', 'web'], ['api', 'go', 'api']]);
+    expect(found.config?.['unclaimed']).toEqual({ ignore: ['tools/**', 'package.json'] });
+    const outcome = await checkUnclaimed(repo, { targets: found.targets, ignore: ['tools/**', 'package.json'] });
+    expect(outcome).toMatchObject({ ok: true });
+  });
+
+  test('ignoreToolsRoot leaves a config alone where a ts target sits at the root, or nothing is declared', async () => {
+    await write('package.json');
+    const rooted = { targets: { app: { lang: 'ts', root: '.' }, api: { lang: 'go', root: 'api' } } };
+    expect(ignoreToolsRoot(rooted, repo)).toEqual({ config: rooted, changes: [] });
+    expect(ignoreToolsRoot({ checks: {} }, repo)).toEqual({ config: { checks: {} }, changes: [] });
   });
 
   test('the note names the declared targets as the reason', () => {

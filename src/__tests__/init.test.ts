@@ -562,6 +562,7 @@ describe('existing-project adoption (idempotent)', () => {
 
   test('discovery that proposes only the root target keeps the repo implicit, and says nothing (R11.4)', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
     await mkdir(join(dir, 'scripts'));
     await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\n');
     const out = sink();
@@ -685,6 +686,29 @@ describe('existing-project adoption (idempotent)', () => {
       app: { lang: 'go', root: '.', checks: { types: 'go-build', test: 'go-test' } },
       scripts: { lang: 'bash', root: 'scripts' },
     });
+  });
+
+  test('a workspace root that runs no ts tool declares its packages, not itself, and unclaimed.ignore takes its package.json', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'acme', private: true, devDependencies: { checkride: '0.15.0' } }));
+    await writeFile(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - web\n');
+    await mkdir(join(dir, 'web'));
+    await writeFile(join(dir, 'web', 'package.json'), JSON.stringify({ name: '@acme/web', private: true }));
+    await writeFile(join(dir, 'web', 'tsconfig.json'), '{}');
+    await mkdir(join(dir, 'api'));
+    await writeFile(join(dir, 'api', 'go.mod'), 'module example.com/api\n\ngo 1.24\n');
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\necho deploy\n');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    expect(cfg['targets']).toEqual({
+      web: { lang: 'ts', root: 'web' },
+      api: { lang: 'go', root: 'api' },
+      scripts: { lang: 'bash', root: 'scripts' },
+    });
+    expect(cfg['unclaimed']).toEqual({ ignore: ['package.json'] });
+    expect(configProblem(cfg, { cwd: dir, layer: 'repo' })).toBeNull();
+    expect(out.text()).toContain('unclaimed.ignore: package.json, a root that runs no ts tool of its own, so no ts target claims it');
   });
 
   test('a root with no marker but projects below it is adopted, its targets declared, and nothing scaffolded', async () => {

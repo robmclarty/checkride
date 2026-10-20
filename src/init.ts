@@ -37,7 +37,7 @@ import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, liftDiscovered, markedPack, markerAt } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, ignoreToolsRoot, implicitPack, isImplicit, liftDiscovered, markedPack, markerAt, rootRunsTsTool } from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -1652,10 +1652,10 @@ const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !=
  * `raw` with `proposed` declared one by one, as `target add` declares each:
  * the root target first, so it takes the implicit target over rather than
  * nesting beside one, and otherwise the implicit target named `app`. Where
- * the root marks no pack (`marked` false), as in a repo whose projects all
- * sit below it, the implicit target becomes one only when an entry picks it
- * a tool, as `target add` decides it, so `init` never invents a ts target at
- * `.` that checks nothing.
+ * the root is no project of its own (`marked` false, {@link rootIsProject}),
+ * as in a repo whose projects all sit below it, the implicit target becomes
+ * one only when an entry picks it a tool, as `target add` decides it, so
+ * `init` never invents a ts target at `.` that checks nothing.
  */
 function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedTarget[], pack: string, marked: boolean): TargetChange {
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
@@ -1666,6 +1666,19 @@ function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedT
     change = { config: next.config, renames: new Map([...change.renames, ...next.renames]), changes: [...change.changes, ...next.changes] };
   }
   return change;
+}
+
+/**
+ * Whether the repo root is a project of its own, which existing mode keeps
+ * as the implicit target when it declares the discovered ones: its root
+ * marks a pack (R2.1), and for a ts root, one that runs a ts tool of its own.
+ * A root that marks nothing, or a workspace root whose `package.json` only
+ * installs tools, is no project, so no ts target that checks nothing is
+ * invented at `.`.
+ */
+function rootIsProject(cwd: string, raw: Record<string, unknown>): boolean {
+  const pack = markedPack(markerAt(cwd));
+  return pack !== null && (pack !== PACKS.ts.name || rootRunsTsTool(cwd, raw));
 }
 
 /**
@@ -1692,13 +1705,15 @@ function nestsImplicit(proposed: readonly ProposedTarget[], pack: string): boole
 async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
   const raw = readRawConfig(cwd, () => ({}));
   if (raw['targets'] !== undefined) return null;
-  const proposed = await (options.discoverTargets ?? discoverTargets)(cwd);
+  const proposed = await (options.discoverTargets ?? ((dir: string) => discoverTargets(dir, undefined, raw)))(cwd);
   const pack = implicitPack(markerAt(cwd));
   if (isImplicit(proposed, pack)) return null;
   // Where an inner root won, the root is no target's, as `--discover` reads it.
-  const change = nestsImplicit(proposed, pack)
+  const lifted = nestsImplicit(proposed, pack)
     ? liftDiscovered(raw, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS })
-    : addedInOrder(raw, proposed, pack, markedPack(markerAt(cwd)) !== null);
+    : addedInOrder(raw, proposed, pack, rootIsProject(cwd, raw));
+  const ignored = ignoreToolsRoot(lifted.config, cwd);
+  const change = { ...lifted, config: ignored.config, changes: [...lifted.changes, ...ignored.changes] };
   const files = await writeTargetChange(cwd, change, { dryRun: w.dryRun, command: 'init' });
   w.written.push(...files.files.map((file) => `${file} (targets)`));
   return { proposed, changes: [...change.changes, ...files.changes] };

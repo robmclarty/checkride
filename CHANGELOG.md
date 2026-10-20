@@ -8,6 +8,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Discovery proposes a workspace root's packages when the root runs no ts
+  tool.** A root `package.json`, `pnpm-workspace.yaml` or `tsconfig.json`
+  still proposes one ts target at the root when the root runs a ts tool of its
+  own: a config entry picks one, or detection finds a default ts check's
+  config file or package there. A root that only installs tools now proposes
+  each top-most package below it instead, lists its `package.json` in
+  `unclaimed.ignore`, and leaves the shell scripts outside those packages to a
+  bash target. It used to propose a root target that checked nothing yet
+  claimed every package and script, so in a polyglot repo `init` left the
+  TypeScript app and the scripts unchecked. `init` writes the new targets, and
+  `--discover` and `doctor --discover` check them.
+- **A `tsconfig.json` marks a ts project for discovery,** as it already did
+  for `unclaimed`. A directory with one and no `package.json`, such as a
+  TypeScript app whose tools the root installs, is proposed as a target
+  instead of left for `unclaimed` to fail on.
 - **`init` adopts a repo whose projects all sit below its root.** A root with
   no marker of its own, its languages in subdirectories and nothing at the
   root but a `README.md` or a `mise.toml`, read as an empty directory, so
@@ -31,6 +46,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### Not additive
 
+- Changed: discovery's ts rule. A root that holds a `package.json`,
+  `pnpm-workspace.yaml` or `tsconfig.json` proposes a root ts target only when
+  it runs a ts tool of its own; otherwise each top-most `package.json` or
+  `tsconfig.json` directory below it proposes one, and a root `package.json`
+  is listed in `unclaimed.ignore`. A `tsconfig.json` alone now marks a ts
+  project for discovery. A repo whose root `package.json` runs nothing gets
+  different targets from `init` and `--discover` than 0.15 proposed.
 - Changed: `init` reads a directory with no root marker as an existing repo
   when discovery proposes a project below it, and refuses `--lang` there,
   where 0.15 scaffolded a new project.
