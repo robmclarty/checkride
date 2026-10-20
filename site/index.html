@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>checkride — a definition of done for code repos</title>
-<meta name="description" content="An agent harness for code repositories — TypeScript-first, not TypeScript-only. One command runs the whole verification pipeline; exit 0 means the work is complete.">
+<meta name="description" content="An agent harness for code repositories: one command runs the whole verification pipeline for TypeScript, Go, Rust, Python, Terraform and shell code; exit 0 means done.">
 <link rel="canonical" href="https://robmclarty.github.io/checkride/">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="checkride">
 <meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://robmclarty.github.io/checkride/">
 <meta property="og:title" content="checkride — a definition of done for code repos">
-<meta property="og:description" content="An agent harness for code repositories — TypeScript-first, not TypeScript-only. One command runs the whole verification pipeline; exit 0 means the work is complete.">
+<meta property="og:description" content="An agent harness for code repositories: one command runs the whole verification pipeline for TypeScript, Go, Rust, Python, Terraform and shell code; exit 0 means done.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="checkride — a definition of done for code repos">
-<meta name="twitter:description" content="An agent harness for code repositories — TypeScript-first, not TypeScript-only. One command runs the whole verification pipeline; exit 0 means the work is complete.">
+<meta name="twitter:description" content="An agent harness for code repositories: one command runs the whole verification pipeline for TypeScript, Go, Rust, Python, Terraform and shell code; exit 0 means done.">
 <script src="https://cdn.usefathom.com/script.js" data-site="CXTTSEDC" defer></script>
 <script src="./support.js"></script>
 <script src="./stars.js" defer></script>
@@ -54,8 +54,8 @@
       <a href="#why">Why</a>
       <a href="#gate">The gate</a>
       <a href="#pipeline">Pipeline</a>
-      <a href="#packs">Packs</a>
       <a href="docs.html">Docs</a>
+      <a href="languages.html">Languages</a>
       <a href="agents.html">Agents</a>
       <a href="api.html">API</a>
       <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
@@ -123,7 +123,7 @@
       </div>
       <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
         <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#2456A6; line-height:1.02;">Lanes to stay inside</div>
-        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;">Deep modules, enforced mechanically: a folder module's <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">index.ts</span> is its only public surface, and siblings never reach the internals. Humans and agents work in parallel with minimal merge conflicts.</p>
+        <p style="font-size:15px; line-height:1.55; color:#2A3A31; margin:16px 0 0;">Deep modules, enforced mechanically: a folder module's <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">index.ts</span> is its only public surface, and siblings never reach the internals. In a Go module, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">internal/</span> draws the same line, and the compiler holds it. Humans and agents work in parallel with minimal merge conflicts.</p>
       </div>
       <div style="background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; padding:28px;">
         <div style="font-family:'DM Serif Display',serif; font-size:34px; color:#C0392B; line-height:1.02;">Raw output, no normalizing</div>
@@ -186,7 +186,7 @@
         <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#D9A13B; margin-bottom:18px;">03 · THE AGENT CONTRACT</div>
         <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0; color:#E9F0EA;">The agent can't declare victory on a <span style="font-style:italic; color:#D45B4A;">red pipeline.</span></h2>
         <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#D9A13B;">checkride init</span> writes the contract into the repo: an AGENTS.md stanza stating the "exit 0 = done" rule, and a <strong style="color:#E9F0EA;">stop-gate hook</strong> for Claude Code and Cursor that fires when the agent tries to finish — a red pipeline blocks the stop and sends the agent back to work until it's green.</p>
-        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:18px 0 0;">When a check fails, the agent reads <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/summary.json</span>, then the failing slot's raw JSON. On a big red repo, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes a token-bounded excerpt so the agent starts from a capped index, not a wall of text.</p>
+        <p style="font-size:17px; line-height:1.6; color:#B7C8BC; margin:18px 0 0;">When a check fails, the agent reads <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/summary.json</span>, then the failing check's raw output, which a target's check writes under <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/&lt;target&gt;/</span>. On a big red repo, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--digest</span> writes a token-bounded excerpt so the agent starts from a capped index, not a wall of text.</p>
         <a href="docs.html#agents" style="display:inline-block; margin-top:28px; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:14px; padding:13px 24px; border:3px solid #E9F0EA; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">Set up the harness →</a>
       </div>
 
@@ -202,7 +202,8 @@
           {
             "type": "command",
             "command": "sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\"",
-            "timeout": 900
+            "timeout": 900,
+            "statusMessage": "checkride gate — running `pnpm check`"
           }
         ]
       }
@@ -210,7 +211,7 @@
   }
 }' style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:5px 11px; cursor:pointer;">COPY</button>
           </div>
-          <div style="padding:24px 26px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.9; color:#DCE9DF; white-space:pre; overflow-x:auto;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\""</span>,<br>      <span style="color:#D9A13B;">"timeout"</span>: <span style="color:#D9A13B;">900</span><br>    }] }]<br>  }<br>}</div>
+          <div style="padding:24px 26px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.9; color:#DCE9DF; white-space:pre; overflow-x:auto;">{<br>  <span style="color:#D9A13B;">"hooks"</span>: {<br>    <span style="color:#D9A13B;">"Stop"</span>: [{ <span style="color:#D9A13B;">"hooks"</span>: [{<br>      <span style="color:#D9A13B;">"type"</span>: <span style="color:#D9A13B;">"command"</span>,<br>      <span style="color:#D9A13B;">"command"</span>: <span style="color:#3FA26F;">"sh \"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/checkride-gate.sh\""</span>,<br>      <span style="color:#D9A13B;">"timeout"</span>: <span style="color:#D9A13B;">900</span>,<br>      <span style="color:#D9A13B;">"statusMessage"</span>: <span style="color:#3FA26F;">"checkride gate — running `pnpm check`"</span><br>    }] }]<br>  }<br>}</div>
         </div>
         <div style="font-size:14px; line-height:1.6; color:#93A79A; margin-top:14px;">The script, which checkride owns and refreshes, runs <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:#D9A13B;">checkride gate</span>: the repo's check with <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--strict --digest</span> — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;pm&gt; run check</span>, or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise exec -- checkride</span> in a repo without Node — answered in the harness's own hook protocol.</div>
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; margin-top:24px;">
@@ -229,7 +230,7 @@
         <div style="font-family:'JetBrains Mono',monospace; font-size:13px; letter-spacing:3px; color:#1E7A4A; margin-bottom:18px;">04 · THE BASELINE RATCHET</div>
         <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:50px; line-height:1.02; margin:0;">Adopt in an afternoon — <span style="font-style:italic; color:#1E7A4A;">not after a cleanup project.</span></h2>
         <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:24px 0 0;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride init --baseline</span> grandfathers the diagnostics a repo has <em>today</em>, so day-one runs pass — while any <em>new</em> diagnostic still fails. "Don't make it worse" becomes the definition of done for legacy code.</p>
-        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:18px 0 0;">The baseline is a <strong>ratchet</strong>: fixing a grandfathered finding prunes it from the committed file permanently — it only ever shrinks. Debt is paid down monotonically instead of being ignored, or blocking adoption. And if a merge ever clobbers the file, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride recover</span> rebuilds it from git history.</p>
+        <p style="font-size:17px; line-height:1.6; color:#2A3A31; margin:18px 0 0;">The baseline is a <strong>ratchet</strong>: fixing a grandfathered finding prunes it from the committed file permanently — it only ever shrinks. Debt is paid down monotonically instead of being ignored, or blocking adoption. And if a merge ever clobbers the file, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride recover</span> rebuilds it from git history. To see what a change grandfathers, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride baseline diff</span> lists the keys it adds and removes.</p>
         <div style="margin-top:24px; font-family:'JetBrains Mono',monospace; font-size:15px; background:#14231B; color:#DCE9DF; padding:14px 18px; border:3px solid #14231B; box-shadow:1px 1px 0 #1E7A4A, 2px 2px 0 #1E7A4A, 3px 3px 0 #1E7A4A, 4px 4px 0 #1E7A4A, 5px 5px 0 #1E7A4A;">old debt masked · new debt fails · fixed debt pruned</div>
       </div>
 
@@ -309,11 +310,12 @@
           <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.85;">{<br>  <span style="color:#D9A13B;">"targets"</span>: {<br>    <span style="color:#D9A13B;">"web"</span>:   { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"ts"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"apps/web"</span> },<br>    <span style="color:#D9A13B;">"api"</span>:   { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"go"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"services/api"</span> },<br>    <span style="color:#D9A13B;">"infra"</span>: { <span style="color:#D9A13B;">"lang"</span>: <span style="color:#3FA26F;">"terraform"</span>, <span style="color:#D9A13B;">"root"</span>: <span style="color:#3FA26F;">"infra"</span> }<br>  }<br>}</div>
         </div>
         <div style="display:flex; flex-direction:column; gap:14px; font-size:15.5px; line-height:1.55; color:#2A3A31;">
-          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>A target's checks are named <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;target&gt;:&lt;slot&gt;</span> — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">api:lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">web:test</span> — and write their raw output under <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/&lt;target&gt;/</span>. <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--only api</span> runs one target; the repo-wide checks run once.</span></div>
+          <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>A target's checks are named <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&lt;target&gt;:&lt;slot&gt;</span> — <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">api:lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">web:test</span> — and write their raw output under <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">.check/&lt;target&gt;/</span>. The repo-wide checks run once for the whole repo, and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--only api</span> runs that one target's checks alone.</span></div>
           <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">unclaimed</span> fails when a toolchain marker, such as a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">package.json</span> or a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">go.mod</span>, sits outside every target of its language: a directory of code no check reads.</span></div>
           <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride target add</span> declares a target; <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">init</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--discover</span> propose them from the repo's own files.</span></div>
           <div style="display:flex; gap:10px;"><span style="color:#1E7A4A; font-weight:700;">+</span><span>No Node? <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">init --lang go</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">--lang rust</span> writes a <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise.toml</span> that pins checkride beside the language's tools, and the gate runs <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise exec -- checkride</span>.</span></div>
-          <a href="docs.html#getting-started" style="align-self:flex-start; margin-top:8px; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Get started in a Go or Rust repo →</a>
+          <a href="languages.html" style="align-self:flex-start; margin-top:8px; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Every pack, target and pin →</a>
+          <a href="docs.html#getting-started" style="align-self:flex-start; color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Get started in a Go or Rust repo →</a>
         </div>
       </div>
     </div>
@@ -352,7 +354,7 @@
             <a href="agents.html">The plugin &amp; harnesses</a>
             <a href="docs.html#baseline">The baseline</a>
             <a href="docs.html#ci">Running in CI</a>
-            <a href="#packs">Packs &amp; targets</a>
+            <a href="languages.html">Packs &amp; targets</a>
             <a href="api.html">API reference</a>
           </div>
         </div>
@@ -428,7 +430,7 @@ class Component extends DCLogic {
     // and mode is 'default', 'opt-in' or 'targets' (runs once targets exist).
     const SLOTS = [
       ['types',    'Type checking',                          'tsc --build',       'tsc',               null,             'default', 'The cheapest check runs first. Uses your tsconfig project references.'],
-      ['format',   'Formatting',                             'prettier',          'prettier',          null,             'opt-in',  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome.'],
+      ['format',   'Formatting',                             'prettier',          'prettier',          null,             'opt-in',  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome-format.'],
       ['lint',     'Linting',                                'oxlint',            'oxlint',            'lint.json',      'default', 'Alternates: biome, eslint. checkride fix runs oxlint --fix.'],
       ['struct',   'Structural rules (deep modules)',        'ast-grep',          'ast-grep',          'struct.json',    'default', 'Enforces the module boundaries: index.ts-only surfaces, no reaching internals.'],
       ['dead',     'Dead code, deps, cycles, boundaries',    'fallow',            'fallow',            'dead.json',      'default', 'fallow dead-code. Alternate: knip. checkride gates on the issue count.'],
@@ -450,6 +452,10 @@ class Component extends DCLogic {
       ['unclaimed', 'Every toolchain marker sits in a target', 'built-in',        'unclaimed',         'unclaimed.json', 'targets', 'Fails on a toolchain marker, such as a package.json or a go.mod, that no target claims.'],
     ];
 
+    // The slots checkride runs itself. Their summary entries record no pin_source,
+    // since no tool resolved through a pin chain.
+    const BUILTINS = ['links', 'security', 'pack', 'smoke', 'snippets', 'unclaimed'];
+
     // packs: [name, what it checks, blessed tools, where its tools are pinned]
     const PACKS = [
       ['ts',        'TypeScript',                  'tsc · oxlint · fallow · vitest · stryker',                       'the lockfile'],
@@ -468,8 +474,10 @@ class Component extends DCLogic {
     let termLines, fileName;
     if (!sel) {
       fileName = 'pnpm check';
+      // Each line ends with why the check runs: [config] for a slot the config
+      // names, as a new project's config names every one.
       const row = (name, ms, adapter) => line([
-        ['✔ ', GRN], [name.padEnd(7), INK], [(ms + 'ms').padStart(7), DIM], ['  ' + adapter, DIM],
+        ['✔ ', GRN], [name.padEnd(7), INK], [(ms + 'ms').padStart(7), DIM], ['  ' + adapter, DIM], ['  [config]', DIM],
       ]);
       termLines = [
         line([['$ ', GRN], ['pnpm check', INK]]),
@@ -491,9 +499,14 @@ class Component extends DCLogic {
       fileName = '.check/summary.json → checks[]';
       const status = {
         'default': ['✅ runs in the default gate', GRN],
-        'opt-in': ['○ opt-in — enable with --include ' + name, AMB],
+        'opt-in': ['○ opt-in — name it in the config, or --include ' + name, AMB],
         'targets': ['◇ runs once checkride.config.json declares targets', AMB],
       }[mode];
+      // Why the check ran, and which copy of its tool ran: a slot the config
+      // names records origin "config"; unclaimed, which no entry names, records
+      // "built-in". A tool the package manager runs records pin_source.
+      const origin = mode === 'targets' ? 'built-in' : 'config';
+      const pinned = !BUILTINS.includes(name);
       termLines = [
         line([['// ', DIM], [role, DIM]]),
         line([['{', INK]]),
@@ -502,7 +515,9 @@ class Component extends DCLogic {
         line([['  "ok"', AMB], [': ', INK], ['true', GRN], [',', INK]]),
         line([['  "exit_code"', AMB], [': ', INK], ['0', AMB], [',', INK]]),
         line([['  "duration_ms"', AMB], [': ', INK], ['470', AMB], [',', INK]]),
-        line([['  "output_file"', AMB], [': ', INK], out ? ['"' + out + '"', STR] : ['null', AMB]]),
+        line([['  "output_file"', AMB], [': ', INK], out ? ['"' + out + '"', STR] : ['null', AMB], [',', INK]]),
+        line([['  "origin"', AMB], [': ', INK], ['"' + origin + '"', STR], ...(pinned ? [[',', INK]] : [])]),
+        ...(pinned ? [line([['  "pin_source"', AMB], [': ', INK], ['"js-lockfile"', STR]])] : []),
         line([['}', INK]]),
         line([[out ? '// raw JSON: .check/' + out : '// raw text, if any: .check/' + name + '.stdout.txt', DIM]]),
         blank(),

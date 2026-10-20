@@ -2,9 +2,9 @@
  * The site (`site/*.html`) is hand-built prose over inline dc scripts, and it
  * is not consumed by any tool the pipeline runs — which is exactly how it
  * silently fell four commands behind the CLI once. These tests put it under
- * `pnpm check`: the inline scripts must parse, the command reference and slot
- * catalogues must track the source of truth (`CLI_COMMANDS`, `SLOTS`), and
- * internal links must resolve. Currency is asserted one way on purpose — the
+ * `pnpm check`: the inline scripts must parse, the command reference, the slot
+ * catalogues and the pack cards must track the source of truth (`CLI_COMMANDS`,
+ * `SLOTS`, `PACKS`), and internal links must resolve. Currency is asserted one way on purpose — the
  * site may *curate* (say less), it may not *lag* (miss what exists).
  */
 
@@ -17,6 +17,7 @@ import { describe, expect, test } from 'vitest';
 
 import { SLOTS } from '../../src/adapters.js';
 import { CLI_COMMANDS } from '../../src/cli.js';
+import { PACKS } from '../../src/packs/index.js';
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'site');
 const pages = readdirSync(SITE).filter((f) => f.endsWith('.html')).toSorted();
@@ -89,4 +90,21 @@ describe('site currency: slot catalogue', () => {
       }
     });
   }
+});
+
+describe('site currency: packs', () => {
+  test('every shipped pack has a card in languages.html', () => {
+    const html = page('languages.html');
+    for (const pack of Object.keys(PACKS)) {
+      // A card's row: the pack, what it checks, its markers, then its slot list.
+      const card = new RegExp(`\\['${pack}', '[^']+', ("[^"]+"|'[^']+'), \\[`);
+      expect(html, `languages.html has no card for the ${pack} pack`).toMatch(card);
+    }
+  });
+
+  test('every other page links to languages.html', () => {
+    for (const name of pages.filter((p) => p !== 'languages.html')) {
+      expect(page(name), `${name} has no link to languages.html`).toContain('href="languages.html"');
+    }
+  });
 });

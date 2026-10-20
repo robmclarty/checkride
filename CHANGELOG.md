@@ -15,6 +15,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/plugin install checkride@checkride` install it with nothing else
   involved. The README, `docs/plugin.md` and the site name that pair, and a
   test holds the entry to `plugin.json`'s name and the package's.
+- **A worked example for a polyglot repo, and a Languages page.**
+  `docs/polyglot.md` takes a repo with a TypeScript app, a Go API, OpenTofu
+  and shell scripts from install through `init`, pins, the daily loop, debt
+  and CI, with the real output at each step. The site gains `languages.html`,
+  linked from every page: the seven packs and their tools, targets, pin
+  chains and the offline spawn, and the mise route for a repo without Node.
+  `docs.html` gains a section on checking a repo you don't own, and the docs
+  and site were swept for 0.15's features and stale facts.
 
 ### Changed
 

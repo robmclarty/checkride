@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>checkride languages — packs, targets and pins</title>
+<meta name="description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<link rel="canonical" href="https://robmclarty.github.io/checkride/languages.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="checkride">
+<meta property="og:locale" content="en_US">
+<meta property="og:url" content="https://robmclarty.github.io/checkride/languages.html">
+<meta property="og:title" content="checkride languages — packs, targets and pins">
+<meta property="og:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="checkride languages — packs, targets and pins">
+<meta name="twitter:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<script src="https://cdn.usefathom.com/script.js" data-site="CXTTSEDC" defer></script>
+<script src="./support.js"></script>
+<script src="./stars.js" defer></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#E9F0EA;}
+  ::selection{background:#1E7A4A;color:#E9F0EA;}
+  a{color:inherit;text-decoration:none;}
+  .cr-btn{transform:translate(-6px,-6px); box-shadow:1px 1px 0 #14231B,2px 2px 0 #14231B,3px 3px 0 #14231B,4px 4px 0 #14231B,5px 5px 0 #14231B,6px 6px 0 #14231B; transition:transform .09s ease, box-shadow .09s ease;}
+  .cr-btn:hover{transform:translate(0,0); box-shadow:none;}
+  .cr-btn:active{transform:translate(0,0); box-shadow:inset 1px 1px 0 #14231B,inset 2px 2px 0 #14231B,inset 3px 3px 0 #14231B,inset 4px 4px 0 #14231B,inset 5px 5px 0 #14231B,inset 6px 6px 0 #14231B;}
+  .cr-btn-label{display:inline-block; transition:transform .09s ease;}
+  .cr-btn:active .cr-btn-label{transform:translate(8px,8px);}
+</style>
+</helmet>
+
+<div style="position:relative; min-height:100vh; background:#E9F0EA; color:#14231B; font-family:'Space Grotesk',sans-serif;">
+
+  <!-- grain overlay -->
+  <div style="position:fixed; inset:0; z-index:9999; pointer-events:none; opacity:0.06; mix-blend-mode:multiply; background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E&quot;);"></div>
+
+  <!-- ===================== NAV ===================== -->
+  <div style="position:sticky; top:0; z-index:100; display:flex; align-items:center; justify-content:space-between; padding:16px 32px; background:#E9F0EA; border-bottom:3px solid #14231B;">
+    <div style="display:flex; align-items:center; gap:16px;">
+      <a href="index.html" style="display:flex; align-items:center; gap:12px;">
+        <div style="width:20px; height:20px; background:#1E7A4A; border:2px solid #14231B;"></div>
+        <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:18px; letter-spacing:2px;">CHECKRIDE</div>
+      </a>
+      <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; color:#52675B; border:2px solid #52675B; padding:2px 8px;">LANGUAGES</div>
+    </div>
+    <div style="display:flex; gap:26px; align-items:center; font-size:14px; font-weight:500;">
+      <a href="index.html">Home</a>
+      <a href="docs.html">Docs</a>
+      <a href="agents.html">Agents</a>
+      <a href="api.html">API</a>
+      <a id="gh-stars" href="https://github.com/robmclarty/checkride" style="background:#14231B; color:#E9F0EA; padding:8px 16px; font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:1px; white-space:nowrap;">GITHUB</a>
+    </div>
+  </div>
+
+  <!-- ===================== BODY ===================== -->
+  <div style="display:flex; align-items:flex-start; max-width:1280px; margin:0 auto;">
+
+    <!-- SIDEBAR -->
+    <div style="flex:none; width:268px; position:sticky; top:64px; align-self:flex-start; height:calc(100vh - 64px); overflow-y:auto; border-right:3px solid #14231B; padding:34px 26px 60px;">
+      <sc-for list="{{ nav }}" as="grp" hint-placeholder-count="3">
+        <div style="margin-bottom:30px;">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:2px; color:#52675B; margin-bottom:14px;">{{ grp.title }}</div>
+          <div style="display:flex; flex-direction:column; gap:3px;">
+            <sc-for list="{{ grp.items }}" as="it" hint-placeholder-count="2">
+              <div onClick="{{ it.onClick }}" style="cursor:pointer; font-size:15px; font-weight:{{ it.weight }}; color:{{ it.color }}; background:{{ it.bg }}; border-left:3px solid {{ it.bar }}; padding:7px 14px;">{{ it.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="border-top:2px dashed #52675B; padding-top:18px; font-size:13.5px; line-height:1.5; color:#48594F;">One repo with a TypeScript app, a Go API, OpenTofu and shell scripts, adopted from install to CI: <a href="https://github.com/robmclarty/checkride/blob/main/docs/polyglot.md" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">the polyglot walkthrough →</a></div>
+    </div>
+
+    <!-- CONTENT -->
+    <div style="flex:1; min-width:0; padding:48px 56px 120px; max-width:880px;">
+
+      <!-- ============ PACKS ============ -->
+      <sc-if value="{{ isPacks }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">LANGUAGE PACKS</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Every language, its own tools.</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride's slots — <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">types</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">dead</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">test</span> and the rest — are roles, not tools. A <strong>pack</strong> fills them for one language: its adapters, where each tool is pinned, and the environment its checks run with. Seven ship: five languages beside TypeScript, and <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">repo</span>, which checks the repo as a whole.</p>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">In each card, a slot's first tool is its blessed default: the one detection prefers and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> scaffolds. The others are alternates, which run when their own config file is the one the repo holds. A slot marked <strong>opt-in</strong> stays out of the default run until the config names it or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--include</span> does.</p>
+
+          <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:22px; margin-top:32px;">
+            <sc-for list="{{ packCards }}" as="pk" hint-placeholder-count="7">
+              <div style="background:#E9F0EA; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B; padding:20px 22px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-weight:700; font-size:20px; color:{{ pk.accent }};">{{ pk.name }}</div>
+                <div style="font-size:14.5px; color:#2A3A31; margin-top:4px;">{{ pk.what }}</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#52675B; margin-top:4px;">{{ pk.markers }}</div>
+                <div style="display:flex; flex-direction:column; gap:5px; margin-top:14px;">
+                  <sc-for list="{{ pk.slots }}" as="sl" hint-placeholder-count="4">
+                    <div style="display:flex; gap:10px; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.45;">
+                      <span style="flex:none; width:84px; font-weight:700; color:#14231B;">{{ sl.slot }}</span>
+                      <span style="flex:1; min-width:0; color:{{ sl.color }};">{{ sl.tools }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; line-height:1.6; color:#52675B; margin-top:14px; border-top:1px dashed #52675B; padding-top:9px;">PINNED BY {{ pk.chain }}</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; line-height:1.6; color:#52675B;">FETCH FIRST {{ pk.setup }}</div>
+              </div>
+            </sc-for>
+          </div>
+          <p style="font-size:14px; line-height:1.6; color:#48594F; margin-top:18px;">Grey tools are opt-in. <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">publish</span> is the ts pack's six-slot publish-ready bundle. <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">terraform validate</span> runs only where a <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">.terraform.lock.hcl</span> marks a root module, with <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">terraform</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">tofu</span> as the version file names. A bash target has no marker file: its checks run over its shell files, every <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">.sh</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">.bash</span> file and each extensionless file with a shell shebang, narrowed with <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">include</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:12.5px;">exclude</span> globs. Every adapter's argv is in <a href="https://github.com/robmclarty/checkride/blob/main/docs/packs.md" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Packs and pins</a>.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">One language needs no config</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">A repo whose root marks one language is checked as one project of that pack, with no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride.config.json</span> at all. The first match wins:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">THE ROOT HOLDS</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">CHECKED AS</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ rootRows }}" as="r" hint-placeholder-count="6">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:11px 14px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#2A3A31;">{{ r.marker }}</td>
+                    <td style="padding:11px 14px; color:#2A3A31; line-height:1.5;">{{ r.pack }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (<span style="font-family:'JetBrains Mono',monospace; font-size:14px;">types</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">test</span>), from the root, into <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span>, with that pack's tools, pin chain and environment, and a slot the pack doesn't fill sits out. A repo with code in more than one language, or one language in more than one place, declares <strong>targets</strong>.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Raw output, in every language</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">checkride never reshapes what a tool prints. golangci-lint's JSON, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">go test</span>'s JSON lines and shellcheck's <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">json1</span> land in <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/</span> as the tools wrote them, and the agent reads them that way. A reader that wants findings by file and line imports <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride/findings</span>, whose parsers cover 21 adapters across the packs. The baseline keys with the same parsers, so golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint findings can be grandfathered like oxlint's.</p>
+
+          <div style="display:flex; gap:16px; margin-top:48px; flex-wrap:wrap;">
+            <div onClick="{{ goTargets }}" style="cursor:pointer; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Next: Targets →</span></div>
+            <a href="api.html" style="background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">The findings API →</span></a>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ TARGETS ============ -->
+      <sc-if value="{{ isTargets }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">MIXED REPOS</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">One repo, many roots.</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">A repo with more than one language, or one language in more than one place, declares <strong>targets</strong>: named parts of the repo, each checked from its own root by the pack that knows its language.</p>
+
+          <div style="margin-top:28px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">checkride.config.json</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="{{ configSample }}" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.75;">{{ configSample }}</div>
+          </div>
+
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:24px; margin-bottom:18px;">Each target runs the slots its pack fills, once, from its root, named <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">&lt;target&gt;:&lt;slot&gt;</span>. The repo pack's checks (<span style="font-family:'JetBrains Mono',monospace; font-size:14px;">struct</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">docs</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">links</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">spell</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">prose</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">unclaimed</span>) still run once for the whole repo, under their bare names. Each line ends with why its check runs:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">pnpm check (slots with no tool trimmed)</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.75;">{{ runSample }}</div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">What a target changes</h2>
+          <div style="display:flex; flex-direction:column; gap:12px; font-size:15.5px; line-height:1.55; color:#2A3A31;">
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span>Each target writes under <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">.check/&lt;target&gt;/</span>, so two TypeScript targets' reports never overwrite each other.</span></div>
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span>A target's slot takes its tool from its own <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">checks</span>, then <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">packs.&lt;pack&gt;.checks</span>, then the top level, then detection at its root.</span></div>
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">--only web</span> runs one target's checks, <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">--only web:lint</span> one check, and <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">--only lint</span> every target's linter; <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">--skip</span> reads names the same way.</span></div>
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span><span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">--changed</span> skips each target nothing changed under, measured from the merge base, and narrows a Go workspace to the modules a change touched and the ones that import them.</span></div>
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span>Baseline keys sit under <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">&lt;target&gt;:&lt;slot&gt;</span> and name files from the repo root, so a key stays valid wherever the tool ran from.</span></div>
+            <div style="display:flex; gap:12px;"><span style="flex:none; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A;">+</span><span>A ts target runs under the package manager nearest its root, and <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">checkride fix</span> runs each target's fixers from there.</span></div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Declaring them</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride target add</span> declares one, adopting the tools its root already configures. In a repo with no targets yet, the project at the root becomes a target too, named <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">app</span>, when the root holds one. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> proposes the targets a repo's files suggest and writes them, and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--discover</span>, on a run or on <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">doctor</span>, shows the proposal without writing anything.</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="{{ targetCmds }}" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.85;"><span style="color:#1E7A4A;">$</span> pnpm exec checkride doctor --discover   <span style="color:#5F7367;"># what the files propose</span><br><span style="color:#1E7A4A;">$</span> pnpm exec checkride init                <span style="color:#5F7367;"># write the proposal</span><br><span style="color:#1E7A4A;">$</span> pnpm exec checkride target add scripts --lang bash --root scripts</div>
+          </div>
+
+          <div style="margin-top:28px; background:#DBE6DD; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B; padding:24px 28px;">
+            <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:2px; color:#2456A6; margin-bottom:10px;">READ THE PROPOSAL</div>
+            <div style="font-size:15.5px; line-height:1.6; color:#2A3A31;">A root <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">package.json</span> is one ts target only when the root runs a ts tool of its own: a <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">tsconfig.json</span>, a linter or test config beside it, or such a tool among its dependencies. That target claims every package below it, and its shell files too. A workspace root that only installs tools proposes each package below it instead, its <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">package.json</span> goes in <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">unclaimed.ignore</span>, and the scripts outside every package get a bash target of their own. <a href="https://github.com/robmclarty/checkride/blob/main/docs/polyglot.md" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">The polyglot walkthrough</a> adopts a repo like that, with the output at each step.</div>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Code no target checks</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">With targets, the <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">unclaimed</span> check fails when a toolchain marker (a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">package.json</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">tsconfig.json</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">go.mod</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">go.work</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">Cargo.toml</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pyproject.toml</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">setup.cfg</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">setup.py</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.terraform.lock.hcl</span> or a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.tf</span> file) sits outside every target of its language. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.check/unclaimed.json</span> names the target that would claim it, so a new service can't land unchecked: the fix is one <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">target add</span>, or a glob in <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">unclaimed.ignore</span> for a marker that holds no code to check.</p>
+
+          <div style="display:flex; gap:16px; margin-top:48px; flex-wrap:wrap;">
+            <div onClick="{{ goPins }}" style="cursor:pointer; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Next: Pins →</span></div>
+            <a href="https://github.com/robmclarty/checkride/blob/main/docs/targets.md" style="background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Every targets rule →</span></a>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ PINS ============ -->
+      <sc-if value="{{ isPins }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">TOOLCHAINS</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">The copy that runs.</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">A check never downloads a tool, and never picks one up by accident. Each pack resolves a tool through its <strong>pin chain</strong>: the repo's own pin file first, then a <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">mise.toml</span>, then <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">PATH</span>. The first source that declares the tool runs it, and when that copy can't run, the check fails naming the source rather than reach for another.</p>
+
+          <div style="margin-top:28px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">PACK</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">PIN CHAIN</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ chainRows }}" as="r" hint-placeholder-count="7">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:10px 14px; font-family:'JetBrains Mono',monospace; font-weight:700; color:{{ r.accent }}; width:150px;">{{ r.pack }}</td>
+                    <td style="padding:10px 14px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#2A3A31;">{{ r.chain }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Where each source looks</h2>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">SOURCE</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">DECLARES A TOOL WHEN</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">RUNS IT AS</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ sourceRows }}" as="r" hint-placeholder-count="8">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:11px 14px; font-family:'JetBrains Mono',monospace; font-weight:700; color:#1E7A4A; width:150px;">{{ r.source }}</td>
+                    <td style="padding:11px 14px; color:#2A3A31; line-height:1.5;">{{ r.when }}</td>
+                    <td style="padding:11px 14px; color:#2A3A31; line-height:1.5;">{{ r.runs }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">Every check records the source that ran its tool as <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pin_source</span>, the version when the source names one as <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">tool_version</span>, and the exact <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">argv</span> it spawned, so two runs that disagree can say why. <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">checkride doctor</span> shows the same per check, and lists each tool nothing pins with the <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise use</span> command that would.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">requirePins</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Set <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">"requirePins": true</span> in <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride.config.json</span> and a tool only <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">PATH</span> provides fails its check instead of running whatever the machine holds:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">an unpinned shellcheck</span></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.75;">{{ pinRefusal }}</div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">A toolchain is the exception: <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">go</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">cargo</span> and the Terraform or OpenTofu CLI still run from <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">PATH</span>, since the repo's own files set the version each accepts and the pack's environment stops it fetching another.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Offline by construction</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-bottom:18px;">Each pack's checks spawn with the variables that switch its downloads off, so a missing dependency fails the check rather than fetch, and the line under the red check names the step to run first:</p>
+          <div style="border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B, 6px 6px 0 #14231B; overflow:hidden;">
+            <table style="width:100%; border-collapse:collapse; font-size:13.5px;">
+              <thead>
+                <tr style="background:#14231B; color:#E9F0EA; font-family:'JetBrains Mono',monospace;"><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">PACK</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">SET ON EVERY CHECK</th><th style="text-align:left; padding:12px 14px; letter-spacing:1px; font-size:12px;">RUN FIRST</th></tr>
+              </thead>
+              <tbody>
+                <sc-for list="{{ offlineRows }}" as="r" hint-placeholder-count="5">
+                  <tr style="border-top:2px solid #14231B; background:{{ r.bg }};">
+                    <td style="padding:11px 14px; font-family:'JetBrains Mono',monospace; font-weight:700; color:#14231B; width:110px;">{{ r.pack }}</td>
+                    <td style="padding:11px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#2A3A31; line-height:1.6;">{{ r.vars }}</td>
+                    <td style="padding:11px 14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:#1E7A4A; line-height:1.5; white-space:nowrap;">{{ r.first }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="display:flex; gap:16px; margin-top:48px; flex-wrap:wrap;">
+            <div onClick="{{ goNoNode }}" style="cursor:pointer; background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Next: Without Node →</span></div>
+            <a href="https://github.com/robmclarty/checkride/blob/main/docs/packs.md" style="background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Packs and pins, in full →</span></a>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ============ WITHOUT NODE ============ -->
+      <sc-if value="{{ isNoNode }}">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">TOOLCHAINS</div>
+          <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">No package.json required.</h1>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride runs on Node, but a Go, Rust, Python or Terraform repo doesn't have to carry one. <strong>mise</strong> installs checkride and a Node for it beside the repo's other tools, and runs it as <span style="font-family:'JetBrains Mono',monospace; font-size:15px; color:#1E7A4A;">mise exec -- checkride</span>.</p>
+
+          <div style="margin-top:28px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">mise.toml</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="{{ miseToml }}" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:13.5px; line-height:1.75;">{{ miseToml }}</div>
+          </div>
+          <div style="margin-top:20px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">shell</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="{{ miseCmds }}" style="background:transparent; color:#7E9187; font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:1px; border:1px solid #3A4C41; padding:4px 11px; cursor:pointer;">COPY</button></div>
+            <div style="white-space:pre; overflow-x:auto; background:#14231B; color:#DCE9DF; padding:18px 20px; font-family:'JetBrains Mono',monospace; font-size:14px; line-height:1.85;"><span style="color:#1E7A4A;">$</span> mise use node@22.18.0 'npm:checkride[allow_low_downloads=true]@&lt;version&gt;'<br><span style="color:#1E7A4A;">$</span> mise trust                   <span style="color:#5F7367;"># once per clone</span><br><span style="color:#1E7A4A;">$</span> mise install                 <span style="color:#5F7367;"># every pin, node and checkride among them</span><br><span style="color:#1E7A4A;">$</span> mise exec -- checkride init  <span style="color:#5F7367;"># adopt the repo's tools, write the stanza and hooks</span><br><span style="color:#1E7A4A;">$</span> mise exec -- checkride       <span style="color:#5F7367;"># the gate</span></div>
+          </div>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise trust</span> comes first. checkride's entry sets a tool option, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">allow_low_downloads</span>, which mise only loads from a file it trusts, and which it needs before it installs an npm package with fewer than 1000 weekly downloads. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> then adopts the repo through the pack its root marks, and writes the AGENTS.md stanza and the hooks, both spelled <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise exec -- checkride</span>. With no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">package.json</span>, there's no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">check</span> script to write.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">A new Go or Rust project</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;"><span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">init --lang go</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:14px; color:#1E7A4A;">--lang rust</span> scaffolds one with no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">package.json</span>: a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise.toml</span> that pins checkride and every tool its checks run, a config with one target that names every slot and sets <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">requirePins</span>, the pack's dialect rules under <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">rules/go/</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">rules/rust/</span>, and code that's green once its setup steps have run. The shapes and the steps are on the <a href="docs.html#getting-started" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">Getting started</a> page.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">A root with no marker</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">A repo whose languages all live in subdirectories has no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">go.mod</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">Cargo.toml</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">pyproject.toml</span> or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">.tf</span> file of its own at the root, and a <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise.toml</span> isn't a marker. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> still reads it as an existing repo, from the projects discovery finds below the root, and declares a target for each, so the same five commands adopt it. <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise exec -- checkride doctor --discover</span> shows what it will propose before anything is written.</p>
+
+          <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">The gate, the hooks and CI</h2>
+          <p style="font-size:16px; line-height:1.6; color:#2A3A31;">Where a root <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise.toml</span> pins <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">npm:checkride</span> and there's no <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">package.json</span>, the stop gate, the stanza and the plugin skills run <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise exec -- checkride</span>; with no pin they run the <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">checkride</span> on <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">PATH</span>, which <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">doctor</span> reports as the harness unpinned. A fresh clone's <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise.toml</span> starts untrusted, and the gate stands down naming <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">mise trust</span> rather than blocking; the <a href="agents.html" style="color:#1E7A4A; font-weight:700; border-bottom:2px solid #1E7A4A;">agents page</a> shows the verdict. In CI, <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">jdx/mise-action</span> installs every pin, and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">MISE_TRUSTED_CONFIG_PATHS</span> set to the workspace trusts the repo's own file.</p>
+
+          <div style="display:flex; gap:16px; margin-top:48px; flex-wrap:wrap;">
+            <a href="docs.html#ci" style="background:#1E7A4A; color:#E9F0EA; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">The CI recipe →</span></a>
+            <a href="docs.html#outside" style="background:#E9F0EA; color:#14231B; font-weight:700; font-size:15px; padding:14px 26px; border:3px solid #14231B;" class="cr-btn"><span class="cr-btn-label">Checking a repo you don't own →</span></a>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</div>
+
+<template id="__bundler_thumbnail" data-bg-color="#E9F0EA">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#E9F0EA"/>
+    <rect x="518" y="286" width="164" height="164" fill="#1E7A4A" stroke="#14231B" stroke-width="12"/>
+    <text x="600" y="556" font-family="monospace" font-size="54" font-weight="700" fill="#14231B" text-anchor="middle" letter-spacing="8">CHECKRIDE</text>
+  </svg>
+</template></x-dc>
+<script type="text/x-dc" data-dc-script>
+const SECTIONS = ['packs', 'targets', 'pins', 'no-node'];
+
+// The section the URL's hash names (languages.html#targets), or null, so a
+// link can open a section and a reload stays on it.
+function sectionFromHash() {
+  try {
+    const h = window.location.hash.slice(1);
+    return SECTIONS.includes(h) ? h : null;
+  } catch (_) { return null; }
+}
+
+class Component extends DCLogic {
+  state = { section: sectionFromHash() || 'packs' };
+
+  componentDidMount() {
+    // Back and forward change only the hash, so follow it.
+    this.onHash = () => { const s = sectionFromHash(); if (s) this.setState({ section: s }); };
+    try { window.addEventListener('hashchange', this.onHash); } catch (_) {}
+  }
+
+  componentWillUnmount() {
+    try { window.removeEventListener('hashchange', this.onHash); } catch (_) {}
+  }
+
+  go(s) {
+    this.setState({ section: s });
+    try {
+      if (window.location.hash !== '#' + s) window.history.pushState(null, '', '#' + s);
+      window.scrollTo(0, 0);
+    } catch (_) {}
+  }
+
+  copy(e) {
+    const t = e.currentTarget;
+    const text = t.getAttribute('data-copy') || '';
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text); } catch (_) {}
+    const orig = t.getAttribute('data-orig') || t.textContent;
+    t.setAttribute('data-orig', orig);
+    t.textContent = 'COPIED ✓';
+    clearTimeout(t._t);
+    t._t = setTimeout(() => { t.textContent = orig; }, 1300);
+  }
+
+  renderVals() {
+    const sec = this.state.section;
+    const navDef = [
+      { title: 'PACKS', items: [['packs', 'The seven packs']] },
+      { title: 'MIXED REPOS', items: [['targets', 'Targets']] },
+      { title: 'TOOLCHAINS', items: [['pins', 'Pins and the offline spawn'], ['no-node', 'Without Node']] },
+    ];
+    const nav = navDef.map(g => ({
+      title: g.title,
+      items: g.items.map(([key, label]) => {
+        const on = key === sec;
+        return {
+          label, weight: on ? '700' : '500',
+          color: on ? '#14231B' : '#48594F',
+          bg: on ? '#DBE6DD' : 'transparent',
+          bar: on ? '#1E7A4A' : 'transparent',
+          onClick: () => this.go(key),
+        };
+      }),
+    }));
+
+    const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
+    const OPT = true;
+
+    // Each pack's slots, blessed tool first, from src/packs/ (PACKS). A third
+    // element marks the slot opt-in. test/integration/site.test.ts holds every
+    // shipped pack to a card here.
+    const packCards = [
+      ['ts', 'TypeScript and JavaScript packages', 'package.json · tsconfig.json', [
+        ['types', 'tsc --build'], ['lint', 'oxlint · biome · eslint'], ['dead', 'fallow · knip'], ['test', 'vitest · jest'],
+        ['format', 'prettier · biome-format', OPT], ['dupes', 'fallow', OPT], ['health', 'fallow', OPT], ['mutation', 'stryker', OPT],
+        ['security', 'pnpm audit', OPT], ['publish', 'build · publint · attw · pack · smoke · snippets', OPT],
+      ], 'the lockfile, through the package manager', 'pnpm install'],
+      ['go', 'Go modules and workspaces', 'go.mod · go.work', [
+        ['types', 'go build'], ['lint', 'golangci-lint · staticcheck'], ['dead', 'deadcode'], ['test', 'go test'],
+        ['format', 'gofmt', OPT], ['security', 'govulncheck', OPT],
+      ], 'go.mod tool → mise.toml → PATH', 'go mod download'],
+      ['rust', 'Cargo packages and workspaces', 'Cargo.toml', [
+        ['types', 'cargo check'], ['lint', 'clippy'], ['dead', 'cargo-machete'], ['test', 'nextest · cargo test'],
+        ['format', 'rustfmt', OPT], ['snippets', 'doctests', OPT], ['security', 'cargo-deny', OPT], ['mutation', 'cargo-mutants', OPT],
+      ], 'rust-toolchain.toml → mise.toml → PATH', 'cargo fetch'],
+      ['python', 'Python projects', 'pyproject.toml · setup.cfg · setup.py', [
+        ['types', 'mypy · basedpyright'], ['lint', 'ruff'], ['test', 'pytest'], ['format', 'ruff format', OPT],
+      ], 'uv.lock → mise.toml → PATH', 'uv sync'],
+      ['terraform', 'Terraform and OpenTofu modules', '.terraform.lock.hcl · *.tf', [
+        ['types', 'terraform validate'], ['lint', 'tflint'], ['format', 'terraform fmt', OPT], ['security', 'trivy', OPT],
+      ], 'the version file → mise.toml → PATH', 'terraform init -backend=false'],
+      ['bash', 'Shell scripts', "no marker: a target's shell files", [
+        ['lint', 'shellcheck'], ['format', 'shfmt', OPT],
+      ], 'mise.toml → PATH', '—'],
+      ['repo', 'The repo as a whole, once', 'every repo', [
+        ['struct', 'ast-grep'], ['docs', 'markdownlint-cli2 · rumdl'], ['links', 'built-in'], ['spell', 'cspell · typos'],
+        ['unclaimed', 'built-in, with targets'], ['prose', 'vale', OPT],
+      ], 'the lockfile → mise.toml → PATH', '—'],
+    ].map(([name, what, markers, slots, chain, setup], i) => ({
+      name, what, markers, chain, setup,
+      accent: accents[i % 4],
+      slots: slots.map(([slot, tools, optIn]) => ({ slot, tools, color: optIn ? '#7E9187' : '#2A3A31' })),
+    }));
+
+    const rootRows = [
+      ['package.json or tsconfig.json', 'ts'],
+      ['go.mod or go.work', 'go'],
+      ['Cargo.toml', 'rust'],
+      ['pyproject.toml, setup.cfg or setup.py', 'python'],
+      ['.terraform.lock.hcl or a .tf file', 'terraform'],
+      ['none of these', 'ts, where every slot stands down until a tool is configured'],
+    ].map(([marker, pack], i) => ({ marker, pack, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    const chainRows = [
+      ['ts', 'js-lockfile'],
+      ['repo', 'js-lockfile → mise → path'],
+      ['bash', 'mise → path'],
+      ['go', 'go-mod-tool → mise → path'],
+      ['rust', 'rust-toolchain → mise → path'],
+      ['python', 'uv-lock → mise → path'],
+      ['terraform', 'tf-version → mise → path'],
+    ].map(([pack, chain], i) => ({ pack, chain, accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // Facts mirror the pin-sources table in docs/packs.md; change them there first.
+    const sourceRows = [
+      ['js-lockfile', 'the nearest package.json lists the tool\'s package', 'the package manager: pnpm exec, npx --no-install, yarn or bunx --no-install'],
+      ['go-mod-tool', 'go.mod names the tool in a tool directive', 'go tool <tool>, through the go a mise.toml pins, else the one on PATH'],
+      ['rust-toolchain', 'a rust-toolchain.toml pins the toolchain: cargo, rustfmt and clippy', 'rustup\'s cargo, which reads the file'],
+      ['uv-lock', 'uv.lock lists the tool\'s PyPI package', 'the project environment\'s .venv/bin/<tool>, never uv itself'],
+      ['tf-version', 'a .terraform-version or .opentofu-version names the CLI', 'terraform or tofu from PATH, once it reports the release the file names'],
+      ['mise', 'a mise.toml up to the repo root pins it', 'mise exec -- <tool>, once mise finds the pinned copy installed'],
+      ['path', 'nothing else declares it', '<tool> from PATH, unpinned; refused under requirePins'],
+      ['override', 'a --pins file names it: a reviewer\'s own toolbelt, ahead of every chain', 'mise exec <id>@<version> -- <tool>, with the repo\'s own mise config ignored'],
+    ].map(([source, when, runs], i) => ({ source, when, runs, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // Facts mirror the spawn-environment table in docs/packs.md.
+    const offlineRows = [
+      ['go', 'GOTOOLCHAIN=local · GOPROXY=off', 'go mod download'],
+      ['rust', 'CARGO_NET_OFFLINE=true · RUSTUP_AUTO_INSTALL=0', 'cargo fetch, or rustup toolchain install'],
+      ['python', 'UV_OFFLINE=1 · PIP_NO_INDEX=1 · PYTHONDONTWRITEBYTECODE=1', 'uv sync'],
+      ['terraform', 'TF_INPUT=0 · TF_IN_AUTOMATION=1 · CHECKPOINT_DISABLE=1 · TFENV_AUTO_INSTALL=false · TOFUENV_AUTO_INSTALL=false · TRIVY_SKIP_CHECK_UPDATE=true', 'terraform init -backend=false'],
+      ['mise', 'MISE_EXEC_AUTO_INSTALL=false · MISE_NOT_FOUND_AUTO_INSTALL=false', 'mise install'],
+    ].map(([pack, vars, first], i) => ({ pack, vars, first, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+
+    // Code samples bind from here, so nothing in them reads as template syntax.
+    const configSample = [
+      '{',
+      '  "targets": {',
+      '    "web": { "lang": "ts", "root": "web" },',
+      '    "api": { "lang": "go", "root": "api" },',
+      '    "infra": { "lang": "terraform", "root": "infra" },',
+      '    "scripts": { "lang": "bash", "root": "scripts" }',
+      '  },',
+      '  "unclaimed": { "ignore": ["package.json"] }',
+      '}',
+    ].join('\n');
+
+    // A real run of that config, from docs/polyglot.md.
+    const runSample = [
+      '  ✔ api:types       492ms  go build: Go compilation  [detected: go.mod]',
+      '  ✔ infra:types     515ms  terraform validate: Terraform configuration  [detected: .terraform.lock.hcl]',
+      '  ✔ web:types       564ms  TypeScript type checking (incremental, via project references)  [detected: tsconfig.json]',
+      '  ✔ infra:lint      128ms  tflint: Terraform lint  [detected: .tflint.hcl]',
+      '  ✔ links             3ms  Relative markdown link targets exist on disk  [config]',
+      '  ✔ unclaimed        22ms  Every toolchain marker sits inside a target that checks it  [built-in]',
+      '  ✔ scripts:lint    141ms  ShellCheck: shell script analysis  [config]',
+      '  ✔ api:test        157ms  go test: Go tests  [detected: go.mod]',
+      '  ✔ api:lint       1410ms  golangci-lint: Go linters  [detected: .golangci.yml]',
+      '✔ all checks passed in 1479ms — only 9 of 16 checks ran, 7 skipped',
+    ].join('\n');
+
+    const targetCmds = [
+      'pnpm exec checkride doctor --discover',
+      'pnpm exec checkride init',
+      'pnpm exec checkride target add scripts --lang bash --root scripts',
+    ].join('\n');
+
+    const pinRefusal = [
+      '  ✘ scripts:lint      0ms  ShellCheck: shell script analysis  [config]',
+      '           shellcheck is not pinned; pin it with: mise use shellcheck@<version>',
+    ].join('\n');
+
+    const miseToml = [
+      '[tools]',
+      'node = "22.18.0"',
+      '"npm:checkride" = { version = "<version>", allow_low_downloads = true }',
+      'golangci-lint = "2.14.0"   # and the rest of the pack\'s tools',
+    ].join('\n');
+
+    const miseCmds = [
+      "mise use node@22.18.0 'npm:checkride[allow_low_downloads=true]@<version>'",
+      'mise trust',
+      'mise install',
+      'mise exec -- checkride init',
+      'mise exec -- checkride',
+    ].join('\n');
+
+    return {
+      nav, packCards, rootRows, chainRows, sourceRows, offlineRows,
+      configSample, runSample, targetCmds, pinRefusal, miseToml, miseCmds,
+      isPacks: sec === 'packs',
+      isTargets: sec === 'targets',
+      isPins: sec === 'pins',
+      isNoNode: sec === 'no-node',
+      goTargets: () => this.go('targets'),
+      goPins: () => this.go('pins'),
+      goNoNode: () => this.go('no-node'),
+      copy: (e) => this.copy(e),
+    };
+  }
+}
+</script>
+</body>
+</html>
