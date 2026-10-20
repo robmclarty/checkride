@@ -91,9 +91,12 @@ jobs:
       # Every pack's toolchain at the version the root mise.toml pins, as in
       # ci.yml, so a release proves each pack's e2e cases rather than skipping
       # them where a tool is missing. Installed after `pnpm check` so this
-      # repo's own run sees the same PATH as before.
+      # repo's own run sees the same PATH as before. No shims, for the reason
+      # ci.yml gives.
       - name: Install e2e toolchains
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          add_shims_to_path: false
 
       - name: pnpm test:e2e
         run: pnpm test:e2e

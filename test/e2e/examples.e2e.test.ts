@@ -24,6 +24,8 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
+import { setupStep } from '../helpers/setup.js';
+
 const execFileP = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(here, '..', '..');
@@ -353,7 +355,7 @@ describe('examples', () => {
       try {
         await prepare(name, dir);
         // Setup may download; the checks never do.
-        for (const [command = '', ...rest] of expected.setup ?? []) await execFileP(command, rest, { cwd: dir, ...BIG });
+        for (const [command = '', ...rest] of expected.setup ?? []) await setupStep(command, rest, { cwd: dir });
         await assertCanonicalRun(dir, name, expected);
         if (expected.violations) await assertViolations(dir, args, expected.violations);
         if (expected.ratchet) await assertRatchet(dir, args, expected.ratchet);

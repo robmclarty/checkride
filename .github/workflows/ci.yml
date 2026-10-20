@@ -92,8 +92,15 @@ jobs:
       # after `pnpm check` so this repo's own run sees the same PATH as before;
       # the action exports the install paths, so the CLI under test finds the
       # tools from the temp copies the e2e cases run in.
+      #
+      # No shims: a shim picks its tool from the cwd's mise.toml, and those
+      # temp copies have none. The cargo shim there drops the install paths
+      # from PATH, so `cargo nextest` finds only the cargo-nextest shim, which
+      # fails. The install paths alone put every tool on PATH.
       - name: Install e2e toolchains
         uses: jdx/mise-action@08ae2a091c038e1e05ec6f5115dc5c69d5a2a6b8 # v5.1.2
+        with:
+          add_shims_to_path: false
 
       # The green-out-of-the-box invariant: generate each shape, install it, and
       # run the built CLI against it (the predecessor's encoded lesson) — plus

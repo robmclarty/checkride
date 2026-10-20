@@ -5,7 +5,8 @@
  * tools, so the two lists must agree: a tool the gate probes but nobody pins
  * fails CI, and a pin no gate probes is a toolchain no case proves. The gate's
  * three outcomes are pinned here with a fake probe, since which tools this
- * machine has decides nothing.
+ * machine has decides nothing. The default probe's cases spawn only Node and
+ * a binary nobody has, for the same reason.
  */
 
 import { readFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test, vi } from 'vitest';
 
-import { describeWithToolchain, TOOLCHAINS, toolchainGate } from '../helpers/toolchains.js';
+import { describeWithToolchain, spawnProbe, TOOLCHAINS, toolchainGate } from '../helpers/toolchains.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
@@ -68,6 +69,36 @@ describe('toolchainGate', () => {
   test('treats any other value of the variable as unset', () => {
     const env = { CHECKRIDE_REQUIRE_TOOLCHAINS: 'true' };
     expect(toolchainGate('rust', { env, runs: none }).run).toBe(false);
+  });
+
+  test('quotes why a probe failed after the command it ran, in the skip and the throw alike', () => {
+    const shim = 'mise ERROR No version is set for shim: cargo-nextest';
+    const runs = (probe: readonly string[]) => probe[1] !== 'nextest' || shim;
+    const what = `cargo nextest not found or not runnable (cargo nextest --version: ${shim})`;
+    const gate = toolchainGate('rust', { env: {}, runs });
+    expect(gate.run ? '' : gate.reason).toBe(`${what} (run \`mise install\`, then \`mise exec -- pnpm test:e2e\`, or set CHECKRIDE_REQUIRE_TOOLCHAINS=1 to fail instead)`);
+    expect(() => toolchainGate('rust', { env: { CHECKRIDE_REQUIRE_TOOLCHAINS: '1' }, runs }))
+      .toThrow(`CHECKRIDE_REQUIRE_TOOLCHAINS=1 and the rust toolchain is incomplete: ${what}; run \`mise install\``);
+  });
+});
+
+describe('spawnProbe', () => {
+  test('passes a probe that exits 0', () => {
+    expect(spawnProbe([process.execPath, '--version'])).toBe(true);
+  });
+
+  test('says not found for a binary that isn’t on PATH', () => {
+    expect(spawnProbe(['checkride-no-such-tool', '--version'])).toBe('not found');
+  });
+
+  test('quotes the error line from its output, past a warning before it, a hint after it, and its color', () => {
+    const lines = ['mise WARN  a newer mise is available', '\u001b[31mmise ERROR\u001b[0m No version is set for shim: x', 'mise use -g x@1'];
+    const script = `console.error(${JSON.stringify(lines.join('\n'))}); process.exit(1)`;
+    expect(spawnProbe([process.execPath, '-e', script])).toBe('mise ERROR No version is set for shim: x');
+  });
+
+  test('says how it ended when it prints nothing', () => {
+    expect(spawnProbe([process.execPath, '-e', 'process.exit(3)'])).toBe('exited 3');
   });
 });
 

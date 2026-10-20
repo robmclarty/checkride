@@ -10,11 +10,13 @@
  *
  * Each probe runs from the OS temp directory, where the e2e cases run their
  * copies: a mise shim that resolves here but not there would otherwise count
- * as present and fail every case it gates.
+ * as present and fail every case it gates. A failed probe's own line rides
+ * along in the reason, so a CI log says why a tool didn't run without a rerun.
  */
 
-import { spawnSync } from 'node:child_process';
+import { type SpawnSyncReturns, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
+import { stripVTControlCharacters } from 'node:util';
 
 import { describe } from 'vitest';
 
@@ -64,31 +66,54 @@ type Toolchain = keyof typeof TOOLCHAINS;
 type GateOptions = {
   /** Read for `CHECKRIDE_REQUIRE_TOOLCHAINS`; defaults to `process.env`. */
   readonly env?: NodeJS.ProcessEnv;
-  /** Whether a probe exits 0; defaults to spawning it from the temp directory. */
-  readonly runs?: (probe: Tool['probe']) => boolean;
+  /** `true` when a probe exits 0, else `false` or the line that says why; defaults to {@link spawnProbe}. */
+  readonly runs?: (probe: Tool['probe']) => Outcome;
 };
+
+/** A probe's result: `true` when it runs, else `false` or the line that says why it didn't. */
+type Outcome = boolean | string;
 
 type Gate = { readonly run: true } | { readonly run: false; readonly reason: string };
 
-const probed = new Map<string, boolean>();
+const probed = new Map<string, Outcome>();
 
-function spawnProbe([bin, ...args]: Tool['probe']): boolean {
+/**
+ * Why a probe failed, in one line: the spawn's own error, else the first line
+ * of its output that names an error, since a warning or a hint can come
+ * before or after it, else its first line, else how it ended.
+ */
+function failure({ error, status, signal, stdout, stderr }: SpawnSyncReturns<string>): string {
+  if (error) return 'code' in error && error.code === 'ENOENT' ? 'not found' : error.message;
+  const lines = stripVTControlCharacters(`${stderr}\n${stdout}`).split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => /error/i.test(line)) ?? lines[0] ?? `exited ${status ?? signal}`;
+}
+
+/** Run a probe from the temp directory, once per command: `true` when it exits 0, else why it didn't. */
+export function spawnProbe([bin, ...args]: Tool['probe']): Outcome {
   const key = [bin, ...args].join(' ');
   const cached = probed.get(key);
   if (cached !== undefined) return cached;
-  const ok = spawnSync(bin, args, { cwd: tmpdir(), stdio: 'ignore', timeout: 30_000 }).status === 0;
-  probed.set(key, ok);
-  return ok;
+  const result = spawnSync(bin, args, { cwd: tmpdir(), encoding: 'utf8', timeout: 30_000 });
+  const outcome = result.status === 0 || failure(result);
+  probed.set(key, outcome);
+  return outcome;
+}
+
+/** The tools that didn't run, then each probe's line for why, where it gave one. */
+function missingText(failed: readonly { readonly tool: Tool; readonly outcome: Outcome }[]): string {
+  const names = `${failed.map(({ tool }) => tool.name).join(', ')} not found or not runnable`;
+  const why = failed.flatMap(({ tool, outcome }) => (typeof outcome === 'string' ? [`${tool.probe.join(' ')}: ${outcome}`] : []));
+  return why.length === 0 ? names : `${names} (${why.join('; ')})`;
 }
 
 /** Decide whether a pack's e2e cases run, skip, or (under the require flag) fail. */
 export function toolchainGate(toolchain: Toolchain, options: GateOptions = {}): Gate {
   const { env = process.env, runs = spawnProbe } = options;
   const tools: readonly Tool[] = TOOLCHAINS[toolchain];
-  const missing = tools.filter((tool) => !runs(tool.probe)).map((tool) => tool.name);
-  if (missing.length === 0) return { run: true };
+  const failed = tools.map((tool) => ({ tool, outcome: runs(tool.probe) })).filter(({ outcome }) => outcome !== true);
+  if (failed.length === 0) return { run: true };
 
-  const what = `${missing.join(', ')} not found or not runnable`;
+  const what = missingText(failed);
   const fix = 'run `mise install`, then `mise exec -- pnpm test:e2e`';
   if (env['CHECKRIDE_REQUIRE_TOOLCHAINS'] === '1') {
     throw new Error(`CHECKRIDE_REQUIRE_TOOLCHAINS=1 and the ${toolchain} toolchain is incomplete: ${what}; ${fix}`);

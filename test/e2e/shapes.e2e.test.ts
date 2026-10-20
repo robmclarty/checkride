@@ -7,6 +7,8 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
+import { CI_MARKERS } from '../helpers/mise.js';
+import { setupStep } from '../helpers/setup.js';
 import { describeWithToolchain } from '../helpers/toolchains.js';
 
 // cspell:ignore recieve
@@ -223,7 +225,7 @@ describeWithToolchain('repo')('init --lang', () => {
         // `mise install` it skips, since the dev mise.toml has the same versions.
         await execFileP('mise', ['trust'], { cwd: dir, ...BIG });
         // Setup may download; the checks never do.
-        for (const [command, ...args] of setup) await execFileP(command, args, { cwd: dir, ...BIG });
+        for (const [command, ...args] of setup) await setupStep(command, args, { cwd: dir });
       }, 300_000);
       afterAll(async () => {
         // The trust lives in this machine's mise state, so take it back with the directory.
@@ -335,10 +337,11 @@ describeWithMise(MISE)('the mise route', () => {
 
 /**
  * What a run inherits from mise's environment that would trust a file unasked:
- * `MISE_YES` makes `mise which` trust the config it reads, and
- * `MISE_TRUSTED_CONFIG_PATHS` trusts whatever it names.
+ * `MISE_YES` makes `mise which` trust the config it reads,
+ * `MISE_TRUSTED_CONFIG_PATHS` trusts whatever it names, and under CI mise
+ * trusts every file.
  */
-const TRUSTING = new Set(['MISE_YES', 'MISE_TRUSTED_CONFIG_PATHS']);
+const TRUSTING = new Set(['MISE_YES', 'MISE_TRUSTED_CONFIG_PATHS', ...CI_MARKERS]);
 
 /**
  * A scaffold before `mise trust` (D82). checkride's entry sets a tool option,

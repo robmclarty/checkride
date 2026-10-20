@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, beforeEach, expect, test } from 'vitest';
 
+import { setupStep } from '../helpers/setup.js';
 import { describeWithToolchain } from '../helpers/toolchains.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -46,8 +47,8 @@ describeWithToolchain('go')('the go pack', () => {
     await writeFile(join(api, 'main_test.go'), MAIN_TEST);
     await writeFile(join(api, '.golangci.yml'), 'version: "2"\n');
     // Setup may download; the checks never do.
-    execFileSync('go', ['get', '-tool', ...GO_TOOLS], { cwd: api, stdio: 'pipe' });
-    execFileSync('go', ['mod', 'download'], { cwd: api, stdio: 'pipe' });
+    await setupStep('go', ['get', '-tool', ...GO_TOOLS], { cwd: api });
+    await setupStep('go', ['mod', 'download'], { cwd: api });
     await writeFile(join(template, 'checkride.config.json'), JSON.stringify({ targets: { api: { lang: 'go', root: 'api' } } }));
   }, 300_000);
   afterAll(async () => { await rm(template, { recursive: true, force: true }); });

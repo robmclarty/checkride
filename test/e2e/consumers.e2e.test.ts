@@ -27,6 +27,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Finding } from '../../src/findings/api.js';
 import { findingsFor, isParseable } from '../../src/findings/api.js';
 import type { Summary, SummaryCheck } from '../../src/orchestrator/index.js';
+import { CI_MARKERS } from '../helpers/mise.js';
 import { toolchainGate } from '../helpers/toolchains.js';
 
 const execFileP = promisify(execFile);
@@ -230,6 +231,9 @@ if (missing.length > 0) console.warn(`skipping the consumer e2e cases: ${missing
   }, 180_000);
 });
 
+/** What mise-action exports to trust the checkout, and what mise reads as CI, where it trusts every file. */
+const TRUSTING = new Set(['MISE_TRUSTED_CONFIG_PATHS', ...CI_MARKERS]);
+
 const goGate = toolchainGate('go');
 const scaffoldMissing = [...(goGate.run ? [] : [goGate.reason]), ...(hasMise ? [] : ['mise not found'])];
 if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold case: ${scaffoldMissing.join('; ')}`);
@@ -242,6 +246,9 @@ if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold ca
  * the agent's go and the file stays untrusted. mise keeps what it trusts in a
  * state directory of the case's own, and the run carries `MISE_YES`, under
  * which mise trusts a config it reads, so only the ignore keeps it untrusted.
+ *
+ * The case drops what would trust the file anyway: the path mise-action
+ * exports, and the variables mise reads as CI.
  */
 (scaffoldMissing.length === 0 ? describe : describe.skip)('a --pins run in a repo whose mise.toml mise hasn’t trusted', () => {
   let dir: string;
@@ -265,7 +272,7 @@ if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold ca
   });
 
   test('the check runs the agent’s go as the override, and the scaffold’s mise.toml stays untrusted', async () => {
-    const inherited = Object.entries(process.env).filter(([key]) => key !== 'MISE_TRUSTED_CONFIG_PATHS');
+    const inherited = Object.entries(process.env).filter(([key]) => !TRUSTING.has(key));
     const env = { ...Object.fromEntries(inherited), MISE_STATE_DIR: join(dir, 'state'), MISE_YES: '1' };
     const version = await devPin('go');
     const run = await checkride(repo, ['--pins', pins, '--only', 'app:types', '--out', join(dir, 'run'), '--json'], env);
