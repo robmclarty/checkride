@@ -31,6 +31,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   discovery finds a project below the root, declares a target for each
   without inventing one at the root, and refuses `--lang` there as it does at
   a marked root.
+- **A preset's top-level tool pick lands on the pack that has the tool.**
+  Where it can't apply at the top level, because the repo declares targets or
+  the pack its root marks has no such adapter, an `extends` preset's
+  `"lint": "oxlint"` moves into `packs.ts.checks`, and a
+  `"lint": "golangci-lint"` into `packs.go.checks`, reaching that pack's
+  checks alone. It used to fail every repo with targets with a config error,
+  and to switch a Go or Python root's own linter off. A pick the root's pack
+  can run stays at the top level and deep-merges with the repo's entry as
+  before, and the repo's own top-level picks keep their rules.
 
 ### Fixed
 
@@ -56,6 +65,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Changed: `init` reads a directory with no root marker as an existing repo
   when discovery proposes a project below it, and refuses `--lang` there,
   where 0.15 scaffolded a new project.
+- Changed: an `extends` preset's top-level pick for a target-scope slot moves
+  into `packs.<pack>.checks` where it can't apply at the top level, so the
+  merged config holds it there, and a repo with targets loads where 0.15
+  exited 2.
 
 #### Additive
 

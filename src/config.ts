@@ -651,11 +651,94 @@ function applyOptIn(check: ResolvedCheck, entry: SlotConfig | undefined, context
  * `invalid <file>:` prefix names. `warn`, when given, hears about each
  * top-level key a file in the chain holds that nothing reads.
  */
-type Chain = { stack: readonly string[]; label: string; root: string; warn?: ConfigWarning };
+type Chain = { stack: readonly string[]; label: string; root: string; warn?: ConfigWarning; repo?: RepoShape };
 
-/** The chain a root config file starts, named `file` in every error. */
-function rootChain(file: string, warn?: ConfigWarning): Chain {
-  return { stack: [], label: file, root: file, ...(warn !== undefined ? { warn } : {}) };
+/**
+ * The repo a config chain configures, as its presets' tool picks need it
+ * ({@link placedPicks}): the pack its root marks (R2.1), and whether the
+ * chain's root config declares `targets`. A defaults file's chain carries
+ * none, since the defaults layer lands each pick on the checks that can run
+ * it as it resolves.
+ */
+type RepoShape = { pack: string; targets: boolean };
+
+/** The chain a root config file starts, named `file` in every error, for the repo at `cwd` when it's given. */
+function rootChain(file: string, warn?: ConfigWarning, cwd?: string): Chain {
+  return {
+    stack: [],
+    label: file,
+    root: file,
+    ...(warn !== undefined ? { warn } : {}),
+    ...(cwd !== undefined ? { repo: { pack: implicitPack(markerAt(cwd)), targets: false } } : {}),
+  };
+}
+
+/** The target-scope slots, whose tool a check's pack decides. */
+const PACK_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope === 'target').map((s) => s.name));
+
+/** The packs with an adapter named `adapter` for `slot`. Adapter names are unique per slot, so it's at most one. */
+function packsWith(adapter: string, slot: string): string[] {
+  return Object.values(PACKS).filter((p) => p.adapters.some((a) => a.name === adapter && a.slot === slot)).map((p) => p.name);
+}
+
+/**
+ * `base`, a preset an `extends` names, with each top-level tool pick for a
+ * target-scope slot that can't apply at the top level moved into the
+ * `packs.<pack>.checks` block of the pack whose adapter it names, so it
+ * reaches only the checks that can run it, as a defaults file's does. A pick
+ * can't apply at the top level when the repo declares targets, where a
+ * top-level entry only switches a slot off or tunes it (V6), or when the
+ * pack the repo's root marks has no such adapter, where it would switch the
+ * root's own tool off. So a fleet preset's `"lint": "oxlint"` lands on a ts
+ * root or target and leaves a go one to golangci-lint. A pick the root's
+ * pack can run stays where it is, and deep-merges with the repo's own entry
+ * as it always has; so does one that names no pack's adapter, a custom
+ * command, and an entry that only switches a slot off or tunes it. The
+ * preset's own pack block wins over a pick moved into it.
+ */
+function placedPicks(base: Record<string, unknown>, repo: RepoShape): Record<string, unknown> {
+  const checks = base['checks'];
+  if (!isRecord(checks)) return base;
+  const top: Record<string, unknown> = {};
+  const moved = new Map<string, Record<string, unknown>>();
+  for (const [slot, entry] of Object.entries(checks)) {
+    const owners = movesTo(slot, entry, repo);
+    if (owners.length === 0) top[slot] = entry;
+    for (const pack of owners) moved.set(pack, { ...moved.get(pack), [slot]: entry });
+  }
+  if (moved.size === 0) return base;
+  return { ...base, checks: top, packs: withPicks(isRecord(base['packs']) ? base['packs'] : {}, moved) };
+}
+
+/** The adapter a raw entry picks, by its name or `{ use }`, or `null` for one that picks none. */
+function pickedAdapter(entry: unknown): string | null {
+  if (typeof entry === 'string') return entry;
+  return isRecord(entry) && typeof entry['use'] === 'string' ? entry['use'] : null;
+}
+
+/**
+ * The packs a preset's top-level `entry` for `slot` moves to: the one whose
+ * adapter it picks, unless the pick can apply at the top level, which a repo
+ * without targets whose root's pack has that adapter lets it. None for an
+ * entry that picks no target-scope tool, or one no pack has.
+ */
+function movesTo(slot: string, entry: unknown, repo: RepoShape): string[] {
+  const adapter = pickedAdapter(entry);
+  if (adapter === null || !PACK_SLOTS.has(slot)) return [];
+  const owners = packsWith(adapter, slot);
+  return !repo.targets && owners.includes(repo.pack) ? [] : owners;
+}
+
+/** `packs` with each pack's moved `picks` under the `checks` its block already holds, which win. */
+function withPicks(packs: Record<string, unknown>, moved: ReadonlyMap<string, Record<string, unknown>>): Record<string, unknown> {
+  const out = { ...packs };
+  for (const [pack, picks] of moved) {
+    const current = out[pack];
+    const block = isRecord(current) ? current : {};
+    const own = isRecord(block['checks']) ? block['checks'] : {};
+    out[pack] = { ...block, checks: { ...picks, ...own } };
+  }
+  return out;
 }
 
 /** Read and parse a config file into an object, or throw a friendly error. */
@@ -693,7 +776,7 @@ function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain
     const base = resolveConfigFile(baseAbs, { ...chain, stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs) });
     const problem = presetProblem(base, spec, label);
     if (problem !== null) invalidConfig(problem, undefined, root);
-    merged = deepMerge(merged, base);
+    merged = deepMerge(merged, chain.repo === undefined ? base : placedPicks(base, chain.repo));
   }
   return merged;
 }
@@ -711,8 +794,18 @@ function resolveConfigFile(absPath: string, chain: Chain): Record<string, unknow
   const parsed = parseConfigJson(absPath, chain);
   if (chain.warn !== undefined) for (const warning of unknownKeyWarnings(parsed, chain.label)) chain.warn(warning);
   const { extends: ext, ...own } = parsed;
-  const merged = resolveExtends(normalizeExtends(ext), absPath, chain);
+  const merged = resolveExtends(normalizeExtends(ext), absPath, rootedChain(chain, own));
   return deepMerge(merged, own);
+}
+
+/**
+ * `chain`, with its repo's `targets` read from `own` when `own` is the root
+ * config's, the one file whose `targets` count; a preset's chain keeps the
+ * root's.
+ */
+function rootedChain(chain: Chain, own: Record<string, unknown>): Chain {
+  if (chain.repo === undefined || chain.stack.length > 0) return chain;
+  return { ...chain, repo: { ...chain.repo, targets: own['targets'] !== undefined } };
 }
 
 /**
@@ -739,7 +832,7 @@ function validated(config: Record<string, unknown>, cwd: string, file: string): 
 export function loadConfig(cwd: string, warn?: ConfigWarning): CheckrideConfig | null {
   const path = join(cwd, CONFIG_FILE);
   if (!existsSync(path)) return null;
-  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE, warn)), cwd, CONFIG_FILE);
+  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE, warn, cwd)), cwd, CONFIG_FILE);
 }
 
 /**
@@ -752,7 +845,7 @@ export function loadConfig(cwd: string, warn?: ConfigWarning): CheckrideConfig |
 export function validateConfigObject(raw: Record<string, unknown>, path: string, cwd: string): CheckrideConfig {
   const { extends: ext, ...own } = raw;
   const label = relative(cwd, path) === CONFIG_FILE ? CONFIG_FILE : path;
-  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, rootChain(label)), own), cwd, label);
+  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, rootedChain(rootChain(label, undefined, cwd), own)), own), cwd, label);
 }
 
 /**
@@ -765,7 +858,7 @@ export function validateConfigObject(raw: Record<string, unknown>, path: string,
  * since a named file that is missing is a usage error, not "no config".
  */
 export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning): CheckrideConfig {
-  return validated(resolveConfigFile(path, rootChain(path, warn)), cwd, path);
+  return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path);
 }
 
 /** The first top-level key a defaults file can't hold, as a problem, or `null`. */

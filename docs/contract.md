@@ -1086,7 +1086,15 @@ written:
   picks a tool belongs under `packs.<pack>.checks` or a target's own `checks`,
   and the message names both.
 - A preset that `extends` names never declares targets, and `targets` is never
-  empty.
+  empty. A preset's top-level entry that picks a target-scope slot's tool,
+  by an adapter's name or `{ use }`, lands in `packs.<pack>.checks` of the
+  pack that has that adapter wherever it can't apply at the top level: when
+  the repo declares targets, or when the pack its root marks has no such
+  adapter. It reaches that pack's checks alone, below the preset's own pack
+  block, so a fleet preset's `"lint": "oxlint"` neither breaks the rule above
+  in a repo with targets nor switches a Go root's linter off. A pick the
+  root's pack can run stays at the top level and deep-merges with the repo's
+  own entry as before, and the repo's own entries keep the rule above.
 - A `packs` key names a pack, and every adapter a `packs` block or a target
   names belongs to that pack. A repo-scope slot is configured only at the top
   level.

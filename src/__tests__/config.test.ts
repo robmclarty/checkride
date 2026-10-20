@@ -1478,6 +1478,60 @@ describe('loadConfig', () => {
     expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json');
   });
 
+  /** The tool each lint and test check resolves to, by check name, for the repo at `dir`. */
+  const toolsOf = (config: CheckrideConfig | null): Record<string, string | null> =>
+    Object.fromEntries(
+      resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir })
+        .filter((c) => c.slot === 'lint' || c.slot === 'test')
+        .map((c) => [c.target === undefined ? c.slot : `${c.target}:${c.slot}`, c.adapter?.name ?? null]),
+    );
+
+  test('a preset’s pick the root’s pack has no adapter for moves to the pack that has one, leaving the root its own tool', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/app\n\ngo 1.24\n');
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    await writeFile(join(dir, 'preset.json'), JSON.stringify({ checks: { lint: 'oxlint', spell: false } }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './preset.json' }));
+    const config = loadConfig(dir);
+    // The repo-scope entry stays at the top level; the ts pick lands on ts checks alone.
+    expect(config).toEqual({ checks: { spell: false }, packs: { ts: { checks: { lint: 'oxlint' } } } });
+    expect(toolsOf(config)).toMatchObject({ lint: 'golangci-lint', test: 'go-test' });
+  });
+
+  test('a preset’s pick for another pack leaves a ts root’s own tool alone', async () => {
+    await writeFile(join(dir, 'package.json'), '{}');
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await writeFile(join(dir, 'preset.json'), JSON.stringify({ checks: { lint: 'golangci-lint' } }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './preset.json' }));
+    const config = loadConfig(dir);
+    expect(config).toEqual({ checks: {}, packs: { go: { checks: { lint: 'golangci-lint' } } } });
+    expect(toolsOf(config)).toMatchObject({ lint: 'oxlint' });
+  });
+
+  test('with targets, a preset’s top-level picks land on each pack’s targets instead of breaking V6', async () => {
+    await mkdir(join(dir, 'web'));
+    await writeFile(join(dir, 'web', 'package.json'), '{}');
+    await mkdir(join(dir, 'api'));
+    await writeFile(join(dir, 'api', 'go.mod'), 'module example.com/api\n\ngo 1.24\n');
+    await writeFile(join(dir, 'api', '.golangci.yml'), 'version: "2"\n');
+    await writeFile(
+      join(dir, 'preset.json'),
+      JSON.stringify({ checks: { lint: 'oxlint', test: { use: 'vitest', timeout: 0 } }, packs: { ts: { checks: { test: 'jest' } } } }),
+    );
+    const targets = { web: { lang: 'ts', root: 'web' }, api: { lang: 'go', root: 'api' } };
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ extends: './preset.json', targets }));
+    const config = loadConfig(dir);
+    // The preset's own pack block beats a pick moved into it.
+    expect(config?.packs).toEqual({ ts: { checks: { lint: 'oxlint', test: 'jest' } } });
+    expect(toolsOf(config)).toMatchObject({ 'web:lint': 'oxlint', 'api:lint': 'golangci-lint', 'web:test': 'jest', 'api:test': 'go-test' });
+  });
+
+  test('the repo’s own top-level pick keeps the rules it always has, once targets are declared', async () => {
+    await mkdir(join(dir, 'web'));
+    await writeFile(join(dir, 'web', 'package.json'), '{}');
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { lint: 'oxlint' }, targets: { web: { lang: 'ts', root: 'web' } } }));
+    expect(() => loadConfig(dir)).toThrow(/checks\.lint names "oxlint", but once targets are declared/);
+  });
+
   test('throws a friendly error on a circular extends chain', async () => {
     await writeFile(join(dir, 'a.json'), JSON.stringify({ extends: './b.json' }));
     await writeFile(join(dir, 'b.json'), JSON.stringify({ extends: './a.json' }));
