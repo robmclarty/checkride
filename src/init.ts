@@ -37,7 +37,7 @@ import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
 import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, liftDiscovered, markerAt } from './targets/index.js';
+import { addTarget, checkName, discoverTargets, implicitPack, isImplicit, liftDiscovered, markedPack, markerAt } from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -1651,12 +1651,15 @@ const TARGET_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope !=
 /**
  * `raw` with `proposed` declared one by one, as `target add` declares each:
  * the root target first, so it takes the implicit target over rather than
- * nesting beside one, and otherwise the implicit target named `app`.
+ * nesting beside one, and otherwise the implicit target named `app`. Where
+ * the root marks no pack (`marked` false), as in a repo whose projects all
+ * sit below it, the implicit target becomes one only when an entry picks it
+ * a tool, as `target add` decides it, so `init` never invents a ts target at
+ * `.` that checks nothing.
  */
-function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedTarget[], pack: string): TargetChange {
+function addedInOrder(raw: Record<string, unknown>, proposed: readonly ProposedTarget[], pack: string, marked: boolean): TargetChange {
   const ordered = proposed.toSorted((a, b) => Number(b.root === '.') - Number(a.root === '.'));
-  // Existing mode starts from a root that marks a pack, so its implicit target is always kept.
-  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS, marked: true };
+  const rules = { rootName: ordered[0]?.root === '.' ? ordered[0].name : 'app', implicitPack: pack, targetSlots: TARGET_SLOTS, marked };
   let change: TargetChange = { config: raw, renames: new Map(), changes: [] };
   for (const target of ordered) {
     const next = addTarget(change.config, target, rules);
@@ -1695,7 +1698,7 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
   // Where an inner root won, the root is no target's, as `--discover` reads it.
   const change = nestsImplicit(proposed, pack)
     ? liftDiscovered(raw, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS })
-    : addedInOrder(raw, proposed, pack);
+    : addedInOrder(raw, proposed, pack, markedPack(markerAt(cwd)) !== null);
   const files = await writeTargetChange(cwd, change, { dryRun: w.dryRun, command: 'init' });
   w.written.push(...files.files.map((file) => `${file} (targets)`));
   return { proposed, changes: [...change.changes, ...files.changes] };
@@ -1821,9 +1824,38 @@ function existingMarker(cwd: string): string | null {
   return marker === undefined ? null : marker.startsWith('*') ? `${marker.slice(1)} file` : marker;
 }
 
-/** Detect new vs existing: existing when the root holds a `package.json` or another shipped pack's marker. */
-export function detectMode(cwd: string): 'new' | 'existing' {
-  return existingMarker(cwd) === null ? 'new' : 'existing';
+/**
+ * Where `cwd` holds no root marker, the projects discovery finds below it, as
+ * a message names them after `has a`: `go project in api/`, and how many
+ * more. `null`
+ * when it finds none, as in the empty directory a new project starts from.
+ * A repo whose languages all live in subdirectories, its root holding only a
+ * `README.md` or a `mise.toml`, is an existing repo all the same, and new
+ * mode would scaffold a TypeScript project into it.
+ */
+async function projectsBelow(cwd: string, discover: (cwd: string) => Promise<ProposedTarget[]>): Promise<string | null> {
+  const [first, ...rest] = await discover(cwd);
+  if (first === undefined) return null;
+  const where = first.root === '.' ? 'at its root' : `in ${first.root}/`;
+  return `${first.lang} project ${where}${rest.length > 0 ? ` and ${rest.length} more` : ''}`;
+}
+
+/**
+ * What makes `cwd` an existing project, as a message names it: its root
+ * marker, else the projects discovery finds below it, else `null` for a
+ * directory a new project is scaffolded into.
+ */
+async function existingProject(cwd: string, discover: (cwd: string) => Promise<ProposedTarget[]>): Promise<string | null> {
+  return existingMarker(cwd) ?? (await projectsBelow(cwd, discover));
+}
+
+/**
+ * Detect new vs existing: existing when the root holds a `package.json` or
+ * another shipped pack's marker, or when discovery finds a project below a
+ * root that holds none.
+ */
+export async function detectMode(cwd: string, discover: (cwd: string) => Promise<ProposedTarget[]> = discoverTargets): Promise<'new' | 'existing'> {
+  return (await existingProject(cwd, discover)) === null ? 'new' : 'existing';
 }
 
 /**
@@ -1869,7 +1901,7 @@ function addProblem(options: InitOptions, cwd: string): string | null {
 /** Run `checkride init` against `cwd`. */
 export async function runInit(options: InitOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
-  const marker = existingMarker(cwd);
+  const marker = await existingProject(cwd, options.discoverTargets ?? discoverTargets);
   const problem = langProblem(options, marker) ?? addProblem(options, cwd);
   if (problem !== null) throw new Error(problem);
   if (marker !== null) return initExisting(options, cwd);

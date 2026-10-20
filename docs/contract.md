@@ -790,10 +790,17 @@ The new config is merged and validated first, so a change that breaks a rule
 (a ts target nesting under the converted root, for one) exits 2 having written
 nothing, as does a baseline that can't be parsed.
 
-**`init` in an existing repo proposes the targets its files suggest.** It
-reads the repo's files as `unclaimed` does and proposes a ts target at the root
-when the root holds a `package.json` or `pnpm-workspace.yaml`, claiming every
-nested package, and otherwise one for each top-most `package.json`. Shell files
+**`init` in an existing repo proposes the targets its files suggest.** A
+directory is an existing repo when its root holds a `package.json` or another
+shipped pack's marker, or, holding none, when discovery proposes a project
+below it, as in a repo whose languages all live in subdirectories; only a
+directory with neither gets a new project scaffolded. `init` reads the repo's
+files as `unclaimed` does and proposes a ts target at the root when the root
+holds a `package.json` or `pnpm-workspace.yaml`, claiming every nested
+package, and otherwise one for each top-most `package.json`. The repo's
+implicit target becomes a target of its own only when its root marks a pack,
+so `init` never declares a ts target at `.` for a root that marks nothing.
+Shell files
 outside every other proposed target's root propose one bash target, at the
 deepest directory holding them all, named `scripts` when that directory is
 the root's `scripts/` and `shell` otherwise. Other names come from each

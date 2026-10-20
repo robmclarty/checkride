@@ -6,6 +6,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **`init` adopts a repo whose projects all sit below its root.** A root with
+  no marker of its own, its languages in subdirectories and nothing at the
+  root but a `README.md` or a `mise.toml`, read as an empty directory, so
+  `init` scaffolded a new TypeScript project into it, or refused when a
+  scaffold file collided. `init` now reads it as an existing repo when
+  discovery finds a project below the root, declares a target for each
+  without inventing one at the root, and refuses `--lang` there as it does at
+  a marked root.
+
 ### Fixed
 
 - **`doctor` probes a toolchain where the run finds it.** `go`, `gofmt`,
@@ -17,6 +28,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `path`, as the summary records it.
 
 ### Contract
+
+#### Not additive
+
+- Changed: `init` reads a directory with no root marker as an existing repo
+  when discovery proposes a project below it, and refuses `--lang` there,
+  where 0.15 scaffolded a new project.
 
 #### Additive
 

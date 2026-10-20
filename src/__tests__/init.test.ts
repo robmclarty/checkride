@@ -319,25 +319,31 @@ describe('detectMode', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-mode-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  test('new when there is no package.json', () => {
-    expect(detectMode(dir)).toBe('new');
+  test('new when there is no package.json', async () => {
+    expect(await detectMode(dir)).toBe('new');
   });
   test('existing when package.json is present', async () => {
     await writeFile(join(dir, 'package.json'), '{}');
-    expect(detectMode(dir)).toBe('existing');
+    expect(await detectMode(dir)).toBe('existing');
   });
   test.each(['go.mod', 'go.work', 'Cargo.toml', 'pyproject.toml', 'setup.cfg', 'setup.py', '.terraform.lock.hcl', 'main.tf'])(
     'existing when another shipped pack marks the root with %s',
     async (marker) => {
       await writeFile(join(dir, marker), '');
-      expect(detectMode(dir)).toBe('existing');
+      expect(await detectMode(dir)).toBe('existing');
     },
   );
-  test('new when no marker sits at the root, a .tf file only below it included', async () => {
+  test('existing when no marker sits at the root but a project sits below it, as a .tf directory does', async () => {
     await writeFile(join(dir, 'README.md'), '');
     await mkdir(join(dir, 'infra'));
     await writeFile(join(dir, 'infra', 'main.tf'), '');
-    expect(detectMode(dir)).toBe('new');
+    expect(await detectMode(dir)).toBe('existing');
+  });
+  test('new when nothing at the root or below it marks a project', async () => {
+    await writeFile(join(dir, 'README.md'), '');
+    await mkdir(join(dir, 'docs'));
+    await writeFile(join(dir, 'docs', 'guide.md'), '');
+    expect(await detectMode(dir)).toBe('new');
   });
 });
 
@@ -679,6 +685,33 @@ describe('existing-project adoption (idempotent)', () => {
       app: { lang: 'go', root: '.', checks: { types: 'go-build', test: 'go-test' } },
       scripts: { lang: 'bash', root: 'scripts' },
     });
+  });
+
+  test('a root with no marker but projects below it is adopted, its targets declared, and nothing scaffolded', async () => {
+    await writeFile(join(dir, 'README.md'), '# acme\n');
+    await mkdir(join(dir, 'api'));
+    await writeFile(join(dir, 'api', 'go.mod'), 'module example.com/api\n\ngo 1.24\n');
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\necho deploy\n');
+    const out = sink();
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    expect(result.mode).toBe('existing');
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Record<string, unknown>;
+    // The root marks no pack and configures no tool, so no ts target is invented at it.
+    expect(cfg['targets']).toEqual({ api: { lang: 'go', root: 'api' }, scripts: { lang: 'bash', root: 'scripts' } });
+    expect(configProblem(cfg, { cwd: dir, layer: 'repo' })).toBeNull();
+    for (const scaffolded of ['package.json', 'tsconfig.json', 'src']) expect(existsSync(join(dir, scaffolded))).toBe(false);
+    expect(out.text()).toContain('targets.api: a go target rooted at api');
+  });
+
+  test('--lang is refused where projects sit below a root with no marker, naming them', async () => {
+    await writeFile(join(dir, 'README.md'), '# acme\n');
+    await mkdir(join(dir, 'infra'));
+    await writeFile(join(dir, 'infra', 'main.tf'), 'locals {}\n');
+    await expect(runInit({ cwd: dir, lang: 'go', probeFailures: noFailures, hook: false })).rejects.toThrow(
+      'init: --lang go scaffolds a new project, and this directory has a terraform project in infra/; run it in an empty directory',
+    );
+    expect(await readdir(dir)).toEqual(['README.md', 'infra']);
   });
 
   test('real discovery of a go.work below a root go.mod declares the workspace alone, and writes a config that holds', async () => {
