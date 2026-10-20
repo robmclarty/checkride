@@ -774,6 +774,33 @@ describe('the rust-toolchain source (R6.1)', () => {
       expect(refusal).toContain(`the \`lint\` slot's \`cargo-clippy\` is pinned by a toolchain file, but no \`cargo\` sits beside \`rustup\` in ${s.bin} to read it`);
     }));
 
+  test('passes over a rustup with no cargo beside it for the proxy later on PATH, as on a GitHub macOS runner', () =>
+    withScratch(async (s) => {
+      await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+      // Homebrew's lone rustup first, then the ~/.cargo/bin rustup-init fills.
+      await s.tool('rustup');
+      const proxy = join(s.bin, '..', 'cargo-home');
+      await mkdir(proxy);
+      for (const bin of ['rustup', 'cargo']) await writeFile(join(proxy, bin), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const at = { ...s.at('.', { pins: RUST_CHAIN, tools: [CLIPPY] }), env: { PATH: `${s.bin}${delimiter}${proxy}` } };
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, at)).toEqual({
+        command: 'cargo',
+        args: ['clippy', '--workspace', '--', '-D', 'warnings'],
+        env: { RUSTUP_TOOLCHAIN: '', MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'rust-toolchain', version: '1.85.0' },
+      });
+      // Another cargo between them still puts the proxy's directory first.
+      const other = join(s.bin, '..', 'other');
+      await mkdir(other);
+      await writeFile(join(other, 'cargo'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const path = [s.bin, other, proxy].join(delimiter);
+      expect(launchCheck('lint', 'pnpm', RUN_CLIPPY, { ...at, env: { PATH: path } })).toMatchObject({
+        command: 'cargo',
+        env: { PATH: `${proxy}${delimiter}${path}` },
+        pin: { source: 'rust-toolchain' },
+      });
+    }));
+
   test('a toolchain file pins cargo itself, a rustup component like clippy', () =>
     withScratch(async (s) => {
       await s.file('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');

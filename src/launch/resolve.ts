@@ -791,9 +791,9 @@ function pluginRefusal(slot: string, plugin: string, declared: RustToolchainDecl
 }
 
 /**
- * The refusal for a toolchain component where rustup is on PATH with no
- * `cargo` beside it, so the only `cargo` there is another one, which would
- * ignore the toolchain file.
+ * The refusal for a toolchain component where rustup is on PATH but no
+ * directory holds it with a `cargo`, so every `cargo` there is another one,
+ * which would ignore the toolchain file. It names the first rustup's directory.
  */
 function proxyMissingRefusal(req: ToolRequest): string {
   const rustup = findOnPath(RUSTUP, req.env) ?? RUSTUP;

@@ -46,14 +46,20 @@ export function toolchainChannel(text: string): string | undefined {
 type PathEnv = Readonly<Record<string, string | undefined>>;
 
 /**
- * The `cargo` beside the first `rustup` on `env`'s `PATH`: rustup's proxy,
- * the one `cargo` that reads a toolchain file, or `null` when rustup isn't on
- * `PATH` or has no `cargo` beside it. rustup installs both into one directory,
- * as `~/.cargo/bin` and mise's Rust both hold them.
+ * rustup's proxy, the one `cargo` that reads a toolchain file: the `cargo` in
+ * the first directory on `env`'s `PATH` that holds `rustup` too, or `null`
+ * where none holds both. rustup installs the two into one directory, as
+ * `~/.cargo/bin` and mise's Rust both hold them. A `rustup` with no `cargo`
+ * beside it earlier on `PATH`, as GitHub's macOS runners link one into
+ * `/opt/homebrew/bin` ahead of `~/.cargo/bin`, is passed over.
  */
 export function rustupCargo(env: PathEnv): string | null {
-  const rustup = findOnPath('rustup', env);
-  return rustup === null ? null : findOnPath('cargo', { PATH: dirname(rustup) });
+  for (const dir of (env['PATH'] ?? '').split(delimiter)) {
+    const here = { PATH: dir };
+    const cargo = findOnPath('cargo', here);
+    if (cargo !== null && findOnPath('rustup', here) !== null) return cargo;
+  }
+  return null;
 }
 
 /**

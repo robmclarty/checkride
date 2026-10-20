@@ -666,7 +666,10 @@ would depend on the shell that ran it. Where another `cargo`, such as
 Homebrew's, comes before rustup's proxy on `PATH`, the spawn also puts
 rustup's directory first, so a component, a plugin's `cargo <sub>` and a
 custom check's `cargo` all reach the one that reads the file; argv and
-`pin_source` don't change. One gap remains: a `mise.toml` that pins `rust`
+`pin_source` don't change. rustup's proxy is the `cargo` in the first
+directory on `PATH` that holds `rustup` too, so a `rustup` with no `cargo`
+beside it earlier on `PATH`, as GitHub's macOS runners link one into
+`/opt/homebrew/bin`, doesn't stop the check. One gap remains: a `mise.toml` that pins `rust`
 runs its checks through `mise exec`, which sets `RUSTUP_TOOLCHAIN` again
 inside.
 

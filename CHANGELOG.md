@@ -411,9 +411,11 @@ fields. These are the changes it can notice; each is described in full below.
   the doctests (`snippets`, opt-in), cargo-deny (`security`, opt-in) and
   cargo-mutants (`mutation`, opt-in), each from the target's root. One
   target's cargo runs never overlap. A component the toolchain file pins
-  fails its check when `rustup` isn't on `PATH`, or has no `cargo` proxy
-  beside it, rather than run a `cargo` that would ignore the pin, and so does
-  a cargo plugin such as nextest, which builds through `cargo`. Where another
+  fails its check when `rustup` isn't on `PATH`, or no directory on it holds
+  `rustup` with its `cargo` proxy, rather than run a `cargo` that would ignore
+  the pin, and so does a cargo plugin such as nextest, which builds through
+  `cargo`. A lone `rustup` earlier on `PATH`, as on GitHub's macOS runners,
+  is passed over for the proxy after it. Where another
   `cargo` comes before rustup's on `PATH`, every spawn under a toolchain file
   puts rustup's directory first, so the file governs a plugin's and a custom
   check's `cargo` too. cargo-mutants writes its report into the
