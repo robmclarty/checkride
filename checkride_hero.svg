@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="t d">
+  <!-- The README hero. checkride_hero.png is this file rendered at 1.5x (2400 by 1200) with the site's fonts: DM Serif Display, Space Grotesk and JetBrains Mono. -->
+  <title id="t">checkride: exit 0, or go around</title>
+  <desc id="d">A coding agent, drawn as a robot pilot in a small plane, approaches a runway. Beside it stands a control tower named checkride, built on your repo. Eight approach lights, one per check (types, lint, struct, dead, test, docs, links and spell), all run by one command, pnpm check, are green, so the tower shines a green light: exit 0, cleared to land, and the sign by the runway reads DONE. A dashed loop shows the earlier approach, where a failed test meant exit 1 and a go-around.</desc>
+  <defs>
+    <style>
+      .mono { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-ligatures: none; }
+      .sans { font-family: 'Space Grotesk', ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .serif { font-family: 'DM Serif Display', Georgia, 'Times New Roman', serif; }
+    </style>
+    <path id="sparkle" d="M0 -12 C1.6 -1.6 1.6 -1.6 12 0 C1.6 1.6 1.6 1.6 0 12 C-1.6 1.6 -1.6 1.6 -12 0 C-1.6 -1.6 -1.6 -1.6 0 -12 Z"/>
+    <path id="fuse" d="M150 0 C150 -12 140 -20 118 -23 L40 -28 C-10 -28 -90 -14 -176 -7 Q-181 -6 -180 0 L-177 4 C-120 6 -50 24 60 26 C100 26 136 20 146 10 C150 6 150 3 150 0 Z"/>
+    <path id="canopy" d="M106 -23 C94 -54 68 -68 36 -68 C6 -68 -18 -52 -36 -25 Z"/>
+    <clipPath id="fuse-clip"><use href="#fuse"/></clipPath>
+    <clipPath id="canopy-clip"><use href="#canopy"/></clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E3ECE5"/>
+      <stop offset="0.8" stop-color="#EDF3EE"/>
+    </linearGradient>
+    <linearGradient id="beam" gradientUnits="userSpaceOnUse" x1="1338" y1="267" x2="905" y2="444">
+      <stop offset="0" stop-color="#3FA26F" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#3FA26F" stop-opacity="0.10"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="800" fill="url(#sky)"/>
+  <circle cx="1400" cy="262" r="132" fill="#F2EEDB"/>
+  <path transform="translate(760 128) scale(0.95)" d="M0 0 h150 a24 24 0 0 0 -24 -24 a34 34 0 0 0 -62 -14 a26 26 0 0 0 -44 16 a20 20 0 0 0 -20 22 z" fill="#F6F9F6"/>
+  <path transform="translate(1060 96) scale(0.75)" d="M0 0 h150 a24 24 0 0 0 -24 -24 a34 34 0 0 0 -62 -14 a26 26 0 0 0 -44 16 a20 20 0 0 0 -20 22 z" fill="#F6F9F6"/>
+  <path transform="translate(160 520) scale(0.7)" d="M0 0 h150 a24 24 0 0 0 -24 -24 a34 34 0 0 0 -62 -14 a26 26 0 0 0 -44 16 a20 20 0 0 0 -20 22 z" fill="#F6F9F6"/>
+  <text x="64" y="116" class="serif" font-size="62" fill="#14231B"><tspan fill="#1E7A4A">Exit 0,</tspan> or <tspan font-style="italic">go around.</tspan></text>
+  <text x="66" y="161" class="sans" font-size="24" fill="#2A3A31">Your agent doesn’t land until every check is green.</text>
+  <path d="M0 640 L0 606 C90 590 170 596 250 608 C330 620 420 598 520 594 C620 590 700 612 790 616 C880 620 960 600 1060 598 C1160 596 1240 614 1330 612 C1420 610 1500 596 1600 600 L1600 640 Z" fill="#D9E6DC"/>
+  <g fill="#CCDDD0"><path d="M40 640 C40 618 64 610 85.6 620 C100 604 133.60000000000002 608 136 622 C154 620 160 629 160 640 Z"/><path d="M250 640 C250 624 268 616 284.2 626 C295 610 320.2 614 322 628 C335.5 626 340 632 340 640 Z"/><path d="M1120 640 C1120 620 1142 612 1161.8 622 C1175 606 1205.8 610 1208 624 C1224.5 622 1230 630 1230 640 Z"/><path d="M1500 640 C1500 616 1524 608 1545.6 618 C1560 602 1593.6 606 1596 620 C1614 618 1620 628 1620 640 Z"/></g>
+  <rect x="0" y="640" width="1600" height="160" fill="#C9DBCC"/>
+  <rect x="0" y="708" width="1600" height="92" fill="#BFD2C3"/>
+  <line x1="0" y1="640" x2="1600" y2="640" stroke="#14231B" stroke-width="3"/>
+  <g id="tower">
+    <rect x="1330" y="600" width="140" height="44" fill="#DCE9DF" stroke="#14231B" stroke-width="3"/>
+    <text x="1400" y="628" text-anchor="middle" class="mono" font-weight="700" font-size="17" fill="#14231B">your repo</text>
+    <path d="M1380 330 L1420 330 L1430 600 L1370 600 Z" fill="#DCE9DF" stroke="#14231B" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="1394" y="376" width="12" height="22" fill="#14231B"/>
+    <rect x="1394" y="456" width="12" height="22" fill="#14231B"/>
+    <rect x="1394" y="536" width="12" height="22" fill="#14231B"/>
+    <rect x="1316" y="298" width="168" height="36" fill="#14231B" stroke="#14231B" stroke-width="3"/>
+    <rect x="1330" y="309" width="14" height="14" fill="#1E7A4A" stroke="#E9F0EA" stroke-width="1.5"/>
+    <text x="1410" y="322.5" text-anchor="middle" class="mono" font-weight="700" font-size="18" letter-spacing="2" fill="#E9F0EA">CHECKRIDE</text>
+    <path d="M1334 298 L1466 298 L1480 236 L1320 236 Z" fill="#2A3A31" stroke="#14231B" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M1362 238 L1358 296 M1400 238 L1400 296 M1438 238 L1442 296" stroke="#14231B" stroke-width="3"/>
+    <rect x="1308" y="222" width="184" height="16" fill="#DCE9DF" stroke="#14231B" stroke-width="3"/>
+    <line x1="1400" y1="222" x2="1400" y2="182" stroke="#14231B" stroke-width="3"/>
+    <circle cx="1400" cy="176" r="7" fill="#3FA26F" stroke="#14231B" stroke-width="2.5"/>
+  </g>
+  <rect x="1050" y="652" width="570" height="46" fill="#33453A" stroke="#14231B" stroke-width="3"/>
+  <g fill="#F8FBF8"><rect x="1064" y="657" width="44" height="4"/><rect x="1064" y="665" width="44" height="4"/><rect x="1064" y="681" width="44" height="4"/><rect x="1064" y="689" width="44" height="4"/></g>
+  <line x1="1130" y1="675" x2="1600" y2="675" stroke="#F8FBF8" stroke-width="3" stroke-dasharray="34 22"/>
+  <g id="done-sign">
+    <line x1="1232" y1="740" x2="1232" y2="764" stroke="#14231B" stroke-width="5"/><line x1="1296" y1="740" x2="1296" y2="764" stroke="#14231B" stroke-width="5"/>
+    <rect x="1210" y="712" width="108" height="34" fill="#14231B" stroke="#14231B" stroke-width="3"/>
+    <rect x="1214" y="716" width="100" height="26" fill="none" stroke="#F2C94C" stroke-width="2"/>
+    <text x="1264" y="737" text-anchor="middle" class="mono" font-weight="700" font-size="20" letter-spacing="2" fill="#F2C94C">DONE</text>
+  </g>
+  <path d="M1335.7 261.4 L1340.3 272.6 L919.9 554.6 L838.2 354.6 Z" fill="url(#beam)"/>
+  <circle cx="1338" cy="267" r="10" fill="#5BD08A" stroke="#14231B" stroke-width="2.5"/>
+  <text transform="translate(1085 293.1) rotate(-9.9)" text-anchor="middle" class="mono" font-weight="700" font-size="23" fill="#1E7A4A">exit 0<tspan class="serif" font-weight="400" font-style="italic" font-size="25"> · cleared to land</tspan></text>
+  <g id="checks">
+    <g transform="translate(400 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">types</text>
+    </g>
+    <g transform="translate(486 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">lint</text>
+    </g>
+    <g transform="translate(572 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">struct</text>
+    </g>
+    <g transform="translate(658 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">dead</text>
+    </g>
+    <g transform="translate(744 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">test</text>
+    </g>
+    <g transform="translate(830 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">docs</text>
+    </g>
+    <g transform="translate(916 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">links</text>
+    </g>
+    <g transform="translate(1002 0)">
+      <circle cy="610" r="27" fill="#3FA26F" opacity="0.22"/>
+      <line y1="672" y2="626" stroke="#14231B" stroke-width="4"/>
+      <rect x="-20" y="625" width="40" height="7" rx="2" fill="#14231B"/>
+      <circle cy="610" r="16" fill="#3FA26F" stroke="#14231B" stroke-width="3"/>
+      <path d="M-6.5 610.5 L-2 615 L7 605.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text y="724" text-anchor="middle" class="mono" font-size="21" fill="#14231B">spell</text>
+    </g>
+  </g>
+  <path d="M380 742 v10 h642 v-10 M701 752 v8" fill="none" stroke="#14231B" stroke-width="2.5"/>
+  <text x="701" y="787" text-anchor="middle" class="mono" font-weight="700" font-size="23" fill="#14231B"><tspan fill="#1E7A4A">$</tspan> pnpm check</text>
+  <path d="M-20 300 C120 330 250 390 360 440 C430 470 500 482 548 462 C620 432 640 330 590 280 C540 230 440 238 410 300 C385 352 440 400 520 418 C580 432 630 436 672 438" fill="none" stroke="#14231B" stroke-width="3.5" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <path d="M516 228 l-16 12 l16 12" fill="none" stroke="#14231B" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <g transform="translate(522 474)"><circle r="14" fill="#D45B4A" stroke="#14231B" stroke-width="2.5"/><path d="M-5 -5 L5 5 M5 -5 L-5 5" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/></g>
+  <text x="522" y="516" text-anchor="middle" class="mono" font-size="20" fill="#C0392B">test failed</text>
+  <text x="512" y="212" text-anchor="middle" class="mono" font-weight="700" font-size="23" fill="#C0392B">exit 1<tspan class="serif" font-weight="400" font-style="italic" font-size="25"> · go around</tspan></text>
+  <g id="agent" transform="translate(905 444) rotate(5) scale(1.22)" stroke-linejoin="round">
+    <ellipse cx="156" cy="0" rx="5" ry="46" fill="#14231B" opacity="0.13"/>
+    <path d="M-110 -8 L-150 -66 L-172 -66 L-178 -2 Z" fill="#2456A6" stroke="#14231B" stroke-width="2.5"/>
+    <path d="M-138 -67 C-138 -71 -148 -73 -160 -73 L-200 -70 Q-205 -68 -200 -66 L-160 -62 C-148 -62 -138 -63 -138 -67 Z" fill="#FFFFFF" stroke="#14231B" stroke-width="2.5"/>
+    <use href="#sparkle" transform="translate(-157 -36) scale(0.85)" fill="#FFFFFF"/>
+    <line x1="-8" y1="52" x2="-12" y2="70" stroke="#14231B" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="-12" cy="74" r="10" fill="#14231B"/><circle cx="-12" cy="74" r="3.5" fill="#B7C8BC"/>
+    <line x1="122" y1="16" x2="126" y2="42" stroke="#14231B" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="126" cy="47" r="8" fill="#14231B"/><circle cx="126" cy="47" r="3" fill="#B7C8BC"/>
+    <use href="#fuse" fill="#FFFFFF"/>
+    <g clip-path="url(#fuse-clip)"><path d="M160 6 L-190 -5 L-190 2 L160 14 Z" fill="#2456A6"/></g>
+    <use href="#fuse" fill="none" stroke="#14231B" stroke-width="2.5"/>
+    <text x="50" y="0" text-anchor="middle" class="mono" font-weight="700" font-size="15" letter-spacing="1.5" fill="#14231B">AGENT</text>
+    <use href="#canopy" fill="#CFE3D6"/>
+    <g clip-path="url(#canopy-clip)">
+      <rect x="18" y="-34" width="44" height="14" rx="6" fill="#2A3A31"/>
+      <rect x="22" y="-60" width="34" height="28" rx="8" fill="#FFFFFF" stroke="#14231B" stroke-width="2.5"/>
+      <rect x="38" y="-53" width="20" height="13" rx="5" fill="#14231B"/>
+      <circle cx="45" cy="-46.5" r="2.4" fill="#5BD08A"/><circle cx="52.5" cy="-46.5" r="2.4" fill="#5BD08A"/>
+      <path d="M24 -50 C24 -66 54 -66 54 -52" fill="none" stroke="#14231B" stroke-width="3"/>
+      <rect x="22" y="-51" width="9" height="13" rx="3" fill="#14231B"/>
+      <path d="M28 -39 C34 -33 44 -33 52 -36" fill="none" stroke="#14231B" stroke-width="2"/>
+    </g>
+    <path d="M70 -60 C82 -54 92 -44 97 -34" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+    <use href="#canopy" fill="none" stroke="#14231B" stroke-width="2.5"/>
+    <path d="M74 9 L18 54 Q14 58 8 58 L-40 58 Q-48 58 -44 52 L-14 14 Z" fill="#DCE9DF" stroke="#14231B" stroke-width="2.5"/>
+    <path d="M149 -11 C158 -10 166 -4 168 0 C166 4 158 10 149 11 Z" fill="#F8FBF8" stroke="#14231B" stroke-width="2.5"/>
+  </g>
+</svg>

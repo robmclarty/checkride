@@ -1,4 +1,4 @@
-![A flight instructor evaluating a student pilot during a simulator checkride](./checkride_photo.png)
+![A robot pilot labeled AGENT approaches a runway signed DONE. Eight approach lights, one per check (types, lint, struct, dead, test, docs, links, spell) and all run by pnpm check, are green, so the checkride control tower signals exit 0, cleared to land. A dashed loop marks the earlier approach, where a failed test meant exit 1 and a go-around.](./checkride_hero.png)
 
 # checkride
 
