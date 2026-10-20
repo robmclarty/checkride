@@ -1,6 +1,6 @@
 {
   "name": "checkride",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "An agent harness for code repositories: one command that is the definition of done, plus mechanically enforced module boundaries. Checks TypeScript, Go, Rust, Python, Terraform and shell code through language packs, and a monorepo's parts as targets.",
   "license": "Apache-2.0",
   "author": "Rob McLarty",

@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.15.0] - 2026-10-20
 
 ### Highlights
 
@@ -1387,6 +1387,13 @@ surface they add to.
   rows were checked against, and `test/helpers/toolchains.ts` gates each
   pack's e2e cases on them; CI installs them with `jdx/mise-action` and sets
   `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, as the publish workflow does.
+- The e2e toolchains go on `PATH` without mise's shims, in CI and the
+  publish workflow: a shim picks its tool from the working directory's
+  `mise.toml`, which the temp copies the cases run in lack, so `cargo
+  nextest` found only its own shim. The trust cases drop the variables mise
+  reads as CI, where it trusts every config file; a setup step that may
+  download gets one retry; and a toolchain probe that fails quotes its own
+  error.
 - A full stryker run starts from its sandbox: it runs the tests through
   `vitest.stryker.config.ts`, which leaves out the one integration test whose
   `git ls-files` reads nothing in the gitignored `.stryker-tmp` and failed
@@ -1394,6 +1401,8 @@ surface they add to.
 - `docs/diagrams/polyglot-run.svg` draws a run once a repo has targets:
   toolchain markers becoming targets, the six stages a run goes through with
   the flags that steer each, and what a run writes and who reads it.
+- The README, every page under `docs/` and the site's pages describe this
+  release's packs, targets, commands and flags.
 
 ## [0.14.0] - 2026-10-09
 
@@ -3522,6 +3531,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.15.0]: https://www.npmjs.com/package/checkride/v/0.15.0
 [0.14.0]: https://www.npmjs.com/package/checkride/v/0.14.0
 [0.13.0]: https://www.npmjs.com/package/checkride/v/0.13.0
 [0.12.5]: https://www.npmjs.com/package/checkride/v/0.12.5
