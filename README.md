@@ -398,11 +398,12 @@ slot's raw output for structured diagnostics. On a large repo, `--digest` writes
 
 The package root is also a [Claude Code](https://claude.com/claude-code) plugin
 — two skills that consume the contract above, bundled in the same npm package
-and versioned with it:
+and versioned with it. This repo is its own marketplace, so the install needs
+nothing else:
 
 ```text
-/plugin marketplace add robmclarty/agent-tools
-/plugin install checkride@robmclarty
+/plugin marketplace add robmclarty/checkride
+/plugin install checkride@checkride
 ```
 
 - **`/checkride:check`** — triage a red gate. It runs the repo's own `check`

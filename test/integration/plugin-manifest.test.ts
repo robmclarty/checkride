@@ -7,7 +7,8 @@
  * the shipped file set in one manifest, either of which drifts silently — a
  * stale `plugin.json` version installs fine, and a `files` array that forgets
  * the plugin tree publishes a tarball where the plugin simply is not there.
- * These tests turn both silences into a failure.
+ * These tests turn both silences into a failure, and hold the marketplace
+ * manifest beside it to the plugin it lists.
  */
 
 import { readFileSync } from 'node:fs';
@@ -42,5 +43,31 @@ describe('the bundled plugin manifest', () => {
     expect(readJson('package.json')['files']).toEqual(
       expect.arrayContaining(['.claude-plugin', 'skills']),
     );
+  });
+});
+
+/**
+ * The repo is its own marketplace, so installing the plugin depends on nothing
+ * outside it: `/plugin marketplace add robmclarty/checkride`, then `/plugin
+ * install checkride@checkride`. The entry fetches the published npm package,
+ * whose `dist/` holds the prebuilt readers a git checkout lacks, and its name
+ * must be the manifest's, since an entry name that differs installs a plugin
+ * Claude Code then can't find by its manifest name.
+ */
+describe('the marketplace manifest', () => {
+  test('lists the plugin under its manifest name, fetched from this package on npm', () => {
+    const marketplace = readJson('.claude-plugin/marketplace.json');
+    expect(marketplace['name']).toBe('checkride');
+    expect(marketplace['plugins']).toEqual([
+      expect.objectContaining({
+        name: readJson('.claude-plugin/plugin.json')['name'],
+        source: { source: 'npm', package: readJson('package.json')['name'] },
+      }),
+    ]);
+  });
+
+  test('carries no version of its own, which would only drift from plugin.json’s', () => {
+    const [entry] = readJson('.claude-plugin/marketplace.json')['plugins'] as Record<string, unknown>[];
+    expect(entry).not.toHaveProperty('version');
   });
 });

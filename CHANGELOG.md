@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **The plugin installs from checkride's own marketplace.** The repository now
+  carries `.claude-plugin/marketplace.json`, which lists the `checkride`
+  plugin and fetches it from the published npm package, so
+  `/plugin marketplace add robmclarty/checkride` and then
+  `/plugin install checkride@checkride` install it with nothing else
+  involved. The README, `docs/plugin.md` and the site name that pair, and a
+  test holds the entry to `plugin.json`'s name and the package's.
+
 ### Changed
 
 - **Discovery proposes a workspace root's packages when the root runs no ts

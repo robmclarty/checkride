@@ -37,15 +37,17 @@ or decide which surviving mutant is worth a test.
 ## Install
 
 ```text
-/plugin marketplace add robmclarty/agent-tools
-/plugin install checkride@robmclarty
+/plugin marketplace add robmclarty/checkride
+/plugin install checkride@checkride
 ```
 
-The marketplace entry points at the **published npm package** — the same tarball
-you install as a dev dependency — and Claude Code reads
-`.claude-plugin/plugin.json` from its root. The entry lands with the first
-release that carries that manifest; until then, and in any repo where you would
-rather not install a plugin at all, use the direct form below.
+checkride's repository is its own marketplace: `.claude-plugin/marketplace.json`
+lists one plugin, `checkride`, and points it at the **published npm package**,
+the same tarball you install as a dev dependency, whose `dist/` holds the
+prebuilt readers a git checkout lacks. Claude Code fetches that package and
+reads `.claude-plugin/plugin.json` from its root. Nothing else is involved: no
+other marketplace, no build, no token. In a repo where you would rather not
+install a plugin at all, use the direct form below.
 
 **No build step.** The readers ship prebuilt in the package's `dist/`,
 so the install is a download: nothing to compile, no dependencies to fetch. They

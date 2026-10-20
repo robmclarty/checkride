@@ -1,0 +1,17 @@
+{
+  "name": "checkride",
+  "description": "checkride's own Claude Code plugin: bounded readers for what checkride writes, installed from the published npm package.",
+  "owner": { "name": "Rob McLarty", "email": "hello@robmclarty.com", "url": "https://robmclarty.com" },
+  "plugins": [
+    {
+      "name": "checkride",
+      "source": { "source": "npm", "package": "checkride" },
+      "description": "Bounded, contract-aware readers for what checkride already writes: /checkride:check triages a red gate, and /checkride:qa reads the quality signal, without loading megabytes of raw artifacts.",
+      "category": "development",
+      "homepage": "https://robmclarty.github.io/checkride/",
+      "repository": "https://github.com/robmclarty/checkride",
+      "license": "Apache-2.0",
+      "keywords": ["claude-code", "claude", "agent", "checkride", "ci", "triage"]
+    }
+  ]
+}
