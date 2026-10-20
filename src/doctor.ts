@@ -64,7 +64,7 @@ import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pi
 import type { Out } from './orchestrator/index.js';
 import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
 import type { PinSourceName } from './packs/index.js';
-import { PACKS, TOOLS } from './packs/index.js';
+import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
 import { checkName, configuredTargets, findUnclaimed, implicitPack, markerAt } from './targets/index.js';
 
@@ -570,10 +570,35 @@ async function probeOverride(pin: { bin: string; id: string; version: string }, 
 }
 
 /**
+ * Whether a run resolves `command` as a toolchain through its check's chain,
+ * as the launcher does: `go`, `gofmt`, `cargo` or `terraform`, in a chain
+ * that reads `mise`, the go, rust and terraform packs'. Anywhere else the
+ * command spawns as written.
+ */
+function launchesToolchain(command: string, pins: readonly PinSourceName[]): boolean {
+  return pins.includes('mise') && TOOLCHAINS.some((t) => t.bin === command);
+}
+
+/**
+ * A toolchain's own executable, probed by asking the run's launcher, which
+ * picks the copy a run spawns: the CLI a Terraform version file names at the
+ * release it names, rustup's `cargo` where a toolchain file pins it, the `go`
+ * a `mise.toml` pins, or the one on `PATH`. `ok` names that spawn, with the
+ * source it resolved through and the version that source read, and `missing`
+ * carries the refusal a run would fail the check with, so a repo pinned to
+ * OpenTofu reads as one, not as a missing `terraform`.
+ */
+function probeToolchain(launch: Launch, toolArgs: readonly string[]): ToolProbe {
+  if ('refusal' in launch) return { status: 'missing', found: null, expected: null, hint: refusalHint(launch.refusal) };
+  const pin = launch.pin === undefined ? {} : { pinSource: launch.pin.source, ...(launch.pin.version !== undefined ? { toolVersion: launch.pin.version } : {}) };
+  return { status: 'ok', found: spawnShown(launch, toolArgs), expected: null, hint: null, ...pin };
+}
+
+/**
  * Presence-only probe: does the adapter's tool resolve? Dispatch by adapter
  * shape, after the copy a `--pins` file pins, which runs ahead of every
  * source the repo declares. `launch` asks the run's launcher what it would
- * spawn for the check, for the sources only it can answer for.
+ * spawn for the check, for the sources and toolchains only it can answer for.
  */
 async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: () => Launch): Promise<ToolProbe> {
   if (adapter.builtin) {
@@ -586,6 +611,7 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
     if (!tool) return { status: 'unknown', found: null, expected: null, hint: null };
     return probeExecPin(tool, adapter.args.slice(2), at, env, launch);
   }
+  if (launchesToolchain(adapter.command, at.pins)) return probeToolchain(launch(), adapter.args);
   const path = await env.which(adapter.command);
   return path
     ? { status: 'ok', found: path, expected: `${adapter.command} on PATH`, hint: null }

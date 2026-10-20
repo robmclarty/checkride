@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`doctor` probes a toolchain where the run finds it.** `go`, `gofmt`,
+  `cargo` and the Terraform CLI are now probed through the run's launcher, as
+  `go-mod-tool`, `rust-toolchain` and `uv-lock` tools already were. A root
+  whose `.opentofu-version` names OpenTofu reports `tofu` at that release
+  (`tf-version 1.13.1`), where it reported "Install `terraform`" and exited 1
+  on a repo the run passed. Toolchain rows also name their pin source, `mise`
+  or `path`, as the summary records it.
+
+### Contract
+
+#### Additive
+
+- `doctor` rows for `go`, `gofmt`, `cargo` and `terraform` (or `tofu`)
+  carry `pinSource` and, where that source names one, `toolVersion`.
+
 ## [0.15.0] - 2026-10-20
 
 ### Highlights

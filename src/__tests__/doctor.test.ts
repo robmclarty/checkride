@@ -1123,7 +1123,9 @@ describe('runDoctor probes go-mod-tool, rust-toolchain and uv-lock tools through
     };
     const { row } = await doctor({ launch });
     expect(row('dead')).toMatchObject({ pinSource: 'go-mod-tool', status: 'ok', found: 'mise exec -- go tool deadcode' });
-    expect(asked).toEqual([{ slot: 'dead', cwd: dir, repo: dir, pins: ['go-mod-tool', 'mise', 'path'], staticOnly: false, requirePins: false }]);
+    // The toolchain's own rows, go build, gofmt and go test, ask it too, as the run does.
+    expect(asked.map((a) => a.slot)).toEqual(['types', 'format', 'dead', 'test']);
+    expect(asked.find((a) => a.slot === 'dead')).toEqual({ slot: 'dead', cwd: dir, repo: dir, pins: ['go-mod-tool', 'mise', 'path'], staticOnly: false, requirePins: false });
   });
 
   test('a rustup component a toolchain file pins is ok with rustup and cargo on PATH, and missing with the refusal without rustup', async () => {
@@ -1176,5 +1178,71 @@ describe('runDoctor probes go-mod-tool, rust-toolchain and uv-lock tools through
       'svc:lint rust-toolchain missing',
     ]);
     expect(report.checks.some((c) => c.status === 'unknown')).toBe(false);
+  });
+});
+
+/** `which` sees no `terraform` anywhere, so only the launcher's answer can make a terraform row ok. */
+const noTerraform: DoctorEnv['which'] = (cmd: string) => Promise.resolve(cmd === 'terraform' ? null : `/usr/bin/${cmd}`);
+
+/**
+ * A toolchain's own executable, `go`, `cargo` or `terraform`, is probed by
+ * asking the run's launcher too, which picks the copy a run spawns: the CLI a
+ * Terraform version file names, at the release it names, where a bare `which
+ * terraform` would report a repo pinned to OpenTofu as missing its tool.
+ */
+describe('runDoctor probes a toolchain through the launcher', () => {
+  let dir: string;
+  let bin: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-toolchain-'));
+    bin = await mkdtemp(join(tmpdir(), 'checkride-doctor-toolchain-path-'));
+  });
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+    await rm(bin, { recursive: true, force: true });
+  });
+
+  const put = async (path: string, content = ''): Promise<void> => {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), content);
+  };
+  /** A fake `tofu` on the probe's PATH that reports `version` to `tofu version -json`, as OpenTofu does. */
+  const tofuAt = (version: string): Promise<void> =>
+    writeFile(join(bin, 'tofu'), `#!/bin/sh\necho '{"terraform_version":"${version}"}'\n`, { mode: 0o755 });
+  /** The run's own launcher, searching the fake PATH alone. */
+  const launchOnPath: DoctorEnv['launch'] = (slot, command, args, ctx) => launchCheck(slot, command, args, { ...ctx, env: { PATH: bin } });
+  const doctor = () =>
+    runDoctor({ cwd: dir, config: null, env: fakeEnv({ exists: existsSync, launch: launchOnPath, which: noTerraform }), stdout: sink(), json: true })
+      .then((result) => ({ ...result, row: (slot: string) => result.report.checks.find((c) => c.slot === slot) }));
+  const opentofuRoot = async (): Promise<void> => {
+    await put('.opentofu-version', '1.13.1\n');
+    await put('.terraform.lock.hcl');
+    await put('main.tf', 'locals {}\n');
+  };
+
+  test('a root pinned to OpenTofu is ok where tofu reports the release its version file names', async () => {
+    await opentofuRoot();
+    await tofuAt('1.13.1');
+    const { row, exitCode } = await doctor();
+    expect(row('types')).toMatchObject({
+      adapter: 'terraform-validate', status: 'ok', required: true, found: 'tofu', pinSource: 'tf-version', toolVersion: '1.13.1', hint: null,
+    });
+    expect(exitCode).toBe(0);
+  });
+
+  test('a tofu at another release is missing, with the refusal a run fails the check with as its hint', async () => {
+    await opentofuRoot();
+    await tofuAt('1.12.0');
+    const { row, exitCode } = await doctor();
+    expect(row('types')).toMatchObject({ adapter: 'terraform-validate', status: 'missing', required: true, found: null });
+    expect(row('types')?.hint).toContain("the `types` slot's `tofu` is pinned by .opentofu-version to 1.13.1, but the `tofu` on PATH is 1.12.0.");
+    expect(exitCode).toBe(1);
+  });
+
+  test('a go from PATH is ok, recording the source a run records', async () => {
+    await put('go.mod', 'module example.com/m\n\ngo 1.26.0\n');
+    await writeFile(join(bin, 'go'), '#!/bin/sh\n', { mode: 0o755 });
+    const { row } = await doctor();
+    expect(row('types')).toMatchObject({ adapter: 'go-build', status: 'ok', found: 'go', pinSource: 'path', hint: null });
   });
 });
