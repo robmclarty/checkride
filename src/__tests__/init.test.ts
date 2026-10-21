@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -997,6 +997,95 @@ describe('existing-project adoption (idempotent)', () => {
     const noHook = await runInit({ cwd: dir, hook: false, probeFailures: noFailures });
     expect(noHook.written).not.toContain(CLAUDE_SETTINGS_FILE);
     expect(existsSync(join(dir, CLAUDE_SETTINGS_FILE))).toBe(false);
+  });
+});
+
+/**
+ * Claude Code reads AGENTS.md on its own only while the repo has no CLAUDE.md,
+ * so the stanza reaches it only through an `@AGENTS.md` import there.
+ */
+describe('CLAUDE.md loads AGENTS.md (existing mode)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-claude-md-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const claude = (): Promise<string> => readFile(join(dir, 'CLAUDE.md'), 'utf8');
+
+  test('a repo with no CLAUDE.md gets the pointer, and it imports AGENTS.md', async () => {
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+    expect(result.written).toContain('CLAUDE.md');
+    expect((await claude()).split('\n')).toContain('@AGENTS.md');
+  });
+
+  test('the repo’s own CLAUDE.md keeps every byte and gains one import line, said on stdout; a second run writes nothing', async () => {
+    const ours = '# CLAUDE.md\n\nUse tabs. Never touch vendor/.\n';
+    await writeFile(join(dir, 'CLAUDE.md'), ours);
+    const out = sink();
+    const first = await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    expect(first.written).toContain('CLAUDE.md (added @AGENTS.md import)');
+    expect(await claude()).toBe(`${ours}\n@AGENTS.md\n`);
+    expect(out.text()).toContain('  CLAUDE.md: added an @AGENTS.md import, since Claude Code reads CLAUDE.md instead of AGENTS.md when both exist\n');
+
+    const second = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+    expect(second.written.filter((f) => f.startsWith('CLAUDE.md'))).toEqual([]);
+    expect(second.skipped).toContain('CLAUDE.md (loads AGENTS.md)');
+    expect(await claude()).toBe(`${ours}\n@AGENTS.md\n`);
+  });
+
+  test('a CLAUDE.md that already imports AGENTS.md is left as it is', async () => {
+    const ours = '@AGENTS.md\n\n# Claude notes\n';
+    await writeFile(join(dir, 'CLAUDE.md'), ours);
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+    expect(result.skipped).toContain('CLAUDE.md (loads AGENTS.md)');
+    expect(await claude()).toBe(ours);
+  });
+
+  test('the pointer an earlier checkride wrote is refreshed in place', async () => {
+    await writeFile(join(dir, 'CLAUDE.md'), '# CLAUDE.md\n\nClaude Code-specific notes. See [AGENTS.md](./AGENTS.md) for the full contract.\n');
+    const out = sink();
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false, stdout: out });
+    expect(result.written).toContain('CLAUDE.md (refreshed pointer)');
+    expect((await claude()).split('\n').slice(0, 3)).toEqual(['# CLAUDE.md', '', '@AGENTS.md']);
+    expect(out.text()).toContain('  CLAUDE.md: the pointer an earlier checkride wrote now imports AGENTS.md');
+  });
+
+  test('a CLAUDE.md symlinked to AGENTS.md is left alone, so AGENTS.md never imports itself, dry run or not', async () => {
+    await symlink('AGENTS.md', join(dir, 'CLAUDE.md'));
+    await writeFile(join(dir, 'AGENTS.md'), '# AGENTS.md\n');
+    const dry = await runInit({ cwd: dir, probeFailures: noFailures, hook: false, dryRun: true });
+    expect(dry.written.filter((f) => f.startsWith('CLAUDE.md'))).toEqual([]);
+    await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).not.toContain('@AGENTS.md');
+  });
+
+  test('--dry-run reports the import and writes nothing', async () => {
+    await writeFile(join(dir, 'CLAUDE.md'), '# Ours\n');
+    const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false, dryRun: true });
+    expect(result.written).toContain('CLAUDE.md (added @AGENTS.md import)');
+    expect(await claude()).toBe('# Ours\n');
+  });
+
+  test('agent-setup adds the import too and says so; a second run is a no-op', async () => {
+    await writeFile(join(dir, 'CLAUDE.md'), '# Ours\n');
+    const out = sink();
+    const first = await runAgentSetup({ cwd: dir, hook: false, stdout: out });
+    expect(first.written).toContain('CLAUDE.md (added @AGENTS.md import)');
+    expect(await claude()).toBe('# Ours\n\n@AGENTS.md\n');
+    expect(out.text().split('\n')[2]).toBe('  CLAUDE.md: added an @AGENTS.md import, since Claude Code reads CLAUDE.md instead of AGENTS.md when both exist');
+    const second = await runAgentSetup({ cwd: dir, hook: false });
+    expect(second.written).toEqual([]);
+  });
+
+  test('a refused stanza leaves CLAUDE.md as it found it', async () => {
+    await runAgentSetup({ cwd: dir, hook: false });
+    const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
+    await writeFile(join(dir, 'AGENTS.md'), agents.replace('### Baseline', '### Ours\n\nExtra.\n\n### Baseline'));
+    await writeFile(join(dir, 'CLAUDE.md'), '# Ours\n');
+    await expect(runAgentSetup({ cwd: dir, hook: false })).rejects.toThrow(/refusing to overwrite the checkride stanza/);
+    expect(await claude()).toBe('# Ours\n');
   });
 });
 

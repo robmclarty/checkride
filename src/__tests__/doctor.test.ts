@@ -627,6 +627,54 @@ describe('baseline workspace row', () => {
   });
 });
 
+/** An env whose repo at `/repo` holds exactly `files`, by path from the root. */
+function repoWith(files: Record<string, string>): DoctorEnv {
+  const at = (p: string): string | undefined => files[p.replace(/^\/repo\//, '')];
+  return fakeEnv({ exists: (p) => at(p) !== undefined, readText: (p) => at(p) ?? null });
+}
+
+/**
+ * Claude Code reads AGENTS.md on its own only while no CLAUDE file exists, so
+ * once one does, the stanza loads only through an `@AGENTS.md` import.
+ */
+describe('agent instructions workspace row', () => {
+  const baseOpts = { cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, json: true };
+  const STANZA_AGENTS = '# AGENTS.md\n\n<!-- checkride:begin hash=v1abc -->\n\nbody\n\n<!-- checkride:end -->\n';
+
+  const row = async (files: Record<string, string>) => {
+    const result = await runDoctor({ ...baseOpts, env: repoWith(files), stdout: sink() });
+    return { result, row: result.report.checks.find((c) => c.name === 'agent instructions') };
+  };
+
+  test('a CLAUDE.md with no import warns that the stanza never loads, in a row that never fails doctor', async () => {
+    const { row: found } = await row({ 'AGENTS.md': STANZA_AGENTS, 'CLAUDE.md': '# Ours\n' });
+    expect(found).toMatchObject({ category: 'workspace', required: false, status: 'outdated', found: 'CLAUDE.md, with no @AGENTS.md import' });
+    expect(found?.hint).toContain('Add a line `@AGENTS.md` to CLAUDE.md');
+  });
+
+  test('a personal CLAUDE.local.md stops the native read too, and the hint names it', async () => {
+    const { row: found } = await row({ 'AGENTS.md': STANZA_AGENTS, 'CLAUDE.local.md': '# Mine\n' });
+    expect(found?.status).toBe('outdated');
+    expect(found?.hint).toContain('Claude Code reads CLAUDE.local.md in place of AGENTS.md');
+  });
+
+  test('an import in CLAUDE.md, or in .claude/CLAUDE.md from its own directory, loads it', async () => {
+    expect((await row({ 'AGENTS.md': STANZA_AGENTS, 'CLAUDE.md': '@AGENTS.md\n' })).row)
+      .toMatchObject({ status: 'ok', found: 'CLAUDE.md loads AGENTS.md' });
+    expect((await row({ 'AGENTS.md': STANZA_AGENTS, '.claude/CLAUDE.md': '@../AGENTS.md\n' })).row?.status).toBe('ok');
+  });
+
+  test('a CLAUDE.md symlinked to AGENTS.md reads as the stanza, which loads it', async () => {
+    expect((await row({ 'AGENTS.md': STANZA_AGENTS, 'CLAUDE.md': STANZA_AGENTS })).row?.status).toBe('ok');
+  });
+
+  test('no row without a stanza, or while no CLAUDE file stops Claude Code reading AGENTS.md itself', async () => {
+    expect((await row({ 'AGENTS.md': '# AGENTS.md\n', 'CLAUDE.md': '# Ours\n' })).row).toBeUndefined();
+    expect((await row({ 'AGENTS.md': STANZA_AGENTS })).row).toBeUndefined();
+    expect((await row({ 'CLAUDE.md': '# Ours\n' })).row).toBeUndefined();
+  });
+});
+
 /** The directories doctor asked to write, and an env that answers `writable` for `ok`. */
 function probing(ok: boolean): { env: DoctorEnv; probed: string[] } {
   const probed: string[] = [];

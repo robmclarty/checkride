@@ -365,13 +365,20 @@ adopts the "exit 0 = done" rule on its own.
   of done (`mise exec -- checkride` in a repo whose `mise.toml` pins
   checkride), how to read `.check/` when it fails, the module-boundary
   conventions, and the tight-loop commands.
-- **`CLAUDE.md`** — a short pointer to `AGENTS.md` (written only if you do not
-  already have one).
+- **`CLAUDE.md`** — an `@AGENTS.md` import. If you already have a
+  `CLAUDE.md`, `init` adds that one line to its end and leaves the rest
+  alone, unless it already imports `AGENTS.md`.
 
 Claude Code (and Codex, Cursor, Amp, …) load these instruction files into
 context at the start of a session. That is the whole integration: the agent runs
 `pnpm check` because it read the instruction, not because checkride hooks into
 the tool. It is guidance, not enforcement — the model has to follow it.
+
+The import is what gets the stanza to Claude Code. Claude Code reads `AGENTS.md`
+on its own only while the repo has no `CLAUDE.md`, `.claude/CLAUDE.md` or
+`CLAUDE.local.md`; once one exists it reads that instead, and a sentence or a
+link pointing at `AGENTS.md` leaves opening it to the model. `checkride doctor`
+warns when a CLAUDE file keeps the stanza from loading.
 
 `init` rewrites the stanza in place on every run, so keep any edits of your own
 *outside* the `checkride:begin`/`checkride:end` markers. That is where
@@ -740,8 +747,9 @@ No lock-in needs undoing. checkride's whole footprint is: the `checkride`
 devDependency (or the `npm:checkride` pin in `mise.toml`),
 `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
-`checkride:begin`/`checkride:end` markers (plus the CLAUDE.md pointer, if
-`init` created it), the hook entries in `.claude/settings.json` and
+`checkride:begin`/`checkride:end` markers (plus the `@AGENTS.md` import in
+CLAUDE.md, or the whole CLAUDE.md if `init` created it), the hook entries in
+`.claude/settings.json` and
 `.cursor/hooks.json` with their `checkride-*` scripts, the
 `.cursor/skills/checkride-*` directories, and the gitignored `.check/` output
 directory. Remove those and checkride is gone. The

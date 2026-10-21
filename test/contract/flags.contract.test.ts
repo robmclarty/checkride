@@ -900,6 +900,36 @@ describe('AGENTS.md stanza ownership (--force)', () => {
 });
 
 /**
+ * Contract: a repo's own CLAUDE.md gains one `@AGENTS.md` import and nothing
+ * else (docs/contract.md §CLI). Claude Code reads CLAUDE.md in AGENTS.md's
+ * place once one exists, so the import is how the stanza reaches it; every
+ * byte the repo wrote stays as it was, and a second run writes nothing.
+ */
+describe('CLAUDE.md loads AGENTS.md', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-claude-md-flag-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const deps = (): CliDeps => ({ cwd: dir, stdout: { write: () => true }, stderr: { write: () => true } });
+
+  for (const command of ['init', 'agent-setup']) {
+    test(`${command} keeps the repo's CLAUDE.md as a byte-for-byte prefix, adds the import, and is idempotent`, async () => {
+      const ours = '# CLAUDE.md\r\n\r\nOur own notes, in our own line endings.  \r\n';
+      await writeFile(join(dir, 'CLAUDE.md'), ours);
+      expect(await runCli([command, '--no-hook'], deps())).toBe(0);
+      const once = await readFile(join(dir, 'CLAUDE.md'), 'utf8');
+      expect(once.startsWith(ours.trimEnd())).toBe(true);
+      expect(once.slice(ours.trimEnd().length)).toBe('\r\n\r\n@AGENTS.md\r\n');
+      expect(await runCli([command, '--no-hook'], deps())).toBe(0);
+      expect(await readFile(join(dir, 'CLAUDE.md'), 'utf8')).toBe(once);
+    }, 30000);
+  }
+});
+
+/**
  * Contract: `recover` and its flags (docs/contract.md §CLI). List mode is a
  * reader; apply writes the baseline as a working-tree edit and never mutates
  * git state. Exit codes are 0 and 2 only — environment failures (no git, not a

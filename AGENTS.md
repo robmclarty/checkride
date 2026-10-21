@@ -54,6 +54,7 @@ src/
   adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
   config.ts         checkride.config.json loading and validation, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
+  claude-md.ts      whether CLAUDE.md loads AGENTS.md, and the `@AGENTS.md` edit that makes it
   doctor.ts         `checkride doctor` — the environment and every check's status
   baseline-command.ts  `checkride baseline` — capture the committed baseline
   recover.ts        `checkride recover` — rebuild the baseline from git history

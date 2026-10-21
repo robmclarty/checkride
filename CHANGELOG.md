@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The stanza reaches Claude Code in a repo with its own CLAUDE.md.** Claude
+  Code reads AGENTS.md on its own only while a repo has no `CLAUDE.md`,
+  `.claude/CLAUDE.md` or `CLAUDE.local.md`. `init` left an existing CLAUDE.md
+  alone, so the stanza never loaded (#9). `init` and `agent-setup` now add one
+  `@AGENTS.md` line to the end of a CLAUDE.md that doesn't import AGENTS.md,
+  keep every other byte, and say so in their summary. The CLAUDE.md they write
+  imports AGENTS.md instead of linking to it: a link left opening the file to
+  the model, and in a repo with no CLAUDE.md the old pointer switched off
+  Claude Code's own read of AGENTS.md. A CLAUDE.md that is exactly the old
+  pointer is replaced. `doctor` gains an `agent instructions` row that warns
+  when a CLAUDE file keeps the stanza from loading.
+
+### Contract
+
+#### Additive
+
+- `init` and `agent-setup` promise what they do to CLAUDE.md: one
+  `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
+  byte kept, nothing written on a second run.
+- `doctor` reports an `agent instructions` workspace row.
+
 ## [0.15.1] - 2026-10-20
 
 ### Added

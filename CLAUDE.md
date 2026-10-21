@@ -2,7 +2,9 @@
 
 Claude Code-specific instructions for this repository.
 
-Read [AGENTS.md](./AGENTS.md) for the universal contract. This file only adds what is Claude-specific.
+@AGENTS.md
+
+[AGENTS.md](./AGENTS.md), imported above, is the universal contract. Claude Code reads this file in its place, so the import is what loads it. This file only adds what is Claude-specific.
 
 ## Workflow
 

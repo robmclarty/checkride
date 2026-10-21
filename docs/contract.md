@@ -936,6 +936,19 @@ checkride actually released: one that matches is its own output and refreshes
 normally, and only one that matches nothing is treated as edited. The guard is
 for repos that customized their stanza, not for every repo that upgraded.
 
+**Your CLAUDE.md gains one line, `@AGENTS.md`, and nothing else.** Claude
+Code reads AGENTS.md on its own only while a repo has no CLAUDE.md, so once
+one exists the stanza reaches Claude Code only through that import. `init`
+and `agent-setup` write a CLAUDE.md that imports AGENTS.md when there is
+none. They leave a CLAUDE.md alone when it already imports AGENTS.md (outside
+code), is AGENTS.md through a symlink, or carries the stanza itself. They
+replace one that is exactly the pointer an earlier release wrote, which only
+linked to AGENTS.md. Any other CLAUDE.md keeps every byte, and the import
+goes on a line of its own at the end, in the file's own line endings. A
+second run writes nothing, and a run the stanza guard refuses leaves CLAUDE.md
+as it found it. `doctor` reports an `agent instructions` row when a CLAUDE
+file keeps the stanza from loading.
+
 **`gate` is the one command outside the 0/1/2 split**, because it answers a
 harness's hook protocol rather than checkride's own. Under `--harness claude` it
 exits 2 while the pipeline is red (Claude Code blocks on 2 and ignores 1) and 0

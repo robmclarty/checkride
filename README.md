@@ -103,7 +103,10 @@ Where the repo has a `package.json`, it writes a `"check": "checkride"` script
 alias, so daily usage is `pnpm check` (`npm run check`, `yarn run check`, or
 `bun run check` under the others) regardless of the tool's name. It also
 writes the agent contract: an AGENTS.md
-stanza stating the "exit 0 = done" rule, and **hooks** in your agent harness's
+stanza stating the "exit 0 = done" rule, an `@AGENTS.md` import in CLAUDE.md
+(Claude Code reads a CLAUDE.md in AGENTS.md's place, so the import is what
+loads the stanza; an existing CLAUDE.md gains that one line and nothing else),
+and **hooks** in your agent harness's
 config — `.claude/settings.json` for Claude Code, `.cursor/hooks.json` for
 Cursor. Three of them: a stop gate (a checkride-owned script that runs your
 detected package manager's `run check --strict --digest` and blocks an agent
@@ -115,8 +118,8 @@ the gate, the stanza and the skills run `mise exec -- checkride` where a root
 which `doctor` reports as the harness unpinned. Select hooks with `--hook <a,b>`
 (gate | dirty | protect), harnesses with `--harness <a,b>` (claude | cursor;
 detected by default), skip the hooks with `--no-hook`, or take an installed one
-back out with `--remove-hook <a,b>`. To add all of this — alias, stanza, hooks,
-and the Cursor skills — to a repo you already set up, run
+back out with `--remove-hook <a,b>`. To add all of this — alias, stanza,
+CLAUDE.md import, hooks, and the Cursor skills — to a repo you already set up, run
 `checkride agent-setup`.
 
 Re-running either command refreshes the stanza in place, but never behind your

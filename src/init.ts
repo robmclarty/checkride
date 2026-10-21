@@ -14,7 +14,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
@@ -27,6 +27,7 @@ import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/in
 import type { HarnessName } from './gate.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
+import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CustomCheck, SlotConfig } from './config.js';
 import { configSchemaUrl, configuredBy, loadConfig, resolveChecks } from './config.js';
 import type { Out } from './orchestrator/index.js';
@@ -137,7 +138,6 @@ async function defaultProbe(slots: string[], cwd: string): Promise<string[]> {
 
 export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
 
-const STANZA_BEGIN_PREFIX = '<!-- checkride:begin';
 const STANZA_END = '<!-- checkride:end -->';
 /** The block, capturing its stamp (absent on stanzas written before v0.10.1) and its body. */
 const STANZA_RE = /<!-- checkride:begin(?: hash=([0-9a-z]+))? -->([\s\S]*?)<!-- checkride:end -->/;
@@ -553,15 +553,6 @@ function readme(name: string): string {
     '```',
     '',
     'See [AGENTS.md](./AGENTS.md) for the contract agents follow in this repository.',
-    '',
-  ].join('\n');
-}
-
-function claudeMd(): string {
-  return [
-    '# CLAUDE.md',
-    '',
-    'Claude Code-specific notes. See [AGENTS.md](./AGENTS.md) for the full contract.',
     '',
   ].join('\n');
 }
@@ -1606,27 +1597,61 @@ async function ensureGitignore(w: Writer, cwd: string, skipped: string[]): Promi
   }
 }
 
-/** Write the CLAUDE.md pointer if absent. */
-async function writeClaudePointer(w: Writer, cwd: string, skipped: string[]): Promise<void> {
-  if (existsSync(join(cwd, 'CLAUDE.md'))) {
-    skipped.push('CLAUDE.md (exists)');
-    return;
+/**
+ * Make CLAUDE.md load AGENTS.md, so the stanza reaches Claude Code (see
+ * `claude-md.ts`): write the pointer when there is none, and otherwise apply
+ * {@link claudeMdEdit}, which leaves a file that already loads AGENTS.md as
+ * it is. Called after the stanza is written, so a refused stanza leaves
+ * CLAUDE.md alone too. Returns the line the report prints for an edit.
+ */
+async function ensureClaudeImport(w: Writer, cwd: string, skipped: string[]): Promise<string | null> {
+  const path = join(cwd, 'CLAUDE.md');
+  if (!existsSync(path)) {
+    await put(w, 'CLAUDE.md', claudeMd());
+    return null;
   }
-  await put(w, 'CLAUDE.md', claudeMd());
+  const edit = await claudeEditFor(path, join(cwd, 'AGENTS.md'));
+  if (edit === null) {
+    skipped.push('CLAUDE.md (loads AGENTS.md)');
+    return null;
+  }
+  if (!w.dryRun) await writeFile(path, edit.content);
+  w.written.push(`CLAUDE.md (${edit.change})`);
+  return edit.note;
+}
+
+/**
+ * The edit CLAUDE.md at `path` needs, or `null`. A CLAUDE.md that is AGENTS.md
+ * through a symlink already loads it, whatever this run's stanza write has or
+ * hasn't done yet (a dry run writes none), and appending to it would make
+ * AGENTS.md import itself. An unreadable one is left alone.
+ */
+async function claudeEditFor(path: string, agents: string): Promise<ReturnType<typeof claudeMdEdit>> {
+  const existing = await readIfExists(path);
+  return existing === null || sameFile(path, agents) ? null : claudeMdEdit(existing);
+}
+
+/** Whether two paths name one file, as a symlink and its target do. */
+function sameFile(a: string, b: string): boolean {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Print the existing-repo adoption summary: the adopted count, the package
  * manager the alias/stanza/hooks were spelled for (`doctor`'s wording, so one
- * string to pin), and the grandfathered/disabled slots.
+ * string to pin), the grandfathered/disabled slots, and what was done to the
+ * repo's own CLAUDE.md, the one file of its own `init` edits.
  */
 function reportExisting(
   stdout: Out,
   pm: PackageManager,
   adopted: readonly InventoryEntry[],
   w: Writer,
-  grandfathered: readonly string[],
-  disabled: readonly string[],
+  outcome: { grandfathered: readonly string[]; disabled: readonly string[]; claudeNote: string | null },
 ): void {
   stdout.write(
     `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
@@ -1634,12 +1659,18 @@ function reportExisting(
   // A root with no package.json, such as a Go module's, has no package
   // manager in play, and detection would only name its pnpm default.
   if (existsSync(join(w.cwd, 'package.json'))) stdout.write(`  package manager: ${pm} (detected)\n`);
-  if (grandfathered.length > 0) {
-    stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${grandfathered.join(', ')}\n`);
+  if (outcome.grandfathered.length > 0) {
+    stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${outcome.grandfathered.join(', ')}\n`);
   }
-  if (disabled.length > 0) {
-    stdout.write(`  disabled failing slots (enable as you fix): ${disabled.join(', ')}\n`);
+  if (outcome.disabled.length > 0) {
+    stdout.write(`  disabled failing slots (enable as you fix): ${outcome.disabled.join(', ')}\n`);
   }
+  writeClaudeNote(stdout, outcome.claudeNote);
+}
+
+/** The report's line for an edit to the repo's own CLAUDE.md, when there was one. */
+function writeClaudeNote(stdout: Out, note: string | null): void {
+  if (note !== null) stdout.write(`  CLAUDE.md: ${note}\n`);
 }
 
 /** What existing-mode discovery proposed and changed, or `null` when the repo stays as it is. */
@@ -1800,13 +1831,13 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // AGENTS.md stanza (create or refresh, idempotent), derived from the config
   // written above so it reports the gate as configured, not as detected.
   await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), pm, skipped);
-  await writeClaudePointer(w, cwd, skipped);
+  const claudeNote = await ensureClaudeImport(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
   await writeHook(w, options, skipped);
   await writeSkills(w, options, skipped);
 
   if (options.stdout) {
-    reportExisting(options.stdout, pm, adopted, w, grandfathered, disabled);
+    reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, claudeNote });
     reportDiscovery(options.stdout, discovery, w.dryRun);
     reportInitBundle(options.stdout, bundle);
   }
@@ -1959,10 +1990,11 @@ export type AgentSetupResult = {
 /**
  * `checkride agent-setup` — wire the agent contract into an *existing* repo
  * without a full `init`: the `check` alias the hook resolves to, the AGENTS.md
- * stanza (the human-readable contract), the stop-gate hooks for every detected
- * harness (the mechanical gate), and the skills a harness cannot get from the
- * bundled plugin. Every write is additive and idempotent — a second run is a
- * no-op — and the hooks are opt-out (`hook: false`).
+ * stanza (the human-readable contract), the CLAUDE.md import that loads it in
+ * Claude Code, the stop-gate hooks for every detected harness (the mechanical
+ * gate), and the skills a harness cannot get from the bundled plugin. Every
+ * write is additive and idempotent — a second run is a no-op — and the hooks
+ * are opt-out (`hook: false`).
  */
 export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSetupResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -1982,16 +2014,20 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
 
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
   await writeAgentsStanza(w, cwd, stanzaSlots, pm, skipped);
+  // CLAUDE.md, so Claude Code loads the stanza: a repo with one reads it in AGENTS.md's place.
+  const claudeNote = await ensureClaudeImport(w, cwd, skipped);
 
   await writeHook(w, options, skipped);
   await writeSkills(w, options, skipped);
 
-  if (options.stdout) {
-    const removed = w.removed.length > 0 ? `, removed ${w.removed.length}` : '';
-    options.stdout.write(
-      `checkride agent-setup: wrote ${w.written.length} file(s)${removed}${w.dryRun ? ' [dry run]' : ''}.\n`,
-    );
-    options.stdout.write(`  package manager: ${pm} (detected)\n`);
-  }
+  if (options.stdout) reportAgentSetup(options.stdout, w, pm, claudeNote);
   return { written: w.written, removed: w.removed, skipped, exitCode: 0 };
+}
+
+/** Print `agent-setup`'s summary: what it wrote and removed, the package manager, and any CLAUDE.md edit. */
+function reportAgentSetup(stdout: Out, w: Writer, pm: PackageManager, claudeNote: string | null): void {
+  const removed = w.removed.length > 0 ? `, removed ${w.removed.length}` : '';
+  stdout.write(`checkride agent-setup: wrote ${w.written.length} file(s)${removed}${w.dryRun ? ' [dry run]' : ''}.\n`);
+  stdout.write(`  package manager: ${pm} (detected)\n`);
+  writeClaudeNote(stdout, claudeNote);
 }

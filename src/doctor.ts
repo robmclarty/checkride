@@ -32,12 +32,13 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { arch as osArch, platform as osPlatform } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, posix, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
 import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
+import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
@@ -975,6 +976,37 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
 }
 
 /**
+ * Whether the checkride stanza in AGENTS.md reaches Claude Code. Claude Code
+ * reads AGENTS.md on its own only while no CLAUDE file exists; once one does,
+ * the stanza loads only through an `@AGENTS.md` import (see `claude-md.ts`).
+ * No row without a stanza, or while no CLAUDE file stops that read. Never
+ * required: an unreachable stanza costs the agent its instructions, not the run.
+ */
+function checkAgentInstructions(cwd: string, env: DoctorEnv): DoctorCheck | null {
+  const agents = env.readText(join(cwd, 'AGENTS.md'));
+  if (agents === null || !hasStanza(agents)) return null;
+  const present = CLAUDE_FILES.filter((file) => env.exists(join(cwd, file)));
+  if (present.length === 0) return null;
+  const base = { name: 'agent instructions', category: 'workspace' as const, required: false };
+  const loading = present.find((file) => loadsStanza(env.readText(join(cwd, file)) ?? '', posix.dirname(file)));
+  if (loading !== undefined) {
+    return { ...base, status: 'ok', found: `${loading} loads AGENTS.md`, expected: null, hint: null };
+  }
+  return {
+    ...base,
+    status: 'outdated',
+    found: `${present.join(', ')}, with no ${AGENTS_IMPORT} import`,
+    expected: `${AGENTS_IMPORT} in CLAUDE.md`,
+    hint: `Claude Code reads ${present.join(' and ')} in place of AGENTS.md, so the checkride stanza never loads. Add a line \`${AGENTS_IMPORT}\` to CLAUDE.md, or run \`checkride agent-setup\`, which adds it.`,
+  };
+}
+
+/** The rows that apply, in order: an optional row is `null` when it has nothing to say. */
+function applicable(...rows: readonly (DoctorCheck | null)[]): DoctorCheck[] {
+  return rows.filter((row): row is DoctorCheck => row !== null);
+}
+
+/**
  * Whether the output directory can be written: `<cwd>/.check`, or the one
  * `--out` named. The row is named the way a run's `report:` line names the
  * directory, so `.check` by default.
@@ -1243,10 +1275,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     ...(await checkRows({ ...common, defaults: options.defaults ?? null }, options, pm, env)),
     await checkWritable(cwd, options.out, env),
   ];
-  const baselineRow = checkBaseline(cwd, env);
-  if (baselineRow !== null) checks.push(baselineRow);
   const mode = await modeOf(cwd, config, options.out);
-  if (mode.row !== null) checks.push(mode.row);
+  checks.push(...applicable(checkBaseline(cwd, env), checkAgentInstructions(cwd, env), mode.row));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
   const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, checks };
