@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
+import { TOOLS } from '../packs/index.js';
 import type { CheckrideConfig } from '../config.js';
 import type { DoctorCheck, DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
@@ -361,7 +362,7 @@ describe('runDoctor (injected env)', () => {
     const slot = result.report.checks.find((c) => c.slot === 'struct');
     expect(slot?.enablement).toBe('unavailable');
     expect(slot?.adapter).toBeNull();
-    expect(slot?.hint).toContain('ast-grep (sgconfig.yml)');
+    expect(slot?.hint).toContain('ast-grep (sgconfig.yml, or name it in checkride.config.json)');
     expect(result.ok).toBe(true);
   });
 
@@ -719,6 +720,11 @@ function launchFrom(bin: string): DoctorEnv['launch'] {
   return (slot, command, args, ctx) => launchCheck(slot, command, args, { ...ctx, env: { PATH: bin } });
 }
 
+/** `which` finding every executable but the tools the packs run, so no hint leads with a copy on PATH. */
+function noToolsOnPath(cmd: string): Promise<string | null> {
+  return Promise.resolve(TOOLS.some((t) => t.bin === cmd) ? null : `/usr/bin/${cmd}`);
+}
+
 /** The hint on the row of the check named `name`. */
 function hintOf(report: { checks: readonly { slot?: string; hint?: string | null }[] }, name: string): string {
   return report.checks.find((c) => c.slot === name)?.hint ?? '';
@@ -761,23 +767,47 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     await put('scripts/a.sh', '#!/bin/sh\n');
     const { report } = await doctor({
       targets: { svc: { lang: 'go', root: 'svc' }, rs: { lang: 'rust', root: 'rs' }, scripts: { lang: 'bash', root: 'scripts' } },
-    });
+    }, { which: noToolsOnPath });
     const goLint = hintOf(report, 'svc:lint');
-    expect(goLint).toContain('golangci-lint (.golangci.yml or .golangci.yaml)');
+    expect(goLint).toContain('golangci-lint (.golangci.yml or .golangci.yaml, or name it in checkride.config.json)');
     expect(goLint).toContain('staticcheck (declare it in go.mod with `go get -tool honnef.co/go/tools/cmd/staticcheck`');
     expect(goLint).not.toContain('oxlint');
-    expect(hintOf(report, 'svc:dead')).toBe('Enable by adding one of: deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`).');
+    expect(hintOf(report, 'svc:dead')).toBe(
+      'Enable by adding one of: deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`, or name it in checkride.config.json).',
+    );
     expect(hintOf(report, 'rs:dead')).toContain('cargo-machete (pin it with `mise use ubi:bnjbvr/cargo-machete@<version>`');
     expect(hintOf(report, 'rs:dead')).not.toContain('fallow');
     expect(hintOf(report, 'scripts:lint')).toBe(
-      'Enable by adding one of: shellcheck (.shellcheckrc, or pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net)).',
+      'Enable by adding one of: shellcheck (.shellcheckrc, or pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net), or name it in checkride.config.json).',
     );
   });
 
-  test('a ts repo without targets is never told to add a tool its package manager can’t install', async () => {
+  /**
+   * A tool a dev shell put on PATH turns no slot on, since detection reads
+   * only the repo (#9). The hint says the copy is there, classed as a run
+   * would class it, before it says what would turn the slot on.
+   */
+  test("an unfilled slot whose tool PATH holds says so first, a Nix shell's by its version", async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    await put('flake.nix', '{ }');
+    const store = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-shellcheck-0.10.0-bin/bin/shellcheck';
+    const config: CheckrideConfig = { targets: { scripts: { lang: 'bash', root: 'scripts' } } };
+    const enable = 'Enable by adding one of: shellcheck (.shellcheckrc, or pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net), or name it in checkride.config.json).';
+    const nix = await doctor(config, {
+      which: (cmd) => Promise.resolve(cmd === 'shellcheck' ? store : `/usr/bin/${cmd}`),
+      nixCopy: (found) => (found === store ? { version: '0.10.0' } : null),
+    });
+    expect(hintOf(nix.report, 'scripts:lint')).toBe(`shellcheck is on PATH (0.10.0, nix), but nothing in the repo turns the slot on. ${enable}`);
+    const brew = await doctor(config, { which: (cmd) => Promise.resolve(cmd === 'shellcheck' ? '/opt/homebrew/bin/shellcheck' : `/usr/bin/${cmd}`), nixCopy: () => null });
+    expect(hintOf(brew.report, 'scripts:lint')).toBe(`shellcheck is on PATH (/opt/homebrew/bin/shellcheck), but nothing in the repo turns the slot on. ${enable}`);
+    const none = await doctor(config, { which: noToolsOnPath });
+    expect(hintOf(none.report, 'scripts:lint')).toBe(enable);
+  });
+
+  test('a ts repo without targets is never told to add a tool its package manager can’t install, or pointed at one on PATH', async () => {
     const { report } = await doctor(null);
-    expect(hintOf(report, 'docs')).toBe('Enable by adding one of: markdownlint-cli2 (.markdownlint-cli2.jsonc or .markdownlint-cli2.json).');
-    expect(hintOf(report, 'spell')).toBe('Enable by adding one of: cspell (cspell.json or .cspell.json, or cspell in package.json).');
+    expect(hintOf(report, 'docs')).toBe('Enable by adding one of: markdownlint-cli2 (.markdownlint-cli2.jsonc or .markdownlint-cli2.json, or name it in checkride.config.json).');
+    expect(hintOf(report, 'spell')).toBe('Enable by adding one of: cspell (cspell.json or .cspell.json, or cspell in package.json, or name it in checkride.config.json).');
   });
 
   test('a snippets check that isn’t the built-in carries no note about doc fences', async () => {

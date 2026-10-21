@@ -140,7 +140,7 @@ describe('the readers in a multi-target run', () => {
     );
     const skipped = report.ledger.find((e) => e.name === 'web:dead')?.remedy ?? '';
     expect(skipped).toBe(
-      "qa reads only fallow's report, which no go tool writes. web:dead found no tool; add deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`), then read its raw output in the output directory.",
+      "qa reads only fallow's report, which no go tool writes. web:dead found no tool; add deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`, or name it in checkride.config.json), then read its raw output in the output directory.",
     );
   });
 });

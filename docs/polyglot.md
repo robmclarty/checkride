@@ -262,6 +262,14 @@ version they accept (`go.mod`'s `go` line, `.opentofu-version`) and the pack's
 environment stops each from fetching another. [Packs and pins](./packs.md)
 lists every pin source and the environment each pack's checks run with.
 
+A Nix dev shell pins its tools the way `mise.toml` does: inside `nix develop`,
+each copy the shell puts on `PATH` records `pin_source: "nix"` with the
+version its store path names. It doesn't turn a check on, though. Detection
+reads only the repo, so shellcheck from the shell runs only where a
+`.shellcheckrc` or a config entry asks for it, such as
+`"packs": { "bash": { "checks": { "lint": "shellcheck" } } }`, and `doctor`
+names the copy on `PATH` when the slot sits empty.
+
 ## The daily loop
 
 A target's name selects all of its checks:

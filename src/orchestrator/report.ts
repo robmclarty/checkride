@@ -171,11 +171,19 @@ export function enableCandidates(slot: string, pack: string | undefined, adapter
 }
 
 /**
+ * The route that turns any adapter on whatever the repo's files say: naming
+ * it in the config. A copy of its tool on `PATH` never does, since detection
+ * reads only the repo.
+ */
+const NAMED_IN_CONFIG = 'name it in checkride.config.json';
+
+/**
  * What would turn `adapter` on, `null` for one detection always picks: each
  * config it detects by (its first two files, a TOML table, a package script,
  * a dependency), each after `add ` where `add` asks for the verb, then the
- * install hint for the tool a pin would declare, such as `go get -tool …`.
- * `doctor` and the run's vacuous-green warning both say it this way.
+ * install hint for the tool a pin would declare, such as `go get -tool …`,
+ * then naming it in `checkride.config.json`. `doctor`, the run's
+ * vacuous-green warning and `qa` all say it this way.
  */
 function enableSignals(adapter: Adapter, add: boolean): string | null {
   const config = [
@@ -185,7 +193,7 @@ function enableSignals(adapter: Adapter, add: boolean): string | null {
     ...(adapter.detectDeps ?? []).map((dep) => `${dep} in package.json`),
   ].map((signal) => (add ? `add ${signal}` : signal));
   const signals = [...config, ...(adapter.detectPin !== undefined ? [installHint(adapter.detectPin)] : [])];
-  return signals.length === 0 ? null : signals.join(', or ');
+  return signals.length === 0 ? null : [...signals, NAMED_IN_CONFIG].join(', or ');
 }
 
 /** `adapter`'s name, then what would turn it on, as {@link enableSignals} says it. */

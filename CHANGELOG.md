@@ -51,6 +51,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`doctor` says when a tool on `PATH` doesn't turn its slot on.** A tool only
+  a Nix dev shell provides, such as a shellcheck with no `.shellcheckrc` and
+  no pin, turned no slot on, and `doctor`'s hint never said the copy was
+  there, or that a config entry would run it (#9). An empty slot whose tool
+  `PATH` holds, in a pack whose chain would run that copy, now leads with it,
+  as in `shellcheck is on PATH (0.10.0, nix), but nothing in the repo turns
+  the slot on`, and every hint that names what would turn a tool on, in
+  `doctor`, the run's vacuous-green warning and `qa`, adds naming it in
+  `checkride.config.json`. [Packs](./docs/packs.md#the-bash-pack) shows the
+  one entry that runs shellcheck from a Nix shell, and why the shell isn't
+  read.
 - **A tool mise pins records the version mise ran.** A check whose tool a
   `mise.toml` pins recorded only `pin_source: "mise"`, so a run after a
   `mise.toml` bump looked the same as one before it. The `mise` source now

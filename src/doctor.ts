@@ -654,12 +654,38 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
 /**
  * What an unavailable check could be turned on with: its own pack's
  * candidate adapters, or `adapters` for a check with no pack, each with what
- * would turn it on, as the run's vacuous-green warning names them.
+ * would turn it on, as the run's vacuous-green warning names them, led by a
+ * candidate's copy `PATH` already holds, when there is one.
  */
-function possibilitiesHint(r: ResolvedCheck, adapters: readonly Adapter[]): string | null {
-  const candidates = enableCandidates(r.slot, r.pack, adapters);
+async function possibilitiesHint(r: ResolvedCheck, at: ProbeAt, ctx: SlotContext): Promise<string | null> {
+  const candidates = enableCandidates(r.slot, r.pack, ctx.adapters);
   if (candidates.length === 0) return null;
-  return `Enable by adding one of: ${candidates.map((a) => enableEntry(a, false)).join(', ')}.`;
+  const enable = `Enable by adding one of: ${candidates.map((a) => enableEntry(a, false)).join(', ')}.`;
+  const onPath = await copyOnPath(candidates, at, ctx.env);
+  return onPath === null ? enable : `${onPath}, but nothing in the repo turns the slot on. ${enable}`;
+}
+
+/**
+ * A candidate's tool that `PATH` already holds, as a hint leads with it:
+ * `shellcheck is on PATH (0.10.0, nix)`, classed as a run would class the
+ * copy, or `null`. A copy in a dev shell turns no slot on, since detection
+ * reads only the repo, and someone who sees it run in their shell needs to
+ * hear why the check doesn't. Only in a chain that would run a copy from
+ * `PATH`, so a ts repo is never pointed at one its package manager won't run.
+ */
+async function copyOnPath(candidates: readonly Adapter[], at: ProbeAt, env: DoctorEnv): Promise<string | null> {
+  if (!at.pins.includes('path')) return null;
+  const tools = [...new Set(candidates.map((a) => execTool(a.command, a.args)).filter((tool) => tool !== null))];
+  const found = await Promise.all(tools.map(async (tool) => ({ tool, path: await env.which(tool) })));
+  const first = found.find((f): f is { tool: string; path: string } => f.path !== null);
+  if (first === undefined) return null;
+  return `${first.tool} is on PATH (${copyLabel(first.path, (env.nixCopy ?? realNixCopy)(first.path, at))})`;
+}
+
+/** How a hint names a copy on `PATH`: a Nix dev shell's by its version, any other by its path. */
+function copyLabel(path: string, nix: { version?: string } | null): string {
+  if (nix === null) return path;
+  return nix.version === undefined ? 'nix' : `${nix.version}, nix`;
 }
 
 /** The shared prefix of every `tool`-category doctor row: the check's name in the slot column, and its target. */
@@ -788,7 +814,7 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   if (off) return off;
   // No adapter fills the slot: nothing to run. Point at what would enable it.
   if (!adapter) {
-    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: possibilitiesHint(r, ctx.adapters) };
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: await possibilitiesHint(r, at, ctx) };
   }
   const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);

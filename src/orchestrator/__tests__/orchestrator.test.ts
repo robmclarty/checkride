@@ -18,7 +18,7 @@ import { resolveRunContext } from '../context.js';
 import { executeChecks } from '../execute.js';
 import { fixInvocation } from '../fix.js';
 import type { CheckRunner, Out, RunFlags, RunOptions, RunResult, Summary, SummaryCheck } from '../index.js';
-import { runChecks, runFix, selectChecks } from '../index.js';
+import { enableEntry, runChecks, runFix, selectChecks } from '../index.js';
 import { formatStatusLine } from '../report.js';
 import { defaultConcurrency, defaultRunner, missingExemplarsOutcome, runtimeArgs } from '../spawn.js';
 
@@ -1051,10 +1051,19 @@ describe('runChecks (vacuous green)', () => {
     expect(result.exitCode).toBe(0);
     const text = std.lines.join('');
     expect(text).toContain('0 checks ran');
-    expect(text).toContain('tsc (add tsconfig.json)');
+    expect(text).toContain('tsc (add tsconfig.json, or name it in checkride.config.json)');
     expect(text).toContain('checkride doctor');
     expect(text).toContain('no checks ran');
     expect(text).not.toContain('all checks passed');
+  });
+
+  test('an adapter detection finds by a signal can always be named in the config instead; one it always picks names nothing', () => {
+    const tsc = ADAPTERS.find((a) => a.name === 'tsc');
+    expect(tsc).toBeDefined();
+    if (tsc === undefined) return;
+    expect(enableEntry(tsc, true)).toBe('tsc (add tsconfig.json, or name it in checkride.config.json)');
+    expect(enableEntry(tsc, false)).toBe('tsc (tsconfig.json, or name it in checkride.config.json)');
+    expect(enableEntry(fakeAdapter({ name: 'always', slot: 'links' }), true)).toBe('always');
   });
 
   test("a sat-out target check's hint names its own pack's tools, not the ts pack's", async () => {

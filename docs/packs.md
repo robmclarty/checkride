@@ -74,6 +74,18 @@ any tool the shell doesn't provide. An ad hoc `nix shell nixpkgs#<tool>` in a
 repo with Nix files counts too: the recorded version still says which copy
 ran.
 
+A dev shell decides which copy a check runs, never whether it runs.
+Detection reads only the repo's files, so a tool only the shell provides,
+such as a shellcheck with no `.shellcheckrc` and no pin, turns no slot on,
+and `doctor` says so when the slot sits empty with that copy on `PATH`. Name
+the adapter in `checkride.config.json` and it runs the shell's copy, as
+[the bash pack](#the-bash-pack) shows. checkride doesn't read the flake to
+find the tool: `with pkgs; [ … ]`, imports, overlays and devenv modules can't
+be read reliably, a false match would turn a check on, and a miss would be
+silent. Reading the shell instead would make the checks a run picks depend on
+being inside it: a baseline captured in the shell would name checks a run
+outside it never runs.
+
 `uv-lock` declares only a tool that `TOOLS` gives a PyPI package: ruff, mypy,
 basedpyright and pytest.
 Its argv names the environment's executable from the check's directory, such
@@ -317,6 +329,17 @@ records it as `detected_by`, such as `mise.toml: shellcheck`. A target with
 neither leaves the slot empty. Naming the adapter in `packs.bash.checks` or
 the target's own `checks` runs it either way, from `PATH` when nothing pins
 it.
+
+**Nix dev shells.** A shell that provides shellcheck doesn't turn `lint` on
+by itself, since detection reads only the repo
+([Pin sources](#pin-sources) says why), and `doctor` names the copy it found
+on `PATH` when the slot sits empty. One entry turns the slot on for every
+bash target, and each then runs the shell's copy, recorded as
+`pin_source: "nix"` with its version:
+
+```json
+{ "packs": { "bash": { "checks": { "lint": "shellcheck" } } } }
+```
 
 ### File lists
 
