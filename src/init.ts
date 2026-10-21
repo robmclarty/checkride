@@ -14,7 +14,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 
@@ -25,6 +25,7 @@ import { planSnippets, selectDocFiles } from './snippets.js';
 import type { HookFile, HookName } from './agent-setup/index.js';
 import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/index.js';
 import type { HarnessName } from './gate.js';
+import { writeFileAtomic } from './atomic.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
 import { runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
@@ -1602,39 +1603,43 @@ async function ensureGitignore(w: Writer, cwd: string, skipped: string[]): Promi
  * `claude-md.ts`): write the pointer when there is none, and otherwise apply
  * {@link claudeMdEdit}, which leaves a file that already loads AGENTS.md as
  * it is. Called after the stanza is written, so a refused stanza leaves
- * CLAUDE.md alone too. Returns the line the report prints for an edit.
+ * CLAUDE.md alone too. The edit is written by rename, so it replaces the
+ * file rather than writing through a symlink. Returns the line the report
+ * prints for an edit.
  */
 async function ensureClaudeImport(w: Writer, cwd: string, skipped: string[]): Promise<string | null> {
   const path = join(cwd, 'CLAUDE.md');
-  if (!existsSync(path)) {
+  if (!existsSync(path) && !isSymlink(path)) {
     await put(w, 'CLAUDE.md', claudeMd());
     return null;
   }
-  const edit = await claudeEditFor(path, join(cwd, 'AGENTS.md'));
+  const edit = await claudeEditFor(path);
   if (edit === null) {
-    skipped.push('CLAUDE.md (loads AGENTS.md)');
+    skipped.push('CLAUDE.md (left as it is)');
     return null;
   }
-  if (!w.dryRun) await writeFile(path, edit.content);
+  if (!w.dryRun) await writeFileAtomic(path, edit.content);
   w.written.push(`CLAUDE.md (${edit.change})`);
   return edit.note;
 }
 
 /**
- * The edit CLAUDE.md at `path` needs, or `null`. A CLAUDE.md that is AGENTS.md
- * through a symlink already loads it, whatever this run's stanza write has or
- * hasn't done yet (a dry run writes none), and appending to it would make
- * AGENTS.md import itself. An unreadable one is left alone.
+ * The edit CLAUDE.md at `path` needs, or `null`. A symlink is left alone: one
+ * to AGENTS.md already loads it (appending would make AGENTS.md import
+ * itself), and one to anywhere else points at a file that may not be the
+ * repo's, which `init` never edits. `doctor` still says when it doesn't load
+ * the stanza. An unreadable CLAUDE.md is left alone too.
  */
-async function claudeEditFor(path: string, agents: string): Promise<ReturnType<typeof claudeMdEdit>> {
+async function claudeEditFor(path: string): Promise<ReturnType<typeof claudeMdEdit>> {
+  if (isSymlink(path)) return null;
   const existing = await readIfExists(path);
-  return existing === null || sameFile(path, agents) ? null : claudeMdEdit(existing);
+  return existing === null ? null : claudeMdEdit(existing);
 }
 
-/** Whether two paths name one file, as a symlink and its target do. */
-function sameFile(a: string, b: string): boolean {
+/** Whether `path` is a symlink itself, dangling or not. */
+function isSymlink(path: string): boolean {
   try {
-    return realpathSync(a) === realpathSync(b);
+    return lstatSync(path).isSymbolicLink();
   } catch {
     return false;
   }

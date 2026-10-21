@@ -1031,7 +1031,7 @@ describe('CLAUDE.md loads AGENTS.md (existing mode)', () => {
 
     const second = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
     expect(second.written.filter((f) => f.startsWith('CLAUDE.md'))).toEqual([]);
-    expect(second.skipped).toContain('CLAUDE.md (loads AGENTS.md)');
+    expect(second.skipped).toContain('CLAUDE.md (left as it is)');
     expect(await claude()).toBe(`${ours}\n@AGENTS.md\n`);
   });
 
@@ -1039,7 +1039,7 @@ describe('CLAUDE.md loads AGENTS.md (existing mode)', () => {
     const ours = '@AGENTS.md\n\n# Claude notes\n';
     await writeFile(join(dir, 'CLAUDE.md'), ours);
     const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
-    expect(result.skipped).toContain('CLAUDE.md (loads AGENTS.md)');
+    expect(result.skipped).toContain('CLAUDE.md (left as it is)');
     expect(await claude()).toBe(ours);
   });
 
@@ -1059,6 +1059,24 @@ describe('CLAUDE.md loads AGENTS.md (existing mode)', () => {
     expect(dry.written.filter((f) => f.startsWith('CLAUDE.md'))).toEqual([]);
     await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
     expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).not.toContain('@AGENTS.md');
+  });
+
+  test('a CLAUDE.md symlinked anywhere else, dangling or not, is never written through', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-claude-md-outside-'));
+    try {
+      await writeFile(join(outside, 'shared.md'), '# Shared notes\n');
+      await symlink(join(outside, 'shared.md'), join(dir, 'CLAUDE.md'));
+      const result = await runInit({ cwd: dir, probeFailures: noFailures, hook: false });
+      expect(result.skipped).toContain('CLAUDE.md (left as it is)');
+      expect(await readFile(join(outside, 'shared.md'), 'utf8')).toBe('# Shared notes\n');
+
+      await rm(join(dir, 'CLAUDE.md'));
+      await symlink(join(outside, 'absent.md'), join(dir, 'CLAUDE.md'));
+      await runAgentSetup({ cwd: dir, hook: false });
+      expect(existsSync(join(outside, 'absent.md'))).toBe(false);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   test('--dry-run reports the import and writes nothing', async () => {

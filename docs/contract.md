@@ -941,7 +941,9 @@ Code reads AGENTS.md on its own only while a repo has no CLAUDE.md, so once
 one exists the stanza reaches Claude Code only through that import. `init`
 and `agent-setup` write a CLAUDE.md that imports AGENTS.md when there is
 none. They leave a CLAUDE.md alone when it already imports AGENTS.md (outside
-code), is AGENTS.md through a symlink, or carries the stanza itself. They
+code) or carries the stanza itself, and they never write through a symlink:
+one to AGENTS.md already loads it, and one to anywhere else may not be the
+repo's file. They
 replace one that is exactly the pointer an earlier release wrote, which only
 linked to AGENTS.md. Any other CLAUDE.md keeps every byte, and the import
 goes on a line of its own at the end, in the file's own line endings. A
