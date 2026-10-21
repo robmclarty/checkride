@@ -23,11 +23,28 @@ export const BASELINE_FILE = 'checkride.baseline.json';
 /** Schema version of the baseline file; independent of the summary schema. */
 export const BASELINE_SCHEMA_VERSION = 1;
 
+/**
+ * How a check's keys were captured: the pin source its tool resolved through,
+ * and the version that source named, when it named one. A string rather than
+ * a pin source name, so a file a newer checkride wrote reads whole.
+ */
+export type Captured = { pin_source: string; tool_version?: string };
+
 /** Shape of `checkride.baseline.json`: per-slot sets of grandfathered keys. */
 export type Baseline = {
   schema_version: number;
   slots: Record<string, string[]>;
+  /**
+   * How `checkride baseline` captured each check's keys, for a check whose
+   * tool resolved through a pin source. A tool upgrade re-keys findings, so a
+   * run with another copy than the one recorded here is held back from the
+   * ratchet ({@link baselineDrift}). Absent when no check recorded one.
+   */
+  captured_with?: Record<string, Captured>;
 };
+
+/** How a check's tool ran this time, as its summary entry records it: either field absent for a check that recorded none. */
+export type RanWith = { pin_source?: string; tool_version?: string };
 
 /** The result of masking one slot's current fingerprint with its baseline. */
 export type BaselineAdjustment = {
@@ -64,10 +81,43 @@ export function parseBaseline(raw: string): Baseline | null {
     for (const [slot, keys] of Object.entries(parsed['slots'])) {
       if (Array.isArray(keys)) slots[slot] = keys.filter((k): k is string => typeof k === 'string');
     }
-    return { schema_version: typeof version === 'number' ? version : BASELINE_SCHEMA_VERSION, slots };
+    return { schema_version: typeof version === 'number' ? version : BASELINE_SCHEMA_VERSION, slots, ...withCaptured(parseCaptured(parsed['captured_with'], slots)) };
   } catch {
     return null;
   }
+}
+
+/**
+ * The `captured_with` a parsed file holds, read as tolerantly as its slots:
+ * an entry that isn't an object with a `pin_source` string is dropped, a
+ * `tool_version` that isn't a string is dropped from its entry, and an entry
+ * for a check `slots` doesn't hold is dropped, since it records nothing.
+ */
+function parseCaptured(raw: unknown, slots: Readonly<Record<string, string[]>>): Record<string, Captured> {
+  const captured: Record<string, Captured> = {};
+  if (!isRecord(raw)) return captured;
+  for (const [check, entry] of Object.entries(raw)) {
+    const read = readCaptured(entry);
+    if (read !== null && Object.hasOwn(slots, check)) captured[check] = read;
+  }
+  return captured;
+}
+
+/** One `captured_with` entry, or `null` when it names no pin source. */
+function readCaptured(entry: unknown): Captured | null {
+  if (!isRecord(entry) || typeof entry['pin_source'] !== 'string' || entry['pin_source'] === '') return null;
+  const version = entry['tool_version'];
+  return capturedAs(entry['pin_source'], typeof version === 'string' && version !== '' ? version : undefined);
+}
+
+/** A record with its fields in the one order the file writes them: `pin_source`, then `tool_version` when there is one. */
+function capturedAs(pinSource: string, toolVersion: string | undefined): Captured {
+  return toolVersion === undefined ? { pin_source: pinSource } : { pin_source: pinSource, tool_version: toolVersion };
+}
+
+/** `captured_with` as a baseline spreads it: present only when it records a check. */
+function withCaptured(captured: Readonly<Record<string, Captured>> | undefined): Pick<Baseline, 'captured_with'> {
+  return captured !== undefined && Object.keys(captured).length > 0 ? { captured_with: { ...captured } } : {};
 }
 
 /** How reading `checkride.baseline.json` went — see {@link readBaselineStatus}. */
@@ -159,14 +209,15 @@ export function ratchet(baseline: Baseline, observed: ReadonlyMap<string, Finger
     const current = observed.get(slot);
     slots[slot] = current === undefined ? keys : keys.filter((k) => current.has(k)).toSorted();
   }
-  return { schema_version: baseline.schema_version, slots };
+  // How each check was captured outlives its keys: only `checkride baseline` writes it.
+  return { schema_version: baseline.schema_version, slots, ...withCaptured(baseline.captured_with) };
 }
 
 /**
  * `baseline` with each entry `renames` names moved to its new name, keys
  * untouched: what `target add` does when a repo's implicit target takes a
  * name, and `lint` becomes `app:lint`. An entry already under a new name keeps
- * its keys, with the moved ones added.
+ * its keys, with the moved ones added, and its own capture record.
  */
 export function renameBaselineSlots(baseline: Baseline, renames: ReadonlyMap<string, string>): Baseline {
   const slots: Record<string, string[]> = {};
@@ -174,7 +225,37 @@ export function renameBaselineSlots(baseline: Baseline, renames: ReadonlyMap<str
     const to = renames.get(name) ?? name;
     slots[to] = [...(slots[to] ?? []), ...keys];
   }
-  return { schema_version: baseline.schema_version, slots };
+  return { schema_version: baseline.schema_version, slots, ...withCaptured(renamedCaptured(baseline.captured_with, renames)) };
+}
+
+/** `captured` with each entry moved as {@link renameBaselineSlots} moves the keys; a check already under the new name keeps its own. */
+function renamedCaptured(captured: Readonly<Record<string, Captured>> | undefined, renames: ReadonlyMap<string, string>): Record<string, Captured> {
+  const own = captured ?? {};
+  const moved: Record<string, Captured> = {};
+  for (const [name, entry] of Object.entries(own)) {
+    const to = renames.get(name) ?? name;
+    if (to === name || !Object.hasOwn(own, to)) moved[to] ??= entry;
+  }
+  return moved;
+}
+
+/**
+ * Whether a check ran another copy of its tool than the one its keys were
+ * captured with, so its keys may have churned: a different version, or, where
+ * neither side names one, a different pin source, such as a capture from
+ * `PATH` and a run in a Nix dev shell. Two runs through `mise`, which records
+ * no version, can't be told apart, so they never drift.
+ */
+export function baselineDrift(captured: Captured, ran: RanWith): boolean {
+  if (captured.tool_version !== ran.tool_version) return true;
+  return captured.tool_version === undefined && captured.pin_source !== ran.pin_source;
+}
+
+/** A copy of a tool as a drift notice names it: its version and pin source, or where it came from when that names no version. */
+export function copyNamed(copy: RanWith): string {
+  if (copy.tool_version !== undefined) return `${copy.tool_version} (${copy.pin_source ?? 'no pin source'})`;
+  if (copy.pin_source === 'path') return 'from PATH';
+  return copy.pin_source === undefined ? 'with no pin source' : `through ${copy.pin_source}`;
 }
 
 /** Total grandfathered diagnostics across every slot. */
@@ -182,11 +263,20 @@ export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);
 }
 
-/** Sorted-slots, sorted-unique-keys copy — the one shape the file is ever written in. */
+/**
+ * Sorted-slots, sorted-unique-keys copy — the one shape the file is ever
+ * written in — with `captured_with` after the slots, sorted, holding only the
+ * checks the slots do, and left out when it holds none.
+ */
 function canonicalize(base: Baseline): Baseline {
   const slots: Record<string, string[]> = {};
   for (const key of Object.keys(base.slots).toSorted()) slots[key] = [...new Set(base.slots[key] ?? [])].toSorted();
-  return { schema_version: base.schema_version, slots };
+  const captured: Record<string, Captured> = {};
+  for (const check of Object.keys(slots)) {
+    const entry = base.captured_with?.[check];
+    if (entry !== undefined) captured[check] = capturedAs(entry.pin_source, entry.tool_version);
+  }
+  return { schema_version: base.schema_version, slots, ...withCaptured(captured) };
 }
 
 /** Canonical string form (sorted slots and keys) for order-independent compare. */

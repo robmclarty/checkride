@@ -54,6 +54,17 @@ describe('buildDigest', () => {
     expect(buildDigest([], [check('lint', { ok: true })])).toBeNull();
   });
 
+  test('a check run with another copy than its baseline keys were captured with says its new keys may be churn', () => {
+    const red = [run(OXLINT, outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]) }))];
+    const drifted = check('lint', { adapter: 'oxlint', output_file: 'lint.json', pin_source: 'nix', tool_version: '2.11.4', baseline_captured_with: { pin_source: 'path' } });
+    const text = buildDigest(red, [drifted]) ?? '';
+    expect(text).toContain(
+      "Raw: `.check/lint.json` — 1 finding(s)\n\n_The baseline was captured with oxlint from PATH, and this run used oxlint 2.11.4 (nix), so a new key may be the tool's churn, not new debt.",
+    );
+    expect(text).toContain('have a human re-record the baseline._\n\n- a.ts:no-x:bad');
+    expect(buildDigest(red, [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })])).toContain('— 1 finding(s)\n\n- a.ts:no-x:bad');
+  });
+
   test('caps a slot at N findings and collapses the rest to a "… more" line', () => {
     const findings = Array.from({ length: 25 }, (_, i): [string, string, string] => [`f${i}.ts`, 'no-rule', `msg ${i}`]);
     const digest = buildDigest(

@@ -159,6 +159,7 @@ required ones, so a field can't reach the schema without a row here.
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
+| `baseline_captured_with` | `{ pin_source, tool_version? }` | the check ran another copy of its tool than the baseline's `captured_with` records capturing its keys with: that record, so its new keys may be the tool's churn, and the ratchet held its keys back |
 
 **Every check says why it's in the run.** `origin` is `config` when
 `checkride.config.json` names the slot, presets it `extends` included, since
@@ -373,17 +374,27 @@ what the file is for; this section names what a consumer may rely on.
   "slots": {
     "lint": ["src/legacy.ts:eslint(no-unused-vars):Variable 'legacy' is declared but never used."],
     "spell": ["docs/old.md::teh"]
+  },
+  "captured_with": {
+    "lint": { "pin_source": "js-lockfile", "tool_version": "1.87.0" },
+    "spell": { "pin_source": "js-lockfile", "tool_version": "9.0.0" }
   }
 }
 ```
 
 **The same additive-only discipline as the summary.** Under schema version 1
-the file has two top-level fields and no others: `schema_version`, the integer
-`1`, and `slots`, an object from check name to an array of key strings: the
-slot name, or `<target>:<slot>` for a target's check. A slot
+the file has `schema_version`, the integer `1`, `slots`, and optionally
+`captured_with`, and no other top-level field. `slots` is an object from
+check name to an array of key strings: the slot name, or `<target>:<slot>`
+for a target's check. A slot
 whose adapter can be fingerprinted and had nothing to grandfather is present
 with an empty array; a slot whose adapter has no parser, or whose output that
-parser can't trust, is absent. Fields
+parser can't trust, is absent. `captured_with` records how
+`checkride baseline` captured each check's keys: check name to the
+`pin_source` its tool resolved through and the `tool_version` that source
+named, when it named one, as the run's summary recorded them. It holds only
+checks `slots` holds, and only those whose tool resolved through a pin
+source, and it's absent when none did. Fields
 are added in lockstep with the published schema, never renamed, removed, or
 retyped; a non-additive change bumps `schema_version` and is a breaking
 release. The schema describes what checkride **writes**. What it accepts on
@@ -438,21 +449,35 @@ its report re-keys those findings, and they report as new until
 parsers does the same (0.6.0 and 0.9.4 were two), and the release notes say
 so under that release. What is promised is the notice, never the wording.
 
+So a run notices when a check ran another copy of its tool than
+`captured_with` records: a different `tool_version`, or where neither side
+names one, a different `pin_source`, such as keys captured from `PATH` and a
+run in a Nix dev shell. Two runs through `mise`, which records no version,
+can't be told apart. Such a check carries `baseline_captured_with` in the
+summary, and its digest section and a `baseline:` line on stderr name both
+copies when it has new keys, or keys the ratchet held back. Its verdict is
+unchanged: a new key still fails it. The ratchet prunes none of its keys,
+since the copy the baseline was captured with may still report them. A check
+with no record in `captured_with` is never held back.
+
 **Written canonical, written atomically.** Every writer — `checkride baseline`
 (including `init --baseline`), the ratchet, `recover --pick` — writes one shape:
-slot names sorted, keys within each slot sorted and unique, two-space
-indentation, a trailing newline, through the temp-file-then-rename write of the
-crash-consistency promise above. Two branches that grandfather the same debt
-produce byte-identical files, and a write that would change nothing is skipped.
-A hunk in `git diff` of this file is a change to the debt set, never to its
-formatting.
+slot names sorted, keys within each slot sorted and unique, `captured_with`
+after `slots` with its checks sorted and each entry's `pin_source` before its
+`tool_version`, two-space indentation, a trailing newline, through the
+temp-file-then-rename write of the crash-consistency promise above. Two
+branches that grandfather the same debt with the same tools produce
+byte-identical files, and a write that would change nothing is skipped. A hunk
+in `git diff` of this file is a change to the debt set or to the tools that
+captured it, never to its formatting.
 
 **Read is tolerant, and fails closed on the future.** A malformed baseline
 never breaks a run. A file that does not parse, or whose `slots` is not an
 object, masks nothing, and the run says so on stderr; `doctor` flags the same
 file between runs. Inside a file that does parse, an unknown top-level field is
 ignored, a slot whose value is not an array is dropped, a non-string key is
-dropped, and a missing `schema_version` reads as `1`. A `schema_version` above
+dropped, a `captured_with` entry that names no `pin_source` string, or no check
+in `slots`, is dropped, and a missing `schema_version` reads as `1`. A `schema_version` above
 the one this release writes is dropped whole: the run reports every finding
 that is there rather than guess which ones a newer file meant to mask. The
 reader takes text, not a path, so a historical copy from `git show` parses
@@ -466,8 +491,11 @@ One that timed out, failed to spawn or was interrupted (exit `-1`), or that
 failed without a single finding its parser could read (a refusal, missing
 setup, a crash), observes nothing: it prunes none of its keys, and it is never
 masked green, so a timeout whose partial output holds only grandfathered keys
-stays red. `checkride baseline` keeps such an entry's previous keys and names
-the check on stderr, rather than writing it empty.
+stays red. `checkride baseline` keeps such an entry's previous keys, and its
+`captured_with` record, and names the check on stderr, rather than writing it
+empty. Only `checkride baseline` writes `captured_with`: the ratchet carries it
+as it is, and `recover --pick` keeps the current file's record for each check
+that has one. A release before this one rewrites the file without it.
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
 
@@ -1343,7 +1371,8 @@ technically importable.
   crash-consistency above) and never prunes the baseline — the ratchet only
   runs on a fully observed run. Within one, a check that timed out, was
   refused, or failed with nothing its parser could read observes nothing, so
-  it prunes none of its keys either
+  it prunes none of its keys either, and neither does a check that ran another
+  copy of its tool than its keys were captured with
   ([`checkride.baseline.json`](#checkridebaselinejson)).
 
 These promises live with their machinery rather than in `test/contract/`: the

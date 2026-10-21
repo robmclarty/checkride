@@ -13,8 +13,8 @@ import { performance } from 'node:perf_hooks';
 
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
-import type { Baseline, Fingerprint } from '../baseline/index.js';
-import { applyBaseline, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
+import type { Baseline, Fingerprint, RanWith } from '../baseline/index.js';
+import { applyBaseline, baselineDrift, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { isAvailableUnder, packEnv, pinChain, setupHint } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
@@ -25,7 +25,7 @@ import type { Place } from './place.js';
 import { placeOf } from './place.js';
 import { checkIdentity, formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
-import type { CheckRun, CheckRunner, RunnerOutcome, SummaryCheck } from './types.js';
+import type { CheckRun, CheckRunner, Drift, RunnerOutcome, SummaryCheck } from './types.js';
 
 /**
  * The text a declared `outputFile` holds this run, or `null` when stdout doesn't
@@ -232,6 +232,8 @@ type CheckResult = {
   observed: { key: string; fp: Fingerprint } | null;
   /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
   newKeys: string[];
+  /** Present when the check ran another copy of its tool than its baseline keys were captured with. */
+  drift?: Drift;
 };
 
 /**
@@ -326,9 +328,41 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const scope = { key: name, root: r.root, repoRoot: ctx.cwd, base: ctx.changedBase?.ref ?? null, out: place.outArg };
   const mask = maskOutcome(adapter, outcome, ctx.baseline, scope);
   const run = checkRun(r, adapter, outcome);
-  const entry = executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null);
+  const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran }, mask);
+  const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
-  return { entry, run, observed: mask.observed !== null ? { key: name, fp: mask.observed } : null, newKeys: mask.newKeys };
+  return { entry, run, observed: ratchetFeed(name, mask, drift), newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
+}
+
+/**
+ * The drift of a check this run observed with another copy of its tool than
+ * the baseline records capturing its keys with (`baselineDrift`), or `null`:
+ * for a check the baseline records no capture for, or a run that observed
+ * nothing, which feeds the ratchet nothing anyway.
+ */
+function driftOf(baseline: Baseline | null, check: { name: string; tool: string; ran: RanWith }, mask: MaskResult): Drift | null {
+  const captured = baseline?.captured_with?.[check.name];
+  if (captured === undefined || mask.observed === null || !baselineDrift(captured, check.ran)) return null;
+  return { ...check, captured, newKeys: mask.newKeys.length, heldBack: unseen(baseline?.slots[check.name] ?? [], mask.observed) };
+}
+
+/** How many of `keys` the run's findings `seen` doesn't hold: the grandfathered keys a ratchet would prune. */
+function unseen(keys: readonly string[], seen: Fingerprint): number {
+  return keys.filter((k) => !seen.has(k)).length;
+}
+
+/** The summary field a drifted check carries: how the baseline captured its keys. */
+function driftField(drift: Drift | null): Pick<SummaryCheck, 'baseline_captured_with'> {
+  return drift === null ? {} : { baseline_captured_with: drift.captured };
+}
+
+/**
+ * What a check feeds the ratchet: its observed findings, or nothing for a run
+ * that observed none, or that ran another copy of its tool than its keys were
+ * captured with, whose unseen keys another copy may still report.
+ */
+function ratchetFeed(name: string, mask: MaskResult, drift: Drift | null): CheckResult['observed'] {
+  return mask.observed === null || drift !== null ? null : { key: name, fp: mask.observed };
 }
 
 /**
@@ -355,6 +389,8 @@ type Execution = {
   runs: CheckRun[];
   observed: Map<string, Fingerprint>;
   newKeys: string[];
+  /** The checks that ran another copy of their tool than their baseline keys were captured with. */
+  drifts: Drift[];
   brokeEarly: boolean;
 };
 
@@ -364,11 +400,12 @@ function collect(res: CheckResult, acc: Execution): void {
   if (res.run) acc.runs.push(res.run);
   if (res.observed) acc.observed.set(res.observed.key, res.observed.fp);
   acc.newKeys.push(...res.newKeys);
+  if (res.drift) acc.drifts.push(res.drift);
 }
 
 /** A fresh, empty {@link Execution}. */
 function emptyExecution(brokeEarly = false): Execution {
-  return { checks: [], runs: [], observed: new Map(), newKeys: [], brokeEarly };
+  return { checks: [], runs: [], observed: new Map(), newKeys: [], drifts: [], brokeEarly };
 }
 
 /**

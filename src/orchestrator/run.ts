@@ -13,7 +13,7 @@ import { performance } from 'node:perf_hooks';
 import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { BASELINE_FILE, baselinesEqual, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
+import { BASELINE_FILE, baselinesEqual, copyNamed, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
@@ -26,7 +26,7 @@ import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, skipUnchanged, validateSelection, withFileLists, withGoPackages, withStaticOnly } from './select.js';
 import { resetInterrupt } from './spawn.js';
-import type { RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
+import type { Drift, Out, RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
  * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
@@ -100,6 +100,32 @@ function consumerCause(options: RunOptions, cwd: string): string | null {
   if (options.configPath !== undefined && !isInside(cwd, resolve(cwd, options.configPath))) return '--config outside the repo';
   if (options.out !== undefined && !isInside(cwd, resolve(cwd, options.out))) return '--out outside the repo';
   return null;
+}
+
+/**
+ * Say, for each check that ran another copy of its tool than its baseline
+ * keys were captured with, and whose keys churned, what the baseline
+ * recorded, what ran, and what the ratchet did: a run that ratchets held that
+ * check's unseen keys back, and a partial or consumer run prunes nothing
+ * anyway, so it counts none. The remedy is never a re-capture by whoever
+ * reads it, since that would grandfather new debt along with the churn.
+ */
+function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: boolean; consumer: string | null }): void {
+  const ratchets = !run.partial && run.consumer === null;
+  for (const d of drifts) {
+    const churn = driftChurn(d, ratchets);
+    if (churn === null) continue;
+    writeLine(
+      stderr,
+      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured)}; this run used ${d.tool} ${copyNamed(d.ran)}: ${churn}. Run under the copy the baseline was captured with, or have a human re-record the baseline.`,
+    );
+  }
+}
+
+/** A drifted check's churn as its notice counts it, or `null` when there's none to report. */
+function driftChurn(d: Drift, ratchets: boolean): string | null {
+  const parts = [...(d.newKeys > 0 ? [`${d.newKeys} new`] : []), ...(ratchets && d.heldBack > 0 ? [`${d.heldBack} held back from the ratchet`] : [])];
+  return parts.length > 0 ? parts.join(', ') : null;
 }
 
 /**
@@ -232,7 +258,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
-  const { checks, runs, observed, newKeys, brokeEarly } = await executeChecks(selected, ctx);
+  const { checks, runs, observed, newKeys, drifts, brokeEarly } = await executeChecks(selected, ctx);
   // A run that beats git waits for it inside the clock, so the run's start
   // stays `timestamp - total_duration_ms`, which the artifact readers judge
   // freshness by.
@@ -242,7 +268,8 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // One partial-run test serves the ratchet and the summary, so `run.partial`
   // is true exactly when the ratchet stood down for a partial run.
   const partial = isPartialRun(options, ctx.changed, brokeEarly);
-  await maybeRatchet(ctx, observed, partial, consumerCause(options, ctx.cwd));
+  const consumer = consumerCause(options, ctx.cwd);
+  await maybeRatchet(ctx, observed, partial, consumer);
 
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"
@@ -273,6 +300,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     if (ctx.baselineState === 'unparseable') {
       writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
     }
+    reportDrift(ctx.stderr, drifts, { partial, consumer });
     await maybeRecoverHint(ctx, summary.ok, newKeys);
   }
 

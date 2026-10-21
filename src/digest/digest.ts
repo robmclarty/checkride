@@ -23,7 +23,7 @@ import { join } from 'node:path';
 
 import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
-import { findingText, fingerprint } from '../baseline/index.js';
+import { copyNamed, findingText, fingerprint } from '../baseline/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
@@ -97,7 +97,7 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
     if (all.length > shown.length) {
       lines.push(`- … ${all.length - shown.length} more (see \`${raw}\`)`);
     }
-    return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n\n${lines.join('\n')}\n`;
+    return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
   }
 
   // No extractor (tsc, vitest, …) or a supported adapter that failed with no
@@ -111,6 +111,17 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
   const tail = all.slice(-maxItems);
   const note = tail.length < all.length ? ` — last ${tail.length} of ${all.length} lines` : '';
   return `${heading}\n\nRaw: \`${raw}\`${note}\n\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
+}
+
+/**
+ * The note a section adds when its check ran another copy of its tool than
+ * the baseline captured its keys with, between blank lines, or nothing: its
+ * new keys may be the tool's churn, not new debt.
+ */
+function driftNote(check: SummaryCheck, tool: string): string {
+  const captured = check.baseline_captured_with;
+  if (captured === undefined) return '';
+  return `\n_The baseline was captured with ${tool} ${copyNamed(captured)}, and this run used ${tool} ${copyNamed(check)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human re-record the baseline._\n`;
 }
 
 /**

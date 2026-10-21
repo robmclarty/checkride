@@ -1780,6 +1780,91 @@ describe.skipIf(!gitAvailable)('runChecks red-run recover hint', () => {
   });
 });
 
+/** A baseline holding KEY_A and KEY_B for lint, captured with `captured`. */
+function capturedWith(captured: Baseline['captured_with']): Baseline {
+  return { schema_version: 1, slots: { lint: [KEY_A, KEY_B] }, ...(captured !== undefined ? { captured_with: captured } : {}) };
+}
+
+/** {@link lintRunner}'s findings, reported as run through `pin`. */
+function ranWith(findings: [string, string, string][], pin: { pin_source?: 'nix' | 'path' | 'mise'; tool_version?: string }): CheckRunner {
+  return async (r, ctx) => ({ ...(await lintRunner(findings)(r, ctx)), ...pin });
+}
+
+/**
+ * A tool upgrade re-keys findings, so a check that ran another copy of its
+ * tool than the baseline records capturing its keys with (`captured_with`)
+ * is held back from the ratchet, says so, and carries the record in the
+ * summary; its verdict is unchanged.
+ */
+describe('runChecks (a baseline captured with another copy of the tool)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-drift-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const slots = [{ name: 'lint' }];
+  const adapters = [fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' })];
+  const KEY_C = 'c.ts:no-z:new';
+  const baselineFile = (): string => join(dir, 'checkride.baseline.json');
+
+  const run = (baseline: Baseline, runner: CheckRunner, over: Partial<RunOptions> = {}) => {
+    const stderr = sink();
+    return runChecks({ cwd: dir, slots, adapters, config: null, runner, baseline, json: false, stdout: sink().out, stderr: stderr.out, ...over })
+      .then((result) => ({ result, text: stderr.lines.join(''), lint: result.summary.checks.find((c) => c.name === 'lint') }));
+  };
+
+  test('another copy keeps its keys from the ratchet, names both copies, and carries the record; new keys still fail', async () => {
+    const { result, text, lint } = await run(capturedWith({ lint: { pin_source: 'path' } }), ranWith([['a.ts', 'no-x', 'bad'], ['c.ts', 'no-z', 'new']], { pin_source: 'nix', tool_version: '2.11.4' }));
+    expect(result.ok).toBe(false);
+    expect(lint).toMatchObject({ ok: false, baselined: 1, baseline_captured_with: { pin_source: 'path' } });
+    expect(text).toContain(KEY_C);
+    expect(text).toContain('baseline: lint was captured with oxlint from PATH; this run used oxlint 2.11.4 (nix): 1 new, 1 held back from the ratchet. Run under the copy the baseline was captured with, or have a human re-record the baseline.');
+    expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  test('the copy the keys were captured with prunes as it always has, and the record outlives the pruned key', async () => {
+    const { text, lint } = await run(capturedWith({ lint: { pin_source: 'nix', tool_version: '2.11.4' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'nix', tool_version: '2.11.4' }));
+    expect(lint).not.toHaveProperty('baseline_captured_with');
+    expect(text).not.toContain('was captured with');
+    expect(JSON.parse(await readFile(baselineFile(), 'utf8'))).toEqual({
+      schema_version: 1, slots: { lint: [KEY_A] }, captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } },
+    });
+  });
+
+  test('where neither side names a version, only another pin source holds the keys back', async () => {
+    const same = await run(capturedWith({ lint: { pin_source: 'mise' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'mise' }));
+    expect(same.lint).not.toHaveProperty('baseline_captured_with');
+    await rm(baselineFile(), { force: true });
+    const other = await run(capturedWith({ lint: { pin_source: 'mise' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'path' }));
+    expect(other.text).toContain('captured with oxlint through mise; this run used oxlint from PATH: 1 held back from the ratchet.');
+    expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  test('a baseline with no record ratchets as before, whatever copy ran', async () => {
+    const { lint } = await run(capturedWith(undefined), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'nix', tool_version: '2.11.4' }));
+    expect(lint).not.toHaveProperty('baseline_captured_with');
+    expect((JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline).slots['lint']).toEqual([KEY_A]);
+  });
+
+  test('a partial run counts no keys held back, and a run with no churn says nothing but still carries the record', async () => {
+    const drifted = capturedWith({ lint: { pin_source: 'path' } });
+    const partial = await run(drifted, ranWith([['a.ts', 'no-x', 'bad'], ['c.ts', 'no-z', 'new']], { pin_source: 'nix', tool_version: '2.11.4' }), { only: ['lint'] });
+    expect(partial.text).toContain('this run used oxlint 2.11.4 (nix): 1 new. Run under');
+    const quiet = await run(drifted, ranWith([['a.ts', 'no-x', 'bad'], ['b.ts', 'no-y', 'worse']], { pin_source: 'nix', tool_version: '2.11.4' }));
+    expect(quiet.text).not.toContain('was captured with');
+    expect(quiet.lint).toMatchObject({ ok: true, baseline_captured_with: { pin_source: 'path' } });
+  });
+
+  test('--json carries the record and prints no notice', async () => {
+    const { text, lint } = await run(
+      capturedWith({ lint: { pin_source: 'path' } }),
+      ranWith([['a.ts', 'no-x', 'bad'], ['c.ts', 'no-z', 'new']], { pin_source: 'nix', tool_version: '2.11.4' }),
+      { json: true },
+    );
+    expect(lint).toMatchObject({ baseline_captured_with: { pin_source: 'path' } });
+    expect(text).not.toContain('was captured with');
+  });
+});
+
 describe('runFix', () => {
   const fixable = fakeAdapter({ name: 'oxlint', slot: 'lint', fixArgs: ['exec', 'oxlint', '--fix'] });
   const noFix = fakeAdapter({ name: 'tsc', slot: 'types' });

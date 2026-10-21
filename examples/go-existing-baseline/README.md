@@ -54,6 +54,9 @@ is committed:
       "internal/report/report.go:unused:var legacyPadding is unused",
       "internal/report/report.go:unused:var staleTimestampFormat is unused"
     ]
+  },
+  "captured_with": {
+    "lint": { "pin_source": "path" }
   }
 }
 ```
@@ -61,7 +64,10 @@ is committed:
 Each key is `file:linter:message`, with no line or column, as in the
 TypeScript example. The linter is the one golangci-lint names for the
 finding, so an `errcheck` finding and an `unused` one in the same file are
-different keys.
+different keys. `captured_with` says the keys were captured with the
+golangci-lint on `PATH`: a later run with another copy, a pinned version or a
+Nix shell's, keeps these keys from the ratchet and says so, since a new
+golangci-lint can word a finding differently.
 
 ## How it was adopted
 

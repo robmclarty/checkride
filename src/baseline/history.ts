@@ -16,7 +16,7 @@
 
 import type { GitRunner } from '../git.js';
 import { gitFailureError, realGit } from '../git.js';
-import type { Baseline } from './store.js';
+import type { Baseline, Captured } from './store.js';
 import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, baselinesEqual, parseBaseline } from './store.js';
 
 /** At most this many distinct snapshots are presented — a small set to choose from. */
@@ -132,10 +132,19 @@ type Walk = {
   walked: number;
 };
 
+/**
+ * Whether two baselines grandfather the same keys, whatever each records
+ * about how they were captured: a snapshot that differs only there restores
+ * nothing, so recovery never offers it.
+ */
+function sameKeys(a: Baseline, b: Baseline): boolean {
+  return baselinesEqual({ schema_version: a.schema_version, slots: a.slots }, { schema_version: b.schema_version, slots: b.slots });
+}
+
 /** Is this state worth presenting — different from current and from everything kept? */
 function isNewState(baseline: Baseline, current: Baseline | null, kept: Walk['snapshots']): boolean {
-  if (current !== null && baselinesEqual(baseline, current)) return false;
-  return !kept.some((s) => baselinesEqual(s.baseline, baseline));
+  if (current !== null && sameKeys(baseline, current)) return false;
+  return !kept.some((s) => sameKeys(s.baseline, baseline));
 }
 
 async function walkSnapshots(git: GitRunner, path: string, revisions: readonly BaselineRevision[], current: Baseline | null): Promise<Walk> {
@@ -163,7 +172,7 @@ export async function collectCandidates(git: GitRunner, current: Baseline | null
   const walk = await walkSnapshots(git, located.path, parseLog(log.stdout), current);
 
   const union = unionBaselines(current === null ? walk.parsed : [current, ...walk.parsed]);
-  const unionAddsAnything = current === null ? walk.parsed.length > 0 : !baselinesEqual(union, current);
+  const unionAddsAnything = current === null ? walk.parsed.length > 0 : !sameKeys(union, current);
   const candidates: Candidate[] = [
     ...(unionAddsAnything ? [{ kind: 'union' as const, baseline: union, folded: walk.parsed.length }] : []),
     ...walk.snapshots,
@@ -171,7 +180,12 @@ export async function collectCandidates(git: GitRunner, current: Baseline | null
   return { candidates, walked: walk.walked, skipped: walk.skipped, shallow: located.shallow };
 }
 
-/** Per-slot key union of every part, canonical (sorted slots and keys). */
+/**
+ * Per-slot key union of every part, canonical (sorted slots and keys), with
+ * each check's capture record from the first part that has one: callers put
+ * the current file first, so recovering keys never rewrites how the current
+ * ones were captured.
+ */
 export function unionBaselines(parts: readonly Baseline[]): Baseline {
   const merged = new Map<string, Set<string>>();
   for (const part of parts) {
@@ -183,7 +197,17 @@ export function unionBaselines(parts: readonly Baseline[]): Baseline {
   }
   const slots: Record<string, string[]> = {};
   for (const slot of [...merged.keys()].toSorted()) slots[slot] = [...(merged.get(slot) ?? [])].toSorted();
-  return { schema_version: BASELINE_SCHEMA_VERSION, slots };
+  const captured = firstCaptured(parts);
+  return { schema_version: BASELINE_SCHEMA_VERSION, slots, ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}) };
+}
+
+/** Each check's capture record from the first of `parts` that has one. */
+function firstCaptured(parts: readonly Baseline[]): Record<string, Captured> {
+  const captured: Record<string, Captured> = {};
+  for (const part of parts) {
+    for (const [check, entry] of Object.entries(part.captured_with ?? {})) captured[check] ??= entry;
+  }
+  return captured;
 }
 
 /** What the red-run probe found: `matched` of `total` new keys were grandfathered at `shortSha`. */

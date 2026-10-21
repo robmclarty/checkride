@@ -8,17 +8,20 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import type { Baseline } from '../baseline/index.js';
+import type { Baseline, RanWith } from '../baseline/index.js';
 import {
   applyBaseline,
   BASELINE_SCHEMA_VERSION,
+  baselineDrift,
   baselinesEqual,
+  copyNamed,
   fingerprint,
   isFingerprintable,
   loadBaseline,
   parseBaseline,
   ratchet,
   readBaselineStatus,
+  renameBaselineSlots,
   writeBaseline,
 } from '../baseline/index.js';
 import { runBaseline, runBaselineDiff } from '../baseline-command.js';
@@ -240,6 +243,107 @@ describe('ratchet (the pruning invariant)', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'] } };
     const pruned = ratchet(baseline, new Map([['lint', new Set<string>()]]));
     expect(pruned.slots['lint']).toEqual([]);
+  });
+});
+
+/** `runner`, recording on each outcome the pin its slot's tool resolved through, as a real runner does. */
+function pinnedBy(runner: CheckRunner, pins: Record<string, RanWith>): CheckRunner {
+  return async (r, ctx) => ({ ...(await runner(r, ctx)), ...pins[r.slot] }) as Awaited<ReturnType<CheckRunner>>;
+}
+
+/**
+ * `captured_with`: how `checkride baseline` captured each check's keys. A tool
+ * upgrade re-keys findings, so a run with another copy than the one recorded
+ * is held back from the ratchet; everything that rewrites the file keeps the
+ * record as it was.
+ */
+describe('captured_with', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-captured-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const PINS: Record<string, RanWith> = { lint: { pin_source: 'js-lockfile', tool_version: '1.87.0' }, struct: { pin_source: 'path' } };
+  const raw = (): Promise<string> => readFile(join(dir, 'checkride.baseline.json'), 'utf8');
+
+  test('a capture records each check’s pin source and version after the slots, and nothing for a check that resolved through none', async () => {
+    const result = await runBaseline({ cwd: dir, slots, adapters, config: null, runner: pinnedBy(RED, PINS), stdout: sink(), stderr: sink() });
+    const text = await raw();
+    const written = JSON.parse(text) as Baseline;
+    expect(written.captured_with).toEqual({ lint: { pin_source: 'js-lockfile', tool_version: '1.87.0' }, struct: { pin_source: 'path' } });
+    expect(Object.keys(written)).toEqual(['schema_version', 'slots', 'captured_with']);
+    expect(text).toContain('"lint": {\n      "pin_source": "js-lockfile",\n      "tool_version": "1.87.0"\n    }');
+    expect(result.baseline).toEqual(written);
+  });
+
+  test('a capture where no check resolved through a pin source writes no captured_with', async () => {
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, stdout: sink(), stderr: sink() });
+    expect(JSON.parse(await raw())).not.toHaveProperty('captured_with');
+  });
+
+  test('a check the capture didn’t observe keeps its previous record with its previous keys', async () => {
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: pinnedBy(RED, PINS), stdout: sink(), stderr: sink() });
+    const refusing: CheckRunner = (r, ctx) =>
+      r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'refused' }) : RED(r, ctx);
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: pinnedBy(refusing, { lint: { pin_source: 'path' } }), stdout: sink(), stderr: sink() });
+    expect((JSON.parse(await raw()) as Baseline).captured_with).toEqual({ lint: { pin_source: 'js-lockfile', tool_version: '1.87.0' } });
+  });
+
+  test('the ratchet carries the record as it is, and an unchanged run is no write', () => {
+    const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'] }, captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } };
+    const pruned = ratchet(baseline, new Map([['lint', new Set(['a'])]]));
+    expect(pruned).toEqual({ schema_version: 1, slots: { lint: ['a'] }, captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } });
+    expect(baselinesEqual(baseline, ratchet(baseline, new Map([['lint', new Set(['a', 'b'])]])))).toBe(true);
+  });
+
+  test('a rename moves each record with its keys, and a check already under the new name keeps its own', () => {
+    const baseline: Baseline = {
+      schema_version: 1,
+      slots: { lint: ['a'], spell: ['x'], 'app:spell': ['y'] },
+      captured_with: { lint: { pin_source: 'path' }, spell: { pin_source: 'mise' }, 'app:spell': { pin_source: 'js-lockfile', tool_version: '9.0.0' } },
+    };
+    const renamed = renameBaselineSlots(baseline, new Map([['lint', 'app:lint'], ['spell', 'app:spell']]));
+    expect(renamed.captured_with).toEqual({ 'app:lint': { pin_source: 'path' }, 'app:spell': { pin_source: 'js-lockfile', tool_version: '9.0.0' } });
+  });
+
+  test('reads tolerantly: an entry with no pin source, a bad version, or no keys under it is dropped', () => {
+    const parsed = parseBaseline(JSON.stringify({
+      schema_version: 1,
+      slots: { lint: ['a'], spell: [], docs: [] },
+      captured_with: { lint: { pin_source: 'nix', tool_version: 7 }, spell: { tool_version: '1.0.0' }, docs: 'path', gone: { pin_source: 'path' } },
+    }));
+    expect(parsed).toEqual({ schema_version: 1, slots: { lint: ['a'], spell: [], docs: [] }, captured_with: { lint: { pin_source: 'nix' } } });
+    expect(parseBaseline(JSON.stringify({ schema_version: 1, slots: {}, captured_with: [] }))).toEqual({ schema_version: 1, slots: {} });
+  });
+
+  test('writes canonical: checks sorted, records only for checks the slots hold, none when there are none', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { spell: [], lint: [] }, captured_with: { spell: { tool_version: '9.0.0', pin_source: 'js-lockfile' }, gone: { pin_source: 'path' } } });
+    expect(await raw()).toBe(`${JSON.stringify({ schema_version: 1, slots: { lint: [], spell: [] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.0.0' } } }, null, 2)}\n`);
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: [] }, captured_with: {} });
+    expect(JSON.parse(await raw())).not.toHaveProperty('captured_with');
+  });
+});
+
+describe('baselineDrift', () => {
+  test('another version is another copy', () => {
+    expect(baselineDrift({ pin_source: 'nix', tool_version: '2.14.0' }, { pin_source: 'nix', tool_version: '2.11.4' })).toBe(true);
+    expect(baselineDrift({ pin_source: 'path' }, { pin_source: 'nix', tool_version: '2.11.4' })).toBe(true);
+    expect(baselineDrift({ pin_source: 'nix', tool_version: '2.11.4' }, { pin_source: 'path' })).toBe(true);
+  });
+
+  test('where neither side names a version, another pin source is another copy, and the same one never is', () => {
+    expect(baselineDrift({ pin_source: 'mise' }, { pin_source: 'path' })).toBe(true);
+    expect(baselineDrift({ pin_source: 'mise' }, { pin_source: 'mise' })).toBe(false);
+  });
+
+  test('the same version through another source is the same copy', () => {
+    expect(baselineDrift({ pin_source: 'js-lockfile', tool_version: '5.0.0' }, { pin_source: 'override', tool_version: '5.0.0' })).toBe(false);
+  });
+
+  test('names a copy by its version and source, or where it came from', () => {
+    expect(copyNamed({ pin_source: 'nix', tool_version: '2.11.4' })).toBe('2.11.4 (nix)');
+    expect(copyNamed({ pin_source: 'path' })).toBe('from PATH');
+    expect(copyNamed({ pin_source: 'mise' })).toBe('through mise');
+    expect(copyNamed({})).toBe('with no pin source');
   });
 });
 

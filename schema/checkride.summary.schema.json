@@ -82,7 +82,14 @@
             "total": { "type": "integer", "minimum": 1, "description": "How many modules the workspace's go.work uses." }
           }
         },
-        "baselined": { "type": "integer", "minimum": 1, "description": "Present only when a committed baseline masked diagnostics: how many current findings are grandfathered." }
+        "baselined": { "type": "integer", "minimum": 1, "description": "Present only when a committed baseline masked diagnostics: how many current findings are grandfathered." },
+        "baseline_captured_with": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["pin_source"],
+          "properties": { "pin_source": { "type": "string", "minLength": 1 }, "tool_version": { "type": "string", "minLength": 1 } },
+          "description": "Present only when the check ran another copy of its tool than the committed baseline records capturing its keys with (captured_with in checkride.baseline.json): that record. A different tool_version, or where neither names one a different pin_source, counts. Its new keys may be the tool's churn rather than new debt, and the ratchet held the check's keys back."
+        }
       }
     },
     "run": {

@@ -6,5 +6,10 @@
       "internal/report/report.go:unused:var legacyPadding is unused",
       "internal/report/report.go:unused:var staleTimestampFormat is unused"
     ]
+  },
+  "captured_with": {
+    "lint": {
+      "pin_source": "path"
+    }
   }
 }

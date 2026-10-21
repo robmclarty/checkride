@@ -674,6 +674,14 @@ Once it exists, every normal run is **baseline-aware**:
   untouched.
 - Never add to the baseline to make a check pass; fix the finding, or re-run
   `checkride baseline` deliberately to re-grandfather.
+- A key carries the tool's own wording, so another version of a tool can key
+  the same debt differently. The file's `captured_with` records which copy of
+  each check's tool captured its keys: the pin source and version a run
+  records, such as `{ "pin_source": "nix", "tool_version": "2.11.4" }`. A run
+  with another copy still fails on a new key, but its digest and a `baseline:`
+  line on stderr name both copies, and the ratchet prunes none of that check's
+  keys, since the copy that captured them may still report them. Run under the
+  same copy, or re-record the baseline once the new one is the repo's.
 
 Two operational notes. **Merge conflicts:** the file is canonical (slots and
 keys are sorted), so parallel branches usually merge cleanly; when they do

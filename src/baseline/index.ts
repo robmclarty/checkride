@@ -18,12 +18,14 @@ export {
   readBaselineAt,
   unionBaselines,
 } from './history.js';
-export type { Baseline, BaselineRead } from './store.js';
+export type { Baseline, BaselineRead, Captured, RanWith } from './store.js';
 export {
   applyBaseline,
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
+  baselineDrift,
   baselinesEqual,
+  copyNamed,
   countBaselineKeys,
   loadBaseline,
   parseBaseline,

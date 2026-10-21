@@ -19,6 +19,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A user's own profile, such as `~/.nix-profile`, stays unpinned: it's the
   machine's, not the repo's. `doctor` reads the copy the same way and lists
   no unpinned tool for it. [Packs](./docs/packs.md#pin-sources) has the rules.
+- **The baseline records which copy of each tool captured its keys.** A key
+  carries the tool's own wording, so a baseline captured with one golangci-lint
+  and checked with another reported 3 "new" findings and lost 6 keys with no
+  code change (#9). `checkride baseline` now writes `captured_with`: for each
+  check whose tool resolved through a pin source, that source and the version
+  it named. A run whose copy differs, by version, or by source where neither
+  names a version, still fails on a new key. The difference is named in the
+  summary as `baseline_captured_with`, in that check's digest section, and in
+  a `baseline:` line on stderr, which says how many keys are new and how many
+  the ratchet held back. The ratchet prunes none of that check's keys, so a
+  run with a different toolchain can't prune keys CI's still reports. A
+  baseline captured before this release has no record, and ratchets as it
+  always has.
 
 ### Changed
 
@@ -62,12 +75,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   records `pin_source: "nix"` and a `tool_version` where 0.15 recorded
   `path`, runs under `requirePins` where 0.15 refused it, and drops out of
   `doctor`'s unpinned tools.
+- Changed: the ratchet prunes none of a check's keys when the check ran
+  another copy of its tool than `captured_with` records. `checkride.baseline.json`
+  gains a third top-level field, which a release before this one drops when
+  its ratchet rewrites the file. Two branches capture byte-identical files
+  only with the same tools as well as the same debt.
 
 #### Additive
 
 - `pin_source`, the summary schema's enum and the exported `PinSourceName`
   type take `nix`. The contract now says outright that `pin_source` gains
   values additively.
+- `checkride.baseline.json` and its schema take `captured_with`. A summary
+  check, its schema and the exported `SummaryCheck` type take
+  `baseline_captured_with`.
 
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other

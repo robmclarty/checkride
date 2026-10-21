@@ -267,4 +267,10 @@ fine when the lanes are genuinely independent; five means you re-ranked nothing.
   (restores the dropped entries from git history, additively), never
   `checkride baseline`, whose re-capture would grandfather genuinely-new
   findings along with the lost ones. Proposing it is still the deliverable;
-  running it is still the human's call.
+  running it is still the human's call. Likewise a
+  `baseline: <check> was captured with <tool> … this run used <tool> …` line,
+  or the same note in `digest.md`, means the check ran another copy of its
+  tool than the baseline's keys came from, so its new findings may be the
+  tool rewording old ones. The remedy to name is running under the copy the
+  baseline was captured with (the repo's dev shell, or the pinned version),
+  or a human's re-capture; never a re-capture of your own.

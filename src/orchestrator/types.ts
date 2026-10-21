@@ -130,6 +130,30 @@ export type SummaryCheck = {
    * Additive field — absent on runs with no baseline, so `schema_version` holds.
    */
   baselined?: number;
+  /**
+   * Present only when this check ran another copy of its tool than the one
+   * the committed baseline records capturing its keys with: that record, the
+   * pin source and the version it named. Its new keys may be the tool's churn
+   * rather than new debt, and the ratchet held its keys back. Additive field;
+   * `schema_version` holds.
+   */
+  baseline_captured_with?: { pin_source: string; tool_version?: string };
+};
+
+/**
+ * A check that ran another copy of its tool than its baseline keys were
+ * captured with: what the run's notice names. `ran` is how it ran this time,
+ * `newKeys` counts the findings the baseline didn't grandfather, and
+ * `heldBack` the grandfathered keys this run didn't see, which the ratchet
+ * would have pruned and didn't.
+ */
+export type Drift = {
+  name: string;
+  tool: string;
+  captured: { pin_source: string; tool_version?: string };
+  ran: { pin_source?: string; tool_version?: string };
+  newKeys: number;
+  heldBack: number;
 };
 
 /**

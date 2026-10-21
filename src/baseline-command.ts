@@ -27,7 +27,7 @@
  */
 
 import type { Adapter, Slot } from './adapters.js';
-import type { Baseline } from './baseline/index.js';
+import type { Baseline, Captured } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
@@ -42,7 +42,7 @@ import {
 import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
-import type { CheckRun, CheckRunner, Out, RunOptions } from './orchestrator/index.js';
+import type { CheckRun, CheckRunner, Out, RunOptions, SummaryCheck } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 
@@ -78,8 +78,9 @@ export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline
  * file without it, which masks exactly what an empty entry does: the capture
  * would throw away debt the run never looked at.
  */
-function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): Record<string, string[]> {
+function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): { slots: Record<string, string[]>; kept: Set<string> } {
   const slots: Record<string, string[]> = {};
+  const kept = new Set<string>();
   for (const run of runs) {
     const { adapter, outcome } = run;
     if (!isFingerprintable(adapter.name)) continue;
@@ -88,11 +89,44 @@ function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd
       slots[run.name] = [...keys].toSorted();
       continue;
     }
-    const kept = previous?.slots[run.name];
-    if (kept !== undefined) slots[run.name] = kept;
-    stderr.write(`baseline: ${run.name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${kept?.length ?? 0} previous key(s)\n`);
+    const previousKeys = previous?.slots[run.name];
+    if (previousKeys !== undefined) slots[run.name] = previousKeys;
+    kept.add(run.name);
+    stderr.write(`baseline: ${run.name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previousKeys?.length ?? 0} previous key(s)\n`);
   }
-  return slots;
+  return { slots, kept };
+}
+
+/**
+ * How each check `slots` holds was captured: the pin source and version its
+ * summary entry records, for a check this run observed, and the previous
+ * record for one it `kept`, whose keys it didn't capture either. A check
+ * whose tool resolved through no pin source records nothing.
+ */
+function capturedWith(
+  slots: Readonly<Record<string, string[]>>,
+  kept: ReadonlySet<string>,
+  checks: readonly SummaryCheck[],
+  previous: Baseline | null,
+): Record<string, Captured> {
+  const byName = new Map(checks.map((c) => [c.name, c]));
+  const captured: Record<string, Captured> = {};
+  for (const name of Object.keys(slots)) {
+    const entry = kept.has(name) ? previous?.captured_with?.[name] : capturedFrom(byName.get(name));
+    if (entry !== undefined) captured[name] = entry;
+  }
+  return captured;
+}
+
+/** The capture record a summary entry gives, or none for a check that resolved through no pin source. */
+function capturedFrom(check: SummaryCheck | undefined): Captured | undefined {
+  if (check?.pin_source === undefined) return undefined;
+  return check.tool_version === undefined ? { pin_source: check.pin_source } : { pin_source: check.pin_source, tool_version: check.tool_version };
+}
+
+/** The baseline a capture writes: its keys, and how each check's were captured when any check records it. */
+function capturedBaseline(slots: Record<string, string[]>, captured: Record<string, Captured>): Baseline {
+  return { schema_version: BASELINE_SCHEMA_VERSION, slots, ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}) };
 }
 
 /**
@@ -122,8 +156,9 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
     ...(options.stdout !== undefined ? { stdout: options.stdout } : {}),
   };
   const result = await runChecks(runOptions);
-  const slots = capturedSlots(result.runs, loadBaseline(cwd), cwd, stderr);
-  const baseline: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots };
+  const previous = loadBaseline(cwd);
+  const { slots, kept } = capturedSlots(result.runs, previous, cwd, stderr);
+  const baseline = capturedBaseline(slots, capturedWith(slots, kept, result.summary.checks, previous));
   await writeBaseline(cwd, baseline);
 
   const slotNames = Object.keys(slots);

@@ -87,6 +87,12 @@ const redRunner: CheckRunner = (r) => {
   return Promise.resolve({ ok, exit_code: ok ? 0 : 1, stdout, stderr: '' });
 };
 
+/** {@link redRunner}, recording the pin each tool resolved through as a real runner does: lint's lockfile copy, the rest from PATH. */
+const pinnedRed: CheckRunner = async (r, ctx) => ({
+  ...(await redRunner(r, ctx)),
+  ...(r.slot === 'lint' ? { pin_source: 'js-lockfile' as const, tool_version: '1.87.0' } : { pin_source: 'path' as const }),
+});
+
 describe('checkride.baseline.json', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-baseline-contract-')); });
@@ -121,6 +127,23 @@ describe('checkride.baseline.json', () => {
     expect(parsed.slots['types']).toBeUndefined();
     expect(parsed.slots['lint']).toEqual(OXLINT_KEYS);
     expect(parsed.slots['spell']).toEqual(['docs/old.md::teh']);
+  });
+
+  /**
+   * Contract: `captured_with` records how `checkride baseline` captured each
+   * check's keys, as the run's summary recorded the pin: written after the
+   * slots, checks sorted, `pin_source` before `tool_version`, and valid
+   * against the published schema.
+   */
+  test('a capture records how each check was captured, in the canonical shape the schema describes', async () => {
+    await runBaseline({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, runner: pinnedRed, stdout: sink().out, stderr: sink().out });
+    const raw = await readFile(baselinePath(), 'utf8');
+    const parsed = JSON.parse(raw) as Baseline;
+    expect(validateBaseline(parsed), JSON.stringify(validateBaseline.errors)).toBe(true);
+    expect(Object.keys(parsed)).toEqual(['schema_version', 'slots', 'captured_with']);
+    expect(Object.keys(parsed.captured_with ?? {})).toEqual(Object.keys(parsed.slots));
+    expect(parsed.captured_with?.['lint']).toEqual({ pin_source: 'js-lockfile', tool_version: '1.87.0' });
+    expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
   });
 
   test('construction order and duplicate keys never reach the disk', async () => {
@@ -230,6 +253,8 @@ describe('checkride.baseline.json', () => {
     { label: 'a newer schema_version is dropped whole', raw: JSON.stringify({ schema_version: 2, slots: { lint: ['a'] } }), expected: null },
     { label: 'slots as an array is rejected', raw: JSON.stringify({ schema_version: 1, slots: [['a']] }), expected: null },
     { label: 'non-string keys and non-array slots are dropped', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a', 5, null], types: 'nope' } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
+    { label: 'a captured_with entry naming no pin source, or no check in slots, is dropped', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, captured_with: { lint: { tool_version: '1.0.0' }, spell: { pin_source: 'path' } } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
+    { label: 'a captured_with that is not an object is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, captured_with: 'path' }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'malformed JSON is null', raw: '{ not json', expected: null },
     { label: 'empty text is null', raw: '', expected: null },
     { label: 'a JSON array is null', raw: '[]', expected: null },

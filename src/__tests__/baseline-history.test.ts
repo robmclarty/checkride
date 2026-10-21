@@ -93,6 +93,13 @@ describe('collectCandidates', () => {
     expect(scan.walked).toBe(1);
   });
 
+  test('a snapshot that differs from the current file only in how its keys were captured restores nothing, so it is dropped', async () => {
+    const current: Baseline = { ...base({ lint: ['x'] }), captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } };
+    const older = JSON.stringify({ ...base({ lint: ['x'] }), captured_with: { lint: { pin_source: 'path' } } });
+    const scan = await collectCandidates(fakeGit({ log: [{ sha: 'c'.padEnd(40, '0'), blob: older }] }), current, 25);
+    expect(scan.candidates).toEqual([]);
+  });
+
   test('stops walking once five distinct snapshots are held', async () => {
     const log = Array.from({ length: 8 }, (_, i) => ({
       sha: `${i}`.padEnd(40, 'a'),
@@ -171,6 +178,13 @@ describe('unionBaselines / diffBaselines', () => {
     const union = unionBaselines([base({ spell: ['b', 'a'] }), base({ lint: ['z'], spell: ['a', 'c'] })]);
     expect(union.slots).toEqual({ lint: ['z'], spell: ['a', 'b', 'c'] });
     expect(Object.keys(union.slots)).toEqual(['lint', 'spell']);
+  });
+
+  test('union keeps each check’s capture record from the first part that has one, the current file coming first', () => {
+    const current: Baseline = { ...base({ lint: ['a'] }), captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } };
+    const older: Baseline = { ...base({ lint: ['b'], spell: ['s'] }), captured_with: { lint: { pin_source: 'path' }, spell: { pin_source: 'mise' } } };
+    expect(unionBaselines([current, older]).captured_with).toEqual({ lint: { pin_source: 'nix', tool_version: '2.11.4' }, spell: { pin_source: 'mise' } });
+    expect(unionBaselines([base({ lint: ['a'] })])).not.toHaveProperty('captured_with');
   });
 
   test('diff splits gained (restored) from lost (absent), per slot and total', () => {

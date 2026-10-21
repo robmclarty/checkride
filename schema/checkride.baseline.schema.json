@@ -24,6 +24,20 @@
           "description": "An opaque finding key built by the slot's extractor: `<file>:<rule>:<message>` for the diagnostic parsers (oxlint, ast-grep, cspell, vale, markdownlint-cli2, rumdl, typos, golangci-lint, staticcheck, clippy, shellcheck, ruff, tflint), with no line or column and the file named from the repo root; category-and-symbol for fallow. Compare and count keys; never parse them."
         }
       }
+    },
+    "captured_with": {
+      "type": "object",
+      "description": "Present when a check in slots recorded how its keys were captured: check name to the pin source its tool resolved through when `checkride baseline` captured them, and the version that source named, as the run's summary records pin_source and tool_version. Only `checkride baseline` writes an entry, and the ratchet never changes one. A run whose copy of the tool differs is held back from the ratchet for that check, since a tool upgrade re-keys findings. Absent when no check recorded one.",
+      "propertyNames": { "minLength": 1 },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pin_source"],
+        "properties": {
+          "pin_source": { "type": "string", "minLength": 1, "description": "The pin source the check's tool resolved through when its keys were captured." },
+          "tool_version": { "type": "string", "minLength": 1, "description": "The version that pin source named, when it named one." }
+        }
+      }
     }
   }
 }
