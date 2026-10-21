@@ -15,7 +15,9 @@
  * which the launch carries; for any other tool mise runs, the `go` mise
  * resolves, since `mise exec` puts its copy first on the tool's `PATH`, which
  * costs one spawn; and otherwise the `VERSION` file of the `go` the spawn's
- * `PATH` finds.
+ * `PATH` finds. Each says whether a pin of the repo's chose that release, or
+ * the machine did, which `baseline --versions` needs: a release no pin chose
+ * can differ on CI.
  */
 
 import { readFileSync, realpathSync } from 'node:fs';
@@ -23,7 +25,8 @@ import { dirname, join } from 'node:path';
 
 import type { Tool } from '../packs/index.js';
 import { GO_TOOLCHAIN, PACKS, TOOLCHAINS } from '../packs/index.js';
-import { miseCanRun, miseVersion } from './mise.js';
+import { miseCanRun, miseDeclaration, miseVersion } from './mise.js';
+import { nixCopy } from './nix.js';
 import { findOnPath } from './path.js';
 import type { Launch, LaunchContext, Spawn } from './resolve.js';
 import { launchCheck } from './resolve.js';
@@ -60,8 +63,11 @@ export function goRootVersion(bin: string): string | undefined {
 /** How each toolchain's release is read off the copy of it a `PATH` holds, by the toolchain's executable. */
 const INSTALLED_RELEASE: ReadonlyMap<string, (bin: string) => string | undefined> = new Map([[GO_TOOLCHAIN.bin, goRootVersion]]);
 
-/** Where a launch's toolchain release is looked for: the check's own command, the toolchain, and the directory and environment the check launches from. */
-type ToolchainQuery = { command: string; toolchain: Tool; cwd: string; env: Readonly<Record<string, string | undefined>> };
+/** A toolchain release a check ran on, and whether a pin of the repo's chose it, as a spawn's pin carries it. */
+type ToolchainRelease = NonNullable<NonNullable<Spawn['pin']>['toolchain']>;
+
+/** Where a launch's toolchain release is looked for: the check's own command, the toolchain, and the directory, repo root and environment the check launches from. */
+type ToolchainQuery = { command: string; toolchain: Tool; cwd: string; repo: string; env: Readonly<Record<string, string | undefined>> };
 
 /**
  * Whether `command` is the toolchain's own, `go` or the `gofmt` that ships
@@ -78,17 +84,36 @@ function spawnEnv(launch: Spawn, env: Readonly<Record<string, string | undefined
   return { ...env, ...launch.env };
 }
 
-/** The release of `exe`, the toolchain's own executable or the toolchain itself, that `env`'s `PATH` finds, read off its install. */
-function installedRelease(exe: string, toolchain: Tool, env: Readonly<Record<string, string | undefined>>): string | undefined {
+/**
+ * The release of `exe`, the toolchain's own executable or the toolchain
+ * itself, that `env`'s `PATH` finds, read off its install. A pin chose it
+ * only when it's a copy a Nix dev shell the repo declares put there, as a run
+ * classes a tool from `PATH`; any other is the machine's.
+ */
+function installedRelease(exe: string, at: ToolchainQuery, env: Readonly<Record<string, string | undefined>>): ToolchainRelease | undefined {
   const found = findOnPath(exe, env);
-  return found === null ? undefined : INSTALLED_RELEASE.get(toolchain.bin)?.(found);
+  const release = found === null ? undefined : INSTALLED_RELEASE.get(at.toolchain.bin)?.(found);
+  if (found === null || release === undefined) return undefined;
+  return { release, pinned: nixCopy(found, { cwd: at.cwd, repo: at.repo, env }) !== null };
 }
 
-/** The release of the toolchain mise resolves for `cwd`, asked as the `mise` source asks it, or `undefined` when mise has none. */
-function miseRelease(toolchain: Tool, cwd: string, env: Readonly<Record<string, string | undefined>>): string | undefined {
+/**
+ * The release of the toolchain mise resolves for the check, asked as the
+ * `mise` source asks it, or `undefined` when mise has none. A pin chose it
+ * only when a `mise.toml` of the repo's declares the toolchain: mise answers
+ * from a user's own config too.
+ */
+function miseRelease(at: ToolchainQuery, env: Readonly<Record<string, string | undefined>>): ToolchainRelease | undefined {
   const mise = findOnPath('mise', env);
-  const answer = mise === null ? null : miseCanRun(mise, toolchain.bin, cwd, env);
-  return answer?.ok === true ? miseVersion(answer) : undefined;
+  const answer = mise === null ? null : miseCanRun(mise, at.toolchain.bin, at.cwd, env);
+  const release = answer?.ok === true ? miseVersion(answer) : undefined;
+  return release === undefined ? undefined : { release, pinned: miseDeclaration(at.cwd, at.repo, at.toolchain.mise ?? [at.toolchain.bin]) !== null };
+}
+
+/** The release a check that runs the toolchain itself ran: the version its pin source named, which a pin chose, else the one its install names. */
+function ownRelease(launch: Spawn, at: ToolchainQuery, env: Readonly<Record<string, string | undefined>>): ToolchainRelease | undefined {
+  const version = launch.pin?.version;
+  return version === undefined ? installedRelease(at.command, at, env) : { release: version, pinned: true };
 }
 
 /**
@@ -98,25 +123,26 @@ function miseRelease(toolchain: Tool, cwd: string, env: Readonly<Record<string, 
  * for a tool it runs through, mise's answer for any other tool mise runs, and
  * otherwise the release the spawn's `PATH` finds.
  */
-function toolchainRelease(launch: Spawn, at: ToolchainQuery): string | undefined {
+function toolchainRelease(launch: Spawn, at: ToolchainQuery): ToolchainRelease | undefined {
   const env = spawnEnv(launch, at.env);
-  if (runsToolchain(at.command, at.toolchain)) return launch.pin?.version ?? installedRelease(at.command, at.toolchain, env);
+  if (runsToolchain(at.command, at.toolchain)) return ownRelease(launch, at, env);
   if (launch.pin?.toolchain !== undefined) return launch.pin.toolchain;
-  const viaMise = launch.command === 'mise' ? miseRelease(at.toolchain, at.cwd, env) : undefined;
-  return viaMise ?? installedRelease(at.toolchain.bin, at.toolchain, env);
+  const viaMise = launch.command === 'mise' ? miseRelease(at, env) : undefined;
+  return viaMise ?? installedRelease(at.toolchain.bin, at, env);
 }
 
 /**
  * Launch a check as {@link launchCheck} does, and record on its spawn's pin,
  * as `toolchain`, the release of the toolchain `ctx.toolchain` names that the
- * check's tool runs on. A refusal, a command spawned as written through no pin
- * source, and a context that names no toolchain launch as they would, and so
- * does a spawn whose toolchain release can't be found.
+ * check's tool runs on, and whether a pin of the repo's chose it. A refusal, a
+ * command spawned as written through no pin source, and a context that names
+ * no toolchain launch as they would, and so does a spawn whose toolchain
+ * release can't be found.
  */
 export function launchOnToolchain(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
   const launch = launchCheck(slot, command, args, ctx);
   const toolchain = TOOLCHAINS.find((t) => t.bin === ctx.toolchain);
   if (toolchain === undefined || 'refusal' in launch || launch.pin === undefined) return launch;
-  const release = toolchainRelease(launch, { command, toolchain, cwd: ctx.cwd, env: ctx.env ?? process.env });
+  const release = toolchainRelease(launch, { command, toolchain, cwd: ctx.cwd, repo: ctx.repo ?? ctx.cwd, env: ctx.env ?? process.env });
   return release === undefined ? launch : { ...launch, pin: { ...launch.pin, toolchain: release } };
 }

@@ -44,14 +44,15 @@ import { environmentTool, projectEnvironment, uvLockDeclaration } from './uv.js'
  * A process to start: the executable, its arguments, the variables it sets
  * over the inherited environment, and the pin it resolved through, with the
  * version a file read found for it, or the one the pin source itself resolved
- * (R6.3), and the version of the toolchain the tool runs on, where the launch
- * knows it. A command spawned as written resolved through none.
+ * (R6.3), and the release of the toolchain the tool runs on, where the launch
+ * knows it, with whether a pin chose that release rather than the machine. A
+ * command spawned as written resolved through none.
  */
 export type Spawn = {
   command: string;
   args: string[];
   env?: Readonly<Record<string, string>>;
-  pin?: { source: PinSourceName; version?: string; toolchain?: string };
+  pin?: { source: PinSourceName; version?: string; toolchain?: { release: string; pinned: boolean } };
 };
 
 /**
@@ -264,10 +265,11 @@ const GO_MOD_TOOL: Source = {
 /**
  * The version of the toolchain a tool runs through, kept as the tool's
  * `toolchain` when its own source takes over the pin: the release mise or the
- * `--pins` file resolved the `go` to. A `go` from `PATH` names none here.
+ * `--pins` file resolved the `go` to, which a pin chose. A `go` from `PATH`
+ * names none here.
  */
-function toolchainKept(pin: Spawn['pin']): { toolchain?: string } {
-  return pin?.version === undefined ? {} : { toolchain: pin.version };
+function toolchainKept(pin: Spawn['pin']): Pick<NonNullable<Spawn['pin']>, 'toolchain'> {
+  return pin?.version === undefined ? {} : { toolchain: { release: pin.version, pinned: true } };
 }
 
 /**

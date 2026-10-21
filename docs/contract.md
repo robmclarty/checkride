@@ -478,8 +478,9 @@ source named it, and where either names none, a different `pin_source`, such
 as keys captured from `PATH` and a run in a Nix dev shell.
 A record from a release whose `mise` source named no version reads as the
 same copy as any run through mise. Such a check carries `baseline_captured_with` in the
-summary, and its digest section and a `baseline:` line on stderr name both
-copies when it has new keys, or keys the ratchet held back. Its verdict is
+summary, and a `baseline:` line on stderr names both copies when it has new
+keys, or keys the ratchet held back, as its digest section does when it
+fails. Its verdict is
 unchanged: a new key still fails it. The ratchet prunes none of its keys,
 since the copy the baseline was captured with may still report them. A check
 with no record in `captured_with` is never held back.
@@ -522,7 +523,7 @@ empty. Only `checkride baseline` writes `captured_with`: the ratchet carries it
 as it is, and `recover --pick` keeps the current file's record for each check
 that has one. `checkride baseline --versions` writes a check's record only as
 [its rule](#cli) admits: for a check that ran to a verdict, reported no key its
-entry lacks, and ran a copy one of the repo's pins chose. A release before
+entry lacks, and ran a copy the repo's pins chose, its toolchain included. A release before
 0.16.0 rewrites the file without it.
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
@@ -966,12 +967,18 @@ in the run along with the churn. `checkride baseline --versions` runs the
 checks as a capture does, masking nothing, then changes a check's entry only
 when all three hold: the check ran to a verdict on its own findings; every
 key it reported is already in its entry; and its tool resolved through a pin
-source other than `path`, the repo's own pin, so CI runs the same copy. Such a
+source other than `path`, the repo's own pin, as did the toolchain it ran on
+where it records one (the `go` the repo's `mise.toml` pins, or its Nix
+shell's, not one from a machine's `PATH` or a user's own mise config), so CI
+runs the same copy. A prefix pin, such as mise's `"0.11"`, resolves per
+machine among the releases installed, so pin a release exactly where CI and
+the machine that runs this have to agree. Such a
 check's `captured_with` record becomes the copy that ran, and the keys that
 copy no longer reports are pruned. Every other check keeps its entry and
 record byte for byte. stderr names each check it re-recorded, with both
 copies and how many keys it pruned, and each it left, with why: it didn't
-run, it reached no verdict, it reported new keys, or it ran an unpinned copy.
+run, it reached no verdict, it reported new keys, or it ran an unpinned tool
+or toolchain.
 The file is written only when a check was re-recorded. It never adds a key
 and never changes a verdict, since a key a check doesn't report can't fail
 it, which is why an agent may run it; plain `baseline` stays a human's call.

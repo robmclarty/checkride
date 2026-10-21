@@ -45,8 +45,13 @@ export type Baseline = {
   captured_with?: Record<string, Captured>;
 };
 
-/** How a check's tool ran this time, as its summary entry records it: any field absent for a check that recorded none. */
-export type RanWith = { pin_source?: string; tool_version?: string; toolchain_version?: string };
+/**
+ * How a check's tool ran this time, as its summary entry records it: any
+ * field absent for a check that recorded none. `toolchain_pinned` is the
+ * run's alone, never recorded: with `toolchain_version`, whether a pin of the
+ * repo's chose that release rather than the machine.
+ */
+export type RanWith = { pin_source?: string; tool_version?: string; toolchain_version?: string; toolchain_pinned?: boolean };
 
 /** The result of masking one slot's current fingerprint with its baseline. */
 export type BaselineAdjustment = {
@@ -346,10 +351,11 @@ type HeldEntry = { keys: readonly string[]; record: Captured | undefined };
  * that ran, and the keys that copy no longer reports pruned, where that can't
  * change a verdict, with what was done to each check (`checkride baseline
  * --versions`). A check is re-recorded only when it ran to a verdict, every
- * key it reported is already in its entry, and its tool resolved through a
- * pin of the repo's own, not `path`, so CI runs the same copy and can't still
- * report a pruned key. Every other check keeps its entry and record as they
- * were. It never adds a key, so a run's verdict is the same before and after.
+ * key it reported is already in its entry, and a pin of the repo's own chose
+ * its tool, not `path`, and the toolchain it ran on, where it records one, so
+ * CI runs the same copy and can't still report a pruned key. Every other
+ * check keeps its entry and record as they were. It never adds a key, so a
+ * run's verdict is the same before and after.
  */
 export function rerecordCopies(baseline: Baseline, observations: ReadonlyMap<string, Observation>): { baseline: Baseline; results: Rerecord[] } {
   const slots: Record<string, string[]> = { ...baseline.slots };
@@ -379,14 +385,14 @@ function rerecordCheck(check: string, held: HeldEntry, seen: Observation | undef
 /**
  * A check that reported only keys its entry holds: unchanged when its entry
  * and record already say what the run did, left when no pin of the repo's
- * chose the copy that ran, and otherwise re-recorded, its unreported keys
- * pruned.
+ * chose the copy that ran, its tool or the toolchain it ran on, and otherwise
+ * re-recorded, its unreported keys pruned.
  */
 function rerecordObserved(check: string, held: HeldEntry, reported: ReadonlySet<string>, ran: RanWith): RerecordStep {
   const record = capturedRecord(ran);
   const keys = held.keys.filter((k) => reported.has(k)).toSorted();
   if (keys.length === held.keys.length && sameRecord(held.record, record)) return { result: { check, outcome: 'unchanged' } };
-  if (record === undefined || record.pin_source === 'path') return { result: { check, outcome: 'unpinned', ran } };
+  if (record === undefined || record.pin_source === 'path' || ran.toolchain_pinned === false) return { result: { check, outcome: 'unpinned', ran } };
   const from = held.record === undefined ? {} : { from: held.record };
   return { result: { check, outcome: 'rerecorded', ...from, to: record, pruned: held.keys.length - keys.length }, entry: { keys, record } };
 }

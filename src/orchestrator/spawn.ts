@@ -237,13 +237,17 @@ async function spawnTool(launch: Spawn, cwd: string, timeoutSec: number): Promis
   return { ...outcome, argv: [launch.command, ...launch.args], ...pinFields(launch.pin) };
 }
 
-/** What a spawn's pin records on its outcome: the source it resolved through, the version it named, and the release of the toolchain it ran on. */
-function pinFields(pin: Spawn['pin']): Pick<RunnerOutcome, 'pin_source' | 'tool_version' | 'toolchain_version'> {
+/**
+ * What a spawn's pin records on its outcome: the source it resolved through,
+ * the version it named, and the release of the toolchain it ran on, with
+ * whether a pin chose that release.
+ */
+function pinFields(pin: Spawn['pin']): Pick<RunnerOutcome, 'pin_source' | 'tool_version' | 'toolchain_version' | 'toolchain_pinned'> {
   if (pin === undefined) return {};
   return {
     pin_source: pin.source,
     ...(pin.version !== undefined ? { tool_version: pin.version } : {}),
-    ...(pin.toolchain !== undefined ? { toolchain_version: pin.toolchain } : {}),
+    ...(pin.toolchain !== undefined ? { toolchain_version: pin.toolchain.release, toolchain_pinned: pin.toolchain.pinned } : {}),
   };
 }
 

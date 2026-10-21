@@ -355,9 +355,9 @@ describe('a go check records the Go release it ran on', () => {
         command: 'go',
         args: ['vet', './...'],
         env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
-        pin: { source: 'path', toolchain: '1.26.1' },
+        pin: { source: 'path', toolchain: { release: '1.26.1', pinned: false } },
       });
-      expect(launchOnToolchain('format', 'gofmt', ['-l', '.'], s.at('.', GO))).toMatchObject({ pin: { source: 'path', toolchain: '1.26.1' } });
+      expect(launchOnToolchain('format', 'gofmt', ['-l', '.'], s.at('.', GO))).toMatchObject({ pin: { source: 'path', toolchain: { release: '1.26.1', pinned: false } } });
     }));
 
   test('a go mise pins records the release mise resolved, asking mise once', () =>
@@ -367,7 +367,7 @@ describe('a go check records the Go release it ran on', () => {
       await goOnPath(s, '1.26.1');
       expect(launchOnToolchain('vet', 'go', ['vet', './...'], s.at('.', GO))).toMatchObject({
         command: 'mise',
-        pin: { source: 'mise', version: '1.27.2', toolchain: '1.27.2' },
+        pin: { source: 'mise', version: '1.27.2', toolchain: { release: '1.27.2', pinned: true } },
       });
       expect(await miseAsked(s)).toEqual(['which --version go']);
     }));
@@ -379,13 +379,13 @@ describe('a go check records the Go release it ran on', () => {
       const at = s.at('.', { ...GO, tools: [DEADCODE] });
       expect(launchOnToolchain('dead', 'pnpm', RUN_DEADCODE, at)).toMatchObject({
         command: 'go',
-        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: '1.26.1' },
+        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: { release: '1.26.1', pinned: false } },
       });
       await s.file('mise.toml', '[tools]\ngo = "1.27"\n');
       await s.tool('mise', miseKnowing({ go: '1.27.2' }));
       expect(launchOnToolchain('dead', 'pnpm', RUN_DEADCODE, at)).toMatchObject({
         command: 'mise',
-        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: '1.27.2' },
+        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: { release: '1.27.2', pinned: true } },
       });
       expect(await miseAsked(s)).toEqual(['which --version go']);
     }));
@@ -396,7 +396,7 @@ describe('a go check records the Go release it ran on', () => {
       await goOnPath(s, '1.26.1');
       expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
         command: 'golangci-lint',
-        pin: { source: 'path', toolchain: '1.26.1' },
+        pin: { source: 'path', toolchain: { release: '1.26.1', pinned: false } },
       });
     }));
 
@@ -407,13 +407,23 @@ describe('a go check records the Go release it ran on', () => {
       await goOnPath(s, '1.26.1');
       expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
         command: 'mise',
-        pin: { source: 'mise', version: '2.14.0', toolchain: '1.27.2' },
+        pin: { source: 'mise', version: '2.14.0', toolchain: { release: '1.27.2', pinned: true } },
       });
       expect(await miseAsked(s)).toEqual(['which --version golangci-lint', 'which --version go']);
       await s.file('mise.toml', '[tools]\ngolangci-lint = "2.14"\n');
       await s.tool('mise', miseKnowing({ 'golangci-lint': '2.14.0' }));
       expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
-        pin: { source: 'mise', version: '2.14.0', toolchain: '1.26.1' },
+        pin: { source: 'mise', version: '2.14.0', toolchain: { release: '1.26.1', pinned: false } },
+      });
+    }));
+
+  /** mise answers from a user's own config as well as the repo's, so a go only the user's pins is the machine's choice, as one on PATH is. */
+  test("a go mise resolves that the repo's mise.toml doesn't pin is recorded, as no pin of the repo's chose it", () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\ngolangci-lint = "2.14"\n');
+      await s.tool('mise', miseKnowing({ 'golangci-lint': '2.14.0', go: '1.27.2' }));
+      expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
+        pin: { source: 'mise', version: '2.14.0', toolchain: { release: '1.27.2', pinned: false } },
       });
     }));
 

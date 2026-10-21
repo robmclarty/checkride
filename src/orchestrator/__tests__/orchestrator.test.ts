@@ -1885,6 +1885,30 @@ describe('runChecks (a baseline captured with another copy of the tool)', () => 
     expect((JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline).slots['lint']).toEqual(['m.go:unused:var a is unused']);
   });
 
+  test('a moved toolchain no pin chose asks for a pin of it before baseline --versions, and one a pin chose names --versions', async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/m\n\ngo 1.25\n');
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    const issues = JSON.stringify({ Issues: [{ FromLinter: 'unused', Text: 'var a is unused', Pos: { Filename: 'm.go', Line: 3 } }] });
+    const lintRun = (byPin: boolean): CheckRunner => (r) =>
+      Promise.resolve(
+        r.slot === 'lint'
+          ? { ok: false, exit_code: 1, stdout: issues, stderr: '', pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.26.0', toolchain_pinned: byPin }
+          : { ok: true, exit_code: 0, stdout: '', stderr: '' },
+      );
+    const baseline: Baseline = {
+      schema_version: 1,
+      slots: { lint: ['m.go:unused:var a is unused', 'm.go:unused:var b is unused'] },
+      captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' } },
+    };
+    const notice = async (byPin: boolean): Promise<string> => {
+      const stderr = sink();
+      await runChecks({ cwd: dir, config: null, runner: lintRun(byPin), baseline, json: false, stdout: sink().out, stderr: stderr.out });
+      return stderr.lines.join('');
+    };
+    expect(await notice(false)).toContain('1 held back from the ratchet. Run under the copy the baseline was captured with, or pin the go it ran on, so `checkride baseline --versions` can record it.');
+    expect(await notice(true)).toContain('record it with `checkride baseline --versions`, which adds no key.');
+  });
+
   test('a baseline with no record ratchets as before, whatever copy ran', async () => {
     const { lint } = await run(capturedWith(undefined), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'nix', tool_version: '2.11.4' }));
     expect(lint).not.toHaveProperty('baseline_captured_with');

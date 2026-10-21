@@ -127,13 +127,25 @@ function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: bool
  * What a drift notice asks for. With new keys, a human's review: they may be
  * new debt, and only a capture adds a key. With none, the copy that ran can
  * be recorded with `checkride baseline --versions`, which adds no key, where
- * a pin of the repo's chose it; a copy from `PATH` has to be pinned first.
+ * a pin of the repo's chose it ({@link unpinnedPart} says what has to be
+ * pinned first).
  */
 function driftRemedy(d: Drift): string {
   const capturedCopy = 'Run under the copy the baseline was captured with';
   if (d.newKeys > 0) return `${capturedCopy}, or have a human review the new keys and re-capture.`;
-  if (d.ran.pin_source === undefined || d.ran.pin_source === 'path') return `${capturedCopy}, or pin this one, so \`checkride baseline --versions\` can record it.`;
+  const unpinned = unpinnedPart(d);
+  if (unpinned !== null) return `${capturedCopy}, or pin ${unpinned}, so \`checkride baseline --versions\` can record it.`;
   return `${capturedCopy}, or, if this is the copy the repo means to run, record it with \`checkride baseline --versions\`, which adds no key.`;
+}
+
+/**
+ * What a drifted check's run has to pin before `--versions` records it: its
+ * tool, when it came from `PATH` or no pin source, or the toolchain it ran
+ * on, when the machine chose that; `null` when a pin of the repo's chose both.
+ */
+function unpinnedPart(d: Drift): string | null {
+  if (d.ran.pin_source === undefined || d.ran.pin_source === 'path') return 'this one';
+  return d.ran.toolchain_pinned === false ? `the ${d.toolchain ?? 'toolchain'} it ran on` : null;
 }
 
 /** A drifted check's churn as its notice counts it, or `null` when there's none to report. */

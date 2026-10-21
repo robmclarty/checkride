@@ -33,7 +33,7 @@
 
 import type { Adapter, Slot } from './adapters.js';
 import { isInside } from './artifacts/index.js';
-import type { Baseline, Captured, Fingerprint, Observation, Rerecord } from './baseline/index.js';
+import type { Baseline, Captured, Fingerprint, Observation, RanWith, Rerecord } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
@@ -52,7 +52,7 @@ import {
 import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
-import type { CheckRun, CheckRunner, Out, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
+import type { CheckRun, CheckRunner, Out, RunnerOutcome, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 import { packToolchain } from './launch/index.js';
@@ -228,15 +228,23 @@ function committedForVersions(cwd: string, configPath: string | undefined): Base
   return read.baseline;
 }
 
-/** What the run observed of each check whose adapter has a parser, with how its tool ran, as its summary entry records it. */
+/**
+ * What the run observed of each check whose adapter has a parser: the keys it
+ * reported, and how its tool ran, as its summary entry records it, with
+ * whether a pin chose the toolchain it ran on, which only the run knows.
+ */
 function observations(result: RunResult, cwd: string): Map<string, Observation> {
   const byName = new Map(result.summary.checks.map((c) => [c.name, c]));
+  const outcomes = new Map(result.runs.map((r) => [r.name, r.outcome]));
   const observed = new Map<string, Observation>();
-  for (const [name, keys] of observedChecks(result.runs, cwd)) {
-    const check = byName.get(name);
-    observed.set(name, { keys, ran: (check === undefined ? undefined : capturedRecord(check)) ?? {} });
-  }
+  for (const [name, keys] of observedChecks(result.runs, cwd)) observed.set(name, { keys, ran: ranWith(byName.get(name), outcomes.get(name)) });
   return observed;
+}
+
+/** How a check's tool ran: its summary entry's record, and whether a pin chose the toolchain, from its run's outcome. */
+function ranWith(check: SummaryCheck | undefined, outcome: RunnerOutcome | undefined): RanWith {
+  const recorded = (check === undefined ? undefined : capturedRecord(check)) ?? {};
+  return outcome?.toolchain_pinned === undefined ? recorded : { ...recorded, toolchain_pinned: outcome.toolchain_pinned };
 }
 
 /** How a line names a check's tool, and its pack's toolchain, from the summary: its adapter, or the check's name when none ran. */
@@ -256,10 +264,11 @@ function rerecordedLine(r: Extract<Rerecord, { outcome: 'rerecorded' }>, tool: s
   return `${r.check} re-recorded: ${tool} ${copyNamed(r.from, toolchain)} → ${copyNamed(r.to, toolchain)}${pruned}`;
 }
 
-/** The line for a check left because no pin of the repo's chose its copy. */
+/** The line for a check left because no pin of the repo's chose its copy: its tool, or the toolchain it ran on. */
 function unpinnedLine(r: Extract<Rerecord, { outcome: 'unpinned' }>, toolchain: string | undefined): string {
   if (r.ran.pin_source === undefined) return `${r.check} left: its tool resolved through no pin source`;
-  return `${r.check} left: it ran an unpinned copy ${copyNamed(r.ran, toolchain)}`;
+  if (r.ran.pin_source === 'path') return `${r.check} left: it ran an unpinned copy ${copyNamed(r.ran, toolchain)}`;
+  return `${r.check} left: it ran on ${toolchain ?? 'its toolchain'} ${r.ran.toolchain_version ?? ''}, which no pin of the repo's chose; pin it, or run in the repo's dev shell`;
 }
 
 /** The line one result prints, or `null` for a check with nothing to change. */

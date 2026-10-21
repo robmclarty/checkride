@@ -30,9 +30,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   can move Go under a golangci-lint that keeps its name. A run whose copy
   differs, by a Go release on another minor line, by version where both sides
   name one, and by source otherwise, still fails on a new key. The difference
-  is named in the summary as `baseline_captured_with`, in that check's digest
-  section, and in a `baseline:` line on stderr, which says how many keys are
-  new and how many the ratchet held back. The ratchet prunes none of that
+  is named in the summary as `baseline_captured_with`, in a `baseline:` line
+  on stderr, which says how many keys are new and how many the ratchet held
+  back, and in the check's digest section when it fails. The ratchet prunes none of that
   check's keys, so a run with a different toolchain can't prune keys CI's
   still reports. A baseline captured before this release has no record, and
   ratchets as it always has.
@@ -41,10 +41,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `captured_with` record is held back from the ratchet, and a re-capture would
   grandfather whatever else was new in the run. `--versions` runs the checks
   as a capture does. Then, for each check that ran to a verdict, reported no
-  key its entry lacks, and ran a copy one of the repo's pins chose, it records
-  that copy and prunes the keys the copy no longer reports. Every other check
-  is left as it was, and stderr says why: it didn't run, it reached no
-  verdict, it reported new keys, or its copy came from `PATH`. It never adds a
+  key its entry lacks, and ran a copy the repo's pins chose, the Go it ran on
+  included, it records that copy and prunes the keys the copy no longer
+  reports. Every other check is left as it was, and stderr says why: it didn't
+  run, it reached no verdict, it reported new keys, or its tool or toolchain
+  came from the machine rather than a pin. It never adds a
   key, so an agent may run it, and the check skill says when. A drift notice
   with no new keys names it, and one with new keys asks for a human's review.
 

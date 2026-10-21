@@ -162,7 +162,7 @@ export type Drift = {
   /** The toolchain the check's pack runs it on, by its executable, which the notice names a `toolchain_version` by. */
   toolchain?: string;
   captured: { pin_source: string; tool_version?: string; toolchain_version?: string };
-  ran: { pin_source?: string; tool_version?: string; toolchain_version?: string };
+  ran: { pin_source?: string; tool_version?: string; toolchain_version?: string; toolchain_pinned?: boolean };
   newKeys: number;
   heldBack: number;
 };
@@ -237,9 +237,17 @@ export type Summary = {
  * What a {@link CheckRunner} resolves to: the raw outcome, plus `argv` when the
  * runner spawned the check's own tool, the `pin_source` and `tool_version` it
  * resolved through, and the `toolchain_version` it ran on. The summary records
- * them all as the check's own.
+ * those as the check's own. `toolchain_pinned`, with `toolchain_version`, says
+ * whether a pin of the repo's chose that release rather than the machine; the
+ * summary leaves it out, and `baseline --versions` reads it from the run.
  */
-export type RunnerOutcome = CheckOutcome & { argv?: string[]; pin_source?: PinSourceName; tool_version?: string; toolchain_version?: string };
+export type RunnerOutcome = CheckOutcome & {
+  argv?: string[];
+  pin_source?: PinSourceName;
+  tool_version?: string;
+  toolchain_version?: string;
+  toolchain_pinned?: boolean;
+};
 
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (
@@ -345,6 +353,6 @@ export type RunOptions = RunFlags & {
  * target's root, relative to the repo root, which the baseline joins onto each
  * path the tool printed, so the keys stay repo-root-relative.
  */
-export type CheckRun = { slot: string; adapter: Adapter; outcome: CheckOutcome; name: string; root?: string };
+export type CheckRun = { slot: string; adapter: Adapter; outcome: RunnerOutcome; name: string; root?: string };
 
 export type RunResult = { ok: boolean; summary: Summary; exitCode: number; runs: CheckRun[] };

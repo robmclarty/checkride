@@ -419,6 +419,20 @@ describe('rerecordCopies', () => {
     { label: 'a check that reached no verdict is left', observed: seen(null, NEW), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'no-verdict' } },
     { label: 'a copy from PATH is left, its fixed keys too', observed: seen(['a'], { pin_source: 'path' }), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unpinned', ran: { pin_source: 'path' } } },
     { label: 'a tool that resolved through no pin source is left', observed: seen(['a'], {}), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unpinned', ran: {} } },
+    {
+      label: 'a pinned tool on a toolchain no pin chose is left: CI may run another',
+      observed: seen(['a'], { ...NEW, toolchain_version: '1.27.2', toolchain_pinned: false }),
+      slots: ['a', 'b', 'c'],
+      record: OLD,
+      outcome: { outcome: 'unpinned', ran: { ...NEW, toolchain_version: '1.27.2', toolchain_pinned: false } },
+    },
+    {
+      label: 'a pinned tool on a toolchain a pin chose is re-recorded, the toolchain with it',
+      observed: seen(['a'], { ...NEW, toolchain_version: '1.27.2', toolchain_pinned: true }),
+      slots: ['a'],
+      record: { ...NEW, toolchain_version: '1.27.2' },
+      outcome: { outcome: 'rerecorded', from: OLD, to: { ...NEW, toolchain_version: '1.27.2' }, pruned: 2 },
+    },
     { label: 'the copy it was captured with, reporting every key, is unchanged', observed: seen(['a', 'b', 'c'], OLD), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unchanged' } },
     { label: 'the copy it was captured with, reporting a subset, is pruned', observed: seen(['b'], OLD), slots: ['b'], record: OLD, outcome: { outcome: 'rerecorded', from: OLD, to: OLD, pruned: 2 } },
     {
@@ -507,6 +521,19 @@ describe('runBaselineVersions', () => {
     expect(err.text()).toContain('baseline --versions: lint re-recorded: oxlint 1.87.0 (js-lockfile) → 1.88.0 (js-lockfile); 1 key(s) pruned\n');
     expect(err.text()).toContain('baseline --versions: wrote checkride.baseline.json: 1 re-recorded, 0 left, 1 unchanged; review it with `git diff checkride.baseline.json`\n');
     expect(err.text()).not.toContain('baseline --versions: spell');
+  });
+
+  test('a check whose toolchain no pin chose is left, named with that toolchain release', async () => {
+    await writeBaseline(dir, committed);
+    const before = await readFile(file(), 'utf8');
+    const err = capture();
+    const machineGo = pinnedBy(runnerFor({ lint: oxlintReport([LINT_A]), spell: 'docs/old.md:3:7 - teh\n' }), {
+      lint: { pin_source: 'js-lockfile', tool_version: '1.88.0', toolchain_version: '1.27.2', toolchain_pinned: false },
+      spell: { pin_source: 'path' },
+    });
+    await runBaselineVersions({ cwd: dir, slots, adapters, config: null, runner: machineGo, stdout: sink(), stderr: err.out });
+    expect(await readFile(file(), 'utf8')).toBe(before);
+    expect(err.text()).toContain("baseline --versions: lint left: it ran on its toolchain 1.27.2, which no pin of the repo's chose; pin it, or run in the repo's dev shell\n");
   });
 
   test('a check with a new key, and one from PATH, are left as they were, and nothing is written', async () => {

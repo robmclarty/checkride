@@ -208,7 +208,7 @@ describe("a go check in a Nix dev shell records the store go's release", () => {
       const goBin = await storeGo(m, '1.25.3');
       expect(launchOnToolchain('types', 'go', ['build', './...'], m.at([goBin], { pins: pinChain(PACKS.go.name), toolchain: 'go' }))).toMatchObject({
         command: 'go',
-        pin: { source: 'nix', version: '1.25.3', toolchain: '1.25.3' },
+        pin: { source: 'nix', version: '1.25.3', toolchain: { release: '1.25.3', pinned: true } },
       });
     }));
 
@@ -220,7 +220,7 @@ describe("a go check in a Nix dev shell records the store go's release", () => {
       const ctx = m.at([dirname(lint), goBin], { pins: pinChain(PACKS.go.name), toolchain: 'go' });
       expect(launchOnToolchain('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], ctx)).toMatchObject({
         command: 'golangci-lint',
-        pin: { source: 'nix', version: '2.11.4', toolchain: '1.25.3' },
+        pin: { source: 'nix', version: '2.11.4', toolchain: { release: '1.25.3', pinned: true } },
       });
     }));
 });

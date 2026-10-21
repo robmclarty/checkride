@@ -261,7 +261,7 @@ function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Paramet
 }
 
 /** The raw run the summary's caller gets back: the check's name keys its baseline entry, and its root rebases its keys. */
-function checkRun(r: ResolvedCheck, adapter: Adapter, outcome: CheckOutcome): CheckRun {
+function checkRun(r: ResolvedCheck, adapter: Adapter, outcome: RunnerOutcome): CheckRun {
   return { slot: r.slot, adapter, outcome, name: checkName(r), ...(r.root !== undefined ? { root: r.root } : {}) };
 }
 

@@ -410,7 +410,10 @@ the pin source named for `go` and `gofmt` themselves, the `go` a `go.mod` tool
 runs through where mise or `--pins` resolved it, `mise which --version go`
 for a tool mise runs, and otherwise the `VERSION` file at the GOROOT of the
 `go` the check's `PATH` finds. A baseline captured on one Go minor holds the
-check back from the ratchet on another; a patch release doesn't. `go.mod`'s
+check back from the ratchet on another; a patch release doesn't.
+`checkride baseline --versions` records the new release only where the repo
+pins Go, in its `mise.toml` or its Nix shell: a `go` from a machine's own
+`PATH` or mise config may be another release on CI. `go.mod`'s
 `go` and `toolchain` lines can't stand in for it: the first is a minimum,
 and `GOTOOLCHAIN=local` ignores the second.
 

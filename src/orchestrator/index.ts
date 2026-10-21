@@ -17,4 +17,4 @@ export { enableCandidates, enableEntry, installHint, provenanceTag } from './rep
 export { runChecks } from './run.js';
 export { selectChecks, withStaticOnly } from './select.js';
 export { DEFAULT_TIMEOUT_SECONDS, installSkip, killLiveChecks } from './spawn.js';
-export type { CheckRun, CheckRunner, Out, RunFlags, RunOptions, RunResult, Summary, SummaryCheck } from './types.js';
+export type { CheckRun, CheckRunner, Out, RunFlags, RunnerOutcome, RunOptions, RunResult, Summary, SummaryCheck } from './types.js';

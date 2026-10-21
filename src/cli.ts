@@ -369,10 +369,11 @@ only on findings it doesn't list, and a full run prunes the ones fixed since.
 \`baseline --versions\` runs the checks and adds no key. A tool upgrade holds a
 check back from the ratchet when it ran another copy than the file records.
 Once the repo pins that copy, this records it, for each check that ran to a
-verdict, reported no key the file lacks, and ran a copy one of the repo's pins
-chose, and prunes the keys that check no longer reports. Every other check is
-left as it was, and named with why. Since it never adds a key, an agent may
-run it; a check with new keys still needs a human's \`checkride baseline\`.
+verdict, reported no key the file lacks, and ran a copy the repo's pins chose,
+the toolchain it ran on included, and prunes the keys that check no longer
+reports. Every other check is left as it was, and named with why. Since it
+never adds a key, an agent may run it; a check with new keys still needs a
+human's \`checkride baseline\`.
 
 \`baseline diff\` writes nothing. It reads <ref>'s committed copy of the file
 through git (default HEAD), compares it with the working-tree file, and prints
