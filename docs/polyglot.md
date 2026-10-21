@@ -245,7 +245,8 @@ shellcheck = "0.11.0"
 ```
 
 After `mise trust` and `mise install`, those checks run as
-`mise exec -- golangci-lint …` and record `pin_source: "mise"`. Add
+`mise exec -- golangci-lint …` and record `pin_source: "mise"`, with the
+version mise resolved each pin to, such as `2.14.0`, as `tool_version`. Add
 `"requirePins": true` to `checkride.config.json`, and a tool nothing pins
 fails its check instead of running the machine's copy. With `shellcheck`
 left out of the `mise.toml`:

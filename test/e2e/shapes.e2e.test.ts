@@ -369,7 +369,7 @@ describeWithMise(MISE)('an untrusted mise.toml', () => {
     expect(run.status).toBe(1);
     const refusal = await readFile(join(repo, '.check', 'app', 'lint.stderr.txt'), 'utf8');
     expect(refusal).toContain("the `lint` slot's `golangci-lint` is pinned through mise, but mise won't read a config file here until it's trusted.");
-    expect(refusal).toMatch(/^ {2}mise which golangci-lint: .* not trusted\.$/m);
+    expect(refusal).toMatch(/^ {2}mise which --version golangci-lint: .* not trusted\.$/m);
     expect(refusal).toContain('\n  mise trust\n');
     expect(refusal).not.toContain('mise install');
   }, 60_000);

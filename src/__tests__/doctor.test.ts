@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -709,6 +709,16 @@ describe('output directory workspace row', () => {
   });
 });
 
+/** The launcher a run asks where mise pins every tool and has installed it at `version`: `mise exec -- <tool>`, recording that version. */
+function throughMise(version: string): DoctorEnv['launch'] {
+  return (_slot, _command, args) => ({ command: 'mise', args: ['exec', '--', ...args.slice(1)], pin: { source: 'mise', version } });
+}
+
+/** The run's own launcher, searching `bin` alone for every executable. */
+function launchFrom(bin: string): DoctorEnv['launch'] {
+  return (slot, command, args, ctx) => launchCheck(slot, command, args, { ...ctx, env: { PATH: bin } });
+}
+
 /** The hint on the row of the check named `name`. */
 function hintOf(report: { checks: readonly { slot?: string; hint?: string | null }[] }, name: string): string {
   return report.checks.find((c) => c.slot === name)?.hint ?? '';
@@ -802,17 +812,19 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
   test('with targets: the mode, a targets table, and each check named and probed from its own target', async () => {
     await put('apps/web/.oxlintrc.json');
     await put('scripts/a.sh', '#!/bin/sh\n');
-    await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');
-    const { report, text } = await doctor(bashTarget, {}, false);
+    await put('mise.toml', '[tools]\nshellcheck = "0.11"\n');
+    const { report, text } = await doctor(bashTarget, { launch: throughMise('0.11.0') }, false);
     expect(report.mode).toBe('multi-target');
     expect(report).not.toHaveProperty('pack');
     expect(report.targets).toEqual([{ name: 'web', pack: 'ts', root: 'apps/web' }, { name: 'scripts', pack: 'bash', root: 'scripts' }]);
     expect(report.checks.find((c) => c.slot === 'web:lint')).toMatchObject({ target: 'web', adapter: 'oxlint', pinSource: 'js-lockfile', name: 'oxlint (web:lint)' });
     expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({
-      target: 'scripts', adapter: 'shellcheck', pinSource: 'mise', status: 'ok', found: 'mise (mise.toml: shellcheck)', detectedBy: 'mise.toml: shellcheck',
+      target: 'scripts', adapter: 'shellcheck', pinSource: 'mise', toolVersion: '0.11.0', status: 'ok',
+      found: 'mise exec -- shellcheck', expected: 'declared in mise.toml: shellcheck', detectedBy: 'mise.toml: shellcheck',
     });
     expect(text).toContain('mode: multi-target (2 targets)');
     expect(text).toMatch(/TARGETS\n {4}web {6}ts {4}apps\/web\n {4}scripts {2}bash {2}scripts\n/);
+    expect(text.split('\n').find((l) => l.includes(' scripts:lint '))).toMatch(/installed +mise 0\.11\.0 {2}\[detected: mise\.toml: shellcheck\]$/);
   });
 
   test('a tool nothing pins is a warning, and a failure under requirePins for a check that runs by default', async () => {
@@ -845,12 +857,23 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     }
   });
 
-  test('a tool mise pins reports missing when mise is not on PATH', async () => {
+  test('a tool mise pins reports missing, with the run\'s refusal, when mise is not on PATH', async () => {
     await put('scripts/.shellcheckrc', '');
     await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');
-    const { report } = await doctor(bashTarget, { which: (cmd: string) => Promise.resolve(cmd === 'mise' ? null : `/usr/bin/${cmd}`) });
-    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({ pinSource: 'mise', status: 'missing', expected: 'pinned in mise.toml: shellcheck' });
-    expect(report.checks.find((c) => c.slot === 'scripts:lint')?.hint).toContain('Install mise');
+    const { report } = await doctor(bashTarget, { launch: launchFrom(join(dir, 'no-bin')) });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({ pinSource: 'mise', status: 'missing', found: null, expected: 'declared in mise.toml: shellcheck' });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')?.hint).toContain('Install mise (https://mise.jdx.dev) and run `mise install`');
+  });
+
+  test('a tool mise pins at a version it hasn\'t installed reports missing, naming mise\'s answer, though mise is on PATH', async () => {
+    await put('scripts/.shellcheckrc', '');
+    await put('mise.toml', '[tools]\nshellcheck = "0.0.1"\n');
+    await put('bin/mise', '#!/bin/sh\necho "mise ERROR shellcheck is a mise bin however it is not currently active." >&2\nexit 1\n');
+    await chmod(join(dir, 'bin', 'mise'), 0o755);
+    const { report, exitCode } = await doctor(bashTarget, { launch: launchFrom(join(dir, 'bin')) });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')).toMatchObject({ pinSource: 'mise', status: 'missing', required: true, found: null });
+    expect(report.checks.find((c) => c.slot === 'scripts:lint')?.hint).toContain('mise which --version shellcheck: shellcheck is a mise bin however it is not currently active.');
+    expect(exitCode).toBe(1);
   });
 
   test('with targets, a row for the markers unclaimed reports, honoring unclaimed.ignore', async () => {
@@ -1160,10 +1183,10 @@ describe('runDoctor probes go-mod-tool, rust-toolchain and uv-lock tools through
     await onPath('go', 'gofmt');
     const { row, text, exitCode } = await doctor();
     expect(row('dead')).toMatchObject({
-      adapter: 'deadcode', pinSource: 'go-mod-tool', status: 'ok', required: true,
+      adapter: 'deadcode', pinSource: 'go-mod-tool', toolVersion: 'v0.52.0', status: 'ok', required: true,
       found: 'go tool deadcode', expected: 'declared in go.mod: golang.org/x/tools/cmd/deadcode', hint: null, detectedBy: 'go.mod: golang.org/x/tools/cmd/deadcode',
     });
-    expect(text.split('\n').find((l) => l.includes(' dead '))).toMatch(/installed +go-mod-tool {2}\[detected: go\.mod: golang\.org\/x\/tools\/cmd\/deadcode\]$/);
+    expect(text.split('\n').find((l) => l.includes(' dead '))).toMatch(/installed +go-mod-tool v0\.52\.0 {2}\[detected: go\.mod: golang\.org\/x\/tools\/cmd\/deadcode\]$/);
     expect(exitCode).toBe(0);
   });
 

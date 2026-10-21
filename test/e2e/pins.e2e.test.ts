@@ -1,13 +1,15 @@
 /**
- * `--pins` against real mise (R13.3, S8).
+ * `--pins` and a repo's own `mise.toml` against real mise (R13.3, R6.3, S8).
  *
  * A bash target's `lint` resolves shellcheck through the `override` source a
  * `--pins` file puts at the head of its chain: an installed version runs as
  * `mise exec shellcheck@<version>`, ahead of the repo's own pin, and records
  * `pin_source: "override"` with that version. A version mise hasn't
  * installed fails the check naming the tool and the install, and nothing
- * downloads (F38). The installed version is the one this repo's dev
- * `mise.toml` pins, which `mise install` put in place.
+ * downloads (F38). Without `--pins`, a repo `mise.toml` that pins a prefix
+ * records `pin_source: "mise"` with the release mise resolved it to. The
+ * installed version is the one this repo's dev `mise.toml` pins, which
+ * `mise install` put in place.
  */
 
 import { execFile, spawnSync } from 'node:child_process';
@@ -40,29 +42,40 @@ function miseInstalls(tool: string): string {
 
 type Run = { code: number; stderr: string; check: Record<string, unknown> | undefined };
 
+/** Run checkride's `scripts:lint` in `dir` with `args`, returning the exit code, stderr and the check's summary entry. */
+async function runScriptsLint(dir: string, args: readonly string[]): Promise<Run> {
+  const { code, stderr } = await new Promise<{ code: number; stderr: string }>((resolve) => {
+    execFile(process.execPath, [CLI, '--only', 'scripts:lint', ...args], { cwd: dir }, (error, _stdout, err) => {
+      resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1, stderr: err });
+    });
+  });
+  const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: Record<string, unknown>[] };
+  return { code, stderr, check: summary.checks.find((c) => c['name'] === 'scripts:lint') };
+}
+
+/** A temp repo whose bash target at `scripts/` holds one clean script; the caller removes it. */
+async function bashRepo(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'checkride-pins-e2e-'));
+  await mkdir(join(dir, 'scripts'));
+  await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\necho "deploying"\n');
+  await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { scripts: { lang: 'bash', root: 'scripts' } } }));
+  return dir;
+}
+
 const hasMise = spawnSync('mise', ['--version'], { stdio: 'ignore' }).status === 0;
 
 (hasMise ? describeWithToolchain('bash') : describe.skip)('--pins runs the copy it pins, through mise (R13.3)', () => {
   let dir: string;
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'checkride-pins-e2e-'));
-    await mkdir(join(dir, 'scripts'));
-    await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\necho "deploying"\n');
+    dir = await bashRepo();
     await writeFile(join(dir, 'scripts', '.shellcheckrc'), 'disable=SC1091\n');
-    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { scripts: { lang: 'bash', root: 'scripts' } } }));
   });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  /** Run checkride's `scripts:lint` with the pins file `pins`, returning the exit code, stderr and the check's summary entry. */
+  /** Run checkride's `scripts:lint` with the pins file `pins`. */
   async function run(pins: string): Promise<Run> {
     await writeFile(join(dir, 'pins.toml'), pins);
-    const { code, stderr } = await new Promise<{ code: number; stderr: string }>((resolve) => {
-      execFile(process.execPath, [CLI, '--only', 'scripts:lint', '--pins', 'pins.toml'], { cwd: dir }, (error, _stdout, err) => {
-        resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 1, stderr: err });
-      });
-    });
-    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: Record<string, unknown>[] };
-    return { code, stderr, check: summary.checks.find((c) => c['name'] === 'scripts:lint') };
+    return runScriptsLint(dir, ['--pins', 'pins.toml']);
   }
 
   test('an installed version runs as mise exec <id>@<version>, recorded as the override', async () => {
@@ -81,5 +94,26 @@ const hasMise = spawnSync('mise', ['--version'], { stdio: 'ignore' }).status ===
     const raw = await readFile(join(dir, '.check', 'scripts', 'lint.stderr.txt'), 'utf8').catch(() => result.stderr);
     expect(`${raw}${result.stderr}`).toContain('mise install shellcheck@0.0.1');
     expect(existsSync(join(miseInstalls(`shellcheck@${await devShellcheck()}`), '0.0.1'))).toBe(false);
+  }, 60_000);
+});
+
+/**
+ * mise owns version resolution, so a repo pin can be a prefix: the check
+ * records the release mise resolved it to, as `mise which --version` names
+ * it, never the prefix the file gives (R6.3).
+ */
+(hasMise ? describeWithToolchain('bash') : describe.skip)('a repo mise.toml records the version mise resolved (R6.3)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await bashRepo(); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('a prefix pin runs through mise and records the installed release it resolved to', async () => {
+    const version = await devShellcheck();
+    const prefix = version.split('.').slice(0, 2).join('.');
+    await writeFile(join(dir, 'mise.toml'), `[tools]\nshellcheck = "${prefix}"\n`);
+    const result = await runScriptsLint(dir, []);
+    expect(result.code, result.stderr).toBe(0);
+    expect(result.check).toMatchObject({ ok: true, detected_by: 'mise.toml: shellcheck', pin_source: 'mise', tool_version: version });
+    expect(result.check?.['argv']).toEqual(expect.arrayContaining(['mise', 'exec', '--', 'shellcheck']));
   }, 60_000);
 });

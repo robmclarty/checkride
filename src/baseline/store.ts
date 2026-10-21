@@ -25,8 +25,9 @@ export const BASELINE_SCHEMA_VERSION = 1;
 
 /**
  * How a check's keys were captured: the pin source its tool resolved through,
- * and the version that source named, when it named one. A string rather than
- * a pin source name, so a file a newer checkride wrote reads whole.
+ * and the version that source named, a file's or the one mise resolved, when
+ * it named one. A string rather than a pin source name, so a file a newer
+ * checkride wrote reads whole.
  */
 export type Captured = { pin_source: string; tool_version?: string };
 
@@ -241,14 +242,16 @@ function renamedCaptured(captured: Readonly<Record<string, Captured>> | undefine
 
 /**
  * Whether a check ran another copy of its tool than the one its keys were
- * captured with, so its keys may have churned: a different version, or, where
- * neither side names one, a different pin source, such as a capture from
- * `PATH` and a run in a Nix dev shell. Two runs through `mise`, which records
- * no version, can't be told apart, so they never drift.
+ * captured with, so its keys may have churned. Where both sides name a
+ * version, a different version is another copy, whatever source named it.
+ * Where either names none, a different pin source is, such as a capture from
+ * `PATH` and a run in a Nix dev shell. So a record from before mise reported
+ * the version it resolved, which names none, never drifts from a run through
+ * mise.
  */
 export function baselineDrift(captured: Captured, ran: RanWith): boolean {
-  if (captured.tool_version !== ran.tool_version) return true;
-  return captured.tool_version === undefined && captured.pin_source !== ran.pin_source;
+  if (captured.tool_version !== undefined && ran.tool_version !== undefined) return captured.tool_version !== ran.tool_version;
+  return captured.pin_source !== ran.pin_source;
 }
 
 /** A copy of a tool as a drift notice names it: its version and pin source, or where it came from when that names no version. */

@@ -24,8 +24,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and checked with another reported 3 "new" findings and lost 6 keys with no
   code change (#9). `checkride baseline` now writes `captured_with`: for each
   check whose tool resolved through a pin source, that source and the version
-  it named. A run whose copy differs, by version, or by source where neither
-  names a version, still fails on a new key. The difference is named in the
+  it named. A run whose copy differs, by version where both sides name one
+  and by source otherwise, still fails on a new key. The difference is named in the
   summary as `baseline_captured_with`, in that check's digest section, and in
   a `baseline:` line on stderr, which says how many keys are new and how many
   the ratchet held back. The ratchet prunes none of that check's keys, so a
@@ -35,6 +35,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A tool mise pins records the version mise ran.** A check whose tool a
+  `mise.toml` pins recorded only `pin_source: "mise"`, so a run after a
+  `mise.toml` bump looked the same as one before it. The `mise` source now
+  asks `mise which --version <tool>`, the one spawn that already confirmed the
+  pinned copy is installed, and records the version mise resolved the pin to
+  as `tool_version`: `0.11.0` for `shellcheck = "0.11"`, and none for a pin
+  such as `system` that names no release. The tool is still never run to ask.
+  A tool the `--pins` file pins records the release `mise where` resolved its
+  version to, `2.14.0` for a `2.14`, as `doctor` already reported it. `doctor`
+  asks the run's launcher about a tool mise pins, so a version mise hasn't
+  installed reads as missing, with the refusal a run fails with, and its pin
+  column shows the version a run records.
 - **oxlint runs type-aware only where `oxlint-tsgolint` is a dependency.**
   `--type-aware` runs tsgolint, and a repo that lints with plain oxlint and
   never installed `oxlint-tsgolint` had a `lint` check that failed on every
@@ -76,6 +88,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   records `pin_source: "nix"` and a `tool_version` where 0.15 recorded
   `path`, runs under `requirePins` where 0.15 refused it, and drops out of
   `doctor`'s unpinned tools.
+- Changed: a check whose tool resolves through `mise` records the version mise
+  resolved as `tool_version`, where 0.15 promised none, and absence is part of
+  the summary's shape. A tool the `--pins` file pins records the release
+  `mise where` resolved the file's version to, where 0.15 recorded the file's
+  own string.
+- Changed: `doctor` reports a tool mise pins as missing, with the run's
+  refusal, when mise can't run the pinned copy, where 0.15 reported it present
+  whenever `mise` was on `PATH`. Its row's `found` names the spawn, as the
+  rows for a language's own pin files do.
 - Changed: the ratchet prunes none of a check's keys when the check ran
   another copy of its tool than `captured_with` records. `checkride.baseline.json`
   gains a third top-level field, which a release before this one drops when

@@ -28,7 +28,7 @@ import type { GoModDeclaration } from './go-mod.js';
 import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
 import type { MiseAnswer, MiseDeclaration } from './mise.js';
-import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, overrideEnv } from './mise.js';
+import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, miseVersion, miseWhereVersion, overrideEnv } from './mise.js';
 import { nixCopy } from './nix.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
@@ -43,8 +43,8 @@ import { environmentTool, projectEnvironment, uvLockDeclaration } from './uv.js'
 /**
  * A process to start: the executable, its arguments, the variables it sets
  * over the inherited environment, and the pin it resolved through, with the
- * version a file read found for it (R6.3). A command spawned as written
- * resolved through none.
+ * version a file read found for it, or the one the pin source itself resolved
+ * (R6.3). A command spawned as written resolved through none.
  */
 export type Spawn = {
   command: string;
@@ -155,7 +155,9 @@ function overrideOf(req: ToolRequest, tool: Tool): Override | null {
  * inside the repo read (D83), once `mise where` says that version is
  * installed (F38). `mise exec` alone can't be trusted with this: with
  * installs off it runs whatever is on `PATH` for a version it lacks, which is
- * the substitution a pin rules out (D12).
+ * the substitution a pin rules out (D12). It records the release `mise where`
+ * resolved the file's version to, `2.14.0` for a `2.14`, as `doctor` reports
+ * it, else the file's own string.
  */
 function runOverride(req: ToolRequest, pinned: Override, argv: readonly string[]): Launch {
   const spec = `${pinned.id}@${pinned.version}`;
@@ -164,7 +166,7 @@ function runOverride(req: ToolRequest, pinned: Override, argv: readonly string[]
   const has = miseHasInstalled(mise, spec, req, req.env);
   if (!has.ok) return { refusal: overrideRefusal(req, spec, `mise where ${spec}: ${has.detail}`, overrideCause(req.repo, has)) };
   const env = overrideEnv(req.repo, req.env);
-  return { command: 'mise', args: ['exec', spec, '--', ...argv], env, pin: { source: 'override', version: pinned.version } };
+  return { command: 'mise', args: ['exec', spec, '--', ...argv], env, pin: { source: 'override', version: miseWhereVersion(has) ?? pinned.version } };
 }
 
 /** The `override` source (R13.3): the copy the `--pins` file pins, ahead of every source the repo declares. */
@@ -208,7 +210,8 @@ const JS_LOCKFILE: Source = {
 
 /**
  * The `mise` source: the copy a repo `mise.toml` declares, run through mise
- * with its installs switched off, once mise confirms that copy is installed.
+ * with its installs switched off, once mise confirms that copy is installed,
+ * and recorded with the version mise resolved the pin to.
  */
 const MISE: Source = {
   declares: (req) => {
@@ -220,9 +223,15 @@ const MISE: Source = {
     if (mise === null) return { refusal: miseMissingRefusal(req, declared?.mise ?? null) };
     const can = miseCanRun(mise, req.tool.bin, req.cwd, req.env);
     if (!can.ok) return { refusal: miseInactiveRefusal(req, declared?.mise ?? null, can) };
-    return { command: 'mise', args: ['exec', '--', ...argvOf(req.tool, req.args)], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
+    return { command: 'mise', args: ['exec', '--', ...argvOf(req.tool, req.args)], env: MISE_NO_INSTALL, pin: misePin(can) };
   },
 };
+
+/** The pin a launch through the `mise` source records: `mise`, with the version mise said it resolved, when it said one. */
+function misePin(can: { stdout: string }): NonNullable<Spawn['pin']> {
+  const version = miseVersion(can);
+  return { source: 'mise', ...(version !== undefined ? { version } : {}) };
+}
 
 /**
  * The `go-mod-tool` source: a tool the `go.mod` nearest the check declares in
@@ -360,7 +369,7 @@ function viaToolchain(req: ToolRequest, toolchain: Tool, args: readonly string[]
   if (mise === null) return { refusal: miseMissingRefusal(asked, declared) };
   const can = miseCanRun(mise, toolchain.bin, req.cwd, req.env);
   if (!can.ok) return { refusal: miseInactiveRefusal(asked, declared, can) };
-  return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL, pin: { source: 'mise' } };
+  return { command: 'mise', args: ['exec', '--', toolchain.bin, ...args], env: MISE_NO_INSTALL, pin: misePin(can) };
 }
 
 /** True for a pin source the launcher can read, `path` included. */
@@ -680,7 +689,7 @@ function miseInactiveRefusal(req: ToolRequest, declared: MiseDeclaration | null,
     `checkride: the \`${req.slot}\` slot's \`${bin}\` is pinned through mise, but ${why.untrusted ? UNTRUSTED_CAUSE : "mise can't run the copy it pins."}`,
     '',
     ...(declared !== null ? [`  declared in: ${declared.file} ([tools] ${declared.id})`] : []),
-    `  mise which ${bin}: ${why.detail}`,
+    `  mise which --version ${bin}: ${why.detail}`,
     '',
     ...(why.untrusted
       ? TRUST_REMEDY

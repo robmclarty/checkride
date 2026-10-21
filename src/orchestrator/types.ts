@@ -120,8 +120,8 @@ export type SummaryCheck = {
   pin_source?: PinSourceName;
   /**
    * With `pin_source`, the version of the tool that ran when a file read found
-   * it (R6.3), never by running the tool. Additive field; `schema_version`
-   * holds.
+   * it, or the pin source itself resolved it, as mise does (R6.3), never by
+   * running the tool. Additive field; `schema_version` holds.
    */
   tool_version?: string;
   /**

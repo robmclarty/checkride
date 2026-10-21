@@ -249,6 +249,64 @@ describe('the js-lockfile source records the version it installed', () => {
     }));
 });
 
+/** A mise that runs every pinned copy and answers `which --version` by printing `answer`, as mise 2026.10.4 does for an installed pin. */
+function miseResolving(answer: string): string {
+  return `if [ "$1" = which ] && [ "$2" = --version ]; then printf '%s\\n' "${answer}"; fi`;
+}
+
+/**
+ * mise owns version resolution, so the source never reads the version a
+ * `mise.toml` names, which can be a prefix or `latest`: it records the one
+ * mise printed when asked whether it can run the pinned copy.
+ */
+describe('the mise source records the version mise resolved (R6.3)', () => {
+  test('a tool a mise.toml pins records the release `mise which --version` names, not the prefix the file gives', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nshellcheck = "0.11"\n');
+      await s.tool('mise', miseResolving('0.11.0'));
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }))).toEqual({
+        command: 'mise',
+        args: ['exec', '--', 'shellcheck', '-f', 'json1', 'run.sh'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'mise', version: '0.11.0' },
+      });
+    }));
+
+  test('reads the last line mise prints, past a warning on stderr and a notice before it', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nshellcheck = "latest"\n');
+      await s.tool('mise', 'echo "mise WARN  mise version 2026.10.12 available" >&2; echo "a notice"; echo "0.11.0"; echo');
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }))).toMatchObject({ pin: { source: 'mise', version: '0.11.0' } });
+    }));
+
+  test('a pin mise resolves to no release, such as system or a ref, records no version', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\nshellcheck = "system"\n');
+      for (const answer of ['system', 'ref:main', 'path:/opt/shellcheck', '']) {
+        await s.tool('mise', miseResolving(answer));
+        const launch = launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }));
+        expect(launch, answer).toMatchObject({ command: 'mise', pin: { source: 'mise' } });
+        expect(launch, answer).not.toHaveProperty('pin.version');
+      }
+    }));
+
+  test('the go a mise.toml pins records the version mise resolved, and a go.mod tool it runs keeps go.mod\'s', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await s.file('mise.toml', '[tools]\ngo = "1.27"\n');
+      await s.tool('mise', miseResolving('1.27.2'));
+      expect(launchCheck('vet', 'go', ['vet', './...'], s.at('.', { pins: GO_CHAIN }))).toMatchObject({
+        command: 'mise',
+        args: ['exec', '--', 'go', 'vet', './...'],
+        pin: { source: 'mise', version: '1.27.2' },
+      });
+      expect(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))).toMatchObject({
+        command: 'mise',
+        pin: { source: 'go-mod-tool', version: 'v0.30.0' },
+      });
+    }));
+});
+
 describe('a pin chain: the first source that declares a tool runs it (R6.2)', () => {
   test("js-lockfile declares a tool its nearest package.json depends on, ahead of mise", () =>
     withScratch(async (s) => {
@@ -338,7 +396,7 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       await s.tool('shellcheck');
       const refusal = refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }))) ?? '';
       expect(refusal).toContain("mise can't run the copy it pins");
-      expect(refusal).toContain('mise which shellcheck: shellcheck is a mise bin however it is not currently active.');
+      expect(refusal).toContain('mise which --version shellcheck: shellcheck is a mise bin however it is not currently active.');
       expect(refusal).toContain('mise install');
     }));
 
@@ -354,7 +412,7 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       const refusal = refusalOf(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH }))) ?? '';
       expect(refusal).toContain(`the \`lint\` slot's \`shellcheck\` is pinned through mise, ${UNTRUSTED_CAUSE}`);
       expect(refusal).toContain('declared in: mise.toml ([tools] shellcheck)');
-      expect(refusal).toContain('mise which shellcheck: Config files in /r/mise.toml are not trusted.');
+      expect(refusal).toContain('mise which --version shellcheck: Config files in /r/mise.toml are not trusted.');
       expect(refusal).toContain('\n  mise trust\n');
       expect(refusal).not.toContain('error parsing config file');
       expect(refusal).not.toContain('mise install');
@@ -367,7 +425,7 @@ describe('a pin chain: the first source that declares a tool runs it (R6.2)', ()
       await mkdir(join(s.repo, 'scripts'), { recursive: true });
       await s.tool('mise', `echo "$PWD $* $MISE_EXEC_AUTO_INSTALL $MISE_NOT_FOUND_AUTO_INSTALL" > "${asked}"`);
       expect(launchCheck('lint', 'pnpm', SHELLCHECK, s.at('scripts', { pins: MISE_THEN_PATH }))).toMatchObject({ pin: { source: 'mise' } });
-      expect((await readFile(asked, 'utf8')).trim()).toBe(`${await realpath(join(s.repo, 'scripts'))} which shellcheck false false`);
+      expect((await readFile(asked, 'utf8')).trim()).toBe(`${await realpath(join(s.repo, 'scripts'))} which --version shellcheck false false`);
     }));
 
   /** F12: a tool nothing declares runs from PATH, recorded as unpinned. */
@@ -550,7 +608,7 @@ describe('the go-mod-tool source (R6.1)', () => {
       await s.tool('mise', 'echo "mise ERROR go@1.99.0 is not installed" >&2; exit 1');
       const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
       expect(refusal).toContain("mise can't run the copy it pins");
-      expect(refusal).toContain('mise which go: go@1.99.0 is not installed');
+      expect(refusal).toContain('mise which --version go: go@1.99.0 is not installed');
     }));
 
   test("a go pinned in a config mise hasn't trusted fails, naming mise trust rather than an install", () =>
@@ -560,7 +618,7 @@ describe('the go-mod-tool source (R6.1)', () => {
       await s.tool('mise', UNTRUSTED_MISE);
       const refusal = refusalOf(launchCheck('dead', 'pnpm', RUN_DEADCODE, s.at('.', { pins: GO_CHAIN, tools: [DEADCODE] }))) ?? '';
       expect(refusal).toContain(`the \`dead\` slot's \`go\` is pinned through mise, ${UNTRUSTED_CAUSE}`);
-      expect(refusal).toContain('mise which go: Config files in /r/mise.toml are not trusted.');
+      expect(refusal).toContain('mise which --version go: Config files in /r/mise.toml are not trusted.');
       expect(refusal).toContain('\n  mise trust\n');
       expect(refusal).not.toContain('mise install');
     }));
@@ -865,10 +923,18 @@ describe('a toolchain file picks the toolchain over one the shell exported', () 
     }));
 });
 
-/** A fake mise whose `where` knows one installed copy, `shellcheck@0.11.0` or `go@1.27`, and fails any other the way mise does. */
+/**
+ * A fake mise whose `where` knows two installed copies, `shellcheck@0.11.0`
+ * and `go@1.27`, and prints the directory each is installed in, named for the
+ * release a prefix resolved to, as mise 2026.10.4 does, and fails any other
+ * the way mise does.
+ */
 const FAKE_MISE = [
   'if [ "$1" = where ]; then',
-  '  case "$2" in shellcheck@0.11.0|go@1.27) exit 0 ;; esac',
+  '  case "$2" in',
+  '    shellcheck@0.11.0) echo "/home/dev/.local/share/mise/installs/${2%@*}/${2#*@}"; exit 0 ;;',
+  '    go@1.27) echo "/home/dev/.local/share/mise/installs/go/1.27.2"; exit 0 ;;',
+  '  esac',
   '  echo "mise WARN  mise version 2026.10.12 available" >&2',
   '  echo "mise ERROR $2 not installed" >&2',
   '  exit 1',
@@ -1335,7 +1401,7 @@ describe('the override source (R13.3)', () => {
         command: 'mise',
         args: ['exec', 'go@1.27', '--', 'go', 'vet', './...'],
         env: { MISE_IGNORED_CONFIG_PATHS: s.repo },
-        pin: { source: 'override', version: '1.27' },
+        pin: { source: 'override', version: '1.27.2' },
       });
       expect(launchCheck('vet', 'go', ['vet', './...'], s.at('.', { pins: ['override', 'js-lockfile'], overrides: new Map() }))).toEqual({ command: 'go', args: ['vet', './...'] });
     }));
@@ -1350,6 +1416,23 @@ describe('the override source (R13.3)', () => {
         args: ['exec', 'go@1.27', '--', 'go', 'tool', 'staticcheck', './...'],
         pin: { source: 'go-mod-tool' },
       });
+    }));
+
+  test('records the release mise where resolved the file’s version to, as doctor reports it', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', 'if [ "$1" = where ]; then echo /home/dev/.local/share/mise/installs/shellcheck/0.11.0; fi');
+      const at = s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11']]) });
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, at)).toMatchObject({
+        args: ['exec', 'shellcheck@0.11', '--', 'shellcheck', '-f', 'json1', 'run.sh'],
+        pin: { source: 'override', version: '0.11.0' },
+      });
+    }));
+
+  test('a mise where that names no directory records the version the file gives', () =>
+    withScratch(async (s) => {
+      await s.tool('mise', 'exit 0');
+      const at = s.at('.', { pins: OVERRIDE_CHAIN, overrides: new Map([['shellcheck', '0.11']]) });
+      expect(launchCheck('lint', 'pnpm', SHELLCHECK, at)).toMatchObject({ pin: { source: 'override', version: '0.11' } });
     }));
 });
 

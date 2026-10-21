@@ -221,7 +221,8 @@ function spawnCheck(
 /**
  * Spawn a check's own tool, and record on its outcome the argv handed to
  * `spawn` and the pin source it resolved through, with the version a file read
- * found, so the summary can say exactly what ran and which copy. A tool that
+ * found or the source resolved, so the summary can say exactly what ran and
+ * which copy. A tool that
  * fails to start or times out keeps both, since that's what failed. After an
  * interrupt `spawnCheck` starts nothing, so nothing is recorded; `started`
  * reads the latch just before `spawnCheck` does, so the two agree. The

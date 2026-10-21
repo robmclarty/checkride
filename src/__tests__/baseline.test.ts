@@ -339,6 +339,13 @@ describe('baselineDrift', () => {
     expect(baselineDrift({ pin_source: 'js-lockfile', tool_version: '5.0.0' }, { pin_source: 'override', tool_version: '5.0.0' })).toBe(false);
   });
 
+  test('where only one side names a version, the pin source decides, so a mise record from before mise named one never drifts', () => {
+    expect(baselineDrift({ pin_source: 'mise' }, { pin_source: 'mise', tool_version: '2.14.0' })).toBe(false);
+    expect(baselineDrift({ pin_source: 'mise', tool_version: '2.14.0' }, { pin_source: 'mise' })).toBe(false);
+    expect(baselineDrift({ pin_source: 'mise', tool_version: '2.14.0' }, { pin_source: 'mise', tool_version: '2.11.4' })).toBe(true);
+    expect(baselineDrift({ pin_source: 'mise', tool_version: '2.14.0' }, { pin_source: 'path' })).toBe(true);
+  });
+
   test('names a copy by its version and source, or where it came from', () => {
     expect(copyNamed({ pin_source: 'nix', tool_version: '2.11.4' })).toBe('2.11.4 (nix)');
     expect(copyNamed({ pin_source: 'path' })).toBe('from PATH');

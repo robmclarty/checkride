@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { nearestPackageManager } from '../index.js';
-import { loadPinsFile, miseDeclaration, miseToolKeys, miseToolVersions } from '../mise.js';
+import { loadPinsFile, miseDeclaration, miseToolKeys, miseToolVersions, miseVersion, miseWhereVersion } from '../mise.js';
 import { findOnPath } from '../path.js';
 import { dirsUpTo } from '../walk.js';
 
@@ -97,6 +97,21 @@ describe('miseDeclaration finds the config that declares a tool', () => {
       expect(miseDeclaration(repo, repo, ['shellcheck'])).toEqual({ file: 'mise.toml', id: 'shellcheck' });
       expect(miseDeclaration(repo, repo, ['shfmt'])).toBeNull();
     }));
+});
+
+describe('the version mise says it resolved a pin to (R6.3)', () => {
+  test('`mise which --version` names it on its last line, and a line that is no release names none', () => {
+    expect(miseVersion({ stdout: '0.11.0\n' })).toBe('0.11.0');
+    expect(miseVersion({ stdout: 'a notice\n1.27.2\n\n' })).toBe('1.27.2');
+    for (const stdout of ['system\n', 'ref:main\n', 'path:/opt/go\n', 'latest\n', '', '\n']) expect(miseVersion({ stdout }), stdout).toBeUndefined();
+  });
+
+  test('`mise where` names it as the install directory it prints last', () => {
+    expect(miseWhereVersion({ stdout: '/home/dev/.local/share/mise/installs/go/1.27.2\n' })).toBe('1.27.2');
+    expect(miseWhereVersion({ stdout: 'a notice\n/opt/mise/installs/shellcheck/0.11.0' })).toBe('0.11.0');
+    expect(miseWhereVersion({ stdout: '' })).toBeUndefined();
+    expect(miseWhereVersion({ stdout: '/\n' })).toBeUndefined();
+  });
 });
 
 describe('findOnPath', () => {

@@ -27,7 +27,7 @@
     },
     "captured_with": {
       "type": "object",
-      "description": "Present when a check in slots recorded how its keys were captured: check name to the pin source its tool resolved through when `checkride baseline` captured them, and the version that source named, as the run's summary records pin_source and tool_version. Only `checkride baseline` writes an entry, and the ratchet never changes one. A run whose copy of the tool differs is held back from the ratchet for that check, since a tool upgrade re-keys findings. Absent when no check recorded one.",
+      "description": "Present when a check in slots recorded how its keys were captured: check name to the pin source its tool resolved through when `checkride baseline` captured them, and the version that source named or resolved, as the run's summary records pin_source and tool_version. Only `checkride baseline` writes an entry, and the ratchet never changes one. A run whose copy of the tool differs is held back from the ratchet for that check, since a tool upgrade re-keys findings. Absent when no check recorded one.",
       "propertyNames": { "minLength": 1 },
       "additionalProperties": {
         "type": "object",
@@ -35,7 +35,7 @@
         "required": ["pin_source"],
         "properties": {
           "pin_source": { "type": "string", "minLength": 1, "description": "The pin source the check's tool resolved through when its keys were captured." },
-          "tool_version": { "type": "string", "minLength": 1, "description": "The version that pin source named, when it named one." }
+          "tool_version": { "type": "string", "minLength": 1, "description": "The version that pin source named, or resolved as mise does, when it named one." }
         }
       }
     }

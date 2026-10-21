@@ -49,13 +49,13 @@ head of every chain, that one included.
 
 | Source | Declares a tool when | Runs it as | `tool_version` |
 | --- | --- | --- | --- |
-| `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline, with installs off and every config file inside the repo ignored, once `mise where <id>@<version>` confirms that version is installed | the version the file gives |
+| `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline, with installs off and every config file inside the repo ignored, once `mise where <id>@<version>` confirms that version is installed | the release `mise where` resolved the file's version to, such as `2.14.0` for a `2.14` |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
 | `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
 | `uv-lock` | the `uv.lock` nearest the check's directory, up to the repo root, lists the tool's PyPI package, its name compared as PyPI compares names | the tool's executable in the project's environment: `.venv/bin/<tool>` beside the lock, which a workspace's members share, or `bin/<tool>` under the environment `UV_PROJECT_ENVIRONMENT` names, a relative one from the lock's directory; never through `uv` itself | the `version` of the lock's `[[package]]` entry for it, when the lock pins one version; a forked resolution that locks several records none |
 | `tf-version` | a `.terraform-version` or `.opentofu-version` from the check's directory up to the repo root, the nearest one, `.opentofu-version` first in one directory, for the CLI it names: `terraform` or `tofu` | that CLI from `PATH`, once `<cli> version -json` reports the release the file names, when it names one exactly | the file's release, when it names one exactly, such as `1.5.7` |
-| `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
+| `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which --version <tool>` confirms the pinned copy is installed | the version mise resolved the pin to, which that answer prints, such as `0.11.0` for `shellcheck = "0.11"`; none for a pin that resolves to no release, such as `system` |
 | `nix` | nothing else declares it, and the copy on `PATH` is a Nix dev shell's the repo declares (see below) | `<tool>` from `PATH`, pinned by the repo's Nix files | the version its store path names, such as `2.11.4` for `golangci-lint-2.11.4` |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
 
@@ -104,7 +104,8 @@ A toolchain resolves its own executables, `go` and `gofmt` for Go and `cargo`
 for Rust, through its pack's chain, in a pack whose chain reads `mise`: a
 toolchain file pins `cargo`, recorded as `rust-toolchain`; `mise exec -- go`
 runs when a `mise.toml` up to the repo root pins `go`, recorded as
-`pin_source: "mise"`; and the `go` on `PATH` runs otherwise, recorded as
+`pin_source: "mise"` with the version mise resolved; and the `go` on `PATH`
+runs otherwise, recorded as
 `path`, or as `nix` with its version where a Nix dev shell the repo declares
 put it there. A tool `go-mod-tool` declares runs through the
 same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
@@ -161,12 +162,15 @@ naming the tool and the `mise install <id>@<version>` that would fix it.
 given a pinned version it hasn't installed prints a warning and runs whatever
 copy of the tool `PATH` holds (checked against mise 2026.10.4). That's the
 fall-through a pin chain exists to rule out, so the source runs
-`mise which <tool>` from the check's directory before it spawns, and fails the
-check when mise answers that the pinned copy isn't active. The question costs
-one short spawn per check that mise launches, and it never asks for a
-version. A `mise.toml` mise hasn't trusted fails the check too, quoting mise's
-own line and naming `mise trust` rather than `mise install`, which would trust
-the file as a side effect.
+`mise which --version <tool>` from the check's directory before it spawns, and
+fails the check when mise answers that the pinned copy isn't active. The
+question costs one short spawn per check that mise launches. Its answer is the
+version mise resolved the pin to, which the check records as `tool_version`:
+checkride never reads the version a `mise.toml` names, since a value such as
+`"2"` or `"latest"` stays the same across a `mise upgrade`, and it never runs
+the tool to ask. A `mise.toml` mise hasn't trusted fails the check too,
+quoting mise's own line and naming `mise trust` rather than `mise install`,
+which would trust the file as a side effect.
 
 ## The ts pack
 
@@ -674,13 +678,14 @@ whose tool is looked for where that check runs from. The row names the pin
 source the tool resolves through (`js-lockfile`, `mise`, `path`, or a
 language's own `go-mod-tool`, `rust-toolchain`, `uv-lock` or `tf-version`),
 and ends with the tag a run's status line gives the check, such as
-`[detected: .golangci.yml]`. A tool `mise.toml` pins reports missing when mise
-isn't on `PATH`. A tool a language's own pin file declares, and a toolchain's
-own executable (`go`, `gofmt`, `cargo`, and `terraform`, which runs as `tofu`
-where the version file names OpenTofu), are probed by asking the run's
-launcher: `ok` names what the run would spawn, with the source it resolves
-through and the version that source names, such as `tf-version 1.13.1`, and
-`missing` carries the refusal the run would fail with. A tool from a Nix dev
+`[detected: .golangci.yml]`. A tool a pin file declares, a `mise.toml` or a
+language's own, and a toolchain's own executable (`go`, `gofmt`, `cargo`, and
+`terraform`, which runs as `tofu` where the version file names OpenTofu), are
+probed by asking the run's launcher: `ok` names what the run would spawn, with
+the source it resolves through and the version that source names, such as
+`mise 0.11.0` or `tf-version 1.13.1`, and `missing` carries the refusal the
+run would fail with, so a version mise pins and hasn't installed reads as
+missing, as it fails a run. A tool from a Nix dev
 shell the repo declares reads as `nix` with its version, as the run records
 it. Each tool nothing pins gets an **unpinned tools** row naming the checks
 that run it and the `mise use` that would pin it: a warning, or with

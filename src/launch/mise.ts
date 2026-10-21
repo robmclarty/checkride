@@ -4,16 +4,17 @@
  * and it runs as `mise exec -- <bin>`.
  *
  * Only the keys are read. mise owns version resolution (a key's value can be a
- * prefix, `latest`, or a table with options), so checkride asks whether the
- * repo pins a tool, never which version it pins (R6.1). A `--pins` file is the
- * exception: its versions are read too, since the `override` source runs each
- * tool as `mise exec <id>@<version>` outside any config mise would find
- * (R13.3).
+ * prefix, `latest`, or a table with options), so checkride reads whether the
+ * repo pins a tool, never which version the file names (R6.1). The version a
+ * check records is the one mise resolved the pin to, which mise prints when
+ * asked whether it can run the pinned copy. A `--pins` file is the exception:
+ * its versions are read too, since the `override` source runs each tool as
+ * `mise exec <id>@<version>` outside any config mise would find (R13.3).
  */
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { basename, join, relative } from 'node:path';
 
 import { dirsUpTo } from './walk.js';
 
@@ -160,14 +161,16 @@ const MISE_WHICH_TIMEOUT_MS = 10_000;
 
 /**
  * Whether mise can run the copy of `bin` it pins for `cwd`, asked through
- * `mise which <bin>` with installs switched off, or why not when it can't.
+ * `mise which --version <bin>` with installs switched off, or why not when it
+ * can't.
  *
  * `mise exec` can't be trusted with this. With auto-install off, a pinned
  * version that isn't installed makes it warn and run whatever `bin` is on
  * `PATH` (checked against mise 2026.10.4), which is the fall-through a pin
  * exists to rule out (D12). `mise which` exits 1 for that pin instead. The
- * question costs one short spawn per check mise launches, and asks for no
- * version: only whether the pinned copy is there.
+ * question costs one short spawn per check mise launches, and its answer is
+ * the version mise resolved the pin to ({@link miseVersion}), so the check
+ * records what mise picked without running the tool.
  */
 export function miseCanRun(
   mise: string,
@@ -175,7 +178,33 @@ export function miseCanRun(
   cwd: string,
   env: Readonly<Record<string, string | undefined>>,
 ): MiseAnswer {
-  return askMise(mise, ['which', bin], cwd, { ...env, ...MISE_NO_INSTALL });
+  return askMise(mise, ['which', '--version', bin], cwd, { ...env, ...MISE_NO_INSTALL });
+}
+
+/** The last non-blank line of `text`, trimmed, or `undefined` when it has none. */
+function lastLine(text: string): string | undefined {
+  return text.split('\n').map((line) => line.trim()).findLast((line) => line !== '');
+}
+
+/**
+ * The version `mise which --version` printed for the copy it would run: its
+ * last line, kept only when it starts with a digit, so a `system` pin, a
+ * `ref:` build or a `path:` copy records none (checked against mise
+ * 2026.10.4).
+ */
+export function miseVersion(answer: { stdout: string }): string | undefined {
+  const last = lastLine(answer.stdout);
+  return last !== undefined && /^\d/.test(last) ? last : undefined;
+}
+
+/**
+ * The version `mise where` resolved a spec to: the name of the install
+ * directory it printed last, which names the release a prefix such as `1.27`
+ * resolved to (`…/installs/go/1.27.2`), or `undefined` when it printed none.
+ */
+export function miseWhereVersion(answer: { stdout: string }): string | undefined {
+  const dir = lastLine(answer.stdout);
+  return dir === undefined || basename(dir) === '' ? undefined : basename(dir);
 }
 
 /**

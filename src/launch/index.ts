@@ -26,7 +26,7 @@ export { detectPackageManager, nearestPackageManager } from './package-manager.j
 export type { LaunchRefusal } from './refusal.js';
 export { launchRefusal, SPAWN_FAILED_MARKER } from './refusal.js';
 export type { MiseAnswer } from './mise.js';
-export { loadPinsFile, miseHasInstalled, PINS_ENV } from './mise.js';
+export { loadPinsFile, miseHasInstalled, miseWhereVersion, PINS_ENV } from './mise.js';
 export { nixCopy } from './nix.js';
 export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, OverrideCause, Spawn } from './resolve.js';

@@ -156,7 +156,7 @@ required ones, so a field can't reach the schema without a row here.
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, `<file>: [<table>]` for a TOML table that configures the tool, such as `pyproject.toml: [tool.ruff]`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
 | `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `tf-version`, `mise`, `nix` or `path` | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, `nix` for a Nix dev shell's copy, or `path` for a tool nothing declared |
-| `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
+| `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran, or the pin source itself resolved it, as mise does |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
 | `baseline_captured_with` | `{ pin_source, tool_version? }` | the check ran another copy of its tool than the baseline's `captured_with` records capturing its keys with: that record, so its new keys may be the tool's churn, and the ratchet held its keys back |
@@ -218,16 +218,20 @@ on `PATH` and so unpinned. A toolchain's own executable, such as `go` or
 dev shell's. The values `pin_source` takes grow additively, as fields do:
 one may be added in a release, never renamed or removed, so a consumer reads
 an unknown one as a source it doesn't know yet. `tool_version` adds the
-version when a file read finds it, never
-by running the tool: for `js-lockfile`, the `version` in
+version when a file read finds it, or when the pin source itself resolved
+it, never by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
 whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires
 for the module that provides the tool, for `rust-toolchain`, the file's
 channel when it names an exact release, for `uv-lock`, the version the
 lock pins the tool's package at, for `tf-version`, the file's release when it
-names one exactly, and for `nix`, the version the copy's store path names,
-such as `2.11.4` for `golangci-lint-2.11.4`. `mise` and `path` record none,
-since mise or the machine decides it. `pin_source` appears exactly where
+names one exactly, for `nix`, the version the copy's store path names,
+such as `2.11.4` for `golangci-lint-2.11.4`, for `mise`, the version mise
+resolved the pin to, which `mise which --version` prints as it confirms the
+pinned copy is installed, such as `0.11.0` for `shellcheck = "0.11"`, and for
+`override`, the release `mise where` resolved the `--pins` file's version to.
+A mise pin that resolves to no release, such as `system`, records none, and
+`path` records none, since the machine decides it. `pin_source` appears exactly where
 `argv` does, apart from a command spawned as written through no pin source,
 such as a custom check's `node scripts/x.mjs`, which records only its `argv`.
 A custom check whose command is `pnpm exec <tool>` or another `pnpm`
@@ -450,10 +454,11 @@ parsers does the same (0.6.0 and 0.9.4 were two), and the release notes say
 so under that release. What is promised is the notice, never the wording.
 
 So a run notices when a check ran another copy of its tool than
-`captured_with` records: a different `tool_version`, or where neither side
-names one, a different `pin_source`, such as keys captured from `PATH` and a
-run in a Nix dev shell. Two runs through `mise`, which records no version,
-can't be told apart. Such a check carries `baseline_captured_with` in the
+`captured_with` records: where both sides name a `tool_version`, a different
+one, whatever source named it, and where either names none, a different
+`pin_source`, such as keys captured from `PATH` and a run in a Nix dev shell.
+A record from a release whose `mise` source named no version reads as the
+same copy as any run through mise. Such a check carries `baseline_captured_with` in the
 summary, and its digest section and a `baseline:` line on stderr name both
 copies when it has new keys, or keys the ratchet held back. Its verdict is
 unchanged: a new key still fails it. The ratchet prunes none of its keys,
@@ -591,7 +596,9 @@ naming the file. The file
 becomes an `override` source at the head of every pack's pin chain, ahead of
 the repo's own pins: a tool whose mise id it names runs as
 `mise exec <id>@<version> -- <bin>`, offline and with mise's installs off, and
-records `pin_source: "override"` with that version as its `tool_version`. A
+records `pin_source: "override"` with the release `mise where` resolved that
+version to as its `tool_version`, `2.14.0` for a `2.14`, as `doctor` reports
+it. A
 toolchain it names, such as `go`, runs that copy too. A version mise hasn't
 installed, as `mise where` reports it, fails the check naming the tool and the
 `mise install` that would fix it, and nothing downloads. It changes which copy

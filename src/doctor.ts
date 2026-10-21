@@ -32,7 +32,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { arch as osArch, platform as osPlatform } from 'node:os';
-import { basename, join, posix, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
@@ -51,6 +51,7 @@ import {
   isPnPInstall,
   launchCheck,
   miseHasInstalled,
+  miseWhereVersion,
   nearestPackageManager,
   nixCopy,
   overrideCause,
@@ -103,9 +104,11 @@ export type DoctorCheck = {
    */
   pinSource?: PinSourceName;
   /**
-   * With `pinSource`, the version that source names: for `override`, the
-   * `--pins` copy `mise where` finds, a prefix resolved to the installed
-   * release, and for `nix`, the version the copy's store path names.
+   * With `pinSource`, the version that source names, as a run records it: a
+   * file's, such as a lockfile's or `go.mod`'s, the one mise resolved the pin
+   * to for `mise`, the `--pins` copy `mise where` finds for `override`, a
+   * prefix resolved to the installed release, and for `nix`, the version the
+   * copy's store path names.
    */
   toolVersion?: string;
   /** Under `--static-only`, why a static run skips the check: `static-only: <cause>`, the `reason` its summary row records. */
@@ -490,16 +493,6 @@ async function probeExecTool(tool: string, cwd: string, pm: PackageManager, env:
     : missing(`node_modules/.bin/${tool}`);
 }
 
-/** A tool a `mise.toml` pins: present when mise is on `PATH` to run it. */
-async function probeMiseTool(tool: string, declaredBy: string | null, env: DoctorEnv): Promise<ToolProbe> {
-  const expected = `pinned in ${declaredBy ?? 'mise.toml'}`;
-  const mise = await env.which('mise');
-  if (mise === null) {
-    return { status: 'missing', found: null, expected, hint: `\`${tool}\` is pinned through mise, which isn't on PATH. Install mise (https://mise.jdx.dev), then run \`mise install\`.` };
-  }
-  return { status: 'ok', found: `mise (${declaredBy ?? tool})`, expected, hint: null };
-}
-
 /**
  * A tool nothing declares, run from `PATH`: a Nix dev shell's copy records
  * `nix` and the version its store path names, as a run records it, and any
@@ -538,17 +531,23 @@ function spawnShown(spawn: Spawn, toolArgs: readonly string[]): string {
   return [spawn.command, ...spawn.args.slice(0, spawn.args.length - toolArgs.length)].join(' ');
 }
 
+/** The pin a probe records for a launch, as a run records it: the source it resolved through, and the version that source named. */
+function launchPin(pin: Spawn['pin']): Pick<ToolProbe, 'pinSource' | 'toolVersion'> {
+  return pin === undefined ? {} : { pinSource: pin.source, ...(pin.version !== undefined ? { toolVersion: pin.version } : {}) };
+}
+
 /**
- * A tool a language's own pin file declares, probed by asking the run's
- * launcher, as `--static-only` asks it (D84): the launcher holds each
- * source's rules and remedies, so the row is `ok` where it would spawn,
- * naming what it spawns, and `missing` where it would refuse, its hint the
- * refusal.
+ * A tool a pin file declares, a language's own or a `mise.toml`, probed by
+ * asking the run's launcher, as `--static-only` asks it (D84): the launcher
+ * holds each source's rules and remedies, so the row is `ok` where it would
+ * spawn, naming what it spawns and the pin it records, and `missing` where it
+ * would refuse, its hint the refusal, such as a version mise pins and hasn't
+ * installed.
  */
 function probeLaunch(launch: Launch, declaredBy: string | null, source: PinSourceName, toolArgs: readonly string[]): ToolProbe {
   const expected = `declared in ${declaredBy ?? source}`;
   if ('refusal' in launch) return { status: 'missing', found: null, expected, hint: refusalHint(launch.refusal) };
-  return { status: 'ok', found: spawnShown(launch, toolArgs), expected, hint: null };
+  return { status: 'ok', found: spawnShown(launch, toolArgs), expected, hint: null, ...launchPin(launch.pin) };
 }
 
 /**
@@ -564,7 +563,7 @@ async function probeExecPin(tool: string, toolArgs: readonly string[], at: Probe
   const viaLauncher = (): Promise<ToolProbe> => Promise.resolve(probeLaunch(launch(), pin.declaredBy, pin.source, toolArgs));
   const probes: { readonly [K in PinSourceName]?: () => Promise<ToolProbe> } = {
     'js-lockfile': () => probeExecTool(tool, at.cwd, at.pm, env),
-    mise: () => probeMiseTool(tool, pin.declaredBy, env),
+    mise: viaLauncher,
     path: () => probePathTool(tool, at, env),
     'go-mod-tool': viaLauncher,
     'rust-toolchain': viaLauncher,
@@ -601,7 +600,7 @@ async function probeOverride(pin: { bin: string; id: string; version: string }, 
   const where = await env.miseWhere(mise, spec, { cwd: at.cwd, repo: at.repo });
   if (!where.ok) return { ...base, status: 'missing', found: null, hint: OVERRIDE_HINTS[overrideCause(at.repo, where)](spec, where) };
   const dir = where.stdout.trim().split('\n').at(-1)?.trim() ?? '';
-  return { ...base, status: 'ok', found: dir, toolVersion: basename(dir), hint: null };
+  return { ...base, status: 'ok', found: dir, toolVersion: miseWhereVersion(where) ?? pin.version, hint: null };
 }
 
 /**
@@ -625,8 +624,7 @@ function launchesToolchain(command: string, pins: readonly PinSourceName[]): boo
  */
 function probeToolchain(launch: Launch, toolArgs: readonly string[]): ToolProbe {
   if ('refusal' in launch) return { status: 'missing', found: null, expected: null, hint: refusalHint(launch.refusal) };
-  const pin = launch.pin === undefined ? {} : { pinSource: launch.pin.source, ...(launch.pin.version !== undefined ? { toolVersion: launch.pin.version } : {}) };
-  return { status: 'ok', found: spawnShown(launch, toolArgs), expected: null, hint: null, ...pin };
+  return { status: 'ok', found: spawnShown(launch, toolArgs), expected: null, hint: null, ...launchPin(launch.pin) };
 }
 
 /**
@@ -1110,7 +1108,7 @@ function toolWidths(items: readonly DoctorCheck[]): ToolWidths {
   };
 }
 
-/** The pin column: the source a row's tool resolves through, and the version `mise where` found for a `--pins` copy. */
+/** The pin column: the source a row's tool resolves through, and the version that source named, as a run records it. */
 function pinNote(c: DoctorCheck): string {
   return [c.pinSource, c.toolVersion].filter((part) => part !== undefined).join(' ');
 }

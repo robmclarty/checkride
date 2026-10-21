@@ -1839,6 +1839,20 @@ describe('runChecks (a baseline captured with another copy of the tool)', () => 
     expect(existsSync(baselineFile())).toBe(false);
   });
 
+  test('a capture through mise at one version is held back from a run mise resolved to another, and names both', async () => {
+    const { text, lint } = await run(capturedWith({ lint: { pin_source: 'mise', tool_version: '2.11.4' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'mise', tool_version: '2.14.0' }));
+    expect(lint).toMatchObject({ ok: true, baseline_captured_with: { pin_source: 'mise', tool_version: '2.11.4' } });
+    expect(text).toContain('baseline: lint was captured with oxlint 2.11.4 (mise); this run used oxlint 2.14.0 (mise): 1 held back from the ratchet.');
+    expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  test('a mise record from before mise named its version ratchets as before under a run that names one', async () => {
+    const { text, lint } = await run(capturedWith({ lint: { pin_source: 'mise' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'mise', tool_version: '2.14.0' }));
+    expect(lint).not.toHaveProperty('baseline_captured_with');
+    expect(text).not.toContain('was captured with');
+    expect((JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline).slots['lint']).toEqual([KEY_A]);
+  });
+
   test('a baseline with no record ratchets as before, whatever copy ran', async () => {
     const { lint } = await run(capturedWith(undefined), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'nix', tool_version: '2.11.4' }));
     expect(lint).not.toHaveProperty('baseline_captured_with');
