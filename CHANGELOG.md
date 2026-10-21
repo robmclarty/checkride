@@ -59,8 +59,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   imports AGENTS.md instead of linking to it: a link left opening the file to
   the model, and in a repo with no CLAUDE.md the old pointer switched off
   Claude Code's own read of AGENTS.md. A CLAUDE.md that is exactly the old
-  pointer is replaced. `doctor` gains an `agent instructions` row that warns
-  when a CLAUDE file keeps the stanza from loading.
+  pointer is replaced, and one that is a symlink is never written through.
+  `doctor` gains an `agent instructions` row that warns when a CLAUDE file
+  keeps the stanza from loading.
 
 ### Contract
 
@@ -89,7 +90,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `captured_with`. A summary
   check, its schema and the exported `SummaryCheck` type take
   `baseline_captured_with`.
-
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
   byte kept, nothing written on a second run.
