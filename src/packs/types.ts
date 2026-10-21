@@ -14,7 +14,9 @@ import type { Adapter } from '../adapters.js';
  * declares nothing: it's the copy a machine's `PATH` holds, unpinned.
  * `override` is a `--pins` file's `[tools]` entry, which heads every chain
  * when a run names one, and `go-mod-tool`, `rust-toolchain`, `uv-lock` and
- * `tf-version` the go, rust, python and terraform packs' own.
+ * `tf-version` the go, rust, python and terraform packs' own. No chain names
+ * `nix`: it's what the `path` step records for a copy a Nix dev shell the
+ * repo declares put on `PATH`, which its Nix files pin.
  */
 export type PinSourceName =
   | 'override'
@@ -24,6 +26,7 @@ export type PinSourceName =
   | 'uv-lock'
   | 'tf-version'
   | 'mise'
+  | 'nix'
   | 'path';
 
 /** One language's adapters, with the root markers and pin sources that go with them. */

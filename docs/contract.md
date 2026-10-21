@@ -155,7 +155,7 @@ required ones, so a field can't reach the schema without a row here.
 | `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
 | `detected_by` | string | `origin` is `detected`: the matched detect file, `package.json: <dep>`, `package.json: scripts.<name>`, `<file>: [<table>]` for a TOML table that configures the tool, such as `pyproject.toml: [tool.ruff]`, or `<file>: <key>` for a pin that declares the tool, such as `mise.toml: shellcheck` |
 | `argv` | array of strings, the command first | the check spawned its own tool: the command and arguments exactly as spawned, after package-manager translation |
-| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `tf-version`, `mise` or `path` | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, or `path` for a tool nothing declared |
+| `pin_source` | `override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`, `tf-version`, `mise`, `nix` or `path` | the check's tool resolved through a pin source: the one that declared the copy that ran, `override` for one the `--pins` file pins, `nix` for a Nix dev shell's copy, or `path` for a tool nothing declared |
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
@@ -208,17 +208,24 @@ lists, run from the project's environment, `tf-version` for the `terraform`
 or `tofu` CLI a `.terraform-version` or `.opentofu-version` declares, run
 from `PATH` once it reports the release the file names, `override` for a tool the run's
 `--pins` file pins, `mise` for a
-tool a `mise.toml` in the repo names under `[tools]`, and `path` for a tool
-nothing declared, found on `PATH` and so unpinned. A toolchain's own
-executable, such as `go` or `gofmt` in a go target, records `mise` or `path`
-the same way. `tool_version` adds the version when a file read finds it, never
+tool a `mise.toml` in the repo names under `[tools]`, `nix` for a tool nothing
+declared whose copy on `PATH` a Nix dev shell the repo declares put there,
+which the repo's Nix files pin, and `path` for a tool nothing declared, found
+on `PATH` and so unpinned. A toolchain's own executable, such as `go` or
+`gofmt` in a go target, records `mise`, `nix` or `path` the same way.
+[Packs and pins](./packs.md#pin-sources) says when a copy counts as a Nix
+dev shell's. The values `pin_source` takes grow additively, as fields do:
+one may be added in a release, never renamed or removed, so a consumer reads
+an unknown one as a source it doesn't know yet. `tool_version` adds the
+version when a file read finds it, never
 by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
 whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires
 for the module that provides the tool, for `rust-toolchain`, the file's
 channel when it names an exact release, for `uv-lock`, the version the
-lock pins the tool's package at, and for `tf-version`, the file's release when
-it names one exactly. `mise` and `path` record none,
+lock pins the tool's package at, for `tf-version`, the file's release when it
+names one exactly, and for `nix`, the version the copy's store path names,
+such as `2.11.4` for `golangci-lint-2.11.4`. `mise` and `path` record none,
 since mise or the machine decides it. `pin_source` appears exactly where
 `argv` does, apart from a command spawned as written through no pin source,
 such as a custom check's `node scripts/x.mjs`, which records only its `argv`.

@@ -29,6 +29,7 @@ import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
 import type { MiseAnswer, MiseDeclaration } from './mise.js';
 import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, overrideEnv } from './mise.js';
+import { nixCopy } from './nix.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
 import type { RustToolchainDeclaration } from './rust-toolchain.js';
@@ -496,7 +497,8 @@ export function launchCheck(slot: string, command: string, args: readonly string
   const plugin = cargoPlugin(command, args, ctx);
   if (plugin !== null && findOnPath(RUSTUP, env) === null) return { refusal: pluginRefusal(slot, plugin, toolchain) };
   const pinned = toolchainFileEnv(ctx.cwd, ctx.repo ?? ctx.cwd, env);
-  return withPackEnv(resolveLaunch(slot, command, args, ctx), { ...ctx.packEnv, ...pinned });
+  // Search the PATH the spawn gets, rustup's directory first, so the copy found is the copy that runs.
+  return withPackEnv(resolveLaunch(slot, command, args, { ...ctx, env: { ...env, ...pinned } }), { ...ctx.packEnv, ...pinned });
 }
 
 /**
@@ -587,17 +589,26 @@ function walkChain(req: ToolRequest): Launch {
 }
 
 /**
- * The `path` source: the tool from `PATH`, unpinned. Under `requirePins` it
- * fails instead, and a tool `PATH` doesn't have fails naming how to install
- * it. The mise variables ride along, because a tool on `PATH` may be one of
- * mise's shims.
+ * The `path` source: the tool from `PATH`, unpinned, unless a Nix dev shell
+ * the repo declares put it there, which pins it (`nix`, with the version its
+ * store path names). Under `requirePins` an unpinned copy fails instead, and a
+ * tool `PATH` doesn't have fails naming how to install it. A tool that runs
+ * through another, as `cargo deny` runs `cargo-deny`, is never classified,
+ * since its runner picks the copy that runs. The mise variables ride along,
+ * because a tool on `PATH` may be one of mise's shims.
  */
 function fromPath(req: ToolRequest): Launch {
   const found = findOnPath(req.tool.bin, req.env);
   if (found === null) return { refusal: notFoundRefusal(req) };
-  if (req.requirePins) return { refusal: unpinnedRefusal(req, found) };
+  const nix = req.tool.run === undefined ? nixCopy(found, req) : null;
+  if (req.requirePins && nix === null) return { refusal: unpinnedRefusal(req, found) };
   const [command = req.tool.bin, ...args] = argvOf(req.tool, req.args);
-  return { command, args, env: MISE_NO_INSTALL, pin: { source: 'path' } };
+  return { command, args, env: MISE_NO_INSTALL, pin: pathPin(nix) };
+}
+
+/** The pin a copy from `PATH` records: `nix`, with the version its store path names, for a Nix dev shell's, else `path`. */
+function pathPin(nix: { version?: string } | null): NonNullable<Spawn['pin']> {
+  return nix === null ? { source: 'path' } : { source: 'nix', ...nix };
 }
 
 /**

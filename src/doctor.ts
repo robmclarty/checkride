@@ -52,6 +52,7 @@ import {
   launchCheck,
   miseHasInstalled,
   nearestPackageManager,
+  nixCopy,
   overrideCause,
   overridePin,
   PIN_CHECKRIDE,
@@ -95,9 +96,17 @@ export type DoctorCheck = {
   detectedBy?: string;
   /** In multi-target mode, the target a tool row's check belongs to. */
   target?: string;
-  /** The pin source a tool row's tool resolves through, read from files alone, for a check that launches one. */
+  /**
+   * The pin source a tool row's tool resolves through, for a check that
+   * launches one: read from files, or for a copy from `PATH`, `nix` where a
+   * Nix dev shell the repo declares put it there, as a run records it.
+   */
   pinSource?: PinSourceName;
-  /** With `pinSource: 'override'`, the version of the `--pins` copy `mise where` finds, a prefix resolved to the installed release. */
+  /**
+   * With `pinSource`, the version that source names: for `override`, the
+   * `--pins` copy `mise where` finds, a prefix resolved to the installed
+   * release, and for `nix`, the version the copy's store path names.
+   */
   toolVersion?: string;
   /** Under `--static-only`, why a static run skips the check: `static-only: <cause>`, the `reason` its summary row records. */
   skip?: string;
@@ -179,6 +188,13 @@ export type DoctorEnv = {
   miseWhere: (mise: string, spec: string, at: { cwd: string; repo: string }) => Promise<MiseAnswer>;
   /** The launcher a run spawns each check through, which `--static-only` asks whether a check's tool resolves without an install. */
   launch: (slot: string, command: string, args: readonly string[], ctx: LaunchContext) => Launch;
+  /**
+   * Whether `found`, the copy of a tool `PATH` holds for a check in `at.cwd`,
+   * is a Nix dev shell's the repo declares, and the version its store path
+   * names, as a run classifies it. Omitted, the real one, under this process's
+   * environment.
+   */
+  nixCopy?: (found: string, at: { cwd: string; repo: string }) => { version?: string } | null;
 };
 
 export type DoctorOptions = {
@@ -294,6 +310,11 @@ function readTextReal(path: string): string | null {
   }
 }
 
+/** Whether a copy from `PATH` is a Nix dev shell's, under this process's environment, as a run asks it. */
+function realNixCopy(found: string, at: { cwd: string; repo: string }): { version?: string } | null {
+  return nixCopy(found, { ...at, env: process.env });
+}
+
 const realEnv: DoctorEnv = {
   which: whichReal,
   version: versionReal,
@@ -306,6 +327,7 @@ const realEnv: DoctorEnv = {
   packageManager: (cwd) => detectPackageManager({ cwd }),
   miseWhere: (mise, spec, at) => Promise.resolve(miseHasInstalled(mise, spec, at, process.env)),
   launch: launchCheck,
+  nixCopy: realNixCopy,
 };
 
 function parseSemver(text: string | null | undefined): Semver | null {
@@ -478,11 +500,22 @@ async function probeMiseTool(tool: string, declaredBy: string | null, env: Docto
   return { status: 'ok', found: `mise (${declaredBy ?? tool})`, expected, hint: null };
 }
 
-/** A tool nothing pins, run from `PATH`. */
-async function probePathTool(tool: string, env: DoctorEnv): Promise<ToolProbe> {
+/**
+ * A tool nothing declares, run from `PATH`: a Nix dev shell's copy records
+ * `nix` and the version its store path names, as a run records it, and any
+ * other copy is unpinned.
+ */
+async function probePathTool(tool: string, at: ProbeAt, env: DoctorEnv): Promise<ToolProbe> {
   const path = await env.which(tool);
   const expected = `${tool} on PATH`;
-  return path ? { status: 'ok', found: path, expected, hint: null } : { status: 'missing', found: null, expected, hint: `${installHint(tool)}.` };
+  if (!path) return { status: 'missing', found: null, expected, hint: `${installHint(tool)}.` };
+  return { status: 'ok', found: path, expected, hint: null, ...nixFields((env.nixCopy ?? realNixCopy)(path, at)) };
+}
+
+/** The pin a probe records for a Nix dev shell's copy, with its version when the store path names one; none for any other copy. */
+function nixFields(nix: { version?: string } | null): Pick<ToolProbe, 'pinSource' | 'toolVersion'> {
+  if (nix === null) return {};
+  return { pinSource: 'nix', ...(nix.version !== undefined ? { toolVersion: nix.version } : {}) };
 }
 
 /**
@@ -532,13 +565,14 @@ async function probeExecPin(tool: string, toolArgs: readonly string[], at: Probe
   const probes: { readonly [K in PinSourceName]?: () => Promise<ToolProbe> } = {
     'js-lockfile': () => probeExecTool(tool, at.cwd, at.pm, env),
     mise: () => probeMiseTool(tool, pin.declaredBy, env),
-    path: () => probePathTool(tool, env),
+    path: () => probePathTool(tool, at, env),
     'go-mod-tool': viaLauncher,
     'rust-toolchain': viaLauncher,
     'uv-lock': viaLauncher,
   };
   const probe = await (probes[pin.source]?.() ?? Promise.resolve<ToolProbe>({ status: 'unknown', found: null, expected: null, hint: null }));
-  return { ...probe, pinSource: pin.source };
+  // A probe that classified the copy it found, as `path` does a Nix shell's, names its own source.
+  return { pinSource: pin.source, ...probe };
 }
 
 /** What each override refusal asks for, by cause, as the run's refusal for the same pin does (D83). */
@@ -812,15 +846,15 @@ function needsInstall(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: Slot
 
 /**
  * Each tool that would run from `PATH` with nothing pinning it, with the
- * checks that run it and whether one runs by default. A tool the `--pins`
- * file pins resolves through its `override` source instead, as in a run.
+ * checks that run it and whether one runs by default: `unpinned` holds the
+ * checks whose row's probe resolved them through `path`, so a tool the
+ * `--pins` file pins, or a Nix dev shell's copy, isn't among them, as in a run.
  */
-function unpinnedTools(resolved: readonly ResolvedCheck[], ctx: Pick<SlotContext, 'repo' | 'defaultActive' | 'chainOf' | 'overrides'>): Map<string, { checks: string[]; byDefault: boolean }> {
-  const { defaultActive } = ctx;
+function unpinnedTools(unpinned: readonly ResolvedCheck[], defaultActive: ReadonlySet<string>): Map<string, { checks: string[]; byDefault: boolean }> {
   const tools = new Map<string, { checks: string[]; byDefault: boolean }>();
-  for (const r of resolved) {
+  for (const r of unpinned) {
     const tool = launchedTool(r);
-    if (tool === null || pinResolution(tool, launchAt(r, ctx))?.source !== 'path') continue;
+    if (tool === null) continue;
     const entry = tools.get(tool) ?? { checks: [], byDefault: false };
     tools.set(tool, { checks: [...entry.checks, checkName(r)], byDefault: entry.byDefault || defaultActive.has(checkName(r)) });
   }
@@ -1228,9 +1262,9 @@ async function checkRows(
   const skips = ctx.staticOnly ? staticSkips(resolved, await withStaticOnly(resolved, cwd)) : resolved.map(() => null);
   // Independent per-check probes: run them concurrently, `map` preserves order.
   const rows = await Promise.all(resolved.map((r, i) => classifySlot(r, ctx, skips[i] ?? null)));
-  // A check a static run skips runs no tool, unpinned or otherwise.
-  const launched = resolved.filter((_, i) => rows[i]?.skip === undefined);
-  return [...rows, ...unpinnedRows(unpinnedTools(launched, ctx), ctx.requirePins)];
+  // A check a static run skips runs no tool, unpinned or otherwise, and its row records no pin source.
+  const unpinned = resolved.filter((_, i) => rows[i]?.pinSource === 'path');
+  return [...rows, ...unpinnedRows(unpinnedTools(unpinned, ctx.defaultActive), ctx.requirePins)];
 }
 
 /** The reason `--static-only` gave each check in `before`, read from `after`, or `null` for one it left as it was. */

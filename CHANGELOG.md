@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A Nix dev shell's tools count as pinned.** Inside `nix develop`, a tool
+  from the Nix store read as `unpinned (from PATH)`, and `doctor` suggested
+  `mise use` for a copy the repo's flake already fixed (#9). Where a
+  `flake.nix`, `flake.lock`, `shell.nix`, `default.nix`, `devenv.nix`,
+  `devbox.json` or `.flox` sits between the check and the repo root, a copy
+  the shell put on `PATH` now records `pin_source: "nix"`, with the version
+  its store path names as `tool_version`, and passes `requirePins`. That
+  holds for `nix develop`, `nix-shell`, nix-direnv, devenv, devbox and flox.
+  A user's own profile, such as `~/.nix-profile`, stays unpinned: it's the
+  machine's, not the repo's. `doctor` reads the copy the same way and lists
+  no unpinned tool for it. [Packs](./docs/packs.md#pin-sources) has the rules.
+
 ### Changed
 
 - **oxlint runs type-aware only where `oxlint-tsgolint` is a dependency.**
@@ -44,8 +58,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   deliberate exception to legacy invariance. The invariance golden is
   re-recorded for the five examples it reaches, and the oxlint adapter's
   `description` reads "Oxlint, type-aware with oxlint-tsgolint".
+- Changed: in a repo with Nix files, a tool a Nix dev shell put on `PATH`
+  records `pin_source: "nix"` and a `tool_version` where 0.15 recorded
+  `path`, runs under `requirePins` where 0.15 refused it, and drops out of
+  `doctor`'s unpinned tools.
 
 #### Additive
+
+- `pin_source`, the summary schema's enum and the exported `PinSourceName`
+  type take `nix`. The contract now says outright that `pin_source` gains
+  values additively.
 
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other

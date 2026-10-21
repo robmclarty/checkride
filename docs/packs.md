@@ -56,7 +56,23 @@ head of every chain, that one included.
 | `uv-lock` | the `uv.lock` nearest the check's directory, up to the repo root, lists the tool's PyPI package, its name compared as PyPI compares names | the tool's executable in the project's environment: `.venv/bin/<tool>` beside the lock, which a workspace's members share, or `bin/<tool>` under the environment `UV_PROJECT_ENVIRONMENT` names, a relative one from the lock's directory; never through `uv` itself | the `version` of the lock's `[[package]]` entry for it, when the lock pins one version; a forked resolution that locks several records none |
 | `tf-version` | a `.terraform-version` or `.opentofu-version` from the check's directory up to the repo root, the nearest one, `.opentofu-version` first in one directory, for the CLI it names: `terraform` or `tofu` | that CLI from `PATH`, once `<cli> version -json` reports the release the file names, when it names one exactly | the file's release, when it names one exactly, such as `1.5.7` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which <tool>` confirms the pinned copy is installed | none, since mise owns version resolution |
+| `nix` | nothing else declares it, and the copy on `PATH` is a Nix dev shell's the repo declares (see below) | `<tool>` from `PATH`, pinned by the repo's Nix files | the version its store path names, such as `2.11.4` for `golangci-lint-2.11.4` |
 | `path` | nothing else declares it | `<tool>` from `PATH`, unpinned | none |
+
+No chain names `nix`: it's what the `path` step records when the copy it
+finds came from a Nix dev shell. The repo declares one with a `flake.nix`,
+`flake.lock`, `shell.nix`, `default.nix`, `devenv.nix`, `devbox.json` or
+`.flox` between the check's directory and the repo root. The copy counts
+when the `PATH` entry it came from lies inside the Nix store, as `nix
+develop`, `nix-shell`, nix-direnv and devenv put it there, or inside the repo,
+as devbox's profile does, and the copy resolves into the store. A user's
+profile, such as `~/.nix-profile/bin`, links into the store too, but it's the
+machine's, so its copy stays `path`. A tool its runner picks, as `cargo deny`
+picks `cargo-deny`, stays `path` as well, since the runner may run another
+copy. A `nix` copy passes `requirePins`, which a Nix repo can turn on to fail
+any tool the shell doesn't provide. An ad hoc `nix shell nixpkgs#<tool>` in a
+repo with Nix files counts too: the recorded version still says which copy
+ran.
 
 `uv-lock` declares only a tool that `TOOLS` gives a PyPI package: ruff, mypy,
 basedpyright and pytest.
@@ -89,7 +105,8 @@ for Rust, through its pack's chain, in a pack whose chain reads `mise`: a
 toolchain file pins `cargo`, recorded as `rust-toolchain`; `mise exec -- go`
 runs when a `mise.toml` up to the repo root pins `go`, recorded as
 `pin_source: "mise"`; and the `go` on `PATH` runs otherwise, recorded as
-`path`. A tool `go-mod-tool` declares runs through the
+`path`, or as `nix` with its version where a Nix dev shell the repo declares
+put it there. A tool `go-mod-tool` declares runs through the
 same `go`, and records `go-mod-tool`. A pinned `go` that mise can't run fails
 the check, as any mise pin does, and a `go` from `PATH` runs even under
 `requirePins`, since `go.mod`'s `go` line sets the oldest version it accepts
@@ -112,9 +129,11 @@ the checkout isn't the repo's pin.
    reaches for another copy, because that copy's version depends on the
    machine.
 3. When no source declares the tool and the chain names `path`, checkride
-   runs the tool from `PATH` and records `pin_source: "path"`. With
-   `requirePins: true` in `checkride.config.json`, the check fails instead,
-   with `<tool> is not pinned; pin it with: mise use <id>@<version>`.
+   runs the tool from `PATH` and records `pin_source: "path"`, or `"nix"`
+   with the version its store path names for a Nix dev shell's copy. With
+   `requirePins: true` in `checkride.config.json`, a `path` copy fails the
+   check instead, with
+   `<tool> is not pinned; pin it with: mise use <id>@<version>`.
    `mise use --pin <id>@latest` writes the newest version as an exact pin. A
    tool `PATH` doesn't have fails, naming how to install it.
 4. A chain without `path`, such as `ts`'s, lets its last source run a tool no
@@ -661,7 +680,9 @@ own executable (`go`, `gofmt`, `cargo`, and `terraform`, which runs as `tofu`
 where the version file names OpenTofu), are probed by asking the run's
 launcher: `ok` names what the run would spawn, with the source it resolves
 through and the version that source names, such as `tf-version 1.13.1`, and
-`missing` carries the refusal the run would fail with. Each tool nothing pins gets an **unpinned tools** row naming the checks
+`missing` carries the refusal the run would fail with. A tool from a Nix dev
+shell the repo declares reads as `nix` with its version, as the run records
+it. Each tool nothing pins gets an **unpinned tools** row naming the checks
 that run it and the `mise use` that would pin it: a warning, or with
 `requirePins: true` a failure (exit 1) when a check that runs by default
 uses it. Last, a **workspace** row lists the markers no target claims, the ones

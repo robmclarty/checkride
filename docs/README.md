@@ -26,8 +26,8 @@ Start here:
   the bash pack's file lists, and `unclaimed`.
 - **[Packs and pins](./packs.md)** — each pack's slots and tools, and how a
   check's tool resolves to the copy that runs: each pack's pin chain, its pin
-  sources (`js-lockfile`, `go-mod-tool`, `rust-toolchain`, `uv-lock`,
-  `tf-version`, `mise` and `path`), `requirePins`, and the spawn environment
+  sources (`override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`,
+  `uv-lock`, `tf-version`, `mise`, `nix` and `path`), `requirePins`, and the spawn environment
   that keeps a check from downloading anything. Read this to know which copy
   of a tool produced a finding.
 - **[A polyglot repo, end to end](./polyglot.md)** — a worked example: a

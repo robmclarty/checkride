@@ -28,6 +28,7 @@ import { SCHEMA_VERSION } from '../../src/adapters.js';
 import type { Adapter } from '../../src/adapters.js';
 import { runCli } from '../../src/cli.js';
 import { runChecks } from '../../src/index.js';
+import { PACKS } from '../../src/packs/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaPath = join(here, '..', '..', 'schema', 'checkride.summary.schema.json');
@@ -525,6 +526,19 @@ describe('summary.json shape', () => {
 
   test('the schema version constant is 1', () => {
     expect(SCHEMA_VERSION).toBe(1);
+  });
+
+  /**
+   * Contract: `pin_source` takes every source a run can record, and no other:
+   * each one a pack's chain names, `override` for a `--pins` copy, and the
+   * `nix` the `path` step records for a Nix dev shell's copy. A source added
+   * to a chain without the schema, or left in the schema after the last chain
+   * drops it, fails here.
+   */
+  test("pin_source's values are every chain's sources, override and nix", () => {
+    const pinSource = schema.definitions.check.properties['pin_source'] as { enum: string[] };
+    const recorded = new Set(['override', 'nix', ...Object.values(PACKS).flatMap((p) => p.pins)]);
+    expect([...pinSource.enum].toSorted()).toEqual([...recorded].toSorted());
   });
 
   /**

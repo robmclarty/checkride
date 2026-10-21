@@ -213,9 +213,9 @@ describe('docs/packs.md matches PACKS', () => {
     expect(rows).toEqual(packs.map((p) => [p.name, [...p.pins]]));
   });
 
-  test('the pin sources table has a row for every source a chain names, and override', () => {
+  test('the pin sources table has a row for every source a chain names, override, and the nix the path step records', () => {
     const rows = tableRows(PACKS_MD, 'Source', 'Declares a tool when').map(([source = '']) => backticked(source)[0]);
-    const sources = new Set(['override', ...packs.flatMap((p) => p.pins)]);
+    const sources = new Set(['override', 'nix', ...packs.flatMap((p) => p.pins)]);
     expect(rows.toSorted()).toEqual([...sources].toSorted());
   });
 

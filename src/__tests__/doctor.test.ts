@@ -831,6 +831,20 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(strict.exitCode).toBe(1);
   });
 
+  test("a Nix dev shell's copy records nix and its version, and is no unpinned tool, requirePins or not", async () => {
+    await put('scripts/a.sh', '#!/bin/sh\n');
+    const store = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-shfmt-3.12.0/bin/shfmt';
+    const nixShell: Partial<DoctorEnv> = {
+      which: (cmd: string) => Promise.resolve(cmd === 'shfmt' ? store : `/usr/bin/${cmd}`),
+      nixCopy: (found) => (found === store ? { version: '3.12.0' } : null),
+    };
+    for (const config of [bashTarget, { ...bashTarget, requirePins: true }]) {
+      const { report } = await doctor(config, nixShell);
+      expect(report.checks.find((c) => c.slot === 'scripts:format')).toMatchObject({ pinSource: 'nix', toolVersion: '3.12.0', status: 'ok', found: store });
+      expect(report.checks.filter((c) => c.category === 'pin').map((c) => c.name)).not.toContain('shfmt');
+    }
+  });
+
   test('a tool mise pins reports missing when mise is not on PATH', async () => {
     await put('scripts/.shellcheckrc', '');
     await put('mise.toml', '[tools]\nshellcheck = "0.11.0"\n');

@@ -112,10 +112,10 @@ export type SummaryCheck = {
   argv?: string[];
   /**
    * Present when the check's tool resolved through a pin source: the one that
-   * declared the copy that ran (`js-lockfile`, `mise`), or `path` for a tool
-   * nothing declared, found on `PATH`. A command spawned as written, a
-   * built-in and a skipped check have none. Additive field; `schema_version`
-   * holds.
+   * declared the copy that ran (`js-lockfile`, `mise`), `nix` for a copy a Nix
+   * dev shell the repo declares put on `PATH`, or `path` for a tool nothing
+   * declared, found on `PATH`. A command spawned as written, a built-in and a
+   * skipped check have none. Additive field; `schema_version` holds.
    */
   pin_source?: PinSourceName;
   /**

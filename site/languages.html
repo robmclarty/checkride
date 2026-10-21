@@ -441,6 +441,7 @@ class Component extends DCLogic {
       ['uv-lock', 'uv.lock lists the tool\'s PyPI package', 'the project environment\'s .venv/bin/<tool>, never uv itself'],
       ['tf-version', 'a .terraform-version or .opentofu-version names the CLI', 'terraform or tofu from PATH, once it reports the release the file names'],
       ['mise', 'a mise.toml up to the repo root pins it', 'mise exec -- <tool>, once mise finds the pinned copy installed'],
+      ['nix', 'nothing else declares it, and a Nix dev shell the repo declares put it on PATH', '<tool> from PATH, pinned by the repo\'s Nix files, at the version its store path names'],
       ['path', 'nothing else declares it', '<tool> from PATH, unpinned; refused under requirePins'],
       ['override', 'a --pins file names it: a reviewer\'s own toolbelt, ahead of every chain', 'mise exec <id>@<version> -- <tool>, with the repo\'s own mise config ignored'],
     ].map(([source, when, runs], i) => ({ source, when, runs, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
