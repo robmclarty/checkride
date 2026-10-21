@@ -400,6 +400,20 @@ config and a staticcheck pin both sit, golangci-lint fills `lint`. Two
 golangci-lint runs never overlap, in one target or across several, and the one
 that waits isn't started, so its timeout doesn't count the wait.
 
+Every go check also records the Go release it ran on, as
+`toolchain_version`, since a tool's findings can move with Go's while its own
+version stands still: golangci-lint compiles its type checker and gofmt in and
+type-checks through the `go` it finds, so a Nix bump that rebuilds it on a
+newer Go keeps its name, and a new Go minor deprecates stdlib API that
+staticcheck's `SA1019` reports. It's read without running `go`: the version
+the pin source named for `go` and `gofmt` themselves, the `go` a `go.mod` tool
+runs through where mise or `--pins` resolved it, `mise which --version go`
+for a tool mise runs, and otherwise the `VERSION` file at the GOROOT of the
+`go` the check's `PATH` finds. A baseline captured on one Go minor holds the
+check back from the ratchet on another; a patch release doesn't. `go.mod`'s
+`go` and `toolchain` lines can't stand in for it: the first is a minimum,
+and `GOTOOLCHAIN=local` ignores the second.
+
 Each row was checked against Go 1.27.2 and golangci-lint 2.14.0, the versions
 this repo's `mise.toml` pins, and against staticcheck 0.8.2, deadcode from
 x/tools 0.52.0 and govulncheck 1.9.0. A few flags differ from what a reader

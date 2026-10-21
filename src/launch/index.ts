@@ -12,8 +12,9 @@
  * `package-manager.ts`, the exec-prefix translation in `translate.ts`, where a
  * tool has to resolve from in `js-lockfile.ts`, and the refusals that mean a
  * package-manager script never launched at all in `refusal.ts`. How a repo
- * runs checkride itself, its entry command, is `entry.ts`. Siblings import
- * only from here.
+ * runs checkride itself, its entry command, is `entry.ts`, and the release of
+ * the toolchain a check's pack runs it on, which a run records beside its
+ * tool's, is `toolchain.ts`. Siblings import only from here.
  */
 
 export type { EntryCommand, EntryLike } from './entry.js';
@@ -41,5 +42,6 @@ export {
   pinDeclaration,
   pinResolution,
 } from './resolve.js';
+export { launchOnToolchain, packToolchain } from './toolchain.js';
 export { isAvailableUnder, translateExec } from './translate.js';
 export { dirsUpTo } from './walk.js';

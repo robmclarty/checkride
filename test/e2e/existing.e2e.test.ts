@@ -18,7 +18,7 @@ const BIG = { maxBuffer: 32 * 1024 * 1024 };
 const GO_EXAMPLE = join(here, '..', '..', 'examples', 'go-existing-baseline');
 
 type Config = { checks: Record<string, string | false> };
-type Baseline = { slots: Record<string, string[]> };
+type Baseline = { slots: Record<string, string[]>; captured_with?: Record<string, { pin_source: string; toolchain_version?: string }> };
 type Summary = { checks: { name: string; ok: boolean; baselined?: number }[] };
 /** The `ratchet` block of an example's `expected.json`; see examples/README.md. */
 type Ratchet = {
@@ -112,13 +112,20 @@ describeWithToolchain('go')('existing Go adoption', () => {
     expect(existsSync(join(dir, 'package.json'))).toBe(false);
 
     // The failing slot stays enabled, nothing is disabled, and the debt is
-    // exactly what the example commits.
+    // exactly what the example commits. The capture also records the Go
+    // release golangci-lint ran on, which the committed file leaves out, since
+    // a machine on another Go minor would hold its ratchet back.
     const cfg = await readJson<Config>(join(dir, 'checkride.config.json'));
     expect(cfg.checks['lint']).toBe('golangci-lint');
     expect(Object.keys(cfg.checks).filter((slot) => cfg.checks[slot] === false), 'adoption disabled a slot').toEqual([]);
-    expect(await readJson<Baseline>(join(dir, 'checkride.baseline.json'))).toEqual(
-      await readJson<Baseline>(join(GO_EXAMPLE, 'checkride.baseline.json')),
-    );
+    const captured = await readJson<Baseline>(join(dir, 'checkride.baseline.json'));
+    const committed = await readJson<Baseline>(join(GO_EXAMPLE, 'checkride.baseline.json'));
+    expect(captured.slots).toEqual(committed.slots);
+    expect(Object.keys(captured.captured_with ?? {})).toEqual(Object.keys(committed.captured_with ?? {}));
+    for (const [check, record] of Object.entries(captured.captured_with ?? {})) {
+      expect(record.pin_source, check).toBe(committed.captured_with?.[check]?.pin_source);
+      if (record.toolchain_version !== undefined) expect(record.toolchain_version, check).toMatch(/^\d+\.\d+/);
+    }
 
     // Masked: green, with all three findings grandfathered.
     expect((await runCli(dir, [])).code).toBe(0);

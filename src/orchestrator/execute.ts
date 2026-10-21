@@ -16,7 +16,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint, RanWith } from '../baseline/index.js';
 import { applyBaseline, baselineDrift, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { isAvailableUnder, packEnv, pinChain, setupHint } from '../launch/index.js';
+import { isAvailableUnder, packEnv, packToolchain, pinChain, setupHint } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
@@ -180,15 +180,16 @@ function selfSkipReason(r: ResolvedCheck, outcome: CheckOutcome): string | null 
 }
 
 /**
- * What the runner spawned, as the summary records it: the argv, and the pin
- * source and tool version it resolved through, with nothing for a check that
- * spawned no tool.
+ * What the runner spawned, as the summary records it: the argv, the pin
+ * source and tool version it resolved through, and the toolchain release it
+ * ran on, with nothing for a check that spawned no tool.
  */
-function spawnedFields(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv' | 'pin_source' | 'tool_version'> {
+function spawnedFields(outcome: RunnerOutcome): Pick<SummaryCheck, 'argv' | 'pin_source' | 'tool_version' | 'toolchain_version'> {
   return {
     ...(outcome.argv !== undefined ? { argv: outcome.argv } : {}),
     ...(outcome.pin_source !== undefined ? { pin_source: outcome.pin_source } : {}),
     ...(outcome.tool_version !== undefined ? { tool_version: outcome.tool_version } : {}),
+    ...(outcome.toolchain_version !== undefined ? { toolchain_version: outcome.toolchain_version } : {}),
   };
 }
 
@@ -328,10 +329,16 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const scope = { key: name, root: r.root, repoRoot: ctx.cwd, base: ctx.changedBase?.ref ?? null, out: place.outArg };
   const mask = maskOutcome(adapter, outcome, ctx.baseline, scope);
   const run = checkRun(r, adapter, outcome);
-  const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran }, mask);
+  const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
   return { entry, run, observed: ratchetFeed(name, mask, drift), newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
+}
+
+/** The toolchain a check's pack runs it on, by its executable, as a drift notice names its release. */
+function toolchainOf(r: ResolvedCheck): Pick<Drift, 'toolchain'> {
+  const toolchain = packToolchain(r.pack);
+  return toolchain === undefined ? {} : { toolchain };
 }
 
 /**
@@ -340,7 +347,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
  * for a check the baseline records no capture for, or a run that observed
  * nothing, which feeds the ratchet nothing anyway.
  */
-function driftOf(baseline: Baseline | null, check: { name: string; tool: string; ran: RanWith }, mask: MaskResult): Drift | null {
+function driftOf(baseline: Baseline | null, check: Pick<Drift, 'name' | 'tool' | 'toolchain'> & { ran: RanWith }, mask: MaskResult): Drift | null {
   const captured = baseline?.captured_with?.[check.name];
   if (captured === undefined || mask.observed === null || !baselineDrift(captured, check.ran)) return null;
   return { ...check, captured, newKeys: mask.newKeys.length, heldBack: unseen(baseline?.slots[check.name] ?? [], mask.observed) };

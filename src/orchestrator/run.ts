@@ -117,7 +117,7 @@ function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: bool
     if (churn === null) continue;
     writeLine(
       stderr,
-      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured)}; this run used ${d.tool} ${copyNamed(d.ran)}: ${churn}. Run under the copy the baseline was captured with, or have a human re-record the baseline.`,
+      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured, d.toolchain)}; this run used ${d.tool} ${copyNamed(d.ran, d.toolchain)}: ${churn}. Run under the copy the baseline was captured with, or have a human re-record the baseline.`,
     );
   }
 }

@@ -24,6 +24,7 @@ import { join } from 'node:path';
 import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import { copyNamed, findingText, fingerprint } from '../baseline/index.js';
+import { packToolchain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
@@ -121,7 +122,8 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
 function driftNote(check: SummaryCheck, tool: string): string {
   const captured = check.baseline_captured_with;
   if (captured === undefined) return '';
-  return `\n_The baseline was captured with ${tool} ${copyNamed(captured)}, and this run used ${tool} ${copyNamed(check)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human re-record the baseline._\n`;
+  const toolchain = packToolchain(check.pack);
+  return `\n_The baseline was captured with ${tool} ${copyNamed(captured, toolchain)}, and this run used ${tool} ${copyNamed(check, toolchain)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human re-record the baseline._\n`;
 }
 
 /**

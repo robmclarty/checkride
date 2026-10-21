@@ -24,8 +24,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and checked with another reported 3 "new" findings and lost 6 keys with no
   code change (#9). `checkride baseline` now writes `captured_with`: for each
   check whose tool resolved through a pin source, that source and the version
-  it named. A run whose copy differs, by version where both sides name one
-  and by source otherwise, still fails on a new key. The difference is named in the
+  it named, and for a go check the Go release it ran on. Every go check
+  records that release as `toolchain_version`, read without running `go`,
+  since golangci-lint compiles gofmt and its type checker in, and a Nix bump
+  can move Go under a golangci-lint that keeps its name. A run whose copy
+  differs, by a Go release on another minor line, by version where both sides
+  name one, and by source otherwise, still fails on a new key. The difference is named in the
   summary as `baseline_captured_with`, in that check's digest section, and in
   a `baseline:` line on stderr, which says how many keys are new and how many
   the ratchet held back. The ratchet prunes none of that check's keys, so a
@@ -111,6 +115,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `captured_with`. A summary
   check, its schema and the exported `SummaryCheck` type take
   `baseline_captured_with`.
+- A summary check, its schema and the exported `SummaryCheck` type take
+  `toolchain_version`, the release of the toolchain a go check ran on, which a
+  `captured_with` record and `baseline_captured_with` carry too. The exported
+  `Pack` type takes `toolchain`, which the go pack sets to `go`.
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
   byte kept, nothing written on a second run.

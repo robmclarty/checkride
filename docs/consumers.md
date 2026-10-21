@@ -172,5 +172,6 @@ A finding with `gates: true` failed its check; key a review comment on its
 output it can't trust, so the raw artifact stays the authority and the check's
 `ok` stays the verdict. Each entry also says why it ran (`origin`, and
 `detected_by` when detection chose its tool), which copy ran (`pin_source`,
-`tool_version`) and exactly what it spawned (`argv`), and the summary's `run`
+`tool_version`, and for a go check `toolchain_version`, the Go release it ran
+on) and exactly what it spawned (`argv`), and the summary's `run`
 and `git` say what the run covered and which commit it read.

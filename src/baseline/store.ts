@@ -25,11 +25,12 @@ export const BASELINE_SCHEMA_VERSION = 1;
 
 /**
  * How a check's keys were captured: the pin source its tool resolved through,
- * and the version that source named, a file's or the one mise resolved, when
- * it named one. A string rather than a pin source name, so a file a newer
+ * the version that source named, a file's or the one mise resolved, when it
+ * named one, and the release of the toolchain the tool ran on, for a pack
+ * that names one. A string rather than a pin source name, so a file a newer
  * checkride wrote reads whole.
  */
-export type Captured = { pin_source: string; tool_version?: string };
+export type Captured = { pin_source: string; tool_version?: string; toolchain_version?: string };
 
 /** Shape of `checkride.baseline.json`: per-slot sets of grandfathered keys. */
 export type Baseline = {
@@ -44,8 +45,8 @@ export type Baseline = {
   captured_with?: Record<string, Captured>;
 };
 
-/** How a check's tool ran this time, as its summary entry records it: either field absent for a check that recorded none. */
-export type RanWith = { pin_source?: string; tool_version?: string };
+/** How a check's tool ran this time, as its summary entry records it: any field absent for a check that recorded none. */
+export type RanWith = { pin_source?: string; tool_version?: string; toolchain_version?: string };
 
 /** The result of masking one slot's current fingerprint with its baseline. */
 export type BaselineAdjustment = {
@@ -91,8 +92,9 @@ export function parseBaseline(raw: string): Baseline | null {
 /**
  * The `captured_with` a parsed file holds, read as tolerantly as its slots:
  * an entry that isn't an object with a `pin_source` string is dropped, a
- * `tool_version` that isn't a string is dropped from its entry, and an entry
- * for a check `slots` doesn't hold is dropped, since it records nothing.
+ * `tool_version` or `toolchain_version` that isn't a string is dropped from
+ * its entry, and an entry for a check `slots` doesn't hold is dropped, since
+ * it records nothing.
  */
 function parseCaptured(raw: unknown, slots: Readonly<Record<string, string[]>>): Record<string, Captured> {
   const captured: Record<string, Captured> = {};
@@ -107,13 +109,33 @@ function parseCaptured(raw: unknown, slots: Readonly<Record<string, string[]>>):
 /** One `captured_with` entry, or `null` when it names no pin source. */
 function readCaptured(entry: unknown): Captured | null {
   if (!isRecord(entry) || typeof entry['pin_source'] !== 'string' || entry['pin_source'] === '') return null;
-  const version = entry['tool_version'];
-  return capturedAs(entry['pin_source'], typeof version === 'string' && version !== '' ? version : undefined);
+  return capturedAs(entry['pin_source'], optionalString(entry['tool_version']), optionalString(entry['toolchain_version']));
 }
 
-/** A record with its fields in the one order the file writes them: `pin_source`, then `tool_version` when there is one. */
-function capturedAs(pinSource: string, toolVersion: string | undefined): Captured {
-  return toolVersion === undefined ? { pin_source: pinSource } : { pin_source: pinSource, tool_version: toolVersion };
+/** An optional field of a `captured_with` entry as it reads: a string that isn't empty, else nothing. */
+function optionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+/**
+ * A record with its fields in the one order the file writes them:
+ * `pin_source`, then `tool_version` and `toolchain_version` when there are.
+ */
+function capturedAs(pinSource: string, toolVersion: string | undefined, toolchainVersion: string | undefined): Captured {
+  return {
+    pin_source: pinSource,
+    ...(toolVersion !== undefined ? { tool_version: toolVersion } : {}),
+    ...(toolchainVersion !== undefined ? { toolchain_version: toolchainVersion } : {}),
+  };
+}
+
+/**
+ * The record a capture writes for a check that ran as `ran`, as its summary
+ * entry records it: its pin source and the versions it named, in the file's
+ * order, or `undefined` for a check whose tool resolved through no pin source.
+ */
+export function capturedRecord(ran: RanWith): Captured | undefined {
+  return ran.pin_source === undefined ? undefined : capturedAs(ran.pin_source, ran.tool_version, ran.toolchain_version);
 }
 
 /** `captured_with` as a baseline spreads it: present only when it records a check. */
@@ -242,20 +264,50 @@ function renamedCaptured(captured: Readonly<Record<string, Captured>> | undefine
 
 /**
  * Whether a check ran another copy of its tool than the one its keys were
- * captured with, so its keys may have churned. Where both sides name a
- * version, a different version is another copy, whatever source named it.
- * Where either names none, a different pin source is, such as a capture from
- * `PATH` and a run in a Nix dev shell. So a record from before mise reported
- * the version it resolved, which names none, never drifts from a run through
- * mise.
+ * captured with, so its keys may have churned. A toolchain on another minor
+ * release is another copy ({@link toolchainMoved}). Past that, where both
+ * sides name a version, a different version is another copy, whatever source
+ * named it. Where either names none, a different pin source is, such as a
+ * capture from `PATH` and a run in a Nix dev shell. So a record from before
+ * mise reported the version it resolved, which names none, never drifts from
+ * a run through mise.
  */
 export function baselineDrift(captured: Captured, ran: RanWith): boolean {
+  if (toolchainMoved(captured, ran)) return true;
   if (captured.tool_version !== undefined && ran.tool_version !== undefined) return captured.tool_version !== ran.tool_version;
   return captured.pin_source !== ran.pin_source;
 }
 
-/** A copy of a tool as a drift notice names it: its version and pin source, or where it came from when that names no version. */
-export function copyNamed(copy: RanWith): string {
+/**
+ * Whether both sides name the toolchain's release and they're on different
+ * minor lines: Go 1.25.3 and 1.26.0 are, and 1.25.3 and 1.25.5 aren't, since
+ * a Go patch release fixes bugs and a minor one changes the type checker,
+ * gofmt and what the standard library deprecates. A record or run that names
+ * no toolchain release never moves it.
+ */
+function toolchainMoved(captured: Captured, ran: RanWith): boolean {
+  if (captured.toolchain_version === undefined || ran.toolchain_version === undefined) return false;
+  return minorLine(captured.toolchain_version) !== minorLine(ran.toolchain_version);
+}
+
+/** A release's `major.minor`, `1.25` for `1.25.3` or `1.25rc1`, or the whole string when it has none. */
+function minorLine(version: string): string {
+  return /^\d+\.\d+/.exec(version)?.[0] ?? version;
+}
+
+/**
+ * A copy of a tool as a drift notice names it: its version and pin source, or
+ * where it came from when that names no version, then the toolchain release it
+ * ran on, by `toolchain`'s name, when it records one: `2.11.4 (nix) on go
+ * 1.25.3`.
+ */
+export function copyNamed(copy: RanWith, toolchain?: string): string {
+  const named = toolCopyNamed(copy);
+  return copy.toolchain_version === undefined ? named : `${named} on ${toolchain ?? 'its toolchain'} ${copy.toolchain_version}`;
+}
+
+/** The tool's half of {@link copyNamed}: its version and pin source, or where it came from. */
+function toolCopyNamed(copy: RanWith): string {
   if (copy.tool_version !== undefined) return `${copy.tool_version} (${copy.pin_source ?? 'no pin source'})`;
   if (copy.pin_source === 'path') return 'from PATH';
   return copy.pin_source === undefined ? 'with no pin source' : `through ${copy.pin_source}`;
@@ -269,7 +321,8 @@ export function countBaselineKeys(baseline: Baseline): number {
 /**
  * Sorted-slots, sorted-unique-keys copy — the one shape the file is ever
  * written in — with `captured_with` after the slots, sorted, holding only the
- * checks the slots do, and left out when it holds none.
+ * checks the slots do, each entry's fields in their one order, and left out
+ * when it holds none.
  */
 function canonicalize(base: Baseline): Baseline {
   const slots: Record<string, string[]> = {};
@@ -277,7 +330,7 @@ function canonicalize(base: Baseline): Baseline {
   const captured: Record<string, Captured> = {};
   for (const check of Object.keys(slots)) {
     const entry = base.captured_with?.[check];
-    if (entry !== undefined) captured[check] = capturedAs(entry.pin_source, entry.tool_version);
+    if (entry !== undefined) captured[check] = capturedAs(entry.pin_source, entry.tool_version, entry.toolchain_version);
   }
   return { schema_version: base.schema_version, slots, ...withCaptured(captured) };
 }

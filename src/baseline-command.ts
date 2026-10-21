@@ -31,6 +31,7 @@ import type { Baseline, Captured } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
+  capturedRecord,
   diffBaselines,
   isFingerprintable,
   loadBaseline,
@@ -120,8 +121,7 @@ function capturedWith(
 
 /** The capture record a summary entry gives, or none for a check that resolved through no pin source. */
 function capturedFrom(check: SummaryCheck | undefined): Captured | undefined {
-  if (check?.pin_source === undefined) return undefined;
-  return check.tool_version === undefined ? { pin_source: check.pin_source } : { pin_source: check.pin_source, tool_version: check.tool_version };
+  return check === undefined ? undefined : capturedRecord(check);
 }
 
 /** The baseline a capture writes: its keys, and how each check's were captured when any check records it. */

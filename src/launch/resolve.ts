@@ -44,13 +44,14 @@ import { environmentTool, projectEnvironment, uvLockDeclaration } from './uv.js'
  * A process to start: the executable, its arguments, the variables it sets
  * over the inherited environment, and the pin it resolved through, with the
  * version a file read found for it, or the one the pin source itself resolved
- * (R6.3). A command spawned as written resolved through none.
+ * (R6.3), and the version of the toolchain the tool runs on, where the launch
+ * knows it. A command spawned as written resolved through none.
  */
 export type Spawn = {
   command: string;
   args: string[];
   env?: Readonly<Record<string, string>>;
-  pin?: { source: PinSourceName; version?: string };
+  pin?: { source: PinSourceName; version?: string; toolchain?: string };
 };
 
 /**
@@ -89,6 +90,13 @@ export type LaunchContext = {
    * skips as one that needs an install, rather than spawn a launcher that fails.
    */
   staticOnly?: boolean;
+  /**
+   * The toolchain the check's pack runs every check on, by its executable,
+   * such as `go`, whose version `launchOnToolchain` records on the spawn's
+   * pin. `launchCheck` reads nothing from it, so a launch that never sets it,
+   * as `fix` and `doctor` don't, spawns nothing to find it.
+   */
+  toolchain?: string;
 };
 
 /**
@@ -236,8 +244,9 @@ function misePin(can: { stdout: string }): NonNullable<Spawn['pin']> {
 /**
  * The `go-mod-tool` source: a tool the `go.mod` nearest the check declares in
  * a `tool` directive, run as `go tool <bin>` through the Go toolchain, with the
- * version `go.mod` requires for its module (R6.1, R6.3). A tool `TOOLS` gives
- * no `goTool` path is never declared here.
+ * version `go.mod` requires for its module (R6.1, R6.3), and the Go release
+ * the toolchain resolved to where it resolved through a pin. A tool `TOOLS`
+ * gives no `goTool` path is never declared here.
  */
 const GO_MOD_TOOL: Source = {
   declares: (req) => {
@@ -248,9 +257,18 @@ const GO_MOD_TOOL: Source = {
     const launch = viaToolchain(req, GO_TOOLCHAIN, ['tool', req.tool.bin, ...req.args]);
     if ('refusal' in launch) return launch;
     const version = declared?.goMod?.version;
-    return { ...launch, pin: { source: 'go-mod-tool', ...(version !== undefined ? { version } : {}) } };
+    return { ...launch, pin: { source: 'go-mod-tool', ...(version !== undefined ? { version } : {}), ...toolchainKept(launch.pin) } };
   },
 };
+
+/**
+ * The version of the toolchain a tool runs through, kept as the tool's
+ * `toolchain` when its own source takes over the pin: the release mise or the
+ * `--pins` file resolved the `go` to. A `go` from `PATH` names none here.
+ */
+function toolchainKept(pin: Spawn['pin']): { toolchain?: string } {
+  return pin?.version === undefined ? {} : { toolchain: pin.version };
+}
 
 /**
  * The `rust-toolchain` source: a rustup component, such as clippy, that a

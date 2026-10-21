@@ -49,6 +49,14 @@ export type Pack = {
   /** Variables this pack's checks run with, over the user's own. */
   env: Readonly<Record<string, string>>;
   /**
+   * The toolchain every check of the pack runs on, by its executable: `go`
+   * for the go pack, whose tools type-check and analyze through the `go`
+   * they find, so a new Go release can re-key their findings with no change
+   * to the tool. Each check records that toolchain's version beside its own
+   * tool's, as `toolchain_version`. Omitted, the pack's checks record none.
+   */
+  toolchain?: string;
+  /**
    * The pack's adapter rows. The FIRST adapter for a slot is its blessed
    * default: it wins detection when several tool configs coexist, and is the
    * only one `init` generates config for.

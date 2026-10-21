@@ -1853,6 +1853,36 @@ describe('runChecks (a baseline captured with another copy of the tool)', () => 
     expect((JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline).slots['lint']).toEqual([KEY_A]);
   });
 
+  test("a go check whose toolchain moved a minor release is held back, its notice naming the go each copy ran on", async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/m\n\ngo 1.25\n');
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    const issues = JSON.stringify({ Issues: [{ FromLinter: 'unused', Text: 'var a is unused', Pos: { Filename: 'm.go', Line: 3 } }] });
+    const lintRun = (toolchain: string): CheckRunner => (r) =>
+      Promise.resolve(
+        r.slot === 'lint'
+          ? { ok: false, exit_code: 1, stdout: issues, stderr: '', pin_source: 'nix', tool_version: '2.11.4', toolchain_version: toolchain }
+          : { ok: true, exit_code: 0, stdout: '', stderr: '' },
+      );
+    const baseline: Baseline = {
+      schema_version: 1,
+      slots: { lint: ['m.go:unused:var a is unused', 'm.go:unused:var b is unused'] },
+      captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' } },
+    };
+    const go = (toolchain: string) => {
+      const stderr = sink();
+      return runChecks({ cwd: dir, config: null, runner: lintRun(toolchain), baseline, json: false, stdout: sink().out, stderr: stderr.out })
+        .then((result) => ({ text: stderr.lines.join(''), lint: result.summary.checks.find((c) => c.name === 'lint') }));
+    };
+    const moved = await go('1.26.0');
+    expect(moved.lint).toMatchObject({ ok: true, pack: 'go', toolchain_version: '1.26.0', baseline_captured_with: baseline.captured_with?.['lint'] });
+    expect(moved.text).toContain('baseline: lint was captured with golangci-lint 2.11.4 (nix) on go 1.25.3; this run used golangci-lint 2.11.4 (nix) on go 1.26.0: 1 held back from the ratchet.');
+    expect(existsSync(baselineFile())).toBe(false);
+
+    const patched = await go('1.25.5');
+    expect(patched.lint).not.toHaveProperty('baseline_captured_with');
+    expect((JSON.parse(await readFile(baselineFile(), 'utf8')) as Baseline).slots['lint']).toEqual(['m.go:unused:var a is unused']);
+  });
+
   test('a baseline with no record ratchets as before, whatever copy ran', async () => {
     const { lint } = await run(capturedWith(undefined), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'nix', tool_version: '2.11.4' }));
     expect(lint).not.toHaveProperty('baseline_captured_with');

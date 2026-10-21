@@ -13,9 +13,10 @@ import { join, resolve as resolvePath } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
 import { CHECK_DIR } from '../artifacts/index.js';
+import type { ResolvedCheck } from '../config.js';
 import { DEFAULT_BASE } from '../git.js';
 import type { LaunchContext, Spawn } from '../launch/index.js';
-import { commandBin, launchCheck } from '../launch/index.js';
+import { commandBin, launchCheck, launchOnToolchain, packToolchain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
@@ -233,10 +234,17 @@ async function spawnTool(launch: Spawn, cwd: string, timeoutSec: number): Promis
   const started = !interrupted;
   const outcome = await spawnCheck(launch.command, launch.args, cwd, timeoutSec, launch.env);
   if (!started) return outcome;
-  const pin = launch.pin === undefined
-    ? {}
-    : { pin_source: launch.pin.source, ...(launch.pin.version !== undefined ? { tool_version: launch.pin.version } : {}) };
-  return { ...outcome, argv: [launch.command, ...launch.args], ...pin };
+  return { ...outcome, argv: [launch.command, ...launch.args], ...pinFields(launch.pin) };
+}
+
+/** What a spawn's pin records on its outcome: the source it resolved through, the version it named, and the release of the toolchain it ran on. */
+function pinFields(pin: Spawn['pin']): Pick<RunnerOutcome, 'pin_source' | 'tool_version' | 'toolchain_version'> {
+  if (pin === undefined) return {};
+  return {
+    pin_source: pin.source,
+    ...(pin.version !== undefined ? { tool_version: pin.version } : {}),
+    ...(pin.toolchain !== undefined ? { toolchain_version: pin.toolchain } : {}),
+  };
 }
 
 /**
@@ -255,6 +263,16 @@ function launchContext(ctx: Parameters<CheckRunner>[1]): LaunchContext {
     ...(ctx.overrides !== undefined ? { overrides: ctx.overrides } : {}),
     ...(ctx.staticOnly === true ? { staticOnly: true } : {}),
   };
+}
+
+/**
+ * What the launcher reads to resolve a check's own tool: {@link launchContext},
+ * and the toolchain the check's pack runs every check on, whose release the
+ * spawn records beside the tool's.
+ */
+function toolLaunchContext(resolved: ResolvedCheck, ctx: Parameters<CheckRunner>[1]): LaunchContext {
+  const toolchain = packToolchain(resolved.pack);
+  return toolchain === undefined ? launchContext(ctx) : { ...launchContext(ctx), toolchain };
 }
 
 /** What a built-in runs with: its adapter, the runner's context, and the spawn and timeout its subprocesses go through. */
@@ -405,7 +423,8 @@ function missingSetupOutcome(adapter: Adapter, ctx: Parameters<CheckRunner>[1]):
  * launcher's own refusal (a tool the project never installed, a pin whose
  * source can't run it, an unpinned tool under `requirePins`), or
  * `missingSetupOutcome`. Only the path past all three spawns the check's own
- * tool, so only it records `argv` and the pin.
+ * tool, so only it records `argv` and the pin, with the release of the
+ * toolchain the check's pack runs it on.
  */
 export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const adapter = resolved.adapter;
@@ -416,7 +435,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   if (builtin) return builtin;
   const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
-  const launch = launchCheck(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
+  const launch = launchOnToolchain(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), toolLaunchContext(resolved, ctx));
   if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));
   const missingSetup = missingSetupOutcome(adapter, ctx);
   if (missingSetup) return Promise.resolve(missingSetup);

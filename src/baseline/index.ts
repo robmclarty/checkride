@@ -25,6 +25,7 @@ export {
   BASELINE_SCHEMA_VERSION,
   baselineDrift,
   baselinesEqual,
+  capturedRecord,
   copyNamed,
   countBaselineKeys,
   loadBaseline,

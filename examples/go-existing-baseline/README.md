@@ -67,7 +67,9 @@ finding, so an `errcheck` finding and an `unused` one in the same file are
 different keys. `captured_with` says the keys were captured with the
 golangci-lint on `PATH`: a later run with another copy, a pinned version or a
 Nix shell's, keeps these keys from the ratchet and says so, since a new
-golangci-lint can word a finding differently.
+golangci-lint can word a finding differently. A capture also records the Go
+release golangci-lint ran on as `toolchain_version`, which this committed copy
+leaves out so that a machine on another Go minor still ratchets it.
 
 ## How it was adopted
 
@@ -92,8 +94,8 @@ It also writes `checkride.config.json`, `AGENTS.md`, `CLAUDE.md`, a
 `.gitignore` and the stop hook. This example commits only the baseline: the
 checks the config names are the ones detection picks without it.
 
-The end-to-end suite runs that adoption and asserts it writes this exact
-baseline, so the committed file can't drift from what `init` produces.
+The end-to-end suite runs that adoption and asserts it writes these keys and
+this pin source, so the committed file can't drift from what `init` produces.
 
 ## Prove the three properties
 

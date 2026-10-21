@@ -18,7 +18,10 @@
  * `GOPROXY=off` fails a module missing from the module cache, rather than
  * download it, so a repo runs `go mod download` first. `GOFLAGS` is left alone:
  * Go 1.24 already refuses to rewrite `go.mod` during a build, and
- * `-mod=readonly` would make Go ignore a module's `vendor/` (D54).
+ * `-mod=readonly` would make Go ignore a module's `vendor/` (D54). Every
+ * check records the version of the `go` it ran on as `toolchain_version`:
+ * golangci-lint's type checker and gofmt are compiled in, and go/packages runs
+ * the `go` it finds, so a Go upgrade can re-key a finding no tool upgrade did.
  *
  * Each row's flags were checked against the versions this repo's `mise.toml`
  * pins (go 1.27.2, golangci-lint 2.14.0) and the latest `go get -tool` copies
@@ -35,6 +38,7 @@ export const GO_PACK: Pack = {
   markers: GO_ROOT,
   pins: ['go-mod-tool', 'mise', 'path'],
   env: { GOTOOLCHAIN: 'local', GOPROXY: 'off' },
+  toolchain: 'go',
   adapters: [
     {
       name: 'go-build',

@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 import { PACKS } from '../../packs/index.js';
 import type { PinSourceName, Tool } from '../../packs/index.js';
 import type { Launch, LaunchContext, PackageManager } from '../index.js';
-import { installCommand, isReadableSource, launchCheck, pinChain } from '../index.js';
+import { installCommand, isReadableSource, launchCheck, launchOnToolchain, pinChain } from '../index.js';
 
 /** An exec-form invocation of a tool no ancestor directory can plausibly hold. */
 const ABSENT = ['exec', 'checkride-nonexistent-tool'];
@@ -304,6 +304,147 @@ describe('the mise source records the version mise resolved (R6.3)', () => {
         command: 'mise',
         pin: { source: 'go-mod-tool', version: 'v0.30.0' },
       });
+    }));
+});
+
+/** A `go` and `gofmt` on the scratch PATH whose GOROOT's `VERSION` names `release`, as an install of that Go release does. */
+async function goOnPath(s: Scratch, release: string): Promise<void> {
+  await s.tool('go');
+  await s.tool('gofmt');
+  await writeFile(join(s.bin, '..', 'VERSION'), `go${release}\ntime 2026-10-02T20:28:03Z\n`);
+}
+
+/**
+ * A mise that answers `which --version <bin>` with the version `versions`
+ * gives each bin it knows, fails for any other the way mise does, and appends
+ * every question it's asked to `<bin>/mise.asked`.
+ */
+function miseKnowing(versions: Readonly<Record<string, string>>): string {
+  return [
+    'echo "$*" >> "$0.asked"',
+    'if [ "$1" = which ] && [ "$2" = --version ]; then',
+    '  case "$3" in',
+    ...Object.entries(versions).map(([bin, version]) => `    ${bin}) echo "${version}"; exit 0 ;;`),
+    '  esac',
+    '  echo "mise ERROR $3 is not a mise bin" >&2',
+    '  exit 1',
+    'fi',
+  ].join('\n');
+}
+
+/** The questions a {@link miseKnowing} mise was asked, one per line. */
+async function miseAsked(s: Scratch): Promise<string[]> {
+  return (await readFile(join(s.bin, 'mise.asked'), 'utf8').catch(() => '')).split('\n').filter(Boolean);
+}
+
+const GOLANGCI = ['exec', 'golangci-lint', 'run', '--output.json.path=stdout', './...'];
+
+/**
+ * A go check records the Go release its tool ran on, as `toolchain`, found
+ * the way the launch knows it best: the toolchain's own pin, the `go` a
+ * `go.mod` tool runs through, mise's answer for a tool mise runs, else the
+ * `VERSION` file of the `go` on `PATH`. Never by running `go`.
+ */
+describe('a go check records the Go release it ran on', () => {
+  const GO = { pins: GO_CHAIN, toolchain: 'go' } as const;
+
+  test('go and gofmt from PATH record the release their GOROOT names', () =>
+    withScratch(async (s) => {
+      await goOnPath(s, '1.26.1');
+      expect(launchOnToolchain('vet', 'go', ['vet', './...'], s.at('.', GO))).toEqual({
+        command: 'go',
+        args: ['vet', './...'],
+        env: { MISE_EXEC_AUTO_INSTALL: 'false', MISE_NOT_FOUND_AUTO_INSTALL: 'false' },
+        pin: { source: 'path', toolchain: '1.26.1' },
+      });
+      expect(launchOnToolchain('format', 'gofmt', ['-l', '.'], s.at('.', GO))).toMatchObject({ pin: { source: 'path', toolchain: '1.26.1' } });
+    }));
+
+  test('a go mise pins records the release mise resolved, asking mise once', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\ngo = "1.27"\n');
+      await s.tool('mise', miseKnowing({ go: '1.27.2', gofmt: '1.27.2' }));
+      await goOnPath(s, '1.26.1');
+      expect(launchOnToolchain('vet', 'go', ['vet', './...'], s.at('.', GO))).toMatchObject({
+        command: 'mise',
+        pin: { source: 'mise', version: '1.27.2', toolchain: '1.27.2' },
+      });
+      expect(await miseAsked(s)).toEqual(['which --version go']);
+    }));
+
+  test('a go.mod tool records the go it runs through: the release mise resolved, else the one on PATH', () =>
+    withScratch(async (s) => {
+      await s.file('go.mod', GO_MOD_WITH_TOOL);
+      await goOnPath(s, '1.26.1');
+      const at = s.at('.', { ...GO, tools: [DEADCODE] });
+      expect(launchOnToolchain('dead', 'pnpm', RUN_DEADCODE, at)).toMatchObject({
+        command: 'go',
+        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: '1.26.1' },
+      });
+      await s.file('mise.toml', '[tools]\ngo = "1.27"\n');
+      await s.tool('mise', miseKnowing({ go: '1.27.2' }));
+      expect(launchOnToolchain('dead', 'pnpm', RUN_DEADCODE, at)).toMatchObject({
+        command: 'mise',
+        pin: { source: 'go-mod-tool', version: 'v0.30.0', toolchain: '1.27.2' },
+      });
+      expect(await miseAsked(s)).toEqual(['which --version go']);
+    }));
+
+  test('golangci-lint from PATH records the go its PATH finds', () =>
+    withScratch(async (s) => {
+      await s.tool('golangci-lint');
+      await goOnPath(s, '1.26.1');
+      expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
+        command: 'golangci-lint',
+        pin: { source: 'path', toolchain: '1.26.1' },
+      });
+    }));
+
+  test('golangci-lint through mise records the go mise resolves for it, else the go on PATH', () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\ngolangci-lint = "2.14"\ngo = "1.27"\n');
+      await s.tool('mise', miseKnowing({ 'golangci-lint': '2.14.0', go: '1.27.2' }));
+      await goOnPath(s, '1.26.1');
+      expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
+        command: 'mise',
+        pin: { source: 'mise', version: '2.14.0', toolchain: '1.27.2' },
+      });
+      expect(await miseAsked(s)).toEqual(['which --version golangci-lint', 'which --version go']);
+      await s.file('mise.toml', '[tools]\ngolangci-lint = "2.14"\n');
+      await s.tool('mise', miseKnowing({ 'golangci-lint': '2.14.0' }));
+      expect(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO))).toMatchObject({
+        pin: { source: 'mise', version: '2.14.0', toolchain: '1.26.1' },
+      });
+    }));
+
+  test('with no go to read a release from, the check records none', () =>
+    withScratch(async (s) => {
+      await s.tool('golangci-lint');
+      const launch = launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO));
+      expect(launch).toMatchObject({ pin: { source: 'path' } });
+      expect(launch).not.toHaveProperty('pin.toolchain');
+    }));
+
+  test("a launch that names no toolchain, a pack's with none or fix's, asks mise nothing more and records none", () =>
+    withScratch(async (s) => {
+      await s.file('mise.toml', '[tools]\ngolangci-lint = "2.14"\ngo = "1.27"\nshellcheck = "0.11"\n');
+      await s.tool('mise', miseKnowing({ 'golangci-lint': '2.14.0', go: '1.27.2', shellcheck: '0.11.0' }));
+      for (const launch of [
+        launchCheck('lint', 'pnpm', GOLANGCI, s.at('.', { pins: GO_CHAIN })),
+        launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', { pins: GO_CHAIN })),
+        launchOnToolchain('lint', 'pnpm', SHELLCHECK, s.at('.', { pins: MISE_THEN_PATH, toolchain: 'shellcheck' })),
+      ]) {
+        expect(launch).toMatchObject({ command: 'mise', pin: { source: 'mise' } });
+        expect(launch).not.toHaveProperty('pin.toolchain');
+      }
+      expect(await miseAsked(s)).not.toContain('which --version go');
+    }));
+
+  test('a refusal, and a command spawned as written through no pin source, launch as they would', () =>
+    withScratch(async (s) => {
+      await goOnPath(s, '1.26.1');
+      expect(launchOnToolchain('custom', 'make', ['check'], s.at('.', GO))).toEqual({ command: 'make', args: ['check'] });
+      expect(refusalOf(launchOnToolchain('lint', 'pnpm', GOLANGCI, s.at('.', GO)))).toContain('which no source in its pin chain provides');
     }));
 });
 

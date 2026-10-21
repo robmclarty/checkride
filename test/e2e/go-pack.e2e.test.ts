@@ -31,6 +31,11 @@ const GO_TOOLS = ['golang.org/x/tools/cmd/deadcode@v0.52.0', 'honnef.co/go/tools
 const MAIN = 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println(greet("go")) }\n\nfunc greet(name string) string { return "hello, " + name }\n';
 const MAIN_TEST = 'package main\n\nimport "testing"\n\nfunc TestGreet(t *testing.T) {\n\tif greet("go") != "hello, go" {\n\t\tt.Fatal("wrong greeting")\n\t}\n}\n';
 
+/** The release of the go this machine's PATH runs, as `go env GOVERSION` names it without its `go`, which a check run here records. */
+function goRelease(): string {
+  return execFileSync('go', ['env', 'GOVERSION'], { encoding: 'utf8', cwd: tmpdir(), env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim().replace(/^go/, '');
+}
+
 type Check = Record<string, unknown>;
 type Run = { code: number; stderr: string; checks: Map<string, Check> };
 
@@ -82,7 +87,8 @@ describeWithToolchain('go')('the go pack', () => {
       ok: true, adapter: 'go-build', argv: ['go', 'build', '-o', '/dev/null', '-json', './...'],
     });
     expect(checks.get('api:format')).toMatchObject({ ok: true, adapter: 'gofmt' });
-    expect(checks.get('api:lint')).toMatchObject({ ok: true, adapter: 'golangci-lint', output_file: 'api/lint.json' });
+    // golangci-lint type-checks through the go its PATH finds, and records that go's release.
+    expect(checks.get('api:lint')).toMatchObject({ ok: true, adapter: 'golangci-lint', output_file: 'api/lint.json', toolchain_version: goRelease() });
     expect(checks.get('api:dead')).toMatchObject({
       ok: true,
       adapter: 'deadcode',

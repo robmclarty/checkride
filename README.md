@@ -363,8 +363,9 @@ the tools in the table above. A check never downloads anything: Go, cargo, pip
 and uv run with their downloads switched off, so the repo fetches first
 (`go mod download`, `cargo fetch`, `uv sync`, `terraform init -backend=false`),
 and a check that needs the step names it. Each check records the copy that ran
-as `pin_source` and `tool_version` in the summary, and `requirePins: true`
-fails a check whose tool only `PATH` provides.
+as `pin_source` and `tool_version` in the summary, a go check the Go release
+it ran on as `toolchain_version`, and `requirePins: true` fails a check whose
+tool only `PATH` provides.
 
 ### Package managers
 
@@ -677,7 +678,9 @@ Once it exists, every normal run is **baseline-aware**:
 - A key carries the tool's own wording, so another version of a tool can key
   the same debt differently. The file's `captured_with` records which copy of
   each check's tool captured its keys: the pin source and version a run
-  records, such as `{ "pin_source": "nix", "tool_version": "2.11.4" }`. A run
+  records, such as `{ "pin_source": "nix", "tool_version": "2.11.4" }`, and
+  for a go check the Go release it ran on, as `toolchain_version`, since a new
+  Go minor can re-key findings too. A run
   with another copy still fails on a new key, but its digest and a `baseline:`
   line on stderr name both copies, and the ratchet prunes none of that check's
   keys, since the copy that captured them may still report them. Run under the

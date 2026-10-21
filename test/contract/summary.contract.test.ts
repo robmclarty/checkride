@@ -321,6 +321,29 @@ describe('summary.json shape', () => {
   }, 30_000);
 
   /**
+   * Contract: a check of a pack that names a toolchain records the release
+   * its tool ran on as `toolchain_version`, and a check held back for a
+   * toolchain on another minor line carries the record with it as
+   * `baseline_captured_with`. Both validate against the published schema.
+   */
+  test("a go check's toolchain release, and a baseline record that names one, validate", async () => {
+    await writeFile(join(dir, 'go.mod'), 'module example.com/m\n\ngo 1.25\n');
+    await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');
+    const issues = JSON.stringify({ Issues: [{ FromLinter: 'unused', Text: 'var a is unused', Pos: { Filename: 'm.go', Line: 3 } }] });
+    await runChecks({
+      cwd: dir, config: null, json: true, stdout: sink(), stderr: sink(),
+      baseline: { schema_version: 1, slots: { lint: ['m.go:unused:var a is unused'] }, captured_with: { lint: { pin_source: 'path', toolchain_version: '1.25.3' } } },
+      runner: (r) => Promise.resolve(r.slot === 'lint'
+        ? { ok: false, exit_code: 1, stdout: issues, stderr: '', argv: ['golangci-lint', 'run'], pin_source: 'path', toolchain_version: '1.26.1' }
+        : { ok: true, exit_code: 0, stdout: '', stderr: '' }),
+    });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as Record<string, unknown>;
+    expect(validate(summary), JSON.stringify(validate.errors)).toBe(true);
+    const lint = (summary['checks'] as Record<string, unknown>[]).find((c) => c['name'] === 'lint');
+    expect(lint).toMatchObject({ ok: true, pin_source: 'path', toolchain_version: '1.26.1', baseline_captured_with: { pin_source: 'path', toolchain_version: '1.25.3' } });
+  });
+
+  /**
    * Contract: `pin_source` names the pin source a spawned tool resolved
    * through, and `tool_version` its version when a file read finds one. A
    * command spawned as written, a built-in and a skipped check have neither

@@ -65,6 +65,24 @@ describe('buildDigest', () => {
     expect(buildDigest(red, [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })])).toContain('— 1 finding(s)\n\n- a.ts:no-x:bad');
   });
 
+  test("a go check's note names the Go release each copy ran on, by the go pack's toolchain", () => {
+    const LINT = fakeAdapter({ name: 'golangci-lint', slot: 'lint', outputFile: 'lint.json' });
+    const issues = JSON.stringify({ Issues: [{ FromLinter: 'unused', Text: 'var x is unused', Pos: { Filename: 'a.go', Line: 3 } }] });
+    const red = [run(LINT, outcome({ stdout: issues }))];
+    const drifted = check('lint', {
+      adapter: 'golangci-lint',
+      pack: 'go',
+      output_file: 'lint.json',
+      pin_source: 'nix',
+      tool_version: '2.11.4',
+      toolchain_version: '1.26.0',
+      baseline_captured_with: { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' },
+    });
+    expect(buildDigest(red, [drifted])).toContain(
+      '_The baseline was captured with golangci-lint 2.11.4 (nix) on go 1.25.3, and this run used golangci-lint 2.11.4 (nix) on go 1.26.0, so a new key',
+    );
+  });
+
   test('caps a slot at N findings and collapses the rest to a "… more" line', () => {
     const findings = Array.from({ length: 25 }, (_, i): [string, string, string] => [`f${i}.ts`, 'no-rule', `msg ${i}`]);
     const digest = buildDigest(

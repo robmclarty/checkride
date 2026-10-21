@@ -6,7 +6,7 @@ import { describe, expect, test } from 'vitest';
 
 import { PACKS } from '../../packs/index.js';
 import type { LaunchContext } from '../index.js';
-import { launchCheck, nixCopy, pinChain } from '../index.js';
+import { launchCheck, launchOnToolchain, nixCopy, pinChain } from '../index.js';
 import { drvVersion } from '../nix.js';
 
 /** A store entry's name with a hash in front, as Nix names one. */
@@ -182,5 +182,45 @@ describe("launchCheck records a Nix dev shell's copy as nix", () => {
       const mise = await m.exe(join(m.home, 'bin', 'mise'));
       const ctx = m.at([dirname(found), dirname(mise)], { pins: pinChain(PACKS.bash.name) });
       expect(launchCheck('lint', 'pnpm', SHELLCHECK, ctx)).toMatchObject({ command: 'mise', pin: { source: 'mise' } });
+    }));
+});
+
+/** A nixpkgs-style Go `release` in the scratch store: its `bin` directory, which a shell puts on PATH. */
+async function storeGo(m: Machine, release: string): Promise<string> {
+  const at = join(m.store, entry(`go-${release}`));
+  const go = await m.exe(join(at, 'share', 'go', 'bin', 'go'));
+  await writeFile(join(at, 'share', 'go', 'VERSION'), `go${release}\ntime 2025-10-13T16:46:39Z\n`);
+  await m.link(join(at, 'bin', 'go'), go);
+  return join(at, 'bin');
+}
+
+/**
+ * Nixpkgs installs Go's GOROOT at `share/go` inside its store entry, with a
+ * `VERSION` file there, and links `bin/go` to `share/go/bin/go`. A go check
+ * in the shell records that release as the toolchain it ran on, which moves
+ * when a nixpkgs bump moves the default Go, though a golangci-lint rebuilt on
+ * it keeps the name it had.
+ */
+describe("a go check in a Nix dev shell records the store go's release", () => {
+  test('go records nix with its version, and that release as the toolchain', () =>
+    withMachine(async (m) => {
+      await writeFile(join(m.repo, 'flake.lock'), '{}');
+      const goBin = await storeGo(m, '1.25.3');
+      expect(launchOnToolchain('types', 'go', ['build', './...'], m.at([goBin], { pins: pinChain(PACKS.go.name), toolchain: 'go' }))).toMatchObject({
+        command: 'go',
+        pin: { source: 'nix', version: '1.25.3', toolchain: '1.25.3' },
+      });
+    }));
+
+  test('golangci-lint records its own store version and the go the shell puts beside it', () =>
+    withMachine(async (m) => {
+      await writeFile(join(m.repo, 'flake.nix'), '{ }');
+      const goBin = await storeGo(m, '1.25.3');
+      const lint = await m.exe(join(m.store, entry('golangci-lint-2.11.4', 'b'.repeat(32)), 'bin', 'golangci-lint'));
+      const ctx = m.at([dirname(lint), goBin], { pins: pinChain(PACKS.go.name), toolchain: 'go' });
+      expect(launchOnToolchain('lint', 'pnpm', ['exec', 'golangci-lint', 'run'], ctx)).toMatchObject({
+        command: 'golangci-lint',
+        pin: { source: 'nix', version: '2.11.4', toolchain: '1.25.3' },
+      });
     }));
 });

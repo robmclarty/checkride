@@ -146,6 +146,28 @@ describe('checkride.baseline.json', () => {
     expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
   });
 
+  /**
+   * Contract: a check of a pack that names a toolchain records the release
+   * its tool ran on as `toolchain_version`, written after `tool_version`
+   * whatever order it was built in, and valid against the published schema.
+   */
+  test("a check's toolchain release is written last in its record, and validates", async () => {
+    await writeBaseline(dir, {
+      schema_version: 1,
+      slots: { 'api:lint': [], lint: [] },
+      captured_with: {
+        'api:lint': { toolchain_version: '1.25.3', tool_version: '2.11.4', pin_source: 'nix' },
+        lint: { toolchain_version: '1.26.1', pin_source: 'path' },
+      },
+    });
+    const raw = await readFile(baselinePath(), 'utf8');
+    const parsed = JSON.parse(raw) as Baseline;
+    expect(validateBaseline(parsed), JSON.stringify(validateBaseline.errors)).toBe(true);
+    expect(Object.keys(parsed.captured_with?.['api:lint'] ?? {})).toEqual(['pin_source', 'tool_version', 'toolchain_version']);
+    expect(Object.keys(parsed.captured_with?.['lint'] ?? {})).toEqual(['pin_source', 'toolchain_version']);
+    expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
+  });
+
   test('construction order and duplicate keys never reach the disk', async () => {
     await writeBaseline(dir, { schema_version: 1, slots: { spell: ['z', 'a', 'a'], lint: ['b'] } });
     const first = await readFile(baselinePath(), 'utf8');

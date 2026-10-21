@@ -69,7 +69,8 @@ breaking release.
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0), per-check `origin`, `detected_by`, `argv`, `pin_source`,
 `tool_version`, `narrowed`, `target`, `slot`, `pack` and `cwd`, `reason` on a
-failed check, and top-level `run`, `git` and `targets` (0.15.0).
+failed check, top-level `run`, `git` and `targets` (0.15.0), and per-check
+`baseline_captured_with` and `toolchain_version` (0.16.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -159,7 +160,8 @@ required ones, so a field can't reach the schema without a row here.
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran, or the pin source itself resolved it, as mise does |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
-| `baseline_captured_with` | `{ pin_source, tool_version? }` | the check ran another copy of its tool than the baseline's `captured_with` records capturing its keys with: that record, so its new keys may be the tool's churn, and the ratchet held its keys back |
+| `toolchain_version` | string | with `pin_source`, on a check of a pack that names a toolchain, `go` for the go pack: the release of that toolchain the check's tool ran on, when it could be found |
+| `baseline_captured_with` | `{ pin_source, tool_version?, toolchain_version? }` | the check ran another copy of its tool than the baseline's `captured_with` records capturing its keys with: that record, so its new keys may be the tool's churn, and the ratchet held its keys back |
 
 **Every check says why it's in the run.** `origin` is `config` when
 `checkride.config.json` names the slot, presets it `extends` included, since
@@ -239,6 +241,20 @@ subcommand, or a toolchain in a chain that reads `mise`, resolves and records
 its `pin_source` as a catalogue check does. A declared pin whose source can't run the tool fails
 the check with exit 1, naming the source; checkride never falls back to
 another copy.
+
+**A go check says which Go it ran on.** A pack whose checks all run on one
+toolchain names it, and the go pack names `go`: golangci-lint compiles its
+type checker and gofmt in and type-checks through the `go` it finds, so a new
+Go release can re-key its findings while golangci-lint's own version stands
+still. Each check of such a pack that records a `pin_source` adds
+`toolchain_version`, the toolchain's release, found without running it: for
+a check that runs `go` or `gofmt` itself, the version its pin source named;
+for a tool a `go.mod` declares, the release of the `go` it runs through,
+where mise or `--pins` resolved it; for any other tool mise runs, the `go`
+mise resolves, which costs one `mise which --version go`; and otherwise the
+release in the `VERSION` file at the GOROOT of the `go` the spawn's `PATH`
+finds. A mise shim, a development build or no `go` at all leaves it out, and
+the other packs' checks record none.
 
 **A run records what it selected and the tree it read.** `run` names each
 selection flag the run was given, so a narrowed run says so in the artifact
@@ -395,8 +411,9 @@ whose adapter can be fingerprinted and had nothing to grandfather is present
 with an empty array; a slot whose adapter has no parser, or whose output that
 parser can't trust, is absent. `captured_with` records how
 `checkride baseline` captured each check's keys: check name to the
-`pin_source` its tool resolved through and the `tool_version` that source
-named, when it named one, as the run's summary recorded them. It holds only
+`pin_source` its tool resolved through, the `tool_version` that source
+named, when it named one, and the `toolchain_version` its tool ran on, for a
+check of a pack that names a toolchain, as the run's summary recorded them. It holds only
 checks `slots` holds, and only those whose tool resolved through a pin
 source, and it's absent when none did. Fields
 are added in lockstep with the published schema, never renamed, removed, or
@@ -454,9 +471,11 @@ parsers does the same (0.6.0 and 0.9.4 were two), and the release notes say
 so under that release. What is promised is the notice, never the wording.
 
 So a run notices when a check ran another copy of its tool than
-`captured_with` records: where both sides name a `tool_version`, a different
-one, whatever source named it, and where either names none, a different
-`pin_source`, such as keys captured from `PATH` and a run in a Nix dev shell.
+`captured_with` records: where both sides name a `toolchain_version`, one on
+another `major.minor` line, such as Go 1.25.3 and 1.26.0 but not 1.25.5; past
+that, where both sides name a `tool_version`, a different one, whatever
+source named it, and where either names none, a different `pin_source`, such
+as keys captured from `PATH` and a run in a Nix dev shell.
 A record from a release whose `mise` source named no version reads as the
 same copy as any run through mise. Such a check carries `baseline_captured_with` in the
 summary, and its digest section and a `baseline:` line on stderr name both
@@ -469,7 +488,7 @@ with no record in `captured_with` is never held back.
 (including `init --baseline`), the ratchet, `recover --pick` — writes one shape:
 slot names sorted, keys within each slot sorted and unique, `captured_with`
 after `slots` with its checks sorted and each entry's `pin_source` before its
-`tool_version`, two-space indentation, a trailing newline, through the
+`tool_version`, and that before its `toolchain_version`, two-space indentation, a trailing newline, through the
 temp-file-then-rename write of the crash-consistency promise above. Two
 branches that grandfather the same debt with the same tools produce
 byte-identical files, and a write that would change nothing is skipped. A hunk
@@ -1255,7 +1274,8 @@ public and semver-bound:
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
 `python`, `terraform`) to its adapter rows, root markers, pin sources and
-environment. `ADAPTERS` is the `ts` and
+environment, and the go pack's to the toolchain its checks run on, `go`, as
+`toolchain`. `ADAPTERS` is the `ts` and
 `repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
 each external tool the packs run as a tool, with the npm package that
 provides it or the `mise.toml` keys that pin it. The executables a toolchain

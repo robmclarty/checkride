@@ -157,7 +157,8 @@ switched off, and mise never installs. A missing tool fails its check naming
 the install, rather than passing on a laptop whose cache happens to hold it
 and failing on a clean CI runner. `requirePins` goes a step further and fails
 a check whose tool only `PATH` provides. Each summary entry records which copy
-ran (`pin_source`, `tool_version`) and what it spawned (`argv`), so two runs
+ran (`pin_source`, `tool_version`, and a go check's `toolchain_version`) and
+what it spawned (`argv`), so two runs
 that disagree can say why. [Packs and pins](./packs.md) has the chains and the
 spawn environment.
 

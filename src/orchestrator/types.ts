@@ -125,6 +125,15 @@ export type SummaryCheck = {
    */
   tool_version?: string;
   /**
+   * With `pin_source`, in a pack that names a toolchain (`go` for the go
+   * pack), the release of that toolchain the check's tool ran on, never by
+   * running it: the version its pin source named when the check runs the
+   * toolchain itself, mise's answer where mise runs the tool, else the
+   * `VERSION` file of the `go` its `PATH` finds. Additive field;
+   * `schema_version` holds.
+   */
+  toolchain_version?: string;
+  /**
    * Present only when a baseline masked one or more of this slot's diagnostics:
    * the count of current findings grandfathered by `checkride.baseline.json`.
    * Additive field — absent on runs with no baseline, so `schema_version` holds.
@@ -137,7 +146,7 @@ export type SummaryCheck = {
    * rather than new debt, and the ratchet held its keys back. Additive field;
    * `schema_version` holds.
    */
-  baseline_captured_with?: { pin_source: string; tool_version?: string };
+  baseline_captured_with?: { pin_source: string; tool_version?: string; toolchain_version?: string };
 };
 
 /**
@@ -150,8 +159,10 @@ export type SummaryCheck = {
 export type Drift = {
   name: string;
   tool: string;
-  captured: { pin_source: string; tool_version?: string };
-  ran: { pin_source?: string; tool_version?: string };
+  /** The toolchain the check's pack runs it on, by its executable, which the notice names a `toolchain_version` by. */
+  toolchain?: string;
+  captured: { pin_source: string; tool_version?: string; toolchain_version?: string };
+  ran: { pin_source?: string; tool_version?: string; toolchain_version?: string };
   newKeys: number;
   heldBack: number;
 };
@@ -224,11 +235,11 @@ export type Summary = {
 
 /**
  * What a {@link CheckRunner} resolves to: the raw outcome, plus `argv` when the
- * runner spawned the check's own tool, and the `pin_source` and
- * `tool_version` it resolved through. The summary records all three as the
- * check's own.
+ * runner spawned the check's own tool, the `pin_source` and `tool_version` it
+ * resolved through, and the `toolchain_version` it ran on. The summary records
+ * them all as the check's own.
  */
-export type RunnerOutcome = CheckOutcome & { argv?: string[]; pin_source?: PinSourceName; tool_version?: string };
+export type RunnerOutcome = CheckOutcome & { argv?: string[]; pin_source?: PinSourceName; tool_version?: string; toolchain_version?: string };
 
 /** Low-level runner: executes one active check and returns its raw outcome. */
 export type CheckRunner = (

@@ -315,6 +315,27 @@ describe('captured_with', () => {
     expect(parseBaseline(JSON.stringify({ schema_version: 1, slots: {}, captured_with: [] }))).toEqual({ schema_version: 1, slots: {} });
   });
 
+  test('a check of a pack with a toolchain records its release last, and the ratchet and a rename keep it', async () => {
+    const lint = { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' };
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: pinnedBy(RED, { ...PINS, lint }), stdout: sink(), stderr: sink() });
+    const text = await raw();
+    expect(text).toContain('"lint": {\n      "pin_source": "nix",\n      "tool_version": "2.11.4",\n      "toolchain_version": "1.25.3"\n    }');
+    const written = JSON.parse(text) as Baseline;
+    expect(ratchet(written, new Map([['lint', new Set<string>()]])).captured_with?.['lint']).toEqual(lint);
+    expect(renameBaselineSlots(written, new Map([['lint', 'api:lint']])).captured_with?.['api:lint']).toEqual(lint);
+  });
+
+  test('reads a toolchain release tolerantly, and writes it after the tool version whatever order it came in', async () => {
+    const parsed = parseBaseline(JSON.stringify({
+      schema_version: 1,
+      slots: { lint: [], spell: [] },
+      captured_with: { lint: { toolchain_version: '1.25.3', pin_source: 'path' }, spell: { pin_source: 'path', toolchain_version: 125 } },
+    }));
+    expect(parsed?.captured_with).toEqual({ lint: { pin_source: 'path', toolchain_version: '1.25.3' }, spell: { pin_source: 'path' } });
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: [] }, captured_with: { lint: { toolchain_version: '1.25.3', tool_version: '2.11.4', pin_source: 'nix' } } });
+    expect(await raw()).toContain('"pin_source": "nix",\n      "tool_version": "2.11.4",\n      "toolchain_version": "1.25.3"');
+  });
+
   test('writes canonical: checks sorted, records only for checks the slots hold, none when there are none', async () => {
     await writeBaseline(dir, { schema_version: 1, slots: { spell: [], lint: [] }, captured_with: { spell: { tool_version: '9.0.0', pin_source: 'js-lockfile' }, gone: { pin_source: 'path' } } });
     expect(await raw()).toBe(`${JSON.stringify({ schema_version: 1, slots: { lint: [], spell: [] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.0.0' } } }, null, 2)}\n`);
@@ -351,6 +372,25 @@ describe('baselineDrift', () => {
     expect(copyNamed({ pin_source: 'path' })).toBe('from PATH');
     expect(copyNamed({ pin_source: 'mise' })).toBe('through mise');
     expect(copyNamed({})).toBe('with no pin source');
+  });
+
+  test('a toolchain on another minor line is another copy, though the tool matches; a patch release, or a side that names none, is not', () => {
+    const lint = { pin_source: 'nix', tool_version: '2.11.4' };
+    expect(baselineDrift({ ...lint, toolchain_version: '1.25.3' }, { ...lint, toolchain_version: '1.25.5' })).toBe(false);
+    expect(baselineDrift({ ...lint, toolchain_version: '1.25.3' }, { ...lint, toolchain_version: '1.26.0' })).toBe(true);
+    expect(baselineDrift({ ...lint, toolchain_version: '1.25' }, { ...lint, toolchain_version: '1.26' })).toBe(true);
+    expect(baselineDrift({ ...lint, toolchain_version: '1.27rc1' }, { ...lint, toolchain_version: '1.27.0' })).toBe(false);
+    expect(baselineDrift(lint, { ...lint, toolchain_version: '1.26.0' })).toBe(false);
+    expect(baselineDrift({ ...lint, toolchain_version: '1.25.3' }, lint)).toBe(false);
+    expect(baselineDrift({ ...lint, toolchain_version: '1.25.3' }, { pin_source: 'nix', tool_version: '2.14.0', toolchain_version: '1.25.3' })).toBe(true);
+    expect(baselineDrift({ pin_source: 'path', toolchain_version: '1.25.3' }, { pin_source: 'path', toolchain_version: '1.26.1' })).toBe(true);
+  });
+
+  test("names the toolchain release a copy ran on, by the toolchain's name", () => {
+    expect(copyNamed({ pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' }, 'go')).toBe('2.11.4 (nix) on go 1.25.3');
+    expect(copyNamed({ pin_source: 'path', toolchain_version: '1.26.1' }, 'go')).toBe('from PATH on go 1.26.1');
+    expect(copyNamed({ pin_source: 'path', toolchain_version: '1.26.1' })).toBe('from PATH on its toolchain 1.26.1');
+    expect(copyNamed({ pin_source: 'nix', tool_version: '2.11.4' }, 'go')).toBe('2.11.4 (nix)');
   });
 });
 
