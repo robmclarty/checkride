@@ -78,6 +78,15 @@ describe('setupHint', () => {
     expect(hint).toContain('`--type-aware` in the check');
   });
 
+  test('names pnpm install when pnpm exec finds no copy of a tool the project declares', () => {
+    // pnpm 11.28.5 prints it on stdout, after a stray `undefined`; older releases pad the code with spaces.
+    expect(setupHint({ stdout: 'undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "oxlint" not found\n', stderr: '' })).toBe(
+      "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first",
+    );
+    expect(setupHint({ stdout: '', stderr: ' ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "tsc" not found\n' })).toContain('`tsc` isn\'t in node_modules/.bin');
+    expect(setupHint({ stdout: 'error: Command "oxlint" not found\n', stderr: '' })).toBeNull();
+  });
+
   test('says nothing for any other failure', () => {
     expect(setupHint({ stdout: '', stderr: 'go: go.mod requires go >= 1.99 (running go 1.27.2; GOTOOLCHAIN=local)\n' })).toBeNull();
     expect(setupHint({ stdout: 'main.go:4:14: cannot use "nope" as int value\n', stderr: '' })).toBeNull();

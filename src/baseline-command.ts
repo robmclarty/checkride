@@ -110,7 +110,7 @@ function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd
  * check name: the keys it reported, keyed as a run masks with them, or `null`
  * for a check that didn't run to a verdict (see `observedFingerprint`).
  */
-function observedChecks(runs: readonly CheckRun[], cwd: string): Map<string, Fingerprint | null> {
+export function observedChecks(runs: readonly CheckRun[], cwd: string): Map<string, Fingerprint | null> {
   const observed = new Map<string, Fingerprint | null>();
   for (const { adapter, outcome, name, root } of runs) {
     if (isFingerprintable(adapter.name)) observed.set(name, observedFingerprint(adapter.name, outcome, [adapter.command, ...adapter.args], root, cwd));

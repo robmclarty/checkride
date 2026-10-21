@@ -59,6 +59,11 @@ const SETUP_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) =>
     hint: () => "a Python package is missing from uv's cache, and checks never download one: run `uv sync` first",
   },
   {
+    // pnpm 11.28.5, `pnpm exec <tool>` where the project declares the tool and nothing installed it.
+    printed: /ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL\]?\s+Command "([^"]+)" not found/,
+    hint: ([, tool = '']) => `\`${tool}\` isn't in node_modules/.bin, and checks never install a tool: run \`pnpm install\` first`,
+  },
+  {
     // oxlint 1.87.0, type-aware (`--type-aware`, or `options.typeAware` in its config) with no tsgolint to run.
     printed: /Failed to find tsgolint executable/,
     hint: () =>

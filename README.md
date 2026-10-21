@@ -725,7 +725,10 @@ grandfathered.
 To adopt on an existing repo, `checkride init --baseline` grandfathers today's
 failing (fingerprintable) slots into the baseline and keeps them enabled, instead of
 writing them off as `false`; a failing slot with no extractor still falls back to a
-disable.
+disable. A slot that fails before it reaches a verdict, a declared tool nothing
+installed, a setup step not yet run, a crash or a timeout, is neither: `init`
+leaves it on, names what stopped it, and a `checkride baseline` once it runs
+grandfathers what it finds.
 
 ## Project shapes
 

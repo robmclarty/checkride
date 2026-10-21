@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -30,14 +30,14 @@ async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, 'utf8')) as T;
 }
 
-/** Run the built CLI, returning its exit code and stdout instead of throwing on failure. */
-async function runCli(cwd: string, args: readonly string[]): Promise<{ code: number; stdout: string }> {
+/** Run the built CLI, under `env` when given, returning its exit code, stdout and stderr instead of throwing on failure. */
+async function runCli(cwd: string, args: readonly string[], env?: NodeJS.ProcessEnv): Promise<{ code: number; stdout: string; stderr: string }> {
   try {
-    const { stdout } = await execFileP('node', [CLI, ...args], { cwd, ...BIG });
-    return { code: 0, stdout };
+    const { stdout, stderr } = await execFileP('node', [CLI, ...args], { cwd, ...BIG, ...(env !== undefined ? { env } : {}) });
+    return { code: 0, stdout, stderr };
   } catch (error) {
-    const { code, stdout } = error as { code?: unknown; stdout?: string };
-    return { code: typeof code === 'number' ? code : -1, stdout: stdout ?? '' };
+    const { code, stdout, stderr } = error as { code?: unknown; stdout?: string; stderr?: string };
+    return { code: typeof code === 'number' ? code : -1, stdout: stdout ?? '', stderr: stderr ?? '' };
   }
 }
 
@@ -63,6 +63,29 @@ describe('existing-project adoption', () => {
     await runInit({ cwd: dir, probeFailures: () => Promise.resolve([]) });
     const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as Config;
     expect(cfg.checks['lint']).toBe('biome');
+  });
+
+  test('existing-uninstalled: a declared tool nothing installed is left on, naming pnpm install, and the run says so too', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', private: true, devDependencies: { oxlint: '1.87.0' } }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await writeFile(join(dir, 'a.js'), 'export const a = 1;\n');
+    const hint = "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first";
+    // `pnpm exec` runs a copy PATH holds when node_modules has none, and the suite's PATH holds this repo's.
+    const env = { ...process.env, PATH: (process.env['PATH'] ?? '').split(delimiter).filter((d) => !d.includes(join('node_modules', '.bin'))).join(delimiter) };
+
+    const dry = await runCli(dir, ['init', '--dry-run'], env);
+    expect(dry.code, dry.stdout).toBe(0);
+    expect(dry.stdout).toContain(`left on, can't run until set up (then \`checkride baseline\` grandfathers what it finds): lint (${hint})`);
+
+    const adopted = await runCli(dir, ['init'], env);
+    expect(adopted.code, adopted.stdout).toBe(0);
+    expect(adopted.stdout).toContain(`: lint (${hint})`);
+    expect(adopted.stdout).not.toContain('disabled failing slots');
+    expect((await readJson<Config>(join(dir, 'checkride.config.json'))).checks['lint']).toBe('oxlint');
+
+    const run = await runCli(dir, ['--only', 'lint'], env);
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain(hint);
   });
 
   test('existing-failing: init disables a failing slot, then checkride is green', async () => {

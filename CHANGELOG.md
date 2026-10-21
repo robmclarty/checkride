@@ -78,6 +78,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`init` says why each failing slot failed, and leaves on one that can't run
+  yet.** Existing-mode `init` disabled, or under `--baseline` grandfathered,
+  every adopted check that failed its first run, so a tool `package.json`
+  declares and nothing installed read as debt: the dry run listed it as
+  grandfathered, and the capture then kept "0 previous key(s)" for it (#9). A
+  check that can't run until the repo is set up (a refusal, a setup step its
+  output names, or a run that reached no verdict) now stays enabled, is never
+  grandfathered, and is listed as `left on, can't run until set up`, with what
+  it needs. Every other failing slot is disabled or grandfathered as before,
+  with its cause beside its name, such as `lint (3 finding(s))`. A `pnpm exec`
+  that finds no copy of a declared tool names `pnpm install` beneath the red
+  check's status line, and a fallow slot whose report never arrived now names
+  what stopped it there too, a timeout included, rather than only that the
+  report wasn't JSON.
 - **The stanza reaches Claude Code in a repo with its own CLAUDE.md.** Claude
   Code reads AGENTS.md on its own only while a repo has no `CLAUDE.md`,
   `.claude/CLAUDE.md` or `CLAUDE.local.md`. `init` left an existing CLAUDE.md
@@ -113,6 +127,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   refusal, when mise can't run the pinned copy, where 0.15 reported it present
   whenever `mise` was on `PATH`. Its row's `found` names the spawn, as the
   rows for a language's own pin files do.
+- Changed: existing-mode `init` leaves enabled a slot whose check failed for
+  want of setup, where earlier releases disabled it, or grandfathered it under
+  `--baseline`, and its summary names each failing slot's cause.
 - Changed: the ratchet prunes none of a check's keys when the check ran
   another copy of its tool than `captured_with` records. `checkride.baseline.json`
   gains a third top-level field, which a release before this one drops when
@@ -133,6 +150,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Pack` type takes `toolchain`, which the go pack sets to `go`.
 - `checkride baseline` takes `--versions`, which adds no key and writes a
   check's `captured_with` record only as its rule admits.
+- The package exports the `ProbeFailure` type, which `InitOptions`'s
+  `probeFailures` may return in place of a slot's name, and `InitResult`
+  takes `setup`, the slots left on until the repo is set up.
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
   byte kept, nothing written on a second run.

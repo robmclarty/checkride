@@ -106,11 +106,21 @@ type MaskResult = {
  * own prints the move a pack's download block asks for, when its output shows
  * one stopped it, or a missing piece of its setup (`setupHint`). Any other outcome prints nothing extra.
  */
-function failureLine(outcome: CheckOutcome): string | null {
+export function failureLine(outcome: CheckOutcome): string | null {
   if (outcome.ok) return null;
   if (outcome.exit_code !== -1) return setupHint(outcome);
   const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
   return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
+}
+
+/**
+ * The line a report verdict's failure prints: the verdict's own reason where
+ * it read the report, and otherwise what stopped the tool, as any other check
+ * names it ({@link failureLine}): a missing setup step, or a timeout, ahead
+ * of the reason the report couldn't be read.
+ */
+function verdictReason(reason: string | null, observed: boolean, outcome: CheckOutcome): string | null {
+  return observed ? reason : (failureLine(outcome) ?? reason);
 }
 
 /**
@@ -143,7 +153,7 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
   if (verdict) {
     const v = verdict(findingText(adapter.name, outcome), keys, scope.root);
     const observed = v.observed && outcome.exit_code !== -1 ? v.findings : null;
-    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: v.reason, observed };
+    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: verdictReason(v.reason, observed !== null, outcome), observed };
   }
   const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
   const current = keys !== null ? observedFingerprint(adapter.name, outcome, argv, scope.root, scope.repoRoot) : null;

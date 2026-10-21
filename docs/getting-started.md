@@ -69,8 +69,15 @@ pnpm exec checkride init
 `init` is additive here. It inventories the tools you already have, writes only
 what is missing (a `checkride.config.json`, a `check` script alias, an AGENTS.md
 stanza), and never overwrites an existing tool config. Any adopted check that
-fails on the first run is recorded as disabled so the initial `pnpm check` is
-green — re-enable each slot as you fix it.
+fails on the first run with findings, or any other way, is recorded as
+disabled so the initial `pnpm check` is green — re-enable each slot as you fix
+it. The summary names why each one failed. A check that can't run yet, such as
+a tool `package.json` declares and nothing installed, is left on instead and
+named with what it needs, such as `run \`pnpm install\` first`: until then
+it fails, and nothing about it is written off. So is one that never reached a
+verdict, because it crashed, timed out, or printed output its parser couldn't
+read, such as a linter stopped by a broken config: its slot stays on, named
+with the line that stopped it.
 
 When the repo's files suggest more than one project, such as a `go.mod` in
 `services/api/` beside the app, `init` proposes a target for each, writes them
@@ -97,8 +104,9 @@ findings into a committed `checkride.baseline.json` and keeps the slots
 *enabled*: the run stays green while only known findings remain, fails on
 anything new, and prunes entries as you fix them — the debt only ratchets down.
 (A failing slot whose tool has no fingerprint extractor still falls back to a
-disable.) See [README § Baseline](../README.md#baseline) for the full
-mechanics.
+disable, and one that can't run yet is left on, as above, for a
+`checkride baseline` once it can.) See [README § Baseline](../README.md#baseline)
+for the full mechanics.
 
 If the baseline is ever clobbered — a merge that drops entries, a conflict
 resolution that mangles the JSON — the run says so: an unparseable file gets a

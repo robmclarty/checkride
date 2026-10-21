@@ -29,4 +29,4 @@ export { runDoctor } from './doctor.js';
 export type { DoctorCheck, DoctorReport, DoctorResult } from './doctor.js';
 
 export { runInit } from './init.js';
-export type { InitOptions, InitResult, Shape } from './init.js';
+export type { InitOptions, InitResult, ProbeFailure, Shape } from './init.js';

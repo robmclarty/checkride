@@ -380,6 +380,21 @@ describe('runChecks — the fallow (dead) slot gates on findings, not the exit c
     expect(dead?.baselined).toBe(1);
   });
 
+  test('a report it never got says what stopped fallow beneath the status line: the install pnpm needs, or a timeout', async () => {
+    const lines: string[] = [];
+    const stderr = { write: (text: string) => { lines.push(text); return true; } };
+    const said = async (runner: CheckRunner): Promise<string> => {
+      lines.length = 0;
+      await runChecks({ cwd: dir, slots: [{ name: 'dead' }], adapters: [deadAdapter], config: null, runner, baseline: null, json: false, stdout: sink(), stderr });
+      return lines.join('');
+    };
+    const missing = await said(staticRunner({ ok: false, exit_code: 1, stdout: 'undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "fallow" not found\n' }));
+    expect(missing).toContain("`fallow` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first");
+    expect(missing).not.toContain('did not emit valid JSON');
+    const timedOut = await said(() => Promise.resolve({ ok: false, exit_code: -1, stdout: '', stderr: 'timed out after 600s\n' }));
+    expect(timedOut).toContain('timed out after 600s');
+  });
+
   test('the verdict is keyed by adapter name, not slot: the same report under `knip` is judged by exit code', async () => {
     const knip = fakeAdapter({ name: 'knip', slot: 'dead', outputFile: 'dead.json' });
     const result = await runChecks({

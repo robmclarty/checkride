@@ -26,15 +26,17 @@ import type { HookFile, HookName } from './agent-setup/index.js';
 import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/index.js';
 import type { HarnessName } from './gate.js';
 import { writeFileAtomic } from './atomic.js';
+import type { Fingerprint } from './baseline/index.js';
 import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
-import { runBaseline } from './baseline-command.js';
+import { observedChecks, runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CustomCheck, SlotConfig } from './config.js';
 import { configSchemaUrl, configuredBy, loadConfig, resolveChecks } from './config.js';
-import type { Out } from './orchestrator/index.js';
-import { runChecks, selectChecks } from './orchestrator/index.js';
+import type { CheckOutcome } from './links.js';
+import type { CheckRun, Out, SummaryCheck } from './orchestrator/index.js';
+import { failureLine, runChecks, selectChecks } from './orchestrator/index.js';
 import type { EntryLike, PackageManager } from './launch/index.js';
-import { detectPackageManager, entryCheckride, entryText, resolveEntry } from './launch/index.js';
+import { detectPackageManager, entryCheckride, entryText, resolveEntry, setupHint } from './launch/index.js';
 import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
@@ -97,8 +99,12 @@ export type InitOptions = {
   stdout?: Out;
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
-  /** Existing mode: returns the adopted slots whose check currently fails. */
-  probeFailures?: (slots: string[], cwd: string) => Promise<string[]>;
+  /**
+   * Existing mode: returns the adopted slots whose check currently fails,
+   * each with why ({@link ProbeFailure}), or by name alone, which reads as a
+   * check that `failed` for no cause given.
+   */
+  probeFailures?: (slots: string[], cwd: string) => Promise<(string | ProbeFailure)[]>;
   /**
    * Existing mode: grandfather current debt into `checkride.baseline.json`
    * instead of disabling failing slots (`--baseline`). A failing
@@ -125,16 +131,83 @@ export type InitResult = {
   disabled: string[];
   /** Slots whose failing debt was grandfathered into the baseline (`--baseline`). */
   grandfathered: string[];
+  /**
+   * Existing mode: slots whose check couldn't run until the repo is set up,
+   * such as a tool nothing has installed yet. They stay enabled, and are never
+   * disabled or grandfathered: a check that never ran has no debt to write off.
+   */
+  setup: string[];
   exitCode: number;
 };
 
+/**
+ * Why an adopted check failed when `init` ran it, which decides what `init`
+ * does with its slot. `setup`: it can't run until the repo is set up (a tool
+ * to install, a step to run, or a run that reached no verdict), so it stays
+ * enabled and is never grandfathered. `findings`: it reported findings its
+ * parser keys. `failed`: anything else. Either of the last two is disabled,
+ * or grandfathered under `--baseline` when its findings can be keyed. `cause`
+ * says why in the run's own words: the refusal or hint, `N finding(s)`, or
+ * `exited N`.
+ */
+export type ProbeFailure = { slot: string; kind: 'setup' | 'findings' | 'failed'; cause: string };
+
 const NULL_OUT: Out = { write: () => true };
 
-/** Run the adopted checks once; a failing (non-skipped) check marks its slot. */
-async function defaultProbe(slots: string[], cwd: string): Promise<string[]> {
+/** Run the adopted checks once; each failing (non-skipped) check marks its slot, with why it failed. */
+async function defaultProbe(slots: string[], cwd: string): Promise<ProbeFailure[]> {
   if (slots.length === 0) return [];
-  const { summary } = await runChecks({ cwd, only: slots, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
-  return summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => c.name);
+  const result = await runChecks({ cwd, only: slots, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
+  const keyed = observedChecks(result.runs, cwd);
+  const runs = new Map(result.runs.map((r) => [r.name, r]));
+  return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed));
+}
+
+/** A failing check as the probe classes it: its outcome, whether its findings can be keyed, the keys it reported, and its summary's reason. */
+export type Probed = { outcome: CheckOutcome; keyed: boolean; keys: ReadonlySet<string> | null; reason: string | undefined };
+
+/** The probe's failure for one check, from its run and the keys a capture would observe of it. */
+function failureOf(check: SummaryCheck, run: CheckRun | undefined, keyed: ReadonlyMap<string, Fingerprint | null>): ProbeFailure {
+  const outcome = run?.outcome ?? { ok: false, exit_code: check.exit_code ?? 1, stdout: '', stderr: '' };
+  return classifyProbe(check.name, { outcome, keyed: keyed.has(check.name), keys: keyed.get(check.name) ?? null, reason: check.reason });
+}
+
+/** The first line of `text` that isn't blank, trimmed, or `null`. */
+function firstLine(text: string): string | null {
+  return text.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? null;
+}
+
+/** How a probe names an exit it can say nothing more about. */
+const exited = (outcome: CheckOutcome): string => `exited ${outcome.exit_code}`;
+
+/**
+ * How a failing probe is classed, the first that matches: a refusal, a
+ * missing piece of setup its output names, or a run that reached no verdict
+ * (exit -1, or keyed output its parser couldn't read) is `setup`; findings its
+ * parser keyed are `findings`; anything else, `failed`. Each names its cause
+ * as the run's own status line would.
+ */
+const PROBE_CLASSES: readonly { kind: ProbeFailure['kind']; matches: (p: Probed) => boolean; cause: (p: Probed) => string }[] = [
+  { kind: 'setup', matches: (p) => p.outcome.refusal !== undefined, cause: (p) => p.outcome.refusal ?? exited(p.outcome) },
+  { kind: 'setup', matches: (p) => setupHint(p.outcome) !== null, cause: (p) => setupHint(p.outcome) ?? exited(p.outcome) },
+  {
+    kind: 'setup',
+    matches: (p) => p.outcome.exit_code === -1 || (p.keyed && p.keys === null),
+    cause: (p) => failureLine(p.outcome) ?? firstLine(p.outcome.stderr) ?? exited(p.outcome),
+  },
+  { kind: 'findings', matches: (p) => p.keys !== null && p.keys.size > 0, cause: (p) => `${p.keys?.size ?? 0} finding(s)` },
+];
+
+/** Class one failing probe ({@link PROBE_CLASSES}), `failed` with its reason or its exit when no other class matches. */
+export function classifyProbe(slot: string, probed: Probed): ProbeFailure {
+  const match = PROBE_CLASSES.find((c) => c.matches(probed));
+  if (match === undefined) return { slot, kind: 'failed', cause: probed.reason ?? exited(probed.outcome) };
+  return { slot, kind: match.kind, cause: match.cause(probed) };
+}
+
+/** The probe's answers as failures, a bare name read as a check that `failed` for no cause given. */
+function probeAnswers(answers: readonly (string | ProbeFailure)[]): ProbeFailure[] {
+  return answers.map((a) => (typeof a === 'string' ? { slot: a, kind: 'failed', cause: '' } : a));
 }
 
 export type InventoryEntry = { slot: string; status: 'adopted' | 'empty'; adapter: string | null };
@@ -906,6 +979,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
     skipped: [],
     disabled: [],
     grandfathered: [],
+    setup: [],
     exitCode: 0,
   };
 }
@@ -1117,7 +1191,7 @@ async function initNewLang(options: InitOptions, cwd: string): Promise<InitResul
     options.stdout.write(`checkride init: generated a ${scaffold.lang} ${scaffold.shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
     options.stdout.write(`  next, with the network:\n${next.map((step) => `    ${step}\n`).join('')}`);
   }
-  return { mode: 'new', shape: scaffold.shape, written: w.written, removed: w.removed, skipped: [], disabled: [], grandfathered: [], exitCode: 0 };
+  return { mode: 'new', shape: scaffold.shape, written: w.written, removed: w.removed, skipped: [], disabled: [], grandfathered: [], setup: [], exitCode: 0 };
 }
 
 // ----------------------------------------------------------------------------
@@ -1522,17 +1596,22 @@ async function addCheckAlias(w: Writer, skipped: string[]): Promise<void> {
 }
 
 /**
- * Classify each failing adopted slot. `--baseline` grandfathers a
- * failing *fingerprintable* slot (kept enabled; the baseline masks its debt and
- * the ratchet carries the cleanup); a failing slot with no extractor can't be
- * grandfathered, so it still falls back to a `false` disable. Without
- * `--baseline`, every failing slot is disabled (re-enable as you fix).
+ * Classify each failing adopted slot. One that failed for want of setup stays
+ * enabled, and is never grandfathered: it never ran, so it has no debt to
+ * write off, and the baseline a capture takes then would hold nothing for it.
+ * `--baseline` grandfathers any other failing *fingerprintable* slot (kept
+ * enabled; the baseline masks its debt and the ratchet carries the cleanup);
+ * a failing slot with no extractor can't be grandfathered, so it still falls
+ * back to a `false` disable. Without `--baseline`, every other failing slot is
+ * disabled (re-enable as you fix).
  */
 function resolveAdoptionPlan(
   adopted: readonly InventoryEntry[],
-  failing: ReadonlySet<string>,
+  failures: readonly ProbeFailure[],
   useBaseline: boolean,
-): { grandfathered: string[]; disabled: string[] } {
+): { grandfathered: string[]; disabled: string[]; setup: string[] } {
+  const needsSetup = new Set(failures.filter((f) => f.kind === 'setup').map((f) => f.slot));
+  const failing = new Set(failures.filter((f) => f.kind !== 'setup').map((f) => f.slot));
   const grandfathered = useBaseline
     ? adopted
         .filter((i) => failing.has(i.slot) && i.adapter !== null && isFingerprintable(i.adapter))
@@ -1542,7 +1621,7 @@ function resolveAdoptionPlan(
   const disabled = adopted
     .filter((i) => failing.has(i.slot) && !grandfatheredSet.has(i.slot))
     .map((i) => i.slot);
-  return { grandfathered, disabled };
+  return { grandfathered, disabled, setup: adopted.filter((i) => needsSetup.has(i.slot)).map((i) => i.slot) };
 }
 
 /** Capture a fresh baseline when any slot was grandfathered (a no-op on dry-run). */
@@ -1656,7 +1735,7 @@ function reportExisting(
   pm: PackageManager,
   adopted: readonly InventoryEntry[],
   w: Writer,
-  outcome: { grandfathered: readonly string[]; disabled: readonly string[]; claudeNote: string | null },
+  outcome: AdoptionOutcome,
 ): void {
   stdout.write(
     `checkride init: adopted ${adopted.length} slot(s); wrote ${w.written.length} file(s)${w.dryRun ? ' [dry run]' : ''}.\n`,
@@ -1664,13 +1743,30 @@ function reportExisting(
   // A root with no package.json, such as a Go module's, has no package
   // manager in play, and detection would only name its pnpm default.
   if (existsSync(join(w.cwd, 'package.json'))) stdout.write(`  package manager: ${pm} (detected)\n`);
-  if (outcome.grandfathered.length > 0) {
-    stdout.write(`  grandfathered failing slots into ${BASELINE_FILE}: ${outcome.grandfathered.join(', ')}\n`);
-  }
-  if (outcome.disabled.length > 0) {
-    stdout.write(`  disabled failing slots (enable as you fix): ${outcome.disabled.join(', ')}\n`);
-  }
+  writeSlotLine(stdout, `grandfathered failing slots into ${BASELINE_FILE}`, outcome.grandfathered, outcome.causes);
+  writeSlotLine(stdout, 'disabled failing slots (enable as you fix)', outcome.disabled, outcome.causes);
+  writeSlotLine(stdout, "left on, can't run until set up (then `checkride baseline` grandfathers what it finds)", outcome.setup, outcome.causes);
   writeClaudeNote(stdout, outcome.claudeNote);
+}
+
+/** What adoption did with each failing slot, why each failed, and the CLAUDE.md edit, as the report prints them. */
+type AdoptionOutcome = {
+  grandfathered: readonly string[];
+  disabled: readonly string[];
+  setup: readonly string[];
+  /** Each failing slot's cause, by slot, where the probe gave one. */
+  causes: ReadonlyMap<string, string>;
+  claudeNote: string | null;
+};
+
+/** One report line naming `slots` after `label`, each with its cause, or nothing when there are none. */
+function writeSlotLine(stdout: Out, label: string, slots: readonly string[], causes: ReadonlyMap<string, string>): void {
+  if (slots.length === 0) return;
+  const named = slots.map((slot) => {
+    const cause = causes.get(slot);
+    return cause === undefined || cause === '' ? slot : `${slot} (${cause})`;
+  });
+  stdout.write(`  ${label}: ${named.join(', ')}\n`);
 }
 
 /** The report's line for an edit to the repo's own CLAUDE.md, when there was one. */
@@ -1817,11 +1913,11 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
 
-  // Run each adopted check once to see what currently fails.
+  // Run each adopted check once to see what currently fails, and why.
   const probe = options.probeFailures ?? defaultProbe;
-  const failing = new Set(await probe(adopted.map((i) => i.slot), cwd));
+  const failures = probeAnswers(await probe(adopted.map((i) => i.slot), cwd));
 
-  const { grandfathered, disabled } = resolveAdoptionPlan(adopted, failing, options.baseline ?? false);
+  const { grandfathered, disabled, setup } = resolveAdoptionPlan(adopted, failures, options.baseline ?? false);
   await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
 
   // Publish-ready bundle: planned only when a config will be written.
@@ -1842,7 +1938,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await writeSkills(w, options, skipped);
 
   if (options.stdout) {
-    reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, claudeNote });
+    reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, setup, causes: new Map(failures.map((f) => [f.slot, f.cause])), claudeNote });
     reportDiscovery(options.stdout, discovery, w.dryRun);
     reportInitBundle(options.stdout, bundle);
   }
@@ -1854,6 +1950,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
     skipped,
     disabled,
     grandfathered,
+    setup,
     exitCode: 0,
   };
 }

@@ -265,8 +265,8 @@ whole adoption on a repo of that shape, with the output at each step.
 **"Adopting it means fixing years of debt first."**
 No — this is exactly what the [baseline](../README.md#baseline) exists for.
 `checkride init --baseline` grandfathers today's findings so the repo starts
-green, while new findings fail immediately and fixed ones are ratcheted out
-of the baseline permanently. Adoption cost is an afternoon; the debt is paid
+green once its tools are installed, while new findings fail immediately and
+fixed ones are ratcheted out of the baseline permanently. Adoption cost is an afternoon; the debt is paid
 down on whatever schedule the team chooses, with the ratchet guaranteeing it
 never silently grows back.
 

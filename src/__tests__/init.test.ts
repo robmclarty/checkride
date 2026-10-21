@@ -11,7 +11,8 @@ import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
-import { applyStanza, buildStanza, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
+import type { ProbeFailure, Probed } from '../init.js';
+import { applyStanza, buildStanza, classifyProbe, detectMode, inspectStanza, inventory, runAgentSetup, runInit } from '../init.js';
 import type { CheckRunner } from '../orchestrator/index.js';
 import { selectChecks } from '../orchestrator/index.js';
 import { configProblem } from '../targets/index.js';
@@ -788,6 +789,58 @@ describe('existing-project adoption (idempotent)', () => {
     expect(cfg.checks['types']).toBe('tsc');
   });
 
+  /** What a probe says of an oxlint nothing installed yet, as the pnpm setup hint words it. */
+  const UNINSTALLED: ProbeFailure = { slot: 'lint', kind: 'setup', cause: "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first" };
+
+  test("a slot that can't run until set up stays enabled, and the report names why beside each failing slot", async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    const out = sink();
+    const result = await runInit({ cwd: dir, stdout: out, probeFailures: () => Promise.resolve([UNINSTALLED, { slot: 'types', kind: 'failed', cause: 'exited 2' }]) });
+    expect(result).toMatchObject({ setup: ['lint'], disabled: ['types'], grandfathered: [] });
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['lint']).toBe('oxlint');
+    expect(cfg.checks['types']).toBe(false);
+    expect(out.text()).toContain('  disabled failing slots (enable as you fix): types (exited 2)\n');
+    expect(out.text()).toContain(
+      "  left on, can't run until set up (then `checkride baseline` grandfathers what it finds): lint (`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first)\n",
+    );
+  });
+
+  test('under --baseline a slot that needs setup is still left on, never grandfathered, and alone captures nothing', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    let captured = false;
+    const out = sink();
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      stdout: out,
+      probeFailures: () => Promise.resolve([UNINSTALLED]),
+      captureBaseline: () => { captured = true; return Promise.resolve(); },
+    });
+    expect(result).toMatchObject({ setup: ['lint'], grandfathered: [], disabled: [] });
+    expect(captured).toBe(false);
+    expect(out.text()).not.toContain('grandfathered failing slots');
+  });
+
+  test('findings are grandfathered or disabled as before, each named with how many, beside bare names and a setup slot', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}');
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await writeFile(join(dir, '.markdownlint-cli2.jsonc'), '{}');
+    const answers: (string | ProbeFailure)[] = [{ slot: 'lint', kind: 'findings', cause: '3 finding(s)' }, 'types', { ...UNINSTALLED, slot: 'docs' }];
+    const plain = sink();
+    const disabled = await runInit({ cwd: dir, stdout: plain, dryRun: true, probeFailures: () => Promise.resolve(answers) });
+    expect(disabled).toMatchObject({ disabled: ['types', 'lint'], grandfathered: [], setup: ['docs'] });
+    expect(plain.text()).toContain('  disabled failing slots (enable as you fix): types, lint (3 finding(s))\n');
+    const grandfather = sink();
+    const kept = await runInit({ cwd: dir, stdout: grandfather, dryRun: true, baseline: true, probeFailures: () => Promise.resolve(answers) });
+    expect(kept).toMatchObject({ grandfathered: ['lint'], disabled: ['types'], setup: ['docs'] });
+    expect(grandfather.text()).toContain('  grandfathered failing slots into checkride.baseline.json: lint (3 finding(s))\n');
+  });
+
   test('--baseline grandfathers fingerprintable failures and only disables the rest (c10)', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'tsconfig.json'), '{}'); // types → tsc (no fingerprint extractor)
@@ -1462,4 +1515,60 @@ describe('new-project generation for another language (--lang)', () => {
     const names = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir }).filter((r) => r.adapter !== null && r.skip === null).map((r) => [r.target ?? '', r.slot, r.adapter?.name]);
     expect(names).toEqual(expect.arrayContaining([['app', 'types', 'go-build'], ['app', 'dead', 'deadcode'], ['', 'docs', 'rumdl'], ['', 'spell', 'typos']]));
   });
+});
+
+
+/** A failing outcome, exit 1 with nothing printed, over `over`. */
+function failed(over: Partial<Probed['outcome']> = {}): Probed['outcome'] {
+  return { ok: false, exit_code: 1, stdout: '', stderr: '', ...over };
+}
+
+/**
+ * The probe classes each failing check by what stopped it: anything that
+ * means it can't run until the repo is set up stays on; findings, or any other
+ * failure, are disabled or grandfathered. Each names its cause as the run would.
+ */
+describe('classifyProbe', () => {
+  const cases: { label: string; probed: Probed; expected: Omit<ProbeFailure, 'slot'> }[] = [
+    {
+      label: "a launcher's refusal is setup, named by its first line",
+      probed: { outcome: failed({ refusal: 'the `lint` slot needs `oxlint`, which is not installed in this project' }), keyed: true, keys: null, reason: undefined },
+      expected: { kind: 'setup', cause: 'the `lint` slot needs `oxlint`, which is not installed in this project' },
+    },
+    {
+      label: 'output naming a missing piece of setup is setup, named by the hint',
+      probed: { outcome: failed({ stdout: '[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "oxlint" not found\n' }), keyed: true, keys: null, reason: undefined },
+      expected: { kind: 'setup', cause: "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first" },
+    },
+    {
+      label: 'a run that timed out is setup: it reached no verdict',
+      probed: { outcome: failed({ exit_code: -1, stderr: 'partial output\ntimed out after 600s\n' }), keyed: false, keys: null, reason: undefined },
+      expected: { kind: 'setup', cause: 'timed out after 600s' },
+    },
+    {
+      label: "keyed output its parser can't read is setup, named by its first stderr line",
+      probed: { outcome: failed({ stdout: 'not json', stderr: 'level=error msg="can\'t load config"\nmore\n' }), keyed: true, keys: null, reason: undefined },
+      expected: { kind: 'setup', cause: 'level=error msg="can\'t load config"' },
+    },
+    {
+      label: 'findings its parser keyed are findings, counted',
+      probed: { outcome: failed(), keyed: true, keys: new Set(['a', 'b', 'c']), reason: undefined },
+      expected: { kind: 'findings', cause: '3 finding(s)' },
+    },
+    {
+      label: "a type checker's failure, which nothing keys, failed, named by its exit",
+      probed: { outcome: failed({ exit_code: 2, stdout: 'src/a.ts(1,7): error TS2322' }), keyed: false, keys: null, reason: undefined },
+      expected: { kind: 'failed', cause: 'exited 2' },
+    },
+    {
+      label: 'a check its summary gives a reason for failed, named by the reason',
+      probed: { outcome: failed({ exit_code: 0, stdout: 'main.go\n' }), keyed: false, keys: null, reason: 'gofmt exited 0 but reported findings on stdout' },
+      expected: { kind: 'failed', cause: 'gofmt exited 0 but reported findings on stdout' },
+    },
+  ];
+  for (const c of cases) {
+    test(c.label, () => {
+      expect(classifyProbe('lint', c.probed)).toEqual({ slot: 'lint', ...c.expected });
+    });
+  }
 });

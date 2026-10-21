@@ -1302,7 +1302,7 @@ public and semver-bound:
 `SummaryCheck`, `RunFlags`, `RunOptions`, `RunResult`, `CheckrideConfig`,
 `CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`,
 `CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
-`InitResult`, `Shape`).
+`InitResult`, `ProbeFailure`, `Shape`).
 
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
