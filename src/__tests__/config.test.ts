@@ -563,6 +563,55 @@ describe('config resolution', () => {
   });
 });
 
+/**
+ * oxlint's `--type-aware` runs tsgolint, which the repo installs as
+ * `oxlint-tsgolint`. Where no package.json from the check up to the repo root
+ * declares it, the check runs oxlint without the flag rather than fail on
+ * every run (`flagDeps`).
+ */
+describe('flagDeps: an argument whose package nothing declares', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-flagdeps-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Write `path`'s package.json declaring `devDependencies`. */
+  const pkg = async (path: string, deps: Record<string, string>): Promise<void> => {
+    await mkdir(join(dir, path), { recursive: true });
+    await writeFile(join(dir, path, 'package.json'), JSON.stringify({ name: 'x', devDependencies: deps }));
+  };
+  const lint = (config: CheckrideConfig | null = null): Adapter | null | undefined =>
+    resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: dir }).find((c) => c.slot === 'lint')?.adapter;
+
+  test('a repo that declares no oxlint-tsgolint runs and fixes with plain oxlint', async () => {
+    await pkg('.', { oxlint: '1.87.0' });
+    expect(lint()).toMatchObject({ args: ['exec', 'oxlint', '--format=json'], fixArgs: ['exec', 'oxlint', '--fix'] });
+    expect(lint({ checks: { lint: 'oxlint' } })?.args).toEqual(['exec', 'oxlint', '--format=json']);
+  });
+
+  test('declaring oxlint-tsgolint keeps --type-aware', async () => {
+    await pkg('.', { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003' });
+    expect(lint()).toMatchObject({ args: ['exec', 'oxlint', '--type-aware', '--format=json'], fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'] });
+  });
+
+  test('a workspace root’s declaration counts for a target below it', async () => {
+    await pkg('.', { 'oxlint-tsgolint': '7.0.2003' });
+    await pkg('apps/web', { oxlint: '1.87.0' });
+    const checks = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: { targets: { web: { lang: 'ts', root: 'apps/web' } } }, cwd: dir });
+    expect(checks.find((c) => c.slot === 'lint')?.adapter?.args).toEqual(['exec', 'oxlint', '--type-aware', '--format=json']);
+  });
+
+  test('an entry’s own args run as written, and the arrays it leaves to the row still drop the flag', async () => {
+    await pkg('.', { oxlint: '1.87.0' });
+    const args = ['exec', 'oxlint', '--type-aware', '--format=json'];
+    expect(lint({ checks: { lint: { use: 'oxlint', args } } })).toMatchObject({ args, fixArgs: ['exec', 'oxlint', '--fix'] });
+  });
+
+  test('with no package.json to read, the row runs as written', async () => {
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    expect(lint()?.args).toEqual(['exec', 'oxlint', '--type-aware', '--format=json']);
+  });
+});
+
 describe('effective order (precedence: config > adapter > slot > any)', () => {
   const orderedAdapter: Adapter = {
     name: 'tool', slot: 'lint', description: 'ordered tool', detect: [],

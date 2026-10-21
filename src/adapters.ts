@@ -226,6 +226,16 @@ export type Adapter = {
    */
   nonStaticArgs?: string[];
   /**
+   * Arguments that need a package the repo installs beside the tool, by
+   * argument, such as oxlint's `--type-aware`, which needs
+   * `oxlint-tsgolint`. Where no package.json from the check's directory up
+   * to the repo root declares one of an argument's packages, resolution
+   * drops that argument from the row's `args`, `changedArgs` and `fixArgs`,
+   * before a config entry's own arrays replace any of them. Where there's
+   * no package.json to read, the row runs as written.
+   */
+  flagDeps?: Readonly<Record<string, readonly string[]>>;
+  /**
    * Arguments that make a static adapter load code the sniffs can't vouch
    * for, such as tflint's `--config`, which names a config they don't read.
    * Each counts as a `nonStaticArgs` entry does.

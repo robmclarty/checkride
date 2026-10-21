@@ -10,7 +10,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":false,"exit_code":1,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":false,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":false,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
@@ -32,7 +32,7 @@
       "checks": [
         {"name":"tidy","adapter":"custom:tidy","description":"Normalize the JSON fixtures before anything else reads them","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
@@ -99,7 +99,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json","baselined":3},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":1,"duration_ms":"<volatile>","output_file":"lint.json","baselined":3},
         {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
@@ -120,7 +120,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
         {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
@@ -186,7 +186,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":null,"description":"struct","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"dead","adapter":null,"description":"dead","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
         {"name":"test","adapter":null,"description":"test","ok":true,"skipped":true,"reason":"no tool detected for slot","exit_code":null,"duration_ms":0,"output_file":null},
@@ -211,7 +211,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
@@ -233,7 +233,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
@@ -255,7 +255,7 @@
       "total_duration_ms": "<volatile>",
       "checks": [
         {"name":"types","adapter":"tsc","description":"TypeScript type checking (incremental, via project references)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},
-        {"name":"lint","adapter":"oxlint","description":"Oxlint with tsgolint type-aware rules","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","description":"Oxlint, type-aware with oxlint-tsgolint","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","description":"Structural rules (ast-grep)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","description":"Fallow: unused code, cycles, and boundary violations (dead-code)","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":"dead.json"},
         {"name":"test","adapter":"vitest","description":"Vitest tests with coverage","ok":true,"exit_code":0,"duration_ms":"<volatile>","output_file":null},

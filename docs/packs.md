@@ -165,7 +165,7 @@ So the Runs column reads as `pnpm exec <tool>` under pnpm,
 | `types` | `tsc` | `tsc --build` | `tsconfig.json` | `types.stdout.txt` |
 | `format` (opt-in) | `prettier` | `prettier --check .`, and `prettier --write .` under `checkride fix` | a `.prettierrc` in any of its forms, a `prettier.config.*`, or the `prettier` dependency | `format.stderr.txt`, with a summary in `format.stdout.txt` |
 | `format` (opt-in) | `biome-format` | `biome format .`, and `biome format --write .` under `checkride fix` | `biome.json`, `biome.jsonc` | `format.stderr.txt`, with a summary in `format.stdout.txt` |
-| `lint` | `oxlint` | `oxlint --type-aware --format=json`, and `--fix` under `checkride fix` | `.oxlintrc.json` or the `oxlint` dependency | `lint.json` |
+| `lint` | `oxlint` | `oxlint --type-aware --format=json`, and `--fix` under `checkride fix`, with `--type-aware` only where `oxlint-tsgolint` is a dependency | `.oxlintrc.json` or the `oxlint` dependency | `lint.json` |
 | `lint` | `biome` | `biome check --reporter=json`, and `biome check --write` under `checkride fix` | `biome.json`, `biome.jsonc` | `lint.json` |
 | `lint` | `eslint` | `eslint . --format json`, and `eslint . --fix` under `checkride fix` | an `eslint.config.*`, `.eslintrc.json`, `.eslintrc.cjs` or `.eslintrc.js` | `lint.json` |
 | `dead` | `fallow` | `fallow dead-code --format json --quiet`, and `fallow fix` under `checkride fix` | `fallow.toml` | `dead.json` |
@@ -186,6 +186,39 @@ So the Runs column reads as `pnpm exec <tool>` under pnpm,
 
 [Tools](./tools.md#slot-tools) covers each tool, what to install for it, and
 the built-ins' own rules.
+
+### Type-aware linting
+
+oxlint's `--type-aware` runs tsgolint, which comes from the `oxlint-tsgolint`
+package, and without it oxlint fails on every run. So the `lint` check passes
+`--type-aware`, in a run and under `checkride fix`, only where a
+`package.json` from the check's directory up to the repo root declares
+`oxlint-tsgolint`. Elsewhere it runs plain oxlint, which a `--static-only` run
+keeps once oxlint is installed. A new ts project from `init` declares both
+packages.
+
+A repo that provides tsgolint some other way, such as `OXLINT_TSGOLINT_PATH`,
+names the arguments itself, and so does a repo that wants plain oxlint with
+the package installed:
+
+```jsonc
+{
+  "checks": {
+    "lint": {
+      "use": "oxlint",
+      "args": ["exec", "oxlint", "--type-aware", "--format=json"],
+      "fixArgs": ["exec", "oxlint", "--type-aware", "--fix"]
+    }
+  }
+}
+```
+
+In a repo with targets, the entry goes under `packs.ts.checks.lint`, or in one
+target's `checks`: once targets are declared, a top-level `checks.lint` may
+only set `optIn`, `timeout`, `order` and `note`. A `.oxlintrc.json` that turns
+the rules on with `options.typeAware` needs tsgolint whatever the argv says.
+When oxlint can't find tsgolint, the red check's status line is followed by
+what to do about it.
 
 ## The repo pack
 

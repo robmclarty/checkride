@@ -103,7 +103,7 @@ export const TS_PACK: Pack = {
     {
       name: 'oxlint',
       slot: 'lint',
-      description: 'Oxlint with tsgolint type-aware rules',
+      description: 'Oxlint, type-aware with oxlint-tsgolint',
       detect: ['.oxlintrc.json'],
       detectDeps: ['oxlint'],
       command: 'pnpm',
@@ -112,6 +112,8 @@ export const TS_PACK: Pack = {
       fixArgs: ['exec', 'oxlint', '--type-aware', '--fix'],
       static: true,
       nonStaticArgs: ['--type-aware'],
+      // Type-aware rules run through tsgolint, which oxlint finds in a node_modules/.bin above it.
+      flagDeps: { '--type-aware': ['oxlint-tsgolint'] },
       codeConfigs: ['oxlint.config.ts', 'oxlint.config.mts', 'oxlint.config.cts', 'oxlint.config.js', 'oxlint.config.mjs', 'oxlint.config.cjs'],
       // A config it extends can add jsPlugins, and the sniff doesn't follow it.
       codeKeys: [{ file: '.oxlintrc.json', keys: ['jsPlugins', 'extends'] }],

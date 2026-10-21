@@ -16,7 +16,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint } from '../baseline/index.js';
 import { applyBaseline, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { isAvailableUnder, offlineHint, packEnv, pinChain } from '../launch/index.js';
+import { isAvailableUnder, packEnv, pinChain, setupHint } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
@@ -104,11 +104,11 @@ type MaskResult = {
  * `spawnCheck` appends its `timed out after Ns` / `Failed to spawn` note
  * *last*, after whatever the tool managed to print. A tool that exited on its
  * own prints the move a pack's download block asks for, when its output shows
- * one stopped it (`offlineHint`). Any other outcome prints nothing extra.
+ * one stopped it, or a missing piece of its setup (`setupHint`). Any other outcome prints nothing extra.
  */
 function failureLine(outcome: CheckOutcome): string | null {
   if (outcome.ok) return null;
-  if (outcome.exit_code !== -1) return offlineHint(outcome);
+  if (outcome.exit_code !== -1) return setupHint(outcome);
   const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
   return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
 }

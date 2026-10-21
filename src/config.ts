@@ -30,7 +30,7 @@ import { join, posix, relative, resolve } from 'node:path';
 import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
 import { SLOTS } from './adapters.js';
 import { isRecord } from './json.js';
-import { chainCanRun, pinChain, pinDeclaration } from './launch/index.js';
+import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
@@ -1010,7 +1010,9 @@ function hasAnySignal(a: Adapter): boolean {
  * `admits` says whether a check there can run an adapter's tool at all
  * (`chainCanRun`): one it can't is never picked by detection or the defaults
  * layer, since that would only trade a skip for a refusal, and the repo's
- * own config naming it still does.
+ * own config naming it still does. `declared` is every package the
+ * package.json files from there up to the repo root declare, or `null` when
+ * there's none to read, which a row's `flagDeps` are checked against.
  */
 type Detection = {
   fileExists: (file: string) => boolean;
@@ -1018,6 +1020,7 @@ type Detection = {
   manifest: Manifest;
   pinned: (bin: string) => string | null;
   admits: (adapter: Adapter) => boolean;
+  declared: () => ReadonlySet<string> | null;
 };
 
 /** Detection that finds nothing, so a dry resolution runs only the entry's own rules. */
@@ -1027,7 +1030,55 @@ const NO_DETECTION: Detection = {
   manifest: EMPTY_MANIFEST,
   pinned: () => null,
   admits: () => true,
+  declared: () => null,
 };
+
+/**
+ * The packages the package.json files from `dir` up to `repo` declare, or
+ * `null` when there's none to read. A workspace root's devDependencies count
+ * for a package below it, as oxlint finds tsgolint in any `node_modules/.bin`
+ * above where it runs.
+ */
+function declaredUpTo(dir: string, repo: string): ReadonlySet<string> | null {
+  const found = dirsUpTo(dir, repo).filter((d) => existsSync(join(d, 'package.json')));
+  return found.length === 0 ? null : new Set(found.flatMap((d) => [...readManifest(d).deps]));
+}
+
+/** `read`, called at most once, on first use: detection reads a package.json chain only for a row that asks. */
+function once<T>(read: () => T): () => T {
+  let value: { v: T } | null = null;
+  return () => {
+    value ??= { v: read() };
+    return value.v;
+  };
+}
+
+/**
+ * The registry rows as a check under `detection` runs them: an argument whose
+ * `flagDeps` no package.json there declares is dropped (see
+ * {@link Adapter.flagDeps}). With no package.json to read, the rows stay as
+ * written, so a resolution driven by injected files alone sees the registry.
+ */
+function withDeclaredFlags(adapters: readonly Adapter[], detection: Detection): readonly Adapter[] {
+  if (!adapters.some((a) => a.flagDeps !== undefined)) return adapters;
+  const declared = detection.declared();
+  return declared === null ? adapters : adapters.map((a) => dropUndeclared(a, declared));
+}
+
+/** `a` without each argument none of whose packages `declared` holds, from every argv it carries. */
+function dropUndeclared(a: Adapter, declared: ReadonlySet<string>): Adapter {
+  const drop = new Set(
+    Object.entries(a.flagDeps ?? {}).filter(([, deps]) => !deps.some((d) => declared.has(d))).map(([flag]) => flag),
+  );
+  if (drop.size === 0) return a;
+  const kept = (argv: readonly string[]): string[] => argv.filter((arg) => !drop.has(arg));
+  return {
+    ...a,
+    args: kept(a.args),
+    ...(a.changedArgs !== undefined ? { changedArgs: kept(a.changedArgs) } : {}),
+    ...(a.fixArgs !== undefined ? { fixArgs: kept(a.fixArgs) } : {}),
+  };
+}
 
 /**
  * The first header in a TOML file's text that opens `table` or a sub-table of
@@ -1394,7 +1445,7 @@ function resolveOne(
   if (entry === false) {
     return skipped(slot, 'disabled in checkride.config.json');
   }
-  const resolved = resolveConfigOrDetect(slot, entry, adapters, detection, explicit);
+  const resolved = resolveConfigOrDetect(slot, entry, withDeclaredFlags(adapters, detection), detection, explicit);
   // Config may override the slot's opt-in default (configure-without-opting-in).
   const overridden = applyOptIn(resolved, entry, slot.name);
   // A script-gated adapter (build) stands down — never red — when its script is
@@ -1545,7 +1596,8 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
     ? (bin: string) => pinDeclaration(bin, { cwd: join(repo, root), repo, pins: pinChain(pack) })
     : () => null;
   const tableIn = repo !== undefined ? (signal: TableSignal) => tableAt(join(repo, root), signal) : () => null;
-  return { fileExists, tableIn, manifest, pinned, admits: (adapter) => chainCanRun(pack, adapter) };
+  const declared = repo !== undefined ? once(() => declaredUpTo(join(repo, root), repo)) : () => null;
+  return { fileExists, tableIn, manifest, pinned, admits: (adapter) => chainCanRun(pack, adapter), declared };
 }
 
 /**

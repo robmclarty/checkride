@@ -1032,7 +1032,7 @@ describe('runDoctor under --static-only', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-static-'));
     const files: Record<string, string> = {
-      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', cspell: '9.0.0', prettier: '3.6.0', typescript: '5.9.3' } }),
+      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003', cspell: '9.0.0', prettier: '3.6.0', typescript: '5.9.3' } }),
       'pnpm-lock.yaml': '',
       'tsconfig.json': '{}',
       '.oxlintrc.json': '{}',

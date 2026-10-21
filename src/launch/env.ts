@@ -32,12 +32,12 @@ export function packEnv(pack: string | undefined, network = false): Readonly<Rec
 }
 
 /**
- * What a tool prints when a variable that blocks downloads stopped it, and the
- * line a red check prints beneath its status to say what to run first, from
- * what the message matched. The tool's own message names the variable or the
- * missing piece, not the command that fetches it.
+ * What a tool prints when a piece of its setup is missing, and the line a red
+ * check prints beneath its status to say what to do, from what the message
+ * matched. The tool's own message names the variable that blocked a download,
+ * or the missing piece, not the command that provides it.
  */
-const OFFLINE_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) => string }[] = [
+const SETUP_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) => string }[] = [
   {
     // Go 1.27.2, a module missing from the module cache under GOPROXY=off.
     printed: /module lookup disabled by GOPROXY=off/,
@@ -58,15 +58,22 @@ const OFFLINE_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) 
     printed: /Network connectivity is disabled, but the requested data wasn't found in the cache/,
     hint: () => "a Python package is missing from uv's cache, and checks never download one: run `uv sync` first",
   },
+  {
+    // oxlint 1.87.0, type-aware (`--type-aware`, or `options.typeAware` in its config) with no tsgolint to run.
+    printed: /Failed to find tsgolint executable/,
+    hint: () =>
+      "oxlint's type-aware rules need the oxlint-tsgolint package: install it, or turn type-aware linting off (`--type-aware` in the check's args, `options.typeAware` in .oxlintrc.json)",
+  },
 ];
 
 /**
- * The line a failed check prints to say what to run before it can pass, when
- * its output shows a variable that blocks downloads stopped it, or `null`. The
- * raw output is left as the tool wrote it; this only reads it.
+ * The line a failed check prints to say what to do before it can pass, when
+ * its output shows a piece of its setup missing, a variable that blocks
+ * downloads among them, or `null`. The raw output is left as the tool wrote
+ * it; this only reads it.
  */
-export function offlineHint(outcome: { stdout: string; stderr: string }): string | null {
-  for (const { printed, hint } of OFFLINE_HINTS) {
+export function setupHint(outcome: { stdout: string; stderr: string }): string | null {
+  for (const { printed, hint } of SETUP_HINTS) {
     const match = printed.exec(outcome.stderr) ?? printed.exec(outcome.stdout);
     if (match !== null) return hint(match);
   }

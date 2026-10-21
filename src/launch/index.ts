@@ -5,7 +5,8 @@
  * source is `mise.ts`, the `go-mod-tool` source `go-mod.ts`, the
  * `rust-toolchain` source `rust-toolchain.ts`, the `uv-lock` source `uv.ts`
  * and the `path` source `path.ts`. The variables a check's pack sets on its spawn, and the
- * hint a check stopped by one of them prints, are `env.ts`. The `js-lockfile`
+ * hint a check prints when one of them, or a missing piece of its setup,
+ * stopped it, are `env.ts`. The `js-lockfile`
  * source, the project's own package manager, spans the rest: detection in
  * `package-manager.ts`, the exec-prefix translation in `translate.ts`, where a
  * tool has to resolve from in `js-lockfile.ts`, and the refusals that mean a
@@ -16,7 +17,7 @@
 
 export type { EntryCommand, EntryLike } from './entry.js';
 export { asEntry, entryArgv, entryCheckride, entryText, PIN_CHECKRIDE, resolveEntry } from './entry.js';
-export { offlineHint, packEnv } from './env.js';
+export { packEnv, setupHint } from './env.js';
 export type { ModuleImports } from './go-mod.js';
 export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
 export type { PackageManager } from './package-manager.js';
@@ -39,3 +40,4 @@ export {
   pinResolution,
 } from './resolve.js';
 export { isAvailableUnder, translateExec } from './translate.js';
+export { dirsUpTo } from './walk.js';

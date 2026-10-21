@@ -434,7 +434,7 @@ describe('CLI static-only (--static-only)', () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), 'checkride-static-flag-'));
     const files: Record<string, string> = {
-      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', cspell: '9.0.0', 'markdownlint-cli2': '0.23.3', typescript: '5.9.3', vitest: '4.0.0' } }),
+      'package.json': JSON.stringify({ name: 'x', devDependencies: { oxlint: '1.87.0', 'oxlint-tsgolint': '7.0.2003', cspell: '9.0.0', 'markdownlint-cli2': '0.23.3', typescript: '5.9.3', vitest: '4.0.0' } }),
       'tsconfig.json': '{}',
       '.oxlintrc.json': '{}',
       'cspell.json': '{}',
@@ -482,6 +482,21 @@ describe('CLI static-only (--static-only)', () => {
     expect(skip('docs')).toMatch(/^static-only: needs an install \(the `docs` slot needs `markdownlint-cli2`/);
     expect(skip('spell')).toMatch(/^static-only: needs an install \(the `spell` slot needs `cspell`/);
     expect(skip('links')).toBeUndefined();
+  });
+
+  /**
+   * A repo that declares no `oxlint-tsgolint` runs oxlint without
+   * `--type-aware`, so a static run keeps it once it's installed: what the
+   * uninstalled repo lacks is oxlint itself, not the type-aware install.
+   */
+  test('a repo that declares no oxlint-tsgolint runs plain oxlint, which needs only its install', async () => {
+    const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { devDependencies: Record<string, string> };
+    delete pkg.devDependencies['oxlint-tsgolint'];
+    await writeFile(join(dir, 'package.json'), JSON.stringify(pkg));
+    const stdout = capture();
+    expect(await runCli(['--static-only', '--json'], { cwd: dir, stdout, stderr: capture(), env: {} })).toBe(0);
+    const summary = JSON.parse(stdout.text()) as { checks: { name: string; reason?: string }[] };
+    expect(summary.checks.find((c) => c.name === 'lint')?.reason).toMatch(/^static-only: needs an install \(the `lint` slot needs `oxlint`/);
   });
 });
 

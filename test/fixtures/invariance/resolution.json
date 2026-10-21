@@ -4,7 +4,7 @@
     "runs": {
       "checkride --digest": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -15,7 +15,7 @@
       "checkride --digest --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
         {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -36,7 +36,7 @@
       ],
       "checkride --digest --changed": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -52,7 +52,7 @@
       "checkride": [
         {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -67,7 +67,7 @@
         {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
         {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -92,7 +92,7 @@
       "checkride --changed": [
         {"name":"tidy","adapter":"custom:tidy","argv":["node","scripts/normalize.mjs"],"output_file":null},
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -207,7 +207,7 @@
     "runs": {
       "checkride": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -218,7 +218,7 @@
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
         {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -239,7 +239,7 @@
       ],
       "checkride --changed": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -254,7 +254,7 @@
     "runs": {
       "checkride": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -265,7 +265,7 @@
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
         {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
         {"name":"dupes","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dupes","--format","json","--quiet"],"output_file":"dupes.json"},
@@ -286,7 +286,7 @@
       ],
       "checkride --changed": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":"ast-grep","argv":["pnpm","--config.verify-deps-before-run=false","exec","ast-grep","scan","--json=compact"],"output_file":"struct.json"},
         {"name":"dead","adapter":"fallow","argv":["pnpm","--config.verify-deps-before-run=false","exec","fallow","dead-code","--format","json","--quiet"],"output_file":"dead.json"},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -403,7 +403,7 @@
     "runs": {
       "checkride": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -418,7 +418,7 @@
       "checkride --all": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
         {"name":"format","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dupes","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
@@ -443,7 +443,7 @@
       ],
       "checkride --changed": [
         {"name":"types","adapter":"tsc","argv":["pnpm","--config.verify-deps-before-run=false","exec","tsc","--build"],"output_file":null},
-        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--type-aware","--format=json"],"output_file":"lint.json"},
+        {"name":"lint","adapter":"oxlint","argv":["pnpm","--config.verify-deps-before-run=false","exec","oxlint","--format=json"],"output_file":"lint.json"},
         {"name":"struct","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"dead","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},
         {"name":"test","adapter":null,"skipped":true,"reason":"no tool detected for slot","output_file":null},

@@ -64,6 +64,15 @@ describe('TOOLS', () => {
       }
     }
   });
+
+  test('each flagDeps argument is one the row passes, and init installs one of its packages, so a new project keeps it', () => {
+    for (const row of ROWS) {
+      for (const [flag, deps] of Object.entries(row.flagDeps ?? {})) {
+        expect([...row.args, ...(row.changedArgs ?? []), ...(row.fixArgs ?? [])], `${row.name} ${flag}`).toContain(flag);
+        expect(deps.some((dep) => dep in row.devDeps), `${row.name} ${flag}`).toBe(true);
+      }
+    }
+  });
 });
 
 /** The go pack's row named `name`. */

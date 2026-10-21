@@ -382,6 +382,18 @@ describe('runChecks (injected runner)', () => {
     expect(written.checks).toHaveLength(2);
   });
 
+  test('a red check whose output names a missing piece of its setup prints what to do beneath its status line', async () => {
+    const stderr = 'Failed to find tsgolint executable. You may need to add the `oxlint-tsgolint` package to your project?\n';
+    const runner: CheckRunner = (r) =>
+      Promise.resolve(r.slot === 'lint' ? { ok: false, exit_code: 1, stdout: '', stderr } : { ok: true, exit_code: 0, stdout: '', stderr: '' });
+    const human = sink();
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner, stdout: sink().out, stderr: human.out });
+    expect(human.lines.join('')).toContain("oxlint's type-aware rules need the oxlint-tsgolint package: install it, or turn type-aware linting off");
+    const json = { stdout: sink(), stderr: sink() };
+    await runChecks({ cwd: dir, slots, adapters, config: null, runner, json: true, stdout: json.stdout.out, stderr: json.stderr.out });
+    expect([...json.stdout.lines, ...json.stderr.lines].join('')).not.toContain('oxlint-tsgolint package: install it');
+  });
+
   test("a runner's argv rides into the entry as given, and a check that skipped itself records none", async () => {
     const config = { checks: { licenses: { command: 'node', skipExitCode: 77 } } };
     const result = await runChecks({

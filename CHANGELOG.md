@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **oxlint runs type-aware only where `oxlint-tsgolint` is a dependency.**
+  `--type-aware` runs tsgolint, and a repo that lints with plain oxlint and
+  never installed `oxlint-tsgolint` had a `lint` check that failed on every
+  run, which `init` then adopted as disabled (#9). The check now passes
+  `--type-aware`, in a run and under `checkride fix`, only where a
+  `package.json` from its directory up to the repo root declares
+  `oxlint-tsgolint`, and runs plain oxlint elsewhere, which `--static-only`
+  keeps. A new project from `init` declares both. When oxlint still can't
+  find tsgolint (declared but not installed, or `options.typeAware` in its
+  config), the red check says what to do beneath its status line.
+  [Packs](./docs/packs.md#type-aware-linting) shows how to name the arguments
+  yourself.
+
 ### Fixed
 
 - **The stanza reaches Claude Code in a repo with its own CLAUDE.md.** Claude
@@ -22,12 +37,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+#### Not additive
+
+- Changed: a 0.13 TypeScript repo that declares `oxlint` but not
+  `oxlint-tsgolint` resolves its `lint` check without `--type-aware`, a
+  deliberate exception to legacy invariance. The invariance golden is
+  re-recorded for the five examples it reaches, and the oxlint adapter's
+  `description` reads "Oxlint, type-aware with oxlint-tsgolint".
+
 #### Additive
 
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
   byte kept, nothing written on a second run.
 - `doctor` reports an `agent instructions` workspace row.
+- The exported `Adapter` type takes `flagDeps`: the arguments that need a
+  package the repo installs beside the tool, which resolution drops where no
+  `package.json` declares one.
 
 ## [0.15.1] - 2026-10-20
 
