@@ -271,6 +271,12 @@ fine when the lanes are genuinely independent; five means you re-ranked nothing.
   `baseline: <check> was captured with <tool> … this run used <tool> …` line,
   or the same note in `digest.md`, means the check ran another copy of its
   tool than the baseline's keys came from, so its new findings may be the
-  tool rewording old ones. The remedy to name is running under the copy the
-  baseline was captured with (the repo's dev shell, or the pinned version),
-  or a human's re-capture; never a re-capture of your own.
+  tool rewording old ones. When it counts new keys, the remedy to name is
+  running under the copy the baseline was captured with (the repo's dev
+  shell, or the pinned version), or a human's review and re-capture; never a
+  re-capture of your own. When it counts none, only keys held back from the
+  ratchet, the remedy to name is `checkride baseline --versions`, the one
+  baseline write an agent may run itself: it records the copy that ran for
+  each check that reported nothing new under a copy the repo pins, prunes the
+  keys that copy no longer reports, and adds no key. Its stderr names each
+  check it left, and a check it left for new keys is still the human's.

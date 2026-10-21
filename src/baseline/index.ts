@@ -18,7 +18,7 @@ export {
   readBaselineAt,
   unionBaselines,
 } from './history.js';
-export type { Baseline, BaselineRead, Captured, RanWith } from './store.js';
+export type { Baseline, BaselineRead, Captured, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,
   BASELINE_FILE,
@@ -33,5 +33,6 @@ export {
   ratchet,
   readBaselineStatus,
   renameBaselineSlots,
+  rerecordCopies,
   writeBaseline,
 } from './store.js';

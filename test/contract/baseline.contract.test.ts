@@ -24,7 +24,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter, Slot } from '../../src/adapters.js';
 import type { Baseline } from '../../src/baseline/index.js';
 import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, parseBaseline, writeBaseline } from '../../src/baseline/index.js';
-import { runBaseline } from '../../src/baseline-command.js';
+import { runBaseline, runBaselineVersions } from '../../src/baseline-command.js';
 import { runCli } from '../../src/cli.js';
 import type { CheckRunner, Out } from '../../src/orchestrator/index.js';
 import { runChecks } from '../../src/orchestrator/index.js';
@@ -92,6 +92,11 @@ const pinnedRed: CheckRunner = async (r, ctx) => ({
   ...(await redRunner(r, ctx)),
   ...(r.slot === 'lint' ? { pin_source: 'js-lockfile' as const, tool_version: '1.87.0' } : { pin_source: 'path' as const }),
 });
+
+/** Every key a baseline grandfathers, across its checks. */
+function keysOf(b: Baseline): string[] {
+  return Object.values(b.slots).flat();
+}
 
 describe('checkride.baseline.json', () => {
   let dir: string;
@@ -166,6 +171,38 @@ describe('checkride.baseline.json', () => {
     expect(Object.keys(parsed.captured_with?.['api:lint'] ?? {})).toEqual(['pin_source', 'tool_version', 'toolchain_version']);
     expect(Object.keys(parsed.captured_with?.['lint'] ?? {})).toEqual(['pin_source', 'toolchain_version']);
     expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
+  });
+
+  /**
+   * Contract: `checkride baseline --versions` adds no key (§Who writes to
+   * it). Where a check reported only keys its entry holds, under a copy a pin
+   * of the repo's chose, it records that copy and prunes the keys the copy no
+   * longer reports; a check that reported a key its entry lacks leaves the
+   * file as it was.
+   */
+  test('baseline --versions moves a record to the copy that ran and prunes, and never adds a key', async () => {
+    await runBaseline({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, runner: pinnedRed, stdout: sink().out, stderr: sink().out });
+    const captured = await readFile(baselinePath(), 'utf8');
+    const upgraded = (lint: string): CheckRunner => async (r, ctx) => ({
+      ...(await pinnedRed(r, ctx)),
+      ...(r.slot === 'lint' ? { stdout: lint, tool_version: '1.88.0' } : {}),
+    });
+
+    const withNew = JSON.stringify({ diagnostics: [...(JSON.parse(OXLINT_REPORT) as { diagnostics: unknown[] }).diagnostics, { filename: 'src/c.ts', code: 'eslint(no-debugger)', message: 'Unexpected debugger statement.' }] });
+    await runBaselineVersions({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, runner: upgraded(withNew), stdout: sink().out, stderr: sink().out });
+    expect(await readFile(baselinePath(), 'utf8')).toBe(captured);
+
+    const subset = JSON.stringify({ diagnostics: (JSON.parse(OXLINT_REPORT) as { diagnostics: unknown[] }).diagnostics.slice(0, 1) });
+    const result = await runBaselineVersions({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, runner: upgraded(subset), stdout: sink().out, stderr: sink().out });
+    const raw = await readFile(baselinePath(), 'utf8');
+    const parsed = JSON.parse(raw) as Baseline;
+    expect(validateBaseline(parsed), JSON.stringify(validateBaseline.errors)).toBe(true);
+    expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
+    expect(parsed.slots['lint']).toEqual(OXLINT_KEYS.slice(0, 1));
+    expect(parsed.captured_with?.['lint']).toEqual({ pin_source: 'js-lockfile', tool_version: '1.88.0' });
+    expect(result.written).toBe(true);
+    const before = new Set(keysOf(JSON.parse(captured) as Baseline));
+    for (const key of keysOf(parsed)) expect(before.has(key), key).toBe(true);
   });
 
   test('construction order and duplicate keys never reach the disk', async () => {

@@ -192,6 +192,15 @@ describe('CLI output directory (--out / CHECKRIDE_OUT)', () => {
     expect(existsSync(join(outside, 'checkride.baseline.json'))).toBe(false);
   });
 
+  test('baseline --versions takes --out too, and adds no key to the file at the repo root', async () => {
+    expect(await runCli(['baseline'], deps())).toBe(0);
+    const captured = await readFile(join(dir, 'checkride.baseline.json'), 'utf8');
+    expect(await runCli(['baseline', '--versions', '--out', outside], deps())).toBe(0);
+    expect(existsSync(join(outside, 'summary.json'))).toBe(true);
+    expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(captured);
+    expect(await runCli(['baseline', '--versions', 'extra'], deps())).toBe(2);
+  });
+
   test('triage and qa take --out and name that directory; doctor takes it and probes it', async () => {
     expect(await runCli(['--only', 'probe', '--out', outside], deps())).toBe(1);
     const qa = capture();

@@ -29,13 +29,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   since golangci-lint compiles gofmt and its type checker in, and a Nix bump
   can move Go under a golangci-lint that keeps its name. A run whose copy
   differs, by a Go release on another minor line, by version where both sides
-  name one, and by source otherwise, still fails on a new key. The difference is named in the
-  summary as `baseline_captured_with`, in that check's digest section, and in
-  a `baseline:` line on stderr, which says how many keys are new and how many
-  the ratchet held back. The ratchet prunes none of that check's keys, so a
-  run with a different toolchain can't prune keys CI's still reports. A
-  baseline captured before this release has no record, and ratchets as it
-  always has.
+  name one, and by source otherwise, still fails on a new key. The difference
+  is named in the summary as `baseline_captured_with`, in that check's digest
+  section, and in a `baseline:` line on stderr, which says how many keys are
+  new and how many the ratchet held back. The ratchet prunes none of that
+  check's keys, so a run with a different toolchain can't prune keys CI's
+  still reports. A baseline captured before this release has no record, and
+  ratchets as it always has.
+- **`checkride baseline --versions` records a tool upgrade, and grandfathers
+  nothing.** After an upgrade, a check whose copy differs from its
+  `captured_with` record is held back from the ratchet, and a re-capture would
+  grandfather whatever else was new in the run. `--versions` runs the checks
+  as a capture does. Then, for each check that ran to a verdict, reported no
+  key its entry lacks, and ran a copy one of the repo's pins chose, it records
+  that copy and prunes the keys the copy no longer reports. Every other check
+  is left as it was, and stderr says why: it didn't run, it reached no
+  verdict, it reported new keys, or its copy came from `PATH`. It never adds a
+  key, so an agent may run it, and the check skill says when. A drift notice
+  with no new keys names it, and one with new keys asks for a human's review.
 
 ### Changed
 
@@ -119,6 +130,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `toolchain_version`, the release of the toolchain a go check ran on, which a
   `captured_with` record and `baseline_captured_with` carry too. The exported
   `Pack` type takes `toolchain`, which the go pack sets to `go`.
+- `checkride baseline` takes `--versions`, which adds no key and writes a
+  check's `captured_with` record only as its rule admits.
 - `init` and `agent-setup` promise what they do to CLAUDE.md: one
   `@AGENTS.md` line added to a file that doesn't load AGENTS.md, every other
   byte kept, nothing written on a second run.

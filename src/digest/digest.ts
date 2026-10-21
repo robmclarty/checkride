@@ -117,13 +117,15 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
 /**
  * The note a section adds when its check ran another copy of its tool than
  * the baseline captured its keys with, between blank lines, or nothing: its
- * new keys may be the tool's churn, not new debt.
+ * new keys may be the tool's churn, not new debt. A section is a failing
+ * check's, and a drifted check that fails has a new key, since one whose
+ * findings the baseline all holds passes, so the remedy is a human's review.
  */
 function driftNote(check: SummaryCheck, tool: string): string {
   const captured = check.baseline_captured_with;
   if (captured === undefined) return '';
   const toolchain = packToolchain(check.pack);
-  return `\n_The baseline was captured with ${tool} ${copyNamed(captured, toolchain)}, and this run used ${tool} ${copyNamed(check, toolchain)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human re-record the baseline._\n`;
+  return `\n_The baseline was captured with ${tool} ${copyNamed(captured, toolchain)}, and this run used ${tool} ${copyNamed(check, toolchain)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human review the new keys and re-capture._\n`;
 }
 
 /**

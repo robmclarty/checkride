@@ -21,31 +21,41 @@
  * output is delegated to {@link runChecks}, so baseline fingerprints precisely
  * the bytes a normal run would.
  *
+ * `checkride baseline --versions` runs the same pipeline and adds no key: it
+ * moves each check's capture record to the copy its tool ran, and prunes the
+ * keys that copy no longer reports, where that can't change a verdict
+ * ({@link runBaselineVersions}).
+ *
  * `checkride baseline diff [<ref>]` is the read-only side: what the
  * working-tree file grandfathers that `<ref>`'s committed copy didn't, and what
  * it dropped ({@link runBaselineDiff}).
  */
 
 import type { Adapter, Slot } from './adapters.js';
-import type { Baseline, Captured } from './baseline/index.js';
+import { isInside } from './artifacts/index.js';
+import type { Baseline, Captured, Fingerprint, Observation, Rerecord } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
+  baselinesEqual,
   capturedRecord,
+  copyNamed,
   diffBaselines,
   isFingerprintable,
   loadBaseline,
   observedFingerprint,
   readBaselineAt,
   readBaselineStatus,
+  rerecordCopies,
   writeBaseline,
 } from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
-import type { CheckRun, CheckRunner, Out, RunOptions, SummaryCheck } from './orchestrator/index.js';
+import type { CheckRun, CheckRunner, Out, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
 import { runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
+import { packToolchain } from './launch/index.js';
 
 export type BaselineOptions = {
   cwd?: string;
@@ -82,20 +92,30 @@ export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline
 function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): { slots: Record<string, string[]>; kept: Set<string> } {
   const slots: Record<string, string[]> = {};
   const kept = new Set<string>();
-  for (const run of runs) {
-    const { adapter, outcome } = run;
-    if (!isFingerprintable(adapter.name)) continue;
-    const keys = observedFingerprint(adapter.name, outcome, [adapter.command, ...adapter.args], run.root, cwd);
+  for (const [name, keys] of observedChecks(runs, cwd)) {
     if (keys !== null) {
-      slots[run.name] = [...keys].toSorted();
+      slots[name] = [...keys].toSorted();
       continue;
     }
-    const previousKeys = previous?.slots[run.name];
-    if (previousKeys !== undefined) slots[run.name] = previousKeys;
-    kept.add(run.name);
-    stderr.write(`baseline: ${run.name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previousKeys?.length ?? 0} previous key(s)\n`);
+    const previousKeys = previous?.slots[name];
+    if (previousKeys !== undefined) slots[name] = previousKeys;
+    kept.add(name);
+    stderr.write(`baseline: ${name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previousKeys?.length ?? 0} previous key(s)\n`);
   }
   return { slots, kept };
+}
+
+/**
+ * What a capture run observed of each check whose adapter has a parser, by
+ * check name: the keys it reported, keyed as a run masks with them, or `null`
+ * for a check that didn't run to a verdict (see `observedFingerprint`).
+ */
+function observedChecks(runs: readonly CheckRun[], cwd: string): Map<string, Fingerprint | null> {
+  const observed = new Map<string, Fingerprint | null>();
+  for (const { adapter, outcome, name, root } of runs) {
+    if (isFingerprintable(adapter.name)) observed.set(name, observedFingerprint(adapter.name, outcome, [adapter.command, ...adapter.args], root, cwd));
+  }
+  return observed;
 }
 
 /**
@@ -130,19 +150,14 @@ function capturedBaseline(slots: Record<string, string[]>, captured: Record<stri
 }
 
 /**
- * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
- * The repo's explicit write: it writes the file at the root whatever config
- * or output directory the run was given.
+ * The run a capture makes. `json: false` so the run reports progress on
+ * stderr and nothing on stdout: the baseline artifact is the file, so stdout
+ * stays clean. `baseline: null` so it records the raw current diagnostics,
+ * never masked or pruned by an existing baseline the run would otherwise pick
+ * up, and prints no drift notice.
  */
-export async function runBaseline(options: BaselineOptions): Promise<BaselineResult> {
-  const cwd = options.cwd ?? process.cwd();
-  const stderr = options.stderr ?? process.stderr;
-
-  // json:false so the run reports progress on stderr and nothing on stdout; the
-  // baseline artifact is the file, so stdout stays clean. baseline:null so a
-  // re-capture records the raw current diagnostics — never masked or pruned by an
-  // existing baseline the run would otherwise pick up.
-  const runOptions: RunOptions = {
+function captureRun(options: BaselineOptions, cwd: string, stderr: Out): RunOptions {
+  return {
     cwd,
     json: false,
     stderr,
@@ -155,7 +170,17 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
     ...(options.out !== undefined ? { out: options.out } : {}),
     ...(options.stdout !== undefined ? { stdout: options.stdout } : {}),
   };
-  const result = await runChecks(runOptions);
+}
+
+/**
+ * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
+ * The repo's explicit write: it writes the file at the root whatever config
+ * or output directory the run was given.
+ */
+export async function runBaseline(options: BaselineOptions): Promise<BaselineResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const stderr = options.stderr ?? process.stderr;
+  const result = await runChecks(captureRun(options, cwd, stderr));
   const previous = loadBaseline(cwd);
   const { slots, kept } = capturedSlots(result.runs, previous, cwd, stderr);
   const baseline = capturedBaseline(slots, capturedWith(slots, kept, result.summary.checks, previous));
@@ -167,6 +192,125 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${total} diagnostic(s) across ${where}\n`);
 
   return { ok: true, exitCode: 0, baseline };
+}
+
+export type BaselineVersionsOptions = BaselineOptions & {
+  /**
+   * The absolute path `config` was read from, when `--config` or
+   * `CHECKRIDE_CONFIG` named one. A file outside `cwd` is refused: it can run
+   * fewer checks, or other arguments, than the repo's own config, and prune
+   * keys the repo's run still reports.
+   */
+  configPath?: string;
+};
+
+export type BaselineVersionsResult = BaselineResult & {
+  /** What was done with each check the committed baseline holds, by check name. */
+  results: Rerecord[];
+  /** Whether the file was rewritten: true exactly when a check was re-recorded. */
+  written: boolean;
+};
+
+/**
+ * The committed baseline `--versions` re-records, read before anything runs,
+ * or the usage error that stops it: a `--config` outside the repo, no file to
+ * re-record, or one that can't be parsed.
+ */
+function committedForVersions(cwd: string, configPath: string | undefined): Baseline {
+  if (configPath !== undefined && !isInside(cwd, configPath)) {
+    throw new Error(
+      `baseline --versions: --config names ${configPath}, outside the repo, which can run fewer checks or other arguments than the repo's own config and prune keys its run still reports`,
+    );
+  }
+  const read = readBaselineStatus(cwd);
+  if (read.state === 'absent') throw new Error(`baseline --versions: there's no ${BASELINE_FILE} to re-record; capture one with \`checkride baseline\``);
+  if (read.baseline === null) throw new Error(`baseline --versions: ${BASELINE_FILE} can't be parsed, or comes from a newer checkride; restore it with \`checkride recover\``);
+  return read.baseline;
+}
+
+/** What the run observed of each check whose adapter has a parser, with how its tool ran, as its summary entry records it. */
+function observations(result: RunResult, cwd: string): Map<string, Observation> {
+  const byName = new Map(result.summary.checks.map((c) => [c.name, c]));
+  const observed = new Map<string, Observation>();
+  for (const [name, keys] of observedChecks(result.runs, cwd)) {
+    const check = byName.get(name);
+    observed.set(name, { keys, ran: (check === undefined ? undefined : capturedRecord(check)) ?? {} });
+  }
+  return observed;
+}
+
+/** How a line names a check's tool, and its pack's toolchain, from the summary: its adapter, or the check's name when none ran. */
+type ToolNames = ReadonlyMap<string, { tool: string; toolchain: string | undefined }>;
+
+/** What a line says of a check left for a reason that names no copy, and of one with nothing to change: nothing. */
+const LEFT_LINES: Readonly<Record<'unchanged' | 'not-run' | 'no-verdict', string | null>> = {
+  unchanged: null,
+  'not-run': "left: it didn't run",
+  'no-verdict': "left: it didn't run to a verdict (refused, timed out or crashed)",
+};
+
+/** The line for a re-recorded check: the copy it was captured with, the one it ran, and the keys pruned. */
+function rerecordedLine(r: Extract<Rerecord, { outcome: 'rerecorded' }>, tool: string, toolchain: string | undefined): string {
+  const pruned = r.pruned > 0 ? `; ${r.pruned} key(s) pruned` : '';
+  if (r.from === undefined) return `${r.check} recorded: ${tool} ${copyNamed(r.to, toolchain)}${pruned}`;
+  return `${r.check} re-recorded: ${tool} ${copyNamed(r.from, toolchain)} → ${copyNamed(r.to, toolchain)}${pruned}`;
+}
+
+/** The line for a check left because no pin of the repo's chose its copy. */
+function unpinnedLine(r: Extract<Rerecord, { outcome: 'unpinned' }>, toolchain: string | undefined): string {
+  if (r.ran.pin_source === undefined) return `${r.check} left: its tool resolved through no pin source`;
+  return `${r.check} left: it ran an unpinned copy ${copyNamed(r.ran, toolchain)}`;
+}
+
+/** The line one result prints, or `null` for a check with nothing to change. */
+function rerecordLine(r: Rerecord, names: ToolNames): string | null {
+  const { tool, toolchain } = names.get(r.check) ?? { tool: r.check, toolchain: undefined };
+  if (r.outcome === 'rerecorded') return rerecordedLine(r, tool, toolchain);
+  if (r.outcome === 'unpinned') return unpinnedLine(r, toolchain);
+  if (r.outcome === 'new-keys') {
+    return `${r.check} left: ${r.newKeys} new key(s) under ${tool} ${copyNamed(r.ran, toolchain)}; fix them, or have a human review them and run \`checkride baseline\``;
+  }
+  const left = LEFT_LINES[r.outcome];
+  return left === null ? null : `${r.check} ${left}`;
+}
+
+/** Print a line for each check re-recorded or left, then what was written and the counts. */
+function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolNames, written: boolean): void {
+  for (const r of results) {
+    const line = rerecordLine(r, names);
+    if (line !== null) stderr.write(`baseline --versions: ${line}\n`);
+  }
+  const count = (outcomes: readonly Rerecord['outcome'][]): number => results.filter((r) => outcomes.includes(r.outcome)).length;
+  const tally = `${count(['rerecorded'])} re-recorded, ${count(['not-run', 'no-verdict', 'new-keys', 'unpinned'])} left, ${count(['unchanged'])} unchanged`;
+  stderr.write(
+    written
+      ? `baseline --versions: wrote ${BASELINE_FILE}: ${tally}; review it with \`git diff ${BASELINE_FILE}\`\n`
+      : `baseline --versions: ${BASELINE_FILE} is unchanged: ${tally}\n`,
+  );
+}
+
+/**
+ * `checkride baseline --versions`: run the pipeline as a capture does, then
+ * re-record the copy each check's tool ran as, where that adds no key
+ * (`rerecordCopies`), and write the file only when a check was re-recorded.
+ * The fix for a check a tool upgrade holds back from the ratchet, once the
+ * repo pins the new copy, that a capture isn't: a capture would grandfather
+ * whatever is new in the run too. Exits 0 whenever it ran; a usage error, a
+ * missing or unparseable baseline included, throws, which `runCli` renders as
+ * exit 2.
+ */
+export async function runBaselineVersions(options: BaselineVersionsOptions): Promise<BaselineVersionsResult> {
+  const cwd = options.cwd ?? process.cwd();
+  const stderr = options.stderr ?? process.stderr;
+  const committed = committedForVersions(cwd, options.configPath);
+  const result = await runChecks(captureRun(options, cwd, stderr));
+  const { baseline, results } = rerecordCopies(committed, observations(result, cwd));
+  const written = !baselinesEqual(committed, baseline);
+  if (written) await writeBaseline(cwd, baseline);
+  const names: ToolNames = new Map(result.summary.checks.map((c) => [c.name, { tool: c.adapter ?? c.name, toolchain: packToolchain(c.pack) }]));
+  stderr.write('\n');
+  reportRerecords(stderr, results, names, written);
+  return { ok: true, exitCode: 0, baseline, results, written };
 }
 
 export type BaselineDiffOptions = {

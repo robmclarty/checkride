@@ -1817,7 +1817,7 @@ describe('runChecks (a baseline captured with another copy of the tool)', () => 
     expect(result.ok).toBe(false);
     expect(lint).toMatchObject({ ok: false, baselined: 1, baseline_captured_with: { pin_source: 'path' } });
     expect(text).toContain(KEY_C);
-    expect(text).toContain('baseline: lint was captured with oxlint from PATH; this run used oxlint 2.11.4 (nix): 1 new, 1 held back from the ratchet. Run under the copy the baseline was captured with, or have a human re-record the baseline.');
+    expect(text).toContain('baseline: lint was captured with oxlint from PATH; this run used oxlint 2.11.4 (nix): 1 new, 1 held back from the ratchet. Run under the copy the baseline was captured with, or have a human review the new keys and re-capture.');
     expect(existsSync(baselineFile())).toBe(false);
   });
 
@@ -1835,14 +1835,16 @@ describe('runChecks (a baseline captured with another copy of the tool)', () => 
     expect(same.lint).not.toHaveProperty('baseline_captured_with');
     await rm(baselineFile(), { force: true });
     const other = await run(capturedWith({ lint: { pin_source: 'mise' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'path' }));
-    expect(other.text).toContain('captured with oxlint through mise; this run used oxlint from PATH: 1 held back from the ratchet.');
+    expect(other.text).toContain('captured with oxlint through mise; this run used oxlint from PATH: 1 held back from the ratchet. Run under the copy the baseline was captured with, or pin this one, so `checkride baseline --versions` can record it.');
     expect(existsSync(baselineFile())).toBe(false);
   });
 
   test('a capture through mise at one version is held back from a run mise resolved to another, and names both', async () => {
     const { text, lint } = await run(capturedWith({ lint: { pin_source: 'mise', tool_version: '2.11.4' } }), ranWith([['a.ts', 'no-x', 'bad']], { pin_source: 'mise', tool_version: '2.14.0' }));
     expect(lint).toMatchObject({ ok: true, baseline_captured_with: { pin_source: 'mise', tool_version: '2.11.4' } });
-    expect(text).toContain('baseline: lint was captured with oxlint 2.11.4 (mise); this run used oxlint 2.14.0 (mise): 1 held back from the ratchet.');
+    expect(text).toContain(
+      'baseline: lint was captured with oxlint 2.11.4 (mise); this run used oxlint 2.14.0 (mise): 1 held back from the ratchet. Run under the copy the baseline was captured with, or, if this is the copy the repo means to run, record it with `checkride baseline --versions`, which adds no key.',
+    );
     expect(existsSync(baselineFile())).toBe(false);
   });
 

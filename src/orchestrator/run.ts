@@ -108,7 +108,8 @@ function consumerCause(options: RunOptions, cwd: string): string | null {
  * recorded, what ran, and what the ratchet did: a run that ratchets held that
  * check's unseen keys back, and a partial or consumer run prunes nothing
  * anyway, so it counts none. The remedy is never a re-capture by whoever
- * reads it, since that would grandfather new debt along with the churn.
+ * reads it, since that would grandfather new debt along with the churn
+ * ({@link driftRemedy}).
  */
 function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: boolean; consumer: string | null }): void {
   const ratchets = !run.partial && run.consumer === null;
@@ -117,9 +118,22 @@ function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: bool
     if (churn === null) continue;
     writeLine(
       stderr,
-      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured, d.toolchain)}; this run used ${d.tool} ${copyNamed(d.ran, d.toolchain)}: ${churn}. Run under the copy the baseline was captured with, or have a human re-record the baseline.`,
+      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured, d.toolchain)}; this run used ${d.tool} ${copyNamed(d.ran, d.toolchain)}: ${churn}. ${driftRemedy(d)}`,
     );
   }
+}
+
+/**
+ * What a drift notice asks for. With new keys, a human's review: they may be
+ * new debt, and only a capture adds a key. With none, the copy that ran can
+ * be recorded with `checkride baseline --versions`, which adds no key, where
+ * a pin of the repo's chose it; a copy from `PATH` has to be pinned first.
+ */
+function driftRemedy(d: Drift): string {
+  const capturedCopy = 'Run under the copy the baseline was captured with';
+  if (d.newKeys > 0) return `${capturedCopy}, or have a human review the new keys and re-capture.`;
+  if (d.ran.pin_source === undefined || d.ran.pin_source === 'path') return `${capturedCopy}, or pin this one, so \`checkride baseline --versions\` can record it.`;
+  return `${capturedCopy}, or, if this is the copy the repo means to run, record it with \`checkride baseline --versions\`, which adds no key.`;
 }
 
 /** A drifted check's churn as its notice counts it, or `null` when there's none to report. */

@@ -108,6 +108,14 @@ restores the entries from git history additively. Don't reach for
 `checkride baseline` to fix that — a re-capture would grandfather every
 genuinely new finding along with the lost ones.
 
+The baseline also records which copy of each tool captured its keys, since a
+tool upgrade can word a finding differently. After an upgrade the repo pins,
+a run says which checks it held back from the ratchet, and
+`checkride baseline --versions` records the new copy for each check that
+reported nothing new, pruning the keys that copy no longer reports. It adds
+no key, so it's safe to run, by you or an agent. A check with new keys is
+left for you to review before a `checkride baseline`.
+
 `init` also makes sure the `.check/` output directory is gitignored — it
 appends `.check/` to your `.gitignore`, or creates one. If you adopted with an
 older checkride and `.check/` is showing up in `git status`, add the line

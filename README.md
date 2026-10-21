@@ -220,6 +220,7 @@ checkride init         Set up a project (new or existing — auto-detected).
 checkride doctor       Verify environment + every slot's status (read-only, exit 0/1).
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
+  --versions   re-record the copy each check's tool ran, adding no key
 checkride baseline diff [<ref>]  List the keys the working tree's baseline adds
                        or drops against <ref>'s (default HEAD); --json for JSON.
 checkride recover      Rebuild checkride.baseline.json candidates from git history
@@ -684,7 +685,11 @@ Once it exists, every normal run is **baseline-aware**:
   with another copy still fails on a new key, but its digest and a `baseline:`
   line on stderr name both copies, and the ratchet prunes none of that check's
   keys, since the copy that captured them may still report them. Run under the
-  same copy, or re-record the baseline once the new one is the repo's.
+  same copy, or, once the repo pins the new one, run
+  `checkride baseline --versions`: for each check that reported no key the
+  file lacks, under a copy the repo pins, it records that copy and prunes the
+  keys it no longer reports. It never adds a key, so an agent may run it; a
+  check with new keys is left for a human's review and `checkride baseline`.
 
 Two operational notes. **Merge conflicts:** the file is canonical (slots and
 keys are sorted), so parallel branches usually merge cleanly; when they do

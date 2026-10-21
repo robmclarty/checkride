@@ -27,7 +27,7 @@
     },
     "captured_with": {
       "type": "object",
-      "description": "Present when a check in slots recorded how its keys were captured: check name to the pin source its tool resolved through when `checkride baseline` captured them, the version that source named or resolved, and the toolchain release the tool ran on, as the run's summary records pin_source, tool_version and toolchain_version. Only `checkride baseline` writes an entry, and the ratchet never changes one. A run whose copy of the tool differs is held back from the ratchet for that check, since a tool upgrade re-keys findings. Absent when no check recorded one.",
+      "description": "Present when a check in slots recorded how its keys were captured: check name to the pin source its tool resolved through when `checkride baseline` captured them, the version that source named or resolved, and the toolchain release the tool ran on, as the run's summary records pin_source, tool_version and toolchain_version. Only `checkride baseline` writes an entry, and the ratchet never changes one. A run whose copy of the tool differs is held back from the ratchet for that check, since a tool upgrade re-keys findings; `checkride baseline --versions` then moves the entry to the copy that ran, adding no key, for a check that reported no new key under a copy the repo pins. Absent when no check recorded one.",
       "propertyNames": { "minLength": 1 },
       "additionalProperties": {
         "type": "object",

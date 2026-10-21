@@ -509,7 +509,8 @@ under the same rules — which is what `recover` is built on.
 
 **Who writes to it.** Keys are added only by `checkride baseline` and
 `recover --pick`; a normal run only removes them, and only on a fully observed
-run — the ratchet rule in [Timeouts and interrupts](#timeouts-and-interrupts).
+run — the ratchet rule in [Timeouts and interrupts](#timeouts-and-interrupts),
+and so does `checkride baseline --versions`, which never adds one.
 A check observes its entry only when it reached a verdict on its own findings.
 One that timed out, failed to spawn or was interrupted (exit `-1`), or that
 failed without a single finding its parser could read (a refusal, missing
@@ -519,7 +520,10 @@ stays red. `checkride baseline` keeps such an entry's previous keys, and its
 `captured_with` record, and names the check on stderr, rather than writing it
 empty. Only `checkride baseline` writes `captured_with`: the ratchet carries it
 as it is, and `recover --pick` keeps the current file's record for each check
-that has one. A release before this one rewrites the file without it.
+that has one. `checkride baseline --versions` writes a check's record only as
+[its rule](#cli) admits: for a check that ran to a verdict, reported no key its
+entry lacks, and ran a copy one of the repo's pins chose. A release before
+0.16.0 rewrites the file without it.
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
 
@@ -536,7 +540,8 @@ run flags:
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
-is a breaking change. `init` and `agent-setup` additionally promise
+is a breaking change. `baseline` additionally promises `--versions`, whose
+rule is below, and `init` and `agent-setup` promise
 `--hook <a,b>` (select which hooks to write: `gate`, `dirty`, `protect`; an
 unknown name is a usage error naming the valid set), `--no-hook` (write none),
 `--remove-hook <a,b>` (tear installed ones back out — the config entry and the
@@ -953,6 +958,27 @@ and 2 when the ref names no commit, git is missing, or either copy can't be
 parsed (a file from a newer checkride included). `--config` belongs to the
 capture: `baseline diff` rejects it, and `baseline` rejects a stray argument,
 so a misplaced `diff` never rewrites the file.
+
+**`baseline --versions` records the copy each check ran, and adds no key.**
+A tool upgrade holds a check back from the ratchet when it ran another copy
+than `captured_with` records, and a capture would grandfather whatever is new
+in the run along with the churn. `checkride baseline --versions` runs the
+checks as a capture does, masking nothing, then changes a check's entry only
+when all three hold: the check ran to a verdict on its own findings; every
+key it reported is already in its entry; and its tool resolved through a pin
+source other than `path`, the repo's own pin, so CI runs the same copy. Such a
+check's `captured_with` record becomes the copy that ran, and the keys that
+copy no longer reports are pruned. Every other check keeps its entry and
+record byte for byte. stderr names each check it re-recorded, with both
+copies and how many keys it pruned, and each it left, with why: it didn't
+run, it reached no verdict, it reported new keys, or it ran an unpinned copy.
+The file is written only when a check was re-recorded. It never adds a key
+and never changes a verdict, since a key a check doesn't report can't fail
+it, which is why an agent may run it; plain `baseline` stays a human's call.
+It takes `--config` and `--out` as `baseline` does, and exits 0 whenever it
+ran, and 2 when there's no `checkride.baseline.json`, the file can't be
+parsed, `--config` names a file outside the repo, which could run fewer checks
+and prune keys the repo's run still reports, or it's given a stray argument.
 
 **`recover` rebuilds the baseline from git history and never mutates git
 state.** `checkride recover` takes `--pick <n|sha|union>`, `--exact`,

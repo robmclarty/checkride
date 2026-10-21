@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import type { Baseline, RanWith } from '../baseline/index.js';
+import type { Baseline, Observation, RanWith } from '../baseline/index.js';
 import {
   applyBaseline,
   BASELINE_SCHEMA_VERSION,
@@ -22,9 +22,10 @@ import {
   ratchet,
   readBaselineStatus,
   renameBaselineSlots,
+  rerecordCopies,
   writeBaseline,
 } from '../baseline/index.js';
-import { runBaseline, runBaselineDiff } from '../baseline-command.js';
+import { runBaseline, runBaselineDiff, runBaselineVersions } from '../baseline-command.js';
 import { runCli } from '../cli.js';
 import type { GitResult, GitRunner } from '../git.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
@@ -391,6 +392,183 @@ describe('baselineDrift', () => {
     expect(copyNamed({ pin_source: 'path', toolchain_version: '1.26.1' }, 'go')).toBe('from PATH on go 1.26.1');
     expect(copyNamed({ pin_source: 'path', toolchain_version: '1.26.1' })).toBe('from PATH on its toolchain 1.26.1');
     expect(copyNamed({ pin_source: 'nix', tool_version: '2.11.4' }, 'go')).toBe('2.11.4 (nix)');
+  });
+});
+
+/** A run that saw lint report `keys`, or reach no verdict for `null`, through `ran`. */
+function seen(keys: string[] | null, ran: RanWith): ReadonlyMap<string, Observation> {
+  return new Map([['lint', { keys: keys === null ? null : new Set(keys), ran }]]);
+}
+
+/**
+ * `baseline --versions` records the copy each check's tool ran and prunes the
+ * keys that copy no longer reports, but only for a check that ran to a
+ * verdict, reported no key its entry lacks, and ran a copy a pin of the
+ * repo's chose; every other check is left as it was. It never adds a key.
+ */
+describe('rerecordCopies', () => {
+  const OLD = { pin_source: 'js-lockfile', tool_version: '1.87.0' };
+  const NEW = { pin_source: 'js-lockfile', tool_version: '1.88.0' };
+  const committed: Baseline = { schema_version: 1, slots: { lint: ['a', 'b', 'c'] }, captured_with: { lint: OLD } };
+
+  const cases: { label: string; baseline?: Baseline; observed: ReadonlyMap<string, Observation>; slots: string[]; record: RanWith | undefined; outcome: Record<string, unknown> }[] = [
+    { label: 'another copy reporting a subset is re-recorded, the rest pruned', observed: seen(['a', 'c'], NEW), slots: ['a', 'c'], record: NEW, outcome: { outcome: 'rerecorded', from: OLD, to: NEW, pruned: 1 } },
+    { label: 'another copy reporting every key is re-recorded, nothing pruned', observed: seen(['c', 'a', 'b'], NEW), slots: ['a', 'b', 'c'], record: NEW, outcome: { outcome: 'rerecorded', from: OLD, to: NEW, pruned: 0 } },
+    { label: 'a key the entry lacks leaves the check', observed: seen(['a', 'd'], NEW), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'new-keys', newKeys: 1, ran: NEW } },
+    { label: 'a check the run didn’t observe is left', observed: new Map(), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'not-run' } },
+    { label: 'a check that reached no verdict is left', observed: seen(null, NEW), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'no-verdict' } },
+    { label: 'a copy from PATH is left, its fixed keys too', observed: seen(['a'], { pin_source: 'path' }), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unpinned', ran: { pin_source: 'path' } } },
+    { label: 'a tool that resolved through no pin source is left', observed: seen(['a'], {}), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unpinned', ran: {} } },
+    { label: 'the copy it was captured with, reporting every key, is unchanged', observed: seen(['a', 'b', 'c'], OLD), slots: ['a', 'b', 'c'], record: OLD, outcome: { outcome: 'unchanged' } },
+    { label: 'the copy it was captured with, reporting a subset, is pruned', observed: seen(['b'], OLD), slots: ['b'], record: OLD, outcome: { outcome: 'rerecorded', from: OLD, to: OLD, pruned: 2 } },
+    {
+      label: 'a check with no record takes one, pinned',
+      baseline: { schema_version: 1, slots: { lint: ['a'] } },
+      observed: seen(['a'], { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' }),
+      slots: ['a'],
+      record: { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' },
+      outcome: { outcome: 'rerecorded', to: { pin_source: 'nix', tool_version: '2.11.4', toolchain_version: '1.25.3' }, pruned: 0 },
+    },
+  ];
+
+  for (const c of cases) {
+    test(c.label, () => {
+      const { baseline, results } = rerecordCopies(c.baseline ?? committed, c.observed);
+      expect(baseline.slots['lint']).toEqual(c.slots);
+      expect(baseline.captured_with?.['lint']).toEqual(c.record);
+      expect(results).toEqual([{ check: 'lint', ...c.outcome }]);
+    });
+  }
+
+  test('a check with no record that the run left keeps none, and other checks keep theirs', () => {
+    const baseline: Baseline = { schema_version: 1, slots: { lint: ['a'], spell: ['x'] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.0.0' } } };
+    const observed = new Map<string, Observation>([['lint', { keys: new Set(['a']), ran: { pin_source: 'path' } }], ['spell', { keys: new Set(['x']), ran: { pin_source: 'js-lockfile', tool_version: '9.1.0' } }]]);
+    const next = rerecordCopies(baseline, observed);
+    expect(next.baseline).toEqual({ schema_version: 1, slots: { lint: ['a'], spell: ['x'] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.1.0' } } });
+    expect(next.results.map((r) => r.outcome)).toEqual(['unpinned', 'rerecorded']);
+  });
+
+  test('never adds a key, over every subset and superset a run could report', () => {
+    const held = ['a', 'b', 'c', 'd'];
+    const pool = [...held, 'e', 'f'];
+    for (let mask = 0; mask < 2 ** pool.length; mask += 1) {
+      const reported = pool.filter((_, i) => (mask >> i) % 2 === 1);
+      for (const ran of [NEW, OLD, { pin_source: 'path' }]) {
+        const { baseline } = rerecordCopies({ schema_version: 1, slots: { lint: held }, captured_with: { lint: OLD } }, seen(reported, ran));
+        for (const key of baseline.slots['lint'] ?? []) expect(held, `${reported.join(',')} under ${JSON.stringify(ran)}`).toContain(key);
+      }
+    }
+  });
+});
+
+/** An oxlint report of the given `[file, rule, message]` findings, each keyed `file:rule:message`. */
+function oxlintReport(findings: readonly (readonly [string, string, string])[]): string {
+  return JSON.stringify({ diagnostics: findings.map(([filename, code, message]) => ({ filename, code, message })) });
+}
+
+/** oxlint's report of one finding, keyed `a.ts:no-x:bad`. */
+const LINT_A = ['a.ts', 'no-x', 'bad'] as const;
+
+/** A runner whose lint reports `lint` under oxlint `version`, and whose spell reports `spell` from PATH. */
+function ranUnder(lint: readonly (readonly [string, string, string])[], version: string, spell = 'docs/old.md:3:7 - teh\n'): CheckRunner {
+  return pinnedBy(runnerFor({ lint: oxlintReport(lint), spell }), { lint: { pin_source: 'js-lockfile', tool_version: version }, spell: { pin_source: 'path' } });
+}
+
+/** {@link ranUnder} at oxlint 1.88.0 for every slot but lint, whose tool refuses, and so reaches no verdict. */
+const refusing: CheckRunner = (r, ctx) => (r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'refused' }) : ranUnder([], '1.88.0')(r, ctx));
+
+/**
+ * `checkride baseline --versions`: a capture's run, then the rule
+ * `rerecordCopies` applies, written only when a check was re-recorded, and a
+ * line for each check it re-recorded or left.
+ */
+describe('runBaselineVersions', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-versions-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const file = (): string => join(dir, 'checkride.baseline.json');
+  const committed: Baseline = {
+    schema_version: 1,
+    slots: { lint: ['a.ts:no-x:bad', 'b.ts:no-y:worse'], spell: ['docs/old.md::teh'] },
+    captured_with: { lint: { pin_source: 'js-lockfile', tool_version: '1.87.0' }, spell: { pin_source: 'path' } },
+  };
+
+  test('records a pinned copy that moved, prunes the keys it no longer reports, and names what it did', async () => {
+    await writeBaseline(dir, committed);
+    const err = capture();
+    const result = await runBaselineVersions({ cwd: dir, slots, adapters, config: null, runner: ranUnder([LINT_A], '1.88.0'), stdout: sink(), stderr: err.out });
+    expect(result).toMatchObject({ ok: true, exitCode: 0, written: true });
+    expect(JSON.parse(await readFile(file(), 'utf8'))).toEqual({
+      schema_version: 1,
+      slots: { lint: ['a.ts:no-x:bad'], spell: ['docs/old.md::teh'] },
+      captured_with: { lint: { pin_source: 'js-lockfile', tool_version: '1.88.0' }, spell: { pin_source: 'path' } },
+    });
+    expect(err.text()).toContain('baseline --versions: lint re-recorded: oxlint 1.87.0 (js-lockfile) → 1.88.0 (js-lockfile); 1 key(s) pruned\n');
+    expect(err.text()).toContain('baseline --versions: wrote checkride.baseline.json: 1 re-recorded, 0 left, 1 unchanged; review it with `git diff checkride.baseline.json`\n');
+    expect(err.text()).not.toContain('baseline --versions: spell');
+  });
+
+  test('a check with a new key, and one from PATH, are left as they were, and nothing is written', async () => {
+    await writeBaseline(dir, committed);
+    const before = await readFile(file(), 'utf8');
+    const err = capture();
+    const result = await runBaselineVersions({
+      cwd: dir, slots, adapters, config: null, runner: ranUnder([LINT_A, ['c.ts', 'no-z', 'new']], '1.88.0', ''), stdout: sink(), stderr: err.out,
+    });
+    expect(result).toMatchObject({ exitCode: 0, written: false });
+    expect(await readFile(file(), 'utf8')).toBe(before);
+    expect(err.text()).toContain(
+      'baseline --versions: lint left: 1 new key(s) under oxlint 1.88.0 (js-lockfile); fix them, or have a human review them and run `checkride baseline`\n',
+    );
+    expect(err.text()).toContain('baseline --versions: spell left: it ran an unpinned copy from PATH\n');
+    expect(err.text()).toContain('baseline --versions: checkride.baseline.json is unchanged: 0 re-recorded, 2 left, 0 unchanged\n');
+  });
+
+  test('a check that didn\'t run, or ran to no verdict, is left with its keys and record', async () => {
+    await writeBaseline(dir, committed);
+    const err = capture();
+    await runBaselineVersions({ cwd: dir, slots: slots.filter((s) => s.name !== 'spell'), adapters, config: null, runner: refusing, stdout: sink(), stderr: err.out });
+    expect(err.text()).toContain("baseline --versions: lint left: it didn't run to a verdict (refused, timed out or crashed)\n");
+    expect(err.text()).toContain("baseline --versions: spell left: it didn't run\n");
+    expect(loadBaseline(dir)).toEqual(committed);
+  });
+
+  test('refuses before anything runs: no baseline, one that can\'t be parsed, a --config outside the repo', async () => {
+    let runs = 0;
+    const counting: CheckRunner = (r, ctx) => { runs += 1; return GREEN(r, ctx); };
+    const versions = (configPath?: string) =>
+      runBaselineVersions({ cwd: dir, slots, adapters, config: null, runner: counting, stdout: sink(), stderr: sink(), ...(configPath !== undefined ? { configPath } : {}) });
+    await expect(versions()).rejects.toThrow("there's no checkride.baseline.json to re-record; capture one with `checkride baseline`");
+    await writeFile(file(), '<<<<<<< HEAD\n{');
+    await expect(versions()).rejects.toThrow("checkride.baseline.json can't be parsed, or comes from a newer checkride; restore it with `checkride recover`");
+    await writeBaseline(dir, committed);
+    await expect(versions(join(dir, '..', 'elsewhere.json'))).rejects.toThrow(/--config names .*elsewhere\.json, outside the repo/);
+    expect(runs).toBe(0);
+    await versions(join(dir, 'checkride.config.json'));
+    expect(runs).toBeGreaterThan(0);
+  });
+
+  test('the CLI takes --versions, and exits 2 for a stray argument, a missing baseline or an outside --config', async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-versions-outside-'));
+    try {
+      await writeFile(join(outside, 'checkride.config.json'), '{}');
+      const deps = (stderr: Out) => ({ cwd: dir, stdout: sink(), stderr, env: {} });
+      const missing = capture();
+      expect(await runCli(['baseline', '--versions'], deps(missing.out))).toBe(2);
+      expect(missing.text()).toContain('capture one with `checkride baseline`');
+      await writeBaseline(dir, committed);
+      expect(await runCli(['baseline', '--versions', 'lint'], deps(sink()))).toBe(2);
+      const far = capture();
+      expect(await runCli(['baseline', '--versions', '--config', join(outside, 'checkride.config.json')], deps(far.out))).toBe(2);
+      expect(far.text()).toContain('outside the repo');
+      const ok = capture();
+      expect(await runCli(['baseline', '--versions'], deps(ok.out))).toBe(0);
+      expect(ok.text()).toContain('baseline --versions: checkride.baseline.json is unchanged:');
+      expect(loadBaseline(dir)).toEqual(committed);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });
 

@@ -61,7 +61,7 @@ describe('buildDigest', () => {
     expect(text).toContain(
       "Raw: `.check/lint.json` — 1 finding(s)\n\n_The baseline was captured with oxlint from PATH, and this run used oxlint 2.11.4 (nix), so a new key may be the tool's churn, not new debt.",
     );
-    expect(text).toContain('have a human re-record the baseline._\n\n- a.ts:no-x:bad');
+    expect(text).toContain('or have a human review the new keys and re-capture._\n\n- a.ts:no-x:bad');
     expect(buildDigest(red, [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })])).toContain('— 1 finding(s)\n\n- a.ts:no-x:bad');
   });
 

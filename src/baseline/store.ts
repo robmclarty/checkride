@@ -313,6 +313,90 @@ function toolCopyNamed(copy: RanWith): string {
   return copy.pin_source === undefined ? 'with no pin source' : `through ${copy.pin_source}`;
 }
 
+/**
+ * What a `baseline --versions` run saw of one check: the keys it reported, or
+ * `null` when it ran without reaching a verdict, and how its tool ran, as its
+ * summary entry records it.
+ */
+export type Observation = { keys: ReadonlySet<string> | null; ran: RanWith };
+
+/**
+ * What `baseline --versions` did with one check the committed baseline holds:
+ * re-recorded it, with the record it had, the one it took and how many keys
+ * it pruned; found nothing to change; or left it as it was, and why: it didn't
+ * run, it ran without reaching a verdict, it reported keys the entry lacks, or
+ * it ran a copy no pin of the repo's chose.
+ */
+export type Rerecord =
+  | { check: string; outcome: 'rerecorded'; from?: Captured; to: Captured; pruned: number }
+  | { check: string; outcome: 'unchanged' }
+  | { check: string; outcome: 'not-run' }
+  | { check: string; outcome: 'no-verdict' }
+  | { check: string; outcome: 'new-keys'; newKeys: number; ran: RanWith }
+  | { check: string; outcome: 'unpinned'; ran: RanWith };
+
+/** One check's step: what was done with it, and the entry it takes when it's re-recorded. */
+type RerecordStep = { result: Rerecord; entry?: { keys: string[]; record: Captured } };
+
+/** A check's entry as the committed baseline holds it: its keys, and how they were captured. */
+type HeldEntry = { keys: readonly string[]; record: Captured | undefined };
+
+/**
+ * The committed baseline with each check's capture record moved to the copy
+ * that ran, and the keys that copy no longer reports pruned, where that can't
+ * change a verdict, with what was done to each check (`checkride baseline
+ * --versions`). A check is re-recorded only when it ran to a verdict, every
+ * key it reported is already in its entry, and its tool resolved through a
+ * pin of the repo's own, not `path`, so CI runs the same copy and can't still
+ * report a pruned key. Every other check keeps its entry and record as they
+ * were. It never adds a key, so a run's verdict is the same before and after.
+ */
+export function rerecordCopies(baseline: Baseline, observations: ReadonlyMap<string, Observation>): { baseline: Baseline; results: Rerecord[] } {
+  const slots: Record<string, string[]> = { ...baseline.slots };
+  const captured: Record<string, Captured> = { ...baseline.captured_with };
+  const results: Rerecord[] = [];
+  for (const check of Object.keys(baseline.slots).toSorted()) {
+    const step = rerecordCheck(check, { keys: baseline.slots[check] ?? [], record: baseline.captured_with?.[check] }, observations.get(check));
+    results.push(step.result);
+    if (step.entry === undefined) continue;
+    slots[check] = step.entry.keys;
+    captured[check] = step.entry.record;
+  }
+  return { baseline: { schema_version: baseline.schema_version, slots, ...withCaptured(captured) }, results };
+}
+
+/** What `baseline --versions` does with one check: leave it when the run didn't observe it or it reported a key its entry lacks, else weigh the copy that ran. */
+function rerecordCheck(check: string, held: HeldEntry, seen: Observation | undefined): RerecordStep {
+  if (seen === undefined) return { result: { check, outcome: 'not-run' } };
+  if (seen.keys === null) return { result: { check, outcome: 'no-verdict' } };
+  const reported = seen.keys;
+  const known = new Set(held.keys);
+  const newKeys = [...reported].filter((k) => !known.has(k)).length;
+  if (newKeys > 0) return { result: { check, outcome: 'new-keys', newKeys, ran: seen.ran } };
+  return rerecordObserved(check, held, reported, seen.ran);
+}
+
+/**
+ * A check that reported only keys its entry holds: unchanged when its entry
+ * and record already say what the run did, left when no pin of the repo's
+ * chose the copy that ran, and otherwise re-recorded, its unreported keys
+ * pruned.
+ */
+function rerecordObserved(check: string, held: HeldEntry, reported: ReadonlySet<string>, ran: RanWith): RerecordStep {
+  const record = capturedRecord(ran);
+  const keys = held.keys.filter((k) => reported.has(k)).toSorted();
+  if (keys.length === held.keys.length && sameRecord(held.record, record)) return { result: { check, outcome: 'unchanged' } };
+  if (record === undefined || record.pin_source === 'path') return { result: { check, outcome: 'unpinned', ran } };
+  const from = held.record === undefined ? {} : { from: held.record };
+  return { result: { check, outcome: 'rerecorded', ...from, to: record, pruned: held.keys.length - keys.length }, entry: { keys, record } };
+}
+
+/** Whether two capture records say the same, field order aside; two absent records do. */
+function sameRecord(a: Captured | undefined, b: Captured | undefined): boolean {
+  const canonical = (r: Captured | undefined): string => (r === undefined ? '' : JSON.stringify(capturedAs(r.pin_source, r.tool_version, r.toolchain_version)));
+  return canonical(a) === canonical(b);
+}
+
 /** Total grandfathered diagnostics across every slot. */
 export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);
