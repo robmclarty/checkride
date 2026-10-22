@@ -702,8 +702,8 @@ Once it exists, every normal run is **baseline-aware**:
   keys, since the copy that captured them may still report them. Run under the
   same copy, or, once the repo pins the new one, run
   `checkride baseline --versions`: for each check that reported no key the
-  file lacks, under a copy the repo pins, it records that copy and prunes the
-  keys it no longer reports. It never adds a key, so an agent may run it; a
+  file lacks, and no key more often than the file counts it, under a copy the
+  repo pins, it records that copy and prunes the keys it no longer reports. It never adds a key, so an agent may run it; a
   check with new keys is left for a human's review and `checkride baseline`.
 
 Two operational notes. **Merge conflicts:** the file is canonical (slots and

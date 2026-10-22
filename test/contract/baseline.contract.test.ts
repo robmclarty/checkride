@@ -326,7 +326,11 @@ describe('checkride.baseline.json', () => {
       raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, counts: { lint: 'many' } }),
       expected: { schema_version: 1, slots: { lint: ['a'] }, counts: { lint: {} } },
     },
-    { label: 'a counts that is not an object is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, counts: [] }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
+    {
+      label: 'a counts that is not an object counts every check, each key once, failing closed',
+      raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'], spell: [] }, counts: [] }),
+      expected: { schema_version: 1, slots: { lint: ['a'], spell: [] }, counts: { lint: {}, spell: {} } },
+    },
     { label: 'malformed JSON is null', raw: '{ not json', expected: null },
     { label: 'empty text is null', raw: '', expected: null },
     { label: 'a JSON array is null', raw: '[]', expected: null },

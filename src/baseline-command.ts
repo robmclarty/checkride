@@ -297,7 +297,7 @@ function rerecordLine(r: Rerecord, names: ToolNames): string | null {
   if (r.outcome === 'rerecorded') return rerecordedLine(r, tool, toolchain);
   if (r.outcome === 'unpinned') return unpinnedLine(r, toolchain);
   if (r.outcome === 'new-keys') {
-    return `${r.check} left: ${r.newKeys} new key(s) under ${tool} ${copyNamed(r.ran, toolchain)}; fix them, or have a human review them and run \`checkride baseline\``;
+    return `${r.check} left: ${r.newKeys} key(s) new or found past their count under ${tool} ${copyNamed(r.ran, toolchain)}; fix them, or have a human review them and run \`checkride baseline\``;
   }
   const left = LEFT_LINES[r.outcome];
   return left === null ? null : `${r.check} ${left}`;

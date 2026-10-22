@@ -145,13 +145,17 @@ function parseCaptured(raw: unknown, slots: Readonly<Record<string, string[]>>):
 }
 
 /**
- * The `counts` a parsed file holds, read so a malformed entry fails closed: a
- * check `slots` doesn't hold is dropped, since it counts nothing, and a check
- * entry that isn't an object still marks its check counted, every key at one.
+ * The `counts` a parsed file holds, read so a malformed one fails closed: a
+ * check `slots` doesn't hold is dropped, since it counts nothing, a check
+ * entry that isn't an object still marks its check counted, every key at one,
+ * and so does a `counts` that isn't an object, for every check. Only a file
+ * with no `counts` at all was captured before counts, and grandfathers any
+ * number of findings under a key.
  */
 function parseCounts(raw: unknown, slots: Readonly<Record<string, string[]>>): Record<string, Record<string, number>> {
   const counts: Record<string, Record<string, number>> = {};
-  if (!isRecord(raw)) return counts;
+  if (raw === undefined) return counts;
+  if (!isRecord(raw)) return Object.fromEntries(Object.keys(slots).map((check) => [check, {}]));
   for (const [check, entry] of Object.entries(raw)) {
     const keys = slots[check];
     if (keys !== undefined) counts[check] = readCounts(entry, keys);
@@ -305,7 +309,7 @@ function allowanceOf(entry: BaselineEntry): (key: string) => number {
  * Ratchet the baseline against a fully observed run: for every slot observed this
  * run, keep only the grandfathered keys still present (a fixed diagnostic is
  * dropped); a slot absent from `observed` — disabled, without an extractor, not
- * run, or run without reaching a verdict (`observedFingerprint`) — is preserved
+ * run, or run without reaching a verdict (`observedTally`) — is preserved
  * untouched. The result never grows: genuinely new findings
  * are the run's failures, not new debt, so only a `checkride baseline` capture
  * ever adds keys. Callers gate this on a full run (no `--only`/`--skip`/

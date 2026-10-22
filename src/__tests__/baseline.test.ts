@@ -606,7 +606,7 @@ describe('runBaselineVersions', () => {
     expect(result).toMatchObject({ exitCode: 0, written: false });
     expect(await readFile(file(), 'utf8')).toBe(before);
     expect(err.text()).toContain(
-      'baseline --versions: lint left: 1 new key(s) under oxlint 1.88.0 (js-lockfile); fix them, or have a human review them and run `checkride baseline`\n',
+      'baseline --versions: lint left: 1 key(s) new or found past their count under oxlint 1.88.0 (js-lockfile); fix them, or have a human review them and run `checkride baseline`\n',
     );
     expect(err.text()).toContain('baseline --versions: spell left: it ran an unpinned copy from PATH\n');
     expect(err.text()).toContain('baseline --versions: checkride.baseline.json is unchanged: 0 re-recorded, 2 left, 0 unchanged\n');

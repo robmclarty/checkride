@@ -550,7 +550,7 @@ hook or CI, and whoever runs it commits the smaller baseline. A narrowed run
 says when a full run would prune something, on stderr:
 
 ```text
-baseline: not ratcheted, because a run with --changed sees only part of the pipeline; a full run would prune at least 2 grandfathered key(s) these checks no longer report
+baseline: not ratcheted, because a run with --changed sees only part of the pipeline; a full run would prune at least 2 grandfathered finding(s) these checks no longer report
 ```
 
 It counts only the checks that read every file they cover. A check `--changed`

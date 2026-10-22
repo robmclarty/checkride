@@ -47,8 +47,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checkride.baseline.json`, so an agent loop behind a
   `"gate": { "changed": true }` profile never learned that the baseline held
   fixed debt, and a fix reverted inside the loop never showed (#21). Such a
-  run of the repo's own now says, on stderr, how many grandfathered keys the
-  checks it ran no longer report, which a full run would prune. It counts only
+  run of the repo's own now says, on stderr, how many grandfathered findings
+  the checks it ran no longer report, which a full run would prune. It counts only
   the checks that read every file they cover, not one whose `changedArgs` ran
   or whose Go packages `--changed` narrowed, so the count is a floor.
   [Getting started](./docs/getting-started.md#when-the-gate-is-too-slow) says

@@ -188,8 +188,8 @@ async function maybeRatchet(
 
 /**
  * On a partial run of the repo's own, which never prunes, say how many
- * grandfathered keys the checks that read every file they cover no longer
- * report, when there are any. A loop that only ever runs narrowed, as a
+ * grandfathered findings the checks that read every file they cover no
+ * longer report, a key's or one of a key's count, when there are any. A loop that only ever runs narrowed, as a
  * `"gate": { "changed": true }` agent loop does, otherwise never learns that
  * the baseline holds fixed debt, and a fix reverted inside it never shows.
  * The count is a floor: a check the run left out may hold fixed keys too.
