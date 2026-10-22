@@ -135,6 +135,19 @@ describe('the go pack (R5.5)', () => {
     expect(goRow('golangci-lint')?.fixArgs).toContain('{go-packages}');
   });
 
+  /**
+   * golangci-lint shows 50 issues a linter, 3 with one message and one a line
+   * unless told not to, and a hidden finding can't be grandfathered (#10). The
+   * fixer fixes before the caps apply, so it takes none.
+   */
+  test('golangci-lint shows every issue it finds, and its fixer takes no caps', () => {
+    expect(goRow('golangci-lint')?.args).toEqual([
+      'exec', 'golangci-lint', 'run', '--output.json.path=stdout', '--show-stats=false',
+      '--max-issues-per-linter=0', '--max-same-issues=0', '--uniq-by-line=false', '--allow-serial-runners', '{go-packages}',
+    ]);
+    expect(goRow('golangci-lint')?.fixArgs).toEqual(['exec', 'golangci-lint', 'run', '--fix', '--allow-serial-runners', '{go-packages}']);
+  });
+
   test('detects the toolchain adapters by go.mod or go.work, golangci-lint by its config, and the go tools by a pin', () => {
     for (const name of ['go-build', 'gofmt', 'go-test']) expect(goRow(name)?.detect, name).toEqual(['go.mod', 'go.work']);
     expect(goRow('golangci-lint')?.detect).toEqual(['.golangci.yml', '.golangci.yaml', '.golangci.toml', '.golangci.json']);

@@ -76,11 +76,27 @@ export const GO_PACK: Pack = {
       detect: ['.golangci.yml', '.golangci.yaml', '.golangci.toml', '.golangci.json'],
       command: 'pnpm',
       // `--show-stats=false` keeps the per-linter tally off stdout, where it
-      // would follow the JSON. Two runs at once fail without
-      // `--allow-serial-runners`, and the lock keeps them from waiting on each
-      // other's timeouts. A `go.work` root's own `./...` matches none of its
-      // modules, so the packages are named.
-      args: ['exec', 'golangci-lint', 'run', '--output.json.path=stdout', '--show-stats=false', '--allow-serial-runners', '{go-packages}'],
+      // would follow the JSON. golangci-lint shows at most 50 issues a linter,
+      // 3 with one message, and one a line across linters, unless told not
+      // to: the three lift those caps, which change what it shows, not what
+      // it finds, and override the repo's `issues:` block, since a hidden
+      // finding can't be grandfathered and surfaces as new once another is
+      // fixed. `--fix` fixes before the caps apply, so the fixer needs none.
+      // Two runs at once fail without `--allow-serial-runners`, and the lock
+      // keeps them from waiting on each other's timeouts. A `go.work` root's
+      // own `./...` matches none of its modules, so the packages are named.
+      args: [
+        'exec',
+        'golangci-lint',
+        'run',
+        '--output.json.path=stdout',
+        '--show-stats=false',
+        '--max-issues-per-linter=0',
+        '--max-same-issues=0',
+        '--uniq-by-line=false',
+        '--allow-serial-runners',
+        '{go-packages}',
+      ],
       outputFile: 'lint.json',
       fixArgs: ['exec', 'golangci-lint', 'run', '--fix', '--allow-serial-runners', '{go-packages}'],
       lock: 'golangci-lint',

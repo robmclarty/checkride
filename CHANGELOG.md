@@ -54,6 +54,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [Getting started](./docs/getting-started.md#when-the-gate-is-too-slow) says
   where pruning happens instead.
 
+### Changed
+
+- **golangci-lint shows every issue it finds.** The go pack ran golangci-lint
+  with its default caps, which show at most 50 issues a linter, 3 with one
+  message, and one a line across linters, so on a 60-module workspace a run
+  showed 136 of 476 issues: errcheck stopped at 50 of 205, and gosec at 10 of
+  92 (#10). A baseline captured from it grandfathered under a third of the
+  debt, the hidden findings surfaced as new as the visible ones were fixed,
+  and the counts were wrong. The `lint` check now passes
+  `--max-issues-per-linter=0 --max-same-issues=0 --uniq-by-line=false`, which
+  change what golangci-lint shows, not what it finds, and override an
+  `issues:` block in the repo's config. `run --fix` is unchanged: it fixes
+  before the caps apply. A Go repo with a baseline will see the findings the
+  caps hid as new on its first run: have a human review them and run
+  `checkride baseline`, which counts each key's findings too.
+
 ### Fixed
 
 - **The generated gate script passes shellcheck.** Once a bash target covered
@@ -104,6 +120,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### Not additive
 
+- Changed: the go pack's golangci-lint `lint` check runs with
+  `--max-issues-per-linter=0 --max-same-issues=0 --uniq-by-line=false`, so its
+  `argv`, its `lint.json` and the keys it reports include findings 0.16 hid.
 - Changed: a summary check's `baselined` counts the findings the baseline
   masked, where 0.16 counted their distinct keys, so two grandfathered
   findings under one key count 2, not 1.

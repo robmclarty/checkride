@@ -382,7 +382,7 @@ its `go.mod` or `go.work`:
 | --- | --- | --- | --- | --- |
 | `types` | `go-build` | `go build -o /dev/null -json {go-packages}` | `go.mod`, `go.work` | `types.jsonl` |
 | `format` (opt-in) | `gofmt` | `gofmt -l .`, which fails on any file it lists, and `gofmt -w .` under `checkride fix` | `go.mod`, `go.work` | `format.stdout.txt` |
-| `lint` | `golangci-lint` | `golangci-lint run --output.json.path=stdout --show-stats=false --allow-serial-runners {go-packages}`, and `run --fix` under `checkride fix` | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json` | `lint.json` |
+| `lint` | `golangci-lint` | `golangci-lint run --output.json.path=stdout --show-stats=false --max-issues-per-linter=0 --max-same-issues=0 --uniq-by-line=false --allow-serial-runners {go-packages}`, and `run --fix` under `checkride fix` | `.golangci.yml`, `.golangci.yaml`, `.golangci.toml`, `.golangci.json` | `lint.json` |
 | `lint` | `staticcheck` | `staticcheck -f json {go-packages}` | a pin | `lint.jsonl` |
 | `dead` | `deadcode` | `deadcode -test {go-packages}`, which fails on any function it lists | a pin | `dead.stdout.txt` |
 | `test` | `go-test` | `go test -json {go-packages}` | `go.mod`, `go.work` | `test.jsonl` |
@@ -449,6 +449,14 @@ might expect:
   would otherwise write into the checkout.
 - `--show-stats=false` keeps golangci-lint's per-linter tally off stdout,
   where it would follow the JSON and leave `lint.json` unwritten.
+- `--max-issues-per-linter=0 --max-same-issues=0 --uniq-by-line=false` lift
+  the caps golangci-lint puts on what it shows: 50 issues a linter, 3 with one
+  message, and one a line across linters. With them, a baseline captured all
+  of a repo's errcheck findings rather than the first 50, and `gosec` keeps a
+  finding on a line `errcheck` already flagged. They override an `issues:`
+  block in the repo's config, since a finding it hides can't be grandfathered,
+  and surfaces as new when one it showed is fixed. `run --fix` fixes before
+  the caps apply, so it doesn't take them.
 - golangci-lint prints each path relative to the directory of the config it
   found, and checkride reads it as relative to the target's root, where it
   detects that config. A config further up the tree, or a

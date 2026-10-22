@@ -32,6 +32,11 @@ const MAIN = 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println(greet("g
 const MAIN_TEST = 'package main\n\nimport "testing"\n\nfunc TestGreet(t *testing.T) {\n\tif greet("go") != "hello, go" {\n\t\tt.Fatal("wrong greeting")\n\t}\n}\n';
 
 /** The release of the go this machine's PATH runs, as `go env GOVERSION` names it without its `go`, which a check run here records. */
+/** A main package whose `init` makes `n` unchecked `os.Setenv` calls, one errcheck and one gosec finding each. */
+function setenvs(n: number): string {
+  return `package main\n\nimport "os"\n\nfunc init() {\n${Array.from({ length: n }, (_, i) => `\tos.Setenv("K${i}", "v")`).join('\n')}\n}\n`;
+}
+
 function goRelease(): string {
   return execFileSync('go', ['env', 'GOVERSION'], { encoding: 'utf8', cwd: tmpdir(), env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim().replace(/^go/, '');
 }
@@ -118,6 +123,31 @@ describeWithToolchain('go')('the go pack', () => {
     expect(checks.get('api:lint')).toMatchObject({ ok: false, output_file: 'api/lint.json' });
     const report = JSON.parse(await readFile(join(dir, '.check', 'api', 'lint.json'), 'utf8')) as { Issues: { FromLinter: string }[] };
     expect(report.Issues.map((i) => i.FromLinter)).toContain('errcheck');
+  });
+
+  /**
+   * golangci-lint shows 3 issues with one message and one a line unless told
+   * not to (#10), and a key with no line grandfathers as many as it was
+   * captured with (#14): four identical unchecked calls, each flagged by
+   * errcheck and gosec, are eight findings under two keys counted four, and
+   * a fifth call is new under both.
+   */
+  test('every issue golangci-lint finds reaches the baseline, counted, and one more fails', async () => {
+    await put('api/.golangci.yml', 'version: "2"\nlinters:\n  enable:\n    - gosec\n');
+    await put('api/env.go', setenvs(4));
+    const captured = await run('baseline');
+    expect(captured.code, captured.stderr).toBe(0);
+    const baseline = JSON.parse(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')) as { slots: Record<string, string[]>; counts?: Record<string, Record<string, number>> };
+    const keys = baseline.slots['api:lint'] ?? [];
+    expect(keys.map((k) => k.split(':')[1])).toEqual(['errcheck', 'gosec']);
+    expect(baseline.counts?.['api:lint']).toEqual(Object.fromEntries(keys.map((k) => [k, 4])));
+    expect((await run('--only', 'api:lint')).checks.get('api:lint')).toMatchObject({ ok: true, baselined: 8 });
+
+    await put('api/env.go', setenvs(5));
+    const { code, checks, stderr } = await run('--only', 'api:lint');
+    expect(code).toBe(1);
+    expect(checks.get('api:lint')).toMatchObject({ ok: false, baselined: 8, new_count: 2, new: keys });
+    expect(stderr).toContain(`${keys[0] ?? ''} (5 found, 4 grandfathered)`);
   });
 
   // S4: a failing Go test fails api:test.
