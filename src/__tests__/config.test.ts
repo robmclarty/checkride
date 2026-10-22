@@ -1053,6 +1053,14 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     expect(problem({ targets: { web, webapp: { lang: 'ts', root: 'apps/webapp' } } })).toBeNull();
   });
 
+  /** A Terraform root module below another is one no module call reads, so it takes a target of its own (#20). */
+  test('V4 lets terraform targets nest, and still not share a root', () => {
+    const outer = { lang: 'terraform', root: 'apps/web' };
+    expect(problem({ targets: { outer, inner: { lang: 'terraform', root: 'apps/web/admin' } } })).toBeNull();
+    expect(problem({ targets: { outer, again: { lang: 'terraform', root: 'apps/web' } } })).toMatch(/terraform targets 'outer' and 'again' share the root 'apps\/web'/);
+    expect(problem({ targets: { web, admin: { lang: 'ts', root: 'apps/web/admin' } } })).toMatch(/two targets of one pack can't nest/);
+  });
+
   /** A pack that checks a file list, the way R11.2 says a bash pack will. */
   const shell: { name: string; adapters: Adapter[] } = {
     name: 'sh',

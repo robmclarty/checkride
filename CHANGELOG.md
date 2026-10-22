@@ -100,6 +100,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   already declared targets, a failing target check was never grandfathered,
   since the probe named it `api:lint` and adoption looked for `lint`; it is
   now.
+- **A Terraform root module nested in another is validated.** A root module
+  with its own `.terraform.lock.hcl` below another, `infra/registry/` under
+  `infra/`, was claimed by the outer target, whose `terraform validate` never
+  reads it, since no module call does, so no check validated it (#20).
+  Terraform targets may now nest, and discovery proposes each such root as a
+  target of its own that runs `validate` alone, with `lint`, `format` and
+  `security` off, since the outer target's `tflint --recursive`,
+  `fmt -recursive` and `trivy config` already read its files.
 - **The generated gate script passes shellcheck.** Once a bash target covered
   the repo root, `.claude/hooks/checkride-gate.sh` and its Cursor twin were
   findings of their own: SC2016 for the backticks its messages quote on
@@ -153,6 +161,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the checks resolve under as a third argument, where 0.16 passed the root
   pack's slot names alone. `InitResult`'s `grandfathered`, `disabled` and
   `setup` name checks the same way.
+- Changed: two terraform targets may nest, which config validation refused
+  in 0.16, and discovery proposes a lock-file root below another as a target
+  of its own, whose `checks` switch `lint`, `format` and `security` off.
 - Changed: discovery and `unclaimed` name colliding targets by pack or by
   their roots' trailing segments, where 0.16 numbered all but the first, so a
   `--discover` run in such a repo names its checks, its `.check/<target>/`
@@ -173,6 +184,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `counts`, and the reader's
   tolerance rules cover it. `baseline diff --json` takes `recounted` and
   `recounted_count`.
+- The exported `Pack` type takes `nests`, which the terraform pack sets: its
+  targets may nest, and a nested one switches the slots `nests.off` names off.
 - The exported `Adapter` type's `options.unclaimed` takes `taken`, the names
   a suggested target can't have.
 - A summary check and its schema take `new_count` and `new`, and the exported

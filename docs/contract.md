@@ -777,14 +777,18 @@ proposes a `rust` target, and each top-most `[package]` manifest outside it one
 more; a cargo-fuzz harness, whose `[package.metadata]` sets `cargo-fuzz =
 true`, proposes nothing, so the crate above it claims it. Each top-most
 directory holding a `pyproject.toml`, `setup.cfg` or `setup.py` proposes a
-`python` target. Each top-most directory holding a `.terraform.lock.hcl`
-proposes a `terraform` target, and each top-most directory holding `.tf`
-files that none of those claims proposes one more. Where a pack's second rule
+`python` target. Each directory holding a `.terraform.lock.hcl` proposes a
+`terraform` target, one below another included: a root module no module call
+reads, which the outer one's `validate` never checks. Such a nested target
+switches `lint`, `format` and `security` off, since the outer one's
+`tflint --recursive`, `fmt -recursive` and `trivy config` already read its
+files, and runs `validate` alone. Each top-most directory holding `.tf` files
+that none of those claims proposes one more. Where a pack's second rule
 finds a root above one its first rule proposed (a `go.mod` above a `go.work`,
 a `[package]` above a `[workspace]`, `.tf` files above a lock file), the inner
 root wins and the outer one proposes nothing, since two targets of one pack
-can't nest: its markers stay unclaimed, so `unclaimed` reports them rather
-than the run failing. The shell files outside all of those gather into one
+can't nest, terraform's lock-file roots apart: its markers stay unclaimed, so
+`unclaimed` reports them rather than the run failing. The shell files outside all of those gather into one
 `bash` target, those at such an outer root included. A
 target is named after its root's last segment, `.` becoming `app`. When two
 targets would take one name, or one would take a slot's, a reserved or a
@@ -1240,8 +1244,9 @@ written:
   pack's `checks`, so a selection token means one thing. Nor is it
   `doc-snippets`, the directory the `snippets` check keeps its scratch in.
 - A root is an existing directory, given relative to the repo root, never
-  absolute or through `..`. Two targets of one pack never share or nest their
-  roots; targets of different packs may.
+  absolute or through `..`. Two targets of one pack never share their roots,
+  and never nest them, apart from terraform's, whose root modules nest;
+  targets of different packs may do either.
 - `include` and `exclude` belong only to a pack that checks a list of files
   (bash).
 - Once targets are declared, a top-level entry for a target-scope slot is

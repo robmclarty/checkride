@@ -57,6 +57,14 @@ export type Pack = {
    */
   toolchain?: string;
   /**
+   * Present when a target of this pack may sit inside another of it, as two
+   * Terraform root modules do, each run on its own: `off` names the slots
+   * whose tools already walk a nested root from the target above it, which
+   * discovery switches off in the nested target, so its findings aren't
+   * reported twice. Omitted, two targets of the pack can't nest (V4).
+   */
+  nests?: { off: readonly string[] };
+  /**
    * The pack's adapter rows. The FIRST adapter for a slot is its blessed
    * default: it wins detection when several tool configs coexist, and is the
    * only one `init` generates config for.

@@ -666,11 +666,27 @@ scaffolds the blessed `.tflint.hcl`, the terraform ruleset at its
 `recommended` preset, under the target's root, and `checkride init --add lint`
 does the same at a root the terraform pack checks.
 
-Discovery proposes a terraform target for each top-most directory a
+Discovery proposes a terraform target for each directory a
 `.terraform.lock.hcl` marks, which claims the `.tf` directories under it, and
 then one for each top-most directory holding `.tf` files that none of those
-claims. A directory of `.tf` files outside every terraform target fails
-`unclaimed`, which suggests one target for all of them.
+claims. A root module below another, its own lock file beside it, is one no
+module call reads, so the outer target's `validate` never checks it, and it
+gets a target of its own, terraform's targets being the ones that may nest.
+That target switches `lint`, `format` and `security` off, since the outer
+target's tflint, `fmt` and trivy already walk its files, and runs `validate`
+alone, after its own `terraform init -backend=false`:
+
+```json
+{
+  "targets": {
+    "infra": { "lang": "terraform", "root": "infra" },
+    "registry": { "lang": "terraform", "root": "infra/registry", "checks": { "format": false, "lint": false, "security": false } }
+  }
+}
+```
+
+A directory of `.tf` files outside every terraform target fails `unclaimed`,
+which suggests one target for all of them.
 
 The CLI is `terraform` or `tofu`. The nearest `.terraform-version` or
 `.opentofu-version`, from the target's root up to the repo root, says which,

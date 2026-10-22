@@ -19,7 +19,7 @@ import type { CheckOutcome } from '../links.js';
 import { excluded, globRegExp } from './files.js';
 import { isWithin, markerKind, repoFiles, slugName } from './markers.js';
 import { nameTargets } from './names.js';
-import { RESERVED_SLOTS } from './resolve.js';
+import { nestingPack, RESERVED_SLOTS } from './resolve.js';
 
 /** A target as `unclaimed` reads it: the pack that checks it, from its root. */
 export type Claimant = { readonly name: string; readonly pack: string; readonly root: string };
@@ -81,11 +81,12 @@ export async function findUnclaimed(repo: string, input: UnclaimedInput, git: Gi
 /**
  * How to quiet unclaimed markers: the target entry that would claim them, or
  * the ignore. When that target would hold one of `targets` of its pack, which
- * two targets of one pack can't do (V4), as a root `go.mod` above a `go.work`
- * target's would, only the ignore can, and the line says why.
+ * two targets of one pack can't do (V4) unless the pack's targets nest, as a
+ * root `go.mod` above a `go.work` target's would, only the ignore can, and the
+ * line says why.
  */
 function remedy({ suggest }: Unclaimed, targets: readonly Claimant[]): string {
-  const inner = targets.find((t) => t.pack === suggest.lang && isWithin(t.root, suggest.root));
+  const inner = targets.find((t) => t.pack === suggest.lang && !nestingPack(t.pack) && isWithin(t.root, suggest.root));
   if (inner !== undefined) {
     const held = `the ${inner.pack} target ${inner.name} at ${inner.root}`;
     return `  no ${suggest.lang} target can claim it: one rooted at ${suggest.root} would hold ${held}, and two targets of one pack can't nest; list it in unclaimed.ignore`;

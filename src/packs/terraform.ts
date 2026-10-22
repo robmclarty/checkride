@@ -38,6 +38,12 @@ export const TERRAFORM_PACK: Pack = {
     TOFUENV_AUTO_INSTALL: 'false',
     TRIVY_SKIP_CHECK_UPDATE: 'true',
   },
+  // A root module below another, its own lock file beside it, is one no
+  // module call reads, so the outer target's `validate` never checks it: it
+  // takes a target of its own (#20). The outer target's `fmt -recursive`,
+  // `tflint --recursive` and `trivy config .` already walk it, so the inner
+  // one runs only `validate`.
+  nests: { off: ['format', 'lint', 'security'] },
   adapters: [
     {
       name: 'terraform-fmt',

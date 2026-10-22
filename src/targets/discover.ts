@@ -62,8 +62,11 @@ import { nameTargets } from './names.js';
 import type { Target } from './resolve.js';
 import { checkKeys, configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
 
-/** A target discovery proposes. */
-export type ProposedTarget = { name: string; lang: string; root: string };
+/**
+ * A target discovery proposes, with `checks` switching off what a target of
+ * its pack above it already checks, for a pack whose targets nest.
+ */
+export type ProposedTarget = { name: string; lang: string; root: string; checks?: Record<string, false> };
 
 /** Names a proposed target can't take: the slots', and the ones V2 reserves. */
 const TAKEN: readonly string[] = [...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, 'doc-snippets'];
@@ -224,14 +227,23 @@ function pythonRoots(files: readonly string[]): string[] {
 }
 
 /**
- * The terraform roots: each top-most directory a `.terraform.lock.hcl` marks
- * as a root module, then each top-most directory holding a `.tf` file that
- * none of them holds, such as a shared modules directory.
+ * The terraform roots: each directory a `.terraform.lock.hcl` marks as a root
+ * module, one below another included, since no module call reads it (#20),
+ * then each top-most directory holding a `.tf` file that none of them holds
+ * or sits in, such as a shared modules directory. A root below another is
+ * `nested`.
  */
-function terraformRoots(files: readonly string[]): string[] {
+function terraformRoots(files: readonly string[]): { root: string; nested: boolean }[] {
+  const locks = [...new Set(dirsOf(files, TERRAFORM_LOCK))];
   const marked = files.filter((f) => markerKind(f) === PACKS.terraform.name).map((f) => posix.dirname(f));
   const clusters = [...new Set(marked)].toSorted((a, b) => depthOf(a) - depthOf(b));
-  return unclaimedRoots(unclaimedRoots([], dirsOf(files, TERRAFORM_LOCK)), clusters);
+  return unclaimedRoots(locks, clusters).map((root) => ({ root, nested: locks.some((other) => other !== root && isWithin(root, other)) }));
+}
+
+/** The checks a nested target of a pack whose targets nest switches off: those the target above it already runs over its files. */
+function nestedChecks(lang: string): Record<string, false> {
+  const off = Object.values(PACKS).find((p) => p.name === lang)?.nests?.off ?? [];
+  return Object.fromEntries(off.map((slot) => [slot, false]));
 }
 
 /** The deepest directory every one of `dirs` lies under, `.` for the root. */
@@ -253,10 +265,10 @@ function bashRoot(repo: string, files: readonly string[], taken: readonly string
  * by its rule, and a longer name for each that collides with another or with
  * a slot's, a reserved or a custom check's name in `config`.
  */
-function named(targets: readonly { lang: string; root: string }[], config: Record<string, unknown> | null): ProposedTarget[] {
+function named(targets: readonly Omit<ProposedTarget, 'name'>[], config: Record<string, unknown> | null): ProposedTarget[] {
   const nameable = targets.map(({ lang, root }) => ({ lang, root, base: baseName(lang, root) }));
   const names = nameTargets(nameable, new Set([...TAKEN, ...checkKeys(config)]));
-  return targets.map(({ lang, root }, i) => ({ name: names[i] ?? lang, lang, root }));
+  return targets.map((target, i) => ({ name: names[i] ?? target.lang, ...target }));
 }
 
 /** The name a target's root alone gives it: the bash one `scripts` or `shell`, `app` for the repo root, else the root's last segment. */
@@ -276,7 +288,9 @@ export async function discoverTargets(repo: string, git: GitRunner = realGit(rep
   const go = goRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.go.name, root }));
   const rust = rustRoots(repo, files).toSorted().map((root) => ({ lang: PACKS.rust.name, root }));
   const python = pythonRoots(files).toSorted().map((root) => ({ lang: PACKS.python.name, root }));
-  const terraform = terraformRoots(files).toSorted().map((root) => ({ lang: PACKS.terraform.name, root }));
+  const terraform = terraformRoots(files)
+    .toSorted((a, b) => (a.root < b.root ? -1 : 1))
+    .map(({ root, nested }) => ({ lang: PACKS.terraform.name, root, ...(nested ? { checks: nestedChecks(PACKS.terraform.name) } : {}) }));
   const toolchains = [...ts, ...go, ...rust, ...python, ...terraform];
   const bash = bashRoot(repo, files, toolchains.map((t) => t.root));
   return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])], config);

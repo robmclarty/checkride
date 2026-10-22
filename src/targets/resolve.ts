@@ -401,15 +401,25 @@ function isWithin(inner: string, outer: string): boolean {
   return outer === '.' || inner.startsWith(`${outer}/`);
 }
 
-/** V4 for one pair: two targets of one pack never share or nest their roots. Different packs may. */
+/**
+ * V4 for one pair: two targets of one pack never share their roots, and never
+ * nest them unless the pack lets its targets nest, as terraform's root modules
+ * do ({@link nestingPack}). Different packs may do either.
+ */
 function overlapProblem(a: Declared, b: Declared): string | null {
   if (a.lang !== b.lang) return null;
   if (a.root === b.root) {
     return `${a.lang} targets '${a.name}' and '${b.name}' share the root '${a.root}', and two targets of one pack can't overlap`;
   }
+  if (nestingPack(a.lang)) return null;
   const [outer, inner] = isWithin(a.root, b.root) ? [b, a] : [a, b];
   if (!isWithin(inner.root, outer.root)) return null;
   return `${a.lang} target '${inner.name}' sits inside '${outer.name}' ('${inner.root}' is under '${outer.root}'), and two targets of one pack can't nest`;
+}
+
+/** Whether targets of pack `lang` may nest (`Pack.nests`). */
+export function nestingPack(lang: string): boolean {
+  return Object.values(PACKS).some((p) => p.name === lang && p.nests !== undefined);
 }
 
 function nestingProblem(declared: readonly Declared[]): string | null {

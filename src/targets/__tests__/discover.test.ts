@@ -266,6 +266,19 @@ describe('discoverTargets for python', () => {
     ]);
   });
 
+  /**
+   * A root module below another, with its own lock file, is one the outer
+   * target's validate never reads, so it takes a target of its own, which
+   * runs validate alone: the outer one's fmt, tflint and trivy walk it (#20).
+   */
+  test('a lock file below another root module proposes a nested target that only validates', async () => {
+    for (const path of ['infra/.terraform.lock.hcl', 'infra/main.tf', 'infra/registry/.terraform.lock.hcl', 'infra/registry/main.tf', 'infra/net/vpc.tf']) await write(path);
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'infra', lang: 'terraform', root: 'infra' },
+      { name: 'registry', lang: 'terraform', root: 'infra/registry', checks: { format: false, lint: false, security: false } },
+    ]);
+  });
+
   test('a lock file below a .tf directory proposes the root module alone, leaving the .tf files above it unclaimed', async () => {
     for (const path of ['main.tf', 'envs/dev/.terraform.lock.hcl', 'envs/dev/main.tf']) await write(path);
     expect(await discoverTargets(repo)).toEqual([{ name: 'dev', lang: 'terraform', root: 'envs/dev' }]);

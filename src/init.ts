@@ -1925,7 +1925,7 @@ async function planDiscovery(cwd: string, options: InitOptions, raw: Record<stri
 /** Print the `targets` block discovery proposed, and each change it made, or would have. */
 function reportDiscovery(stdout: Out, discovery: Discovery | null, dryRun: boolean): void {
   if (discovery === null) return;
-  const block = Object.fromEntries(discovery.proposed.map(({ name, lang, root }) => [name, { lang, root }]));
+  const block = Object.fromEntries(discovery.proposed.map(({ name, ...entry }) => [name, entry]));
   const json = `"targets": ${JSON.stringify(block, null, 2)}`.split('\n').map((line) => `    ${line}`).join('\n');
   stdout.write(`  discovered targets${dryRun ? ' (not written: --dry-run)' : ''}:\n${json}\n`);
   for (const line of discovery.changes) stdout.write(`    ${line}\n`);

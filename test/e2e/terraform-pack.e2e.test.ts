@@ -165,6 +165,30 @@ describeWithToolchain('terraform')('the terraform pack', () => {
     expect(lint.issues.map((i) => i.rule.name)).toEqual(['terraform_unused_declarations']);
   });
 
+  /**
+   * A root module nested in another, with its own lock file, is one infra's
+   * validate never reads (#20). Discovery proposes it as a target that only
+   * validates, and the config's rules let the two nest.
+   */
+  test('a nested root module is validated by a target of its own, which the outer one doesn’t do', async () => {
+    await put('infra/registry/.terraform.lock.hcl', '# lock\n');
+    // It calls the outer root's local module, so init installs one, as validate needs.
+    const call = 'module "greet" {\n  source = "../modules/greet"\n  name   = "registry"\n}\n\n';
+    await put('infra/registry/main.tf', `${call}output "bad" {\n  description = "A reference to nothing."\n  value       = terraform_data.missing.output\n}\n`);
+    // A root module of its own, so it's initialized on its own.
+    const init = spawnSync('tofu', ['init', '-backend=false', '-input=false'], { cwd: join(dir, 'infra', 'registry'), encoding: 'utf8', timeout: 60_000 });
+    expect(init.status, init.stderr).toBe(0);
+    const config = JSON.parse(FILES['checkride.config.json'] ?? '{}') as { targets: Record<string, unknown> };
+    const registry = { lang: 'terraform', root: 'infra/registry', checks: { format: false, lint: false, security: false } };
+    await put('checkride.config.json', JSON.stringify({ targets: { ...config.targets, registry } }));
+    const { code, checks, stderr } = await run('--only', 'infra:types,registry');
+    expect(code, stderr).toBe(1);
+    expect(checks.get('infra:types')).toMatchObject({ ok: true });
+    expect(checks.get('registry:types')).toMatchObject({ ok: false, exit_code: 1, output_file: 'registry/types.json' });
+    expect(await artifact('registry/types.json')).toContain('Reference to undeclared resource');
+    expect(checks.get('registry:lint')).toMatchObject({ skipped: true });
+  });
+
   test('an undeclared reference fails infra:types, its diagnostic captured as JSON', async () => {
     await put('infra/bad.tf', 'output "bad" {\n  description = "A reference to nothing."\n  value       = terraform_data.missing.output\n}\n');
     const { code, checks } = await run('--only', 'infra:types');
