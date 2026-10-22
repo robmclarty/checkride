@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.0] - 2026-10-22
 
 ### Added
 
@@ -37,11 +37,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and counts the grandfathered ones; and `triage` names the first few beneath
   its line. A `go test` check's digest section, which showed the last raw JSON
   events and so never a test's name, now lists each failing test with the last
-  lines it printed and each test still running when a timeout stopped the run,
-  and its status line names them, up to 10 of each. And a check that never
+  lines it printed, each test still running when a timeout stopped the run,
+  and the compile error of a package that failed to build, and its status
+  line names the tests, up to 10 of each. And a check that never
   reached a verdict records what stopped it as its `reason`, such as
   `timed out after 600s`.
-
 - **A narrowed run says what a full run would prune.** A run with `--only`,
   `--skip` or `--changed`, or one `--bail` stopped early, never prunes
   `checkride.baseline.json`, so an agent loop behind a
@@ -53,7 +53,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or whose Go packages `--changed` narrowed, so the count is a floor.
   [Getting started](./docs/getting-started.md#when-the-gate-is-too-slow) says
   where pruning happens instead.
-
 - **A run says which ts configs no check reaches.** In a workspace whose root
   only installs tools, with a `tsconfig.base.json` and no `tsconfig.json`,
   and vitest only in its packages, the one ts target at `.` ran oxlint alone:
@@ -84,7 +83,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   before the caps apply. A Go repo with a baseline will see the findings the
   caps hid as new on its first run: have a human review them and run
   `checkride baseline`, which counts each key's findings too.
-
 - **Discovered targets whose names collide get names that say what they
   check.** With ts and go both rooted at `.` and two Terraform roots named
   `infra`, discovery named the targets `app`, `app-2`, `infra` and `infra-2`,
@@ -107,11 +105,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose go, terraform and bash targets discovery found, `init` probed the ts
   root alone, and the first `pnpm check` was red on 309 un-baselined
   `go:lint` keys until a separate `checkride baseline` (#11). `init` now plans
-  the config it would write, the discovered targets included, runs every
-  check it resolves, a dry run's too, and names each by its check name, such
-  as `api:lint`. A failing check it disables is written `false` in its own
-  entry, a target's under that target's `checks`, and under `--baseline` the
-  capture runs after the config declares every target. In a repo whose config
+  the config it would write, the discovered targets included, runs each
+  default-on check it resolves, a dry run's too, never an opt-in one, a custom
+  check or `unclaimed`, and names each by its check name, such as `api:lint`.
+  A failing check it disables is written `false` in its own entry, a target's
+  under that target's `checks`, in a repo with its own config for each target
+  it declares there, and under `--baseline` the capture runs after the config
+  declares every target. In a repo whose config
   already declared targets, a failing target check was never grandfathered,
   since the probe named it `api:lint` and adoption looked for `lint`; it is
   now.
@@ -122,7 +122,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Terraform targets may now nest, and discovery proposes each such root as a
   target of its own that runs `validate` alone, with `lint`, `format` and
   `security` off, since the outer target's `tflint --recursive`,
-  `fmt -recursive` and `trivy config` already read its files.
+  `fmt -recursive` and `trivy config` already read its files. `target add`
+  switches them off in a terraform target it adds inside or around another,
+  and `unclaimed` suggests a target above one, saying to switch them off in
+  the one it holds.
 - **The generated gate script passes shellcheck.** Once a bash target covered
   the repo root, `.claude/hooks/checkride-gate.sh` and its Cursor twin were
   findings of their own: SC2016 for the backticks its messages quote on
@@ -171,6 +174,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### Not additive
 
+- Changed: the gate counts a pnpm the repo's `packageManager` pin refuses,
+  and a `packageManager` that names another manager, among the refusals only
+  the environment can fix, so it stands down on them where 0.16 blocked. The
+  generated hook stands down when the package manager it launches checkride
+  through fails `--version`, where 0.16 blocked once as checkride not
+  answering. The contract names the pin among its examples.
 - Changed: the exported `InitOptions`'s `probeFailures` is asked about each
   check by its check name, `api:lint` for a target's, and handed the config
   the checks resolve under as a third argument, where 0.16 passed the root
@@ -178,7 +187,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `setup` name checks the same way.
 - Changed: two terraform targets may nest, which config validation refused
   in 0.16, and discovery proposes a lock-file root below another as a target
-  of its own, whose `checks` switch `lint`, `format` and `security` off.
+  of its own, whose `checks` switch `lint`, `format` and `security` off, as
+  `target add` does for a target inside another of its pack.
 - Changed: discovery and `unclaimed` name colliding targets by pack or by
   their roots' trailing segments, where 0.16 numbered all but the first, so a
   `--discover` run in such a repo names its checks, its `.check/<target>/`
@@ -209,13 +219,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A summary check and its schema take `new_count` and `new`, and the exported
   `SummaryCheck` type takes both. A failed check's `reason` is also present on
   one that never reached a verdict (`exit_code: -1`), naming what stopped it.
-
-- The gate counts a pnpm the repo's `packageManager` pin refuses, and a
-  `packageManager` that names another manager, among the refusals only the
-  environment can fix, so it stands down on them where 0.16 blocked. The
-  generated hook stands down when the package manager it launches checkride
-  through fails `--version`, where 0.16 blocked once as checkride not
-  answering. The contract names the pin among its examples.
 
 ## [0.16.0] - 2026-10-22
 
@@ -4006,6 +4009,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.17.0]: https://www.npmjs.com/package/checkride/v/0.17.0
 [0.16.0]: https://www.npmjs.com/package/checkride/v/0.16.0
 [0.15.1]: https://www.npmjs.com/package/checkride/v/0.15.1
 [0.15.0]: https://www.npmjs.com/package/checkride/v/0.15.0
