@@ -221,8 +221,13 @@ type CheckResult = {
   entry: SummaryCheck;
   /** The raw run (for the ratchet + digest); null for a skipped slot. */
   run: CheckRun | null;
-  /** Fingerprint to feed the ratchet, keyed by the check's name; null when nothing was observed. */
-  observed: { key: string; fp: Fingerprint } | null;
+  /**
+   * Fingerprint to feed the ratchet, keyed by the check's name; null when
+   * nothing was observed. `whole` is false for a check `--changed` pointed at
+   * part of its files, through its `changedArgs` or narrowed Go packages, so
+   * a key it didn't report may sit in a file it never read.
+   */
+  observed: { key: string; fp: Fingerprint; whole: boolean } | null;
   /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
   newKeys: string[];
   /** Present when the check ran another copy of its tool than its baseline keys were captured with. */
@@ -324,7 +329,17 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
-  return { entry, run, observed: ratchetFeed(name, mask, drift), newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
+  const observed = ratchetFeed(name, mask, drift, sawWhole(r, adapter, scope.base));
+  return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
+}
+
+/**
+ * Whether a check read every file it covers: neither `--changed` narrowed its
+ * Go packages, nor its `changedArgs` ran, which `base`, the ref a `--changed`
+ * run measures from, switches on.
+ */
+function sawWhole(r: ResolvedCheck, adapter: Adapter, base: string | null): boolean {
+  return r.narrowed === undefined && (base === null || (adapter.changedArgs?.length ?? 0) === 0);
 }
 
 /** The toolchain a check's pack runs it on, by its executable, as a drift notice names its release. */
@@ -360,8 +375,8 @@ function driftField(drift: Drift | null): Pick<SummaryCheck, 'baseline_captured_
  * that observed none, or that ran another copy of its tool than its keys were
  * captured with, whose unseen keys another copy may still report.
  */
-function ratchetFeed(name: string, mask: MaskResult, drift: Drift | null): CheckResult['observed'] {
-  return mask.observed === null || drift !== null ? null : { key: name, fp: mask.observed };
+function ratchetFeed(name: string, mask: MaskResult, drift: Drift | null, whole: boolean): CheckResult['observed'] {
+  return mask.observed === null || drift !== null ? null : { key: name, fp: mask.observed, whole };
 }
 
 /**
@@ -387,6 +402,8 @@ type Execution = {
   checks: SummaryCheck[];
   runs: CheckRun[];
   observed: Map<string, Fingerprint>;
+  /** The observed checks that read only part of their files ({@link CheckResult}'s `whole`). */
+  narrowed: Set<string>;
   newKeys: string[];
   /** The checks that ran another copy of their tool than their baseline keys were captured with. */
   drifts: Drift[];
@@ -398,13 +415,14 @@ function collect(res: CheckResult, acc: Execution): void {
   acc.checks.push(res.entry);
   if (res.run) acc.runs.push(res.run);
   if (res.observed) acc.observed.set(res.observed.key, res.observed.fp);
+  if (res.observed?.whole === false) acc.narrowed.add(res.observed.key);
   acc.newKeys.push(...res.newKeys);
   if (res.drift) acc.drifts.push(res.drift);
 }
 
 /** A fresh, empty {@link Execution}. */
 function emptyExecution(brokeEarly = false): Execution {
-  return { checks: [], runs: [], observed: new Map(), newKeys: [], drifts: [], brokeEarly };
+  return { checks: [], runs: [], observed: new Map(), narrowed: new Set(), newKeys: [], drifts: [], brokeEarly };
 }
 
 /**

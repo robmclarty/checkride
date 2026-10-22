@@ -29,12 +29,18 @@ import { resetInterrupt } from './spawn.js';
 import type { Drift, Out, RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
- * Whether this run saw less than the full pipeline — an `--only`/`--skip`/
- * `--changed` filter or an early `--bail` break. The ratchet is gated off for
- * these: an unobserved diagnostic must not be mistaken for a fixed one.
+ * Why this run saw less than the full pipeline, as the ratchet's note names
+ * it — an `--only`/`--skip`/`--changed`/`--static-only` filter or an early
+ * `--bail` break — or `null` for a run that saw all of it. The ratchet is
+ * gated off for these: an unobserved diagnostic must not be mistaken for a
+ * fixed one.
  */
-function isPartialRun(options: RunOptions, changed: boolean, brokeEarly: boolean): boolean {
-  return (options.only ?? null) !== null || (options.skip?.length ?? 0) > 0 || changed || options.staticOnly === true || brokeEarly;
+function partialCause(options: RunOptions, changed: boolean, brokeEarly: boolean): string | null {
+  if ((options.only ?? null) !== null) return 'a run with --only';
+  if ((options.skip?.length ?? 0) > 0) return 'a run with --skip';
+  if (changed) return 'a run with --changed';
+  if (options.staticOnly === true) return 'a run with --static-only';
+  return brokeEarly ? 'a run --bail stopped early' : null;
 }
 
 /**
@@ -180,6 +186,26 @@ async function maybeRatchet(
 }
 
 /**
+ * On a partial run of the repo's own, which never prunes, say how many
+ * grandfathered keys the checks that read every file they cover no longer
+ * report, when there are any. A loop that only ever runs narrowed, as a
+ * `"gate": { "changed": true }` agent loop does, otherwise never learns that
+ * the baseline holds fixed debt, and a fix reverted inside it never shows.
+ * The count is a floor: a check the run left out may hold fixed keys too.
+ */
+function notePrunable(ctx: RunContext, observed: ReadonlyMap<string, Fingerprint>, narrowed: ReadonlySet<string>, cause: string): void {
+  const { baseline } = ctx;
+  if (!baseline || ctx.json) return;
+  const whole = new Map([...observed].filter(([name]) => !narrowed.has(name)));
+  const prunable = countBaselineKeys(baseline) - countBaselineKeys(ratchet(baseline, whole));
+  if (prunable === 0) return;
+  writeLine(
+    ctx.stderr,
+    `\nbaseline: not ratcheted, because ${cause} sees only part of the pipeline; a full run would prune at least ${prunable} grandfathered key(s) these checks no longer report`,
+  );
+}
+
+/**
  * On a red run, the best-effort recover hint: when the run's new-not-in-baseline
  * findings were grandfathered in a recent committed baseline, one stderr line
  * says so. The difference between "a wall of new debt" and "a merge dropped
@@ -284,7 +310,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
-  const { checks, runs, observed, newKeys, drifts, brokeEarly } = await executeChecks(selected, ctx);
+  const { checks, runs, observed, narrowed, newKeys, drifts, brokeEarly } = await executeChecks(selected, ctx);
   // A run that beats git waits for it inside the clock, so the run's start
   // stays `timestamp - total_duration_ms`, which the artifact readers judge
   // freshness by.
@@ -293,9 +319,12 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
 
   // One partial-run test serves the ratchet and the summary, so `run.partial`
   // is true exactly when the ratchet stood down for a partial run.
-  const partial = isPartialRun(options, ctx.changed, brokeEarly);
+  const cause = partialCause(options, ctx.changed, brokeEarly);
+  const partial = cause !== null;
   const consumer = consumerCause(options, ctx.cwd);
   await maybeRatchet(ctx, observed, partial, consumer);
+  // A consumer run prunes nothing even in full, so only the repo's own says what a full run would.
+  if (cause !== null && consumer === null) notePrunable(ctx, observed, narrowed, cause);
 
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"

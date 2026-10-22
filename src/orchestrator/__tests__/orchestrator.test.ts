@@ -1539,6 +1539,53 @@ describe('runChecks (baseline-aware)', () => {
     expect(existsSync(baselineFile())).toBe(false);
   });
 
+  /**
+   * A loop that only runs narrowed, as a `"gate": { "changed": true }` agent
+   * loop does, never prunes, so it says what a full run would (#21).
+   */
+  test('a partial run says how many keys a full run would prune, and writes nothing', async () => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner(oneA),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      only: ['lint'], json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(existsSync(baselineFile())).toBe(false);
+    expect(std.lines.join('')).toContain(
+      'baseline: not ratcheted, because a run with --only sees only part of the pipeline; a full run would prune at least 1 grandfathered key(s) these checks no longer report',
+    );
+  });
+
+  /** What a run over the two-key baseline prints on stderr, narrowed by `over`. */
+  const prunableNote = async (over: Partial<Parameters<typeof runChecks>[0]>, runner: CheckRunner): Promise<string> => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots, adapters, config: null, runner,
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      json: false, stdout: sink().out, stderr: std.out, ...over,
+    });
+    return std.lines.join('');
+  };
+
+  test('a partial run says nothing when its checks still report every key, under --json, or as a consumer run', async () => {
+    expect(await prunableNote({ only: ['lint'] }, lintRunner([...oneA, ['b.ts', 'no-y', 'worse']]))).not.toContain('baseline:');
+    expect(await prunableNote({ only: ['lint'], json: true }, lintRunner(oneA))).not.toContain('baseline:');
+    expect(await prunableNote({ staticOnly: true }, lintRunner(oneA))).not.toContain('a full run would prune');
+  });
+
+  test('a run that --bail stopped early names it', async () => {
+    const std = sink();
+    const two = [{ name: 'lint' }, { name: 'types' }];
+    const both = [...adapters, fakeAdapter({ name: 'tsc', slot: 'types' })];
+    await runChecks({
+      cwd: dir, slots: two, adapters: both, config: null, bail: true,
+      runner: (r) => Promise.resolve(r.slot === 'lint' ? { ok: false, exit_code: 1, stdout: oxlint([['c.ts', 'no-z', 'new']]), stderr: '' } : { ok: true, exit_code: 0, stdout: '', stderr: '' }),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A] } },
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    expect(std.lines.join('')).toContain('because a run --bail stopped early sees only part of the pipeline; a full run would prune at least 1');
+  });
+
   test('a run reading a config outside the repo never prunes the baseline, and says so', async () => {
     const outside = await mkdtemp(join(tmpdir(), 'checkride-base-outside-'));
     try {
@@ -2358,6 +2405,28 @@ describe.skipIf(!gitAvailable)('runChecks --changed base', () => {
     expect(await run({ base: { ref: 'develop', from: '--base' }, config: { changedBase: 'main' } })).toEqual(['develop']);
     expect(await run({ config: { changedBase: 'main' } })).toEqual(['main']);
     expect(await run({})).toEqual(['origin/main']);
+  });
+
+  /**
+   * A check `--changed` pointed at part of its files didn't read the rest, so
+   * a key it didn't report may sit in one of them: it counts toward no
+   * "a full run would prune" note (#21).
+   */
+  /** What a `--changed` lint run over the two-key baseline prints on stderr, its adapter given `changedArgs`. */
+  const changedNote = async (changedArgs: string[]): Promise<string> => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json', changedArgs })],
+      config: null, changed: true, base: { ref: 'develop', from: '--base' }, runner: lintRunner([['a.ts', 'no-x', 'bad']]),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    return std.lines.join('');
+  };
+
+  test('a check whose changedArgs narrowed it counts toward no prunable keys', async () => {
+    expect(await changedNote(['--since={base}'])).not.toContain('a full run would prune');
+    expect(await changedNote([])).toContain('because a run with --changed sees only part of the pipeline; a full run would prune at least 1');
   });
 
   test('off --changed, the runner gets no base', async () => {

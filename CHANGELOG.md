@@ -6,6 +6,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **A narrowed run says what a full run would prune.** A run with `--only`,
+  `--skip`, `--changed` or `--static-only`, or one `--bail` stopped early,
+  never prunes `checkride.baseline.json`, so an agent loop behind a
+  `"gate": { "changed": true }` profile never learned that the baseline held
+  fixed debt, and a fix reverted inside the loop never showed (#21). Such a
+  run of the repo's own now says, on stderr, how many grandfathered keys the
+  checks it ran no longer report, which a full run would prune. It counts only
+  the checks that read every file they cover, not one whose `changedArgs` ran
+  or whose Go packages `--changed` narrowed, so the count is a floor.
+  [Getting started](./docs/getting-started.md#when-the-gate-is-too-slow) says
+  where pruning happens instead.
+
 ### Fixed
 
 - **The generated gate script passes shellcheck.** Once a bash target covered

@@ -541,6 +541,22 @@ may not be enough.
 So a profile is a trade, not a free win: use one when something else still runs
 the full check before the work lands. If nothing does, leave it unset.
 
+**A narrowed gate never prunes the baseline.** A run that saw part of the
+pipeline can't tell a fixed finding from one it didn't look at, so only a full
+run ratchets `checkride.baseline.json`. Inside a narrowed agent loop, fixing a
+grandfathered finding and then reverting the fix is invisible: the key stays in
+the baseline throughout. Pruning waits for a full run somewhere else, a commit
+hook or CI, and whoever runs it commits the smaller baseline. A narrowed run
+says when a full run would prune something, on stderr:
+
+```text
+baseline: not ratcheted, because a run with --changed sees only part of the pipeline; a full run would prune at least 2 grandfathered key(s) these checks no longer report
+```
+
+It counts only the checks that read every file they cover. A check `--changed`
+pointed at part of its files, through its `changedArgs` or its narrowed Go
+packages, counts nothing, so the number is a floor.
+
 #### Running something before the gate
 
 checkride owns the generated hook scripts and overwrites them on every refresh,
