@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The generated gate script passes shellcheck.** Once a bash target covered
+  the repo root, `.claude/hooks/checkride-gate.sh` and its Cursor twin were
+  findings of their own: SC2016 for the backticks its messages quote on
+  purpose, and SC1003 for the `tr` set a preflight's output runs through
+  (#19). The script now switches SC2016 off for the whole file, on the line
+  after the shebang, and says why in its header, and the `tr` set is written
+  so shellcheck doesn't read it as a quote escape. A repo picks up the new
+  script on its next `checkride agent-setup` or `init`.
+
 ## [0.16.0] - 2026-10-22
 
 ### Added

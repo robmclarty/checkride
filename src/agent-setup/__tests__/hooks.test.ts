@@ -202,6 +202,18 @@ describe('generated scripts', () => {
     }
   });
 
+  /**
+   * What a preflight prints becomes a JSON string field, so `say` drops the two
+   * characters that would end or escape one and folds newlines, whatever order
+   * its `tr` set lists them in.
+   */
+  test('a preflight’s output loses its quotes, backslashes and newlines', () => {
+    const script = gateScript('pnpm', { harness: 'claude', preflight: 'scripts/pre.sh' });
+    const say = /^say\(\) \{\n.*\n\}$/m.exec(script)?.[0] ?? '';
+    const said = execFileSync('sh', ['-c', `${say}\nsay "$1"`, 'sh', 'a "quoted" C:\\path\nnext'], { encoding: 'utf8' });
+    expect(said).toBe('a quoted C:path next');
+  });
+
   /** A bare name would resolve against PATH, which is never what a repo path means. */
   test('a preflight with no directory is anchored to the repo root', () => {
     expect(gateScript('pnpm', { harness: 'claude', preflight: 'pre.sh' })).toContain("'./pre.sh'");

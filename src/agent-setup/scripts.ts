@@ -56,6 +56,15 @@ const NOTHING_RAN =
   'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from this turn.';
 
 /**
+ * The gate script's second line. A shellcheck directive right after the shebang
+ * covers the whole file, so a repo whose bash target lints its hooks finds none
+ * of the backticks its messages quote on purpose. The reason sits in the header
+ * below it rather than trailing the directive, which only some shellcheck
+ * releases parse.
+ */
+const SHELLCHECK_DIRECTIVE = '# shellcheck disable=SC2016';
+
+/**
  * `message` as one single-quoted shell word, each `'` in it closed, escaped and
  * reopened as `'\''`, so a message can quote a command the way a person types
  * it, as {@link PIN_CHECKRIDE} does, without ending the word early.
@@ -353,7 +362,7 @@ function preflight(path: string): string[] {
     '# A preflight prints for humans; this has to survive a JSON string field. The',
     '# two characters that would break one are dropped and newlines folded.',
     'say() {',
-    `  printf %s "$1" | tr -d '"\\\\' | tr '\\n' ' '`,
+    `  printf %s "$1" | tr -d '\\\\"' | tr '\\n' ' '`,
     '}',
     '',
     '# Honour the shebang when the file is executable, and fall back to `sh` when it',
@@ -430,6 +439,7 @@ export function gateScript(
   const args = ['gate', '--harness', opts.harness, ...((opts.dirtyGuard ?? true) ? ['--if-dirty'] : [])];
   return [
     '#!/bin/sh',
+    SHELLCHECK_DIRECTIVE,
     `# checkride-gate.sh — the ${opts.harness} stop-hook gate.`,
     '#',
     '# checkride owns this file: `checkride agent-setup` (and `checkride init`)',
@@ -439,6 +449,10 @@ export function gateScript(
     '#',
     "# Runs the repo's `check` script as a hard gate, and reports the verdict in",
     `# ${opts.harness}'s hook protocol. See \`checkride gate --help\`.`,
+    '#',
+    '# Its messages name commands in backticks inside single quotes, which is what',
+    "# they mean: text for the agent to read, not commands to run. That's SC2016,",
+    '# switched off above for the whole file.',
     '',
     ...gatePreamble(opts.harness),
     '',
