@@ -10,6 +10,34 @@ import { addTarget, liftDiscovered } from '../add.js';
 
 const rules = { rootName: 'app', implicitPack: 'ts', targetSlots: new Set(['types', 'lint', 'test']), marked: true };
 
+/**
+ * Terraform's targets nest (#20), and the outer one's fmt, tflint and trivy
+ * walk the inner one's files, so whichever is added, the inner one switches
+ * those slots off, unless its entry already names one.
+ */
+describe('addTarget for a pack whose targets nest', () => {
+  const infra = { lang: 'terraform', root: 'infra' };
+  const off = { format: false, lint: false, security: false };
+
+  test('a target added inside another switches the walked slots off, and says so', () => {
+    const change = addTarget({ targets: { infra } }, { name: 'registry', lang: 'terraform', root: 'infra/registry' }, rules);
+    expect(change.config['targets']).toEqual({ infra, registry: { lang: 'terraform', root: 'infra/registry', checks: off } });
+    expect(change.changes).toContain('targets.registry: format, lint, security off, since a terraform target above it already checks its files');
+  });
+
+  test('a target added around one switches the inner one off, and one that names a slot keeps its own', () => {
+    const registry = { lang: 'terraform', root: './infra/registry/' };
+    expect((addTarget({ targets: { registry } }, { name: 'infra', ...infra }, rules).config['targets'] as Record<string, unknown>)['registry']).toEqual({ ...registry, checks: off });
+    const own = { ...registry, checks: { lint: 'tflint' } };
+    expect((addTarget({ targets: { registry: own } }, { name: 'infra', ...infra }, rules).config['targets'] as Record<string, unknown>)['registry']).toEqual(own);
+  });
+
+  test('a ts target is never switched off', () => {
+    const web = { lang: 'ts', root: 'apps/web' };
+    expect(addTarget({ targets: { web } }, { name: 'admin', lang: 'ts', root: 'apps/web/admin' }, rules).config['targets']).toEqual({ web, admin: { lang: 'ts', root: 'apps/web/admin' } });
+  });
+});
+
 describe('addTarget', () => {
   test('converts an implicit repo: the implicit target is named, takes its slots’ entries, and its baseline entries follow', () => {
     const raw = { $schema: 'x', extends: './base.json', checks: { lint: 'oxlint', types: { timeout: 30 }, links: false, licenses: { command: 'node' } } };

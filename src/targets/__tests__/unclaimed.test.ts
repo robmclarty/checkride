@@ -99,6 +99,14 @@ describe('findUnclaimed', () => {
     expect(await findUnclaimed(repo, { targets: [prod, { name: 'modules', pack: 'terraform', root: 'modules' }] })).toEqual([]);
   });
 
+  /** Terraform's targets nest (#20), so a target above one is a fix, which switches the inner one's walked slots off. */
+  test('.tf files above a terraform target suggest a target that holds it, switching its recursive slots off', async () => {
+    await put('main.tf', 'envs/dev/.terraform.lock.hcl', 'envs/dev/main.tf');
+    const dev: Claimant = { name: 'dev', pack: 'terraform', root: 'envs/dev' };
+    const red = await checkUnclaimed(repo, { targets: [dev] });
+    expect(red.stderr).toContain('  claim it: "app": { "lang": "terraform", "root": "." } under targets, switching format, lint, security off in dev, which it would hold, or list it in unclaimed.ignore');
+  });
+
   test('suggests a target for the markers of a pack that ships', async () => {
     await put('svc/go.mod');
     const red = await checkUnclaimed(repo, { targets: [root] });

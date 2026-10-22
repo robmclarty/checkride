@@ -21,16 +21,20 @@
  * - Each top-most directory holding a `pyproject.toml`, `setup.cfg` or
  *   `setup.py` proposes a `python` target, which claims the nested ones, a uv
  *   workspace's members among them.
- * - Each top-most directory holding a `.terraform.lock.hcl`, the mark of a
- *   root module, proposes a `terraform` target, which claims the `.tf`
- *   directories under it, and each top-most directory holding `.tf` files that
- *   none of those claims proposes one more.
+ * - Each directory holding a `.terraform.lock.hcl`, the mark of a root
+ *   module, proposes a `terraform` target, which claims the `.tf`
+ *   directories under it, one below another included: no module call reads
+ *   it, so the outer target's `validate` never would. Such a nested target
+ *   switches off what the outer one's tools already walk (`Pack.nests`).
+ *   Each top-most directory holding `.tf` files that none of those claims
+ *   proposes one more.
  * - Shell files R11.2's defaults keep, outside every other proposed target's
  *   root, propose one `bash` target at the deepest directory holding them
  *   all, named `scripts` when that's `scripts` and `shell` otherwise.
  *
  * A target claims every marker of its pack at or below its root, as
- * `unclaimed` reads a claim, so two targets of one pack never nest (V4).
+ * `unclaimed` reads a claim, so two targets of one pack never nest (V4),
+ * terraform's lock-file roots apart.
  * Within one of a pack's rules the top-most root wins and claims the ones
  * under it. Across a pack's two rules the inner root wins: a lock-file root
  * over the `.tf` directory above it, a `[workspace]` over a `[package]`, a
@@ -38,8 +42,9 @@
  * `unclaimed` reports its markers rather than the run failing on two nested
  * targets.
  *
- * A target is named after its root's last segment, `.` becoming `app`, with
- * a number added when another target, a slot or a reserved name holds it. One
+ * A target is named after its root's last segment, `.` becoming `app`, and
+ * a longer name when another target, a slot, a reserved name or a custom
+ * check holds it (`./names.ts`). One
  * target at the root, of the pack the root marks (R2.1), and nothing else is
  * the implicit mode a repo already runs in, which writes no `targets` block.
  */

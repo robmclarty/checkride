@@ -882,7 +882,10 @@ ts targets in their own directories is unclaimed, and because two ts targets
 can't nest, the way to quiet it is `unclaimed.ignore: ["package.json"]`. The
 same holds for any marker whose suggested target would hold a target of its
 pack, such as a root `go.mod` above a `go.work` discovery proposed, and the
-message says so in place of suggesting that target.
+message says so in place of suggesting that target. Terraform's targets nest,
+so for its markers the message suggests the target, and says to switch
+`format`, `lint` and `security` off in each one it would hold, as
+`target add` does when it adds one target inside or around another.
 Without `targets`, `unclaimed` is **inactive**: absent from `checks`, as an
 unselected opt-in slot is, but under `--all` too. Its name stays a valid token,
 so `--only unclaimed` or `--include unclaimed` records one skipped entry with

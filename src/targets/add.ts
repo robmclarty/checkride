@@ -21,6 +21,9 @@
  */
 
 import { isRecord } from '../json.js';
+import { PACKS } from '../packs/index.js';
+import { isWithin } from './markers.js';
+import { normalizeRoot } from './resolve.js';
 
 /** A target as the config declares it. */
 export type TargetEntry = { lang: string; root: string; checks?: Record<string, unknown> };
@@ -130,6 +133,40 @@ function entryOf(target: TargetToAdd): TargetEntry {
   return { ...rest, ...(checks !== undefined && Object.keys(checks).length > 0 ? { checks } : {}) };
 }
 
+/**
+ * `targets` with each target of a pack whose targets nest (`Pack.nests`)
+ * that sits inside another of its pack switching off the slots `nests.off`
+ * names, where its entry names none of them yet: the outer target's tools
+ * walk its files, so its own would report them twice. A line says so for
+ * each target it switches off.
+ */
+function nestedOff(targets: Record<string, unknown>): { targets: Record<string, unknown>; changes: string[] } {
+  const entries = Object.values(targets).filter(isEntry);
+  const changes: string[] = [];
+  const next = Object.fromEntries(
+    Object.entries(targets).map(([name, entry]) => {
+      const off = isEntry(entry) ? offInside(entry, entries) : [];
+      if (!isEntry(entry) || off.length === 0) return [name, entry];
+      changes.push(`targets.${name}: ${off.join(', ')} off, since a ${entry.lang} target above it already checks its files`);
+      return [name, { ...entry, checks: { ...Object.fromEntries(off.map((slot) => [slot, false])), ...entry.checks } }];
+    }),
+  );
+  return { targets: next, changes };
+}
+
+/** The slots `entry` switches off for sitting inside another of `entries` of its nesting pack, none when it names one already. */
+function offInside(entry: TargetEntry, entries: readonly TargetEntry[]): string[] {
+  const off = Object.values(PACKS).find((p) => p.name === entry.lang)?.nests?.off ?? [];
+  const root = normalizeRoot(entry.root);
+  const inside = entries.some((o) => o.lang === entry.lang && normalizeRoot(o.root) !== root && isWithin(root, normalizeRoot(o.root)));
+  return inside && !off.some((slot) => Object.hasOwn(entry.checks ?? {}, slot)) ? [...off] : [];
+}
+
+/** Whether `value` is a target's entry: an object naming its pack and its root. */
+function isEntry(value: unknown): value is TargetEntry {
+  return isRecord(value) && typeof value['lang'] === 'string' && typeof value['root'] === 'string';
+}
+
 /** True when a top-level entry for one of `targetSlots` picks a tool: an adapter's name, `{ use }` or `{ command }`. */
 export function picksTool(raw: Record<string, unknown>, targetSlots: ReadonlySet<string>): boolean {
   const checks = isRecord(raw['checks']) ? raw['checks'] : {};
@@ -151,7 +188,8 @@ export function addTarget(raw: Record<string, unknown>, target: TargetToAdd, rul
   if (raw['targets'] !== undefined) {
     const targets = isRecord(raw['targets']) ? raw['targets'] : {};
     if (Object.hasOwn(targets, target.name)) throw new Error(`target add: targets.${target.name} already exists`);
-    return { config: { ...raw, targets: { ...targets, [target.name]: entryOf(target) } }, renames: new Map(), changes: addedLines(target) };
+    const nested = nestedOff({ ...targets, [target.name]: entryOf(target) });
+    return { config: { ...raw, targets: nested.targets }, renames: new Map(), changes: [...addedLines(target), ...nested.changes] };
   }
   if (target.lang === rules.implicitPack && target.root === '.') {
     return liftImplicit(raw, { name: target.name, lang: target.lang, ...(target.checks ? { extra: target.checks } : {}) }, rules.targetSlots);
