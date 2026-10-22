@@ -44,7 +44,12 @@ function widen(group: readonly Nameable[], used: Set<string>): string[] {
   const names: (string | null)[] = group.map((t, i) => (group.some((o, j) => j !== i && o.root === t.root) ? claim(t.lang, used) : null));
   const deepest = Math.max(...group.map((t) => t.root.split('/').length));
   for (let depth = 2; depth <= deepest; depth += 1) bySuffix(group, names, depth, used);
-  return group.map((t, i) => names[i] ?? claim(`${t.base}-${t.lang}`.slice(0, NAME_LENGTH), used) ?? numberedClaim(t.base, used));
+  return group.map((t, i) => names[i] ?? claim(withPack(t.base, t.lang), used) ?? numberedClaim(t.base, used));
+}
+
+/** `base` with its pack's name after it, `base` cut short so the pack's name always fits (V1). */
+function withPack(base: string, lang: string): string {
+  return `${base.slice(0, NAME_LENGTH - lang.length - 1).replace(/-+$/, '')}-${lang}`;
 }
 
 /**
@@ -53,18 +58,25 @@ function widen(group: readonly Nameable[], used: Set<string>): string[] {
  * shares the result.
  */
 function bySuffix(group: readonly Nameable[], names: (string | null)[], depth: number, used: Set<string>): void {
-  const suffixes = group.map((t, i) => (names[i] === null ? suffixOf(t.root, depth) : null));
+  const suffixes = group.map((t, i) => (names[i] === null ? suffixOf(t, depth) : null));
   suffixes.forEach((suffix, i) => {
     if (suffix === null || suffixes.filter((s) => s === suffix).length > 1) return;
     names[i] = claim(suffix, used);
   });
 }
 
-/** The last `depth` segments of `root` as one name, or `null` when it has fewer, or nothing of them survives. */
-function suffixOf(root: string, depth: number): string | null {
-  const segments = root === '.' ? [] : root.split('/');
+/**
+ * The last `depth` segments of a target's root as one name, or `null` when it
+ * has fewer, or the name comes out as the one that collided. A name starts
+ * with a letter (V1), so segments that start with a digit, as `2024/infra`
+ * does, follow the pack's name, `terraform-2024-infra`, rather than lose it.
+ */
+function suffixOf(target: Nameable, depth: number): string | null {
+  const segments = target.root === '.' ? [] : target.root.split('/');
   if (segments.length < depth) return null;
-  return slugName(segments.slice(-depth).join('-')) || null;
+  const joined = segments.slice(-depth).join('-');
+  const name = slugName(/^[a-z]/i.test(joined) ? joined : `${target.lang}-${joined}`);
+  return name === '' || name === target.base ? null : name;
 }
 
 /** `name`, claimed from `used`, or `null` when it's taken or empty. */
