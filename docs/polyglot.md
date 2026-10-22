@@ -150,13 +150,16 @@ differently gets different ones:
   TypeScript:
 
   ```text
-  warning: types has no tool under `.`, so 17 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 16 more): add a tsconfig.json at `.` whose `references` name them, each of them `composite`, or declare a ts target for each package
+  warning: types has no tool under `.`, so 17 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 16 more): add a tsconfig.json at `.` whose `references` name them, each of them `composite`, or replace the ts target there with one for each package
   ```
 
   A root `tsconfig.json` whose `references` list every package, each
   package's `composite`, gives the root target `tsc --build` over all of them,
   and a root vitest config whose `projects` list them, with vitest a root
-  devDependency, runs their tests. It warns and fails nothing, and
+  devDependency, runs their tests. Otherwise one ts target for each package
+  checks it from its own root, in place of the target at `.`, since two ts
+  targets can't nest, and the root's linter then runs as a top-level custom
+  check. It warns and fails nothing, and
   `unclaimed.ignore` quiets it for a config left unchecked on purpose.
 
 Either way the config is yours to edit, and `checkride target add` adds a

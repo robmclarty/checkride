@@ -60,10 +60,15 @@ function isNested(dir: string, root: string, deeper: readonly TsTarget[]): boole
   return dir !== root && isWithin(dir, root) && !deeper.some((t) => isWithin(dir, t.root));
 }
 
-/** How a gap is fixed: a root config that reaches the packages, or a target for each. */
+/**
+ * How a gap is fixed: a config at the target's root that reaches the
+ * packages, or a target for each package in place of the one at the root,
+ * since two ts targets can't nest. The root's own tools, oxlint in a
+ * workspace that only installs tools, then run as top-level custom checks.
+ */
 const REMEDIES: Readonly<Record<string, (root: string) => string>> = {
-  types: (root) => `add a tsconfig.json at \`${root}\` whose \`references\` name them, each of them \`composite\`, or declare a ts target for each package`,
-  test: (root) => `add a vitest config at \`${root}\` whose \`projects\` name them, with vitest a devDependency there, or declare a ts target for each package`,
+  types: (root) => `add a tsconfig.json at \`${root}\` whose \`references\` name them, each of them \`composite\`, or replace the ts target there with one for each package`,
+  test: (root) => `add a vitest config at \`${root}\` whose \`projects\` name them, with vitest a devDependency there, or replace the ts target there with one for each package`,
 };
 
 /** The line a run, `doctor` and `init` print for a gap: what goes unchecked, the first file, and the fix. */

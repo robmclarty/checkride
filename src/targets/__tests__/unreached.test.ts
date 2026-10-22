@@ -42,7 +42,7 @@ describe('findUnreached', () => {
       { check: 'test', root: '.', slot: 'test', files: ['packages/a/vitest.config.ts'] },
     ]);
     expect(unreachedLine(found[0] ?? { check: '', root: '', slot: '', files: [] })).toBe(
-      'types has no tool under `.`, so 2 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 1 more): add a tsconfig.json at `.` whose `references` name them, each of them `composite`, or declare a ts target for each package',
+      'types has no tool under `.`, so 2 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 1 more): add a tsconfig.json at `.` whose `references` name them, each of them `composite`, or replace the ts target there with one for each package',
     );
     expect(unreachedNote(found[1] ?? { check: '', root: '', slot: '', files: [] })).toBe('`test` (1 nested test config(s) under `.`)');
   });

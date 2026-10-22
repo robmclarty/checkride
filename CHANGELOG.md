@@ -63,7 +63,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for each ts target whose `types` or `test` found no tool while configs for
   it sit in the packages below, naming them and the fix: a root
   `tsconfig.json` whose `references` name them, or a root vitest config whose
-  `projects` do, or a ts target for each package. `doctor` gives it an
+  `projects` do, or one ts target for each package in place of the one at
+  the root. `doctor` gives it an
   `unchecked ts configs` row, `init` prints it, and the AGENTS.md stanza names
   it under `Not covered`. It fails nothing, and `unclaimed.ignore` quiets it.
   [Polyglot repos](./docs/polyglot.md) has the fix.
