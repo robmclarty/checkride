@@ -63,6 +63,22 @@ describe('goTestReport', () => {
     expect(report?.failed[1]?.output).toEqual(['# example.com/c', 'c.go:3:1: syntax error: unexpected }']);
   });
 
+  /** Go 1.24 and later report a build apart, under `ImportPath`; verbatim from go 1.27.2. */
+  test('a package that failed to build names its compile error, which go reports under the import path', () => {
+    const stdout = [
+      '{"ImportPath":"example.com/c [example.com/c.test]","Action":"build-output","Output":"# example.com/c [example.com/c.test]\\n"}',
+      '{"ImportPath":"example.com/c [example.com/c.test]","Action":"build-output","Output":"./c.go:4:1: syntax error: unexpected EOF, expected }\\n"}',
+      '{"ImportPath":"example.com/c [example.com/c.test]","Action":"build-fail"}',
+      '{"Action":"start","Package":"example.com/c"}',
+      '{"Action":"output","Package":"example.com/c","Output":"FAIL\\texample.com/c [build failed]\\n","OutputType":"frame"}',
+      '{"Action":"fail","Package":"example.com/c","Elapsed":0,"FailedBuild":"example.com/c [example.com/c.test]"}',
+    ].join('\n');
+    expect(goTestReport(stdout)).toEqual({
+      failed: [{ pkg: 'example.com/c', test: null, output: ['# example.com/c [example.com/c.test]', './c.go:4:1: syntax error: unexpected EOF, expected }', 'FAIL\texample.com/c [build failed]'] }],
+      running: [],
+    });
+  });
+
   test('output that holds no event is no report, and keeps only the last five lines a test printed', () => {
     expect(goTestReport('# example.com/e\ne.go:1:1: expected package\n')).toBeNull();
     const chatty = [event('run', 'p', 'T'), ...Array.from({ length: 8 }, (_, i) => event('output', 'p', 'T', `line ${i}\n`)), event('fail', 'p', 'T')].join('\n');

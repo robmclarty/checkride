@@ -109,7 +109,9 @@ function capped(items: readonly string[], max: number, raw: string): string[] {
  */
 function newFindingsBody({ run, check, raw, maxItems }: Section): string | null {
   if (check.new === undefined || check.new_count === undefined) return null;
-  const lines = capped(check.new.map((key) => `- ${key}`), maxItems, raw);
+  // `new` holds only the summary's first keys, so the rest are counted there, not here.
+  const lines = check.new.slice(0, maxItems).map((key) => `- ${key}`);
+  if (check.new.length > maxItems) lines.push(`- … and more: the summary's \`new\` lists ${check.new.length} key(s), and \`${raw}\` every finding`);
   const grandfathered = check.baselined === undefined ? '' : `; ${check.baselined} grandfathered, not listed`;
   return `Raw: \`${raw}\` — ${check.new_count} new finding(s), not in the baseline${grandfathered}\n${stoppedBy(check, run.outcome)}${driftNote(check, run.adapter.name)}\n${lines.join('\n')}\n`;
 }

@@ -46,11 +46,24 @@ function eventOf(line: string): GoTestEvent | null {
   const test = parsed['Test'];
   const output = parsed['Output'];
   return {
-    action: parsed['Action'],
-    pkg: typeof parsed['Package'] === 'string' ? parsed['Package'] : '',
+    // A build's output is the package's, as `go test` reports a failed build.
+    action: parsed['Action'] === 'build-output' ? 'output' : parsed['Action'],
+    pkg: packageOf(parsed),
     test: typeof test === 'string' ? test : null,
     output: typeof output === 'string' ? output : null,
   };
+}
+
+/**
+ * The package an event is about: its `Package`, or for a build event, which
+ * Go 1.24 and later report apart under `ImportPath`, the package that path
+ * names, `example.com/c` for `example.com/c [example.com/c.test]`.
+ */
+function packageOf(event: Record<string, unknown>): string {
+  const pkg = event['Package'];
+  if (typeof pkg === 'string') return pkg;
+  const importPath = event['ImportPath'];
+  return typeof importPath === 'string' ? importPath.replace(/ \[.*\]$/, '') : '';
 }
 
 /** Whether an output line says something a reader wants: not `go test`'s own `=== RUN` bookkeeping. */

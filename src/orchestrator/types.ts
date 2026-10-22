@@ -163,7 +163,8 @@ export type SummaryCheck = {
 /**
  * A check that ran another copy of its tool than its baseline keys were
  * captured with: what the run's notice names. `ran` is how it ran this time,
- * `newKeys` counts the findings the baseline didn't grandfather, and
+ * `newKeys` counts the keys with findings the baseline didn't grandfather,
+ * those it lacks and those found past their count, and
  * `heldBack` the grandfathered keys this run didn't see, which the ratchet
  * would have pruned and didn't.
  */

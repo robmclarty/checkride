@@ -177,7 +177,7 @@ describe('buildDigest', () => {
     expect(digest).toContain('Raw: `.check/lint.json` — 2 new finding(s), not in the baseline; 309 grandfathered, not listed\n\n- z.ts:no-y:new\n- zz.ts:no-y:new\n');
     expect(digest).not.toContain('a00.ts');
     const many = check('lint', { adapter: 'oxlint', output_file: 'lint.json', new_count: 12, new: Array.from({ length: 12 }, (_, i) => `k${String(i).padStart(2, '0')}`) });
-    expect(buildDigest([run(OXLINT, outcome({ stdout: report }))], [many]) ?? '').toContain('- k09\n- … 2 more (see `.check/lint.json`)\n');
+    expect(buildDigest([run(OXLINT, outcome({ stdout: report }))], [many]) ?? '').toContain("- k09\n- … and more: the summary's `new` lists 12 key(s), and `.check/lint.json` every finding\n");
   });
 
   test('a go test run names its failing and unfinished tests, with what each printed', () => {

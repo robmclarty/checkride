@@ -286,7 +286,11 @@ type CheckResult = {
    * a key it didn't report may sit in a file it never read.
    */
   observed: { key: string; fp: Tally; whole: boolean } | null;
-  /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
+  /**
+   * Keys the baseline doesn't hold — feeds the red-run recover hint, which
+   * looks for them in earlier committed baselines. A key found past its count
+   * isn't one: the current file holds it, and recovery never raises a count.
+   */
   newKeys: string[];
   /** Present when the check ran another copy of its tool than its baseline keys were captured with. */
   drift?: Drift;
