@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.0] - 2026-10-22
 
 ### Added
 
@@ -32,10 +32,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   name one, and by source otherwise, still fails on a new key. The difference
   is named in the summary as `baseline_captured_with`, in a `baseline:` line
   on stderr, which says how many keys are new and how many the ratchet held
-  back, and in the check's digest section when it fails. The ratchet prunes none of that
-  check's keys, so a run with a different toolchain can't prune keys CI's
-  still reports. A baseline captured before this release has no record, and
-  ratchets as it always has.
+  back, and in the check's digest section when it fails. The ratchet prunes
+  none of that check's keys, so a run with a different toolchain can't prune
+  keys CI's still reports. A baseline captured before this release has no
+  record, and ratchets as it always has.
 - **`checkride baseline --versions` records a tool upgrade, and grandfathers
   nothing.** After an upgrade, a check whose copy differs from its
   `captured_with` record is held back from the ratchet, and a re-capture would
@@ -45,9 +45,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   included, it records that copy and prunes the keys the copy no longer
   reports. Every other check is left as it was, and stderr says why: it didn't
   run, it reached no verdict, it reported new keys, or its tool or toolchain
-  came from the machine rather than a pin. It never adds a
-  key, so an agent may run it, and the check skill says when. A drift notice
-  with no new keys names it, and one with new keys asks for a human's review.
+  came from the machine rather than a pin. It never adds a key, so an agent
+  may run it, and the check skill says when. A drift notice with no new keys
+  names it, and one with new keys asks for a human's review.
 
 ### Changed
 
@@ -3793,6 +3793,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.16.0]: https://www.npmjs.com/package/checkride/v/0.16.0
 [0.15.1]: https://www.npmjs.com/package/checkride/v/0.15.1
 [0.15.0]: https://www.npmjs.com/package/checkride/v/0.15.0
 [0.14.0]: https://www.npmjs.com/package/checkride/v/0.14.0
