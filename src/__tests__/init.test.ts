@@ -672,6 +672,30 @@ describe('existing-project adoption (idempotent)', () => {
       expect(existsSync(join(dir, 'checkride.config.json'))).toBe(false);
     });
 
+    /** Review of #11: what the probe never asks about, so it never switches it off. */
+    test('the probe leaves out the publish bundle, which runs no build at init, and unclaimed, which discovery relies on', async () => {
+      await twoTargets();
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', scripts: { build: 'tsc' } }));
+      const { asked, probe } = recordingProbe(['app:lint']);
+      await runInit({ cwd: dir, probeFailures: probe, discoverTargets: scriptsFirst, hook: false, add: ['publish'] });
+      expect(asked[0]?.checks).toEqual(expect.arrayContaining(['app:lint', 'scripts:lint']));
+      for (const name of ['build', 'publint', 'attw', 'pack', 'smoke', 'snippets', 'unclaimed']) expect(asked[0]?.checks).not.toContain(name);
+      const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, unknown> };
+      expect(cfg.checks['build']).not.toBe(false);
+      expect(cfg.checks['unclaimed']).toBeUndefined();
+    });
+
+    test('in a repo with its own config, a discovered target’s failing check is written false with the targets', async () => {
+      await twoTargets();
+      await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { lint: 'oxlint' } }));
+      const { probe } = recordingProbe(['scripts:lint']);
+      const result = await runInit({ cwd: dir, probeFailures: probe, discoverTargets: scriptsFirst, hook: false });
+      expect(result.disabled).toEqual(['scripts:lint']);
+      const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { targets: Record<string, { checks?: Record<string, unknown> }> };
+      expect(cfg.targets['scripts']?.checks).toEqual({ lint: false });
+      expect(cfg.targets['app']?.checks).toEqual({ lint: 'oxlint' });
+    });
+
     test('a config that already declares targets has their checks probed and grandfathered by name', async () => {
       await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
       await mkdir(join(dir, 'web'));

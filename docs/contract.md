@@ -934,13 +934,15 @@ already runs in, so nothing changes. Anything more is printed as
 a `targets` block and written the way `target add` writes it, unless
 `--dry-run`. A config that already declares `targets` is left alone. The go,
 rust, python and terraform targets it proposes follow the rules `--discover`
-gives above. `init` runs each check once to see what fails, under the config
+gives above. `init` runs each default-on catalogue check once to see what
+fails, never an opt-in one, a custom check or `unclaimed`, under the config
 it would write, the targets it proposes included, `--dry-run` too, or the
 repo's own config when it has one, and names each by its check name,
 `api:lint` for a target's. A check it disables is written `false` in its own
-entry, a target's under that target's `checks`, and under `--baseline` it
-captures the baseline after the config declares every target, so each one's
-keys are grandfathered.
+entry, a target's under that target's `checks`, in a config it writes, or,
+in a repo with its own, for a target it declares there, and under
+`--baseline` it captures the baseline after the config declares every
+target, so each one's keys are grandfathered.
 
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files

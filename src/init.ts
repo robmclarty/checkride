@@ -1368,14 +1368,6 @@ function splitAdd(add: readonly string[], manifest: InitManifest): {
 }
 
 /**
- * The stanza's active-check list: the selection a default `checkride` run
- * makes, resolved config-aware from disk. `inventory()` is the wrong input
- * here — it has detection semantics and never reads checkride.config.json, so
- * it under-reports the gate (opt-in slots the config opts in, custom checks)
- * to the exact audience the stanza exists to inform. Mirrors `doctor`'s
- * `defaultActive` derivation.
- */
-/**
  * The ts slots a default run under `config` leaves to no tool while configs
  * for them sit in the packages below their target (#12), or none when the
  * file list can't be read.
@@ -1385,6 +1377,14 @@ async function unreachedChecks(cwd: string, slots: readonly Slot[], adapters: re
   return findUnreached(cwd, tsTargets(selectChecks(resolved, {})), config?.unclaimed?.ignore ?? []).catch(() => []);
 }
 
+/**
+ * The stanza's active-check list: the selection a default `checkride` run
+ * makes, resolved config-aware from disk. `inventory()` is the wrong input
+ * here — it has detection semantics and never reads checkride.config.json, so
+ * it under-reports the gate (opt-in slots the config opts in, custom checks)
+ * to the exact audience the stanza exists to inform. Mirrors `doctor`'s
+ * `defaultActive` derivation.
+ */
 function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[]): string[] {
   const resolved = resolveChecks({ slots, adapters, config: loadConfig(cwd), cwd });
   // A target's check is named `<target>:<slot>`, as `--only` takes it.
@@ -1727,24 +1727,30 @@ function adoptedConfig(adopted: readonly InventoryEntry[], bundleChecks: Record<
 }
 
 /**
- * The checks a default run makes under `config`, the ones existing mode
- * probes: every target's, by the name `--only` takes (`api:lint`), and the
- * repo's own, each with the adapter that fills it.
+ * The checks existing mode probes under `config`: every target's, by the name
+ * `--only` takes (`api:lint`), and the repo's own, each with the adapter that
+ * fills it, for the default-on catalogue slots {@link inventory} reads. Never
+ * an opt-in slot, the publish bundle among them, an ordered pipeline the user
+ * opted into by naming it, a custom check, which is the config's own, or
+ * `unclaimed`, which runs once targets are declared to report what discovery
+ * left unclaimed, so a failing probe must not switch it off.
  */
 function adoptedChecks(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[], config: CheckrideConfig): InventoryEntry[] {
+  const probed = new Set(slots.filter((s) => s.optIn !== true && s.activeWith === undefined).map((s) => s.name));
   const resolved = resolveChecks({ slots, adapters, config, cwd });
-  return selectChecks(resolved, {}).flatMap((r) => (r.adapter === null || r.skip !== null ? [] : [{ slot: checkName(r), status: 'adopted' as const, adapter: r.adapter.name }]));
+  return selectChecks(resolved, {}).flatMap((r) => (r.adapter === null || r.skip !== null || !probed.has(r.slot) ? [] : [{ slot: checkName(r), status: 'adopted' as const, adapter: r.adapter.name }]));
 }
 
 /**
  * Write the planned config: the fresh one with each disabled check `false`,
  * a target's under its own `checks`, or, when the repo has one, nothing but
- * the targets discovery declares, unless `--dry-run`. Returns what discovery
- * declared, for the report.
+ * the targets discovery declares, each discovered check that failed `false`,
+ * unless `--dry-run`. Returns what discovery declared, for the report.
  */
 async function writeAdoptedConfig(w: Writer, cwd: string, plan: AdoptionPlan, disabled: readonly string[], skipped: string[]): Promise<Discovery | null> {
   if (plan.fresh === null) skipped.push(`${CONFIG_FILE} (exists)`);
-  const config = plan.fresh === null ? plan.raw : withDisabled(plan.raw, disabled);
+  const discovered = new Set(plan.discovery?.proposed.map((t) => t.name) ?? []);
+  const config = withDisabled(plan.raw, plan.fresh === null ? disabled.filter((name) => discovered.has(name.split(':')[0] ?? '')) : disabled);
   if (plan.discovery === null) {
     if (plan.fresh !== null) await put(w, CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
     return null;
@@ -1979,8 +1985,8 @@ function reportDiscovery(stdout: Out, discovery: Discovery | null, dryRun: boole
  * when a config will actually be written: `writeExistingConfig` never clobbers an
  * existing `checkride.config.json`, so an existing config means the bundle has
  * nowhere to land. The bundle is scaffolded *enabled* — not probed/disabled like
- * adopted tools — because it is an ordered pipeline (build → artifacts) the user
- * opts into by naming it.
+ * adopted tools ({@link adoptedChecks} leaves opt-in slots out) — because it is
+ * an ordered pipeline (build → artifacts) the user opts into by naming it.
  */
 async function planInitBundle(
   publishRequested: ReadonlySet<string>,
