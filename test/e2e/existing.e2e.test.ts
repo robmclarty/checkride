@@ -41,6 +41,15 @@ async function runCli(cwd: string, args: readonly string[], env?: NodeJS.Process
   }
 }
 
+/**
+ * Whether a PATH entry stays for a run that must not find this repo's tools:
+ * any but a `node_modules/.bin`, unless it holds pnpm itself, as the one CI's
+ * pnpm/action-setup installs does.
+ */
+function keepOnPath(dir: string): boolean {
+  return !dir.includes(join('node_modules', '.bin')) || existsSync(join(dir, 'pnpm'));
+}
+
 /** The lint check of the last run's summary. */
 async function lintCheck(dir: string): Promise<Summary['checks'][number] | undefined> {
   const summary = await readJson<Summary>(join(dir, '.check', 'summary.json'));
@@ -71,9 +80,7 @@ describe('existing-project adoption', () => {
     await writeFile(join(dir, 'a.js'), 'export const a = 1;\n');
     const hint = "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first";
     // `pnpm exec` runs a copy PATH holds when node_modules has none, and the suite's PATH holds this repo's.
-    // Keep a `node_modules/.bin` that holds pnpm itself, as CI's pnpm/action-setup installs it.
-    const keep = (d: string): boolean => !d.includes(join('node_modules', '.bin')) || existsSync(join(d, 'pnpm'));
-    const env = { ...process.env, PATH: (process.env['PATH'] ?? '').split(delimiter).filter(keep).join(delimiter) };
+    const env = { ...process.env, PATH: (process.env['PATH'] ?? '').split(delimiter).filter(keepOnPath).join(delimiter) };
 
     const dry = await runCli(dir, ['init', '--dry-run'], env);
     expect(dry.code, dry.stdout).toBe(0);
