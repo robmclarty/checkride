@@ -31,12 +31,12 @@ const GO_TOOLS = ['golang.org/x/tools/cmd/deadcode@v0.52.0', 'honnef.co/go/tools
 const MAIN = 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println(greet("go")) }\n\nfunc greet(name string) string { return "hello, " + name }\n';
 const MAIN_TEST = 'package main\n\nimport "testing"\n\nfunc TestGreet(t *testing.T) {\n\tif greet("go") != "hello, go" {\n\t\tt.Fatal("wrong greeting")\n\t}\n}\n';
 
-/** The release of the go this machine's PATH runs, as `go env GOVERSION` names it without its `go`, which a check run here records. */
 /** A main package whose `init` makes `n` unchecked `os.Setenv` calls, one errcheck and one gosec finding each. */
 function setenvs(n: number): string {
   return `package main\n\nimport "os"\n\nfunc init() {\n${Array.from({ length: n }, (_, i) => `\tos.Setenv("K${i}", "v")`).join('\n')}\n}\n`;
 }
 
+/** The release of the go this machine's PATH runs, as `go env GOVERSION` names it without its `go`, which a check run here records. */
 function goRelease(): string {
   return execFileSync('go', ['env', 'GOVERSION'], { encoding: 'utf8', cwd: tmpdir(), env: { ...process.env, GOTOOLCHAIN: 'local' } }).trim().replace(/^go/, '');
 }
