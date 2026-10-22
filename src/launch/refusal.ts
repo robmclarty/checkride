@@ -115,6 +115,44 @@ const REFUSALS: readonly LaunchRefusal[] = [
     cause: 'corepack could not verify the package manager named in `packageManager`, so it never launched',
     fixable: 'environment',
   },
+  // The repo's `packageManager` (or `devEngines.packageManager`) pin, refused.
+  // `environment`, because the usual cause is a pnpm on PATH the pin doesn't
+  // name, as after a global upgrade, which no edit in the turn can switch. An
+  // agent could also write an unsatisfiable pin to make the gate stand down,
+  // but the generated hook's retry guard already stands down on a second
+  // could-not-run of any cause, so blocking here would close no way out.
+  // Most specific first: pnpm 11 prints a mismatched version after the same
+  // `[ERROR] This project is configured to use ` it prints for another manager.
+  {
+    // pnpm 12.14.0: `Error: ERR_PNPM_BAD_PM_VERSION`.
+    marker: 'ERR_PNPM_BAD_PM_VERSION',
+    cause: "the pnpm running this process isn't a version the repo's `packageManager` pin names, and pnpm refuses to run under it",
+    fixable: 'environment',
+  },
+  {
+    // pnpm 11.28.5 prints no code: `[ERROR] This project is configured to use 10.x of pnpm. Your current pnpm is v11.28.5`.
+    marker: 'of pnpm. Your current pnpm is',
+    cause: "the pnpm running this process isn't a version the repo's `packageManager` pin names, and pnpm refuses to run under it",
+    fixable: 'environment',
+  },
+  {
+    // pnpm 12.14.0: `Error: ERR_PNPM_OTHER_PM_EXPECTED`.
+    marker: 'ERR_PNPM_OTHER_PM_EXPECTED',
+    cause: "the repo's `packageManager` field names another package manager, and pnpm refuses to run in it",
+    fixable: 'environment',
+  },
+  {
+    // pnpm 11.28.5: `[ERROR] This project is configured to use yarn`.
+    marker: '[ERROR] This project is configured to use ',
+    cause: "the repo's `packageManager` field names another package manager, and pnpm refuses to run in it",
+    fixable: 'environment',
+  },
+  {
+    // corepack 0.34.6's shim: `This project is configured to use yarn because /repo/package.json has a "packageManager" field`.
+    marker: 'has a "packageManager" field',
+    cause: "the repo's `packageManager` field names another package manager, and corepack refuses to run this one in it",
+    fixable: 'environment',
+  },
   {
     marker: SPAWN_FAILED_MARKER,
     cause: 'the package-manager binary is not on this process’s PATH',

@@ -24,7 +24,7 @@ import { join } from 'node:path';
 import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import { copyNamed, findingText, fingerprint } from '../baseline/index.js';
-import { packToolchain } from '../launch/index.js';
+import { failureLine, packToolchain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 
@@ -98,7 +98,7 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
     if (all.length > shown.length) {
       lines.push(`- … ${all.length - shown.length} more (see \`${raw}\`)`);
     }
-    return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
+    return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n${stoppedBy(check, outcome)}${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
   }
 
   // No extractor (tsc, vitest, …) or a supported adapter that failed with no
@@ -107,11 +107,23 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
   const text = outcome.stdout.trim() ? outcome.stdout : outcome.stderr;
   const all = contentLines(text);
   if (all.length === 0) {
-    return `${heading}\n\nRaw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n`;
+    return `${heading}\n\nRaw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n${stoppedBy(check, outcome)}`;
   }
   const tail = all.slice(-maxItems);
   const note = tail.length < all.length ? ` — last ${tail.length} of ${all.length} lines` : '';
-  return `${heading}\n\nRaw: \`${raw}\`${note}\n\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
+  return `${heading}\n\nRaw: \`${raw}\`${note}\n${stoppedBy(check, outcome)}\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
+}
+
+/**
+ * What stopped the check, as a quoted line between blank lines, or nothing:
+ * the line its status line printed ({@link failureLine}), such as a setup
+ * step or a timeout, else its summary's `reason`, such as a refusal's first
+ * line. The excerpt below it is the tool's own output, whatever a launcher
+ * printed first included, so this line is what names the cause.
+ */
+function stoppedBy(check: SummaryCheck, outcome: CheckOutcome): string {
+  const why = failureLine(outcome) ?? check.reason;
+  return why === undefined || why === null ? '' : `\n> ${why}\n`;
 }
 
 /**

@@ -146,6 +146,33 @@ describe('buildDigest', () => {
     expect(digest).not.toContain('message 0'); // the head is dropped
     expect(digest).toContain('Raw: `.check/types.stdout.txt`');
   });
+
+  /**
+   * pnpm 11.28.5 prints a stray `undefined` ahead of its error, which led the
+   * excerpt with nothing to say what stopped the tool (#16). The excerpt keeps
+   * every byte, and the line the status line printed goes above it.
+   */
+  test('a section names what stopped the tool above the excerpt, which keeps its bytes', () => {
+    const stdout = 'undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "oxlint" not found\n';
+    const digest = buildDigest([run(OXLINT, outcome({ stdout }))], [check('lint', { adapter: 'oxlint' })]) ?? '';
+    expect(digest).toContain(
+      'Raw: `.check/lint.stdout.txt`\n\n> `oxlint` isn\'t in node_modules/.bin, and checks never install a tool: run `pnpm install` first\n\n```\nundefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL]',
+    );
+  });
+
+  test('a refused check names its refusal, and a timed-out one its timeout', () => {
+    const refused = buildDigest(
+      [run(OXLINT, outcome({ stderr: 'checkride: oxlint is not installed\nrun pnpm install\n' }))],
+      [check('lint', { adapter: 'oxlint', reason: 'checkride: oxlint is not installed' })],
+    ) ?? '';
+    expect(refused).toContain('\n> checkride: oxlint is not installed\n');
+    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' });
+    const timedOut = buildDigest([run(tsc, outcome({ exit_code: -1, stdout: 'building…\n', stderr: 'timed out after 600s\n' }))], [check('types', { adapter: 'tsc', exit_code: -1 })]) ?? '';
+    expect(timedOut).toContain('\n> timed out after 600s\n\n```\nbuilding…\n```');
+    const silent = buildDigest([run(tsc, outcome({ exit_code: -1, stderr: '' }))], [check('types', { adapter: 'tsc', exit_code: -1 })]) ?? '';
+    expect(silent).toContain('exited -1 with no captured output\n');
+    expect(silent).not.toContain('> ');
+  });
 });
 
 describe('writeDigest (filesystem)', () => {

@@ -176,6 +176,18 @@ that never started. Exit 1 is also a red pipeline's code, which is why the gate
 reads the output rather than the status to tell them apart. See
 [Node pins and hook context](#node-pins-and-hook-context).
 
+**A `packageManager` pin pnpm can't switch to refuses every pnpm command.**
+When `packageManager` or `devEngines.packageManager` names a pnpm the one on
+`PATH` doesn't satisfy, and pnpm can't switch to it (a range such as `11.x`,
+or `onFail: "error"`), pnpm refuses `--version`, `exec` and `run` alike and
+exits 1: pnpm 12 with `ERR_PNPM_BAD_PM_VERSION`, pnpm 11 with
+`[ERROR] This project is configured to use 11.x of pnpm`. `doctor`'s pnpm row
+names the refusal, a red check's status line and its digest section say which
+pin refused which pnpm, and `gate` stands down on it, because the fix is the
+machine's pnpm, not an edit. A pin that names another package manager
+(`ERR_PNPM_OTHER_PM_EXPECTED`, or corepack's
+`has a "packageManager" field`) stands the gate down the same way.
+
 ## Node pins and hook context
 
 Agent harnesses run their hooks in a **non-login shell**. A version manager puts

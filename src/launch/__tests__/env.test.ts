@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { packEnv, setupHint } from '../index.js';
+import { failureLine, packEnv, setupHint } from '../index.js';
 
 describe('packEnv (R6.4)', () => {
   test('a go check fails rather than download a toolchain or a module, and leaves GOFLAGS alone (D54)', () => {
@@ -87,9 +87,41 @@ describe('setupHint', () => {
     expect(setupHint({ stdout: 'error: Command "oxlint" not found\n', stderr: '' })).toBeNull();
   });
 
+  /** Verbatim from each release, under a `devEngines.packageManager` pin with `onFail: "error"` (#16). */
+  test('names the pin when pnpm refuses the version the repo pins', () => {
+    const pnpm11 = '[ERROR] This project is configured to use 10.x of pnpm. Your current pnpm is v11.28.5\nIf you want to bypass this version check, you can set the "pmOnFail" configuration to "warn" or "ignore"\n';
+    const pnpm12 = 'Error: ERR_PNPM_BAD_PM_VERSION\n\n  × This project is configured to use 11.x of pnpm. Your current pnpm is\n  │ v12.14.0\n';
+    expect(setupHint({ stdout: '', stderr: pnpm11 })).toBe(
+      'the repo pins pnpm 10.x, and pnpm 11.28.5 refuses to run under that pin: switch to a pnpm it names (corepack or mise can), or change the pin',
+    );
+    expect(setupHint({ stdout: '', stderr: pnpm12 })).toContain('the repo pins pnpm 11.x, and pnpm 12.14.0 refuses');
+  });
+
   test('says nothing for any other failure', () => {
     expect(setupHint({ stdout: '', stderr: 'go: go.mod requires go >= 1.99 (running go 1.27.2; GOTOOLCHAIN=local)\n' })).toBeNull();
     expect(setupHint({ stdout: 'main.go:4:14: cannot use "nope" as int value\n', stderr: '' })).toBeNull();
     expect(setupHint({ stdout: '{"diagnostics":[{"message":"tsgolint rule failed"}]}', stderr: '' })).toBeNull();
+  });
+});
+
+/** A failed outcome, exit 1 unless `over` says otherwise. */
+function failed(over: { exit_code?: number; stdout?: string; stderr?: string }) {
+  return { ok: false, exit_code: 1, stdout: '', stderr: '', ...over };
+}
+
+describe('failureLine', () => {
+  test('a passing outcome owes no line', () => {
+    expect(failureLine({ ok: true, exit_code: 0, stdout: '', stderr: 'timed out after 1s' })).toBeNull();
+  });
+
+  test('a tool that exited on its own owes the setup step its output names, or nothing', () => {
+    expect(failureLine(failed({ stdout: 'undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command "oxlint" not found\n' }))).toContain('run `pnpm install` first');
+    expect(failureLine(failed({ stderr: 'src/a.ts(1,1): error TS2322\n' }))).toBeNull();
+  });
+
+  test('one that never reached a verdict owes a built-in’s cause, else its last stderr line', () => {
+    expect(failureLine(failed({ exit_code: -1, stderr: 'noise\ncheck-links: could not reach the network\ntrailing\n' }))).toBe('check-links: could not reach the network');
+    expect(failureLine(failed({ exit_code: -1, stderr: 'partial output\ntimed out after 600s\n' }))).toBe('timed out after 600s');
+    expect(failureLine(failed({ exit_code: -1 }))).toBeNull();
   });
 });

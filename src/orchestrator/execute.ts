@@ -16,7 +16,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Fingerprint, RanWith } from '../baseline/index.js';
 import { applyBaseline, baselineDrift, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { isAvailableUnder, packEnv, packToolchain, pinChain, setupHint } from '../launch/index.js';
+import { failureLine, isAvailableUnder, packEnv, packToolchain, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
@@ -94,24 +94,6 @@ type MaskResult = {
   reason: string | null;
   observed: Fingerprint | null;
 };
-
-/**
- * The one line a failed outcome owes the terminal, when it owes one. A red
- * slot otherwise prints only its status line — the tool's output is in
- * `.check/` — but -1 (could not verify) means the tool never reached a
- * verdict, and the reader's next move (fix the network, raise the timeout)
- * depends on why. A built-in states its cause on a `check-<slot>:` line;
- * `spawnCheck` appends its `timed out after Ns` / `Failed to spawn` note
- * *last*, after whatever the tool managed to print. A tool that exited on its
- * own prints the move a pack's download block asks for, when its output shows
- * one stopped it, or a missing piece of its setup (`setupHint`). Any other outcome prints nothing extra.
- */
-export function failureLine(outcome: CheckOutcome): string | null {
-  if (outcome.ok) return null;
-  if (outcome.exit_code !== -1) return setupHint(outcome);
-  const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
-  return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
-}
 
 /**
  * The line a report verdict's failure prints: the verdict's own reason where

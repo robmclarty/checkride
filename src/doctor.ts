@@ -41,6 +41,7 @@ import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/inde
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
+import { isRecord } from './json.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
   detectPackageManager,
@@ -61,6 +62,7 @@ import {
   pinResolution,
   resolveEntry,
   resolveSlotTool,
+  setupHint,
 } from './launch/index.js';
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
@@ -156,8 +158,12 @@ const VERSION_TIMEOUT_S = VERSION_TIMEOUT_MS / 1000;
  */
 export const PROBE_TIMED_OUT = Symbol('checkride.probe.timed-out');
 
-/** Result of a `<cmd> --version` probe: raw output, `null` if it failed or could not be parsed, or {@link PROBE_TIMED_OUT}. */
-export type VersionProbe = string | typeof PROBE_TIMED_OUT | null;
+/**
+ * Result of a `<cmd> --version` probe: raw output, `{ failed }` with the line
+ * that says why when it exited non-zero, `null` if it printed nothing a
+ * version can be read from, or {@link PROBE_TIMED_OUT}.
+ */
+export type VersionProbe = string | { failed: string } | typeof PROBE_TIMED_OUT | null;
 
 /**
  * Result of a `<pm> bin <tool>` probe: the resolved path, `null` when the tool
@@ -257,8 +263,29 @@ async function versionReal(cmd: string, args: string[]): Promise<VersionProbe> {
     const { stdout } = await execFileP(cmd, args, { timeout: VERSION_TIMEOUT_MS });
     return stdout.trim();
   } catch (err) {
-    return isProbeTimeout(err) ? PROBE_TIMED_OUT : null;
+    return isProbeTimeout(err) ? PROBE_TIMED_OUT : { failed: probeFailure(err) };
   }
+}
+
+/** One stream of a rejected `execFile`, as text, or `''`. */
+function streamOf(err: unknown, stream: 'stdout' | 'stderr'): string {
+  const text = isRecord(err) ? err[stream] : undefined;
+  return typeof text === 'string' ? text : '';
+}
+
+/**
+ * Why a probe that exited non-zero failed, in one line: the setup step its
+ * output names, as a run's status line would say it (a pnpm the repo's
+ * `packageManager` pin refuses, say), else the first line naming an error,
+ * pnpm's `ERR_PNPM_*` codes included, else its first line, else how it ended.
+ */
+export function probeFailure(err: unknown): string {
+  const stdout = streamOf(err, 'stdout');
+  const stderr = streamOf(err, 'stderr');
+  const hint = setupHint({ stdout, stderr });
+  if (hint !== null) return hint;
+  const lines = `${stderr}\n${stdout}`.split('\n').map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => /\bERR_|error/i.test(line)) ?? lines[0] ?? (err instanceof Error ? err.message : 'exited non-zero');
 }
 
 /**
@@ -363,15 +390,9 @@ function formatExpected(min: Semver): string {
 
 async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
   const expected = formatExpected(min);
-  const path = await env.which(cmd);
-  if (!path) {
-    return { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
-  }
-  const raw = await env.version(cmd, ['--version']);
-  if (raw === PROBE_TIMED_OUT) {
-    return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `\`${cmd} --version\` timed out (>${VERSION_TIMEOUT_S}s). Is ${cmd} responsive?` };
-  }
-  const found = parseSemver(raw);
+  const asked = await askVersion(name, cmd, expected, env);
+  if ('row' in asked) return asked.row;
+  const found = parseSemver(asked.raw);
   if (!found) {
     return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` };
   }
@@ -382,12 +403,38 @@ async function checkVersioned(name: string, cmd: string, min: Semver, env: Docto
 }
 
 async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const expected = 'present on PATH';
+  const asked = await askVersion(name, cmd, expected, env);
+  if ('row' in asked) return asked.row;
+  return { name, category: 'env', required: true, status: 'ok', found: asked.raw ?? asked.path, expected, hint: null };
+}
+
+/**
+ * `cmd`'s answer to `--version`, with where `PATH` found it, or the row that
+ * says why there is none: it isn't on `PATH`, or its probe gave no answer
+ * ({@link unansweredProbe}).
+ */
+async function askVersion(name: string, cmd: string, expected: string, env: DoctorEnv): Promise<{ row: DoctorCheck } | { raw: string | null; path: string }> {
   const path = await env.which(cmd);
   if (!path) {
-    return { name, category: 'env', required: true, status: 'missing', found: null, expected: 'present on PATH', hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` };
+    return { row: { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` } };
   }
   const raw = await env.version(cmd, ['--version']);
-  return { name, category: 'env', required: true, status: 'ok', found: typeof raw === 'string' ? raw : path, expected: 'present on PATH', hint: null };
+  const unanswered = unansweredProbe(cmd, raw);
+  if (unanswered !== null) return { row: { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: unanswered } };
+  return { raw: typeof raw === 'string' ? raw : null, path };
+}
+
+/**
+ * The hint for a `<cmd> --version` that gave no answer: one that timed out,
+ * or one that exited non-zero, with the line that says why, such as a
+ * package manager refusing the repo's `packageManager` pin. `null` for one
+ * that answered, whatever it printed.
+ */
+function unansweredProbe(cmd: string, raw: VersionProbe): string | null {
+  if (raw === PROBE_TIMED_OUT) return `\`${cmd} --version\` timed out (>${VERSION_TIMEOUT_S}s). Is ${cmd} responsive?`;
+  if (raw !== null && typeof raw === 'object') return `\`${cmd} --version\` failed: ${raw.failed}`;
+  return null;
 }
 
 /** Lockfiles that count as "installed" for each package manager. */

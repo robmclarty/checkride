@@ -19,7 +19,7 @@
 
 export type { EntryCommand, EntryLike } from './entry.js';
 export { asEntry, entryArgv, entryCheckride, entryText, PIN_CHECKRIDE, resolveEntry } from './entry.js';
-export { packEnv, setupHint } from './env.js';
+export { failureLine, packEnv, setupHint } from './env.js';
 export type { ModuleImports } from './go-mod.js';
 export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
 export type { PackageManager } from './package-manager.js';

@@ -10,7 +10,7 @@ import { ADAPTERS, SLOTS } from '../adapters.js';
 import { TOOLS } from '../packs/index.js';
 import type { CheckrideConfig } from '../config.js';
 import type { DoctorCheck, DoctorEnv } from '../doctor.js';
-import { isProbeTimeout, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
+import { isProbeTimeout, probeFailure, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PinEnv } from '../node-pin.js';
 import type { PackageManager } from '../launch/index.js';
 import { launchCheck } from '../launch/index.js';
@@ -35,6 +35,11 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
     launch: (_slot: string, command: string, args: readonly string[]) => ({ command, args: [...args] }),
     ...over,
   };
+}
+
+/** A rejected `pnpm --version`, as `execFile` rejects one, with the streams it printed. */
+function fail(stdout: string, stderr: string): Error {
+  return Object.assign(new Error('Command failed: pnpm --version'), { stdout, stderr });
 }
 
 function toolAdapter(name: string, slot: string): Adapter {
@@ -237,6 +242,42 @@ describe('runDoctor (injected env)', () => {
     expect(node?.hint).toContain('timed out');
     expect(node?.hint).not.toContain('parse');
     expect(result.ok).toBe(false);
+  });
+
+  /**
+   * pnpm refusing the repo's `packageManager` pin exits non-zero on `--version`
+   * too, which the row read as output it couldn't parse (#16). It names why.
+   */
+  test('a version probe that exits non-zero names why, not a parse failure', async () => {
+    const refused = 'the repo pins pnpm 11.x, and pnpm 12.14.0 refuses to run under that pin: switch to a pnpm it names (corepack or mise can), or change the pin';
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ version: (cmd: string) => Promise.resolve(cmd === 'pnpm' ? { failed: refused } : '99.9.9') }),
+      stdout: sink(), json: true,
+    });
+    expect(result.report.checks.find((c) => c.name === 'pnpm')).toMatchObject({ status: 'unknown', hint: `\`pnpm --version\` failed: ${refused}` });
+    expect(result.ok).toBe(false);
+  });
+
+  /** npm, yarn and bun are presence-only, and a `--version` that fails isn't a manager that runs. */
+  test('a presence-only package manager whose --version fails is unknown, not ok', async () => {
+    const result = await runDoctor({
+      cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null,
+      env: fakeEnv({ packageManager: () => 'yarn', version: (cmd: string) => Promise.resolve(cmd === 'yarn' ? { failed: 'Usage Error: This project is configured to use pnpm' } : '99.9.9') }),
+      stdout: sink(), json: true,
+    });
+    expect(result.report.checks.find((c) => c.name === 'yarn')).toMatchObject({
+      status: 'unknown', found: null, hint: '`yarn --version` failed: Usage Error: This project is configured to use pnpm',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  test('the line a failed probe names: the setup step, else an error line, else its first line', () => {
+    expect(probeFailure(fail('', 'Error: ERR_PNPM_BAD_PM_VERSION\n\n  × This project is configured to use 11.x of pnpm. Your current pnpm is\n  │ v12.14.0\n')))
+      .toContain('the repo pins pnpm 11.x, and pnpm 12.14.0 refuses');
+    expect(probeFailure(fail('Progress: resolved 1\n ERR_PNPM_SOMETHING  it broke\n', 'warn: deprecated\n'))).toBe('ERR_PNPM_SOMETHING  it broke');
+    expect(probeFailure(fail('', 'Segmentation fault\n'))).toBe('Segmentation fault');
+    expect(probeFailure(fail('', ''))).toBe('Command failed: pnpm --version');
   });
 
   test('a pnpm subcommand tool (not exec) resolves via PATH, not node_modules', async () => {

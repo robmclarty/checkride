@@ -1066,8 +1066,9 @@ this turn and no code change will clear it.
 the verdict splits by who can clear it. A refusal the *repo* can fix — no `check`
 script, no package.json — blocks exactly as a red does, because the agent holding
 the edit tools can fix it. A refusal only the *environment* can fix — an
-`engines` pin the hook's Node fails, a package manager corepack will not verify,
-a checkride that was never installed — **stands down**: `gate` exits 0 with no
+`engines` pin the hook's Node fails, a pnpm the repo's `packageManager` pin
+doesn't name, a package manager corepack will not verify, a checkride that was
+never installed — **stands down**: `gate` exits 0 with no
 `decision`, and says so. Two things are promised about that path and neither may
 be weakened: it is never silent (Claude Code gets a `systemMessage`, Cursor a
 single `followup_message`, both stating that nothing was verified — and both get

@@ -355,6 +355,19 @@ describe('launchRefusal', () => {
     expect(launchRefusal(output)).not.toBeNull();
   });
 
+  /** Verbatim from pnpm 11.28.5, pnpm 12.14.0 and corepack 0.34.6, each refusing the repo's `packageManager` pin (#16). */
+  test.each([
+    ['pnpm 12, another version', 'Error: ERR_PNPM_BAD_PM_VERSION\n\n  × This project is configured to use 11.x of pnpm. Your current pnpm is\n  │ v12.14.0', 'version'],
+    ['pnpm 11, another version', '[ERROR] This project is configured to use 10.x of pnpm. Your current pnpm is v11.28.5', 'version'],
+    ['pnpm 12, another manager', 'Error: ERR_PNPM_OTHER_PM_EXPECTED\n\n  × This project is configured to use yarn', 'manager'],
+    ['pnpm 11, another manager', '[ERROR] This project is configured to use yarn\nFor help, run: pnpm help run', 'manager'],
+    ['corepack, another manager', 'This project is configured to use yarn because /repo/package.json has a "packageManager" field', 'manager'],
+  ])('recognizes %s as the environment’s to fix', (_name, output, kind) => {
+    const refusal = launchRefusal(output);
+    expect(refusal?.fixable).toBe('environment');
+    expect(refusal?.cause).toContain(kind === 'version' ? "isn't a version the repo's `packageManager` pin names" : 'names another package manager');
+  });
+
   /**
    * npm prints `EBADENGINE` as a *warning* and runs the script anyway unless
    * `engine-strict` is set, and a stale `engines` field somewhere in a

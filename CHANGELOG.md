@@ -31,6 +31,29 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   so for bun the row asks for a package in `node_modules/`. Without it the row
   is `missing`, says no install finished there, and names `<pm> install`, so
   `doctor` exits 1, as it does with no `node_modules/` at all.
+- **A package manager's refusal reads as one, not as a parse error.** With
+  pnpm 12 on `PATH` and a `packageManager` pin of `pnpm@11.x`, pnpm refuses
+  every command, `--version` included, and `doctor` reported "Could not parse
+  `pnpm --version` output" (#16). A `--version` probe that exits non-zero now
+  says why on its row: the pin and the pnpm it refused, read from pnpm 11's and
+  12's own wording, or the first line naming an error. npm, yarn and bun, which
+  `doctor` checks for presence only, read `unknown` with that line rather than
+  `ok` when `--version` fails, so `doctor` exits 1 there. A check that pnpm
+  refuses this way names the pin beneath its red status line, and `gate`
+  stands down on it, with pnpm's `ERR_PNPM_OTHER_PM_EXPECTED` and corepack's
+  refusal of another manager, since the fix is the machine's package manager,
+  not an edit. And each `digest.md` section now quotes the line the check's
+  status line printed, or its refusal, above the excerpt, so a pnpm error
+  that a stray `undefined` line led no longer stands alone.
+
+### Contract
+
+#### Additive
+
+- `gate` counts a pnpm the repo's `packageManager` pin refuses, and a
+  `packageManager` that names another manager, among the refusals only the
+  environment can fix, so it stands down on them where 0.16 read them as a
+  red and blocked. The contract names the first among its examples.
 
 ## [0.16.0] - 2026-10-22
 

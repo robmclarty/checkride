@@ -12,7 +12,6 @@
  */
 
 export { resolveCommonOptions } from './context.js';
-export { failureLine } from './execute.js';
 export { runFix } from './fix.js';
 export { enableCandidates, enableEntry, installHint, provenanceTag } from './report.js';
 export { runChecks } from './run.js';

@@ -64,6 +64,13 @@ const SETUP_HINTS: readonly { printed: RegExp; hint: (match: RegExpExecArray) =>
     hint: ([, tool = '']) => `\`${tool}\` isn't in node_modules/.bin, and checks never install a tool: run \`pnpm install\` first`,
   },
   {
+    // pnpm 11.28.5 on one line, and pnpm 12.14.0 wrapped as `Your current pnpm is\n  │ v12.14.0`: the
+    // repo's `packageManager` or `devEngines.packageManager` names a pnpm this one doesn't satisfy.
+    printed: /configured to use (\S+) of pnpm\. Your current pnpm is[\s│]*v(\d\S*)/,
+    hint: ([, wanted = '', running = '']) =>
+      `the repo pins pnpm ${wanted}, and pnpm ${running} refuses to run under that pin: switch to a pnpm it names (corepack or mise can), or change the pin`,
+  },
+  {
     // oxlint 1.87.0, type-aware (`--type-aware`, or `options.typeAware` in its config) with no tsgolint to run.
     printed: /Failed to find tsgolint executable/,
     hint: () =>
@@ -83,4 +90,23 @@ export function setupHint(outcome: { stdout: string; stderr: string }): string |
     if (match !== null) return hint(match);
   }
   return null;
+}
+
+/**
+ * The one line a failed outcome owes the terminal, when it owes one. A red
+ * slot otherwise prints only its status line — the tool's output is in
+ * `.check/` — but -1 (could not verify) means the tool never reached a
+ * verdict, and the reader's next move (fix the network, raise the timeout)
+ * depends on why. A built-in states its cause on a `check-<slot>:` line;
+ * `spawnCheck` appends its `timed out after Ns` / `Failed to spawn` note
+ * *last*, after whatever the tool managed to print. A tool that exited on its
+ * own prints the move a pack's download block asks for, when its output shows
+ * one stopped it, or a missing piece of its setup ({@link setupHint}). Any
+ * other outcome prints nothing extra.
+ */
+export function failureLine(outcome: { ok: boolean; exit_code: number; stdout: string; stderr: string }): string | null {
+  if (outcome.ok) return null;
+  if (outcome.exit_code !== -1) return setupHint(outcome);
+  const lines = outcome.stderr.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /^check-[a-z-]+: /.test(l)) ?? lines.at(-1) ?? null;
 }
