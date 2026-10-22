@@ -957,6 +957,46 @@ describe('runDoctor reports how hooks run checkride where it is not the check sc
 const doctorWhere = (exists: (p: string) => boolean) =>
   runDoctor({ cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, env: fakeEnv({ exists }), stdout: sink(), json: true });
 
+/**
+ * A failed install can leave `node_modules/` behind with nothing in it, which
+ * the row read as installed (#15). It asks for the file each manager writes as
+ * an install finishes, and for bun, which writes none, a package.
+ */
+const MARKERS = { pnpm: '.modules.yaml', npm: '.package-lock.json', yarn: '.yarn-integrity' } as const;
+
+/** Everything exists but Yarn's PnP files and the hidden files in node_modules/, apart from `keep`. */
+const withOnly = (keep: string | null) => (p: string) =>
+  !(p.includes('node_modules/.') || p.includes('/.pnp.')) || (keep !== null && p.endsWith(`node_modules/${keep}`));
+
+/** Doctor's install row, and its verdict, for `pm` in the fake env `over` adjusts. */
+async function installRow(pm: PackageManager, over: Partial<DoctorEnv>) {
+  const result = await runDoctor({ cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: null, env: fakeEnv({ packageManager: () => pm, ...over }), stdout: sink(), json: true });
+  return { row: result.report.checks.find((c) => c.name === 'install'), ok: result.ok };
+}
+
+describe('the install row on a node_modules no install finished in', () => {
+  test.each(Object.entries(MARKERS))('%s: missing without %s, ok with it', async (pm, marker) => {
+    const empty = await installRow(pm as PackageManager, { exists: withOnly(null) });
+    expect(empty.row).toMatchObject({ status: 'missing', required: true, found: 'node_modules, no finished install', expected: `node_modules/${marker}${pm === 'yarn' ? ' or node_modules/.yarn-state.yml' : ''}` });
+    expect(empty.row?.hint).toBe(`Run \`${pm} install\` from the repo root: node_modules/ is there, but no ${pm} install finished in it.`);
+    expect(empty.ok).toBe(false);
+    expect((await installRow(pm as PackageManager, { exists: withOnly(marker) })).row).toMatchObject({ status: 'ok', found: 'node_modules + lockfile' });
+  });
+
+  test('yarn: Berry’s node-modules linker writes .yarn-state.yml instead', async () => {
+    expect((await installRow('yarn', { exists: withOnly('.yarn-state.yml') })).row).toMatchObject({ status: 'ok' });
+  });
+
+  test('bun writes no marker, so it needs a package in node_modules/', async () => {
+    const listed = (names: string[]) => installRow('bun', { exists: withOnly(null), listDir: () => names });
+    expect((await listed([])).row).toMatchObject({ status: 'missing', expected: 'node_modules/ holding a package' });
+    expect((await listed(['.bin', '.cache'])).row).toMatchObject({ status: 'missing' });
+    expect((await listed(['.bin', '@scope', 'dep'])).row).toMatchObject({ status: 'ok' });
+    // A listing that can't be read can't tell, so it passes, as it always did.
+    expect((await installRow('bun', { exists: withOnly(null), listDir: () => null })).row).toMatchObject({ status: 'ok' });
+  });
+});
+
 describe('runDoctor in a root with no package.json', () => {
   test('reports the install row n/a and not required, so it fails nothing', async () => {
     const result = await doctorWhere((p) => !p.endsWith('package.json'));

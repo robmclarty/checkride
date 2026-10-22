@@ -22,6 +22,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it, so a dry run left an untracked directory behind (#17). The run now
   writes to a temporary directory it removes afterwards, under `--dry-run`
   and otherwise, since `init` reads only the outcomes it holds in memory.
+- **`doctor` no longer reads an empty `node_modules` as installed.** After a
+  failed `pnpm install` left an empty `node_modules/` behind, `doctor` printed
+  `✔ install  node_modules + lockfile` (#15). The install row now asks for the
+  file each package manager writes as an install finishes: pnpm's
+  `.modules.yaml`, npm's `.package-lock.json`, and Yarn's `.yarn-integrity`
+  or, under Berry's node-modules linker, `.yarn-state.yml`. bun writes none,
+  so for bun the row asks for a package in `node_modules/`. Without it the row
+  is `missing`, says no install finished there, and names `<pm> install`, so
+  `doctor` exits 1, as it does with no `node_modules/` at all.
 
 ## [0.16.0] - 2026-10-22
 

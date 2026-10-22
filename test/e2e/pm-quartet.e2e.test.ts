@@ -66,7 +66,10 @@ describe('package-manager quartet', () => {
       const { stdout } = await execFileP(
         'node', [CLI, 'doctor', '--json'], { cwd: dir, ...BIG, ...ENV },
       ).catch((err: { stdout: string }) => ({ stdout: err.stdout }));
-      expect((JSON.parse(stdout) as { packageManager: string }).packageManager).toBe(pm);
+      const report = JSON.parse(stdout) as { packageManager: string; checks: { name: string; status: string; found: string | null }[] };
+      expect(report.packageManager).toBe(pm);
+      // The marker each manager writes as an install finishes is there (#15).
+      expect(report.checks.find((c) => c.name === 'install')).toMatchObject({ status: 'ok', found: 'node_modules + lockfile' });
 
       // Throws (test fails) on non-zero exit; --strict would exit 2 if the
       // types slot silently sat out instead of running.

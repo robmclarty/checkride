@@ -29,7 +29,7 @@
  */
 
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { arch as osArch, platform as osPlatform } from 'node:os';
 import { join, posix, resolve } from 'node:path';
@@ -179,6 +179,8 @@ export type DoctorEnv = {
   /** Read a UTF-8 file; `null` when unreadable. */
   readText: (path: string) => string | null;
   canWrite: (dir: string) => Promise<boolean>;
+  /** The names in a directory, `null` when it can't be read. Omitted, nothing is listed, and the install row asks only {@link exists}. */
+  listDir?: (dir: string) => readonly string[] | null;
   readEngines: (cwd: string) => { node?: string; pnpm?: string };
   platform: () => { os: string; arch: string };
   packageManager: (cwd: string) => PackageManager;
@@ -318,6 +320,14 @@ function realNixCopy(found: string, at: { cwd: string; repo: string }): { versio
   return nixCopy(found, { ...at, env: process.env });
 }
 
+function listDirReal(dir: string): string[] | null {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return null;
+  }
+}
+
 const realEnv: DoctorEnv = {
   which: whichReal,
   version: versionReal,
@@ -325,6 +335,7 @@ const realEnv: DoctorEnv = {
   exists: existsSync,
   readText: readTextReal,
   canWrite: canWriteReal,
+  listDir: listDirReal,
   readEngines: readEnginesReal,
   platform: () => ({ os: osPlatform(), arch: osArch() }),
   packageManager: (cwd) => detectPackageManager({ cwd }),
@@ -408,6 +419,10 @@ async function checkPackageManager(cwd: string, pm: PackageManager, pnpmMin: Sem
  * installed PnP project as "lockfile only" and made `doctor` exit 1 on a repo
  * whose checks all pass.
  *
+ * Under a `node_modules` linker the artifact is the marker the manager writes
+ * as an install finishes ({@link finishedInstall}), not the directory: an
+ * install that failed part-way can leave an empty `node_modules/` behind.
+ *
  * A root with no `package.json`, a Go or Rust project or a scaffold that runs
  * checkride through mise, has no Node install to check, so its row is `n/a`
  * and never required.
@@ -430,7 +445,43 @@ function checkInstall(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
   if (!env.exists(join(cwd, 'node_modules'))) {
     return { ...base, status: 'missing', found: 'lockfile only', expected: 'node_modules/ populated', hint };
   }
+  if (!finishedInstall(join(cwd, 'node_modules'), pm, env)) {
+    const unfinished = `Run \`${pm} install\` from the repo root: node_modules/ is there, but no ${pm} install finished in it.`;
+    return { ...base, status: 'missing', found: 'node_modules, no finished install', expected: installExpected(pm), hint: unfinished };
+  }
   return { ...base, status: 'ok', found: 'node_modules + lockfile', expected: null, hint: null };
+}
+
+/**
+ * The file each package manager writes into `node_modules/` as an install
+ * finishes, which an install that failed part-way leaves out: pnpm's
+ * `.modules.yaml`, npm's hidden lockfile, and Yarn's `.yarn-integrity`
+ * (classic) or `.yarn-state.yml` (Berry's node-modules linker). bun writes
+ * none, so for bun a package directory has to do.
+ */
+const INSTALL_MARKERS: Record<PackageManager, readonly string[]> = {
+  pnpm: ['.modules.yaml'],
+  npm: ['.package-lock.json'],
+  yarn: ['.yarn-integrity', '.yarn-state.yml'],
+  bun: [],
+};
+
+/** What the install row expects in `node_modules/` from `pm`. */
+function installExpected(pm: PackageManager): string {
+  const markers = INSTALL_MARKERS[pm];
+  return markers.length === 0 ? 'node_modules/ holding a package' : `node_modules/${markers.join(' or node_modules/')}`;
+}
+
+/**
+ * Whether an install by `pm` finished in `dir`, a `node_modules/`: its marker
+ * is there, or, for bun, which writes none, a package is. A listing that
+ * can't be read can't tell, so it passes, as it always did.
+ */
+function finishedInstall(dir: string, pm: PackageManager, env: DoctorEnv): boolean {
+  const markers = INSTALL_MARKERS[pm];
+  if (markers.length > 0) return markers.some((marker) => env.exists(join(dir, marker)));
+  const names = env.listDir?.(dir) ?? null;
+  return names === null || names.some((name) => !name.startsWith('.'));
 }
 
 /**
