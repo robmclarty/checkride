@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
@@ -1397,6 +1397,34 @@ describe('runChecks (--out)', () => {
     } finally {
       await chmod(join(dir, '.check'), 0o755);
     }
+  });
+});
+
+/** A runner every check passes under, oxlint's empty report its stdout. */
+const passing: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '{"diagnostics":[]}', stderr: '' });
+
+/**
+ * A tooling-only workspace root runs no `types` or `test` of its own while
+ * each package holds configs for both, and the run said only how many checks
+ * ran (#12). It names what no check reaches, and changes no verdict.
+ */
+describe('runChecks beside ts configs no check reaches', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-unreached-run-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('warns beneath the summary, naming the nested configs, and the verdict stands', async () => {
+    for (const path of ['package.json', '.oxlintrc.json', 'packages/a/tsconfig.json', 'packages/b/tsconfig.json']) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), '{}');
+    }
+    const std = sink();
+    const result = await runChecks({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, only: ['types', 'lint'], runner: passing, json: false, stdout: sink().out, stderr: std.out });
+    expect(result.exitCode).toBe(0);
+    expect(std.lines.join('')).toContain('warning: types has no tool under `.`, so 2 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 1 more)');
+    const narrowed = sink();
+    await runChecks({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, only: ['lint'], runner: passing, json: false, stdout: sink().out, stderr: narrowed.out });
+    expect(narrowed.lines.join('')).not.toContain('warning: types');
   });
 });
 

@@ -139,6 +139,25 @@ differently gets different ones:
   that sit outside every other target's root. Under a ts target at `.`, they
   would sit inside it, and the scripts would go unchecked until
   `checkride target add scripts --lang bash --root scripts` declared them.
+- **A root that runs only a linter checks no package's types.** A root whose
+  `package.json` lists oxlint is one ts target at `.`, but with a
+  `tsconfig.base.json` and no `tsconfig.json` of its own, its `types` finds no
+  tool, and with vitest only the packages' dependency, neither does its
+  `test`, while each package holds both configs. No check reads them, so a
+  run says so on stderr beneath its summary, `doctor` gives it an
+  `unchecked ts configs` row, and `init` names it under `Not covered` in the
+  stanza, so an agent doesn't read the active checks as covering
+  TypeScript:
+
+  ```text
+  warning: types has no tool under `.`, so 17 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json, and 16 more): add a tsconfig.json at `.` whose `references` name them, each of them `composite`, or declare a ts target for each package
+  ```
+
+  A root `tsconfig.json` whose `references` list every package, each
+  package's `composite`, gives the root target `tsc --build` over all of them,
+  and a root vitest config whose `projects` list them, with vitest a root
+  devDependency, runs their tests. It warns and fails nothing, and
+  `unclaimed.ignore` quiets it for a config left unchecked on purpose.
 
 Either way the config is yours to edit, and `checkride target add` adds a
 target to it later, as the section on a growing repo shows.

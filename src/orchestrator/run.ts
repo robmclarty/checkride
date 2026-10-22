@@ -14,12 +14,13 @@ import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.
 import { writeFileAtomic } from '../atomic.js';
 import type { Tally } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
-import { configChangedBase, resolveChecks } from '../config.js';
+import type { ResolvedCheck } from '../config.js';
+import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
 import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { Target } from '../targets/index.js';
-import { declaredNote, discoverRun } from '../targets/index.js';
+import { declaredNote, discoverRun, findUnreached, unreachedLine } from '../targets/index.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -207,6 +208,17 @@ function notePrunable(ctx: RunContext, observed: ReadonlyMap<string, Tally>, nar
 }
 
 /**
+ * Beneath the summary, a warning for each ts slot the run sat out for want of
+ * a tool while configs for it sit in the packages below its target, which no
+ * check reaches (#12). It changes no verdict, and a file list that can't be
+ * read says nothing, since a warning must never break a run.
+ */
+async function reportUnreached(ctx: RunContext, selected: readonly ResolvedCheck[]): Promise<void> {
+  const found = await findUnreached(ctx.cwd, tsTargets(selected), ctx.config?.unclaimed?.ignore ?? []).catch(() => []);
+  for (const u of found) writeLine(ctx.stderr, `warning: ${unreachedLine(u)}`);
+}
+
+/**
  * On a red run, the best-effort recover hint: when the run's new-not-in-baseline
  * findings were grandfathered in a recent committed baseline, one stderr line
  * says so. The difference between "a wall of new debt" and "a merge dropped
@@ -357,6 +369,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
       writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
     }
     reportDrift(ctx.stderr, drifts, { partial, consumer });
+    await reportUnreached(ctx, selected);
     await maybeRecoverHint(ctx, summary.ok, newKeys);
   }
 

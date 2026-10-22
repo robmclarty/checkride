@@ -54,6 +54,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   [Getting started](./docs/getting-started.md#when-the-gate-is-too-slow) says
   where pruning happens instead.
 
+- **A run says which ts configs no check reaches.** In a workspace whose root
+  only installs tools, with a `tsconfig.base.json` and no `tsconfig.json`,
+  and vitest only in its packages, the one ts target at `.` ran oxlint alone:
+  `types` and `test` found no tool, and nothing said 17 nested `tsconfig.json`
+  files went unchecked, so an agent reading the stanza's active checks
+  believed TypeScript was covered (#12). A run now warns beneath its summary,
+  for each ts target whose `types` or `test` found no tool while configs for
+  it sit in the packages below, naming them and the fix: a root
+  `tsconfig.json` whose `references` name them, or a root vitest config whose
+  `projects` do, or a ts target for each package. `doctor` gives it an
+  `unchecked ts configs` row, `init` prints it, and the AGENTS.md stanza names
+  it under `Not covered`. It fails nothing, and `unclaimed.ignore` quiets it.
+  [Polyglot repos](./docs/polyglot.md) has the fix.
+
 ### Changed
 
 - **golangci-lint shows every issue it finds.** The go pack ran golangci-lint
@@ -184,6 +198,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `counts`, and the reader's
   tolerance rules cover it. `baseline diff --json` takes `recounted` and
   `recounted_count`.
+- `doctor` reports an `unchecked ts configs` workspace row, and the AGENTS.md
+  stanza a `Not covered` line, when a ts target leaves configs below it to no
+  check.
 - The exported `Pack` type takes `nests`, which the terraform pack sets: its
   targets may nest, and a nested one switches the slots `nests.off` names off.
 - The exported `Adapter` type's `options.unclaimed` takes `taken`, the names

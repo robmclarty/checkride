@@ -1099,7 +1099,10 @@ replace one that is exactly the pointer an earlier release wrote, which only
 linked to AGENTS.md. Any other CLAUDE.md keeps every byte, and the import
 goes on a line of its own at the end, in the file's own line endings. A
 second run writes nothing, and a run the stanza guard refuses leaves CLAUDE.md
-as it found it. `doctor` reports an `agent instructions` row when a CLAUDE
+as it found it. `doctor` reports an `unchecked ts configs` row, which fails
+nothing, when a ts target's `types` or `test` found no tool while configs for
+it sit in the packages below, and the stanza `init` and `agent-setup` write
+names them under `Not covered`. `doctor` reports an `agent instructions` row when a CLAUDE
 file keeps the stanza from loading.
 
 **`gate` is the one command outside the 0/1/2 split**, because it answers a

@@ -1038,6 +1038,25 @@ describe('the install row on a node_modules no install finished in', () => {
   });
 });
 
+/** A tooling-only workspace root leaves its packages' configs to no check (#12): a warning, never a failure. */
+describe('runDoctor beside ts configs no check reaches', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-unreached-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test('names the slot and how many configs it leaves unchecked, in a row that fails nothing', async () => {
+    for (const path of ['package.json', '.oxlintrc.json', 'packages/a/tsconfig.json']) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), '{}');
+    }
+    const result = await runDoctor({ cwd: dir, config: null, env: fakeEnv(), stdout: sink(), json: true });
+    expect(result.report.checks.find((c) => c.name === 'unchecked ts configs')).toMatchObject({
+      category: 'workspace', required: false, status: 'outdated', found: 'types: 1 nested',
+    });
+    expect(result.report.checks.find((c) => c.name === 'unchecked ts configs')?.hint).toContain('add a tsconfig.json at `.` whose `references` name them');
+  });
+});
+
 describe('runDoctor in a root with no package.json', () => {
   test('reports the install row n/a and not required, so it fails nothing', async () => {
     const result = await doctorWhere((p) => !p.endsWith('package.json'));

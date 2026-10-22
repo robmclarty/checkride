@@ -32,7 +32,7 @@ import { BASELINE_FILE, isFingerprintable, tallied } from './baseline/index.js';
 import { observedChecks, runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CheckrideConfig, CustomCheck, SlotConfig } from './config.js';
-import { configSchemaUrl, configuredBy, loadConfig, resolveChecks, validateConfigObject } from './config.js';
+import { configSchemaUrl, configuredBy, loadConfig, resolveChecks, tsTargets, validateConfigObject } from './config.js';
 import { isRecord } from './json.js';
 import type { CheckOutcome } from './links.js';
 import type { CheckRun, Out, SummaryCheck } from './orchestrator/index.js';
@@ -42,8 +42,22 @@ import { detectPackageManager, entryCheckride, entryText, failureLine, resolveEn
 import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
-import type { ProposedTarget, TargetChange } from './targets/index.js';
-import { addTarget, checkName, discoverTargets, ignoreToolsRoot, implicitPack, isImplicit, liftDiscovered, markedPack, markerAt, rootRunsTsTool } from './targets/index.js';
+import type { ProposedTarget, TargetChange, Unreached } from './targets/index.js';
+import {
+  addTarget,
+  checkName,
+  discoverTargets,
+  findUnreached,
+  ignoreToolsRoot,
+  implicitPack,
+  isImplicit,
+  liftDiscovered,
+  markedPack,
+  markerAt,
+  rootRunsTsTool,
+  unreachedLine,
+  unreachedNote,
+} from './targets/index.js';
 
 /**
  * A new project's shape: `flat`, `monorepo` or `hybrid` for `ts`, `module` or
@@ -400,6 +414,7 @@ export function buildStanza(
   activeSlots: readonly string[],
   entry: EntryLike = 'pnpm',
   proseExemplars: string | null = null,
+  notCovered: readonly string[] = [],
 ): string {
   const check = entryText(entry);
   const triage = entryCheckride(entry, ['triage']);
@@ -443,7 +458,18 @@ export function buildStanza(
     ...(activeSlots.includes('struct') ? structSection() : []),
     ...(proseExemplars !== null ? proseSection(proseExemplars) : []),
     `Active checks in this repo: ${activeSlots.join(', ')}.`,
+    ...notCoveredSection(notCovered),
   ].join('\n');
+}
+
+/**
+ * The checks no tool fills while configs for them sit in the packages below
+ * their target, so a green run says nothing about that code (#12): an agent
+ * reading only the active checks would believe TypeScript was covered.
+ */
+function notCoveredSection(notCovered: readonly string[]): string[] {
+  if (notCovered.length === 0) return [];
+  return ['', `Not covered: ${notCovered.join('; ')}. No check reads these, so a green run says nothing about that code.`];
 }
 
 /**
@@ -1349,6 +1375,16 @@ function splitAdd(add: readonly string[], manifest: InitManifest): {
  * to the exact audience the stanza exists to inform. Mirrors `doctor`'s
  * `defaultActive` derivation.
  */
+/**
+ * The ts slots a default run under `config` leaves to no tool while configs
+ * for them sit in the packages below their target (#12), or none when the
+ * file list can't be read.
+ */
+async function unreachedChecks(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[], config: CheckrideConfig | null): Promise<Unreached[]> {
+  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  return findUnreached(cwd, tsTargets(selectChecks(resolved, {})), config?.unclaimed?.ignore ?? []).catch(() => []);
+}
+
 function activeCheckSlots(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[]): string[] {
   const resolved = resolveChecks({ slots, adapters, config: loadConfig(cwd), cwd });
   // A target's check is named `<target>:<slot>`, as `--only` takes it.
@@ -1420,13 +1456,15 @@ async function assertStanzaUnedited(cwd: string, body: string, opts: { force?: b
 async function writeAgentsStanza(
   w: Writer,
   cwd: string,
-  slots: readonly string[],
+  catalogue: { slots: readonly Slot[]; adapters: readonly Adapter[] },
   pm: PackageManager,
   skipped: string[],
 ): Promise<void> {
   const agentsPath = join(cwd, 'AGENTS.md');
   const existing = await readIfExists(agentsPath);
-  const nextAgents = applyStanza(existing ?? '', buildStanza(slots, resolveEntry(cwd, pm), proseExemplarsDir(cwd)));
+  const active = activeCheckSlots(cwd, catalogue.slots, catalogue.adapters);
+  const notCovered = (await unreachedChecks(cwd, catalogue.slots, catalogue.adapters, loadConfig(cwd))).map(unreachedNote);
+  const nextAgents = applyStanza(existing ?? '', buildStanza(active, resolveEntry(cwd, pm), proseExemplarsDir(cwd), notCovered));
   if (nextAgents !== existing) {
     if (!w.dryRun) await writeFile(agentsPath, nextAgents);
     w.written.push(existing === null ? 'AGENTS.md' : 'AGENTS.md (refreshed stanza)');
@@ -1922,6 +1960,11 @@ async function planDiscovery(cwd: string, options: InitOptions, raw: Record<stri
   return { proposed, change: { ...lifted, config: ignored.config, changes: [...lifted.changes, ...ignored.changes] } };
 }
 
+/** Print each ts slot the adopted config leaves no tool to while its packages hold configs for one (#12), with the fix. */
+function reportUnreached(stdout: Out, unreached: readonly Unreached[]): void {
+  for (const u of unreached) stdout.write(`  not covered: ${unreachedLine(u)}\n`);
+}
+
 /** Print the `targets` block discovery proposed, and each change it made, or would have. */
 function reportDiscovery(stdout: Out, discovery: Discovery | null, dryRun: boolean): void {
   if (discovery === null) return;
@@ -2005,7 +2048,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await addCheckAlias(w, skipped);
   // AGENTS.md stanza (create or refresh, idempotent), derived from the config
   // written above so it reports the gate as configured, not as detected.
-  await writeAgentsStanza(w, cwd, activeCheckSlots(cwd, slots, adapters), pm, skipped);
+  await writeAgentsStanza(w, cwd, { slots, adapters }, pm, skipped);
   const claudeNote = await ensureClaudeImport(w, cwd, skipped);
   // Claude Code Stop hook (opt-out), using the repo's detected PM.
   await writeHook(w, options, skipped);
@@ -2014,6 +2057,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   if (options.stdout) {
     reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, setup, causes: new Map(failures.map((f) => [f.slot, f.cause])), claudeNote });
     reportDiscovery(options.stdout, discovery, w.dryRun);
+    reportUnreached(options.stdout, await unreachedChecks(cwd, slots, adapters, plan.config));
     reportInitBundle(options.stdout, bundle);
   }
   return {
@@ -2180,6 +2224,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   const skipped: string[] = [];
   const stanzaSlots = activeCheckSlots(cwd, slots, adapters);
   const pm = detectPackageManager({ cwd });
+  const catalogue = { slots, adapters };
 
   // Before the first write: a stanza this repo has customized stops the run
   // rather than being clobbered by the refresh below.
@@ -2189,7 +2234,7 @@ export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSe
   await addCheckAlias(w, skipped);
 
   // AGENTS.md stanza for the checks the default run selects (create or refresh).
-  await writeAgentsStanza(w, cwd, stanzaSlots, pm, skipped);
+  await writeAgentsStanza(w, cwd, catalogue, pm, skipped);
   // CLAUDE.md, so Claude Code loads the stanza: a repo with one reads it in AGENTS.md's place.
   const claudeNote = await ensureClaudeImport(w, cwd, skipped);
 

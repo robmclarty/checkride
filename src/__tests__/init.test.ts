@@ -690,6 +690,20 @@ describe('existing-project adoption (idempotent)', () => {
     });
   });
 
+  /** #12: the stanza names what no check reaches, so an agent doesn't read the active checks as covering it. */
+  test('a tooling-only workspace root names the ts configs no check reaches, in its report and its stanza', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy', devDependencies: { oxlint: '1.0.0' } }));
+    await writeFile(join(dir, 'tsconfig.base.json'), '{}');
+    await mkdir(join(dir, 'packages', 'a'), { recursive: true });
+    await writeFile(join(dir, 'packages', 'a', 'tsconfig.json'), '{}');
+    const out = sink();
+    await runInit({ cwd: dir, probeFailures: noFailures, stdout: out, hook: false });
+    expect(out.text()).toContain('  not covered: types has no tool under `.`, so 1 nested tsconfig.json file(s) go unchecked (packages/a/tsconfig.json)');
+    expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain(
+      'Not covered: `types` (1 nested tsconfig.json file(s) under `.`). No check reads these, so a green run says nothing about that code.',
+    );
+  });
+
   test('a go.mod root with no package.json adopts the go pack’s tools, and writes no package.json (R2.1)', async () => {
     await writeFile(join(dir, 'go.mod'), 'module example.com/legacy\n\ngo 1.24\n');
     await writeFile(join(dir, '.golangci.yml'), 'version: "2"\n');

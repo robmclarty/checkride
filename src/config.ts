@@ -33,7 +33,7 @@ import { isRecord } from './json.js';
 import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
-import type { Target } from './targets/index.js';
+import type { Target, TsTarget } from './targets/index.js';
 import { checkKeys, configProblem, configuredTargets, implicitPack, markerAt, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
@@ -1190,7 +1190,33 @@ function detectAdapter(
 function undetectedReason(slot: string, adapters: readonly Adapter[]): string {
   const scripted = adapters.find((a) => a.slot === slot && a.detectScript !== undefined);
   if (scripted) return `no '${scripted.detectScript}' script in package.json`;
-  return adapters.find((a) => a.slot === slot && a.onlyWith !== undefined)?.onlyWith?.skip ?? 'no tool detected for slot';
+  return adapters.find((a) => a.slot === slot && a.onlyWith !== undefined)?.onlyWith?.skip ?? NO_TOOL_REASON;
+}
+
+/** Whether `r` fills a target-scope slot of a ts target, the implicit one at `.` included, whose checks name no pack. */
+function isTsTargetCheck(r: ResolvedCheck): boolean {
+  return SLOTS.some((s) => s.name === r.slot && s.scope === 'target') && (r.pack ?? PACKS.ts.name) === PACKS.ts.name;
+}
+
+/** Why a slot sits out when detection found no tool for it, and nothing else said why. */
+const NO_TOOL_REASON = 'no tool detected for slot';
+
+/**
+ * Each ts target `checks` holds, with the slots detection found no tool for,
+ * which `findUnreached` reads for configs nobody checks (#12): a target's
+ * check by its target and root, and in a ts repo without targets, the one
+ * implicit target at `.`. A slot switched off with `false` is a choice, not
+ * a gap, so it isn't one.
+ */
+export function tsTargets(checks: readonly ResolvedCheck[]): TsTarget[] {
+  const targets = new Map<string, { name: string | null; root: string; empty: string[] }>();
+  for (const r of checks.filter(isTsTargetCheck)) {
+    const key = r.target ?? '';
+    const target = targets.get(key) ?? { name: r.target ?? null, root: r.root ?? '.', empty: [] };
+    if (r.adapter === null && r.skip === NO_TOOL_REASON) target.empty.push(r.slot);
+    targets.set(key, target);
+  }
+  return [...targets.values()];
 }
 
 /**

@@ -29,3 +29,5 @@ export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';
 export { checkUnclaimed, findUnclaimed } from './unclaimed.js';
 export type { Unclaimed } from './unclaimed.js';
+export { findUnreached, unreachedLine, unreachedNote } from './unreached.js';
+export type { TsTarget, Unreached } from './unreached.js';

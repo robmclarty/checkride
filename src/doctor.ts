@@ -40,7 +40,7 @@ import { outDir, outLabel } from './artifacts/index.js';
 import { BASELINE_FILE, countGrandfathered, parseBaseline } from './baseline/index.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
-import { resolveChecks } from './config.js';
+import { resolveChecks, tsTargets } from './config.js';
 import { isRecord } from './json.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
@@ -71,7 +71,7 @@ import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag,
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
-import { checkKeys, checkName, configuredTargets, findUnclaimed, implicitPack, markerAt } from './targets/index.js';
+import { checkKeys, checkName, configuredTargets, findUnclaimed, findUnreached, implicitPack, markerAt, unreachedLine } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -1029,6 +1029,20 @@ function markersRow(found: readonly Unclaimed[] | string, implicit: string | nul
   return { ...base, name, status: 'outdated', found: markerList(found), hint };
 }
 
+/**
+ * The ts configs no check reaches (#12): a ts target whose `types` or `test`
+ * found no tool while its packages hold configs for one. A warning, never
+ * required, since a repo may leave them unchecked on purpose, and `null` when
+ * there are none or the file list can't be read.
+ */
+async function checkUnreached(cwd: string, config: CheckrideConfig | null, common: { slots: readonly Slot[]; adapters: readonly Adapter[] }): Promise<DoctorCheck | null> {
+  const resolved = resolveChecks({ slots: common.slots, adapters: common.adapters, config, cwd });
+  const found = await findUnreached(cwd, tsTargets(selectChecks(resolved, {})), config?.unclaimed?.ignore ?? []).catch(() => []);
+  if (found.length === 0) return null;
+  const hint = found.map((u) => unreachedLine(u)).join(' ');
+  return { name: 'unchecked ts configs', category: 'workspace', required: false, status: 'outdated', found: found.map((u) => `${u.check}: ${u.files.length} nested`).join(', '), expected: null, hint };
+}
+
 /** The markers no target claims, the implicit target's included, or why they couldn't be listed. */
 async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string | undefined): Promise<Unclaimed[] | string> {
   try {
@@ -1432,7 +1446,8 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     await checkWritable(cwd, options.out, env),
   ];
   const mode = await modeOf(cwd, config, options.out);
-  checks.push(...applicable(checkBaseline(cwd, env), checkAgentInstructions(cwd, env), mode.row));
+  const unreached = await checkUnreached(cwd, config, common);
+  checks.push(...applicable(checkBaseline(cwd, env), checkAgentInstructions(cwd, env), mode.row, unreached));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
   const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, checks };
