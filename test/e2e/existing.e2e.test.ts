@@ -85,6 +85,8 @@ describe('existing-project adoption', () => {
     const dry = await runCli(dir, ['init', '--dry-run'], env);
     expect(dry.code, dry.stdout).toBe(0);
     expect(dry.stdout).toContain(`left on, can't run until set up (then \`checkride baseline\` grandfathers what it finds): lint (${hint})`);
+    // The dry run probed lint and wrote nothing, its artifacts included (#17).
+    expect(existsSync(join(dir, '.check'))).toBe(false);
 
     const adopted = await runCli(dir, ['init'], env);
     expect(adopted.code, adopted.stdout).toBe(0);

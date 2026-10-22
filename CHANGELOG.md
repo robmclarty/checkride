@@ -16,6 +16,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   after the shebang, and says why in its header, and the `tr` set is written
   so shellcheck doesn't read it as a quote escape. A repo picks up the new
   script on its next `checkride agent-setup` or `init`.
+- **`init --dry-run` writes nothing, `.check/` included.** Existing-mode
+  `init` runs the checks it adopts once to see which fail, and that run wrote
+  its summary and raw output into `./.check/` before any `.gitignore` covered
+  it, so a dry run left an untracked directory behind (#17). The run now
+  writes to a temporary directory it removes afterwards, under `--dry-run`
+  and otherwise, since `init` reads only the outcomes it holds in memory.
 
 ## [0.16.0] - 2026-10-22
 

@@ -15,7 +15,8 @@
 
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 import type { Adapter, Slot } from './adapters.js';
@@ -154,13 +155,23 @@ export type ProbeFailure = { slot: string; kind: 'setup' | 'findings' | 'failed'
 
 const NULL_OUT: Out = { write: () => true };
 
-/** Run the adopted checks once; each failing (non-skipped) check marks its slot, with why it failed. */
+/**
+ * Run the adopted checks once; each failing (non-skipped) check marks its slot,
+ * with why it failed. The run writes its artifacts to a temp directory it
+ * removes after, since the probe reads only the outcomes it holds in memory:
+ * `./.check/` isn't gitignored yet, and under `--dry-run` it never will be.
+ */
 async function defaultProbe(slots: string[], cwd: string): Promise<ProbeFailure[]> {
   if (slots.length === 0) return [];
-  const result = await runChecks({ cwd, only: slots, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
-  const keyed = observedChecks(result.runs, cwd);
-  const runs = new Map(result.runs.map((r) => [r.name, r]));
-  return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed));
+  const out = await mkdtemp(join(tmpdir(), 'checkride-init-'));
+  try {
+    const result = await runChecks({ cwd, only: slots, out, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
+    const keyed = observedChecks(result.runs, cwd);
+    const runs = new Map(result.runs.map((r) => [r.name, r]));
+    return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed));
+  } finally {
+    await rm(out, { recursive: true, force: true });
+  }
 }
 
 /** A failing check as the probe classes it: its outcome, whether its findings can be keyed, the keys it reported, and its summary's reason. */
