@@ -365,8 +365,11 @@ describe('checkride.baseline.json', () => {
       cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, json: false, stdout: sink().out, stderr: stderr.out,
       runner: (r, ctx) => (r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: thirdX, stderr: '' }) : redRunner(r, ctx)),
     });
-    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, baselined: 3 });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, baselined: 3, new_count: 1, new: [OXLINT_KEYS[0]] });
     expect(stderr.text()).toContain(`1 new, not in baseline:\n             ${OXLINT_KEYS[0] ?? ''} (3 found, 2 grandfathered)`);
+    // The summary on disk names the new finding, apart from the grandfathered ones, and validates (§summary.json).
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as unknown;
+    expect(validateSummary(summary), JSON.stringify(validateSummary.errors)).toBe(true);
   });
 
   /**

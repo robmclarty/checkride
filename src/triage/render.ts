@@ -373,7 +373,23 @@ function failingLine(row: SlotRow, index: number, out: string): string {
     ? `no output file found under \`${out}/\` — the tool wrote nothing this reader can locate`
     : `read \`${out}/${row.raw.chosen.file}\` (${formatBytes(row.raw.chosen.bytes)})${alternatesClause(row.raw, out)}`;
   const why = row.reason === null ? '' : ` — ${row.reason}`;
-  return `${index + 1}. **${row.slot}** (${row.adapter ?? 'no adapter'}) — exit ${row.exitCode ?? '—'}${why} — ${where}`;
+  return `${index + 1}. **${row.slot}** (${row.adapter ?? 'no adapter'}) — exit ${row.exitCode ?? '—'}${why} — ${where}${newFindingsLine(row)}`;
+}
+
+/** How many keys of a failing slot's new findings its line names; the summary's `new` holds more. */
+const NEW_KEYS_NAMED = 3;
+
+/**
+ * A slot that failed on findings its baseline doesn't grandfather says so on a
+ * line of its own, naming the first few keys, since the raw file holds the
+ * grandfathered findings too and a reader can't tell the new ones from it.
+ */
+function newFindingsLine(row: SlotRow): string {
+  if (row.newFindings === null) return '';
+  const { count, keys } = row.newFindings;
+  const named = keys.slice(0, NEW_KEYS_NAMED).map((key) => `\`${key}\``).join(', ');
+  const more = keys.length > NEW_KEYS_NAMED ? ', … (the summary\'s `new` lists the first 50)' : '';
+  return `\n   - ${count} new, not in the baseline: ${named}${more}`;
 }
 
 function renderFailing(report: TriageReport): string {

@@ -27,6 +27,8 @@ import { copyNamed, findingText, fingerprint } from '../baseline/index.js';
 import { failureLine, packToolchain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
+import type { GoTestCase } from './go-test.js';
+import { caseName, goTestReport } from './go-test.js';
 
 /** The digest file, beside `summary.json` in the output directory. */
 export const DIGEST_FILE = 'digest.md';
@@ -77,41 +79,85 @@ function contentLines(text: string): string[] {
   return text.split('\n').filter((line) => line.trim() !== '');
 }
 
+/** What one section renders from: the check's run and summary entry, its raw file's pointer, and the item cap. */
+type Section = { run: CheckRun; check: SummaryCheck; raw: string; maxItems: number; repoRoot: string | undefined };
+
 /**
- * Render one failing slot's section. When the adapter can be fingerprinted, list
- * the first N finding keys (the same items the baseline records); otherwise fall
- * back to the last N lines of raw text — where a compiler or test runner puts
+ * Render one failing slot's section, the first of these that applies: the
+ * findings a baseline didn't grandfather, when it masked the check; the failing
+ * and unfinished tests of a `go test -json` run; the first N finding keys, when
+ * the adapter can be fingerprinted (the same items the baseline records); and
+ * otherwise the last N lines of raw text — where a compiler or test runner puts
  * its summary. Either way the section is capped and points at the raw file.
  */
 function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, label: string, repoRoot?: string): string {
+  const section: Section = { run, check, raw: rawPointer(check, run.outcome, label), maxItems, repoRoot };
+  const body = newFindingsBody(section) ?? goTestBody(section) ?? findingsBody(section) ?? tailBody(section);
+  return `## ${check.name} — ${run.adapter.name}\n\n${body}`;
+}
+
+/** Up to `max` lines of `items`, then a `… N more` line pointing at `raw` when there are more. */
+function capped(items: readonly string[], max: number, raw: string): string[] {
+  const lines = items.slice(0, max);
+  return items.length > max ? [...lines, `- … ${items.length - max} more (see \`${raw}\`)`] : lines;
+}
+
+/**
+ * A check a baseline masked that failed on findings it doesn't grandfather:
+ * those first, from the summary's `new`, and the grandfathered ones only
+ * counted, since they are what the check passes with. `null` for any other.
+ */
+function newFindingsBody({ run, check, raw, maxItems }: Section): string | null {
+  if (check.new === undefined || check.new_count === undefined) return null;
+  const lines = capped(check.new.map((key) => `- ${key}`), maxItems, raw);
+  const grandfathered = check.baselined === undefined ? '' : `; ${check.baselined} grandfathered, not listed`;
+  return `Raw: \`${raw}\` — ${check.new_count} new finding(s), not in the baseline${grandfathered}\n${stoppedBy(check, run.outcome)}${driftNote(check, run.adapter.name)}\n${lines.join('\n')}\n`;
+}
+
+/**
+ * A `go test -json` run read as its tests ({@link goTestReport}): each failing
+ * test with the last lines it printed, then each one still running when the
+ * run stopped. `null` for another adapter, or a run that names no test.
+ */
+function goTestBody({ run, check, raw, maxItems }: Section): string | null {
+  if (run.adapter.name !== 'go-test') return null;
+  const report = goTestReport(run.outcome.stdout);
+  if (report === null || report.failed.length + report.running.length === 0) return null;
+  const cases = [...report.failed.map((c) => testCase('FAIL', c)), ...report.running.map((c) => testCase('RUNNING', c))];
+  const shown = cases.slice(0, maxItems);
+  const more = cases.length > shown.length ? [`- … ${cases.length - shown.length} more (see \`${raw}\`)\n`] : [];
+  const running = report.running.length > 0 ? `, ${report.running.length} still running when the check stopped` : '';
+  return `Raw: \`${raw}\` — ${report.failed.length} failing${running}\n${stoppedBy(check, run.outcome)}\n${[...shown, ...more].join('\n')}`;
+}
+
+/** One test's subsection: what happened to it, its name, and the last lines it printed. */
+function testCase(verdict: 'FAIL' | 'RUNNING', c: GoTestCase): string {
+  const output = c.output.length > 0 ? `\n\`\`\`text\n${c.output.join('\n')}\n\`\`\`\n` : '';
+  return `### ${verdict} ${caseName(c)}\n${output}`;
+}
+
+/** The first N keys of an adapter that can be fingerprinted, keyed as the baseline keys them, or `null` for one that can't or found none. */
+function findingsBody({ run, check, raw, maxItems, repoRoot }: Section): string | null {
   const { adapter, outcome } = run;
-  const raw = rawPointer(check, outcome, label);
-  const heading = `## ${check.name} — ${adapter.name}`;
-
-  // Keyed as the baseline keys them, from the stream it reads, a target's paths
-  // from the repo root.
+  // From the stream the baseline reads, a target's paths from the repo root.
   const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, repoRoot);
-  if (keys && keys.size > 0) {
-    const all = [...keys];
-    const shown = all.slice(0, maxItems);
-    const lines = shown.map((k) => `- ${k}`);
-    if (all.length > shown.length) {
-      lines.push(`- … ${all.length - shown.length} more (see \`${raw}\`)`);
-    }
-    return `${heading}\n\nRaw: \`${raw}\` — ${all.length} finding(s)\n${stoppedBy(check, outcome)}${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
-  }
+  if (keys === null || keys.size === 0) return null;
+  const lines = capped([...keys].map((k) => `- ${k}`), maxItems, raw);
+  return `Raw: \`${raw}\` — ${keys.size} finding(s)\n${stoppedBy(check, outcome)}${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
+}
 
-  // No extractor (tsc, vitest, …) or a supported adapter that failed with no
-  // parsed findings: excerpt the tail of the raw text — truncation, not
-  // normalization — and point at the file for the rest.
-  const text = outcome.stdout.trim() ? outcome.stdout : outcome.stderr;
-  const all = contentLines(text);
-  if (all.length === 0) {
-    return `${heading}\n\nRaw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n${stoppedBy(check, outcome)}`;
-  }
+/**
+ * The tail of the raw text, for an adapter with no extractor (tsc, vitest, …)
+ * or a supported one that failed with no parsed findings — truncation, not
+ * normalization — pointing at the file for the rest.
+ */
+function tailBody({ run, check, raw, maxItems }: Section): string {
+  const { outcome } = run;
+  const all = contentLines(outcome.stdout.trim() ? outcome.stdout : outcome.stderr);
+  if (all.length === 0) return `Raw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n${stoppedBy(check, outcome)}`;
   const tail = all.slice(-maxItems);
   const note = tail.length < all.length ? ` — last ${tail.length} of ${all.length} lines` : '';
-  return `${heading}\n\nRaw: \`${raw}\`${note}\n${stoppedBy(check, outcome)}\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
+  return `Raw: \`${raw}\`${note}\n${stoppedBy(check, outcome)}\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
 }
 
 /**

@@ -27,6 +27,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   review the diff. A summary's `baselined` now counts the findings the
   baseline grandfathered, which the contract always said, rather than its
   keys, and the ratchet's and capture's stderr lines count findings too.
+- **What failed a baselined check is in the files an agent reads.** stderr
+  listed a check's new findings apart from its grandfathered ones, but the
+  artifacts the gate points an agent at didn't: `digest.md` listed the first 10
+  of 311 findings, all grandfathered, with the 2 new ones in "… 301 more", and
+  `summary.json` and `triage` gave only counts (#13). A check that fails on
+  findings its baseline doesn't grandfather now records `new_count` and `new`,
+  the first 50 of their keys, in `summary.json`; its digest section lists those
+  and counts the grandfathered ones; and `triage` names the first few beneath
+  its line. A `go test` check's digest section, which showed the last raw JSON
+  events and so never a test's name, now lists each failing test with the last
+  lines it printed and each test still running when a timeout stopped the run,
+  and its status line names them, up to 10 of each. And a check that never
+  reached a verdict records what stopped it as its `reason`, such as
+  `timed out after 600s`.
 
 - **A narrowed run says what a full run would prune.** A run with `--only`,
   `--skip` or `--changed`, or one `--bail` stopped early, never prunes
@@ -103,6 +117,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `counts`, and the reader's
   tolerance rules cover it. `baseline diff --json` takes `recounted` and
   `recounted_count`.
+- A summary check and its schema take `new_count` and `new`, and the exported
+  `SummaryCheck` type takes both. A failed check's `reason` is also present on
+  one that never reached a verdict (`exit_code: -1`), naming what stopped it.
 
 - The gate counts a pnpm the repo's `packageManager` pin refuses, and a
   `packageManager` that names another manager, among the refusals only the

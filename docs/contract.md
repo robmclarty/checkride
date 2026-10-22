@@ -69,8 +69,10 @@ breaking release.
 Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0), per-check `origin`, `detected_by`, `argv`, `pin_source`,
 `tool_version`, `narrowed`, `target`, `slot`, `pack` and `cwd`, `reason` on a
-failed check, top-level `run`, `git` and `targets` (0.15.0), and per-check
-`baseline_captured_with` and `toolchain_version` (0.16.0).
+failed check, top-level `run`, `git` and `targets` (0.15.0), per-check
+`baseline_captured_with` and `toolchain_version` (0.16.0), and per-check
+`new_count` and `new`, with `reason` on a check that reached no verdict
+(0.17.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -149,7 +151,7 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt` |
+| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt`; on a check that never reached a verdict, with `exit_code` -1: what stopped it, `timed out after <N>s` for a timeout |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
@@ -160,6 +162,8 @@ required ones, so a field can't reach the schema without a row here.
 | `tool_version` | string | with `pin_source`, when a file read found the version of the tool that ran, or the pin source itself resolved it, as mise does |
 | `narrowed` | `{ units, total }`: `units` the package patterns it ran, `total` how many modules the workspace uses | `--changed` narrowed a Go check to the workspace modules a change touched and their dependents |
 | `baselined` | integer, 1 or more | a committed baseline masked at least one of the check's findings: how many |
+| `new_count` | integer, 1 or more | the check failed with findings a committed baseline doesn't grandfather: how many, every finding of a key it doesn't hold and each one past a key's count |
+| `new` | array of 1 to 50 strings | with `new_count`: the keys of those findings, sorted, the first 50 |
 | `toolchain_version` | string | with `pin_source`, on a check of a pack that names a toolchain, `go` for the go pack: the release of that toolchain the check's tool ran on, when it could be found |
 | `baseline_captured_with` | `{ pin_source, tool_version?, toolchain_version? }` | the check ran another copy of its tool than the baseline's `captured_with` records capturing its keys with: that record, so its new keys may be the tool's churn, and the ratchet held its keys back |
 

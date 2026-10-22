@@ -612,6 +612,20 @@ describe('per-check reporting', () => {
     expect(text).toContain('does not mean clean');
   });
 
+  /** The raw file holds the grandfathered findings too, so a failing slot names its new ones from the summary (#13). */
+  test('a slot that failed on findings its baseline lacks says how many, and names the first few', async () => {
+    const keys = ['a.ts:no-x:bad', 'b.ts:no-x:bad', 'c.ts:no-x:bad', 'd.ts:no-x:bad'];
+    const { report, text } = await run(
+      {
+        summary: summaryOf([check('lint', { ok: false, exit_code: 1, output_file: 'lint.json', baselined: 309, new_count: 5, new: keys })]),
+        artifacts: { 'lint.json': { text: '{}' } },
+      },
+      fakeEnv({ gate: { code: 1 } }),
+    );
+    expect(report.rows[0]?.newFindings).toEqual({ count: 5, keys });
+    expect(text).toContain("\n   - 5 new, not in the baseline: `a.ts:no-x:bad`, `b.ts:no-x:bad`, `c.ts:no-x:bad`, … (the summary's `new` lists the first 50)");
+  });
+
   test('a skipped slot names its reason and offers no leftover file', async () => {
     const { report, text } = await run(
       {

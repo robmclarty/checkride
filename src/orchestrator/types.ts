@@ -140,6 +140,17 @@ export type SummaryCheck = {
    */
   baselined?: number;
   /**
+   * Present only when the check failed with findings a committed baseline
+   * doesn't grandfather: how many, every finding of a key it doesn't hold and
+   * each one past a key's count. Additive field; `schema_version` holds.
+   */
+  new_count?: number;
+  /**
+   * With `new_count`: the keys of those findings, sorted, the first 50 of
+   * them. Additive field; `schema_version` holds.
+   */
+  new?: string[];
+  /**
    * Present only when this check ran another copy of its tool than the one
    * the committed baseline records capturing its keys with: that record, the
    * pin source and the version it named. Its new keys may be the tool's churn

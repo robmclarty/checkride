@@ -39,6 +39,11 @@ function astGrep(findings: [string, string, string][]): string {
   return JSON.stringify(findings.map(([file, ruleId, message]) => ({ file, ruleId, message })));
 }
 
+/** One `go test -json` event of package `example.com/a`. */
+function goEvent(action: string, name?: string, output?: string): string {
+  return JSON.stringify({ Action: action, Package: 'example.com/a', Test: name, Output: output });
+}
+
 function sink(): Out {
   return { write: () => true };
 }
@@ -158,6 +163,35 @@ describe('buildDigest', () => {
     expect(digest).toContain(
       'Raw: `.check/lint.stdout.txt`\n\n> `oxlint` isn\'t in node_modules/.bin, and checks never install a tool: run `pnpm install` first\n\n```\nundefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL]',
     );
+  });
+
+  /**
+   * The stop gate hands the agent this digest, and a baselined check's raw
+   * output holds every grandfathered finding too: the new ones come first,
+   * from the summary, and the grandfathered ones only as a count (#13).
+   */
+  test('a check a baseline masked lists its new findings, and counts the grandfathered ones', () => {
+    const report = oxlint(Array.from({ length: 12 }, (_, i) => [`a${String(i).padStart(2, '0')}.ts`, 'no-x', 'old'] as [string, string, string]));
+    const masked = check('lint', { adapter: 'oxlint', output_file: 'lint.json', baselined: 309, new_count: 2, new: ['z.ts:no-y:new', 'zz.ts:no-y:new'] });
+    const digest = buildDigest([run(OXLINT, outcome({ stdout: report }))], [masked]) ?? '';
+    expect(digest).toContain('Raw: `.check/lint.json` — 2 new finding(s), not in the baseline; 309 grandfathered, not listed\n\n- z.ts:no-y:new\n- zz.ts:no-y:new\n');
+    expect(digest).not.toContain('a00.ts');
+    const many = check('lint', { adapter: 'oxlint', output_file: 'lint.json', new_count: 12, new: Array.from({ length: 12 }, (_, i) => `k${String(i).padStart(2, '0')}`) });
+    expect(buildDigest([run(OXLINT, outcome({ stdout: report }))], [many]) ?? '').toContain('- k09\n- … 2 more (see `.check/lint.json`)\n');
+  });
+
+  test('a go test run names its failing and unfinished tests, with what each printed', () => {
+    const goTest = fakeAdapter({ name: 'go-test', slot: 'test', outputFile: 'test.jsonl' });
+    const stdout = [goEvent('run', 'TestAdd'), goEvent('output', 'TestAdd', '    add_test.go:9: got 1\n'), goEvent('fail', 'TestAdd'), goEvent('run', 'TestHang'), goEvent('output', undefined, 'ok example.com/b 0.1s\n')].join('\n');
+    const digest = buildDigest(
+      [run(goTest, outcome({ exit_code: -1, stdout, stderr: 'timed out after 600s\n' }))],
+      [check('test', { adapter: 'go-test', output_file: 'test.jsonl', exit_code: -1, reason: 'timed out after 600s' })],
+    ) ?? '';
+    expect(digest).toContain(
+      'Raw: `.check/test.jsonl` — 1 failing, 1 still running when the check stopped\n\n> timed out after 600s\n\n### FAIL example.com/a TestAdd\n\n```text\n    add_test.go:9: got 1\n```\n\n### RUNNING example.com/a TestHang\n',
+    );
+    const built = buildDigest([run(goTest, outcome({ stdout: '# example.com/a\na.go:1:1: expected package\n' }))], [check('test', { adapter: 'go-test' })]) ?? '';
+    expect(built).toContain('```\n# example.com/a\na.go:1:1: expected package\n```');
   });
 
   test('a refused check names its refusal, and a timed-out one its timeout', () => {

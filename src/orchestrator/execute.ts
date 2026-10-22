@@ -16,6 +16,8 @@ import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
 import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
+import type { GoTestCase } from '../digest/index.js';
+import { caseName, goTestReport } from '../digest/index.js';
 import { failureLine, isAvailableUnder, packEnv, packToolchain, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
@@ -99,6 +101,13 @@ type MaskResult = {
   reason: string | null;
   observed: Tally | null;
 };
+
+/**
+ * How many new keys a summary entry lists. A baseline that holds no entry for
+ * a check makes every finding new, thousands on a large repo, and the summary
+ * is read on every gate and triage; `new_count` says how many there are.
+ */
+const NEW_KEYS_LISTED = 50;
 
 /** The masking a check with no baseline entry gets: none. */
 const UNMASKED = { baselined: 0, newKeys: [], excess: [], newFindings: 0 } as const satisfies Partial<MaskResult>;
@@ -210,15 +219,39 @@ function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContex
 }
 
 /** Print one check's status line, its baselined count, why it failed when it says, and any new (non-grandfathered) findings. */
-function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number): void {
+function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number, run: CheckRun): void {
   writeLine(stderr, formatStatusLine(entry, width));
   if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
+  if (entry.ok) return;
   const reason = entry.reason ?? mask.reason;
-  if (!entry.ok && reason) writeLine(stderr, `           ${reason}`);
-  if (!entry.ok && mask.newFindings > 0) {
+  if (reason) writeLine(stderr, `           ${reason}`);
+  if (mask.newFindings > 0) {
     writeLine(stderr, `           ${mask.newFindings} new, not in baseline:`);
     for (const line of newFindingLines(mask)) writeLine(stderr, `             ${line}`);
   }
+  for (const line of goTestLines(run)) writeLine(stderr, line);
+}
+
+/** How many failing or unfinished tests a red go-test check names beneath its status line, of each. */
+const TESTS_NAMED = 10;
+
+/**
+ * For a red `go test -json` check, the tests it failed and the ones still
+ * running when it stopped, the first {@link TESTS_NAMED} of each, since its
+ * raw output is events that a reader can't skim for a name.
+ */
+function goTestLines(run: CheckRun): string[] {
+  if (run.adapter.name !== 'go-test') return [];
+  const report = goTestReport(run.outcome.stdout);
+  if (report === null) return [];
+  return [...namedTests(report.failed, 'failing test(s)'), ...namedTests(report.running, 'still running when it stopped')];
+}
+
+/** A heading with how many cases, then the first {@link TESTS_NAMED} of them, or nothing for none. */
+function namedTests(cases: readonly GoTestCase[], what: string): string[] {
+  if (cases.length === 0) return [];
+  const more = cases.length > TESTS_NAMED ? [`             … ${cases.length - TESTS_NAMED} more`] : [];
+  return [`           ${cases.length} ${what}:`, ...cases.slice(0, TESTS_NAMED).map((c) => `             ${caseName(c)}`), ...more];
 }
 
 /**
@@ -300,7 +333,7 @@ type Produced = { file: string | null; place: Place; durationMs: number; reason:
  * it wrote, named relative to the output directory, `<target>/` included.
  */
 function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: Produced, multiTarget: boolean): SummaryCheck {
-  const reason = written.reason ?? run.outcome.refusal ?? null;
+  const reason = entryReason(written, run.outcome);
   return {
     ...checkIdentity(r, multiTarget),
     adapter: run.adapter.name,
@@ -313,7 +346,30 @@ function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, writte
     ...provenanceFields(r),
     ...spawnedFields(run.outcome),
     ...(r.narrowed !== undefined ? { narrowed: r.narrowed } : {}),
+    ...maskFields(mask),
+  };
+}
+
+/**
+ * Why a failed check failed, when its entry says: its `failOnOutput` verdict,
+ * the refusal that kept its tool from starting, or, for one that never
+ * reached a verdict (exit -1), what stopped it, a timeout's
+ * `timed out after <N>s` among them.
+ */
+function entryReason(written: Produced, outcome: CheckOutcome): string | null {
+  return written.reason ?? outcome.refusal ?? (outcome.exit_code === -1 ? failureLine(outcome) : null);
+}
+
+/**
+ * The summary fields masking adds: `baselined`, the findings it grandfathered,
+ * and, for a check that failed on findings it didn't, `new_count` and `new`,
+ * the first {@link NEW_KEYS_LISTED} of their keys, sorted.
+ */
+function maskFields(mask: MaskResult): Pick<SummaryCheck, 'baselined' | 'new_count' | 'new'> {
+  const listed = [...mask.newKeys, ...mask.excess.map((e) => e.key)].toSorted().slice(0, NEW_KEYS_LISTED);
+  return {
     ...(mask.baselined > 0 ? { baselined: mask.baselined } : {}),
+    ...(!mask.ok && mask.newFindings > 0 ? { new_count: mask.newFindings, new: listed } : {}),
   };
 }
 
@@ -353,7 +409,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const run = checkRun(r, adapter, outcome);
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
-  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth);
+  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth, run);
   const observed = ratchetFeed(name, mask, drift, sawWhole(r, adapter, scope.base));
   return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
 }

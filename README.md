@@ -440,14 +440,19 @@ fields are additive-only under a given `schema_version`.
 
 When a [baseline](#baseline) masks a slot's findings, that check gains an additive
 `"baselined": <n>` field counting the grandfathered findings; it is absent on
-runs with no baseline, so `schema_version` is unchanged.
+runs with no baseline, so `schema_version` is unchanged. A check that fails on
+findings the baseline doesn't grandfather gains `"new_count": <n>` and `"new"`,
+the first 50 of their keys, so a reader can tell what failed it from the debt
+it carries.
 
 - `digest.md` — written only under `--digest`: a **token-bounded** Markdown
   excerpt of the *failing* slots, so an agent working through a big red repo
   reads a capped index instead of every raw file. Each section lists the first
   findings (reusing the baseline fingerprint extractors, or a tail of raw text
   for slots without one) and links the authoritative `.check/<slot>.json`, which
-  is never modified. The bound: **ten findings per slot, 8 kB overall** —
+  is never modified. A check a baseline masked lists the findings it didn't
+  grandfather, and counts the rest; a `go test` check lists its failing tests,
+  with what each printed, and any still running when a timeout stopped it. The bound: **ten findings per slot, 8 kB overall** —
   roughly two thousand tokens; past the cap, remaining failing slots are named
   but not rendered. It **truncates, never normalizes**; a green run leaves no
   digest (any stale one is removed), so its presence always means "this run

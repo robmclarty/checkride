@@ -207,6 +207,11 @@ size. Open the one belonging to your chosen root cause, and nothing else.
   checkride's own bounded excerpt of this run's failing slots, capped at 8 KB.
   Its existence always means the run that wrote it had failures. If it is
   labelled stale, it belongs to an earlier run; do not read it as this one's.
+- **A slot with new findings is about those.** When the report's line for a
+  failing slot says `N new, not in the baseline`, those keys are what failed it:
+  its raw file holds every grandfathered finding as well, often hundreds of
+  them. Fix the named keys, and search the raw file for them rather than
+  reading it top to bottom. `summary.json`'s `new` lists the first 50.
 - Prefer the file the report chose. When a slot has both a `.json` and a
   `.stdout.txt`, the reader already picked the small one (`test.stdout.txt` is
   21 KB against `test.json`'s nearly 3 MB) and the `(+1)` marks the one it passed over.

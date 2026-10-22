@@ -63,7 +63,7 @@
         "description": { "type": "string", "description": "Human description of the check." },
         "ok": { "type": "boolean", "description": "Pass/fail after any baseline masking; skipped checks are ok." },
         "skipped": { "type": "boolean", "description": "Present (true) when the check did not execute; see reason." },
-        "reason": { "type": "string", "description": "Why a skipped check sat out (no tool detected, disabled in config, unavailable under this package manager, static-only: <cause> under --static-only, ...), or why an executed check whose adapter declares failOnOutput failed with exit code 0: <adapter> exited 0 but reported findings on stdout, or, for a check refused before its tool spawned (exit_code 1: a tool the project never installed, a setup step not yet run, missing prose exemplars), the refusal's first line." },
+        "reason": { "type": "string", "description": "Why a skipped check sat out (no tool detected, disabled in config, unavailable under this package manager, static-only: <cause> under --static-only, ...), or why an executed check whose adapter declares failOnOutput failed with exit code 0: <adapter> exited 0 but reported findings on stdout, or, for a check refused before its tool spawned (exit_code 1: a tool the project never installed, a setup step not yet run, missing prose exemplars), the refusal's first line, or, for a check that never reached a verdict (exit_code -1), what stopped it: timed out after <N>s for a timeout." },
         "exit_code": { "type": ["integer", "null"], "description": "The tool's exit code; -1 for spawn failure or timeout; null when skipped." },
         "duration_ms": { "type": "number", "description": "Wall-clock duration in milliseconds (0 when skipped)." },
         "output_file": { "type": ["string", "null"], "description": "The file holding the tool's raw JSON or JSON-lines (.jsonl) output, when the check declares that file and its stdout takes that form, relative to the output directory (.check/ unless --out named another). A target's check writes into the target's directory there, so its file is <target>/<file> (e.g. web/lint.json)." },
@@ -84,6 +84,8 @@
           }
         },
         "baselined": { "type": "integer", "minimum": 1, "description": "Present only when a committed baseline masked diagnostics: how many current findings are grandfathered." },
+        "new_count": { "type": "integer", "minimum": 1, "description": "Present only when the check failed with findings a committed baseline doesn't grandfather: how many, every finding of a key it doesn't hold and each one past a key's count." },
+        "new": { "type": "array", "minItems": 1, "maxItems": 50, "items": { "type": "string", "minLength": 1 }, "description": "With new_count: the keys of those findings, sorted, the first 50. Compare and count keys; never parse them." },
         "baseline_captured_with": {
           "type": "object",
           "additionalProperties": false,

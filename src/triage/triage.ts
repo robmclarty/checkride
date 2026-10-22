@@ -36,6 +36,8 @@ export type SlotRow = {
   durationMs: number;
   /** Findings a committed baseline grandfathered; `null` when none were masked. */
   baselined: number | null;
+  /** Findings a committed baseline didn't grandfather, on a check that failed on them, with the first of their keys; `null` otherwise. */
+  newFindings: { count: number; keys: string[] } | null;
   /** Why a skipped slot sat out, or why a failed one said it failed: refused before it spawned, or findings behind a clean exit. */
   reason: string | null;
   raw: RawOutput | null;
@@ -116,6 +118,7 @@ async function buildRow(checkDir: string, check: SummaryCheck, windowStart: numb
     exitCode: check.exit_code,
     durationMs: check.duration_ms,
     baselined: check.baselined ?? null,
+    newFindings: check.new_count === undefined ? null : { count: check.new_count, keys: check.new ?? [] },
     reason: check.reason ?? null,
     raw,
   };

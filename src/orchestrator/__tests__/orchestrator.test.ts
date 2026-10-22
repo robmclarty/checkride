@@ -22,6 +22,11 @@ import { enableEntry, runChecks, runFix, selectChecks } from '../index.js';
 import { formatStatusLine } from '../report.js';
 import { defaultConcurrency, defaultRunner, missingExemplarsOutcome, runtimeArgs } from '../spawn.js';
 
+/** One `go test -json` event of a test in package `example.com/a`. */
+function goTestEvent(action: string, name: string): string {
+  return JSON.stringify({ Action: action, Package: 'example.com/a', Test: name });
+}
+
 function mkResolved(slot: string, optIn = false): ResolvedCheck {
   return { slot, optIn, adapter: null, skip: null };
 }
@@ -1537,6 +1542,52 @@ describe('runChecks (baseline-aware)', () => {
       changed: true, json: true, stdout: sink().out, stderr: sink().out,
     });
     expect(existsSync(baselineFile())).toBe(false);
+  });
+
+  /** The summary names what the gate's agent has to fix, apart from what the baseline grandfathers (#13). */
+  test('a check that fails on findings the baseline lacks records how many, and their keys', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null, runner: lintRunner([...oneA, ['b.ts', 'no-y', 'worse'], ['b.ts', 'no-y', 'worse'], ['c.ts', 'no-z', 'new']]),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] }, counts: { lint: {} } },
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, baselined: 2, new_count: 2, new: [KEY_B, 'c.ts:no-z:new'] });
+  });
+
+  /** The lint entry a run over `findings` writes against `baseline`. */
+  const lintEntry = async (baseline: Baseline | null, findings: [string, string, string][]) =>
+    (await runChecks({ cwd: dir, slots, adapters, config: null, runner: lintRunner(findings), baseline, json: true, stdout: sink().out, stderr: sink().out })).summary.checks.find((c) => c.name === 'lint');
+
+  test('new keys are listed up to 50, and absent with no baseline, or once every finding is grandfathered', async () => {
+    const wall = Array.from({ length: 60 }, (_, i): [string, string, string] => [`f${String(i).padStart(2, '0')}.ts`, 'no-x', 'bad']);
+    const walled = await lintEntry({ schema_version: 1, slots: {} }, wall);
+    expect(walled?.new_count).toBe(60);
+    expect(walled?.new).toHaveLength(50);
+    expect(walled?.new?.[49]).toBe('f49.ts:no-x:bad');
+    expect(await lintEntry(null, wall)).not.toHaveProperty('new');
+    expect(await lintEntry({ schema_version: 1, slots: { lint: [KEY_A] } }, oneA)).not.toHaveProperty('new_count');
+  });
+
+  test('a check that never reached a verdict records what stopped it as its reason', async () => {
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: () => Promise.resolve({ ok: false, exit_code: -1, stdout: '', stderr: 'partial\ntimed out after 600s\n' }),
+      json: true, stdout: sink().out, stderr: sink().out,
+    });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, exit_code: -1, reason: 'timed out after 600s' });
+  });
+
+  test('a red go test check names its failing and unfinished tests beneath its status line', async () => {
+    const goTest = fakeAdapter({ name: 'go-test', slot: 'test', outputFile: 'test.jsonl' });
+    const failing = Array.from({ length: 12 }, (_, i) => [goTestEvent('run', `TestF${i}`), goTestEvent('fail', `TestF${i}`)]).flat();
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots: [{ name: 'test' }], adapters: [goTest], config: null, json: false, stdout: sink().out, stderr: std.out,
+      runner: () => Promise.resolve({ ok: false, exit_code: -1, stdout: [...failing, goTestEvent('run', 'TestHang')].join('\n'), stderr: 'timed out after 600s\n' }),
+    });
+    const text = std.lines.join('');
+    expect(text).toContain('           12 failing test(s):\n             example.com/a TestF0\n');
+    expect(text).toContain('             example.com/a TestF9\n             … 2 more\n           1 still running when it stopped:\n             example.com/a TestHang\n');
   });
 
   /**

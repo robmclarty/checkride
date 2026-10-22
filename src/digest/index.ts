@@ -5,3 +5,5 @@
  */
 
 export { buildDigest, DIGEST_FILE, writeDigest } from './digest.js';
+export type { GoTestCase } from './go-test.js';
+export { caseName, goTestReport } from './go-test.js';
