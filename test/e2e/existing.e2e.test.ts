@@ -71,7 +71,9 @@ describe('existing-project adoption', () => {
     await writeFile(join(dir, 'a.js'), 'export const a = 1;\n');
     const hint = "`oxlint` isn't in node_modules/.bin, and checks never install a tool: run `pnpm install` first";
     // `pnpm exec` runs a copy PATH holds when node_modules has none, and the suite's PATH holds this repo's.
-    const env = { ...process.env, PATH: (process.env['PATH'] ?? '').split(delimiter).filter((d) => !d.includes(join('node_modules', '.bin'))).join(delimiter) };
+    // Keep a `node_modules/.bin` that holds pnpm itself, as CI's pnpm/action-setup installs it.
+    const keep = (d: string): boolean => !d.includes(join('node_modules', '.bin')) || existsSync(join(d, 'pnpm'));
+    const env = { ...process.env, PATH: (process.env['PATH'] ?? '').split(delimiter).filter(keep).join(delimiter) };
 
     const dry = await runCli(dir, ['init', '--dry-run'], env);
     expect(dry.code, dry.stdout).toBe(0);
