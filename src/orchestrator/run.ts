@@ -29,11 +29,12 @@ import { resetInterrupt } from './spawn.js';
 import type { Drift, Out, RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
- * Why this run saw less than the full pipeline, as the ratchet's note names
- * it — an `--only`/`--skip`/`--changed`/`--static-only` filter or an early
- * `--bail` break — or `null` for a run that saw all of it. The ratchet is
- * gated off for these: an unobserved diagnostic must not be mistaken for a
- * fixed one.
+ * Why this run saw less than the full pipeline — an `--only`/`--skip`/
+ * `--changed`/`--static-only` filter or an early `--bail` break — in the
+ * words {@link notePrunable} names it with, or `null` for a run that saw all
+ * of it. The ratchet is gated off for these: an unobserved diagnostic must
+ * not be mistaken for a fixed one. `--static-only` is a consumer run as well,
+ * so its words never reach that note.
  */
 function partialCause(options: RunOptions, changed: boolean, brokeEarly: boolean): string | null {
   if ((options.only ?? null) !== null) return 'a run with --only';

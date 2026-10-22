@@ -9,8 +9,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - **A narrowed run says what a full run would prune.** A run with `--only`,
-  `--skip`, `--changed` or `--static-only`, or one `--bail` stopped early,
-  never prunes `checkride.baseline.json`, so an agent loop behind a
+  `--skip` or `--changed`, or one `--bail` stopped early, never prunes
+  `checkride.baseline.json`, so an agent loop behind a
   `"gate": { "changed": true }` profile never learned that the baseline held
   fixed debt, and a fix reverted inside the loop never showed (#21). Such a
   run of the repo's own now says, on stderr, how many grandfathered keys the

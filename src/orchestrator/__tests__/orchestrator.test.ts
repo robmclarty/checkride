@@ -1556,6 +1556,9 @@ describe('runChecks (baseline-aware)', () => {
     );
   });
 
+  /** The lint check as resolution would hand it over, adjusted by `over`. */
+  const lintCheck = (over: Partial<ResolvedCheck>): ResolvedCheck => ({ slot: 'lint', optIn: false, adapter: adapters[0] ?? null, skip: null, ...over });
+
   /** What a run over the two-key baseline prints on stderr, narrowed by `over`. */
   const prunableNote = async (over: Partial<Parameters<typeof runChecks>[0]>, runner: CheckRunner): Promise<string> => {
     const std = sink();
@@ -1571,6 +1574,24 @@ describe('runChecks (baseline-aware)', () => {
     expect(await prunableNote({ only: ['lint'] }, lintRunner([...oneA, ['b.ts', 'no-y', 'worse']]))).not.toContain('baseline:');
     expect(await prunableNote({ only: ['lint'], json: true }, lintRunner(oneA))).not.toContain('baseline:');
     expect(await prunableNote({ staticOnly: true }, lintRunner(oneA))).not.toContain('a full run would prune');
+  });
+
+  /**
+   * A check whose Go packages `--changed` narrowed read part of its files, as
+   * one whose `changedArgs` ran did, so it's marked narrowed and counts
+   * toward no prunable keys (#21). No built-in check that the baseline keys
+   * narrows today, so a hand-built one stands in.
+   */
+  test('a check --changed narrowed to some Go packages is marked narrowed', async () => {
+    const ctx = resolveRunContext({
+      cwd: dir, config: null, runner: lintRunner(oneA), pm: 'pnpm', baseline: { schema_version: 1, slots: { lint: [KEY_A, KEY_B] } },
+      concurrency: 1, json: true, stdout: sink().out, stderr: sink().out,
+    });
+    await mkdir(ctx.out, { recursive: true });
+    const narrowed = await executeChecks([lintCheck({ narrowed: { units: ['./b/...'], total: 2 } })], ctx);
+    expect(narrowed.observed.has('lint')).toBe(true);
+    expect([...narrowed.narrowed]).toEqual(['lint']);
+    expect((await executeChecks([lintCheck({})], ctx)).narrowed.size).toBe(0);
   });
 
   test('a run that --bail stopped early names it', async () => {
