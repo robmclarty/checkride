@@ -232,6 +232,17 @@ function scopedBlocks(key: 'targets' | 'packs', blocks: unknown): [string, unkno
 }
 
 /**
+ * Every name a `checks` block of the config gives an entry, the top level's,
+ * each target's and each pack's, a custom check's among them, which no
+ * target's name may be (V2), as discovery and `unclaimed` name them.
+ */
+export function checkKeys(config: unknown): string[] {
+  if (!isRecord(config)) return [];
+  const blocks = [config['checks'], ...[...scopedBlocks('targets', config['targets']), ...scopedBlocks('packs', config['packs'])].map(([, checks]) => checks)];
+  return blocks.flatMap((checks) => (isRecord(checks) ? Object.keys(checks) : []));
+}
+
+/**
  * Where the config declares a check named `name`, as `<block>.<name>`, or
  * `null` when it declares none: the top-level `checks`, then each target's,
  * then each pack's. A target's name is never a slot's, so a check it finds is

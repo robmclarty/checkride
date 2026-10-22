@@ -83,10 +83,11 @@ export type AdapterOptions = {
   /**
    * Read by the `unclaimed` built-in, from the config rather than a `checks`
    * entry: the targets that claim markers (the one implicit target at the
-   * root, in a repo without `targets`), and `unclaimed.ignore`, the globs of
-   * marker paths it never reports.
+   * root, in a repo without `targets`), `unclaimed.ignore`, the globs of
+   * marker paths it never reports, and `taken`, the names the config's
+   * `checks` blocks hold, which no target it suggests may take.
    */
-  unclaimed?: { targets: { name: string; pack: string; root: string }[]; ignore: string[] };
+  unclaimed?: { targets: { name: string; pack: string; root: string }[]; ignore: string[]; taken?: string[] };
 };
 
 /** A concrete tool that can fill a slot. */

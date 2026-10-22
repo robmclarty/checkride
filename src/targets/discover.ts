@@ -57,9 +57,10 @@ import { readGoWorkspace } from '../launch/index.js';
 import { PACKS } from '../packs/index.js';
 import { liftDiscovered, picksTool } from './add.js';
 import { isDefaultShellFile } from './files.js';
-import { isWithin, markerAt, markerKind, numbered, repoFiles, slugName } from './markers.js';
+import { isWithin, markerAt, markerKind, repoFiles, slugName } from './markers.js';
+import { nameTargets } from './names.js';
 import type { Target } from './resolve.js';
-import { configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
+import { checkKeys, configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
 
 /** A target discovery proposes. */
 export type ProposedTarget = { name: string; lang: string; root: string };
@@ -247,15 +248,21 @@ function bashRoot(repo: string, files: readonly string[], taken: readonly string
   return shell.length === 0 ? null : commonAncestor(shell.map((f) => posix.dirname(f)));
 }
 
-/** `targets` named per R11.4: each after its root, the bash one by its rule, a number added on a collision. */
-function named(targets: readonly { lang: string; root: string }[]): ProposedTarget[] {
-  const taken = new Set(TAKEN);
-  return targets.map(({ lang, root }) => {
-    const base = lang === PACKS.bash.name ? (root === 'scripts' ? 'scripts' : 'shell') : (root === '.' ? 'app' : slugName(root)) || lang;
-    const name = taken.has(base) ? numbered(base, taken) : base;
-    taken.add(name);
-    return { name, lang, root };
-  });
+/**
+ * `targets` named per R11.4 (`./names.ts`): each after its root, the bash one
+ * by its rule, and a longer name for each that collides with another or with
+ * a slot's, a reserved or a custom check's name in `config`.
+ */
+function named(targets: readonly { lang: string; root: string }[], config: Record<string, unknown> | null): ProposedTarget[] {
+  const nameable = targets.map(({ lang, root }) => ({ lang, root, base: baseName(lang, root) }));
+  const names = nameTargets(nameable, new Set([...TAKEN, ...checkKeys(config)]));
+  return targets.map(({ lang, root }, i) => ({ name: names[i] ?? lang, lang, root }));
+}
+
+/** The name a target's root alone gives it: the bash one `scripts` or `shell`, `app` for the repo root, else the root's last segment. */
+function baseName(lang: string, root: string): string {
+  if (lang === PACKS.bash.name) return root === 'scripts' ? 'scripts' : 'shell';
+  return (root === '.' ? 'app' : slugName(root)) || lang;
 }
 
 /**
@@ -272,7 +279,7 @@ export async function discoverTargets(repo: string, git: GitRunner = realGit(rep
   const terraform = terraformRoots(files).toSorted().map((root) => ({ lang: PACKS.terraform.name, root }));
   const toolchains = [...ts, ...go, ...rust, ...python, ...terraform];
   const bash = bashRoot(repo, files, toolchains.map((t) => t.root));
-  return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])]);
+  return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])], config);
 }
 
 /**

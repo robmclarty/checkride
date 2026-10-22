@@ -34,7 +34,7 @@ import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target } from './targets/index.js';
-import { configProblem, configuredTargets, implicitPack, markerAt, presetProblem, skipExitCodeProblem } from './targets/index.js';
+import { checkKeys, configProblem, configuredTargets, implicitPack, markerAt, presetProblem, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -1676,7 +1676,7 @@ function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection, be
  */
 function withClaims(check: ResolvedCheck, targets: readonly Target[], config: CheckrideConfig | null): ResolvedCheck {
   if (check.adapter?.builtin !== 'unclaimed') return check;
-  const claims = { targets: targets.map(({ name, pack, root }) => ({ name, pack, root })), ignore: config?.unclaimed?.ignore ?? [] };
+  const claims = { targets: targets.map(({ name, pack, root }) => ({ name, pack, root })), ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config) };
   return { ...check, adapter: withOptions(check.adapter, { unclaimed: claims }) };
 }
 

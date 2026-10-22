@@ -144,11 +144,12 @@ describe('findUnclaimed', () => {
     expect((await findUnclaimed(repo, { targets: [web], out: tmpdir() })).map((u) => u.path)).toContain('out/web/package.json');
   });
 
-  test('suggests a name no slot, target or earlier suggestion takes', async () => {
+  /** The rule discovery names its targets by (#18). */
+  test('suggests a name no slot, target, custom check or other suggestion takes, longer for each that collides', async () => {
     await put('a/lint/package.json', 'b/web/package.json', 'c/gen/package.json', 'd/gen/package.json', 'e/gen/package.json');
-    await put('f/My_Tool.v2/package.json', 'g/42go/package.json', 'h/___/package.json');
-    const names = (await findUnclaimed(repo, { targets: [{ ...web, root: 'apps/web' }] })).map((u) => u.suggest.name);
-    expect(names).toEqual(['lint-ts', 'web-ts', 'gen', 'gen-ts', 'gen-2', 'my-tool-v2', 'go', 'ts']);
+    await put('f/My_Tool.v2/package.json', 'g/42go/package.json', 'h/___/package.json', 'i/codegen/package.json');
+    const names = (await findUnclaimed(repo, { targets: [{ ...web, root: 'apps/web' }], taken: ['codegen'] })).map((u) => u.suggest.name);
+    expect(names).toEqual(['a-lint', 'b-web', 'c-gen', 'd-gen', 'e-gen', 'my-tool-v2', 'go', 'ts', 'i-codegen']);
   });
 
   test('in a git repo, an ignored marker is never reported, and an untracked one is', async () => {

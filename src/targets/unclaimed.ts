@@ -17,7 +17,8 @@ import type { GitRunner } from '../git.js';
 import { realGit } from '../git.js';
 import type { CheckOutcome } from '../links.js';
 import { excluded, globRegExp } from './files.js';
-import { isWithin, markerKind, NAME_LENGTH, numbered, repoFiles, slugName } from './markers.js';
+import { isWithin, markerKind, repoFiles, slugName } from './markers.js';
+import { nameTargets } from './names.js';
 import { RESERVED_SLOTS } from './resolve.js';
 
 /** A target as `unclaimed` reads it: the pack that checks it, from its root. */
@@ -32,18 +33,18 @@ export type UnclaimedInput = {
   readonly ignore?: readonly string[];
   /** The output directory, absolute or relative to the repo root; what's under it is checkride's own. */
   readonly out?: string;
+  /** Names the config's `checks` blocks take, a custom check's among them, which a suggested target can't. */
+  readonly taken?: readonly string[];
 };
 
 /**
- * A name for a target rooted at `dir`, free of every name in `taken`: the
- * directory's own, `app` for the repo root, then the kind added, then a number.
+ * A name for each target `wanted` suggests, by `${kind}:${dir}`, free of
+ * every name in `taken`, under the rule discovery names its targets by
+ * (`./names.ts`).
  */
-function suggestName(dir: string, kind: string, taken: Set<string>): string {
-  const base = (dir === '.' ? 'app' : slugName(dir)) || kind;
-  const candidates = [base, `${base}-${kind}`.slice(0, NAME_LENGTH)];
-  const free = candidates.find((n) => !taken.has(n)) ?? numbered(base, taken);
-  taken.add(free);
-  return free;
+function suggestNames(wanted: readonly { kind: string; dir: string }[], taken: ReadonlySet<string>): Map<string, string> {
+  const names = nameTargets(wanted.map(({ kind, dir }) => ({ lang: kind, root: dir, base: (dir === '.' ? 'app' : slugName(dir)) || kind })), taken);
+  return new Map(wanted.map(({ kind, dir }, i) => [`${kind}:${dir}`, names[i] ?? kind]));
 }
 
 /** The output directory relative to the repo root, when it sits inside it. */
@@ -63,20 +64,18 @@ function outPrefix(repo: string, out: string | undefined): string | null {
 export async function findUnclaimed(repo: string, input: UnclaimedInput, git: GitRunner = realGit(repo)): Promise<Unclaimed[]> {
   const ignore = (input.ignore ?? []).map(globRegExp);
   const out = outPrefix(repo, input.out);
-  const taken = new Set([...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, ...input.targets.map((t) => t.name)]);
-  const suggested = new Map<string, string>();
+  const taken = new Set([...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, ...input.targets.map((t) => t.name), ...(input.taken ?? [])]);
   const paths = await repoFiles(repo, git);
-  return paths.flatMap((path) => {
+  const found = paths.flatMap((path) => {
     const kind = markerKind(path);
     if (kind === null || excluded(path, ignore)) return [];
     if (out !== null && isWithin(path, out)) return [];
     const dir = posix.dirname(path);
-    if (input.targets.some((t) => t.pack === kind && isWithin(dir, t.root))) return [];
-    const key = `${kind}:${dir}`;
-    const name = suggested.get(key) ?? suggestName(dir, kind, taken);
-    suggested.set(key, name);
-    return [{ path, kind, suggest: { name, lang: kind, root: dir } }];
+    return input.targets.some((t) => t.pack === kind && isWithin(dir, t.root)) ? [] : [{ path, kind, dir }];
   });
+  const wanted = [...new Map(found.map(({ kind, dir }) => [`${kind}:${dir}`, { kind, dir }])).values()];
+  const names = suggestNames(wanted, taken);
+  return found.map(({ path, kind, dir }) => ({ path, kind, suggest: { name: names.get(`${kind}:${dir}`) ?? kind, lang: kind, root: dir } }));
 }
 
 /**

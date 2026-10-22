@@ -70,6 +70,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   caps hid as new on its first run: have a human review them and run
   `checkride baseline`, which counts each key's findings too.
 
+- **Discovered targets whose names collide get names that say what they
+  check.** With ts and go both rooted at `.` and two Terraform roots named
+  `infra`, discovery named the targets `app`, `app-2`, `infra` and `infra-2`,
+  and the AGENTS.md stanza listed checks such as `app-2:lint` (#18). Every
+  target in a collision now takes a longer name, whatever order discovery
+  found them in: targets that share a root take their pack's name (`ts`,
+  `go`), targets at different roots the shortest run of their root's trailing
+  segments that tells them apart (`api-infra`, `web-infra`), and one that
+  would take a slot's or a reserved name its pack's name after its own
+  (`test-ts`), with a number only when nothing else is free. A custom check's
+  name in the config counts as taken, which before made `init` stop with a
+  config error. `unclaimed` suggests names by the same rule. A target with a
+  name of its own keeps it, so most repos see no change.
+
 ### Fixed
 
 - **The generated gate script passes shellcheck.** Once a bash target covered
@@ -120,6 +134,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### Not additive
 
+- Changed: discovery and `unclaimed` name colliding targets by pack or by
+  their roots' trailing segments, where 0.16 numbered all but the first, so a
+  `--discover` run in such a repo names its checks, its `.check/<target>/`
+  directories and its summary's `targets` differently.
 - Changed: the go pack's golangci-lint `lint` check runs with
   `--max-issues-per-linter=0 --max-same-issues=0 --uniq-by-line=false`, so its
   `argv`, its `lint.json` and the keys it reports include findings 0.16 hid.
@@ -136,6 +154,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride.baseline.json` and its schema take `counts`, and the reader's
   tolerance rules cover it. `baseline diff --json` takes `recounted` and
   `recounted_count`.
+- The exported `Adapter` type's `options.unclaimed` takes `taken`, the names
+  a suggested target can't have.
 - A summary check and its schema take `new_count` and `new`, and the exported
   `SummaryCheck` type takes both. A failed check's `reason` is also present on
   one that never reached a verdict (`exit_code: -1`), naming what stopped it.

@@ -90,9 +90,16 @@ describe('discoverTargets', () => {
     expect(await discoverTargets(repo)).toEqual([{ name: 'shell', lang: 'bash', root: '.' }]);
   });
 
-  test('a name a slot, a reserved name or an earlier target holds gets a number', async () => {
+  /** A name that says what it checks, whatever order discovery found the roots in (#18). */
+  test('targets whose names collide, or take a slot’s or a reserved name, take longer ones', async () => {
     await put('apps/web/package.json', 'libs/web/package.json', 'test/package.json', 'pkg/doc-snippets/package.json', 'x/My Lib/package.json');
-    expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['web', 'web-2', 'doc-snippets-2', 'test-2', 'my-lib']);
+    expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['apps-web', 'libs-web', 'pkg-doc-snippets', 'test-ts', 'my-lib']);
+  });
+
+  test('two roots of one name take the shortest trailing path that tells them apart, and a custom check’s name is taken', async () => {
+    await put('services/api/infra/main.tf', 'services/api/infra/.terraform.lock.hcl', 'services/web/infra/main.tf', 'services/web/infra/.terraform.lock.hcl', 'tools/lint-all/package.json');
+    expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['lint-all', 'api-infra', 'web-infra']);
+    expect((await discoverTargets(repo, undefined, { checks: { 'lint-all': { command: 'true' } } })).map((t) => t.name)).toEqual(['tools-lint-all', 'api-infra', 'web-infra']);
   });
 
   test('reads no marker from installed dependencies or test fixtures, and finds nothing in an empty repo', async () => {
@@ -190,14 +197,17 @@ describe('discoverTargets for go and rust (D68)', () => {
     expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'rust', root: '.' }]);
   });
 
-  test('a root package.json that runs a ts tool beside a go.mod proposes both, and the second root target takes a number', async () => {
+  test('a root package.json that runs a ts tool beside a go.mod proposes both, each named by its pack (#18)', async () => {
     await write('package.json', '{}');
     await write('tsconfig.json', '{}');
     await write('go.mod', 'module example.com/app\n');
     expect(await discoverTargets(repo)).toEqual([
-      { name: 'app', lang: 'ts', root: '.' },
-      { name: 'app-2', lang: 'go', root: '.' },
+      { name: 'ts', lang: 'ts', root: '.' },
+      { name: 'go', lang: 'go', root: '.' },
     ]);
+    // A directory that holds the pack's name keeps it, and the root target falls back to its pack after app.
+    await write('go/pyproject.toml', '');
+    expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['ts', 'app-go', 'go']);
   });
 });
 
@@ -234,8 +244,8 @@ describe('discoverTargets for python', () => {
     await write('tsconfig.json');
     await write('pyproject.toml');
     expect(await discoverTargets(repo)).toEqual([
-      { name: 'app', lang: 'ts', root: '.' },
-      { name: 'app-2', lang: 'python', root: '.' },
+      { name: 'ts', lang: 'ts', root: '.' },
+      { name: 'python', lang: 'python', root: '.' },
     ]);
   });
 

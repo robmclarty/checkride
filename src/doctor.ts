@@ -71,7 +71,7 @@ import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag,
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
-import { checkName, configuredTargets, findUnclaimed, implicitPack, markerAt } from './targets/index.js';
+import { checkKeys, checkName, configuredTargets, findUnclaimed, implicitPack, markerAt } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -1032,7 +1032,7 @@ function markersRow(found: readonly Unclaimed[] | string, implicit: string | nul
 /** The markers no target claims, the implicit target's included, or why they couldn't be listed. */
 async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string | undefined): Promise<Unclaimed[] | string> {
   try {
-    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], ...(out !== undefined ? { out } : {}) });
+    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config), ...(out !== undefined ? { out } : {}) });
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }

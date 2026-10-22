@@ -784,8 +784,13 @@ root wins and the outer one proposes nothing, since two targets of one pack
 can't nest: its markers stay unclaimed, so `unclaimed` reports them rather
 than the run failing. The shell files outside all of those gather into one
 `bash` target, those at such an outer root included. A
-target is named after its root's last segment, `.` becoming `app`, numbered on
-a collision. When discovery proposes nothing, or only one target at the root of
+target is named after its root's last segment, `.` becoming `app`. When two
+targets would take one name, or one would take a slot's, a reserved or a
+custom check's name, each of them takes a longer one, whatever order they were
+found in: targets at one root their pack's name (`ts` and `go`), targets at
+different roots the shortest run of their root's trailing segments no other of
+them shares (`api-infra` and `web-infra`), and one with neither its pack's
+name after its own (`test-ts`), then a number. When discovery proposes nothing, or only one target at the root of
 the pack the root marks, the repo stays in implicit mode and the run is
 unchanged. Otherwise the target at the root of that pack takes the top-level
 entries for target-scope slots and the baseline's entries, `lint` read as
@@ -864,9 +869,9 @@ directory, in checkride's own format, even when it passes:
                    "suggest": { "name": "gen", "lang": "ts", "root": "tools/gen" } } ] }
 ```
 
-`suggest` is the target that would claim the marker, named after its
-directory, or `app` at the root, with the kind or a number added when a slot,
-a target or another suggestion holds that name. A root `package.json` above
+`suggest` is the target that would claim the marker, named as discovery
+names its targets: after its directory, or `app` at the root, and longer when
+a slot, a target, a custom check or another suggestion holds that name. A root `package.json` above
 ts targets in their own directories is unclaimed, and because two ts targets
 can't nest, the way to quiet it is `unclaimed.ignore: ["package.json"]`. The
 same holds for any marker whose suggested target would hold a target of its
