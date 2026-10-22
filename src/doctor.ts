@@ -285,7 +285,7 @@ export function probeFailure(err: unknown): string {
   const hint = setupHint({ stdout, stderr });
   if (hint !== null) return hint;
   const lines = `${stderr}\n${stdout}`.split('\n').map((line) => line.trim()).filter(Boolean);
-  return lines.find((line) => /\bERR_|error/i.test(line)) ?? lines[0] ?? (err instanceof Error ? err.message : 'exited non-zero');
+  return lines.find((line) => /\bERR_|error/i.test(line)) ?? lines[0] ?? (err instanceof Error ? err.message.trim() : 'exited non-zero');
 }
 
 /**

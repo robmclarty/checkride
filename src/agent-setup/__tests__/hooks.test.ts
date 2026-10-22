@@ -244,7 +244,7 @@ describe('generated scripts', () => {
       for (const entry of ['pnpm', { kind: 'mise' }] as const) {
         const script = gateScript(entry, { harness });
         const emits = script.split('\n').filter((l) => /^\s*(block|stand_down) '/.test(l));
-        expect(emits.length).toBeGreaterThanOrEqual(3);
+        expect(emits.length).toBeGreaterThanOrEqual(entry === 'pnpm' ? 4 : 3);
         for (const emit of emits) {
           const message = /'(.*)'/.exec(emit)?.[1] ?? '';
           expect(message).toContain('could not run');
@@ -337,6 +337,59 @@ describe('generated scripts', () => {
         expect(use.index).toBeLessThan(fallthrough);
       }
     }
+  });
+
+  /**
+   * A `packageManager` pin the pnpm on PATH doesn't satisfy refuses the hook's
+   * own `pnpm exec`, so checkride never starts (#16). A failing `--version`
+   * tells that apart from a checkride that didn't answer, and stands down,
+   * since no edit switches the machine's pnpm. Spawned live, with a fake pnpm.
+   */
+  describe('a package manager that refuses the repo', () => {
+    let dir: string;
+    beforeEach(async () => {
+      dir = await mkdtemp(join(tmpdir(), 'checkride-gate-pm-'));
+      await mkdir(join(dir, 'node_modules', '.bin'), { recursive: true });
+      await writeFile(join(dir, 'node_modules', '.bin', 'checkride'), '');
+      await mkdir(join(dir, 'bin'));
+    });
+    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+    /** Run the claude gate under a fake `pnpm` that exits with `versionExit` on `--version` and 1 on anything else. */
+    async function gateUnder(versionExit: number): Promise<{ status: number | null; stdout: string }> {
+      const pnpm = join(dir, 'bin', 'pnpm');
+      await writeFile(pnpm, `#!/bin/sh\n[ "$1" = --version ] && exit ${versionExit}\necho 'Error: ERR_PNPM_BAD_PM_VERSION' >&2\nexit 1\n`);
+      await chmod(pnpm, 0o755);
+      const script = join(dir, 'gate.sh');
+      await writeFile(script, gateScript('pnpm', { harness: 'claude', dirtyGuard: false }));
+      const result = spawnSync('sh', [script], {
+        input: '{"stop_hook_active":false}',
+        encoding: 'utf8',
+        env: { PATH: `${join(dir, 'bin')}:/usr/bin:/bin`, CLAUDE_PROJECT_DIR: dir },
+      });
+      return { status: result.status, stdout: result.stdout };
+    }
+
+    test('stands down, naming the failing --version, when pnpm refuses that too', async () => {
+      const { status, stdout } = await gateUnder(1);
+      expect(status).toBe(0);
+      expect(stdout).toContain('"systemMessage":"checkride: the gate could not run — `pnpm --version` fails in this repo');
+      expect(stdout).toContain('Nothing was verified this turn.');
+    });
+
+    test('still blocks as checkride not answering when pnpm itself runs', async () => {
+      const { status, stdout } = await gateUnder(0);
+      expect(status).toBe(2);
+      expect(stdout).toBe('');
+    });
+  });
+
+  test('only a package-manager entry asks its package manager, and only after the launch failed', () => {
+    const script = gateScript('pnpm', { harness: 'cursor' });
+    expect(script.indexOf('if ! pnpm --version >/dev/null 2>&1; then')).toBeGreaterThan(script.indexOf('esac'));
+    expect(gateScript('npm', { harness: 'claude' })).toContain('if ! npm --version >/dev/null 2>&1; then');
+    expect(gateScript({ kind: 'mise' }, { harness: 'claude' })).not.toContain('--version >/dev/null');
+    expect(gateScript({ kind: 'path' }, { harness: 'claude' })).not.toContain('--version >/dev/null');
   });
 
   test('the dirty script creates the marker directory and always exits 0', () => {

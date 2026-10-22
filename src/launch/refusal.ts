@@ -117,10 +117,13 @@ const REFUSALS: readonly LaunchRefusal[] = [
   },
   // The repo's `packageManager` (or `devEngines.packageManager`) pin, refused.
   // `environment`, because the usual cause is a pnpm on PATH the pin doesn't
-  // name, as after a global upgrade, which no edit in the turn can switch. An
-  // agent could also write an unsatisfiable pin to make the gate stand down,
-  // but the generated hook's retry guard already stands down on a second
-  // could-not-run of any cause, so blocking here would close no way out.
+  // name, as after a global upgrade, which no edit in the turn can switch.
+  // Unlike a missing `check` script, an agent could make one only by writing
+  // a pin no pnpm can satisfy, and the stand-down says loudly, every turn, that
+  // nothing was verified. These are read where checkride starts outside the
+  // package manager, a mise or PATH entry and `triage`: under a script entry
+  // the same pin refuses the hook's own `<pm> exec`, which the generated hook
+  // tells apart by its failing `--version`.
   // Most specific first: pnpm 11 prints a mismatched version after the same
   // `[ERROR] This project is configured to use ` it prints for another manager.
   {

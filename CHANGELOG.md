@@ -50,24 +50,32 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   every command, `--version` included, and `doctor` reported "Could not parse
   `pnpm --version` output" (#16). A `--version` probe that exits non-zero now
   says why on its row: the pin and the pnpm it refused, read from pnpm 11's and
-  12's own wording, or the first line naming an error. npm, yarn and bun, which
-  `doctor` checks for presence only, read `unknown` with that line rather than
-  `ok` when `--version` fails, so `doctor` exits 1 there. A check that pnpm
-  refuses this way names the pin beneath its red status line, and `gate`
-  stands down on it, with pnpm's `ERR_PNPM_OTHER_PM_EXPECTED` and corepack's
-  refusal of another manager, since the fix is the machine's package manager,
-  not an edit. And each `digest.md` section now quotes the line the check's
-  status line printed, or its refusal, above the excerpt, so a pnpm error
-  that a stray `undefined` line led no longer stands alone.
+  12's own wording, or the first line naming an error. npm, yarn, bun and git,
+  which `doctor` checks for presence only, read `unknown` with that line, or
+  with the timeout, rather than `ok` when `--version` fails or times out, so
+  `doctor` exits 1 there. A check that pnpm refuses this way names the pin
+  beneath its red status line. The gate stands down on it, as it does on
+  pnpm's `ERR_PNPM_OTHER_PM_EXPECTED` and corepack's refusal of another
+  manager, since the fix is the machine's package manager, not an edit: the
+  generated hook, when the package manager it launches checkride through fails
+  `--version` as well, rather than reporting that checkride didn't answer, and
+  `checkride gate` itself, started through mise or from `PATH`, when the
+  `check` script's launch is refused. A repo picks up the hook on its next
+  `checkride agent-setup` or `init`. And each `digest.md` section now quotes
+  the line the check's status line printed, or its refusal, above the
+  excerpt, so a pnpm error that a stray `undefined` line led no longer stands
+  alone.
 
 ### Contract
 
 #### Additive
 
-- `gate` counts a pnpm the repo's `packageManager` pin refuses, and a
+- The gate counts a pnpm the repo's `packageManager` pin refuses, and a
   `packageManager` that names another manager, among the refusals only the
-  environment can fix, so it stands down on them where 0.16 read them as a
-  red and blocked. The contract names the first among its examples.
+  environment can fix, so it stands down on them where 0.16 blocked. The
+  generated hook stands down when the package manager it launches checkride
+  through fails `--version`, where 0.16 blocked once as checkride not
+  answering. The contract names the pin among its examples.
 
 ## [0.16.0] - 2026-10-22
 

@@ -39,7 +39,7 @@ function fakeEnv(over: Partial<DoctorEnv> = {}): DoctorEnv {
 
 /** A rejected `pnpm --version`, as `execFile` rejects one, with the streams it printed. */
 function fail(stdout: string, stderr: string): Error {
-  return Object.assign(new Error('Command failed: pnpm --version'), { stdout, stderr });
+  return Object.assign(new Error('Command failed: pnpm --version\n'), { stdout, stderr });
 }
 
 function toolAdapter(name: string, slot: string): Adapter {

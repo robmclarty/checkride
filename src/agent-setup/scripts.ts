@@ -145,6 +145,40 @@ const notAnswering = (entry: EntryCommand, harness: HarnessName): string =>
   ].join(' ');
 
 /**
+ * The package manager refused to start, so it never reached checkride: a
+ * `packageManager` pin the one on `PATH` doesn't satisfy refuses every
+ * command, `exec` and `--version` alike. Like a missing install, no edit in
+ * the turn changes which package manager the machine runs, so this stands
+ * down, and says how to see why.
+ */
+const managerRefused = (pm: string): string =>
+  [
+    `checkride: the gate could not run — \`${pm} --version\` fails in this repo, so ${pm} refuses to run anything here, as it does when the packageManager pin of the repo names a ${pm} other than the one on PATH.`,
+    NOTHING_RAN,
+    `Run \`${pm} --version\` in a terminal to see why, then switch to a ${pm} the pin names.`,
+    'Not blocking: the fix is the package manager on this machine rather than an edit, so blocking would only repeat this ' +
+      'message. Nothing was verified this turn.',
+  ].join(' ');
+
+/**
+ * For an entry that launches checkride through the package manager, the
+ * branch that tells a package manager refusing the repo apart from a
+ * checkride that didn't answer, since both leave the launch with neither of
+ * the gate's codes. Asked only once the launch has failed, so a working gate
+ * never pays for the spawn.
+ */
+function refusedBranch(entry: EntryCommand): string[] {
+  if (entry.kind !== 'script') return [];
+  return [
+    '# A package manager that refuses the repo, as one its packageManager pin',
+    "# doesn't name does, refuses `--version` too, and never reached checkride.",
+    `if ! ${entry.pm} --version >/dev/null 2>&1; then`,
+    `  stand_down ${shellWord(managerRefused(entry.pm))}`,
+    'fi',
+  ];
+}
+
+/**
  * The shell test for whether the entry command's checkride is there to run:
  * the package manager's install (or a Yarn PnP map), the copy mise pins, or a
  * `checkride` on `PATH`.
@@ -306,8 +340,9 @@ function gateTail(harness: HarnessName, entry: EntryCommand): string[] {
   return [
     ...answered,
     '',
-    "# Neither of checkride's two gate codes: checkride itself never ran. Which of",
-    '# the two reasons it was decides whether blocking could accomplish anything.',
+    "# Neither of checkride's two gate codes: checkride itself never ran. Which",
+    '# reason it was decides whether blocking could accomplish anything.',
+    ...refusedBranch(entry),
     `if ${installedTest(entry)}; then`,
     `  block ${shellWord(notAnswering(entry, harness))}`,
     'fi',
