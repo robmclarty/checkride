@@ -26,18 +26,38 @@
 import type { CheckOutput, KeyedFinding } from '../findings/index.js';
 import { baselineParserFor, parserFor, streamText } from '../findings/index.js';
 import type { FallowVerdict } from './fallow.js';
+import type { BaselineEntry } from './store.js';
 import { fallowVerdict } from './fallow.js';
 
 /** A stable, order-independent set of diagnostic keys for one adapter's output. */
 export type Fingerprint = ReadonlySet<string>;
 
 /**
- * The keys of the findings that can fail the check. A finding whose parser
- * can't tell whether it gates is keyed: keying one that can't fail costs a
- * false red, while skipping one that can would mask a red run green.
+ * Each key of one adapter's output with how many findings share it: a key
+ * names a finding by what it is, not where it sits, so two unchecked
+ * `x.Close()` calls in one file are one key found twice. The baseline counts
+ * against it, so a key grandfathers as many findings as it was captured with.
  */
-function gatingKeys(findings: readonly KeyedFinding[]): Fingerprint {
-  return new Set(findings.filter((f) => f.gates !== false).map((f) => f.key));
+export type Tally = ReadonlyMap<string, number>;
+
+/**
+ * The findings that can fail the check, by key. A finding whose parser can't
+ * tell whether it gates is keyed: keying one that can't fail costs a false
+ * red, while skipping one that can would mask a red run green.
+ */
+function gatingTally(findings: readonly KeyedFinding[]): Tally {
+  const counted = new Map<string, number>();
+  for (const { key, gates } of findings) {
+    if (gates !== false) counted.set(key, (counted.get(key) ?? 0) + 1);
+  }
+  return counted;
+}
+
+/** How many findings a tally holds, every key's count summed. */
+export function tallied(counted: Tally): number {
+  let total = 0;
+  for (const n of counted.values()) total += n;
+  return total;
 }
 
 /**
@@ -52,11 +72,11 @@ export function findingText(adapter: string, output: CheckOutput): string {
 
 /**
  * Derives one slot's pass/fail (and its baseline bookkeeping) from the tool's
- * raw report instead of its exit code. `baselineKeys === null` means no
- * baseline is active — the same contract as {@link fallowVerdict} — and `root`
- * is the check's root, which its keys' paths are joined onto.
+ * raw report instead of its exit code. `entry === null` means no baseline is
+ * active — the same contract as {@link fallowVerdict} — and `root` is the
+ * check's root, which its keys' paths are joined onto.
  */
-type ReportVerdict = (raw: string, baselineKeys: readonly string[] | null, root?: string) => FallowVerdict;
+type ReportVerdict = (raw: string, entry: BaselineEntry | null, root?: string) => FallowVerdict;
 
 /**
  * Report verdicts keyed by adapter name (not slot), like the parsers: only
@@ -91,7 +111,7 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * `diagnostics` record, ast-grep's array). Either way the run contributes
  * nothing to the baseline and prunes nothing from it. Whether the *run* can be
  * trusted is a further question this function doesn't ask; see
- * {@link observedFingerprint}.
+ * {@link observedTally}.
  *
  * `argv` is the check's command and then its args, as declared for the run
  * (`changedArgs` included under `--changed`). Only findings that can fail the
@@ -114,16 +134,22 @@ export function fingerprint(
   root?: string,
   repoRoot?: string,
 ): Fingerprint | null {
+  const counted = tally(adapter, raw, argv, root, repoRoot);
+  return counted === null ? null : new Set(counted.keys());
+}
+
+/** {@link fingerprint}, with how many findings share each key: `null` exactly where it is. */
+export function tally(adapter: string, raw: string, argv?: readonly string[], root?: string, repoRoot?: string): Tally | null {
   const findings = baselineParserFor(adapter)?.parse(raw, { argv, root, repoRoot });
-  return findings === undefined || findings === null ? null : gatingKeys(findings);
+  return findings === undefined || findings === null ? null : gatingTally(findings);
 }
 
 /** The parts of a check's outcome the trust rule reads: its streams, its verdict, and its exit code. */
 type ObservedOutcome = CheckOutput & { readonly ok: boolean; readonly exit_code: number };
 
 /**
- * The fingerprint one run *observed*: the one both the ratchet and a
- * `checkride baseline` capture key from, so the two can't disagree about which
+ * The tally one run *observed*: the one masking, the ratchet and a
+ * `checkride baseline` capture all key from, so they can't disagree about which
  * runs count. `null` when there is nothing to observe — the adapter has no
  * parser or its parser couldn't trust the output ({@link fingerprint}) — and
  * also when the check never reached a verdict on its own findings:
@@ -139,14 +165,14 @@ type ObservedOutcome = CheckOutput & { readonly ok: boolean; readonly exit_code:
  * all fixed still ratchets to empty. `argv`, `root` and `repoRoot` are
  * {@link fingerprint}'s.
  */
-export function observedFingerprint(
+export function observedTally(
   adapter: string,
   outcome: ObservedOutcome,
   argv?: readonly string[],
   root?: string,
   repoRoot?: string,
-): Fingerprint | null {
-  const current = fingerprint(adapter, findingText(adapter, outcome), argv, root, repoRoot);
+): Tally | null {
+  const current = tally(adapter, findingText(adapter, outcome), argv, root, repoRoot);
   if (current === null || outcome.exit_code === -1 || (!outcome.ok && current.size === 0)) return null;
   return current;
 }

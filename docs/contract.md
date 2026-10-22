@@ -398,13 +398,17 @@ what the file is for; this section names what a consumer may rely on.
   "captured_with": {
     "lint": { "pin_source": "js-lockfile", "tool_version": "1.87.0" },
     "spell": { "pin_source": "js-lockfile", "tool_version": "9.0.0" }
+  },
+  "counts": {
+    "lint": { "src/legacy.ts:eslint(no-unused-vars):Variable 'legacy' is declared but never used.": 2 },
+    "spell": {}
   }
 }
 ```
 
 **The same additive-only discipline as the summary.** Under schema version 1
 the file has `schema_version`, the integer `1`, `slots`, and optionally
-`captured_with`, and no other top-level field. `slots` is an object from
+`captured_with` and `counts`, and no other top-level field. `slots` is an object from
 check name to an array of key strings: the slot name, or `<target>:<slot>`
 for a target's check. A slot
 whose adapter can be fingerprinted and had nothing to grandfather is present
@@ -415,7 +419,10 @@ parser can't trust, is absent. `captured_with` records how
 named, when it named one, and the `toolchain_version` its tool ran on, for a
 check of a pack that names a toolchain, as the run's summary recorded them. It holds only
 checks `slots` holds, and only those whose tool resolved through a pin
-source, and it's absent when none did. Fields
+source, and it's absent when none did. `counts` says how many findings each
+key grandfathers, for a counted check: check name to each of its keys found
+more than once, with how many times. It holds only checks `slots` holds with
+at least one key, and it's absent when no check is counted. Fields
 are added in lockstep with the published schema, never renamed, removed, or
 retyped; a non-additive change bumps `schema_version` and is a breaking
 release. The schema describes what checkride **writes**. What it accepts on
@@ -463,6 +470,17 @@ absolute path inside the repo, which staticcheck, ruff and basedpyright print
 for every finding, is made relative to the repo root, so a key reads the same
 on every machine.
 
+**A key grandfathers as many findings as it was captured with.** A key has
+no position, so two of one finding in a file, two unchecked `x.Close()` calls,
+share it. A check `counts` names is counted: each key grandfathers its count,
+or one when the entry doesn't list it, and a finding past that is new. It
+fails the check as a new key does, and stderr lists the key with both numbers,
+`(3 found, 2 grandfathered)`. A check `counts` doesn't name was captured before
+counts, by a release before them, and each of its keys grandfathers any number
+of findings, as every key did then, so an upgrade changes no verdict. A
+summary's `baselined` counts the findings the baseline grandfathered, not its
+keys.
+
 **The message inside a key belongs to the tool.** A key carries the tool's own
 wording. A tool upgrade that rewords a message, renames a rule, or restructures
 its report re-keys those findings, and they report as new until
@@ -489,7 +507,8 @@ with no record in `captured_with` is never held back.
 (including `init --baseline`), the ratchet, `recover --pick` — writes one shape:
 slot names sorted, keys within each slot sorted and unique, `captured_with`
 after `slots` with its checks sorted and each entry's `pin_source` before its
-`tool_version`, and that before its `toolchain_version`, two-space indentation, a trailing newline, through the
+`tool_version`, and that before its `toolchain_version`, then `counts`, its
+checks and keys sorted, each count two or more, two-space indentation, a trailing newline, through the
 temp-file-then-rename write of the crash-consistency promise above. Two
 branches that grandfather the same debt with the same tools produce
 byte-identical files, and a write that would change nothing is skipped. A hunk
@@ -502,7 +521,11 @@ object, masks nothing, and the run says so on stderr; `doctor` flags the same
 file between runs. Inside a file that does parse, an unknown top-level field is
 ignored, a slot whose value is not an array is dropped, a non-string key is
 dropped, a `captured_with` entry that names no `pin_source` string, or no check
-in `slots`, is dropped, and a missing `schema_version` reads as `1`. A `schema_version` above
+in `slots`, is dropped, a `counts` entry for a check `slots` doesn't hold is
+dropped, and so is a count for a key the check doesn't hold, or one that isn't
+a whole number of two or more. A `counts` entry that isn't an object still
+counts its check, each key once, so a damaged count fails closed. A missing
+`schema_version` reads as `1`. A `schema_version` above
 the one this release writes is dropped whole: the run reports every finding
 that is there rather than guess which ones a newer file meant to mask. The
 reader takes text, not a path, so a historical copy from `git show` parses
@@ -511,7 +534,13 @@ under the same rules — which is what `recover` is built on.
 **Who writes to it.** Keys are added only by `checkride baseline` and
 `recover --pick`; a normal run only removes them, and only on a fully observed
 run — the ratchet rule in [Timeouts and interrupts](#timeouts-and-interrupts),
-and so does `checkride baseline --versions`, which never adds one.
+and so does `checkride baseline --versions`, which never adds one. Counts
+follow keys: `checkride baseline` counts every check it observes that holds a
+key, the ratchet and `--versions` only lower a count to what the run found,
+and never count a check, and `recover`'s union keeps each current key's count,
+taking a recovered key's from the first counted snapshot that holds it.
+A release before counts drops `counts` when its ratchet rewrites the file,
+which leaves every key grandfathering any number again.
 A check observes its entry only when it reached a verdict on its own findings.
 One that timed out, failed to spawn or was interrupted (exit `-1`), or that
 failed without a single finding its parser could read (a refusal, missing
@@ -947,13 +976,18 @@ existed reports every current key as added. `--json` prints one object:
   "added": { "lint": ["src/a.ts:eslint(no-unused-vars):Variable 'x' is declared but never used."] },
   "removed": { "struct": ["src/b.ts:no-class:no classes"] },
   "added_count": 1,
-  "removed_count": 1
+  "removed_count": 1,
+  "recounted": { "lint": { "src/c.ts:errcheck:Error return value of `x.Close` is not checked": { "from": 1, "to": 2 } } },
+  "recounted_count": 1
 }
 ```
 
 `ref` is the ref as given, `sha` the full sha it resolved to, and `added` and
 `removed` map each check that changed to its sorted keys, leaving out checks
-that didn't. Fields are added, never renamed or removed. It exits 0 whenever
+that didn't. `recounted` maps each check to the keys both copies hold whose
+count changed, each to `{ "from": n, "to": n }`, the findings it grandfathers
+at `ref` and in the working tree, `null` for a check captured before counts,
+and `recounted_count` counts them. Fields are added, never renamed or removed. It exits 0 whenever
 it ran, keys added or not, because the diff is evidence rather than a verdict,
 and 2 when the ref names no commit, git is missing, or either copy can't be
 parsed (a file from a newer checkride included). `--config` belongs to the

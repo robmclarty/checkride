@@ -33,17 +33,18 @@
 
 import type { Adapter, Slot } from './adapters.js';
 import { isInside } from './artifacts/index.js';
-import type { Baseline, Captured, Fingerprint, Observation, RanWith, Rerecord } from './baseline/index.js';
+import type { Baseline, Captured, Observation, RanWith, Recount, Rerecord, Tally } from './baseline/index.js';
 import {
   BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
   baselinesEqual,
   capturedRecord,
   copyNamed,
+  countGrandfathered,
   diffBaselines,
   isFingerprintable,
   loadBaseline,
-  observedFingerprint,
+  observedTally,
   readBaselineAt,
   readBaselineStatus,
   rerecordCopies,
@@ -83,37 +84,51 @@ export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline
  * target's root and an absolute path made relative to the repo root, as a run
  * masks with them, read from the stream the adapter's parser declares.
  *
+ * Each check it observed is counted: a key found more than once records how
+ * many times, so it grandfathers that many findings and no more.
+ *
  * A check whose adapter has a parser but whose run wasn't observed (a refusal,
- * timeout or crash — see `observedFingerprint`) keeps the keys `previous`
- * holds for it, and stderr names it. Leaving it out instead would write the
- * file without it, which masks exactly what an empty entry does: the capture
- * would throw away debt the run never looked at.
+ * timeout or crash — see `observedTally`) keeps the keys `previous` holds for
+ * it, and their counts, or none, and stderr names it. Leaving it out instead
+ * would write the file without it, which masks exactly what an empty entry
+ * does: the capture would throw away debt the run never looked at.
  */
-function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): { slots: Record<string, string[]>; kept: Set<string> } {
-  const slots: Record<string, string[]> = {};
-  const kept = new Set<string>();
-  for (const [name, keys] of observedChecks(runs, cwd)) {
-    if (keys !== null) {
-      slots[name] = [...keys].toSorted();
+function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): Captures {
+  const captures: Captures = { slots: {}, counts: {}, kept: new Set<string>() };
+  for (const [name, tally] of observedChecks(runs, cwd)) {
+    if (tally === null) {
+      keepPrevious(name, previous, captures);
+      stderr.write(`baseline: ${name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previous?.slots[name]?.length ?? 0} previous key(s)\n`);
       continue;
     }
-    const previousKeys = previous?.slots[name];
-    if (previousKeys !== undefined) slots[name] = previousKeys;
-    kept.add(name);
-    stderr.write(`baseline: ${name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previousKeys?.length ?? 0} previous key(s)\n`);
+    captures.slots[name] = [...tally.keys()].toSorted();
+    if (tally.size > 0) captures.counts[name] = Object.fromEntries([...tally].filter(([, n]) => n >= 2));
   }
-  return { slots, kept };
+  return captures;
+}
+
+/** What a capture records: each check's keys and their counts, and the checks it kept from the previous file. */
+type Captures = { slots: Record<string, string[]>; counts: Record<string, Record<string, number>>; kept: Set<string> };
+
+/** Keep a check the capture didn't observe as `previous` held it: its keys, and their counts if it counted them. */
+function keepPrevious(name: string, previous: Baseline | null, captures: Captures): void {
+  const keys = previous?.slots[name];
+  const counts = previous?.counts?.[name];
+  if (keys !== undefined) captures.slots[name] = keys;
+  if (counts !== undefined) captures.counts[name] = counts;
+  captures.kept.add(name);
 }
 
 /**
  * What a capture run observed of each check whose adapter has a parser, by
- * check name: the keys it reported, keyed as a run masks with them, or `null`
- * for a check that didn't run to a verdict (see `observedFingerprint`).
+ * check name: the keys it reported, with how many findings share each, keyed
+ * as a run masks with them, or `null` for a check that didn't run to a
+ * verdict (see `observedTally`).
  */
-export function observedChecks(runs: readonly CheckRun[], cwd: string): Map<string, Fingerprint | null> {
-  const observed = new Map<string, Fingerprint | null>();
+export function observedChecks(runs: readonly CheckRun[], cwd: string): Map<string, Tally | null> {
+  const observed = new Map<string, Tally | null>();
   for (const { adapter, outcome, name, root } of runs) {
-    if (isFingerprintable(adapter.name)) observed.set(name, observedFingerprint(adapter.name, outcome, [adapter.command, ...adapter.args], root, cwd));
+    if (isFingerprintable(adapter.name)) observed.set(name, observedTally(adapter.name, outcome, [adapter.command, ...adapter.args], root, cwd));
   }
   return observed;
 }
@@ -144,9 +159,15 @@ function capturedFrom(check: SummaryCheck | undefined): Captured | undefined {
   return check === undefined ? undefined : capturedRecord(check);
 }
 
-/** The baseline a capture writes: its keys, and how each check's were captured when any check records it. */
-function capturedBaseline(slots: Record<string, string[]>, captured: Record<string, Captured>): Baseline {
-  return { schema_version: BASELINE_SCHEMA_VERSION, slots, ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}) };
+/** The baseline a capture writes: its keys, how each check's were captured when any check records it, and their counts. */
+function capturedBaseline(captures: Captures, captured: Record<string, Captured>): Baseline {
+  const { slots, counts } = captures;
+  return {
+    schema_version: BASELINE_SCHEMA_VERSION,
+    slots,
+    ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}),
+    ...(Object.keys(counts).length > 0 ? { counts } : {}),
+  };
 }
 
 /**
@@ -182,14 +203,13 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   const stderr = options.stderr ?? process.stderr;
   const result = await runChecks(captureRun(options, cwd, stderr));
   const previous = loadBaseline(cwd);
-  const { slots, kept } = capturedSlots(result.runs, previous, cwd, stderr);
-  const baseline = capturedBaseline(slots, capturedWith(slots, kept, result.summary.checks, previous));
+  const captures = capturedSlots(result.runs, previous, cwd, stderr);
+  const baseline = capturedBaseline(captures, capturedWith(captures.slots, captures.kept, result.summary.checks, previous));
   await writeBaseline(cwd, baseline);
 
-  const slotNames = Object.keys(slots);
-  const total = Object.values(slots).reduce((n, keys) => n + keys.length, 0);
+  const slotNames = Object.keys(captures.slots);
   const where = slotNames.length > 0 ? slotNames.join(', ') : '(no fingerprintable slots)';
-  stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${total} diagnostic(s) across ${where}\n`);
+  stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${countGrandfathered(baseline)} finding(s) across ${where}\n`);
 
   return { ok: true, exitCode: 0, baseline };
 }
@@ -344,6 +364,13 @@ export type BaselineDiff = {
   removed: Record<string, string[]>;
   added_count: number;
   removed_count: number;
+  /**
+   * Per check, each key both copies hold whose count changed: how many
+   * findings it grandfathers at `ref` and in the working tree, `null` for a
+   * check captured before counts, which grandfathers any number.
+   */
+  recounted: Record<string, Record<string, Recount>>;
+  recounted_count: number;
 };
 
 export type BaselineDiffResult = { ok: boolean; exitCode: number; diff: BaselineDiff };
@@ -375,27 +402,51 @@ export async function runBaselineDiff(options: BaselineDiffOptions): Promise<Bas
     removed: delta.absent,
     added_count: delta.restoredCount,
     removed_count: delta.absentCount,
+    recounted: delta.recounted,
+    recounted_count: delta.recountedCount,
   };
   stdout.write(options.json ? `${JSON.stringify(diff, null, 2)}\n` : renderDiff(diff));
   return { ok: true, exitCode: 0, diff };
 }
 
-/** The Markdown report: one section per check that changed, `+` for added keys and `-` for removed. */
+/**
+ * The Markdown report: one section per check that changed, `+` for added
+ * keys, `-` for removed, and `~` for a key whose count changed, `any` for a
+ * check captured before counts.
+ */
 function renderDiff(diff: BaselineDiff): string {
   const lines = [`# checkride baseline diff: ${diff.ref} (${diff.sha.slice(0, 7)}) to the working tree`, ''];
-  if (diff.added_count === 0 && diff.removed_count === 0) {
+  if (diff.added_count === 0 && diff.removed_count === 0 && diff.recounted_count === 0) {
     lines.push(`No keys added or removed since ${diff.ref}.`, '');
     return lines.join('\n');
   }
-  lines.push(`${diff.added_count} key(s) added, ${diff.removed_count} removed.`, '');
-  const checks = new Set([...Object.keys(diff.added), ...Object.keys(diff.removed)]);
-  for (const check of [...checks].toSorted()) {
-    const added = diff.added[check] ?? [];
-    const removed = diff.removed[check] ?? [];
-    lines.push(`## ${check}: ${added.length} added, ${removed.length} removed`, '');
-    for (const key of added) lines.push(`+ ${key}`);
-    for (const key of removed) lines.push(`- ${key}`);
-    lines.push('');
-  }
+  lines.push(`${diff.added_count} key(s) added, ${diff.removed_count} removed${recountedNote(diff.recounted_count)}.`, '');
+  const checks = new Set([...Object.keys(diff.added), ...Object.keys(diff.removed), ...Object.keys(diff.recounted)]);
+  for (const check of [...checks].toSorted()) lines.push(...checkSection(diff, check));
   return lines.join('\n');
+}
+
+/** `, N recounted` for a diff whose counts changed, and nothing for one whose didn't. */
+function recountedNote(n: number): string {
+  return n === 0 ? '' : `, ${n} recounted`;
+}
+
+/** A key's count as the diff names it: the number, or `any` for a check captured before counts. */
+function countNamed(n: number | null): string {
+  return n === null ? 'any' : String(n);
+}
+
+/** One check's section of {@link renderDiff}. */
+function checkSection(diff: BaselineDiff, check: string): string[] {
+  const added = diff.added[check] ?? [];
+  const removed = diff.removed[check] ?? [];
+  const recounted = Object.entries(diff.recounted[check] ?? {});
+  return [
+    `## ${check}: ${added.length} added, ${removed.length} removed${recountedNote(recounted.length)}`,
+    '',
+    ...added.map((key) => `+ ${key}`),
+    ...removed.map((key) => `- ${key}`),
+    ...recounted.map(([key, { from, to }]) => `~ ${key} (${countNamed(from)} → ${countNamed(to)})`),
+    '',
+  ];
 }

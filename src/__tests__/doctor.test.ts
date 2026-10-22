@@ -642,7 +642,7 @@ describe('baseline workspace row', () => {
     const env = fakeEnv({ readText: () => '{"schema_version":1,"slots":{"lint":["a","b"],"spell":["x"]}}' });
     const result = await runDoctor({ ...baseOpts, env, stdout: sink() });
     expect(baselineRow(result.report.checks)).toMatchObject({
-      category: 'workspace', required: false, status: 'ok', found: '3 grandfathered diagnostic(s)',
+      category: 'workspace', required: false, status: 'ok', found: '3 grandfathered finding(s)',
     });
     expect(result.ok).toBe(true);
   });

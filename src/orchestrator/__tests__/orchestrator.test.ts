@@ -1552,7 +1552,7 @@ describe('runChecks (baseline-aware)', () => {
     });
     expect(existsSync(baselineFile())).toBe(false);
     expect(std.lines.join('')).toContain(
-      'baseline: not ratcheted, because a run with --only sees only part of the pipeline; a full run would prune at least 1 grandfathered key(s) these checks no longer report',
+      'baseline: not ratcheted, because a run with --only sees only part of the pipeline; a full run would prune at least 1 grandfathered finding(s) these checks no longer report',
     );
   });
 

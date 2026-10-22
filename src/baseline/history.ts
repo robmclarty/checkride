@@ -133,12 +133,17 @@ type Walk = {
 };
 
 /**
- * Whether two baselines grandfather the same keys, whatever each records
- * about how they were captured: a snapshot that differs only there restores
- * nothing, so recovery never offers it.
+ * Whether two baselines grandfather the same findings, their keys and their
+ * counts, whatever each records about how they were captured: a snapshot that
+ * differs only there restores nothing, so recovery never offers it.
  */
 function sameKeys(a: Baseline, b: Baseline): boolean {
-  return baselinesEqual({ schema_version: a.schema_version, slots: a.slots }, { schema_version: b.schema_version, slots: b.slots });
+  return baselinesEqual(debtOf(a), debtOf(b));
+}
+
+/** What a baseline grandfathers, its keys and their counts, without how they were captured. */
+function debtOf(baseline: Baseline): Baseline {
+  return { schema_version: baseline.schema_version, slots: baseline.slots, ...(baseline.counts !== undefined ? { counts: baseline.counts } : {}) };
 }
 
 /** Is this state worth presenting — different from current and from everything kept? */
@@ -184,9 +189,22 @@ export async function collectCandidates(git: GitRunner, current: Baseline | null
  * Per-slot key union of every part, canonical (sorted slots and keys), with
  * each check's capture record from the first part that has one: callers put
  * the current file first, so recovering keys never rewrites how the current
- * ones were captured.
+ * ones were captured. Counts follow the same rule ({@link unionCounts}).
  */
 export function unionBaselines(parts: readonly Baseline[]): Baseline {
+  const slots = unionSlots(parts);
+  const captured = firstCaptured(parts);
+  const counts = unionCounts(parts, slots);
+  return {
+    schema_version: BASELINE_SCHEMA_VERSION,
+    slots,
+    ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}),
+    ...(Object.keys(counts).length > 0 ? { counts } : {}),
+  };
+}
+
+/** Every part's keys, per slot, deduplicated and sorted, slots sorted too. */
+function unionSlots(parts: readonly Baseline[]): Record<string, string[]> {
   const merged = new Map<string, Set<string>>();
   for (const part of parts) {
     for (const [slot, keys] of Object.entries(part.slots)) {
@@ -197,8 +215,28 @@ export function unionBaselines(parts: readonly Baseline[]): Baseline {
   }
   const slots: Record<string, string[]> = {};
   for (const slot of [...merged.keys()].toSorted()) slots[slot] = [...(merged.get(slot) ?? [])].toSorted();
-  const captured = firstCaptured(parts);
-  return { schema_version: BASELINE_SCHEMA_VERSION, slots, ...(Object.keys(captured).length > 0 ? { captured_with: captured } : {}) };
+  return slots;
+}
+
+/**
+ * The union's counts: a check is counted when the first part that holds a key
+ * of it counts it, and each of its keys takes its count from the first part
+ * that holds the key and counts the check, or one. So a recovered key never
+ * raises how many findings a current key grandfathers, and a key restored
+ * from a part that didn't count its check grandfathers one, failing closed.
+ */
+function unionCounts(parts: readonly Baseline[], slots: Readonly<Record<string, string[]>>): Record<string, Record<string, number>> {
+  const counts: Record<string, Record<string, number>> = {};
+  for (const [check, keys] of Object.entries(slots)) {
+    const first = parts.find((part) => (part.slots[check]?.length ?? 0) > 0);
+    if (first?.counts?.[check] === undefined) continue;
+    counts[check] = {};
+    for (const key of keys) {
+      const n = parts.find((part) => part.counts?.[check] !== undefined && part.slots[check]?.includes(key) === true)?.counts?.[check]?.[key];
+      if (n !== undefined) counts[check][key] = n;
+    }
+  }
+  return counts;
 }
 
 /** Each check's capture record from the first of `parts` that has one. */
@@ -265,12 +303,20 @@ export async function historicalHint(
   }
 }
 
-/** What applying `to` over `from` changes, per slot: keys gained and keys lost. */
+/**
+ * How many findings a key both copies hold grandfathers in each: its count,
+ * or `null` in a check captured before counts, which grandfathers any number.
+ */
+export type Recount = { from: number | null; to: number | null };
+
+/** What applying `to` over `from` changes, per slot: keys gained, keys lost, and keys kept whose count changed. */
 export type BaselineDelta = {
   restored: Record<string, string[]>;
   absent: Record<string, string[]>;
+  recounted: Record<string, Record<string, Recount>>;
   restoredCount: number;
   absentCount: number;
+  recountedCount: number;
 };
 
 /**
@@ -280,24 +326,39 @@ export type BaselineDelta = {
  * visible before it is paid).
  */
 export function diffBaselines(from: Baseline | null, to: Baseline): BaselineDelta {
-  const restored: Record<string, string[]> = {};
-  const absent: Record<string, string[]> = {};
-  let restoredCount = 0;
-  let absentCount = 0;
+  const delta: BaselineDelta = { restored: {}, absent: {}, recounted: {}, restoredCount: 0, absentCount: 0, recountedCount: 0 };
   const slots = new Set([...Object.keys(from?.slots ?? {}), ...Object.keys(to.slots)]);
-  for (const slot of [...slots].toSorted()) {
-    const fromKeys = new Set(from?.slots[slot] ?? []);
-    const toKeys = new Set(to.slots[slot] ?? []);
-    const gained = [...toKeys].filter((k) => !fromKeys.has(k)).toSorted();
-    const lost = [...fromKeys].filter((k) => !toKeys.has(k)).toSorted();
-    if (gained.length > 0) {
-      restored[slot] = gained;
-      restoredCount += gained.length;
-    }
-    if (lost.length > 0) {
-      absent[slot] = lost;
-      absentCount += lost.length;
-    }
+  for (const slot of [...slots].toSorted()) addSlotDelta(delta, from, to, slot);
+  return delta;
+}
+
+/** Fold one slot's keys gained, lost and recounted between `from` and `to` into `delta`. */
+function addSlotDelta(delta: BaselineDelta, from: Baseline | null, to: Baseline, slot: string): void {
+  const fromKeys = new Set(from?.slots[slot] ?? []);
+  const toKeys = new Set(to.slots[slot] ?? []);
+  const gained = [...toKeys].filter((k) => !fromKeys.has(k)).toSorted();
+  const lost = [...fromKeys].filter((k) => !toKeys.has(k)).toSorted();
+  const recounts = from === null ? {} : recountsOf(from, to, slot, [...toKeys].filter((k) => fromKeys.has(k)).toSorted());
+  if (gained.length > 0) delta.restored[slot] = gained;
+  if (lost.length > 0) delta.absent[slot] = lost;
+  if (Object.keys(recounts).length > 0) delta.recounted[slot] = recounts;
+  delta.restoredCount += gained.length;
+  delta.absentCount += lost.length;
+  delta.recountedCount += Object.keys(recounts).length;
+}
+
+/** Each of `kept`, the keys both copies hold for `slot`, whose count differs between them. */
+function recountsOf(from: Baseline, to: Baseline, slot: string, kept: readonly string[]): Record<string, Recount> {
+  const recounts: Record<string, Recount> = {};
+  for (const key of kept) {
+    const recount = { from: countOf(from, slot, key), to: countOf(to, slot, key) };
+    if (recount.from !== recount.to) recounts[key] = recount;
   }
-  return { restored, absent, restoredCount, absentCount };
+  return recounts;
+}
+
+/** How many findings `baseline` grandfathers under a key it holds: its count, one, or `null` for any number. */
+function countOf(baseline: Baseline, slot: string, key: string): number | null {
+  const counts = baseline.counts?.[slot];
+  return counts === undefined ? null : (counts[key] ?? 1);
 }

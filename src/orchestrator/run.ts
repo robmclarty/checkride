@@ -12,8 +12,8 @@ import { performance } from 'node:perf_hooks';
 
 import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
-import type { Fingerprint } from '../baseline/index.js';
-import { BASELINE_FILE, baselinesEqual, copyNamed, countBaselineKeys, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
+import type { Tally } from '../baseline/index.js';
+import { BASELINE_FILE, baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import { configChangedBase, resolveChecks } from '../config.js';
 import { writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
@@ -168,7 +168,7 @@ function driftChurn(d: Drift, ratchets: boolean): string | null {
  */
 async function maybeRatchet(
   ctx: RunContext,
-  observed: ReadonlyMap<string, Fingerprint>,
+  observed: ReadonlyMap<string, Tally>,
   restricted: boolean,
   consumer: string | null,
 ): Promise<void> {
@@ -182,7 +182,7 @@ async function maybeRatchet(
   }
   await writeBaseline(ctx.cwd, pruned);
   if (!ctx.json) {
-    writeLine(ctx.stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countBaselineKeys(pruned)} grandfathered diagnostic(s)`);
+    writeLine(ctx.stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countGrandfathered(pruned)} grandfathered finding(s)`);
   }
 }
 
@@ -194,15 +194,15 @@ async function maybeRatchet(
  * the baseline holds fixed debt, and a fix reverted inside it never shows.
  * The count is a floor: a check the run left out may hold fixed keys too.
  */
-function notePrunable(ctx: RunContext, observed: ReadonlyMap<string, Fingerprint>, narrowed: ReadonlySet<string>, cause: string): void {
+function notePrunable(ctx: RunContext, observed: ReadonlyMap<string, Tally>, narrowed: ReadonlySet<string>, cause: string): void {
   const { baseline } = ctx;
   if (!baseline || ctx.json) return;
   const whole = new Map([...observed].filter(([name]) => !narrowed.has(name)));
-  const prunable = countBaselineKeys(baseline) - countBaselineKeys(ratchet(baseline, whole));
+  const prunable = countGrandfathered(baseline) - countGrandfathered(ratchet(baseline, whole));
   if (prunable === 0) return;
   writeLine(
     ctx.stderr,
-    `\nbaseline: not ratcheted, because ${cause} sees only part of the pipeline; a full run would prune at least ${prunable} grandfathered key(s) these checks no longer report`,
+    `\nbaseline: not ratcheted, because ${cause} sees only part of the pipeline; a full run would prune at least ${prunable} grandfathered finding(s) these checks no longer report`,
   );
 }
 

@@ -37,7 +37,7 @@ import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
 import { outDir, outLabel } from './artifacts/index.js';
-import { BASELINE_FILE, countBaselineKeys, parseBaseline } from './baseline/index.js';
+import { BASELINE_FILE, countGrandfathered, parseBaseline } from './baseline/index.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks } from './config.js';
@@ -1128,7 +1128,7 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
       hint: 'A merge likely mangled it; grandfathered findings report red until it is restored. Run `checkride recover` to rebuild it from git history.',
     };
   }
-  return { ...base, status: 'ok', found: `${countBaselineKeys(baseline)} grandfathered diagnostic(s)`, expected: null, hint: null };
+  return { ...base, status: 'ok', found: `${countGrandfathered(baseline)} grandfathered finding(s)`, expected: null, hint: null };
 }
 
 /**

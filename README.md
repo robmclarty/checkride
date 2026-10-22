@@ -439,7 +439,7 @@ fields are additive-only under a given `schema_version`.
   (vitest `--outputFile`, stryker) keep doing so.
 
 When a [baseline](#baseline) masks a slot's findings, that check gains an additive
-`"baselined": <n>` field counting the grandfathered diagnostics; it is absent on
+`"baselined": <n>` field counting the grandfathered findings; it is absent on
 runs with no baseline, so `schema_version` is unchanged.
 
 - `digest.md` — written only under `--digest`: a **token-bounded** Markdown
@@ -647,7 +647,7 @@ checkride baseline        # record current diagnostics into checkride.baseline.j
 `checkride.baseline.json` lives at the repo root beside `checkride.config.json` and
 **is committed** — it must be in version control to work. It records a per-slot set
 of stable *fingerprints* (a `file:rule:message` key that survives line moves), not
-raw output:
+raw output, and how many findings each key grandfathers when it's more than one:
 
 ```jsonc
 {
@@ -655,13 +655,22 @@ raw output:
   "slots": {
     "lint":  ["src/legacy.ts:typescript(no-explicit-any):Unexpected `any`. Specify a different type."],
     "spell": ["docs/old.md::teh"]
+  },
+  "counts": {
+    "lint":  { "src/legacy.ts:typescript(no-explicit-any):Unexpected `any`. Specify a different type.": 2 },
+    "spell": {}
   }
 }
 ```
 
 A target's checks key under their own names, such as `api:lint`, and every
 key names its file from the repo root, so a key stays valid wherever the tool
-ran from.
+ran from. A key has no line in it, so two of the same finding in one file
+share it: `counts` says how many findings each key grandfathers, two above,
+and one for a key it doesn't list. A third `any` in that file is new, and
+fails. A file an earlier release captured has no `counts`, and each of its
+keys grandfathers any number of findings, as every key did then, until the
+next `checkride baseline` counts them.
 
 Once it exists, every normal run is **baseline-aware**:
 
@@ -670,7 +679,8 @@ Once it exists, every normal run is **baseline-aware**:
   ones** — the raw `.check/<slot>.json` still holds everything, and the failing
   check gains a `"baselined": <n>` count.
 - The baseline is a **ratchet**: fixing a grandfathered finding prunes it from the
-  file (it only ever shrinks), so debt can't silently creep back. A partial run
+  file (it only ever shrinks), so debt can't silently creep back. Fixing one of
+  a key's several findings lowers its count the same way. A partial run
   (`--only`, `--skip`, `--changed`, or a `--bail` that stops early) never prunes —
   it can't tell an unobserved finding from a fixed one, so it leaves the baseline
   untouched.
@@ -708,8 +718,8 @@ fix — so treat re-running it as a reviewed change: do it deliberately (say,
 after adopting a stricter rule set) and read the `checkride.baseline.json`
 diff in the PR like code. `checkride baseline diff [<ref>]` lists the keys the
 working tree adds and drops against `<ref>`'s copy (default `HEAD`), per check,
-or as JSON under `--json`, so a reviewer sees exactly what a change
-grandfathers.
+and each key whose count changed, or as JSON under `--json`, so a reviewer sees
+exactly what a change grandfathers.
 
 Only slots whose tool has a parser the baseline keys with participate: oxlint,
 golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint for `lint`,

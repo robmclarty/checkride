@@ -132,6 +132,8 @@ describe('checkride.baseline.json', () => {
     expect(parsed.slots['types']).toBeUndefined();
     expect(parsed.slots['lint']).toEqual(OXLINT_KEYS);
     expect(parsed.slots['spell']).toEqual(['docs/old.md::teh']);
+    // Every check it observed is counted; a key found twice records it, and one found once records nothing.
+    expect(parsed.counts).toEqual({ lint: { [OXLINT_KEYS[0] ?? '']: 2 }, spell: {} });
   });
 
   /**
@@ -145,7 +147,7 @@ describe('checkride.baseline.json', () => {
     const raw = await readFile(baselinePath(), 'utf8');
     const parsed = JSON.parse(raw) as Baseline;
     expect(validateBaseline(parsed), JSON.stringify(validateBaseline.errors)).toBe(true);
-    expect(Object.keys(parsed)).toEqual(['schema_version', 'slots', 'captured_with']);
+    expect(Object.keys(parsed)).toEqual(['schema_version', 'slots', 'captured_with', 'counts']);
     expect(Object.keys(parsed.captured_with ?? {})).toEqual(Object.keys(parsed.slots));
     expect(parsed.captured_with?.['lint']).toEqual({ pin_source: 'js-lockfile', tool_version: '1.87.0' });
     expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
@@ -314,6 +316,17 @@ describe('checkride.baseline.json', () => {
     { label: 'non-string keys and non-array slots are dropped', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a', 5, null], types: 'nope' } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a captured_with entry naming no pin source, or no check in slots, is dropped', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, captured_with: { lint: { tool_version: '1.0.0' }, spell: { pin_source: 'path' } } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a captured_with that is not an object is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, captured_with: 'path' }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
+    {
+      label: 'a count for a check or key slots does not hold, or below two, or not whole, is dropped',
+      raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a', 'b', 'c'] }, counts: { lint: { a: 3, b: 1, c: 2.5, z: 4 }, spell: { x: 2 } } }),
+      expected: { schema_version: 1, slots: { lint: ['a', 'b', 'c'] }, counts: { lint: { a: 3 } } },
+    },
+    {
+      label: 'a check entry in counts that is not an object still counts its check, every key once',
+      raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, counts: { lint: 'many' } }),
+      expected: { schema_version: 1, slots: { lint: ['a'] }, counts: { lint: {} } },
+    },
+    { label: 'a counts that is not an object is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, counts: [] }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'malformed JSON is null', raw: '{ not json', expected: null },
     { label: 'empty text is null', raw: '', expected: null },
     { label: 'a JSON array is null', raw: '[]', expected: null },
@@ -332,8 +345,60 @@ describe('checkride.baseline.json', () => {
     expect(validateSummary(summary)).toBe(true);
     const lint = summary.checks.find((c) => c.name === 'lint');
     const spell = summary.checks.find((c) => c.name === 'spell');
-    expect(lint).toMatchObject({ ok: true, baselined: parsed.slots['lint']?.length });
+    // `baselined` counts findings, not keys: lint's three findings share two keys.
+    expect(lint).toMatchObject({ ok: true, baselined: 3 });
     expect(spell).toMatchObject({ ok: true, baselined: parsed.slots['spell']?.length });
+  });
+
+  /**
+   * Contract: a key grandfathers as many findings as its count, one when a
+   * counted check records none, and a third `x` in a file that grandfathered
+   * two is red, listed with both counts (§A key names a finding).
+   */
+  test('a counted key grandfathers as many findings as it was captured with, and no more', async () => {
+    await capture();
+    const thirdX = JSON.stringify({
+      diagnostics: [...(JSON.parse(OXLINT_REPORT) as { diagnostics: unknown[] }).diagnostics, { filename: 'src/a.ts', code: 'eslint(no-unused-vars)', message: "Variable 'x' is declared but never used." }],
+    });
+    const stderr = sink();
+    const result = await runChecks({
+      cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, json: false, stdout: sink().out, stderr: stderr.out,
+      runner: (r, ctx) => (r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: thirdX, stderr: '' }) : redRunner(r, ctx)),
+    });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: false, baselined: 3 });
+    expect(stderr.text()).toContain(`1 new, not in baseline:\n             ${OXLINT_KEYS[0] ?? ''} (3 found, 2 grandfathered)`);
+  });
+
+  /**
+   * Contract: a file captured before counts masks as it always did, any
+   * number of findings under a key, so an upgrade changes no verdict, and
+   * the ratchet never counts its checks; only `checkride baseline` does.
+   */
+  test('a baseline captured before counts masks any number of findings under a key, and the ratchet leaves it uncounted', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: OXLINT_KEYS.slice(0, 1), spell: ['docs/old.md::teh'] } });
+    const onlyX = JSON.stringify({ diagnostics: (JSON.parse(OXLINT_REPORT) as { diagnostics: unknown[] }).diagnostics.slice(0, 2) });
+    const result = await runChecks({
+      cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, json: true, stdout: sink().out, stderr: sink().out,
+      runner: (r, ctx) => (r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: onlyX, stderr: '' }) : redRunner(r, ctx)),
+    });
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ ok: true, baselined: 2 });
+    expect(JSON.parse(await readFile(baselinePath(), 'utf8'))).not.toHaveProperty('counts');
+  });
+
+  /** Contract: a full run lowers a count to what it found, written canonical, and never raises one (§Who writes to it). */
+  test('the ratchet lowers a count to what a full run found, and never raises one', async () => {
+    await capture();
+    const oneX = JSON.stringify({ diagnostics: (JSON.parse(OXLINT_REPORT) as { diagnostics: unknown[] }).diagnostics.slice(1) });
+    await runChecks({
+      cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, json: true, stdout: sink().out, stderr: sink().out,
+      runner: (r, ctx) => (r.slot === 'lint' ? Promise.resolve({ ok: false, exit_code: 1, stdout: oneX, stderr: '' }) : redRunner(r, ctx)),
+    });
+    const raw = await readFile(baselinePath(), 'utf8');
+    const parsed = JSON.parse(raw) as Baseline;
+    expect(validateBaseline(parsed), JSON.stringify(validateBaseline.errors)).toBe(true);
+    expect(parsed.slots['lint']).toEqual(OXLINT_KEYS);
+    expect(parsed.counts).toEqual({ lint: {}, spell: {} });
+    expect(raw).toBe(`${JSON.stringify(parsed, null, 2)}\n`);
   });
 
   test.each<{ label: string; raw: string }>([
@@ -376,11 +441,15 @@ describe('checkride baseline diff --json', () => {
     return { code, json: JSON.parse(out.text()) as Record<string, unknown> };
   }
 
-  test('prints exactly ref, sha, added, removed, added_count and removed_count', async () => {
-    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept', "src/c.ts:no-unused-vars:'x' is never used"] } });
+  test('prints exactly ref, sha, added, removed, added_count, removed_count, recounted and recounted_count', async () => {
+    await writeBaseline(dir, {
+      schema_version: 1,
+      slots: { lint: ['src/a.ts:rule:kept', "src/c.ts:no-unused-vars:'x' is never used"] },
+      counts: { lint: { 'src/a.ts:rule:kept': 2 } },
+    });
     const { code, json } = await diffJson(['HEAD']);
     expect(code).toBe(0);
-    expect(Object.keys(json)).toEqual(['ref', 'sha', 'added', 'removed', 'added_count', 'removed_count']);
+    expect(Object.keys(json)).toEqual(['ref', 'sha', 'added', 'removed', 'added_count', 'removed_count', 'recounted', 'recounted_count']);
     expect(json).toEqual({
       ref: 'HEAD',
       sha: git(dir, 'rev-parse', 'HEAD').trim(),
@@ -388,6 +457,9 @@ describe('checkride baseline diff --json', () => {
       removed: { lint: ['src/a.ts:rule:fixed'], struct: ['src/b.ts:no-class:no classes'] },
       added_count: 1,
       removed_count: 2,
+      // Committed before counts, its key grandfathered any number; the working tree counts two.
+      recounted: { lint: { 'src/a.ts:rule:kept': { from: null, to: 2 } } },
+      recounted_count: 1,
     });
     expect(json['sha']).toMatch(/^[0-9a-f]{40}$/);
   });
@@ -395,7 +467,7 @@ describe('checkride baseline diff --json', () => {
   test('an unchanged file is exit 0 with empty sides, and the ref defaults to HEAD', async () => {
     const { code, json } = await diffJson([]);
     expect(code).toBe(0);
-    expect(json).toMatchObject({ ref: 'HEAD', added: {}, removed: {}, added_count: 0, removed_count: 0 });
+    expect(json).toMatchObject({ ref: 'HEAD', added: {}, removed: {}, added_count: 0, removed_count: 0, recounted: {}, recounted_count: 0 });
   });
 
   test('a ref that names no commit is exit 2 with nothing on stdout', async () => {

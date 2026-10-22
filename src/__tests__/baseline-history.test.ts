@@ -187,6 +187,24 @@ describe('unionBaselines / diffBaselines', () => {
     expect(unionBaselines([base({ lint: ['a'] })])).not.toHaveProperty('captured_with');
   });
 
+  /** A recovered key never raises a current key's count, and one from a file that didn't count its check grandfathers one (#14). */
+  test('union counts a check as its first part holding a key does, each key from the first counted part holding it, else once', () => {
+    const current: Baseline = { ...base({ lint: ['a', 'b'], spell: ['s'] }), counts: { lint: { a: 2 } } };
+    const older: Baseline = { ...base({ lint: ['a', 'c', 'd'], spell: ['s', 't'] }), counts: { lint: { a: 5, c: 3 }, spell: { t: 4 } } };
+    const uncounted: Baseline = base({ lint: ['e'], dead: ['x'] });
+    expect(unionBaselines([current, older, uncounted]).counts).toEqual({ lint: { a: 2, c: 3 } });
+    // The uncounted file holds a lint key first, so lint stays uncounted: any number, as that file grandfathered.
+    expect(unionBaselines([uncounted, current])).not.toHaveProperty('counts');
+    expect(unionBaselines([base({ lint: ['a'] })])).not.toHaveProperty('counts');
+  });
+
+  test('a snapshot that differs from the current file only in its counts is offered', async () => {
+    const counted = JSON.stringify({ schema_version: 1, slots: { lint: ['x'] }, counts: { lint: { x: 3 } } });
+    const git = fakeGit({ log: [{ sha: 'c1'.padEnd(40, '0'), blob: counted }] });
+    const scan = await collectCandidates(git, { ...base({ lint: ['x'] }), counts: { lint: {} } }, 25);
+    expect(scan.candidates.map((c) => c.kind)).toEqual(['snapshot']);
+  });
+
   test('diff splits gained (restored) from lost (absent), per slot and total', () => {
     const from = base({ lint: ['a', 'b'], spell: ['s'] });
     const to = base({ lint: ['a', 'c'], dead: ['d'] });

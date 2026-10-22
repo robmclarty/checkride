@@ -131,8 +131,10 @@ checkride --out "$RUN_DIR/pr-config" --json
 
 ## Findings a pull request grandfathers
 
-A pull request that adds keys to `checkride.baseline.json` hides findings
-instead of fixing them. `baseline diff` lists what changed:
+A pull request that adds keys to `checkride.baseline.json`, or raises a key's
+count, hides findings instead of fixing them. `baseline diff` lists what
+changed: the keys added and removed, and each key whose count changed under
+`recounted`:
 
 ```bash
 checkride baseline diff "$BASE_SHA" --json

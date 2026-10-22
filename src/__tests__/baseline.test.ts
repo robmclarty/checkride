@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import type { Baseline, Observation, RanWith } from '../baseline/index.js';
+import type { Baseline, Observation, RanWith, Tally } from '../baseline/index.js';
 import {
   applyBaseline,
   BASELINE_SCHEMA_VERSION,
@@ -21,14 +21,23 @@ import {
   parseBaseline,
   ratchet,
   readBaselineStatus,
+  entryFor,
   renameBaselineSlots,
   rerecordCopies,
+  tally,
   writeBaseline,
 } from '../baseline/index.js';
 import { runBaseline, runBaselineDiff, runBaselineVersions } from '../baseline-command.js';
 import { runCli } from '../cli.js';
 import type { GitResult, GitRunner } from '../git.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
+
+/** A run's tally of `keys`, each found once unless a key repeats. */
+function tallyOf(...keys: string[]): Tally {
+  const counted = new Map<string, number>();
+  for (const key of keys) counted.set(key, (counted.get(key) ?? 0) + 1);
+  return counted;
+}
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
@@ -155,10 +164,10 @@ describe('runBaseline', () => {
       stderr: sink(),
     });
     const keys = (await readBaseline()).slots['prose'] ?? [];
-    const current = fingerprint('vale', VALE) ?? new Set<string>();
+    const current = tally('vale', VALE) ?? new Map<string, number>();
 
-    expect(new Set(keys)).toEqual(current);
-    expect(applyBaseline(current, keys, false)).toEqual({ ok: true, baselined: keys.length, newKeys: [] });
+    expect(new Set(keys)).toEqual(new Set(current.keys()));
+    expect(applyBaseline(current, entryFor(await readBaseline(), 'prose'), false)).toEqual({ ok: true, baselined: 8, newKeys: [], excess: [], newFindings: 0 });
   });
 
   test('a prose run vale could not read is omitted, never captured as clean', async () => {
@@ -202,33 +211,51 @@ describe('runBaseline', () => {
 
 describe('applyBaseline (masking)', () => {
   test('all diagnostics grandfathered → flips a fail to a pass and counts them', () => {
-    const adj = applyBaseline(new Set(['a', 'b']), ['a', 'b'], false);
-    expect(adj).toEqual({ ok: true, baselined: 2, newKeys: [] });
+    const adj = applyBaseline(tallyOf('a', 'b'), { keys: ['a', 'b'] }, false);
+    expect(adj).toEqual({ ok: true, baselined: 2, newKeys: [], excess: [], newFindings: 0 });
   });
 
   test('a new diagnostic keeps the slot failing and lists only the new key', () => {
-    const adj = applyBaseline(new Set(['a', 'b', 'c']), ['a', 'b'], false);
-    expect(adj).toEqual({ ok: false, baselined: 2, newKeys: ['c'] });
+    const adj = applyBaseline(tallyOf('a', 'b', 'c'), { keys: ['a', 'b'] }, false);
+    expect(adj).toEqual({ ok: false, baselined: 2, newKeys: ['c'], excess: [], newFindings: 1 });
   });
 
   test('never masks a failure with no parseable diagnostics (a crash stays red)', () => {
-    const adj = applyBaseline(new Set(), ['a'], false);
-    expect(adj).toEqual({ ok: false, baselined: 0, newKeys: [] });
+    const adj = applyBaseline(new Map(), { keys: ['a'] }, false);
+    expect(adj).toEqual({ ok: false, baselined: 0, newKeys: [], excess: [], newFindings: 0 });
   });
 
   test('a clean run stays green whatever the baseline holds', () => {
-    expect(applyBaseline(new Set(), ['a'], true).ok).toBe(true);
+    expect(applyBaseline(new Map(), { keys: ['a'] }, true).ok).toBe(true);
   });
 
   test('newKeys are returned sorted, order-independent of the input set', () => {
-    expect(applyBaseline(new Set(['z', 'a', 'm']), [], false).newKeys).toEqual(['a', 'm', 'z']);
+    expect(applyBaseline(tallyOf('z', 'a', 'm'), { keys: [] }, false).newKeys).toEqual(['a', 'm', 'z']);
+  });
+
+  /** A key names a finding by what it is, so two of one finding in a file share it (#14). */
+  test('a counted entry grandfathers as many findings of a key as it counts, and no more', () => {
+    const twice = tallyOf('a', 'a', 'b');
+    expect(applyBaseline(twice, { keys: ['a', 'b'], counts: { a: 2 } }, false)).toEqual({ ok: true, baselined: 3, newKeys: [], excess: [], newFindings: 0 });
+    const thrice = tallyOf('a', 'a', 'a', 'b', 'b', 'c');
+    expect(applyBaseline(thrice, { keys: ['a', 'b'], counts: { a: 2 } }, false)).toEqual({
+      ok: false,
+      baselined: 3,
+      newKeys: ['c'],
+      excess: [{ key: 'a', found: 3, allowed: 2 }, { key: 'b', found: 2, allowed: 1 }],
+      newFindings: 3,
+    });
+  });
+
+  test('an entry captured before counts grandfathers any number of a key, as it always did', () => {
+    expect(applyBaseline(tallyOf('a', 'a', 'a'), { keys: ['a'] }, false)).toEqual({ ok: true, baselined: 3, newKeys: [], excess: [], newFindings: 0 });
   });
 });
 
 describe('ratchet (the pruning invariant)', () => {
   test('drops fixed keys from observed slots, preserves unobserved ones', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'], spell: ['x'] } };
-    const observed = new Map([['lint', new Set(['a'])]]); // spell never ran this pass
+    const observed = new Map([['lint', tallyOf('a')]]); // spell never ran this pass
     const pruned = ratchet(baseline, observed);
     expect(pruned.slots['lint']).toEqual(['a']); // b was fixed → pruned
     expect(pruned.slots['spell']).toEqual(['x']); // unobserved → preserved intact
@@ -236,14 +263,23 @@ describe('ratchet (the pruning invariant)', () => {
 
   test('never grows: a new current key is not grandfathered', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a'] } };
-    const pruned = ratchet(baseline, new Map([['lint', new Set(['a', 'b'])]]));
+    const pruned = ratchet(baseline, new Map([['lint', tallyOf('a', 'b')]]));
     expect(pruned.slots['lint']).toEqual(['a']);
   });
 
   test('an observed slot with everything fixed collapses to an empty set', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'] } };
-    const pruned = ratchet(baseline, new Map([['lint', new Set<string>()]]));
+    const pruned = ratchet(baseline, new Map([['lint', tallyOf()]]));
     expect(pruned.slots['lint']).toEqual([]);
+  });
+
+  test('a counted key falls to what the run found, never rises, and a check captured before counts stays uncounted', () => {
+    const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b', 'c'], spell: ['x'] }, counts: { lint: { a: 3, b: 2 } } };
+    const pruned = ratchet(baseline, new Map([['lint', tallyOf('a', 'a', 'b', 'b', 'b')], ['spell', tallyOf('x', 'x')]]));
+    expect(pruned).toEqual({ schema_version: 1, slots: { lint: ['a', 'b'], spell: ['x'] }, counts: { lint: { a: 2, b: 2 } } });
+    const fewer = ratchet(pruned, new Map([['lint', tallyOf('a', 'b')]]));
+    expect(fewer.counts).toEqual({ lint: {} });
+    expect(baselinesEqual(baseline, ratchet(baseline, new Map([['lint', tallyOf('a', 'a', 'a', 'b', 'b', 'c')]])))).toBe(true);
   });
 });
 
@@ -271,7 +307,9 @@ describe('captured_with', () => {
     const text = await raw();
     const written = JSON.parse(text) as Baseline;
     expect(written.captured_with).toEqual({ lint: { pin_source: 'js-lockfile', tool_version: '1.87.0' }, struct: { pin_source: 'path' } });
-    expect(Object.keys(written)).toEqual(['schema_version', 'slots', 'captured_with']);
+    // A capture counts every check it observed: `counts` comes last, naming each check that holds a key.
+    expect(Object.keys(written)).toEqual(['schema_version', 'slots', 'captured_with', 'counts']);
+    expect(Object.keys(written.counts ?? {})).toEqual(Object.keys(written.slots).filter((check) => (written.slots[check] ?? []).length > 0));
     expect(text).toContain('"lint": {\n      "pin_source": "js-lockfile",\n      "tool_version": "1.87.0"\n    }');
     expect(result.baseline).toEqual(written);
   });
@@ -291,9 +329,19 @@ describe('captured_with', () => {
 
   test('the ratchet carries the record as it is, and an unchanged run is no write', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'] }, captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } };
-    const pruned = ratchet(baseline, new Map([['lint', new Set(['a'])]]));
+    const pruned = ratchet(baseline, new Map([['lint', tallyOf('a')]]));
     expect(pruned).toEqual({ schema_version: 1, slots: { lint: ['a'] }, captured_with: { lint: { pin_source: 'nix', tool_version: '2.11.4' } } });
-    expect(baselinesEqual(baseline, ratchet(baseline, new Map([['lint', new Set(['a', 'b'])]])))).toBe(true);
+    expect(baselinesEqual(baseline, ratchet(baseline, new Map([['lint', tallyOf('a', 'b')]])))).toBe(true);
+  });
+
+  test('a rename moves counts with their keys, and two entries merged stay counted only when both were', () => {
+    const baseline: Baseline = {
+      schema_version: 1,
+      slots: { lint: ['a'], spell: ['x'], 'app:spell': ['y'], docs: ['d'], 'app:docs': ['e'] },
+      counts: { lint: { a: 2 }, spell: { x: 3 }, 'app:spell': { x: 2, y: 4 }, docs: {} },
+    };
+    const renamed = renameBaselineSlots(baseline, new Map([['lint', 'app:lint'], ['spell', 'app:spell'], ['docs', 'app:docs']]));
+    expect(renamed.counts).toEqual({ 'app:lint': { a: 2 }, 'app:spell': { x: 3, y: 4 } });
   });
 
   test('a rename moves each record with its keys, and a check already under the new name keeps its own', () => {
@@ -322,7 +370,7 @@ describe('captured_with', () => {
     const text = await raw();
     expect(text).toContain('"lint": {\n      "pin_source": "nix",\n      "tool_version": "2.11.4",\n      "toolchain_version": "1.25.3"\n    }');
     const written = JSON.parse(text) as Baseline;
-    expect(ratchet(written, new Map([['lint', new Set<string>()]])).captured_with?.['lint']).toEqual(lint);
+    expect(ratchet(written, new Map([['lint', tallyOf()]])).captured_with?.['lint']).toEqual(lint);
     expect(renameBaselineSlots(written, new Map([['lint', 'api:lint']])).captured_with?.['api:lint']).toEqual(lint);
   });
 
@@ -397,7 +445,7 @@ describe('baselineDrift', () => {
 
 /** A run that saw lint report `keys`, or reach no verdict for `null`, through `ran`. */
 function seen(keys: string[] | null, ran: RanWith): ReadonlyMap<string, Observation> {
-  return new Map([['lint', { keys: keys === null ? null : new Set(keys), ran }]]);
+  return new Map([['lint', { keys: keys === null ? null : tallyOf(...keys), ran }]]);
 }
 
 /**
@@ -454,9 +502,21 @@ describe('rerecordCopies', () => {
     });
   }
 
+  /** Counts (#14): a finding past a key's count is new, and a count only falls, as a pruned key does. */
+  test('a run with more findings of a key than it counts leaves the check, and one with fewer lowers the count', () => {
+    const counted: Baseline = { schema_version: 1, slots: { lint: ['a', 'b'] }, captured_with: { lint: OLD }, counts: { lint: { a: 3 } } };
+    const twoMore = new Map<string, Observation>([['lint', { keys: tallyOf('a', 'a', 'a', 'b', 'b'), ran: NEW }]]);
+    expect(rerecordCopies(counted, twoMore).results).toEqual([{ check: 'lint', outcome: 'new-keys', newKeys: 1, ran: NEW }]);
+    const fewer = new Map<string, Observation>([['lint', { keys: tallyOf('a', 'a', 'b'), ran: NEW }]]);
+    const { baseline } = rerecordCopies(counted, fewer);
+    expect(baseline).toEqual({ schema_version: 1, slots: { lint: ['a', 'b'] }, captured_with: { lint: NEW }, counts: { lint: { a: 2 } } });
+    const same = new Map<string, Observation>([['lint', { keys: tallyOf('a', 'a', 'a', 'b'), ran: OLD }]]);
+    expect(rerecordCopies(counted, same).results).toEqual([{ check: 'lint', outcome: 'unchanged' }]);
+  });
+
   test('a check with no record that the run left keeps none, and other checks keep theirs', () => {
     const baseline: Baseline = { schema_version: 1, slots: { lint: ['a'], spell: ['x'] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.0.0' } } };
-    const observed = new Map<string, Observation>([['lint', { keys: new Set(['a']), ran: { pin_source: 'path' } }], ['spell', { keys: new Set(['x']), ran: { pin_source: 'js-lockfile', tool_version: '9.1.0' } }]]);
+    const observed = new Map<string, Observation>([['lint', { keys: tallyOf('a'), ran: { pin_source: 'path' } }], ['spell', { keys: tallyOf('x'), ran: { pin_source: 'js-lockfile', tool_version: '9.1.0' } }]]);
     const next = rerecordCopies(baseline, observed);
     expect(next.baseline).toEqual({ schema_version: 1, slots: { lint: ['a'], spell: ['x'] }, captured_with: { spell: { pin_source: 'js-lockfile', tool_version: '9.1.0' } } });
     expect(next.results.map((r) => r.outcome)).toEqual(['unpinned', 'rerecorded']);
@@ -797,6 +857,8 @@ describe('runBaselineDiff (unit, injected git)', () => {
       removed: { lint: ['b'], spell: ['s'] },
       added_count: 1,
       removed_count: 2,
+      recounted: {},
+      recounted_count: 0,
     });
     expect(out.text()).toBe(
       [
@@ -815,6 +877,23 @@ describe('runBaselineDiff (unit, injected git)', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  /** A count that rises grandfathers one more finding under a key both copies hold, which a reviewer has to see (#14). */
+  test('a key whose count changed is recounted, from and to, any for a check captured before counts', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['a', 'b'], spell: ['s'] }, counts: { lint: { a: 3 }, spell: {} } });
+    const before = JSON.stringify({ schema_version: 1, slots: { lint: ['a', 'b'], spell: ['s'] }, counts: { lint: { a: 2, b: 2 } } });
+    const git = diffGit({ refs: { HEAD: HEAD_SHA }, files: { [HEAD_SHA]: before } });
+    const out = capture();
+    const result = await runBaselineDiff({ cwd: dir, git, stdout: out.out });
+    expect(result.diff).toMatchObject({
+      added_count: 0,
+      removed_count: 0,
+      recounted: { lint: { a: { from: 2, to: 3 }, b: { from: 2, to: 1 } }, spell: { s: { from: null, to: 1 } } },
+      recounted_count: 3,
+    });
+    expect(out.text()).toContain('0 key(s) added, 0 removed, 3 recounted.\n\n## lint: 0 added, 0 removed, 2 recounted\n\n~ a (2 → 3)\n~ b (2 → 1)\n');
+    expect(out.text()).toContain('~ s (any → 1)');
   });
 
   test('--json prints the diff object and nothing else', async () => {

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS } from '../adapters.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { applyBaseline, findingText, fingerprint } from '../baseline/index.js';
+import { applyBaseline, findingText, fingerprint, tally } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
@@ -421,34 +421,39 @@ describe('fingerprint — a new warning does not block masking (F31)', () => {
     // oxlint exits 1 on the grandfathered error (rawOk false); the new warning
     // can't fail the slot, so it must not be the key that keeps it red.
     const captured = [...(fingerprint('oxlint', OXLINT, OXLINT_ARGV) ?? [])];
-    const later = fingerprint('oxlint', withOxlint(OXLINT, 'warning'), OXLINT_ARGV) ?? new Set();
-    expect(applyBaseline(later, captured, false)).toEqual({ ok: true, baselined: 1, newKeys: [] });
+    const later = tally('oxlint', withOxlint(OXLINT, 'warning'), OXLINT_ARGV) ?? new Map<string, number>();
+    expect(applyBaseline(later, { keys: captured }, false)).toEqual({ ok: true, baselined: 1, newKeys: [], excess: [], newFindings: 0 });
   });
 
   test('under --deny-warnings the same new warning is keyed and keeps the slot red (F32)', () => {
     const argv = [...OXLINT_ARGV, '--deny-warnings'];
     const captured = [...(fingerprint('oxlint', OXLINT, argv) ?? [])];
-    const later = fingerprint('oxlint', withOxlint(OXLINT, 'warning'), argv) ?? new Set();
-    expect(applyBaseline(later, captured, false)).toEqual({
+    const later = tally('oxlint', withOxlint(OXLINT, 'warning'), argv) ?? new Map<string, number>();
+    // Four findings under three keys: one key is found twice, and the entry, captured before counts, grandfathers both.
+    expect(applyBaseline(later, { keys: captured }, false)).toEqual({
       ok: false,
-      baselined: 3,
+      baselined: 4,
       newKeys: ['src/cli.ts:eslint(eqeqeq):Expected === and instead saw =='],
+      excess: [],
+      newFindings: 1,
     });
   });
 
   test('an ast-grep slot red only from grandfathered errors stays masked when a warning lands', () => {
     const captured = [...(fingerprint('ast-grep', AST_GREP_SEVERITIES, AST_GREP_ARGV) ?? [])];
-    const later = fingerprint('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'warning'), AST_GREP_ARGV) ?? new Set();
-    expect(applyBaseline(later, captured, false)).toEqual({ ok: true, baselined: 1, newKeys: [] });
+    const later = tally('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'warning'), AST_GREP_ARGV) ?? new Map<string, number>();
+    expect(applyBaseline(later, { keys: captured }, false)).toEqual({ ok: true, baselined: 1, newKeys: [], excess: [], newFindings: 0 });
   });
 
   test('a new ast-grep error still blocks masking', () => {
     const captured = [...(fingerprint('ast-grep', AST_GREP_SEVERITIES, AST_GREP_ARGV) ?? [])];
-    const later = fingerprint('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'error'), AST_GREP_ARGV) ?? new Set();
-    expect(applyBaseline(later, captured, false)).toEqual({
+    const later = tally('ast-grep', withAstGrep(AST_GREP_SEVERITIES, 'error'), AST_GREP_ARGV) ?? new Map<string, number>();
+    expect(applyBaseline(later, { keys: captured }, false)).toEqual({
       ok: false,
       baselined: 1,
       newKeys: ['src/init.ts:no-var:prefer const or let'],
+      excess: [],
+      newFindings: 1,
     });
   });
 });
@@ -459,19 +464,24 @@ describe('fingerprint — a prose slot through capture and masking', () => {
 
   test('a red prose slot goes green once its findings are captured', () => {
     expect(captured.length).toBe(7);
-    expect(applyBaseline(fingerprint('vale', VALE) ?? new Set(), captured, false)).toEqual({
+    // Eight alerts under seven keys, all grandfathered by an entry captured before counts.
+    expect(applyBaseline(tally('vale', VALE) ?? new Map<string, number>(), { keys: captured }, false)).toEqual({
       ok: true,
-      baselined: 7,
+      baselined: 8,
       newKeys: [],
+      excess: [],
+      newFindings: 0,
     });
   });
 
   test('a newly introduced finding stays red and is the only key listed', () => {
     const later = withAlert(VALE, 'docs/tools.md', 'Vale.Repetition', "'the' is repeated!");
-    expect(applyBaseline(fingerprint('vale', later) ?? new Set(), captured, false)).toEqual({
+    expect(applyBaseline(tally('vale', later) ?? new Map<string, number>(), { keys: captured }, false)).toEqual({
       ok: false,
-      baselined: 7,
+      baselined: 8,
       newKeys: ["docs/tools.md:Vale.Repetition:'the' is repeated!"],
+      excess: [],
+      newFindings: 1,
     });
   });
 

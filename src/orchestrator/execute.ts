@@ -13,8 +13,8 @@ import { performance } from 'node:perf_hooks';
 
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
-import type { Baseline, Fingerprint, RanWith } from '../baseline/index.js';
-import { applyBaseline, baselineDrift, findingText, observedFingerprint, reportVerdict } from '../baseline/index.js';
+import type { Baseline, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
+import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, reportVerdict } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { failureLine, isAvailableUnder, packEnv, packToolchain, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
@@ -86,14 +86,22 @@ async function clearSlotOutputs(dir: string, adapter: Adapter): Promise<void> {
   await Promise.all([...names].map((f) => rm(join(dir, f), { force: true })));
 }
 
-/** One slot's baseline-masked verdict, plus the fingerprint to feed the ratchet (null = don't observe). */
+/** One slot's baseline-masked verdict, plus the tally to feed the ratchet (null = don't observe). */
 type MaskResult = {
   ok: boolean;
   baselined: number;
+  /** Keys the baseline doesn't hold. */
   newKeys: string[];
+  /** Keys it holds that were found more often than it grandfathers. */
+  excess: Excess[];
+  /** How many findings it didn't grandfather, across both. */
+  newFindings: number;
   reason: string | null;
-  observed: Fingerprint | null;
+  observed: Tally | null;
 };
+
+/** The masking a check with no baseline entry gets: none. */
+const UNMASKED = { baselined: 0, newKeys: [], excess: [], newFindings: 0 } as const satisfies Partial<MaskResult>;
 
 /**
  * The line a report verdict's failure prints: the verdict's own reason where
@@ -124,26 +132,29 @@ type MaskScope = { key: string; root: string | undefined; repoRoot: string; base
  * declares (D49).
  *
  * `observed` is non-null only for a run whose findings can be trusted
- * (`observedFingerprint`): the ratchet must never prune from a run that never
+ * (`observedTally`): the ratchet must never prune from a run that never
  * reached a verdict. Such a run is never masked either, so its verdict is the
  * raw outcome: a timeout whose partial output holds only grandfathered keys
  * stays red rather than passing on findings it never finished reading.
  */
 function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
+  const entry = baseline ? entryFor(baseline, scope.key) : null;
   const verdict = reportVerdict(adapter.name);
-  const keys = baseline ? (baseline.slots[scope.key] ?? []) : null;
-  if (verdict) {
-    const v = verdict(findingText(adapter.name, outcome), keys, scope.root);
-    const observed = v.observed && outcome.exit_code !== -1 ? v.findings : null;
-    return { ok: v.ok, baselined: v.baselined, newKeys: v.newKeys, reason: verdictReason(v.reason, observed !== null, outcome), observed };
-  }
+  if (verdict !== null) return maskByReport(verdict(findingText(adapter.name, outcome), entry, scope.root), outcome);
   const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
-  const current = keys !== null ? observedFingerprint(adapter.name, outcome, argv, scope.root, scope.repoRoot) : null;
-  if (keys !== null && current !== null) {
-    const adj = applyBaseline(current, keys, outcome.ok);
-    return { ok: adj.ok, baselined: adj.baselined, newKeys: adj.newKeys, reason: failureLine(outcome), observed: current };
+  const current = entry !== null ? observedTally(adapter.name, outcome, argv, scope.root, scope.repoRoot) : null;
+  if (entry !== null && current !== null) {
+    const { ok, baselined, newKeys, excess, newFindings } = applyBaseline(current, entry, outcome.ok);
+    return { ok, baselined, newKeys, excess, newFindings, reason: failureLine(outcome), observed: current };
   }
-  return { ok: outcome.ok, baselined: 0, newKeys: [], reason: failureLine(outcome), observed: current };
+  return { ok: outcome.ok, ...UNMASKED, reason: failureLine(outcome), observed: current };
+}
+
+/** {@link maskOutcome} for an adapter whose report, not its exit code, is the verdict: `v`, that verdict. */
+function maskByReport(v: FallowVerdict, outcome: CheckOutcome): MaskResult {
+  const observed = v.observed && outcome.exit_code !== -1 ? v.findings : null;
+  const { ok, baselined, newKeys, excess, newFindings } = v;
+  return { ok, baselined, newKeys, excess, newFindings, reason: verdictReason(v.reason, observed !== null, outcome), observed };
 }
 
 /**
@@ -204,10 +215,24 @@ function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, ma
   if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
   const reason = entry.reason ?? mask.reason;
   if (!entry.ok && reason) writeLine(stderr, `           ${reason}`);
-  if (!entry.ok && mask.newKeys.length > 0) {
-    writeLine(stderr, `           ${mask.newKeys.length} new, not in baseline:`);
-    for (const k of mask.newKeys) writeLine(stderr, `             ${k}`);
+  if (!entry.ok && mask.newFindings > 0) {
+    writeLine(stderr, `           ${mask.newFindings} new, not in baseline:`);
+    for (const line of newFindingLines(mask)) writeLine(stderr, `             ${line}`);
   }
+}
+
+/**
+ * One line per key with findings the baseline didn't grandfather, sorted: a
+ * key it doesn't hold, with how many findings share it when more than one,
+ * and a key it holds found more often than it grandfathers, with both counts.
+ */
+function newFindingLines(mask: MaskResult): string[] {
+  const lines = mask.newKeys.map((key) => {
+    const found = mask.observed?.get(key) ?? 1;
+    return { key, line: found > 1 ? `${key} (${found} found)` : key };
+  });
+  for (const { key, found, allowed } of mask.excess) lines.push({ key, line: `${key} (${found} found, ${allowed} grandfathered)` });
+  return lines.toSorted((a, b) => (a.key < b.key ? -1 : 1)).map(({ line }) => line);
 }
 
 /**
@@ -227,7 +252,7 @@ type CheckResult = {
    * part of its files, through its `changedArgs` or narrowed Go packages, so
    * a key it didn't report may sit in a file it never read.
    */
-  observed: { key: string; fp: Fingerprint; whole: boolean } | null;
+  observed: { key: string; fp: Tally; whole: boolean } | null;
   /** Diagnostics the baseline did not grandfather — feeds the red-run recover hint. */
   newKeys: string[];
   /** Present when the check ran another copy of its tool than its baseline keys were captured with. */
@@ -357,11 +382,11 @@ function toolchainOf(r: ResolvedCheck): Pick<Drift, 'toolchain'> {
 function driftOf(baseline: Baseline | null, check: Pick<Drift, 'name' | 'tool' | 'toolchain'> & { ran: RanWith }, mask: MaskResult): Drift | null {
   const captured = baseline?.captured_with?.[check.name];
   if (captured === undefined || mask.observed === null || !baselineDrift(captured, check.ran)) return null;
-  return { ...check, captured, newKeys: mask.newKeys.length, heldBack: unseen(baseline?.slots[check.name] ?? [], mask.observed) };
+  return { ...check, captured, newKeys: mask.newKeys.length + mask.excess.length, heldBack: unseen(baseline?.slots[check.name] ?? [], mask.observed) };
 }
 
 /** How many of `keys` the run's findings `seen` doesn't hold: the grandfathered keys a ratchet would prune. */
-function unseen(keys: readonly string[], seen: Fingerprint): number {
+function unseen(keys: readonly string[], seen: Tally): number {
   return keys.filter((k) => !seen.has(k)).length;
 }
 
@@ -401,7 +426,7 @@ async function runSelectedCheck(r: ResolvedCheck, ctx: RunContext): Promise<Chec
 type Execution = {
   checks: SummaryCheck[];
   runs: CheckRun[];
-  observed: Map<string, Fingerprint>;
+  observed: Map<string, Tally>;
   /** The observed checks that read only part of their files ({@link CheckResult}'s `whole`). */
   narrowed: Set<string>;
   newKeys: string[];

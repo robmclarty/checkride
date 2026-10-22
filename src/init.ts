@@ -27,8 +27,8 @@ import type { HookFile, HookName } from './agent-setup/index.js';
 import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/index.js';
 import type { HarnessName } from './gate.js';
 import { writeFileAtomic } from './atomic.js';
-import type { Fingerprint } from './baseline/index.js';
-import { BASELINE_FILE, isFingerprintable } from './baseline/index.js';
+import type { Tally } from './baseline/index.js';
+import { BASELINE_FILE, isFingerprintable, tallied } from './baseline/index.js';
 import { observedChecks, runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CustomCheck, SlotConfig } from './config.js';
@@ -174,11 +174,11 @@ async function defaultProbe(slots: string[], cwd: string): Promise<ProbeFailure[
   }
 }
 
-/** A failing check as the probe classes it: its outcome, whether its findings can be keyed, the keys it reported, and its summary's reason. */
-export type Probed = { outcome: CheckOutcome; keyed: boolean; keys: ReadonlySet<string> | null; reason: string | undefined };
+/** A failing check as the probe classes it: its outcome, whether its findings can be keyed, the keys it reported with their counts, and its summary's reason. */
+export type Probed = { outcome: CheckOutcome; keyed: boolean; keys: Tally | null; reason: string | undefined };
 
 /** The probe's failure for one check, from its run and the keys a capture would observe of it. */
-function failureOf(check: SummaryCheck, run: CheckRun | undefined, keyed: ReadonlyMap<string, Fingerprint | null>): ProbeFailure {
+function failureOf(check: SummaryCheck, run: CheckRun | undefined, keyed: ReadonlyMap<string, Tally | null>): ProbeFailure {
   const outcome = run?.outcome ?? { ok: false, exit_code: check.exit_code ?? 1, stdout: '', stderr: '' };
   return classifyProbe(check.name, { outcome, keyed: keyed.has(check.name), keys: keyed.get(check.name) ?? null, reason: check.reason });
 }
@@ -206,7 +206,7 @@ const PROBE_CLASSES: readonly { kind: ProbeFailure['kind']; matches: (p: Probed)
     matches: (p) => p.outcome.exit_code === -1 || (p.keyed && p.keys === null),
     cause: (p) => failureLine(p.outcome) ?? firstLine(p.outcome.stderr) ?? exited(p.outcome),
   },
-  { kind: 'findings', matches: (p) => p.keys !== null && p.keys.size > 0, cause: (p) => `${p.keys?.size ?? 0} finding(s)` },
+  { kind: 'findings', matches: (p) => p.keys !== null && p.keys.size > 0, cause: (p) => `${p.keys === null ? 0 : tallied(p.keys)} finding(s)` },
 ];
 
 /** Class one failing probe ({@link PROBE_CLASSES}), `failed` with its reason or its exit when no other class matches. */

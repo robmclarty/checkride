@@ -1551,9 +1551,9 @@ describe('classifyProbe', () => {
       expected: { kind: 'setup', cause: 'level=error msg="can\'t load config"' },
     },
     {
-      label: 'findings its parser keyed are findings, counted',
-      probed: { outcome: failed(), keyed: true, keys: new Set(['a', 'b', 'c']), reason: undefined },
-      expected: { kind: 'findings', cause: '3 finding(s)' },
+      label: 'findings its parser keyed are findings, each one counted',
+      probed: { outcome: failed(), keyed: true, keys: new Map([['a', 1], ['b', 2], ['c', 1]]), reason: undefined },
+      expected: { kind: 'findings', cause: '4 finding(s)' },
     },
     {
       label: "a type checker's failure, which nothing keys, failed, named by its exit",

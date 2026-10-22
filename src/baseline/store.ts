@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { writeFileAtomic } from '../atomic.js';
 import { isRecord } from '../json.js';
-import type { Fingerprint } from './fingerprint.js';
+import type { Tally } from './fingerprint.js';
 
 /** The committed baseline artifact, at repo root beside `checkride.config.json`. */
 export const BASELINE_FILE = 'checkride.baseline.json';
@@ -43,7 +43,28 @@ export type Baseline = {
    * ratchet ({@link baselineDrift}). Absent when no check recorded one.
    */
   captured_with?: Record<string, Captured>;
+  /**
+   * How many findings each key grandfathers, for a check whose keys were
+   * counted: check name to each key found more than once, with how many times.
+   * A key a counted check's entry doesn't name grandfathers one finding. A
+   * check this doesn't name was captured before counts, and each of its keys
+   * grandfathers any number, as every key did before. Absent when no check is
+   * counted.
+   */
+  counts?: Record<string, Record<string, number>>;
 };
+
+/**
+ * One check's entry as masking reads it: its keys, and, for a counted check,
+ * how many findings each grandfathers ({@link Baseline}'s `counts`).
+ */
+export type BaselineEntry = { keys: readonly string[]; counts?: Readonly<Record<string, number>> };
+
+/** The entry `baseline` holds for `check`: no keys for a check it doesn't name. */
+export function entryFor(baseline: Baseline, check: string): BaselineEntry {
+  const counts = baseline.counts?.[check];
+  return { keys: baseline.slots[check] ?? [], ...(counts !== undefined ? { counts } : {}) };
+}
 
 /**
  * How a check's tool ran this time, as its summary entry records it: any
@@ -53,14 +74,21 @@ export type Baseline = {
  */
 export type RanWith = { pin_source?: string; tool_version?: string; toolchain_version?: string; toolchain_pinned?: boolean };
 
-/** The result of masking one slot's current fingerprint with its baseline. */
+/** A key the baseline holds that this run found more often than it grandfathers. */
+export type Excess = { key: string; found: number; allowed: number };
+
+/** The result of masking one slot's current tally with its baseline. */
 export type BaselineAdjustment = {
   /** Grandfathered-adjusted pass: the failure is fully explained by known debt. */
   ok: boolean;
-  /** How many current diagnostics the baseline suppressed (the `baselined` count). */
+  /** How many current findings the baseline suppressed (the `baselined` count). */
   baselined: number;
-  /** Sorted diagnostics present now that the baseline does NOT grandfather. */
+  /** Sorted keys present now that the baseline does NOT hold. */
   newKeys: string[];
+  /** Sorted by key: the keys it holds that were found more often than it grandfathers. */
+  excess: Excess[];
+  /** How many current findings the baseline didn't grandfather: every finding of a new key, and each one past a key's count. */
+  newFindings: number;
 };
 
 /**
@@ -88,7 +116,12 @@ export function parseBaseline(raw: string): Baseline | null {
     for (const [slot, keys] of Object.entries(parsed['slots'])) {
       if (Array.isArray(keys)) slots[slot] = keys.filter((k): k is string => typeof k === 'string');
     }
-    return { schema_version: typeof version === 'number' ? version : BASELINE_SCHEMA_VERSION, slots, ...withCaptured(parseCaptured(parsed['captured_with'], slots)) };
+    return {
+      schema_version: typeof version === 'number' ? version : BASELINE_SCHEMA_VERSION,
+      slots,
+      ...withCaptured(parseCaptured(parsed['captured_with'], slots)),
+      ...withCounts(parseCounts(parsed['counts'], slots)),
+    };
   } catch {
     return null;
   }
@@ -109,6 +142,37 @@ function parseCaptured(raw: unknown, slots: Readonly<Record<string, string[]>>):
     if (read !== null && Object.hasOwn(slots, check)) captured[check] = read;
   }
   return captured;
+}
+
+/**
+ * The `counts` a parsed file holds, read so a malformed entry fails closed: a
+ * check `slots` doesn't hold is dropped, since it counts nothing, and a check
+ * entry that isn't an object still marks its check counted, every key at one.
+ */
+function parseCounts(raw: unknown, slots: Readonly<Record<string, string[]>>): Record<string, Record<string, number>> {
+  const counts: Record<string, Record<string, number>> = {};
+  if (!isRecord(raw)) return counts;
+  for (const [check, entry] of Object.entries(raw)) {
+    const keys = slots[check];
+    if (keys !== undefined) counts[check] = readCounts(entry, keys);
+  }
+  return counts;
+}
+
+/** One check's counts: each key its entry holds, with a whole count of two or more; anything else counts once. */
+function readCounts(entry: unknown, keys: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  if (!isRecord(entry)) return counts;
+  const held = new Set(keys);
+  for (const [key, n] of Object.entries(entry)) {
+    if (held.has(key) && typeof n === 'number' && Number.isInteger(n) && n >= 2) counts[key] = n;
+  }
+  return counts;
+}
+
+/** `counts` as a baseline spreads it: present only when it names a check. */
+function withCounts(counts: Readonly<Record<string, Record<string, number>>> | undefined): Pick<Baseline, 'counts'> {
+  return counts !== undefined && Object.keys(counts).length > 0 ? { counts: { ...counts } } : {};
 }
 
 /** One `captured_with` entry, or `null` when it names no pin source. */
@@ -194,30 +258,47 @@ export async function writeBaseline(cwd: string, baseline: Baseline): Promise<vo
 }
 
 /**
- * Mask one slot's current fingerprint with its grandfathered keys. Masking is
- * pure set subtraction: `newKeys` are the current diagnostics the baseline does
- * not cover, `baselined` counts the ones it does.
+ * Mask one slot's current tally with its entry. Each key grandfathers as many
+ * of its findings as the entry allows ({@link allowanceOf}): `newKeys` are the
+ * current keys the entry doesn't hold, `excess` the ones it holds that were
+ * found more often than it allows, and `baselined` counts the findings it
+ * grandfathered.
  *
- * The failure flips to a pass *only* when there are current diagnostics and none
+ * The failure flips to a pass *only* when there are current findings and none
  * of them are new — a tool that produced no parseable diagnostics (a crash, empty
  * output that fingerprints to the empty set) is never masked, so a genuine
  * breakage still fails even while a baseline is active. Correctness beats
  * precision: better to re-surface a masked finding than to silently green a crash.
  */
-export function applyBaseline(
-  current: Fingerprint,
-  baselinedKeys: readonly string[],
-  rawOk: boolean,
-): BaselineAdjustment {
-  const grandfathered = new Set(baselinedKeys);
+export function applyBaseline(current: Tally, entry: BaselineEntry, rawOk: boolean): BaselineAdjustment {
+  const allowed = allowanceOf(entry);
   const newKeys: string[] = [];
+  const excess: Excess[] = [];
   let baselined = 0;
-  for (const k of current) {
-    if (grandfathered.has(k)) baselined += 1;
-    else newKeys.push(k);
+  let newFindings = 0;
+  for (const [key, found] of current) {
+    const allows = allowed(key);
+    baselined += Math.min(found, allows);
+    newFindings += Math.max(found - allows, 0);
+    if (allows === 0) newKeys.push(key);
+    else if (found > allows) excess.push({ key, found, allowed: allows });
   }
-  const ok = rawOk || (current.size > 0 && newKeys.length === 0);
-  return { ok, baselined, newKeys: newKeys.toSorted() };
+  const ok = rawOk || (current.size > 0 && newFindings === 0);
+  return { ok, baselined, newKeys: newKeys.toSorted(), excess: excess.toSorted((a, b) => (a.key < b.key ? -1 : 1)), newFindings };
+}
+
+/**
+ * How many findings of a key an entry grandfathers: none of a key it doesn't
+ * hold, the count a counted check records, one when it records none, and any
+ * number for a check captured before counts.
+ */
+function allowanceOf(entry: BaselineEntry): (key: string) => number {
+  const held = new Set(entry.keys);
+  const { counts } = entry;
+  return (key) => {
+    if (!held.has(key)) return 0;
+    return counts === undefined ? Number.POSITIVE_INFINITY : (counts[key] ?? 1);
+  };
 }
 
 /**
@@ -231,14 +312,39 @@ export function applyBaseline(
  * `--changed`, no early `--bail` break) so a partial run can't prune keys it
  * simply didn't observe.
  */
-export function ratchet(baseline: Baseline, observed: ReadonlyMap<string, Fingerprint>): Baseline {
+export function ratchet(baseline: Baseline, observed: ReadonlyMap<string, Tally>): Baseline {
   const slots: Record<string, string[]> = {};
   for (const [slot, keys] of Object.entries(baseline.slots)) {
     const current = observed.get(slot);
     slots[slot] = current === undefined ? keys : keys.filter((k) => current.has(k)).toSorted();
   }
   // How each check was captured outlives its keys: only `checkride baseline` writes it.
-  return { schema_version: baseline.schema_version, slots, ...withCaptured(baseline.captured_with) };
+  return { schema_version: baseline.schema_version, slots, ...withCaptured(baseline.captured_with), ...withCounts(ratchetedCounts(baseline.counts, observed)) };
+}
+
+/**
+ * A counted check's counts after a run that observed it: each lowered to how
+ * many findings of its key the run found. A count only falls, and a check
+ * captured before counts stays uncounted: only `checkride baseline` counts one.
+ */
+function ratchetedCounts(counts: Baseline['counts'], observed: ReadonlyMap<string, Tally>): Record<string, Record<string, number>> | undefined {
+  if (counts === undefined) return undefined;
+  const ratcheted: Record<string, Record<string, number>> = {};
+  for (const [check, entry] of Object.entries(counts)) {
+    const current = observed.get(check);
+    ratcheted[check] = current === undefined ? entry : lowerCounts(entry, current);
+  }
+  return ratcheted;
+}
+
+/** `entry`'s counts lowered to what `current` found, a count that falls to one or none left out. */
+function lowerCounts(entry: Readonly<Record<string, number>>, current: Tally): Record<string, number> {
+  const lowered: Record<string, number> = {};
+  for (const [key, n] of Object.entries(entry)) {
+    const kept = Math.min(n, current.get(key) ?? 0);
+    if (kept >= 2) lowered[key] = kept;
+  }
+  return lowered;
 }
 
 /**
@@ -253,7 +359,43 @@ export function renameBaselineSlots(baseline: Baseline, renames: ReadonlyMap<str
     const to = renames.get(name) ?? name;
     slots[to] = [...(slots[to] ?? []), ...keys];
   }
-  return { schema_version: baseline.schema_version, slots, ...withCaptured(renamedCaptured(baseline.captured_with, renames)) };
+  return {
+    schema_version: baseline.schema_version,
+    slots,
+    ...withCaptured(renamedCaptured(baseline.captured_with, renames)),
+    ...withCounts(renamedCounts(baseline, renames)),
+  };
+}
+
+/**
+ * `baseline`'s counts with each entry moved as {@link renameBaselineSlots}
+ * moves the keys. Two entries that land under one name stay counted only
+ * when every one holding a key was, the larger count winning, and otherwise
+ * the merged check is uncounted, so a key never grandfathers fewer findings
+ * than it did.
+ */
+function renamedCounts(baseline: Baseline, renames: ReadonlyMap<string, string>): Record<string, Record<string, number>> {
+  const merged = new Map<string, Record<string, number> | null>();
+  for (const [name, keys] of Object.entries(baseline.slots)) {
+    const to = renames.get(name) ?? name;
+    if (keys.length > 0) merged.set(to, mergedCounts(merged.get(to), baseline.counts?.[name]));
+  }
+  const counts: Record<string, Record<string, number>> = {};
+  for (const [name, entry] of merged) if (entry !== null) counts[name] = entry;
+  return counts;
+}
+
+/** One more entry's counts, `own`, folded into those already merged under its new name: uncounted, `null`, once either side is. */
+function mergedCounts(so: Record<string, number> | null | undefined, own: Readonly<Record<string, number>> | undefined): Record<string, number> | null {
+  if (so === null || own === undefined) return null;
+  return largerCounts(so ?? {}, own);
+}
+
+/** Two checks' counts as one, each key's larger count winning. */
+function largerCounts(a: Readonly<Record<string, number>>, b: Readonly<Record<string, number>>): Record<string, number> {
+  const larger: Record<string, number> = { ...a };
+  for (const [key, n] of Object.entries(b)) larger[key] = Math.max(larger[key] ?? 0, n);
+  return larger;
 }
 
 /** `captured` with each entry moved as {@link renameBaselineSlots} moves the keys; a check already under the new name keeps its own. */
@@ -323,7 +465,7 @@ function toolCopyNamed(copy: RanWith): string {
  * `null` when it ran without reaching a verdict, and how its tool ran, as its
  * summary entry records it.
  */
-export type Observation = { keys: ReadonlySet<string> | null; ran: RanWith };
+export type Observation = { keys: Tally | null; ran: RanWith };
 
 /**
  * What `baseline --versions` did with one check the committed baseline holds:
@@ -341,10 +483,10 @@ export type Rerecord =
   | { check: string; outcome: 'unpinned'; ran: RanWith };
 
 /** One check's step: what was done with it, and the entry it takes when it's re-recorded. */
-type RerecordStep = { result: Rerecord; entry?: { keys: string[]; record: Captured } };
+type RerecordStep = { result: Rerecord; entry?: { keys: string[]; counts?: Record<string, number>; record: Captured } };
 
-/** A check's entry as the committed baseline holds it: its keys, and how they were captured. */
-type HeldEntry = { keys: readonly string[]; record: Captured | undefined };
+/** A check's entry as the committed baseline holds it: its keys and their counts, and how they were captured. */
+type HeldEntry = BaselineEntry & { record: Captured | undefined };
 
 /**
  * The committed baseline with each check's capture record moved to the copy
@@ -360,25 +502,30 @@ type HeldEntry = { keys: readonly string[]; record: Captured | undefined };
 export function rerecordCopies(baseline: Baseline, observations: ReadonlyMap<string, Observation>): { baseline: Baseline; results: Rerecord[] } {
   const slots: Record<string, string[]> = { ...baseline.slots };
   const captured: Record<string, Captured> = { ...baseline.captured_with };
+  const counts: Record<string, Record<string, number>> = { ...baseline.counts };
   const results: Rerecord[] = [];
   for (const check of Object.keys(baseline.slots).toSorted()) {
-    const step = rerecordCheck(check, { keys: baseline.slots[check] ?? [], record: baseline.captured_with?.[check] }, observations.get(check));
+    const step = rerecordCheck(check, { ...entryFor(baseline, check), record: baseline.captured_with?.[check] }, observations.get(check));
     results.push(step.result);
     if (step.entry === undefined) continue;
     slots[check] = step.entry.keys;
     captured[check] = step.entry.record;
+    if (step.entry.counts !== undefined) counts[check] = step.entry.counts;
   }
-  return { baseline: { schema_version: baseline.schema_version, slots, ...withCaptured(captured) }, results };
+  return { baseline: { schema_version: baseline.schema_version, slots, ...withCaptured(captured), ...withCounts(counts) }, results };
 }
 
-/** What `baseline --versions` does with one check: leave it when the run didn't observe it or it reported a key its entry lacks, else weigh the copy that ran. */
+/**
+ * What `baseline --versions` does with one check: leave it when the run didn't
+ * observe it, or it reported a key its entry lacks or more findings of one
+ * than the entry grandfathers, else weigh the copy that ran.
+ */
 function rerecordCheck(check: string, held: HeldEntry, seen: Observation | undefined): RerecordStep {
   if (seen === undefined) return { result: { check, outcome: 'not-run' } };
   if (seen.keys === null) return { result: { check, outcome: 'no-verdict' } };
   const reported = seen.keys;
-  const known = new Set(held.keys);
-  const newKeys = [...reported].filter((k) => !known.has(k)).length;
-  if (newKeys > 0) return { result: { check, outcome: 'new-keys', newKeys, ran: seen.ran } };
+  const { newKeys, excess } = applyBaseline(reported, held, false);
+  if (newKeys.length + excess.length > 0) return { result: { check, outcome: 'new-keys', newKeys: newKeys.length + excess.length, ran: seen.ran } };
   return rerecordObserved(check, held, reported, seen.ran);
 }
 
@@ -388,13 +535,39 @@ function rerecordCheck(check: string, held: HeldEntry, seen: Observation | undef
  * chose the copy that ran, its tool or the toolchain it ran on, and otherwise
  * re-recorded, its unreported keys pruned.
  */
-function rerecordObserved(check: string, held: HeldEntry, reported: ReadonlySet<string>, ran: RanWith): RerecordStep {
+function rerecordObserved(check: string, held: HeldEntry, reported: Tally, ran: RanWith): RerecordStep {
   const record = capturedRecord(ran);
-  const keys = held.keys.filter((k) => reported.has(k)).toSorted();
-  if (keys.length === held.keys.length && sameRecord(held.record, record)) return { result: { check, outcome: 'unchanged' } };
-  if (record === undefined || record.pin_source === 'path' || ran.toolchain_pinned === false) return { result: { check, outcome: 'unpinned', ran } };
+  const next = prunedEntry(held, reported);
+  if (sameEntry(held, next, record)) return { result: { check, outcome: 'unchanged' } };
+  if (!pinnedCopy(record, ran)) return { result: { check, outcome: 'unpinned', ran } };
   const from = held.record === undefined ? {} : { from: held.record };
-  return { result: { check, outcome: 'rerecorded', ...from, to: record, pruned: held.keys.length - keys.length }, entry: { keys, record } };
+  return { result: { check, outcome: 'rerecorded', ...from, to: record, pruned: held.keys.length - next.keys.length }, entry: { ...next, record } };
+}
+
+/** `held` with the keys `reported` lacks pruned, and its counts, when it has them, lowered to what was reported. */
+function prunedEntry(held: BaselineEntry, reported: Tally): { keys: string[]; counts?: Record<string, number> } {
+  const keys = held.keys.filter((k) => reported.has(k)).toSorted();
+  return held.counts === undefined ? { keys } : { keys, counts: lowerCounts(held.counts, reported) };
+}
+
+/** Whether a re-record would change nothing: the same keys and counts, and the same copy recorded. */
+function sameEntry(held: HeldEntry, next: BaselineEntry, record: Captured | undefined): boolean {
+  return next.keys.length === held.keys.length && sameCounts(held.counts, next.counts) && sameRecord(held.record, record);
+}
+
+/** Whether a pin of the repo's chose the copy that ran: its tool, through a source other than `PATH`, and its toolchain where it records one. */
+function pinnedCopy(record: Captured | undefined, ran: RanWith): record is Captured {
+  return record !== undefined && record.pin_source !== 'path' && ran.toolchain_pinned !== false;
+}
+
+/** Whether two checks' counts say the same, key order aside; two uncounted checks do. */
+function sameCounts(a: Readonly<Record<string, number>> | undefined, b: Readonly<Record<string, number>> | undefined): boolean {
+  return countsText(a) === countsText(b);
+}
+
+/** A check's counts as text, its keys sorted, for {@link sameCounts}; `''` for an uncounted check. */
+function countsText(counts: Readonly<Record<string, number>> | undefined): string {
+  return counts === undefined ? '' : JSON.stringify(Object.entries(counts).toSorted(([a], [b]) => (a < b ? -1 : 1)));
 }
 
 /** Whether two capture records say the same, field order aside; two absent records do. */
@@ -403,16 +576,30 @@ function sameRecord(a: Captured | undefined, b: Captured | undefined): boolean {
   return canonical(a) === canonical(b);
 }
 
-/** Total grandfathered diagnostics across every slot. */
+/** Total grandfathered keys across every slot. */
 export function countBaselineKeys(baseline: Baseline): number {
   return Object.values(baseline.slots).reduce((n, keys) => n + keys.length, 0);
+}
+
+/**
+ * Total grandfathered findings across every slot: each counted key's count,
+ * and one for every other key, which for a check captured before counts is
+ * the fewest its key grandfathers.
+ */
+export function countGrandfathered(baseline: Baseline): number {
+  let total = 0;
+  for (const [check, keys] of Object.entries(baseline.slots)) {
+    const counts = baseline.counts?.[check] ?? {};
+    for (const key of keys) total += counts[key] ?? 1;
+  }
+  return total;
 }
 
 /**
  * Sorted-slots, sorted-unique-keys copy — the one shape the file is ever
  * written in — with `captured_with` after the slots, sorted, holding only the
  * checks the slots do, each entry's fields in their one order, and left out
- * when it holds none.
+ * when it holds none, then `counts`, likewise.
  */
 function canonicalize(base: Baseline): Baseline {
   const slots: Record<string, string[]> = {};
@@ -422,7 +609,26 @@ function canonicalize(base: Baseline): Baseline {
     const entry = base.captured_with?.[check];
     if (entry !== undefined) captured[check] = capturedAs(entry.pin_source, entry.tool_version, entry.toolchain_version);
   }
-  return { schema_version: base.schema_version, slots, ...withCaptured(captured) };
+  return { schema_version: base.schema_version, slots, ...withCaptured(captured), ...withCounts(canonicalCounts(slots, base.counts)) };
+}
+
+/**
+ * `counts` as the file writes it: a sorted entry for each counted check that
+ * holds a key, since an empty check grandfathers nothing either way, with its
+ * keys sorted, each one the check holds with a count of two or more.
+ */
+function canonicalCounts(slots: Readonly<Record<string, string[]>>, counts: Baseline['counts']): Record<string, Record<string, number>> {
+  const canonical: Record<string, Record<string, number>> = {};
+  for (const [check, keys] of Object.entries(slots)) {
+    const entry = counts?.[check];
+    if (entry === undefined || keys.length === 0) continue;
+    canonical[check] = {};
+    for (const key of keys) {
+      const n = entry[key];
+      if (n !== undefined && n >= 2) canonical[check][key] = n;
+    }
+  }
+  return canonical;
 }
 
 /** Canonical string form (sorted slots and keys) for order-independent compare. */

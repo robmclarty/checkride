@@ -8,6 +8,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A baseline key grandfathers as many findings as it was captured with.** A
+  key names a finding by its file, rule and message, with no line, so two of
+  one finding in a file share a key, and grandfathering one grandfathered any
+  number: on a Go workspace 476 golangci-lint findings fit into 309 keys, and
+  adding a second unchecked `x.Close()` to a file that had one passed (#14, #8).
+  `checkride baseline` now counts each check it captures: `counts` in
+  `checkride.baseline.json` records each key found more than once with how many
+  times, and a key it doesn't list grandfathers one. A finding past a key's
+  count is new and fails the check, listed on stderr with both numbers, as in
+  `(3 found, 2 grandfathered)`. The ratchet lowers a count as findings are
+  fixed and never raises one, `checkride baseline --versions` lowers one too
+  and leaves a check that found more, `recover`'s union keeps each current
+  key's count, and `checkride baseline diff` lists each key whose count
+  changed under `recounted`. A baseline captured by an earlier release has no
+  `counts`, and each of its keys still grandfathers any number of findings, so
+  upgrading changes no verdict: run `checkride baseline` to count them, and
+  review the diff. A summary's `baselined` now counts the findings the
+  baseline grandfathered, which the contract always said, rather than its
+  keys, and the ratchet's and capture's stderr lines count findings too.
+
 - **A narrowed run says what a full run would prune.** A run with `--only`,
   `--skip` or `--changed`, or one `--bail` stopped early, never prunes
   `checkride.baseline.json`, so an agent loop behind a
@@ -68,7 +88,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+#### Not additive
+
+- Changed: a summary check's `baselined` counts the findings the baseline
+  masked, where 0.16 counted their distinct keys, so two grandfathered
+  findings under one key count 2, not 1.
+- Changed: `checkride baseline` writes `counts` for every check it observes
+  that holds a key, and a run fails a check that finds more of a key than its
+  count. A file written before this release is uncounted, and masks as before.
+  A release before this one drops `counts` when its ratchet rewrites the file.
+
 #### Additive
+
+- `checkride.baseline.json` and its schema take `counts`, and the reader's
+  tolerance rules cover it. `baseline diff --json` takes `recounted` and
+  `recounted_count`.
 
 - The gate counts a pnpm the repo's `packageManager` pin refuses, and a
   `packageManager` that names another manager, among the refusals only the

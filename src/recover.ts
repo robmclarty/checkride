@@ -192,7 +192,7 @@ function fileLine(read: BaselineRead, dirty: boolean): string {
 function candidateRow(candidate: Candidate, index: number, current: Baseline | null): string {
   const delta = diffBaselines(current, candidate.baseline);
   const keys = countBaselineKeys(candidate.baseline);
-  const vs = `+${delta.restoredCount} / −${delta.absentCount}`;
+  const vs = `+${delta.restoredCount} / −${delta.absentCount}${delta.recountedCount > 0 ? ` / ~${delta.recountedCount}` : ''}`;
   if (candidate.kind === 'union') {
     return `| ${index} | union (${candidate.folded} snapshot(s) + current) | — | — | — | ${keys} | ${vs} |`;
   }
@@ -221,7 +221,8 @@ function renderListing(ctx: RecoverContext): string {
   scan.candidates.forEach((candidate, i) => lines.push(candidateRow(candidate, i + 1, read.baseline)));
   lines.push(
     '',
-    '`vs current` is +keys an apply restores / −keys only `--exact` would drop.',
+    '`vs current` is +keys an apply restores / −keys only `--exact` would drop,',
+    'and ~keys whose count `--exact` would change, when there are any.',
     '',
     'Apply: `checkride recover --pick <#>` by number, or `--pick <sha>` by commit',
     '(stable across invocations — prefer it in scripts). Preview with `--dry-run`.',
@@ -248,7 +249,8 @@ function renderPreview(a: Apply): string {
   lines.push(`Would write ${BASELINE_FILE} with ${countBaselineKeys(a.target)} key(s): +${a.delta.restoredCount} restored, −${a.delta.absentCount} dropped.`, '');
   for (const [slot, keys] of Object.entries(a.delta.restored)) pushKeySection(lines, slot, keys, 'restored');
   for (const [slot, keys] of Object.entries(a.delta.absent)) pushKeySection(lines, slot, keys, 'dropped under --exact');
-  if (a.delta.restoredCount === 0 && a.delta.absentCount === 0) lines.push('No changes against the current file.', '');
+  for (const [slot, recounts] of Object.entries(a.delta.recounted)) pushKeySection(lines, slot, Object.entries(recounts).map(([key, r]) => `${key} (${r.from ?? 'any'} → ${r.to ?? 'any'})`), 'recounted');
+  if (a.delta.restoredCount === 0 && a.delta.absentCount === 0 && a.delta.recountedCount === 0) lines.push('No changes against the current file.', '');
   return lines.join('\n');
 }
 
@@ -267,7 +269,7 @@ function listingJson(ctx: RecoverContext): unknown {
     skipped: scan.skipped,
     candidates: scan.candidates.map((candidate, i) => {
       const delta = diffBaselines(read.baseline, candidate.baseline);
-      const common = { index: i + 1, keys: countBaselineKeys(candidate.baseline), restored: delta.restoredCount, absent: delta.absentCount };
+      const common = { index: i + 1, keys: countBaselineKeys(candidate.baseline), restored: delta.restoredCount, absent: delta.absentCount, recounted: delta.recountedCount };
       return candidate.kind === 'union'
         ? { kind: 'union', folded: candidate.folded, ...common }
         : { kind: 'snapshot', sha: candidate.rev.sha, short_sha: candidate.rev.shortSha, date: candidate.rev.date, author: candidate.rev.author, subject: candidate.rev.subject, ...common };
@@ -285,5 +287,6 @@ function applyJson(action: 'written' | 'dry-run' | 'noop', a: Apply): unknown {
     keys: countBaselineKeys(a.target),
     restored: a.delta.restoredCount,
     dropped: a.delta.absentCount,
+    recounted: a.delta.recountedCount,
   };
 }

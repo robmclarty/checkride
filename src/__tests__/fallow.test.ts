@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import type { Baseline } from '../baseline/index.js';
+import type { Baseline, BaselineEntry } from '../baseline/index.js';
 import { fallowVerdict } from '../baseline/index.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
@@ -47,9 +47,10 @@ function classMembers(members: { path: string; line?: number; col?: number }[]):
   });
 }
 
-/** Capture a baseline the way `checkride baseline` does: the slot's fingerprint keys. */
-function capture(raw: string): string[] {
-  return [...fallowVerdict(raw, null).findings];
+/** Capture a baseline entry the way `checkride baseline` does: the slot's keys, each counted. */
+function capture(raw: string): BaselineEntry {
+  const { findings } = fallowVerdict(raw, null);
+  return { keys: [...findings.keys()], counts: Object.fromEntries([...findings].filter(([, n]) => n >= 2)) };
 }
 
 const sink = (): Out => ({ write: () => true });
@@ -73,7 +74,7 @@ describe('fallowVerdict (no baseline)', () => {
     expect(v.ok).toBe(false);
     expect(v.reason).toBe('1 finding(s)');
     expect(v.observed).toBe(true);
-    expect(v.findings).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
+    expect(new Set(v.findings.keys())).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
   });
 
   test('a clean report passes', () => {
@@ -87,7 +88,7 @@ describe('fallowVerdict (no baseline)', () => {
     const v = fallowVerdict(dupes(['dup:aaaa', 'dup:bbbb']), null);
     expect(v.ok).toBe(false);
     expect(v.reason).toBe('2 finding(s)');
-    expect(v.findings).toEqual(new Set(['dupes:dup:aaaa', 'dupes:dup:bbbb']));
+    expect(new Set(v.findings.keys())).toEqual(new Set(['dupes:dup:aaaa', 'dupes:dup:bbbb']));
   });
 });
 
@@ -120,7 +121,7 @@ describe('fallowVerdict (unreadable report → loud failure, never a silent pass
 describe('fallowVerdict (with baseline)', () => {
   test('a fully-grandfathered slot passes and counts the masked findings', () => {
     const raw = deadCode([['unused_files', 'src/a.ts'], ['unused_files', 'src/b.ts']]);
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts', 'dead-code:unused_files:src/b.ts']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts', 'dead-code:unused_files:src/b.ts'] });
     expect(v.ok).toBe(true);
     expect(v.baselined).toBe(2);
     expect(v.newKeys).toEqual([]);
@@ -128,7 +129,7 @@ describe('fallowVerdict (with baseline)', () => {
 
   test('a new finding not in the baseline fails and is named', () => {
     const raw = deadCode([['unused_files', 'src/a.ts'], ['unused_files', 'src/new.ts']]);
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false);
     expect(v.baselined).toBe(1);
     expect(v.newKeys).toEqual(['dead-code:unused_files:src/new.ts']);
@@ -148,7 +149,7 @@ describe('fallowVerdict (with baseline)', () => {
       unused_enum_members: [{ path: 'src/a.ts', parent_name: 'Color', member_name: 'Blue', line: 6, col: 33 }],
     });
     // No line or column: inserting code above a member must not re-key it.
-    expect(capture(raw).toSorted()).toEqual([
+    expect(capture(raw).keys.toSorted()).toEqual([
       'dead-code:unused_class_members:src/a.ts:Svc.unusedOne',
       'dead-code:unused_class_members:src/a.ts:Svc.unusedTwo',
       'dead-code:unused_enum_members:src/a.ts:Color.Blue',
@@ -167,7 +168,7 @@ describe('fallowVerdict (with baseline)', () => {
       // container with no leaf: the component itself is the whole identity
       unrendered_components: [{ path: 'src/d.vue', component_name: 'Widget' }],
     });
-    expect(capture(raw).toSorted()).toEqual([
+    expect(capture(raw).keys.toSorted()).toEqual([
       'dead-code:unrendered_components:src/d.vue:Widget',
       'dead-code:unused_catalog_entries:pnpm-workspace.yaml:default.lodash',
       'dead-code:unused_component_inputs:src/c.ts:Card.title',
@@ -188,8 +189,8 @@ describe('fallowVerdict (with baseline)', () => {
       thin_wrappers: [{ file: 'src/w.tsx', line: 4, component: 'Wrap', child_component: 'Inner' }],
       next_steps: [{ id: 'trace', command: 'fallow dead-code --trace src/a.ts', reason: 'verify' }],
     });
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
-    expect(v.findings).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
+    expect(new Set(v.findings.keys())).toEqual(new Set(['dead-code:unused_files:src/a.ts']));
     expect(v.ok).toBe(true);
   });
 
@@ -222,7 +223,7 @@ describe('fallowVerdict (with baseline)', () => {
       summary: { total_issues: 2, unused_files: 1 },
       unused_files: [{ path: 'src/a.ts' }],
     });
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false);
     expect(v.reason).toBe('2 finding(s)');
   });
@@ -237,7 +238,7 @@ describe('fallowVerdict (with baseline)', () => {
       // unused_store_members present in the count but with no readable identity
       unused_store_members: [{ note: 'opaque' }],
     });
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false); // cannot be masked green: one finding is untracked
     expect(v.reason).toBe('2 finding(s)');
   });
@@ -252,9 +253,9 @@ describe('fallowVerdict (with baseline)', () => {
 describe("fallowVerdict (a target's keys name files from the repo root, D50)", () => {
   test("a baseline of repo-root-relative keys masks the same findings run from the target's root", () => {
     const raw = deadCode([['unused_files', 'src/a.ts']]);
-    expect(fallowVerdict(raw, ['dead-code:unused_files:apps/web/src/a.ts'], 'apps/web')).toMatchObject({ ok: true, baselined: 1, newKeys: [] });
+    expect(fallowVerdict(raw, { keys: ['dead-code:unused_files:apps/web/src/a.ts'] }, 'apps/web')).toMatchObject({ ok: true, baselined: 1, newKeys: [] });
     // A key written from the repo root names another file, so it masks nothing here.
-    expect(fallowVerdict(raw, ['dead-code:unused_files:src/a.ts'], 'apps/web')).toMatchObject({
+    expect(fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] }, 'apps/web')).toMatchObject({
       ok: false,
       newKeys: ['dead-code:unused_files:apps/web/src/a.ts'],
     });
@@ -267,8 +268,8 @@ describe("fallowVerdict (a target's keys name files from the repo root, D50)", (
       summary: { total_issues: 1, circular_dependencies: 1 },
       circular_dependencies: [{ files: ['src/b.ts', 'src/a.ts'] }],
     });
-    expect([...fallowVerdict(cycle, null, 'apps/web').findings]).toEqual(['dead-code:circular_dependencies:apps/web/src/a.ts->apps/web/src/b.ts']);
-    expect([...fallowVerdict(health([{ path: 'src/x.ts', name: 'tangled' }]), null, 'apps/web').findings]).toEqual([
+    expect([...fallowVerdict(cycle, null, 'apps/web').findings.keys()]).toEqual(['dead-code:circular_dependencies:apps/web/src/a.ts->apps/web/src/b.ts']);
+    expect([...fallowVerdict(health([{ path: 'src/x.ts', name: 'tangled' }]), null, 'apps/web').findings.keys()]).toEqual([
       'health:apps/web/src/x.ts:tangled',
     ]);
   });
@@ -299,7 +300,7 @@ describe('fallowVerdict (key collisions coarsen the baseline; un-keyable finding
       { path: 'src/errors.ts', line: 10, col: 3 },
       { path: 'src/errors.ts', line: 22, col: 5 },
     ]);
-    const v = fallowVerdict(raw, ['dead-code:unused_class_members:src/errors.ts:10:3']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_class_members:src/errors.ts:10:3'] });
     expect(v.ok).toBe(false);
     expect(v.newKeys).toEqual(['dead-code:unused_class_members:src/errors.ts:22:5']);
   });
@@ -309,7 +310,7 @@ describe('fallowVerdict (key collisions coarsen the baseline; un-keyable finding
       { path: 'src/x.ts', name: '<arrow>', line: 5, col: 3 },
       { path: 'src/x.ts', name: '<arrow>', line: 9, col: 3 },
     ]);
-    expect(capture(raw).toSorted()).toEqual(['health:src/x.ts:<arrow>:5:3', 'health:src/x.ts:<arrow>:9:3']);
+    expect(capture(raw).keys.toSorted()).toEqual(['health:src/x.ts:<arrow>:5:3', 'health:src/x.ts:<arrow>:9:3']);
   });
 
   test('a genuinely un-keyable finding keeps the slot red even with every keyable one grandfathered', () => {
@@ -323,7 +324,7 @@ describe('fallowVerdict (key collisions coarsen the baseline; un-keyable finding
       unused_files: [{ path: 'src/a.ts' }],
       unused_store_members: [{ note: 'opaque' }],
     });
-    const v = fallowVerdict(raw, ['dead-code:unused_files:src/a.ts']);
+    const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false);
     expect(v.reason).toBe('2 finding(s)');
   });
