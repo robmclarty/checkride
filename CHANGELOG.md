@@ -86,6 +86,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **`init --baseline` grandfathers the targets it discovers.** Existing-mode
+  `init` ran each adopted check and captured the baseline before it wrote the
+  targets it discovered, so both saw only the root's own pack: on a monorepo
+  whose go, terraform and bash targets discovery found, `init` probed the ts
+  root alone, and the first `pnpm check` was red on 309 un-baselined
+  `go:lint` keys until a separate `checkride baseline` (#11). `init` now plans
+  the config it would write, the discovered targets included, runs every
+  check it resolves, a dry run's too, and names each by its check name, such
+  as `api:lint`. A failing check it disables is written `false` in its own
+  entry, a target's under that target's `checks`, and under `--baseline` the
+  capture runs after the config declares every target. In a repo whose config
+  already declared targets, a failing target check was never grandfathered,
+  since the probe named it `api:lint` and adoption looked for `lint`; it is
+  now.
 - **The generated gate script passes shellcheck.** Once a bash target covered
   the repo root, `.claude/hooks/checkride-gate.sh` and its Cursor twin were
   findings of their own: SC2016 for the backticks its messages quote on
@@ -134,6 +148,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 #### Not additive
 
+- Changed: the exported `InitOptions`'s `probeFailures` is asked about each
+  check by its check name, `api:lint` for a target's, and handed the config
+  the checks resolve under as a third argument, where 0.16 passed the root
+  pack's slot names alone. `InitResult`'s `grandfathered`, `disabled` and
+  `setup` name checks the same way.
 - Changed: discovery and `unclaimed` name colliding targets by pack or by
   their roots' trailing segments, where 0.16 numbered all but the first, so a
   `--discover` run in such a repo names its checks, its `.check/<target>/`

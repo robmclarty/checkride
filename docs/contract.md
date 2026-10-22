@@ -921,14 +921,20 @@ target at `.` that checks nothing. Shell files
 outside every other proposed target's root propose one bash target, at the
 deepest directory holding them all, named `scripts` when that directory is
 the root's `scripts/` and `shell` otherwise. Other names come from each
-root's last segment, `.` becoming `app`, and any name gets a number added on
-a collision. When it proposes no more than one target at the root, of the
-pack the root marks, that is the mode the repo already runs in, so nothing
-changes. Anything more is printed as
+root's last segment, `.` becoming `app`, and a name that collides takes a
+longer one, as `--discover` names them above. When it proposes no more than
+one target at the root, of the pack the root marks, that is the mode the repo
+already runs in, so nothing changes. Anything more is printed as
 a `targets` block and written the way `target add` writes it, unless
 `--dry-run`. A config that already declares `targets` is left alone. The go,
 rust, python and terraform targets it proposes follow the rules `--discover`
-gives above.
+gives above. `init` runs each check once to see what fails, under the config
+it would write, the targets it proposes included, `--dry-run` too, or the
+repo's own config when it has one, and names each by its check name,
+`api:lint` for a target's. A check it disables is written `false` in its own
+entry, a target's under that target's `checks`, and under `--baseline` it
+captures the baseline after the config declares every target, so each one's
+keys are grandfathered.
 
 **A bash target's checks run over its files.** An adapter argument that is
 exactly `{files}` expands, in a target of a file-list pack (bash), to the files

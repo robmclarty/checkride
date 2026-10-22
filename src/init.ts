@@ -31,8 +31,9 @@ import type { Tally } from './baseline/index.js';
 import { BASELINE_FILE, isFingerprintable, tallied } from './baseline/index.js';
 import { observedChecks, runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
-import type { CustomCheck, SlotConfig } from './config.js';
-import { configSchemaUrl, configuredBy, loadConfig, resolveChecks } from './config.js';
+import type { CheckrideConfig, CustomCheck, SlotConfig } from './config.js';
+import { configSchemaUrl, configuredBy, loadConfig, resolveChecks, validateConfigObject } from './config.js';
+import { isRecord } from './json.js';
 import type { CheckOutcome } from './links.js';
 import type { CheckRun, Out, SummaryCheck } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
@@ -101,11 +102,13 @@ export type InitOptions = {
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
   /**
-   * Existing mode: returns the adopted slots whose check currently fails,
-   * each with why ({@link ProbeFailure}), or by name alone, which reads as a
-   * check that `failed` for no cause given.
+   * Existing mode: returns the adopted checks whose run currently fails, by
+   * name (`lint`, or `api:lint` for a target's), each with why
+   * ({@link ProbeFailure}), or by name alone, which reads as a check that
+   * `failed` for no cause given. `config` is the config they resolve under,
+   * the targets discovery would declare included, which isn't on disk yet.
    */
-  probeFailures?: (slots: string[], cwd: string) => Promise<(string | ProbeFailure)[]>;
+  probeFailures?: (checks: string[], cwd: string, config: CheckrideConfig) => Promise<(string | ProbeFailure)[]>;
   /**
    * Existing mode: grandfather current debt into `checkride.baseline.json`
    * instead of disabling failing slots (`--baseline`). A failing
@@ -156,16 +159,17 @@ export type ProbeFailure = { slot: string; kind: 'setup' | 'findings' | 'failed'
 const NULL_OUT: Out = { write: () => true };
 
 /**
- * Run the adopted checks once; each failing (non-skipped) check marks its slot,
- * with why it failed. The run writes its artifacts to a temp directory it
+ * Run the adopted checks once, under `config`, which may not be on disk yet;
+ * each failing (non-skipped) check marks its name, with why it failed. The
+ * run writes its artifacts to a temp directory it
  * removes after, since the probe reads only the outcomes it holds in memory:
  * `./.check/` isn't gitignored yet, and under `--dry-run` it never will be.
  */
-async function defaultProbe(slots: string[], cwd: string): Promise<ProbeFailure[]> {
-  if (slots.length === 0) return [];
+async function defaultProbe(checks: string[], cwd: string, config: CheckrideConfig): Promise<ProbeFailure[]> {
+  if (checks.length === 0) return [];
   const out = await mkdtemp(join(tmpdir(), 'checkride-init-'));
   try {
-    const result = await runChecks({ cwd, only: slots, out, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
+    const result = await runChecks({ cwd, config, only: checks, out, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
     const keyed = observedChecks(result.runs, cwd);
     const runs = new Map(result.runs.map((r) => [r.name, r]));
     return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed));
@@ -1647,31 +1651,91 @@ async function captureBaselineIfNeeded(
   await capture(cwd);
 }
 
+/** The config file existing mode writes and reads. */
+const CONFIG_FILE = 'checkride.config.json';
+
 /**
- * Write checkride.config.json for the adopted tools (disabled failures as
- * `false`) plus the publish-ready bundle; never clobber an existing one.
+ * What existing mode would write, held in memory until the probe has run:
+ * the config file for the adopted tools, `null` when the repo has one, which
+ * is never clobbered; the targets discovery would declare in it; and the
+ * config every adopted check resolves under, which both make.
  */
-async function writeExistingConfig(
-  w: Writer,
-  cwd: string,
-  adopted: readonly InventoryEntry[],
-  disabledSet: ReadonlySet<string>,
-  bundleChecks: Record<string, string>,
-  skipped: string[],
-): Promise<void> {
-  if (existsSync(join(cwd, 'checkride.config.json'))) {
-    skipped.push('checkride.config.json (exists)');
-    return;
-  }
-  const checks: Record<string, string | false> = {};
-  for (const i of adopted) {
-    if (disabledSet.has(i.slot)) checks[i.slot] = false;
-    else if (i.adapter) checks[i.slot] = i.adapter;
-  }
-  // The opt-in publish bundle follows the adopted default slots; explicit
-  // entries opt these slots into the run (the library orders itself).
+type AdoptionPlan = {
+  fresh: Record<string, unknown> | null;
+  discovery: { proposed: ProposedTarget[]; change: TargetChange } | null;
+  config: CheckrideConfig;
+  raw: Record<string, unknown>;
+};
+
+/** Plan the config and targets existing mode writes, from the adopted tools and the publish-ready bundle. */
+async function planAdoption(cwd: string, options: InitOptions, adopted: readonly InventoryEntry[], bundleChecks: Record<string, string>): Promise<AdoptionPlan> {
+  const fresh = existsSync(join(cwd, CONFIG_FILE)) ? null : adoptedConfig(adopted, bundleChecks);
+  const own = fresh ?? readRawConfig(cwd, () => ({}));
+  const discovery = await planDiscovery(cwd, options, own);
+  const raw = discovery?.change.config ?? own;
+  return { fresh, discovery, raw, config: validateConfigObject(raw, join(cwd, CONFIG_FILE), cwd) };
+}
+
+/**
+ * The config for the adopted tools plus the publish-ready bundle: each
+ * adopted slot names its tool, and the opt-in bundle follows, its explicit
+ * entries opting those slots into the run (the library orders itself).
+ */
+function adoptedConfig(adopted: readonly InventoryEntry[], bundleChecks: Record<string, string>): Record<string, unknown> {
+  const checks: Record<string, string> = {};
+  for (const i of adopted) if (i.adapter) checks[i.slot] = i.adapter;
   for (const [slot, adapter] of Object.entries(bundleChecks)) checks[slot] = adapter;
-  await put(w, 'checkride.config.json', configFile(checks));
+  return { $schema: generatedSchemaUrl(), checks };
+}
+
+/**
+ * The checks a default run makes under `config`, the ones existing mode
+ * probes: every target's, by the name `--only` takes (`api:lint`), and the
+ * repo's own, each with the adapter that fills it.
+ */
+function adoptedChecks(cwd: string, slots: readonly Slot[], adapters: readonly Adapter[], config: CheckrideConfig): InventoryEntry[] {
+  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  return selectChecks(resolved, {}).flatMap((r) => (r.adapter === null || r.skip !== null ? [] : [{ slot: checkName(r), status: 'adopted' as const, adapter: r.adapter.name }]));
+}
+
+/**
+ * Write the planned config: the fresh one with each disabled check `false`,
+ * a target's under its own `checks`, or, when the repo has one, nothing but
+ * the targets discovery declares, unless `--dry-run`. Returns what discovery
+ * declared, for the report.
+ */
+async function writeAdoptedConfig(w: Writer, cwd: string, plan: AdoptionPlan, disabled: readonly string[], skipped: string[]): Promise<Discovery | null> {
+  if (plan.fresh === null) skipped.push(`${CONFIG_FILE} (exists)`);
+  const config = plan.fresh === null ? plan.raw : withDisabled(plan.raw, disabled);
+  if (plan.discovery === null) {
+    if (plan.fresh !== null) await put(w, CONFIG_FILE, `${JSON.stringify(config, null, 2)}\n`);
+    return null;
+  }
+  if (plan.fresh !== null) w.written.push(CONFIG_FILE);
+  const files = await writeTargetChange(cwd, { ...plan.discovery.change, config }, { dryRun: w.dryRun, command: 'init' });
+  w.written.push(...files.files.map((file) => `${file} (targets)`));
+  return { proposed: plan.discovery.proposed, changes: [...plan.discovery.change.changes, ...files.changes] };
+}
+
+/** `config` with each of `names` switched off: a target's check under its own `checks`, any other at the top level. */
+function withDisabled(config: Record<string, unknown>, names: readonly string[]): Record<string, unknown> {
+  return names.reduce((next, name) => {
+    const at = name.indexOf(':');
+    return at === -1 ? { ...next, checks: { ...recordAt(next, 'checks'), [name]: false } } : disabledInTarget(next, name.slice(0, at), name.slice(at + 1));
+  }, config);
+}
+
+/** `config` with `slot` of target `target` switched off. */
+function disabledInTarget(config: Record<string, unknown>, target: string, slot: string): Record<string, unknown> {
+  const targets = recordAt(config, 'targets');
+  const entry = recordAt(targets, target);
+  return { ...config, targets: { ...targets, [target]: { ...entry, checks: { ...recordAt(entry, 'checks'), [slot]: false } } } };
+}
+
+/** The object `key` holds in `parent`, or an empty one. */
+function recordAt(parent: Record<string, unknown>, key: string): Record<string, unknown> {
+  const value = parent[key];
+  return isRecord(value) ? value : {};
 }
 
 /** Ensure `.check/` is gitignored: create the file, append to it, or note it's already there. */
@@ -1837,16 +1901,15 @@ function nestsImplicit(proposed: readonly ProposedTarget[], pack: string): boole
 
 /**
  * Existing mode's discovery (R11.4, R7.5): when the repo's files propose more
- * than its one implicit target, declare them, converting the config the way
- * `target add` does (the root target, of the pack the root marks (R2.1),
- * takes the top-level slot entries and the baseline's entries), unless
- * `--dry-run`. Where an inner root of the root's pack won, no target sits at
- * the root to take those entries, so they're dropped, as `--discover` drops
- * them, and each is printed. A config that already declares targets has made
- * its choice, and is left alone.
+ * than its one implicit target, the change that declares them in `raw`, the
+ * config init writes or the repo's own, converting it the way `target add`
+ * does (the root target, of the pack the root marks (R2.1), takes the
+ * top-level slot entries and the baseline's entries). Where an inner root of
+ * the root's pack won, no target sits at the root to take those entries, so
+ * they're dropped, as `--discover` drops them, and each is printed. A config
+ * that already declares targets has made its choice, and is left alone.
  */
-async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Promise<Discovery | null> {
-  const raw = readRawConfig(cwd, () => ({}));
+async function planDiscovery(cwd: string, options: InitOptions, raw: Record<string, unknown>): Promise<AdoptionPlan['discovery']> {
   if (raw['targets'] !== undefined) return null;
   const proposed = await (options.discoverTargets ?? ((dir: string) => discoverTargets(dir, undefined, raw)))(cwd);
   const pack = implicitPack(markerAt(cwd));
@@ -1856,10 +1919,7 @@ async function applyDiscovery(w: Writer, cwd: string, options: InitOptions): Pro
     ? liftDiscovered(raw, proposed, { implicitPack: pack, targetSlots: TARGET_SLOTS })
     : addedInOrder(raw, proposed, pack, rootIsProject(cwd, raw));
   const ignored = ignoreToolsRoot(lifted.config, cwd);
-  const change = { ...lifted, config: ignored.config, changes: [...lifted.changes, ...ignored.changes] };
-  const files = await writeTargetChange(cwd, change, { dryRun: w.dryRun, command: 'init' });
-  w.written.push(...files.files.map((file) => `${file} (targets)`));
-  return { proposed, changes: [...change.changes, ...files.changes] };
+  return { proposed, change: { ...lifted, config: ignored.config, changes: [...lifted.changes, ...ignored.changes] } };
 }
 
 /** Print the `targets` block discovery proposed, and each change it made, or would have. */
@@ -1924,19 +1984,22 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   const items = inventory({ cwd, slots, adapters });
   const adopted = items.filter((i) => i.status === 'adopted');
 
-  // Run each adopted check once to see what currently fails, and why.
-  const probe = options.probeFailures ?? defaultProbe;
-  const failures = probeAnswers(await probe(adopted.map((i) => i.slot), cwd));
-
-  const { grandfathered, disabled, setup } = resolveAdoptionPlan(adopted, failures, options.baseline ?? false);
-  await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
-
   // Publish-ready bundle: planned only when a config will be written.
   const bundle = await planInitBundle(publishRequested, manifest, cwd);
   if (bundle.snippetsPointer) skipped.push(bundle.snippetsPointer);
 
-  await writeExistingConfig(w, cwd, adopted, new Set(disabled), bundle.checks, skipped);
-  const discovery = await applyDiscovery(w, cwd, options);
+  // The config init would write and the targets discovery would declare in
+  // it, held in memory, so every check they resolve runs once, a dry run's
+  // included, to see what currently fails, and why.
+  const plan = await planAdoption(cwd, options, adopted, bundle.checks);
+  const checks = adoptedChecks(cwd, slots, adapters, plan.config);
+  const probe = options.probeFailures ?? defaultProbe;
+  const failures = probeAnswers(await probe(checks.map((c) => c.slot), cwd, plan.config));
+
+  const { grandfathered, disabled, setup } = resolveAdoptionPlan(checks, failures, options.baseline ?? false);
+  const discovery = await writeAdoptedConfig(w, cwd, plan, disabled, skipped);
+  // Captured once the config declares every target, so each one's keys are.
+  await captureBaselineIfNeeded(options, cwd, grandfathered, w.dryRun);
   await ensureGitignore(w, cwd, skipped);
   // package.json: add the `check: checkride` alias if missing.
   await addCheckAlias(w, skipped);

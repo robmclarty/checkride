@@ -131,6 +131,29 @@ describeWithToolchain('go')('existing Go adoption', () => {
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-e2e-existing-go-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
+  /**
+   * #11: init probed and captured before it wrote the targets it discovers,
+   * so a Go module below the root went unprobed and uncaptured, and the
+   * first run was red on its lint debt until a separate `checkride baseline`.
+   */
+  test('a discovered Go target: init --baseline grandfathers its lint debt, and the first run is green', async () => {
+    const adoptedFiles = /[\\/](?:\.check|checkride\.baseline\.json|README\.md|expected\.json)$/;
+    await cp(GO_EXAMPLE, join(dir, 'services', 'api'), { recursive: true, filter: (src) => !adoptedFiles.test(src) });
+
+    const adopted = await runCli(dir, ['init', '--baseline', '--no-hook']);
+    expect(adopted.code, adopted.stdout).toBe(0);
+    expect(adopted.stdout).toContain('grandfathered failing slots into checkride.baseline.json: api:lint');
+    const cfg = await readJson<{ targets?: Record<string, { lang: string; root: string }> }>(join(dir, 'checkride.config.json'));
+    expect(cfg.targets).toEqual({ api: { lang: 'go', root: 'services/api' } });
+
+    const captured = await readJson<Baseline>(join(dir, 'checkride.baseline.json'));
+    const committed = await readJson<Baseline>(join(GO_EXAMPLE, 'checkride.baseline.json'));
+    expect(captured.slots['api:lint']).toEqual((committed.slots['lint'] ?? []).map((key) => `services/api/${key}`));
+
+    const first = await runCli(dir, []);
+    expect(first.code, first.stderr).toBe(0);
+  });
+
   test('go-existing-baseline: init --baseline grandfathers the lint debt, a new finding fails, and a fix ratchets', async () => {
     // The example as it stood before adoption: its Go code and golangci-lint
     // config, without the baseline adoption wrote or the README describing

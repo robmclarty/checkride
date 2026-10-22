@@ -538,6 +538,16 @@ describe('new-project generation (flat)', () => {
 
 const noFailures = (): Promise<string[]> => Promise.resolve([]);
 
+/** A probe that records what it was asked and fails `failing`, with findings. */
+function recordingProbe(failing: readonly string[]) {
+  const asked: { checks: string[]; targets: string[] }[] = [];
+  const probe = (checks: string[], _cwd: string, config: CheckrideConfig): Promise<ProbeFailure[]> => {
+    asked.push({ checks, targets: Object.keys(config.targets ?? {}) });
+    return Promise.resolve(failing.map((slot) => ({ slot, kind: 'findings' as const, cause: '2 finding(s)' })));
+  };
+  return { asked, probe };
+}
+
 /** Discovery proposing a bash target ahead of the root one, as a repo's packs can't yet. */
 const scriptsFirst = (): Promise<{ name: string; lang: string; root: string }[]> =>
   Promise.resolve([{ name: 'scripts', lang: 'bash', root: 'scripts' }, { name: 'app', lang: 'ts', root: '.' }]);
@@ -606,6 +616,78 @@ describe('existing-project adoption (idempotent)', () => {
     await runInit({ cwd: dir, probeFailures: noFailures, stdout: kept, discoverTargets: scriptsFirst });
     expect(kept.text()).not.toContain('discovered targets');
     expect(JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8'))).toEqual({ targets: { web: { lang: 'ts', root: '.' } } });
+  });
+
+  /** A ts root with oxlint, and a scripts directory shellcheck lints, which discovery proposes as a bash target. */
+  async function twoTargets(): Promise<void> {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await mkdir(join(dir, 'scripts'));
+    await writeFile(join(dir, 'scripts', '.shellcheckrc'), '');
+    await writeFile(join(dir, 'scripts', 'deploy.sh'), '#!/bin/sh\n');
+  }
+
+  /**
+   * #11: the probe and the capture ran before discovery's targets were in the
+   * config, so neither saw them, and the first run went red on every
+   * discovered target's debt. Both now run with them.
+   */
+  describe('discovered targets are probed, and captured', () => {
+    test('each discovered target’s checks are probed, and a failing one is disabled in its own entry', async () => {
+      await twoTargets();
+      const { asked, probe } = recordingProbe(['scripts:lint', 'app:lint']);
+      const result = await runInit({ cwd: dir, probeFailures: probe, discoverTargets: scriptsFirst, hook: false });
+      expect(asked[0]?.checks).toEqual(expect.arrayContaining(['app:lint', 'scripts:lint']));
+      expect(asked[0]?.targets).toEqual(['app', 'scripts']);
+      expect(result.disabled).toEqual(expect.arrayContaining(['app:lint', 'scripts:lint']));
+      const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { targets: Record<string, { checks?: Record<string, unknown> }> };
+      expect(cfg.targets['app']?.checks).toEqual({ lint: false });
+      expect(cfg.targets['scripts']?.checks).toEqual({ lint: false });
+    });
+
+    test('--baseline grandfathers them, capturing once the config declares every target', async () => {
+      await twoTargets();
+      const { probe } = recordingProbe(['scripts:lint']);
+      const declared: unknown[] = [];
+      const captureBaseline = async (at: string): Promise<void> => {
+        declared.push((JSON.parse(await readFile(join(at, 'checkride.config.json'), 'utf8')) as { targets?: unknown }).targets);
+      };
+      const result = await runInit({ cwd: dir, probeFailures: probe, discoverTargets: scriptsFirst, hook: false, baseline: true, captureBaseline });
+      expect(result.grandfathered).toEqual(['scripts:lint']);
+      expect(declared).toEqual([{ app: { lang: 'ts', root: '.', checks: { lint: 'oxlint' } }, scripts: { lang: 'bash', root: 'scripts' } }]);
+    });
+
+    test('a dry run probes them too, and writes and captures nothing', async () => {
+      await twoTargets();
+      const { asked, probe } = recordingProbe(['scripts:lint']);
+      let captured = false;
+      const out = sink();
+      await runInit({
+        cwd: dir, probeFailures: probe, discoverTargets: scriptsFirst, hook: false, baseline: true, dryRun: true, stdout: out,
+        captureBaseline: () => { captured = true; return Promise.resolve(); },
+      });
+      expect(asked[0]?.checks).toContain('scripts:lint');
+      expect(out.text()).toContain(`grandfathered failing slots into checkride.baseline.json: scripts:lint (2 finding(s))`);
+      expect(captured).toBe(false);
+      expect(existsSync(join(dir, 'checkride.config.json'))).toBe(false);
+    });
+
+    test('a config that already declares targets has their checks probed and grandfathered by name', async () => {
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+      await mkdir(join(dir, 'web'));
+      await writeFile(join(dir, 'web', 'package.json'), '{}');
+      await writeFile(join(dir, 'web', '.oxlintrc.json'), '{}');
+      await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ targets: { web: { lang: 'ts', root: 'web' } }, unclaimed: { ignore: ['package.json'] } }));
+      const { asked, probe } = recordingProbe(['web:lint']);
+      let captures = 0;
+      const result = await runInit({
+        cwd: dir, probeFailures: probe, hook: false, baseline: true,
+        captureBaseline: () => { captures += 1; return Promise.resolve(); },
+      });
+      expect(asked[0]?.checks).toContain('web:lint');
+      expect(result.grandfathered).toEqual(['web:lint']);
+      expect(captures).toBe(1);
+    });
   });
 
   test('a go.mod root with no package.json adopts the go pack’s tools, and writes no package.json (R2.1)', async () => {
