@@ -38,6 +38,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file that can't be parsed stops a narrowed capture before anything runs.
   `baseline --versions` takes them too, and names only the checks they
   select.
+- **A red `--digest` run prints its digest.** A red run marked each failing
+  check and pointed at `.check/summary.json`, but showed no diagnostics, so an
+  agent learned what failed only by reading the summary and then each failing
+  check's raw output. That's several tool calls per look at the gate, and it
+  nudged a step-limited agent to run `vitest` or `tsc` alone, since they print
+  their errors, and skip the gate (#22). `--digest` built the right excerpt but
+  only wrote it to `.check/digest.md`. A red run now prints the same text on
+  stderr, below its `report:` and `digest:` lines, so one run shows what to
+  fix. Under Claude Code that reaches the agent from the stop gate too, which
+  runs the check with `--digest` and forwards its output to the stderr a
+  blocked turn is shown. stdout still carries only `--json`'s summary, and a
+  `--json` run prints no report, so there the digest stays in the file. A
+  green run, and a run without the flag, print nothing new.
 
 ### Changed
 
@@ -119,6 +132,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `baseline` takes `--only` and `--skip`, and so does `baseline --versions`.
 - `isParseable` answers `true` for `eslint` and `biome`.
 - The exported `RunOptions` takes `fingerprintableOnly`.
+- A red `--digest` run prints its digest on stderr, below the `report:` and
+  `digest:` lines.
 
 ## [0.18.0] - 2026-10-24
 

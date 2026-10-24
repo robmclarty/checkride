@@ -371,15 +371,15 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
 
   // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
-  // A file beside summary.json, never a stdout stream, so the machine-output
-  // split holds. Raw `<slot>.json` files are already persisted and
-  // untouched — the digest only reads them.
-  const digestWritten = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : false;
+  // A file beside summary.json, which the human report also prints on stderr,
+  // but never on stdout, so the machine-output split holds. Raw `<slot>.json`
+  // files are already persisted and untouched — the digest only reads them.
+  const digest = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : null;
 
   if (ctx.json) {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    reportSummary(ctx.stderr, summary, reported, ctx.adapters, { label: ctx.outLabel, digest: digestWritten });
+    reportSummary(ctx.stderr, summary, reported, ctx.adapters, { label: ctx.outLabel, digest });
     // A mangled committed baseline (a botched merge, usually) masks nothing, so
     // every grandfathered finding above reported red — say so where the person
     // reading the wall of red will actually look, right under the summary.

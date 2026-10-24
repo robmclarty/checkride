@@ -382,6 +382,12 @@ them without guarding against torn JSON.
 when a check failed; a green `--digest` run removes any stale digest. Its
 existence always means "this run had failures".
 
+**A red `--digest` run prints its digest.** The text it writes to `digest.md`
+also goes to stderr, below the `report:` and `digest:` lines, so an agent
+reading the run's output sees what failed without opening a file. stdout
+stays as [stream discipline](#cli) keeps it, and a `--json` run prints no
+human report, so there the digest is the file alone.
+
 ## `checkride.baseline.json`
 
 The committed baseline: the file `checkride baseline` writes at the repo root,

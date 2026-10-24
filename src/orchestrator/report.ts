@@ -263,16 +263,18 @@ function coverage(summary: Summary, checks: readonly SummaryCheck[]): string {
 
 /**
  * Print the human run summary: the vacuous-green warning, the status line, and
- * artifact paths. `artifacts.label` names the output directory as the run's
- * lines do (`.check` by default), and `artifacts.digest` says whether a digest
- * now sits there.
+ * artifact paths, then the digest itself when the run wrote one, so a reader
+ * of a red run's output sees what failed without opening a file (#22).
+ * `artifacts.label` names the output directory as the run's lines do
+ * (`.check` by default), and `artifacts.digest` is the digest the run wrote
+ * there, or `null`.
  */
 export function reportSummary(
   stderr: Out,
   summary: Summary,
   checks: readonly SummaryCheck[],
   adapters: readonly Adapter[],
-  artifacts: { label: string; digest: boolean },
+  artifacts: { label: string; digest: string | null },
 ): void {
   if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
   writeLine(stderr, '');
@@ -283,8 +285,9 @@ export function reportSummary(
   const ran = summary.checks_run === 0 ? '' : coverage(summary, checks);
   writeLine(stderr, `${status} in ${summary.total_duration_ms}ms${ran}`);
   writeLine(stderr, `report: ${artifacts.label}/${SUMMARY_FILE}`);
-  if (artifacts.digest) writeLine(stderr, `digest: ${artifacts.label}/${DIGEST_FILE}`);
+  if (artifacts.digest !== null) writeLine(stderr, `digest: ${artifacts.label}/${DIGEST_FILE}`);
   writeLine(stderr, '');
+  if (artifacts.digest !== null) writeLine(stderr, artifacts.digest);
 }
 
 /**

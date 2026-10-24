@@ -48,6 +48,12 @@ function sink(): Out {
   return { write: () => true };
 }
 
+/** An `Out` that records what was written, for asserting on the stream. */
+function capture(): Out & { text: () => string } {
+  let buf = '';
+  return { write: (t: string) => { buf += t; return true; }, text: () => buf };
+}
+
 const redRunner: CheckRunner = () => Promise.resolve(outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]) }));
 const greenRunner: CheckRunner = () => Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
 
@@ -228,8 +234,9 @@ describe('writeDigest (filesystem)', () => {
       [run(oxlintAdapter, outcome({ stdout: raw }))],
       [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })],
     );
-    expect(wrote).toBe(true);
-    expect(await readFile(join(dir, '.check', DIGEST_FILE), 'utf8')).toContain('## lint — oxlint');
+    // It returns the text it wrote, which the run's report prints.
+    expect(wrote).toContain('## lint — oxlint');
+    expect(await readFile(join(dir, '.check', DIGEST_FILE), 'utf8')).toBe(wrote);
     // The raw file the digest points at is never rewritten.
     expect(await readFile(rawPath, 'utf8')).toBe(raw);
   });
@@ -238,7 +245,7 @@ describe('writeDigest (filesystem)', () => {
     const digestPath = join(dir, '.check', DIGEST_FILE);
     await writeFile(digestPath, '# stale digest from a prior red run\n');
     const wrote = await writeDigest({ dir: join(dir, '.check'), label: '.check' }, [], [check('lint', { ok: true })]);
-    expect(wrote).toBe(false);
+    expect(wrote).toBeNull();
     expect(existsSync(digestPath)).toBe(false);
   });
 });
@@ -277,5 +284,22 @@ describe('runChecks --digest wiring', () => {
     expect(existsSync(join(dir, '.check', DIGEST_FILE))).toBe(true);
     await runChecks(opts(greenRunner, true));
     expect(existsSync(join(dir, '.check', DIGEST_FILE))).toBe(false);
+  });
+
+  test('a red human run prints the digest it wrote, below its report lines', async () => {
+    const stderr = capture();
+    await runChecks({ ...opts(redRunner, true), json: false, stderr });
+    const digest = await readFile(join(dir, '.check', DIGEST_FILE), 'utf8');
+    expect(stderr.text()).toContain(`report: .check/summary.json\ndigest: .check/${DIGEST_FILE}\n\n${digest}\n`);
+  });
+
+  test.each([
+    ['without the flag', redRunner, false, false],
+    ['on a green run', greenRunner, true, false],
+    ['under --json, which prints no report', redRunner, true, true],
+  ] as const)('prints no digest %s', async (_, runner, digest, json) => {
+    const stderr = capture();
+    await runChecks({ ...opts(runner, digest), json, stderr });
+    expect(stderr.text()).not.toContain('# checkride failure digest');
   });
 });
