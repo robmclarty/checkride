@@ -81,6 +81,7 @@ export const clippyParser: Parser = { stream: 'artifact', parse: parseCargo };
 /**
  * `cargo check --message-format=json`, the rust pack's `types`: the same
  * format, served to `checkride/findings` but never keyed into the baseline,
- * since type errors aren't grandfathered (D31).
+ * since cargo stops at the first crate with errors, so a run can't say which
+ * of the errors it didn't reach were fixed.
  */
 export const cargoCheckParser: Parser = { stream: 'artifact', parse: parseCargo, parseOnly: true };

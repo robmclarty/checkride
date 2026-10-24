@@ -151,7 +151,7 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt`; on a check that never reached a verdict, with `exit_code` -1: what stopped it, `timed out after <N>s` for a timeout, and `check-<slot>: fallow could not run: <message> (exit <n>)` when fallow printed its own error report in place of one |
+| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt`; on a check that never reached a verdict, with `exit_code` -1: what stopped it, `timed out after <N>s` for a timeout, and `check-<slot>: fallow could not run: <message> (exit <n>)` when fallow printed its own error report in place of one; on a failed check a committed baseline couldn't mask, since its tool stopped short of some errors, as tsc does on a syntax error: why, `tsc stopped short …, so the baseline neither masked its findings nor pruned its keys` |
 | `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it never reached a verdict: it failed to spawn or timed out, a built-in couldn't complete (`security` with the advisory endpoint unreachable), or fallow reported that it couldn't run, such as on a `fallow.toml` it can't read; `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
@@ -464,11 +464,68 @@ is keyed:
 - tflint's issues at or above the argv's `--minimum-failure-severity`, every
   one by default, a notice included, and none under `--force`.
 
+tsc's key (`types`) has the same form, its rule the diagnostic's `TS` code and
+its message the first line of tsc's with what tsc filled into it written
+`…`: each single-quoted span as `'…'`, then each double-quoted span as
+`"…"`, each span in backticks as `` `…` ``, the list a "following …:" message
+ends on as `…`, and every run of digits as `…`. So
+`src/a.ts:TS2322:Type '…' is not assignable to type '…'.`,
+`src/a.ts:TS2554:Expected … arguments, but got ….`, and
+`src/a.ts:TS2740:Type '…' is missing the following properties from type '…': …`.
+That text changes on edits elsewhere, as an anonymous object type prints its
+whole shape, a property added to a type lengthens the list of those a value
+lacks, and an older tsc names a module by its absolute path, so the key names
+the error rather than what it mentions, and the errors it names alike in one
+file are counted under it. A quote with a letter or digit on its outer side,
+as in `can't`, bounds no span. Every tsc diagnostic can fail the slot and is
+keyed. Where a run lists such a key's new findings, on stderr beneath the key
+and in the digest, it shows each finding as tsc printed it, its place and
+message whole. A run that stopped tsc short of some errors observes nothing, as one
+that timed out doesn't: it masks nothing and prunes nothing, its check's
+`reason` says why, and `checkride baseline` keeps the check's previous keys
+and says why too, while `checkride/findings` still serves every finding it
+printed. tsc stopped short when:
+
+- it reported a diagnostic with no file, or on a `.json` file, where it
+  reports a config it couldn't read or rejected: it type-checks none of a
+  project whose options it rejects, and an unknown option, which it only
+  reports, counts too;
+- it reported a syntax error, a code tsc's parser reports (read from tsc
+  7.0.2's), after which it type-checks none of that project;
+- it reported `TS6305`, a referenced project whose declarations weren't
+  built, whose types every file importing it then lacks;
+- its output shows it died part way: killed by a signal, as pnpm, yarn or
+  Node, under typescript 7's own launcher, reports one, or crashed, as a Go
+  panic or fatal error, a Node heap or stack failure, or an uncaught
+  exception shows. A line of a diagnostic, whatever its type holds, never
+  counts;
+- it found anything in a build that skips each project depending on one with
+  errors: under `--stopBuildOnErrors`, with one dash or two and unless `false`
+  follows it, or, before TypeScript 5.6, under `--build` itself, when the
+  check's pin names the version and the build spans project references (it
+  names more than one project, or the tsconfig it builds, `tsconfig.json`
+  when it names none, holds `references` or can't be read). An argv that
+  hides tsc's flags behind a script reads as tsc's default.
+
+Some of what tsc hides a run can't show. Under `--noEmit` any other error in
+a project hides its declaration-emit errors, and a project that skips its
+emit under `noEmitOnError` never reports them. A referenced project that
+emitted no declarations leaves each file importing it by its package's name
+with `TS2307`, a module tsc can't find, or with an older build's
+declarations where those still sit. Either way a run can prune the key of an
+error it hid, which comes back as new once tsc reports it again.
+
 A finding that fails the slot but names no file, such as staticcheck's
 `compile` problem or a typos misspelling in a file name, keys with an empty
-file. Type errors, tsc's, go build's, cargo check's, mypy's,
-basedpyright's and terraform validate's, are parsed for `checkride/findings`
-but never keyed, and so are trivy's misconfigurations. Line and column are never part of these
+file. go build's, cargo check's, mypy's and basedpyright's type errors are
+parsed for `checkride/findings` but never keyed, since each tool can stop
+before it reports every error, and a run can't say which of the errors it
+never reached were fixed: go build at ten errors in a package, building no
+package that imports a broken one; cargo check at the first crate with
+errors; mypy at a blocking error, a syntax error among them; and basedpyright,
+in a file, at a syntax error its parser's recovery swallows the rest past.
+Neither are terraform validate's errors, from a configuration that can't plan
+either, and trivy's misconfigurations. Line and column are never part of these
 keys, so a finding keeps its key when unrelated edits move it — the property
 the ratchet and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the parser documents, and
@@ -1011,7 +1068,8 @@ separate worktrees.
 
 **A capture runs only the checks whose findings it can key.** `checkride
 baseline` skips each check whose adapter no parser the baseline keys with
-reads, a type checker's, a test runner's or a built-in's among them, with
+reads, a test runner's, a built-in's, and a type checker's other than tsc's
+among them, with
 `baseline: <adapter>'s output adds no key` as its summary entry's reason,
 since its output could add nothing to the file, and its summary records
 `run.partial: true`. `--only` and `--skip` select
@@ -1503,7 +1561,9 @@ report with no `generalDiagnostics` list, a tflint report with no `issues`
 list or with an entry in `errors`, a terraform validate report with no
 `diagnostics` list, trivy output that isn't its report object, markdownlint-cli2
 stderr that holds text but no finding, a cargo build that never printed
-`build-finished`). An empty array means parsed and clean.
+`build-finished`). An empty array means parsed and clean. A tsc run that
+stopped short of some errors, which the baseline neither masks nor prunes
+with, still parses into every finding it printed.
 The API is best-effort: it never writes under the output directory and never
 decides a verdict, so the raw artifact stays authoritative and the check's
 `ok` is still the verdict.

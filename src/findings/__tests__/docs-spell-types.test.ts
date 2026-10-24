@@ -2,9 +2,10 @@
  * The docs, spell and type-checker parsers, each read against output its
  * tool printed at the pinned version (C9): markdownlint-cli2 0.23.3 and rumdl
  * 0.2.79 over the same two Markdown files, typos 1.51.1 in `--format brief`,
- * tsc 7.0.2 over a project at `web/`, and `go build -json` from Go 1.27.2
- * over a module at `svc/`. The docs and spell parsers key the baseline; the
- * type checkers' serve `checkride/findings` alone (D31, D32).
+ * tsc 7.0.2 over a project at `web/` and over a solution build there (`lib`,
+ * and `app` referencing it), and `go build -json` from Go 1.27.2 over a
+ * module at `svc/`. The docs and spell parsers and tsc's key the baseline;
+ * go build's serves `checkride/findings` alone (D32).
  */
 
 // cspell:ignore seperate
@@ -46,12 +47,10 @@ describe('the registry', () => {
     expect(parserFor(adapter)?.stream).toBe(stream);
   });
 
-  test('the docs and spell parsers key the baseline, and the type checkers serve findings alone (D31, D32)', () => {
-    for (const adapter of ['markdownlint-cli2', 'rumdl', 'typos']) expect(baselineParserFor(adapter), adapter).toBe(parserFor(adapter));
-    for (const adapter of ['tsc', 'go-build']) {
-      expect(parserFor(adapter), adapter).toBeDefined();
-      expect(baselineParserFor(adapter), adapter).toBeUndefined();
-    }
+  test("the docs and spell parsers and tsc's key the baseline, and go build's serves findings alone (D32)", () => {
+    for (const adapter of ['markdownlint-cli2', 'rumdl', 'typos', 'tsc']) expect(baselineParserFor(adapter), adapter).toBe(parserFor(adapter));
+    expect(parserFor('go-build')).toBeDefined();
+    expect(baselineParserFor('go-build')).toBeUndefined();
   });
 });
 
@@ -159,6 +158,21 @@ describe('typos', () => {
   });
 });
 
+/** What a run hands `stoppedShort` beside the parse context: both streams, its tool's version, and a reader of the check's files. */
+type Run = { output?: { stdout: string; stderr: string }; toolVersion?: string; read?: (path: string) => string | null };
+
+/** A reader of the check's files that holds only `files`. */
+const holding = (files: Record<string, string>) => (path: string): string | null => files[path] ?? null;
+
+/** A solution tsconfig, whose build spans its references, and a single project's, whose build doesn't. */
+const SOLUTION = '{ "files": [], "references": [{ "path": "./lib" }, { "path": "./app" }] }';
+const SINGLE = '{\n  // one project\n  "compilerOptions": { "strict": true },\n  "references": []\n}';
+
+/** Why tsc's parser reads `fixture` as a run that stopped short of some errors, or `null` when it reached them all. */
+function stoppedShort(fixture: string, context: Context = {}, run: Run = {}): string | null | undefined {
+  return parserFor('tsc')?.stoppedShort?.(parse('tsc', fixture, context), { argv: context.argv, root: context.root, ...run });
+}
+
 describe('tsc', () => {
   test('each diagnostic is keyed on its TS code, its path joined onto the root', () => {
     const findings = parse('tsc', 'findings-tsc.txt', { root: 'web' });
@@ -170,17 +184,74 @@ describe('tsc', () => {
       ['web/src/greet.ts', 5, 14, 'TS2322'],
     ]);
     expect(findings.every((f) => f.gates && f.severity === 'error')).toBe(true);
+    expect(findings[0]?.key).toBe("web/src/app.ts:TS2305:Module '…' has no exported member '…'.");
   });
 
-  test('a chained message keeps its indented lines', () => {
-    expect(parse('tsc', 'findings-tsc.txt')[3]?.message).toBe(
+  test('a chained message keeps its indented lines, and its key only its first', () => {
+    const chained = parse('tsc', 'findings-tsc.txt')[3];
+    expect(chained?.message).toBe(
       "Argument of type '{ retry: { count: string; }; }' is not assignable to parameter of type '{ retry: { count: number; }; }'.\n" +
         "  The types of 'retry.count' are incompatible between these types.\n" +
         "    Type 'string' is not assignable to type 'number'.",
     );
+    expect(chained?.key).toBe("src/app.ts:TS2345:Argument of type '…' is not assignable to parameter of type '…'.");
   });
 
-  test('a diagnostic with no file, such as a missing project, is a finding with no file', () => {
+  test('a key makes each quoted span `…`, so the errors one file has of a code and wording share it', () => {
+    const findings = parse('tsc', 'findings-tsc-build.txt', { root: 'web' });
+    expect(findings.map((f) => f.key)).toEqual([
+      "web/lib/src/index.ts:TS2322:Type '…' is not assignable to type '…'.",
+      "web/lib/src/index.ts:TS2322:Type '…' is not assignable to type '…'.",
+      "web/lib/src/index.ts:TS7053:Element implicitly has an '…' type because expression of type '…' can't be used to index type '…'.",
+      "web/lib/src/index.ts:TS1308:'…' expressions are only allowed within async functions and at the top levels of modules.",
+      "web/app/src/main.ts:TS6133:'…' is declared but its value is never read.",
+      "web/app/src/main.ts:TS2741:Property '…' is missing in type '…' but required in type '…'.",
+      "web/app/src/main.ts:TS2322:Type '…' is not assignable to type '…'.",
+      "web/app/src/main.ts:TS2322:Type '…' is not assignable to type '…'.",
+    ]);
+    // The finding keeps the types the key leaves out.
+    expect(findings[1]?.message).toBe("Type 'boolean' is not assignable to type 'number'.");
+  });
+
+  test("a key makes the rest of what tsc filled in `…` too: a count, the list a type lacks, a module's name", () => {
+    expect(parse('tsc', 'findings-tsc-variable-text.txt').slice(0, 5).map((f) => f.key)).toEqual([
+      "lib/src/both.ts:TS2308:Module '…' has already exported a member named '…'. Consider explicitly re-exporting to resolve the ambiguity.",
+      'lib/src/counts.ts:TS2554:Expected … arguments, but got ….',
+      'lib/src/counts.ts:TS2554:Expected … arguments, but got ….',
+      "lib/src/counts.ts:TS2740:Type '…' is missing the following properties from type '…': …",
+      "lib/src/counts.ts:TS2739:Type '…' is missing the following properties from type '…': …",
+    ]);
+    // An older tsc's module name in double quotes, an absolute path that differs by machine, and a type in backticks.
+    const older = [
+      'src/a.ts(1,14): error TS4023: Exported variable \'x\' has or is using name \'Y\' from external module "/home/ci/repo/node_modules/y/index" but cannot be named.',
+      'src/b.ts(3,9): error TS2208: This type parameter might need an `extends string` constraint.',
+      '',
+    ].join('\n');
+    expect(attempt('tsc', older)?.map((f) => f.key)).toEqual([
+      'src/a.ts:TS4023:Exported variable \'…\' has or is using name \'…\' from external module "…" but cannot be named.',
+      'src/b.ts:TS2208:This type parameter might need an `…` constraint.',
+    ]);
+  });
+
+  test('a build whose errors are all ordinary ones, a checker TS1xxx and an unused declaration among them, reached every error', () => {
+    expect(stoppedShort('findings-tsc-build.txt', { root: 'web' })).toBeNull();
+    expect(stoppedShort('findings-tsc.txt')).toBeNull();
+  });
+
+  test("a syntax error, a config tsc rejected or a reference it didn't build stopped tsc short, and the reason names it", () => {
+    // lib's four errors are gone behind its syntax error, app's behind its options error,
+    // and the two of app's that need lib's types behind TS6305.
+    expect(parse('tsc', 'findings-tsc-syntax.txt').map((f) => [f.file, f.rule])[0]).toEqual(['lib/src/broken.ts', 'TS1005']);
+    expect(stoppedShort('findings-tsc-syntax.txt')).toBe("tsc stopped short at `lib/src/broken.ts(1,34): error TS1005: ',' expected.`");
+    expect(parse('tsc', 'findings-tsc-config.txt', { root: 'web' }).at(-1)).toMatchObject({ file: 'web/app/tsconfig.json', rule: 'TS5096' });
+    expect(stoppedShort('findings-tsc-config.txt', { root: 'web' })).toMatch(/^tsc stopped short at `web\/app\/tsconfig\.json\(2,73\): error TS5096: /);
+    expect(stoppedShort('findings-tsc-unbuilt-reference.txt')).toMatch(/^tsc stopped short at `app\/src\/main\.ts\(1,34\): error TS6305: /);
+    // A reference that isn't composite is reported on the referencing tsconfig.
+    const ts6306 = 'app/tsconfig.json(4,18): error TS6306: Referenced project \'/repo/lib\' must have setting "composite": true.\n';
+    expect(parserFor('tsc')?.stoppedShort?.(attempt('tsc', ts6306) ?? [], { argv: undefined, root: undefined })).toMatch(/TS6306/);
+  });
+
+  test('a diagnostic with no file, such as a missing project, is a finding with no file, and stopped tsc short', () => {
     expect(parse('tsc', 'findings-tsc-missing-project.txt')).toEqual([
       {
         file: '',
@@ -188,9 +259,91 @@ describe('tsc', () => {
         severity: 'error',
         message: "File '/tmp/fixture-repo/api/tsconfig.json' not found.",
         gates: true,
-        key: ":TS6053:File '/tmp/fixture-repo/api/tsconfig.json' not found.",
+        key: ":TS6053:File '…' not found.",
       },
     ]);
+    expect(stoppedShort('findings-tsc-missing-project.txt')).toBe("tsc stopped short at `error TS6053: File '/tmp/fixture-repo/api/tsconfig.json' not found.`");
+  });
+
+  test('under --stopBuildOnErrors, with one dash or two and in any case, any error stopped the build short, and a clean one did not', () => {
+    const argv = ['pnpm', 'exec', 'tsc', '--build', '--stopBuildOnErrors'];
+    expect(stoppedShort('findings-tsc-build.txt', { argv })).toBe('tsc stopped short: `--stopBuildOnErrors` skips each project that depends on one with errors');
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '-b', '--STOPBUILDONERRORS'] })).not.toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '-b', '-stopBuildOnErrors', 'true'] })).not.toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['pnpm', 'exec', 'tsc', '--build'] })).toBeNull();
+    expect(parserFor('tsc')?.stoppedShort?.([], { argv, root: undefined })).toBeNull();
+  });
+
+  test('a following `false` turns --stopBuildOnErrors off, as tsc reads it', () => {
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '--build', '--stopBuildOnErrors', 'false'] })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '--build', '--stopBuildOnErrors', 'false', '--stopBuildOnErrors'] })).not.toBeNull();
+  });
+
+  test('a TypeScript before 5.6, whose --build stopped at a project with errors, stopped a build spanning references short', () => {
+    const argv = ['pnpm', 'exec', 'tsc', '--build'];
+    const solution = { toolVersion: '5.5.4', read: holding({ 'tsconfig.json': SOLUTION }) };
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, solution)).toBe(
+      "tsc stopped short: TypeScript 5.5.4's `--build` skips each project that depends on one with errors, which 5.6 and later check",
+    );
+    // Projects named after the flag are read instead, and two of them are a build of several.
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '-b', 'packages'] }, { toolVersion: '4.9.5', read: holding({ 'packages/tsconfig.json': SOLUTION }) })).not.toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '-b', 'a.json', 'b.json'] }, { toolVersion: '5.5.4', read: holding({}) })).not.toBeNull();
+    // A tsconfig that can't be read, or no reader at all, vouches for nothing.
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { toolVersion: '5.5.4', read: holding({}) })).not.toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { toolVersion: '5.5.4' })).not.toBeNull();
+  });
+
+  test('a single project, 5.6 and later, a check that builds nothing, and a pin naming no version reached every error', () => {
+    const argv = ['pnpm', 'exec', 'tsc', '--build'];
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { toolVersion: '5.5.4', read: holding({ 'tsconfig.json': SINGLE }) })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '-b', '--verbose', 'web/tsconfig.json'] }, { toolVersion: '5.5.4', read: holding({ 'web/tsconfig.json': SINGLE }) })).toBeNull();
+    const solution = holding({ 'tsconfig.json': SOLUTION });
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { toolVersion: '5.6.3', read: solution })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { toolVersion: '7.0.2', read: solution })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv: ['tsc', '--noEmit'] }, { toolVersion: '5.5.4', read: solution })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', { argv }, { read: solution })).toBeNull();
+    expect(parserFor('tsc')?.stoppedShort?.([], { argv, root: undefined, toolVersion: '5.5.4', read: solution })).toBeNull();
+  });
+
+  test('a tsc that died part way, killed under pnpm or yarn or its own launcher, or crashed, stopped short whatever it printed first', () => {
+    const partial = read('findings-tsc-build.txt');
+    // pnpm 11.28.5 reports a killed command on stdout, after what the tool printed.
+    const killed = `${partial}undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command was killed with SIGKILL (Forced termination): tsc --build\n`;
+    expect(stoppedShort('findings-tsc-build.txt', {}, { output: { stdout: killed, stderr: '' } })).toBe(
+      'tsc stopped short: `[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command was killed with SIGKILL (Forced termination): tsc --build`',
+    );
+    const stderrs = [
+      'error Command failed with signal "SIGKILL".\n', // yarn 1.22.22
+      "Error: Command failed: /x/tsc --build\n    at checkExecSyncError (node:child_process:891:11) {\n  status: null,\n  signal: 'SIGKILL',\n", // typescript 7's launcher without process.execve
+      "TypeError: Cannot read properties of undefined (reading 'flags')\n    at getTypeOfSymbol (tsc.js:1:2)\n\nNode.js v20.11.1\n", // an uncaught exception
+      'panic: runtime error: index out of range [3] with length 3\n\ngoroutine 1 [running]:\n',
+      'fatal error: runtime: out of memory\n',
+      'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n',
+      'Error: Debug Failure. False expression.\n    at Object.assert\n',
+    ];
+    for (const stderr of stderrs) expect(stoppedShort('findings-tsc-build.txt', {}, { output: { stdout: partial, stderr } }), stderr).not.toBeNull();
+    // yarn's own line for a tool that failed on its own isn't one.
+    expect(stoppedShort('findings-tsc-build.txt', {}, { output: { stdout: partial, stderr: 'error Command failed with exit code 2.\n' } })).toBeNull();
+    expect(stoppedShort('findings-tsc-build.txt', {}, { output: { stdout: partial, stderr: '' } })).toBeNull();
+  });
+
+  test('a type a diagnostic prints, whatever text it holds, never reads as tsc dying', () => {
+    const stdout = [
+      "src/a.ts(2,14): error TS2322: Type '\"Command was killed with SIGTERM\"' is not assignable to type '`exit ${number}`'.",
+      "src/a.ts(3,14): error TS2345: Argument of type '\"x\"' is not assignable to parameter of type 'Fail'.",
+      "  Type '\"Maximum call stack size exceeded\"' is not assignable to type '\"Debug Failure.\"'.",
+      '',
+    ].join('\n');
+    const findings = attempt('tsc', stdout) ?? [];
+    expect(findings).toHaveLength(2);
+    expect(parserFor('tsc')?.stoppedShort?.(findings, { argv: undefined, root: undefined, output: { stdout, stderr: '' } })).toBeNull();
+  });
+
+  test('a stopping line holding a backtick is quoted in two', () => {
+    const stdout = "src/a.ts(1,1): error TS1005: '`' expected.\n";
+    expect(parserFor('tsc')?.stoppedShort?.(attempt('tsc', stdout) ?? [], { argv: undefined, root: undefined })).toBe(
+      "tsc stopped short at `` src/a.ts(1,1): error TS1005: '`' expected. ``",
+    );
   });
 
   test('an indented line after anything but a diagnostic joins none', () => {

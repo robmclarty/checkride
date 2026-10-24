@@ -23,8 +23,9 @@ function rangeOf(diagnostic: Record<string, unknown>): { file: string; start: Re
  * Every diagnostic with a summary, its message the summary followed by its
  * detail, which says what the summary is about. An error gates, since it's
  * what exits 1, and a warning never does. Served to `checkride/findings` but
- * never keyed into the baseline, since type errors aren't grandfathered
- * (D31). A diagnostic with no range stays a finding with no file.
+ * never keyed into the baseline: a configuration that fails to validate fails
+ * to plan too, so there's no working debt to grandfather. A diagnostic with
+ * no range stays a finding with no file.
  *
  * Returns `null` for output with no `diagnostics` list: a run that finished
  * prints one, empty when the configuration is valid, while one that couldn't

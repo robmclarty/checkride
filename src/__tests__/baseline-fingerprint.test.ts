@@ -1,14 +1,15 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS } from '../adapters.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { applyBaseline, findingText, fingerprint, isFingerprintable, tally } from '../baseline/index.js';
+import { applyBaseline, BASELINE_FILE, findingText, fingerprint, isFingerprintable, observedTally, stoppedShortReason, tally } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
@@ -508,11 +509,12 @@ describe('fingerprint — support boundary', () => {
     expect(fingerprint('oxlint', '{"diagnostics":[]}')).toEqual(new Set());
     expect(fingerprint('ast-grep', '[]')).toEqual(new Set());
     expect(fingerprint('cspell', '')).toEqual(new Set());
+    expect(fingerprint('tsc', '')).toEqual(new Set());
   });
 
   test('an adapter with no extractor returns null (baseline unsupported)', () => {
     // Alternates and non-diagnostic slots sit out (fallow is supported — below).
-    for (const adapter of ['knip', 'biome-format', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
+    for (const adapter of ['knip', 'biome-format', 'go-build', 'links', 'stryker', 'pnpm-audit']) {
       expect(fingerprint(adapter, '[]')).toBeNull();
     }
   });
@@ -570,7 +572,7 @@ describe('fingerprint — the go, rust and bash packs (step 50)', () => {
     expect(fingerprint('clippy', read('findings-clippy-warnings.jsonl'))).toEqual(new Set());
   });
 
-  test("cargo check's type errors are never keyed (D31)", () => {
+  test("cargo check's errors are never keyed, since it stops at the first crate with errors", () => {
     expect(fingerprint('cargo-check', read('findings-cargo-check.jsonl'))).toBeNull();
   });
 
@@ -624,8 +626,7 @@ describe('fingerprint — the docs, spell and type-checker parsers (step 51)', (
     );
   });
 
-  test("tsc's and go build's type errors are never keyed (D31)", () => {
-    expect(fingerprint('tsc', read('findings-tsc.txt'))).toBeNull();
+  test("go build's errors are never keyed, since it stops at ten in a package and skips the packages importing it", () => {
     expect(fingerprint('go-build', read('findings-go-build.jsonl'))).toBeNull();
   });
 
@@ -641,6 +642,157 @@ describe('fingerprint — the docs, spell and type-checker parsers (step 51)', (
       expect(baseline.slots['docs']).toHaveLength(9);
       const run = await runChecks({ cwd: dir, config, runner: markdownRun, baseline, only: ['docs'], stderr: quiet });
       expect(run.summary.checks.find((c) => c.name === 'docs')).toMatchObject({ ok: true, baselined: 9 });
+    });
+  });
+});
+
+/** A `tsc --build` that failed printing `stdout`, as tsc does with any error. */
+function tscPrinting(stdout: string): CheckRunner {
+  return () => Promise.resolve({ ok: false, exit_code: 2, stdout, stderr: '' });
+}
+
+describe('fingerprint — tsc', () => {
+  // Real captures: tsc 7.0.2's `--build` over a solution at web/, lib and app
+  // referencing it, with ordinary errors, then with a syntax error in lib, an
+  // options error in app's tsconfig, and lib's declarations left unbuilt.
+  const BUILD = read('findings-tsc-build.txt');
+  const SYNTAX = read('findings-tsc-syntax.txt');
+  const TSC_ARGV = registryArgv('tsc');
+  const TYPE_ERROR = "Type '…' is not assignable to type '…'.";
+
+  test("each error keys as <file>:<code>:<its first line, each quoted span …>, and a key counts the errors it names alike", () => {
+    expect(tally('tsc', BUILD, TSC_ARGV, 'web')).toEqual(
+      new Map([
+        [`web/lib/src/index.ts:TS2322:${TYPE_ERROR}`, 2],
+        ["web/lib/src/index.ts:TS7053:Element implicitly has an '…' type because expression of type '…' can't be used to index type '…'.", 1],
+        ["web/lib/src/index.ts:TS1308:'…' expressions are only allowed within async functions and at the top levels of modules.", 1],
+        ["web/app/src/main.ts:TS6133:'…' is declared but its value is never read.", 1],
+        ["web/app/src/main.ts:TS2741:Property '…' is missing in type '…' but required in type '…'.", 1],
+        [`web/app/src/main.ts:TS2322:${TYPE_ERROR}`, 2],
+      ]),
+    );
+  });
+
+  test('a run that stopped short of some errors keys nothing, so it masks nothing and prunes nothing', () => {
+    for (const fixture of ['findings-tsc-syntax.txt', 'findings-tsc-config.txt', 'findings-tsc-unbuilt-reference.txt', 'findings-tsc-missing-project.txt']) {
+      expect(fingerprint('tsc', read(fixture), TSC_ARGV), fixture).toBeNull();
+    }
+    expect(fingerprint('tsc', BUILD, [...TSC_ARGV, '--stopBuildOnErrors'])).toBeNull();
+    expect(fingerprint('tsc', '', [...TSC_ARGV, '--stopBuildOnErrors'])).toEqual(new Set());
+  });
+
+  test("a run tells what its output alone can't: a TypeScript before 5.6 skipped projects, or tsc died part way", () => {
+    const failed = { ok: false, exit_code: 2, stdout: BUILD, stderr: '' };
+    expect(observedTally('tsc', failed, TSC_ARGV)?.size).toBe(6);
+    expect(observedTally('tsc', { ...failed, tool_version: '5.5.4' }, TSC_ARGV)).toBeNull();
+    expect(observedTally('tsc', { ...failed, tool_version: '5.6.3' }, TSC_ARGV)?.size).toBe(6);
+    expect(observedTally('tsc', { ...failed, stderr: 'fatal error: runtime: out of memory\n' }, TSC_ARGV)).toBeNull();
+    // With no repo root to read the check's tsconfig from, nothing vouches for a single project.
+    expect(stoppedShortReason('tsc', { ...failed, tool_version: '5.5.4' }, TSC_ARGV)).toBe(
+      "tsc stopped short: TypeScript 5.5.4's `--build` skips each project that depends on one with errors, which 5.6 and later check",
+    );
+    expect(stoppedShortReason('tsc', failed, TSC_ARGV)).toBeNull();
+    // An adapter whose parser can't stop short has nothing to say.
+    expect(stoppedShortReason('oxlint', { ok: false, exit_code: 1, stdout: '{"diagnostics":[]}', stderr: '' })).toBeNull();
+  });
+
+  describe('through capture and masking', () => {
+    let dir: string;
+    beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-tsc-baseline-')); });
+    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+    const slots: Slot[] = [{ name: 'types' }];
+    const adapters: Adapter[] = [{ name: 'tsc', slot: 'types', description: 'tsc', detect: [], command: 'pnpm', args: ['exec', 'tsc', '--build'], outputFile: null, devDeps: {} }];
+    const quiet = { write: () => true };
+    const run = async (stdout: string, runner: CheckRunner = tscPrinting(stdout)) => {
+      const result = await runChecks({ cwd: dir, slots, adapters, config: null, runner, stdout: quiet, stderr: quiet });
+      return result.summary.checks.find((c) => c.name === 'types');
+    };
+    /** What tsc printed of lib alone, as a build that never reached app prints. */
+    const LIB_ONLY = BUILD.split('\n').slice(0, 5).join('\n') + '\n';
+
+    test('a capture grandfathers each error, a later run masks them, and a stopped-short run masks and prunes nothing, saying why', async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(BUILD), stdout: quiet, stderr: quiet });
+      const captured = await readFile(join(dir, BASELINE_FILE), 'utf8');
+      const baseline = JSON.parse(captured) as { slots: Record<string, string[]>; counts?: Record<string, Record<string, number>> };
+      expect(baseline.slots['types']).toHaveLength(6);
+      expect(baseline.counts?.['types']).toEqual({ [`app/src/main.ts:TS2322:${TYPE_ERROR}`]: 2, [`lib/src/index.ts:TS2322:${TYPE_ERROR}`]: 2 });
+
+      expect(await run(BUILD)).toMatchObject({ ok: true, baselined: 8 });
+      // A third error of a key that grandfathers two is new, whatever types it names.
+      const third = `${BUILD}lib/src/index.ts(30,3): error TS2322: Type 'bigint' is not assignable to type 'number'.\n`;
+      expect(await run(third)).toMatchObject({ ok: false, new_count: 1 });
+
+      // lib's syntax error hides its four errors: unmasked, none of lib's keys pruned, and the reason says why.
+      const stopped = await run(SYNTAX);
+      expect(stopped).toMatchObject({
+        ok: false,
+        reason: "tsc stopped short at `lib/src/broken.ts(1,34): error TS1005: ',' expected.`, so the baseline neither masked its findings nor pruned its keys",
+      });
+      expect(stopped?.baselined).toBeUndefined();
+      expect(await readFile(join(dir, BASELINE_FILE), 'utf8')).toBe(captured);
+      expect(await run(BUILD)).toMatchObject({ ok: true, baselined: 8 });
+    });
+
+    test("a tsc killed under pnpm after printing only grandfathered errors stays red, and prunes none of the rest", async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(BUILD), stdout: quiet, stderr: quiet });
+      const captured = await readFile(join(dir, BASELINE_FILE), 'utf8');
+      // pnpm 11.28.5 turns a killed tool into exit 1, and says so on stdout.
+      const killed = `${LIB_ONLY}undefined\n[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command was killed with SIGKILL (Forced termination): tsc --build\n`;
+      const pnpmKill: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: killed, stderr: '' });
+      const check = await run(killed, pnpmKill);
+      expect(check).toMatchObject({ ok: false });
+      expect(check?.reason).toMatch(/^tsc stopped short: `\[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL\] Command was killed with SIGKILL/);
+      expect(await readFile(join(dir, BASELINE_FILE), 'utf8')).toBe(captured);
+    });
+
+    test('a TypeScript before 5.6 building references that printed only grandfathered errors stays red, since its --build skipped what depends on them', async () => {
+      await writeFile(join(dir, 'tsconfig.json'), '{ "files": [], "references": [{ "path": "./lib" }, { "path": "./app" }] }\n');
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(BUILD), stdout: quiet, stderr: quiet });
+      const old: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: LIB_ONLY, stderr: '', pin_source: 'js-lockfile', tool_version: '5.5.4' });
+      expect(await run(LIB_ONLY, old)).toMatchObject({ ok: false, reason: expect.stringContaining("TypeScript 5.5.4's `--build`") as unknown });
+      // From 5.6 on, a build that printed only lib's errors reached app too, and found it clean.
+      const current: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 2, stdout: LIB_ONLY, stderr: '', pin_source: 'js-lockfile', tool_version: '7.0.2' });
+      expect(await run(LIB_ONLY, current)).toMatchObject({ ok: true, baselined: 4 });
+    });
+
+    test('a TypeScript before 5.6 building one project, which has nothing to skip, grandfathers and masks as any other', async () => {
+      await writeFile(join(dir, 'tsconfig.json'), '{ "compilerOptions": { "strict": true }, "include": ["src"] }\n');
+      const old: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: BUILD, stderr: '', pin_source: 'js-lockfile', tool_version: '5.5.4' });
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: old, stdout: quiet, stderr: quiet });
+      expect(JSON.parse(await readFile(join(dir, BASELINE_FILE), 'utf8'))).toMatchObject({ slots: { types: expect.any(Array) as unknown } });
+      expect(await run(BUILD, old)).toMatchObject({ ok: true, baselined: 8 });
+    });
+
+    test('a capture that stopped short keeps the keys the file held, and says why', async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(BUILD), stdout: quiet, stderr: quiet });
+      const captured = await readFile(join(dir, BASELINE_FILE), 'utf8');
+      const said: string[] = [];
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(SYNTAX), stdout: quiet, stderr: { write: (t: string) => { said.push(t); return true; } } });
+      expect(said.join('')).toContain(
+        "baseline: types didn't reach every error (tsc stopped short at `lib/src/broken.ts(1,34): error TS1005: ',' expected.`), so it keeps its 6 previous key(s)\n",
+      );
+      expect(await readFile(join(dir, BASELINE_FILE), 'utf8')).toBe(captured);
+    });
+
+    test("a run's new findings list each key, and beneath it the findings tsc printed under it", async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(BUILD), stdout: quiet, stderr: quiet });
+      const added = [
+        `${BUILD}lib/src/index.ts(30,3): error TS2322: Type 'bigint' is not assignable to type 'number'.`,
+        "app/src/main.ts(12,1): error TS2304: Cannot find name 'shippingCents'.",
+        '',
+      ].join('\n');
+      const said: string[] = [];
+      await runChecks({ cwd: dir, slots, adapters, config: null, runner: tscPrinting(added), stdout: quiet, stderr: { write: (t: string) => { said.push(t); return true; } } });
+      const text = said.join('');
+      expect(text).toContain(
+        "             app/src/main.ts:TS2304:Cannot find name '…'.\n" +
+          "               app/src/main.ts(12,1): error TS2304: Cannot find name 'shippingCents'.\n",
+      );
+      // A key found more often than it grandfathers lists its every finding, since none says which is new.
+      expect(text).toContain(`             lib/src/index.ts:TS2322:${TYPE_ERROR} (3 found, 2 grandfathered)\n`);
+      expect(text).toContain("               lib/src/index.ts(30,3): error TS2322: Type 'bigint' is not assignable to type 'number'.\n");
+      expect(text).toContain("               lib/src/index.ts(4,3): error TS2322: Type 'string' is not assignable to type 'number'.\n");
     });
   });
 });

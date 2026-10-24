@@ -28,7 +28,7 @@ import { detectHarnesses, writeCursorSkills, writeHooks } from './agent-setup/in
 import type { HarnessName } from './gate.js';
 import { writeFileAtomic } from './atomic.js';
 import type { Tally } from './baseline/index.js';
-import { BASELINE_FILE, isFingerprintable, tallied } from './baseline/index.js';
+import { BASELINE_FILE, isFingerprintable, stoppedShortReason, tallied } from './baseline/index.js';
 import { observedChecks, runBaseline } from './baseline-command.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CheckrideConfig, CustomCheck, SlotConfig } from './config.js';
@@ -150,9 +150,12 @@ export type InitResult = {
   /** Slots whose failing debt was grandfathered into the baseline (`--baseline`). */
   grandfathered: string[];
   /**
-   * Existing mode: slots whose check couldn't run until the repo is set up,
-   * such as a tool nothing has installed yet. They stay enabled, and are never
-   * disabled or grandfathered: a check that never ran has no debt to write off.
+   * Existing mode: slots whose check couldn't reach a verdict on its findings:
+   * one that can't run until the repo is set up, such as a tool nothing has
+   * installed yet, or one whose tool stopped short of some errors, as tsc
+   * does on a syntax error. They stay enabled, and are never disabled or
+   * grandfathered: a check that never reached its findings has no debt to
+   * write off yet.
    */
   setup: string[];
   exitCode: number;
@@ -166,9 +169,11 @@ export type InitResult = {
  * parser keys. `failed`: anything else. Either of the last two is disabled,
  * or grandfathered under `--baseline` when its findings can be keyed. `cause`
  * says why in the run's own words: the refusal or hint, `N finding(s)`, or
- * `exited N`.
+ * `exited N`. `stopped` marks a `setup` whose tool ran but stopped short of
+ * some errors, as tsc does on a syntax error, its `cause` saying where: it
+ * reaches a verdict once that's fixed, rather than once the repo is set up.
  */
-export type ProbeFailure = { slot: string; kind: 'setup' | 'findings' | 'failed'; cause: string };
+export type ProbeFailure = { slot: string; kind: 'setup' | 'findings' | 'failed'; cause: string; stopped?: true };
 
 const NULL_OUT: Out = { write: () => true };
 
@@ -186,19 +191,28 @@ async function defaultProbe(checks: string[], cwd: string, config: CheckrideConf
     const result = await runChecks({ cwd, config, only: checks, out, json: true, stdout: NULL_OUT, stderr: NULL_OUT });
     const keyed = observedChecks(result.runs, cwd);
     const runs = new Map(result.runs.map((r) => [r.name, r]));
-    return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed));
+    return result.summary.checks.filter((c) => !c.ok && c.skipped !== true).map((c) => failureOf(c, runs.get(c.name), keyed, cwd));
   } finally {
     await rm(out, { recursive: true, force: true });
   }
 }
 
-/** A failing check as the probe classes it: its outcome, whether its findings can be keyed, the keys it reported with their counts, and its summary's reason. */
-export type Probed = { outcome: CheckOutcome; keyed: boolean; keys: Tally | null; reason: string | undefined };
+/**
+ * A failing check as the probe classes it: its outcome, whether its findings
+ * can be keyed, the keys it reported with their counts, its summary's reason,
+ * and, for a run whose tool stopped short of some errors, why, in its
+ * parser's words.
+ */
+export type Probed = { outcome: CheckOutcome; keyed: boolean; keys: Tally | null; reason: string | undefined; stopped?: string };
 
 /** The probe's failure for one check, from its run and the keys a capture would observe of it. */
-function failureOf(check: SummaryCheck, run: CheckRun | undefined, keyed: ReadonlyMap<string, Tally | null>): ProbeFailure {
+function failureOf(check: SummaryCheck, run: CheckRun | undefined, keyed: ReadonlyMap<string, Tally | null>, cwd: string): ProbeFailure {
   const outcome = run?.outcome ?? { ok: false, exit_code: check.exit_code ?? 1, stdout: '', stderr: '' };
-  return classifyProbe(check.name, { outcome, keyed: keyed.has(check.name), keys: keyed.get(check.name) ?? null, reason: check.reason });
+  const stopped = run !== undefined && outcome.exit_code !== -1
+    ? stoppedShortReason(run.adapter.name, run.outcome, [run.adapter.command, ...run.adapter.args], run.root, cwd)
+    : null;
+  const probed: Probed = { outcome, keyed: keyed.has(check.name), keys: keyed.get(check.name) ?? null, reason: check.reason };
+  return classifyProbe(check.name, stopped === null ? probed : { ...probed, stopped });
 }
 
 /** The first line of `text` that isn't blank, trimmed, or `null`. */
@@ -211,14 +225,16 @@ const exited = (outcome: CheckOutcome): string => `exited ${outcome.exit_code}`;
 
 /**
  * How a failing probe is classed, the first that matches: a refusal, a
- * missing piece of setup its output names, or a run that reached no verdict
- * (exit -1, or keyed output its parser couldn't read) is `setup`; findings its
- * parser keyed are `findings`; anything else, `failed`. Each names its cause
- * as the run's own status line would.
+ * missing piece of setup its output names, a run whose tool stopped short of
+ * some errors (marked `stopped`, named by why), or a run that reached no
+ * verdict (exit -1, or keyed output its parser couldn't read) is `setup`;
+ * findings its parser keyed are `findings`; anything else, `failed`. Each
+ * names its cause as the run's own status line would.
  */
-const PROBE_CLASSES: readonly { kind: ProbeFailure['kind']; matches: (p: Probed) => boolean; cause: (p: Probed) => string }[] = [
+const PROBE_CLASSES: readonly { kind: ProbeFailure['kind']; stopped?: true; matches: (p: Probed) => boolean; cause: (p: Probed) => string }[] = [
   { kind: 'setup', matches: (p) => p.outcome.refusal !== undefined, cause: (p) => p.outcome.refusal ?? exited(p.outcome) },
   { kind: 'setup', matches: (p) => setupHint(p.outcome) !== null, cause: (p) => setupHint(p.outcome) ?? exited(p.outcome) },
+  { kind: 'setup', stopped: true, matches: (p) => p.stopped !== undefined, cause: (p) => p.stopped ?? exited(p.outcome) },
   {
     kind: 'setup',
     matches: (p) => p.outcome.exit_code === -1 || (p.keyed && p.keys === null),
@@ -231,7 +247,7 @@ const PROBE_CLASSES: readonly { kind: ProbeFailure['kind']; matches: (p: Probed)
 export function classifyProbe(slot: string, probed: Probed): ProbeFailure {
   const match = PROBE_CLASSES.find((c) => c.matches(probed));
   if (match === undefined) return { slot, kind: 'failed', cause: probed.reason ?? exited(probed.outcome) };
-  return { slot, kind: match.kind, cause: match.cause(probed) };
+  return { slot, kind: match.kind, cause: match.cause(probed), ...(match.stopped === true ? { stopped: true } : {}) };
 }
 
 /** The probe's answers as failures, a bare name read as a check that `failed` for no cause given. */
@@ -1864,7 +1880,9 @@ function reportExisting(
   if (existsSync(join(w.cwd, 'package.json'))) stdout.write(`  package manager: ${pm} (detected)\n`);
   writeSlotLine(stdout, `grandfathered failing slots into ${BASELINE_FILE}`, outcome.grandfathered, outcome.causes);
   writeSlotLine(stdout, 'disabled failing slots (enable as you fix)', outcome.disabled, outcome.causes);
-  writeSlotLine(stdout, "left on, can't run until set up (then `checkride baseline` grandfathers what it finds)", outcome.setup, outcome.causes);
+  const [stopped, unset] = [outcome.setup.filter((slot) => outcome.stopped.has(slot)), outcome.setup.filter((slot) => !outcome.stopped.has(slot))];
+  writeSlotLine(stdout, "left on, can't run until set up (then `checkride baseline` grandfathers what it finds)", unset, outcome.causes);
+  writeSlotLine(stdout, 'left on, stopped short of some errors (fix what stopped it, then `checkride baseline` grandfathers the rest)', stopped, outcome.causes);
   writeClaudeNote(stdout, outcome.claudeNote);
 }
 
@@ -1873,6 +1891,8 @@ type AdoptionOutcome = {
   grandfathered: readonly string[];
   disabled: readonly string[];
   setup: readonly string[];
+  /** The `setup` slots whose tool ran but stopped short of some errors. */
+  stopped: ReadonlySet<string>;
   /** Each failing slot's cause, by slot, where the probe gave one. */
   causes: ReadonlyMap<string, string>;
   claudeNote: string | null;
@@ -2061,7 +2081,8 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   await writeSkills(w, options, skipped);
 
   if (options.stdout) {
-    reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, setup, causes: new Map(failures.map((f) => [f.slot, f.cause])), claudeNote });
+    const stopped = new Set(failures.filter((f) => f.stopped === true).map((f) => f.slot));
+    reportExisting(options.stdout, pm, adopted, w, { grandfathered, disabled, setup, stopped, causes: new Map(failures.map((f) => [f.slot, f.cause])), claudeNote });
     reportDiscovery(options.stdout, discovery, w.dryRun);
     reportUnreached(options.stdout, await unreachedChecks(cwd, slots, adapters, plan.config));
     reportInitBundle(options.stdout, bundle);

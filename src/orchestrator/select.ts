@@ -316,8 +316,9 @@ export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: s
 /**
  * For a baseline capture, skip each selected check whose output can add no
  * key (`fingerprintableOnly`), with `baseline: <adapter>'s output adds no
- * key`: its adapter has no parser the baseline keys with, as `test`, `types`
- * and a custom check named for no parsed adapter haven't, so running it
+ * key`: its adapter has no parser the baseline keys with, as a test runner,
+ * a type checker other than tsc, and a custom check named for no parsed
+ * adapter haven't, so running it
  * would cost the capture its time and record nothing. A check keeps its
  * place, and one already skipped keeps its own reason.
  */

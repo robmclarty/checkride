@@ -138,11 +138,11 @@ describe('buildDigest', () => {
   });
 
   test('falls back to a text tail for a slot with no fingerprint extractor', () => {
-    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' }); // no extractor
-    const lines = Array.from({ length: 15 }, (_, i) => `src/f.ts(${i},1): error TS0000: message ${i}`);
+    const goBuild = fakeAdapter({ name: 'go-build', slot: 'types' }); // no extractor
+    const lines = Array.from({ length: 15 }, (_, i) => `f.go:${i}:1: message ${i}`);
     const digest = buildDigest(
-      [run(tsc, outcome({ stdout: lines.join('\n') }))],
-      [check('types', { adapter: 'tsc' })],
+      [run(goBuild, outcome({ stdout: lines.join('\n') }))],
+      [check('types', { adapter: 'go-build' })],
       { maxItemsPerSlot: 5, maxBytes: 100_000 },
     ) ?? '';
     expect(digest).toContain('```'); // fenced raw excerpt, not a normalized list
@@ -150,6 +150,65 @@ describe('buildDigest', () => {
     expect(digest).toContain('message 14'); // the tail is kept
     expect(digest).not.toContain('message 0'); // the head is dropped
     expect(digest).toContain('Raw: `.check/types.stdout.txt`');
+  });
+
+  /**
+   * tsc's keys write each quoted span `'…'`, so a key no longer says which
+   * name or type an error is about: a section shows tsc's own lines unless a
+   * baseline masked the check, and then each new finding's message whole.
+   */
+  test("a tsc check no baseline masked shows tsc's own lines rather than its keys", () => {
+    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' });
+    const plain = "src/checkout.ts(19,33): error TS2304: Cannot find name 'shippingCents'.\n";
+    const unmasked = buildDigest([run(tsc, outcome({ exit_code: 2, stdout: plain }))], [check('types', { adapter: 'tsc', exit_code: 2 })]) ?? '';
+    expect(unmasked).toContain(`\`\`\`\n${plain}\`\`\``);
+    expect(unmasked).not.toContain("'…'");
+  });
+
+  test('a tsc check a baseline could not mask, since tsc stopped short, says why above its own lines', () => {
+    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' });
+    const stdout = "src/a.ts(1,34): error TS1005: ',' expected.\nsrc/b.ts(5,7): error TS2322: Type 'number' is not assignable to type 'string'.\n";
+    const reason = "tsc stopped short at `src/a.ts(1,34): error TS1005: ',' expected.`, so the baseline neither masked its findings nor pruned its keys";
+    const digest = buildDigest([run(tsc, outcome({ exit_code: 2, stdout }))], [check('types', { adapter: 'tsc', exit_code: 2, reason })]) ?? '';
+    expect(digest).toContain(`\n> ${reason}\n\n\`\`\`\nsrc/a.ts(1,34): error TS1005: ',' expected.\n`);
+  });
+
+  test('a key a baseline grandfathers fewer findings of than were found lists them all, and says the grandfathered are among them', () => {
+    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' });
+    const stdout = [
+      "src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "src/a.ts(9,7): error TS2322: Type 'boolean' is not assignable to type 'number'.",
+      "src/a.ts(12,7): error TS2322: Type 'bigint' is not assignable to type 'number'.",
+      '',
+    ].join('\n');
+    // Grandfathered twice, found three times: one is new, and no key says which.
+    const masked = check('types', { adapter: 'tsc', exit_code: 2, baselined: 2, new_count: 1, new: ["src/a.ts:TS2322:Type '…' is not assignable to type '…'."] });
+    const digest = buildDigest([run(tsc, outcome({ exit_code: 2, stdout }))], [masked]) ?? '';
+    expect(digest).toContain("- src/a.ts(12,7): error TS2322: Type 'bigint' is not assignable to type 'number'.\n");
+    expect(digest).toContain('- (a key found more often than the baseline grandfathers lists each of its findings, the grandfathered ones among them)\n');
+  });
+
+  test('a tsc check a baseline masked lists each of its new findings as tsc printed it', () => {
+    const tsc = fakeAdapter({ name: 'tsc', slot: 'types' });
+    const stdout = [
+      "src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "src/a.ts(9,7): error TS2322: Type 'boolean' is not assignable to type 'number'.",
+      "src/b.ts(4,1): error TS2304: Cannot find name 'shippingCents'.",
+      "src/c.ts(2,1): error TS2304: Cannot find name 'grandfathered'.",
+      '',
+    ].join('\n');
+    const masked = check('types', {
+      adapter: 'tsc', exit_code: 2, baselined: 1, new_count: 3,
+      new: ["src/a.ts:TS2322:Type '…' is not assignable to type '…'.", "src/b.ts:TS2304:Cannot find name '…'."],
+    });
+    const digest = buildDigest([run(tsc, outcome({ exit_code: 2, stdout }))], [masked]) ?? '';
+    expect(digest).toContain(
+      "— 3 new finding(s), not in the baseline; 1 grandfathered, not listed\n\n" +
+        "- src/a.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n" +
+        "- src/a.ts(9,7): error TS2322: Type 'boolean' is not assignable to type 'number'.\n" +
+        "- src/b.ts(4,1): error TS2304: Cannot find name 'shippingCents'.\n",
+    );
+    expect(digest).not.toContain('grandfathered\'');
   });
 
   /**

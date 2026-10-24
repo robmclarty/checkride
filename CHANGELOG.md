@@ -41,6 +41,52 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **tsc's errors join the baseline.** No type checker's errors were keyed
+  (D31), so a repo with type errors could keep its `types` check on only by
+  fixing every one: `init --baseline` wrote `"types": false` for a failing
+  tsc, and no baseline held its keys (#8). tsc's errors key now, as
+  `<file>:<code>:<message>`, the message the first line of tsc's with what
+  tsc filled into it written `…`: each quoted span, in single quotes, double
+  quotes or backticks, the list a "following …:" message ends on, and every
+  number, since that text changes on edits elsewhere: `src/a.ts:TS2322:Type
+  '…' is not assignable to type '…'.`, or `src/a.ts:TS2554:Expected …
+  arguments, but got ….` The errors one file has of one code and wording
+  count under one key. A key no longer says which name or type an error is
+  about, so a run lists each new key's findings beneath it on stderr as tsc
+  printed them, place and message whole, the first five of a key's, and the
+  digest lists them the same way. A run that stopped tsc short of some errors
+  masks nothing and prunes nothing, as a timed-out run doesn't, and its
+  check's `reason` says why, while `checkride/findings` still serves its
+  findings. tsc type-checks none
+  of a project with a syntax error, or whose tsconfig it rejects, and a file
+  importing a project whose declarations weren't built (`TS6305`) loses that
+  project's types, so a run stopped short when it reports one of these or a
+  diagnostic with no file, when tsc was killed or crashed part way (pnpm
+  turns a killed tool into exit 1, with only a line on stdout to say so, as
+  yarn and typescript 7's own launcher on Node before 22.15 do on stderr), or
+  when it found anything in a build that skips each project depending on one
+  with errors: under `--stopBuildOnErrors`, and before TypeScript 5.6, as the
+  check's pin names the version, under a `--build` of project references,
+  where 5.5.4 left such a project unchecked and so a new error in it
+  unreported. A build of one project, with nothing to skip, keys as on 5.6.
+  `init`, with or without `--baseline`, leaves a tsc check that stopped short
+  on, where it disabled it, on a line of its own that names what stopped it
+  and says `checkride baseline` grandfathers the rest once that's fixed, and
+  `init --baseline` grandfathers a failing tsc check instead of disabling it.
+  Checked against tsc 7.0.2. A repo with a baseline whose `types` check runs
+  tsc now sees its findings listed as new beneath its red status line, and
+  its verdict holds until `checkride baseline` grandfathers them. The digest
+  still shows a failing tsc check's own lines where no baseline masked it. The
+  other type checkers stay parse-only, since each can stop before it reports
+  every error, which leaves a run unable to say which errors it never
+  reached were fixed: go build at ten errors in a package and before any
+  package that imports a broken one, cargo check at the first crate with
+  errors, mypy at a blocking error, such as a syntax error or a module
+  shadowing the standard library's, and basedpyright past a syntax error in
+  the same file. mypy 2.4.0's cache re-reports every error and basedpyright
+  1.40.2 caches nothing, so neither was held back by a cache. terraform
+  validate stays parse-only too, since a configuration that fails it can't
+  plan either.
 - **A baseline capture runs only the checks whose findings it can key.**
   `checkride baseline`, and `init --baseline` with it, ran every default
   check, a long test suite included, though only a check with a parser can add
@@ -110,6 +156,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Changed: eslint and biome have parsers, so `checkride baseline` records a
   `lint` check either one runs, `init --baseline` grandfathers a failing one
   instead of disabling it, and a masked run lists its findings as new keys.
+- Changed: tsc's parser keys the baseline, its key's message the first line
+  of tsc's with what tsc filled in written `…` (each quoted span in single
+  quotes, double quotes or backticks, the list a "following …:" message ends
+  on, and every run of digits), so `checkride baseline` records a `types`
+  check tsc runs, `init --baseline` grandfathers a failing one instead of
+  writing `"types": false`, and a masked run lists its findings as new keys,
+  each key's findings beneath it on stderr as tsc printed them. A tsc run
+  that stopped short of some errors (a syntax error, a diagnostic on a
+  `.json` file or with no file, `TS6305`, a tsc killed or crashed part way,
+  or any error under `--stopBuildOnErrors`, or under a `--build` of project
+  references before TypeScript 5.6) masks nothing and prunes nothing, and
+  `init`, with or without `--baseline`, leaves its `types` on rather than
+  writing `"types": false`. go build's, cargo check's, mypy's and
+  basedpyright's errors stay unkeyed, since each tool can stop before it
+  reports every one, and so do terraform validate's and trivy's.
 - Changed: a fallow check whose output is fallow's own error report records
   `exit_code: -1` and a `reason`, where 0.18 recorded fallow's exit code and
   no reason.
@@ -119,6 +180,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `baseline` takes `--only` and `--skip`, and so does `baseline --versions`.
 - `isParseable` answers `true` for `eslint` and `biome`.
 - The exported `RunOptions` takes `fingerprintableOnly`.
+- A summary check's `reason` is present on a failed check a committed
+  baseline couldn't mask because its tool stopped short of some errors (tsc's),
+  saying why.
+- The exported `ProbeFailure` takes `stopped`, marking a `setup` failure whose
+  tool ran but stopped short of some errors.
 
 ## [0.18.0] - 2026-10-24
 

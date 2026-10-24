@@ -10,14 +10,15 @@
  *
  * Only slots whose adapter has a parser participate: a supported-but-clean
  * slot records an empty array (it opted in and had nothing to grandfather),
- * while a slot with no parser (tsc, links, …) simply never appears — exactly
- * the "supported vs. unsupported" distinction the fingerprint contract draws.
- * The capture doesn't run such a slot at all, since its output adds nothing.
- * `--only` and `--skip` narrow it to the checks they select, and every other
- * check keeps the entry the file holds for it.
+ * while a slot with no parser (go build, links, …) simply never appears —
+ * exactly the "supported vs. unsupported" distinction the fingerprint
+ * contract draws. The capture doesn't run such a slot at all, since its
+ * output adds nothing. `--only` and `--skip` narrow it to the checks they
+ * select, and every other check keeps the entry the file holds for it.
  * A supported slot whose check never reached a verdict (refused, timed out,
- * crashed) keeps the keys the file already held for it, so a re-capture can't
- * empty a slot it never observed.
+ * crashed), or whose tool stopped short of some errors, keeps the keys the
+ * file already held for it, so a re-capture can't empty a slot it never
+ * observed whole.
  * The fallow slots (dead/dupes/health) are fingerprintable, so `checkride
  * baseline` grandfathers their findings like any other. Running each check under
  * the resolved package manager and capturing raw
@@ -51,6 +52,7 @@ import {
   readBaselineAt,
   readBaselineStatus,
   rerecordCopies,
+  stoppedShortReason,
   writeBaseline,
 } from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
@@ -104,16 +106,28 @@ export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline
  */
 function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): Captures {
   const captures: Captures = { slots: {}, counts: {}, kept: new Set<string>() };
+  const byName = new Map(runs.map((run) => [run.name, run]));
   for (const [name, tally] of observedChecks(runs, cwd)) {
     if (tally === null) {
       keepPrevious(name, previous, captures);
-      stderr.write(`baseline: ${name} didn't run to a verdict (refused, timed out or crashed), so it keeps its ${previous?.slots[name]?.length ?? 0} previous key(s)\n`);
+      stderr.write(`baseline: ${name} ${unobserved(byName.get(name), cwd)}, so it keeps its ${previous?.slots[name]?.length ?? 0} previous key(s)\n`);
       continue;
     }
     captures.slots[name] = [...tally.keys()].toSorted();
     if (tally.size > 0) captures.counts[name] = Object.fromEntries([...tally].filter(([, n]) => n >= 2));
   }
   return captures;
+}
+
+/**
+ * Why a capture observed nothing of a check's run: its tool stopped short of
+ * some errors, in its parser's words, or the run never reached a verdict.
+ */
+function unobserved(run: CheckRun | undefined, cwd: string): string {
+  const short = run !== undefined && run.outcome.exit_code !== -1
+    ? stoppedShortReason(run.adapter.name, run.outcome, [run.adapter.command, ...run.adapter.args], run.root, cwd)
+    : null;
+  return short === null ? "didn't run to a verdict (refused, timed out or crashed)" : `didn't reach every error (${short})`;
 }
 
 /** What a capture records: each check's keys and their counts, and the checks it kept from the previous file. */

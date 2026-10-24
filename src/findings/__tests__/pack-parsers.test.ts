@@ -41,13 +41,12 @@ describe('the registry', () => {
     expect(parserFor(adapter)?.stream).toBe('artifact');
   });
 
-  test("the linters' parsers key the baseline, and cargo check's serves findings alone (D31)", () => {
+  test("the linters' parsers key the baseline, and cargo check's, which stops at a crate with errors, serves findings alone", () => {
     for (const adapter of ['golangci-lint', 'staticcheck', 'clippy', 'shellcheck']) {
       expect(baselineParserFor(adapter), adapter).toBe(parserFor(adapter));
     }
     expect(parserFor('cargo-check')).toBeDefined();
     expect(baselineParserFor('cargo-check')).toBeUndefined();
-    expect(baselineParserFor('tsc')).toBeUndefined();
   });
 });
 
@@ -240,7 +239,7 @@ describe('shellcheck', () => {
 const REAL_REPO = '/private/tmp/fixture-repo';
 
 describe('the python pack’s parsers', () => {
-  test('ruff reads its JSON artifact and keys the baseline; mypy and basedpyright serve findings alone (D31)', () => {
+  test('ruff reads its JSON artifact and keys the baseline; mypy and basedpyright, which a syntax error can stop short, serve findings alone', () => {
     for (const adapter of ['ruff', 'mypy', 'basedpyright']) expect(parserFor(adapter)?.stream, adapter).toBe('artifact');
     expect(baselineParserFor('ruff')).toBe(parserFor('ruff'));
     expect(baselineParserFor('mypy')).toBeUndefined();

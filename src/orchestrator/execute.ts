@@ -13,8 +13,8 @@ import { performance } from 'node:perf_hooks';
 
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
-import type { Baseline, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
-import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, reportVerdict } from '../baseline/index.js';
+import type { Baseline, BaselineEntry, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
+import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, printedByKey, reportVerdict, stoppedShortReason } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GoTestCase } from '../digest/index.js';
 import { caseName, goTestReport } from '../digest/index.js';
@@ -105,6 +105,18 @@ type MaskResult = {
    * (fallow's own error report), so the check reached no verdict.
    */
   stopped?: string;
+  /**
+   * Why a baseline masked nothing of a run whose tool stopped short of some
+   * errors, as tsc does on a syntax error, which its entry records as its
+   * `reason`. Its verdict is the tool's own.
+   */
+  stoppedShort?: string;
+  /**
+   * For a check that failed on findings the baseline doesn't grandfather, and
+   * whose keys leave part of a message out (tsc's), each key's findings as the
+   * tool printed them, which stderr lists beneath the key.
+   */
+  printed?: ReadonlyMap<string, readonly string[]>;
 };
 
 /**
@@ -149,19 +161,42 @@ type MaskScope = { key: string; root: string | undefined; repoRoot: string; base
  * (`observedTally`): the ratchet must never prune from a run that never
  * reached a verdict. Such a run is never masked either, so its verdict is the
  * raw outcome: a timeout whose partial output holds only grandfathered keys
- * stays red rather than passing on findings it never finished reading.
+ * stays red rather than passing on findings it never finished reading. One
+ * whose tool stopped short of some errors says why (`stoppedShort`).
  */
-function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
+function maskOutcome(adapter: Adapter, outcome: RunnerOutcome, baseline: Baseline | null, scope: MaskScope): MaskResult {
   const entry = baseline ? entryFor(baseline, scope.key) : null;
   const verdict = reportVerdict(adapter.name);
   if (verdict !== null) return maskByReport(verdict(findingText(adapter.name, outcome), entry, scope.root), outcome);
-  const argv = [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)];
-  const current = entry !== null ? observedTally(adapter.name, outcome, argv, scope.root, scope.repoRoot) : null;
-  if (entry !== null && current !== null) {
-    const { ok, baselined, newKeys, excess, newFindings } = applyBaseline(current, entry, outcome.ok);
-    return { ok, baselined, newKeys, excess, newFindings, reason: failureLine(outcome), observed: current };
-  }
-  return { ok: outcome.ok, ...UNMASKED, reason: failureLine(outcome), observed: current };
+  const read: Reading = { argv: [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)], root: scope.root, repoRoot: scope.repoRoot };
+  const current = entry !== null ? observedTally(adapter.name, outcome, read.argv, read.root, read.repoRoot) : null;
+  if (entry !== null && current !== null) return maskObserved(adapter, outcome, entry, current, read);
+  return unmasked(adapter, outcome, entry !== null, current, read);
+}
+
+/** How a check's output is read: the argv it ran with, its root, and the repo root its paths are named from. */
+type Reading = { argv: string[]; root: string | undefined; repoRoot: string };
+
+/**
+ * A run its baseline entry masks: what it grandfathers and what's new, and,
+ * where its keys leave part of a message out (tsc's), each key's findings as
+ * the tool printed them, for stderr to list beneath the key.
+ */
+function maskObserved(adapter: Adapter, outcome: RunnerOutcome, entry: BaselineEntry, current: Tally, read: Reading): MaskResult {
+  const { ok, baselined, newKeys, excess, newFindings } = applyBaseline(current, entry, outcome.ok);
+  const printed = newFindings > 0 ? printedByKey(adapter.name, findingText(adapter.name, outcome), read.argv, read.root, read.repoRoot) : null;
+  return { ok, baselined, newKeys, excess, newFindings, reason: failureLine(outcome), observed: current, ...(printed === null ? {} : { printed }) };
+}
+
+/**
+ * A run no baseline entry masks: its raw verdict, and, where a baseline is
+ * present and the run's tool stopped short of some errors, why it masked
+ * nothing.
+ */
+function unmasked(adapter: Adapter, outcome: RunnerOutcome, hasBaseline: boolean, observed: Tally | null, read: Reading): MaskResult {
+  const short = hasBaseline && outcome.exit_code !== -1 ? stoppedShortReason(adapter.name, outcome, read.argv, read.root, read.repoRoot) : null;
+  const stoppedShort = short === null ? {} : { stoppedShort: `${short}, so the baseline neither masked its findings nor pruned its keys` };
+  return { ok: outcome.ok, ...UNMASKED, reason: failureLine(outcome), observed, ...stoppedShort };
 }
 
 /** {@link maskOutcome} for an adapter whose report, not its exit code, is the verdict: `v`, that verdict. */
@@ -280,10 +315,15 @@ function namedTests(cases: readonly GoTestCase[], what: string): string[] {
   return [`           ${cases.length} ${what}:`, ...cases.slice(0, TESTS_NAMED).map((c) => `             ${caseName(c)}`), ...more];
 }
 
+/** How many of a key's findings stderr lists beneath it, as the tool printed them. */
+const PRINTED_PER_KEY = 5;
+
 /**
  * One line per key with findings the baseline didn't grandfather, sorted: a
  * key it doesn't hold, with how many findings share it when more than one,
  * and a key it holds found more often than it grandfathers, with both counts.
+ * Where the key leaves part of a message out (tsc's), its findings follow it
+ * as the tool printed them ({@link printedUnder}).
  */
 function newFindingLines(mask: MaskResult): string[] {
   const lines = mask.newKeys.map((key) => {
@@ -291,7 +331,19 @@ function newFindingLines(mask: MaskResult): string[] {
     return { key, line: found > 1 ? `${key} (${found} found)` : key };
   });
   for (const { key, found, allowed } of mask.excess) lines.push({ key, line: `${key} (${found} found, ${allowed} grandfathered)` });
-  return lines.toSorted((a, b) => (a.key < b.key ? -1 : 1)).map(({ line }) => line);
+  return lines.toSorted((a, b) => (a.key < b.key ? -1 : 1)).flatMap(({ key, line }) => [line, ...printedUnder(mask.printed?.get(key))]);
+}
+
+/**
+ * A key's findings as the tool printed them, indented beneath it: the first
+ * {@link PRINTED_PER_KEY}, then how many more. Under a key found more often
+ * than the baseline grandfathers, they're its every finding, the
+ * grandfathered ones among them, since no key says which one is new.
+ */
+function printedUnder(printed: readonly string[] | undefined): string[] {
+  if (printed === undefined) return [];
+  const more = printed.length > PRINTED_PER_KEY ? [`  … and ${printed.length - PRINTED_PER_KEY} more`] : [];
+  return [...printed.slice(0, PRINTED_PER_KEY).map((line) => `  ${line}`), ...more];
 }
 
 /**
@@ -359,11 +411,12 @@ type Produced = { file: string | null; place: Place; durationMs: number; reason:
 /**
  * The entry an executed check records: what it is, how it ended after the
  * baseline's masking, why it failed when it says (its tool exited 0 with
- * findings (R8.3), or it was refused before its tool spawned), and the file
- * it wrote, named relative to the output directory, `<target>/` included.
+ * findings (R8.3), it was refused before its tool spawned, or its tool
+ * stopped short of errors the baseline would have masked), and the file it
+ * wrote, named relative to the output directory, `<target>/` included.
  */
 function executedEntry(r: ResolvedCheck, run: CheckRun, mask: MaskResult, written: Produced, multiTarget: boolean): SummaryCheck {
-  const reason = entryReason(written, run.outcome);
+  const reason = entryReason(written, run.outcome) ?? mask.stoppedShort ?? null;
   return {
     ...checkIdentity(r, multiTarget),
     adapter: run.adapter.name,

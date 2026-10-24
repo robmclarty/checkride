@@ -1,0 +1,8 @@
+lib/src/index.ts(4,3): error TS2322: Type 'string' is not assignable to type 'number'.
+lib/src/index.ts(8,3): error TS2322: Type 'boolean' is not assignable to type 'number'.
+lib/src/index.ts(12,36): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ a: number; b: number; }'.
+  No index signature with a parameter of type 'string' was found on type '{ a: number; b: number; }'.
+lib/src/index.ts(19,10): error TS1308: 'await' expressions are only allowed within async functions and at the top levels of modules.
+app/src/main.ts(1,34): error TS6305: Output file '/tmp/fixture-repo/web/lib/dist/index.d.ts' has not been built from source file '/tmp/fixture-repo/web/lib/src/index.ts'.
+app/src/main.ts(3,7): error TS6133: 'unused' is declared but its value is never read.
+app/src/main.ts(10,18): error TS2322: Type 'string' is not assignable to type 'number'.

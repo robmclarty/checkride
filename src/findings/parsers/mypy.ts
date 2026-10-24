@@ -17,8 +17,10 @@ import type { KeyedFinding, Parser } from '../types.js';
  * Every error and note that carries a message, keyed on its error code. An
  * error gates and a note doesn't, since mypy exits 0 on notes alone. A line
  * that isn't JSON is passed over, so a stray print hides none of the rest.
- * Served to `checkride/findings` but never keyed into the baseline, since
- * type errors aren't grandfathered (D31).
+ * Served to `checkride/findings` but never keyed into the baseline: a
+ * blocking error, as a syntax error or a module shadowing the standard
+ * library's is, stops mypy part way, so a run with one can't say which of the
+ * errors it never reached were fixed. Checked against mypy 2.4.0.
  */
 export const mypyParser: Parser = {
   stream: 'artifact',

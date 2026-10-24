@@ -46,7 +46,9 @@ function outputLines(raw: string): [string, string][] {
  * before it in the same package. go names no rule, so each rule is `''`, and
  * every error fails the build. A line that names no file, such as a package
  * go can't load, is an error with no file. Served to `checkride/findings` but
- * never keyed into the baseline, since type errors aren't grandfathered (D31).
+ * never keyed into the baseline: go stops at ten errors in a package and
+ * builds no package that imports a broken one, so a run can't say which of
+ * the errors it didn't print were fixed.
  */
 export const goBuildParser: Parser = {
   stream: 'artifact',

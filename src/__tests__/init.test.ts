@@ -945,58 +945,105 @@ describe('existing-project adoption (idempotent)', () => {
     expect(out.text()).not.toContain('grandfathered failing slots');
   });
 
-  test('findings are grandfathered or disabled as before, each named with how many, beside bare names and a setup slot', async () => {
+  test('a tsc that stopped short is left on, on a line of its own naming what stopped it, with or without --baseline', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'tsconfig.json'), '{}');
     await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    const why = "tsc stopped short at `src/a.ts(1,34): error TS1005: ',' expected.`";
+    const answers: ProbeFailure[] = [UNINSTALLED, { slot: 'types', kind: 'setup', cause: why, stopped: true }];
+    for (const baseline of [false, true]) {
+      let captured = false;
+      const out = sink();
+      const result = await runInit({
+        cwd: dir, stdout: out, dryRun: true, baseline, probeFailures: () => Promise.resolve(answers),
+        captureBaseline: () => { captured = true; return Promise.resolve(); },
+      });
+      expect(result).toMatchObject({ setup: ['types', 'lint'], grandfathered: [], disabled: [] });
+      expect(captured).toBe(false);
+      expect(out.text()).toContain(`  left on, stopped short of some errors (fix what stopped it, then \`checkride baseline\` grandfathers the rest): types (${why})\n`);
+      expect(out.text()).toContain(`  left on, can't run until set up (then \`checkride baseline\` grandfathers what it finds): lint (${UNINSTALLED.cause})\n`);
+    }
+  });
+
+  test('findings are grandfathered or disabled as before, each named with how many, beside bare names and a setup slot', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, '.oxlintrc.json'), '{}');
+    await writeFile(join(dir, 'vitest.config.ts'), 'export default {};\n');
     await writeFile(join(dir, '.markdownlint-cli2.jsonc'), '{}');
-    const answers: (string | ProbeFailure)[] = [{ slot: 'lint', kind: 'findings', cause: '3 finding(s)' }, 'types', { ...UNINSTALLED, slot: 'docs' }];
+    const answers: (string | ProbeFailure)[] = [{ slot: 'lint', kind: 'findings', cause: '3 finding(s)' }, 'test', { ...UNINSTALLED, slot: 'docs' }];
     const plain = sink();
     const disabled = await runInit({ cwd: dir, stdout: plain, dryRun: true, probeFailures: () => Promise.resolve(answers) });
-    expect(disabled).toMatchObject({ disabled: ['types', 'lint'], grandfathered: [], setup: ['docs'] });
-    expect(plain.text()).toContain('  disabled failing slots (enable as you fix): types, lint (3 finding(s))\n');
+    expect(disabled).toMatchObject({ disabled: ['lint', 'test'], grandfathered: [], setup: ['docs'] });
+    expect(plain.text()).toContain('  disabled failing slots (enable as you fix): lint (3 finding(s)), test\n');
     const grandfather = sink();
     const kept = await runInit({ cwd: dir, stdout: grandfather, dryRun: true, baseline: true, probeFailures: () => Promise.resolve(answers) });
-    expect(kept).toMatchObject({ grandfathered: ['lint'], disabled: ['types'], setup: ['docs'] });
+    expect(kept).toMatchObject({ grandfathered: ['lint'], disabled: ['test'], setup: ['docs'] });
     expect(grandfather.text()).toContain('  grandfathered failing slots into checkride.baseline.json: lint (3 finding(s))\n');
   });
 
   test('--baseline grandfathers fingerprintable failures and only disables the rest (c10)', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
-    await writeFile(join(dir, 'tsconfig.json'), '{}'); // types → tsc (no fingerprint extractor)
+    await writeFile(join(dir, 'tsconfig.json'), '{}'); // types → tsc (fingerprintable)
     await writeFile(join(dir, '.oxlintrc.json'), '{}'); // lint → oxlint (fingerprintable)
+    await writeFile(join(dir, 'vitest.config.ts'), 'export default {};\n'); // test → vitest (no fingerprint extractor)
 
     let captured = false;
     const result = await runInit({
       cwd: dir,
       baseline: true,
-      probeFailures: () => Promise.resolve(['types', 'lint']),
+      probeFailures: () => Promise.resolve(['types', 'lint', 'test']),
       captureBaseline: () => { captured = true; return Promise.resolve(); },
     });
 
     expect(captured).toBe(true);
-    expect(result.grandfathered).toEqual(['lint']); // masked by the baseline, stays enabled
-    expect(result.disabled).toEqual(['types']); // no extractor → still falls back to `false`
+    expect(result.grandfathered).toEqual(['types', 'lint']); // masked by the baseline, stays enabled
+    expect(result.disabled).toEqual(['test']); // no extractor → still falls back to `false`
     const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['types']).toBe('tsc');
     expect(cfg.checks['lint']).toBe('oxlint');
-    expect(cfg.checks['types']).toBe(false);
+    expect(cfg.checks['test']).toBe(false);
   });
 
   test('--baseline does not capture when nothing fingerprintable is failing', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
-    await writeFile(join(dir, 'tsconfig.json'), '{}'); // only a non-fingerprintable slot
+    await writeFile(join(dir, 'vitest.config.ts'), 'export default {};\n'); // only a non-fingerprintable slot
 
     let captured = false;
     const result = await runInit({
       cwd: dir,
       baseline: true,
-      probeFailures: () => Promise.resolve(['types']),
+      probeFailures: () => Promise.resolve(['test']),
       captureBaseline: () => { captured = true; return Promise.resolve(); },
     });
 
     expect(captured).toBe(false); // no fingerprintable debt → no baseline written
     expect(result.grandfathered).toEqual([]);
-    expect(result.disabled).toEqual(['types']);
+    expect(result.disabled).toEqual(['test']);
+  });
+
+  test("--baseline grandfathers a failing tsc's errors instead of disabling types", async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await writeFile(join(dir, 'tsconfig.json'), '{}'); // types → tsc
+    // tsc 7.0.2's real `--build` output, on stdout where it prints it.
+    const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+    const stdout = await readFile(join(fixtures, 'findings-tsc-build.txt'), 'utf8');
+    const runner: CheckRunner = (r) =>
+      Promise.resolve(r.slot === 'types' ? { ok: false, exit_code: 2, stdout, stderr: '' } : { ok: true, exit_code: 0, stdout: '', stderr: '' });
+
+    const result = await runInit({
+      cwd: dir,
+      baseline: true,
+      probeFailures: () => Promise.resolve([{ slot: 'types', kind: 'findings', cause: '8 finding(s)' }]),
+      captureBaseline: (at) => runBaseline({ cwd: at, runner, stderr: { write: () => true } }).then(() => undefined),
+    });
+
+    expect(result.grandfathered).toEqual(['types']);
+    expect(result.disabled).toEqual([]);
+    const cfg = JSON.parse(await readFile(join(dir, 'checkride.config.json'), 'utf8')) as { checks: Record<string, string | false> };
+    expect(cfg.checks['types']).toBe('tsc');
+    const baseline = JSON.parse(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')) as { slots: Record<string, string[]>; counts?: Record<string, Record<string, number>> };
+    expect(baseline.slots['types']).toHaveLength(6); // eight errors, two keys holding two each
+    expect(Object.values(baseline.counts?.['types'] ?? {})).toEqual([2, 2]);
   });
 
   test('--baseline grandfathers failing markdown instead of disabling docs (D32)', async () => {
@@ -1671,14 +1718,25 @@ describe('classifyProbe', () => {
       expected: { kind: 'setup', cause: 'level=error msg="can\'t load config"' },
     },
     {
+      label: 'keyed output its parser says stopped short is setup, marked stopped and named by why rather than by its exit',
+      probed: {
+        outcome: failed({ exit_code: 2, stdout: "src/a.ts(1,34): error TS1005: ',' expected.\n" }),
+        keyed: true,
+        keys: null,
+        reason: undefined,
+        stopped: "tsc stopped short at `src/a.ts(1,34): error TS1005: ',' expected.`",
+      },
+      expected: { kind: 'setup', cause: "tsc stopped short at `src/a.ts(1,34): error TS1005: ',' expected.`", stopped: true },
+    },
+    {
       label: 'findings its parser keyed are findings, each one counted',
       probed: { outcome: failed(), keyed: true, keys: new Map([['a', 1], ['b', 2], ['c', 1]]), reason: undefined },
       expected: { kind: 'findings', cause: '4 finding(s)' },
     },
     {
-      label: "a type checker's failure, which nothing keys, failed, named by its exit",
-      probed: { outcome: failed({ exit_code: 2, stdout: 'src/a.ts(1,7): error TS2322' }), keyed: false, keys: null, reason: undefined },
-      expected: { kind: 'failed', cause: 'exited 2' },
+      label: "a type checker's failure nothing keys, as go build's, failed, named by its exit",
+      probed: { outcome: failed({ exit_code: 1, stdout: '{"ImportPath":"x","Action":"build-output","Output":"a.go:1:1: undefined: y\\n"}' }), keyed: false, keys: null, reason: undefined },
+      expected: { kind: 'failed', cause: 'exited 1' },
     },
     {
       label: 'a check its summary gives a reason for failed, named by the reason',

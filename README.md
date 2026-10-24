@@ -732,19 +732,36 @@ and each key whose count changed, or as JSON under `--json`, so a reviewer sees
 exactly what a change grandfathers.
 
 Only slots whose tool has a parser the baseline keys with participate, and a
-capture doesn't run the others: oxlint, eslint, biome,
+capture doesn't run the others: tsc for `types`, oxlint, eslint, biome,
 golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint for `lint`,
 ast-grep for `struct`, markdownlint-cli2 and rumdl for `docs`, cspell and typos
 for `spell`, vale for `prose`, and fallow for `dead`, `dupes` and `health`,
 each keying only the findings that can fail the slot. A custom check whose
 `name` is one of these adapters' is keyed the same way, so an eslint rule set
 run as a check of its own, with `"name": "eslint"`, can be adopted with
-findings it already has. A type checker's or a
-build's errors (`types`) and tests are never grandfathered, so those slots never
-appear in the baseline. The file's shape is a promised surface — see
+findings it already has. The file's shape is a promised surface — see
 [the contract](./docs/contract.md#checkridebaselinejson). A crash or empty output is
 never masked — a slot only goes green when there are findings and all of them are
 grandfathered.
+
+A tsc key holds the error's file, its code and its message's first line, with
+what tsc filled into it written `…`: each quoted span, the list a "following
+…:" message ends on, and every number, since that text changes on edits
+elsewhere: `src/a.ts:TS2322:Type '…' is not assignable to type '…'.`, or
+`src/a.ts:TS2554:Expected … arguments, but got ….` Two such errors in one file
+share a key, and `counts` holds both. Since the key no longer says which name
+or type an error is about, a run lists each new key's findings beneath it as
+tsc printed them, and so does the digest. A run that
+stopped tsc short of some errors masks nothing and prunes nothing, and its
+check's `reason` says why: a syntax error, which leaves its whole project
+unchecked, a tsconfig tsc rejected, a reference it didn't build (`TS6305`),
+a tsc killed or crashed part way, or any error from a build that skips each
+project depending on one with errors, under `--stopBuildOnErrors` or, before
+TypeScript 5.6, under a `--build` of project references, which 5.6 and later
+check whole. The other type checkers, go build,
+cargo check, mypy and basedpyright, are never grandfathered, since each can
+stop before it reports every error, and neither are tests, so those slots
+never appear in the baseline.
 
 To adopt on an existing repo, `checkride init --baseline` grandfathers today's
 failing (fingerprintable) slots into the baseline and keeps them enabled, instead of
@@ -752,7 +769,9 @@ writing them off as `false`; a failing slot with no extractor still falls back t
 disable. A slot that fails before it reaches a verdict, a declared tool nothing
 installed, a setup step not yet run, a crash or a timeout, is neither: `init`
 leaves it on, names what stopped it, and a `checkride baseline` once it runs
-grandfathers what it finds.
+grandfathers what it finds. A tsc run that stopped short is left on too, on a
+line of its own naming what stopped it: once that's fixed, `checkride
+baseline` grandfathers the rest.
 
 ## Project shapes
 

@@ -33,6 +33,20 @@ export type Argv = readonly string[] | undefined;
 export type ParseContext = PathBase & { readonly argv: Argv };
 
 /**
+ * What `stoppedShort` reads besides the findings: their context, and, from a
+ * run, both streams the check printed, the version its tool's pin named when
+ * the run recorded one, and `read`, which reads a file of the check's from
+ * its root, `null` for one it can't, for a hook whose answer turns on the
+ * check's own config. A reader with no run leaves those out, and a hook then
+ * judges by the findings and the argv alone.
+ */
+export type RunContext = ParseContext & {
+  readonly output?: CheckOutput;
+  readonly toolVersion?: string | undefined;
+  readonly read?: (path: string) => string | null;
+};
+
+/**
  * One finding a parser read, with the key the baseline records it under.
  * `file` is already rebased (R12.4); `line` and `column` are 1-based, and
  * absent when the tool gives none; `rule` is `''` when the tool names none;
@@ -65,13 +79,28 @@ export type KeyedFinding = {
  * golangci-lint print). A line-based format (cspell, typos, staticcheck) can't
  * tell empty output from a clean run, so the baseline also asks whether the
  * check reached a verdict before it trusts an empty one. `parseOnly` marks a
- * parser that serves `checkride/findings` but never the baseline: a type
- * checker's errors aren't grandfathered (D31).
+ * parser that serves `checkride/findings` but never the baseline, as a type
+ * checker's does when a run can stop before it reports every error.
+ *
+ * `stoppedShort` is for a tool that can stop before it reaches every error,
+ * as tsc type-checks none of a project with a syntax error: why the run that
+ * reported `findings` did, or `null` when it reached them all. The baseline
+ * neither masks nor prunes with such a run, since an error it never reached
+ * would read as fixed, while `checkride/findings` serves every finding it
+ * read, as it does a run that timed out.
+ *
+ * `printed` is for a parser whose key leaves part of a finding's message out,
+ * as tsc's writes each quoted span `'…'`, so the key no longer says which name
+ * or type the finding is about: the finding as its tool printed it, which a
+ * reader shows a person or an agent instead of the key, as the digest and a
+ * run's list of new findings do.
  */
 export type Parser = {
   readonly stream: FindingStream;
   readonly parse: (raw: string, context: ParseContext) => readonly KeyedFinding[] | null;
   readonly parseOnly?: true;
+  readonly stoppedShort?: (findings: readonly KeyedFinding[], context: RunContext) => string | null;
+  readonly printed?: (finding: KeyedFinding) => string;
 };
 
 /**

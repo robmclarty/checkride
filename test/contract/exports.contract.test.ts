@@ -122,6 +122,15 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('a tsc run that stopped short of some errors, which the baseline neither masks nor prunes with, still parses into every finding', () => {
+    const stopped = "lib/src/broken.ts(1,34): error TS1005: ',' expected.\napp/src/main.ts(3,7): error TS2322: Type 'number' is not assignable to type 'string'.\n";
+    expect(findings.parseFindings('tsc', stopped)?.map((f) => [f.file, f.rule, f.message])).toEqual([
+      ['lib/src/broken.ts', 'TS1005', "',' expected."],
+      ['app/src/main.ts', 'TS2322', "Type 'number' is not assignable to type 'string'."],
+    ]);
+    expect(findings.parseFindings('tsc', "error TS6053: File '/repo/api/tsconfig.json' not found.\n")).toHaveLength(1);
+  });
+
   test('the python pack\'s ruff, mypy and basedpyright output is parseable', () => {
     for (const adapter of ['ruff', 'mypy', 'basedpyright']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });

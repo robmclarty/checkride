@@ -10,7 +10,9 @@
  *
  * It reuses the baseline module's per-adapter fingerprint extractors to list a
  * slot's findings (render the first N of the same items); a slot whose adapter
- * has no extractor falls back to a tail of its raw text. A green run has nothing
+ * has no extractor falls back to a tail of its raw text, and so does one whose
+ * keys leave part of a message out (tsc's) unless a baseline masked it, when
+ * its new findings are listed as the tool printed them. A green run has nothing
  * to digest, so {@link writeDigest} removes any stale `.check/digest.md` — the
  * file's presence always means "this run had failures".
  *
@@ -23,7 +25,8 @@ import { join } from 'node:path';
 
 import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
-import { copyNamed, findingText, fingerprint } from '../baseline/index.js';
+import { copyNamed, findingText, fingerprint, printedByKey } from '../baseline/index.js';
+import { parserFor } from '../findings/index.js';
 import { failureLine, packToolchain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
@@ -86,9 +89,10 @@ type Section = { run: CheckRun; check: SummaryCheck; raw: string; maxItems: numb
  * Render one failing slot's section, the first of these that applies: the
  * findings a baseline didn't grandfather, when it masked the check; the failing
  * and unfinished tests of a `go test -json` run; the first N finding keys, when
- * the adapter can be fingerprinted (the same items the baseline records); and
- * otherwise the last N lines of raw text — where a compiler or test runner puts
- * its summary. Either way the section is capped and points at the raw file.
+ * the adapter can be fingerprinted and its keys say what each finding is (the
+ * same items the baseline records); and otherwise the last N lines of raw
+ * text — where a compiler or test runner puts its summary. Either way the
+ * section is capped and points at the raw file.
  */
 function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, label: string, repoRoot?: string): string {
   const section: Section = { run, check, raw: rawPointer(check, run.outcome, label), maxItems, repoRoot };
@@ -103,15 +107,33 @@ function capped(items: readonly string[], max: number, raw: string): string[] {
 }
 
 /**
+ * What a section lists for the findings `run` reported under `keys`: the keys,
+ * or, for a parser whose keys leave part of a message out (tsc's), each
+ * finding under them as the tool printed it ({@link printedByKey}), so the
+ * agent reads where it is and which name or type it's about. A key none of
+ * the run's findings sits under is listed as it is.
+ */
+function listed(run: CheckRun, keys: readonly string[], repoRoot: string | undefined): readonly string[] {
+  const { adapter, outcome } = run;
+  const printed = printedByKey(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, repoRoot);
+  return printed === null ? keys : [...new Set(keys.flatMap((key) => printed.get(key) ?? [key]))];
+}
+
+/**
  * A check a baseline masked that failed on findings it doesn't grandfather:
  * those first, from the summary's `new`, and the grandfathered ones only
  * counted, since they are what the check passes with. `null` for any other.
+ * Where a key it lists by its findings (`listed`) holds more of them than
+ * are new, the grandfathered ones of that key are listed too, and a line
+ * says so, since a key can't say which of its findings is the new one.
  */
-function newFindingsBody({ run, check, raw, maxItems }: Section): string | null {
+function newFindingsBody({ run, check, raw, maxItems, repoRoot }: Section): string | null {
   if (check.new === undefined || check.new_count === undefined) return null;
   // `new` holds only the summary's first keys, so the rest are counted there, not here.
-  const lines = check.new.slice(0, maxItems).map((key) => `- ${key}`);
-  if (check.new.length > maxItems) lines.push(`- … and more: the summary's \`new\` lists ${check.new.length} key(s), and \`${raw}\` every finding`);
+  const shown = listed(run, check.new, repoRoot);
+  const lines = shown.slice(0, maxItems).map((line) => `- ${line}`);
+  if (shown.length > maxItems) lines.push(`- … and more: the summary's \`new\` lists ${check.new.length} key(s), and \`${raw}\` every finding`);
+  if (shown.length > check.new_count) lines.push('- (a key found more often than the baseline grandfathers lists each of its findings, the grandfathered ones among them)');
   const grandfathered = check.baselined === undefined ? '' : `; ${check.baselined} grandfathered, not listed`;
   return `Raw: \`${raw}\` — ${check.new_count} new finding(s), not in the baseline${grandfathered}\n${stoppedBy(check, run.outcome)}${driftNote(check, run.adapter.name)}\n${lines.join('\n')}\n`;
 }
@@ -138,9 +160,14 @@ function testCase(verdict: 'FAIL' | 'RUNNING', c: GoTestCase): string {
   return `### ${verdict} ${caseName(c)}\n${output}`;
 }
 
-/** The first N keys of an adapter that can be fingerprinted, keyed as the baseline keys them, or `null` for one that can't or found none. */
+/**
+ * The first N keys of an adapter that can be fingerprinted, keyed as the
+ * baseline keys them, or `null` for one that can't, one that found none, or
+ * one whose keys leave part of a message out, whose own lines say more.
+ */
 function findingsBody({ run, check, raw, maxItems, repoRoot }: Section): string | null {
   const { adapter, outcome } = run;
+  if (parserFor(adapter.name)?.printed !== undefined) return null;
   // From the stream the baseline reads, a target's paths from the repo root.
   const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, repoRoot);
   if (keys === null || keys.size === 0) return null;
@@ -149,9 +176,10 @@ function findingsBody({ run, check, raw, maxItems, repoRoot }: Section): string 
 }
 
 /**
- * The tail of the raw text, for an adapter with no extractor (tsc, vitest, …)
- * or a supported one that failed with no parsed findings — truncation, not
- * normalization — pointing at the file for the rest.
+ * The tail of the raw text, for an adapter with no extractor (vitest, go
+ * build, …), one whose keys leave part of a message out (tsc), or a supported one
+ * that failed with no parsed findings — truncation, not normalization —
+ * pointing at the file for the rest.
  */
 function tailBody({ run, check, raw, maxItems }: Section): string {
   const { outcome } = run;

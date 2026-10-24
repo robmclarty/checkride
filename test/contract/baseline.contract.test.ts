@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter, Slot } from '../../src/adapters.js';
 import type { Baseline } from '../../src/baseline/index.js';
-import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, parseBaseline, writeBaseline } from '../../src/baseline/index.js';
+import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, observedTally, parseBaseline, writeBaseline } from '../../src/baseline/index.js';
 import { runBaseline, runBaselineVersions } from '../../src/baseline-command.js';
 import { runCli } from '../../src/cli.js';
 import type { CheckRunner, Out } from '../../src/orchestrator/index.js';
@@ -73,8 +73,9 @@ function adapter(name: string, slot: string, outputFile: string | null): Adapter
 }
 
 // Real adapter *names* on fake commands: the extractor dispatch is by name, and
-// nothing here spawns — the runner supplies each slot's report.
-const ADAPTERS: Adapter[] = [adapter('cspell', 'spell', null), adapter('oxlint', 'lint', 'lint.json'), adapter('tsc', 'types', null)];
+// nothing here spawns — the runner supplies each slot's report. go build's
+// `types` is the slot with no extractor.
+const ADAPTERS: Adapter[] = [adapter('cspell', 'spell', null), adapter('oxlint', 'lint', 'lint.json'), adapter('go-build', 'types', null)];
 // Listed out of alphabetical order on purpose: the file must not care.
 const SLOTS: Slot[] = [{ name: 'spell' }, { name: 'lint' }, { name: 'types' }];
 
@@ -86,6 +87,11 @@ const redRunner: CheckRunner = (r) => {
   const ok = stdout === '';
   return Promise.resolve({ ok, exit_code: ok ? 0 : 1, stdout, stderr: '' });
 };
+
+/** A `tsc --build` that failed printing `stdout`, as tsc does with any error. */
+function tscPrinting(stdout: string): CheckRunner {
+  return () => Promise.resolve({ ok: false, exit_code: 2, stdout, stderr: '' });
+}
 
 /** {@link redRunner}, recording the pin each tool resolved through as a real runner does: lint's lockfile copy, the rest from PATH. */
 const pinnedRed: CheckRunner = async (r, ctx) => ({
@@ -222,7 +228,7 @@ describe('checkride.baseline.json', () => {
     expect([...(lint ?? [])].toSorted()).toEqual(OXLINT_KEYS);
     for (const k of lint ?? []) expect(k).not.toMatch(/:\d+:\d+/);
     expect(fingerprint('cspell', CSPELL_REPORT)).toEqual(new Set(['docs/old.md::teh']));
-    expect(fingerprint('tsc', 'anything')).toBeNull();
+    expect(fingerprint('go-build', 'anything')).toBeNull();
   });
 
   test('oxlint and ast-grep key a warning only when argv lets it fail', () => {
@@ -278,7 +284,7 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('shellcheck', shellcheck, ['shellcheck', '-f', 'json1', '--severity=warning'])).toEqual(new Set());
   });
 
-  test('the docs and spell tools key as <file>:<rule>:<message>, and no type checker keys', () => {
+  test('the docs and spell tools key as <file>:<rule>:<message>, and go build never keys', () => {
     // markdownlint-cli2 prints on stderr; a rule set to "warning" can't fail the slot.
     const markdownlint = 'docs/a.md:1:1 error MD018/no-missing-space-atx No space after hash\nREADME.md:8:1 warning MD033/no-inline-html Inline HTML\n';
     expect(fingerprint('markdownlint-cli2', markdownlint)).toEqual(new Set(['docs/a.md:MD018:No space after hash']));
@@ -286,8 +292,66 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('rumdl', rumdl, ['rumdl', 'check', '--output-format', 'json', '.'])).toEqual(new Set(['docs/a.md:MD040:Code block missing language']));
     expect(fingerprint('rumdl', rumdl, ['rumdl', 'check', '--fail-on', 'error', '--output-format', 'json', '.'])).toEqual(new Set());
     expect(fingerprint('typos', './docs/a.md:3:9: error: `teh` should be `the`\n')).toEqual(new Set(['docs/a.md::`teh` should be `the`']));
-    expect(fingerprint('tsc', "src/a.ts(1,1): error TS2322: Type 'string' is not assignable to type 'number'.\n")).toBeNull();
     expect(fingerprint('go-build', '{"ImportPath":"x","Action":"build-output","Output":"a.go:1:1: undefined: y\\n"}\n')).toBeNull();
+  });
+
+  test("tsc keys as <file>:<code>:<its message's first line>, what tsc filled in '…', and a run that stopped short keys nothing", () => {
+    const report = [
+      "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+      "src/a.ts(9,7): error TS2322: Type '{ id: string; }' is not assignable to type 'number'.",
+      "src/b.ts(4,3): error TS2345: Argument of type '{ retry: string; }' is not assignable to parameter of type 'Options'.",
+      "  Types of property 'retry' are incompatible.",
+      '',
+    ].join('\n');
+    const argv = ['pnpm', 'exec', 'tsc', '--build'];
+    expect(fingerprint('tsc', report, argv, 'web')).toEqual(
+      new Set(["web/src/a.ts:TS2322:Type '…' is not assignable to type '…'.", "web/src/b.ts:TS2345:Argument of type '…' is not assignable to parameter of type '…'."]),
+    );
+    // Past the single-quoted spans: a double-quoted or backtick span, the list a "following …:" message ends on, and every number.
+    const filled = [
+      "src/c.ts(4,1): error TS2554: Expected 2 arguments, but got 3.",
+      "src/c.ts(9,14): error TS2740: Type '{}' is missing the following properties from type 'Wide': a, b, c, d, and 2 more.",
+      'src/c.ts(12,1): error TS4023: Exported variable \'x\' has or is using name \'Y\' from external module "/home/ci/repo/node_modules/y" but cannot be named.',
+      'src/c.ts(15,9): error TS2208: This type parameter might need an `extends string` constraint.',
+      '',
+    ].join('\n');
+    expect([...(fingerprint('tsc', filled, argv) ?? [])]).toEqual([
+      'src/c.ts:TS2554:Expected … arguments, but got ….',
+      "src/c.ts:TS2740:Type '…' is missing the following properties from type '…': …",
+      'src/c.ts:TS4023:Exported variable \'…\' has or is using name \'…\' from external module "…" but cannot be named.',
+      'src/c.ts:TS2208:This type parameter might need an `…` constraint.',
+    ]);
+    // A syntax error, a diagnostic on a tsconfig or with no file, an unbuilt reference, or any error under --stopBuildOnErrors.
+    expect(fingerprint('tsc', `${report}src/c.ts(2,1): error TS1005: ';' expected.\n`, argv)).toBeNull();
+    expect(fingerprint('tsc', `${report}tsconfig.json(3,5): error TS5096: Option 'x' can only be used when 'y' is set.\n`, argv)).toBeNull();
+    expect(fingerprint('tsc', "error TS6053: File '/repo/api/tsconfig.json' not found.\n", argv)).toBeNull();
+    expect(fingerprint('tsc', `${report}src/d.ts(1,20): error TS6305: Output file '/repo/lib/dist/index.d.ts' has not been built from source file '/repo/lib/src/index.ts'.\n`, argv)).toBeNull();
+    expect(fingerprint('tsc', report, [...argv, '--stopBuildOnErrors'])).toBeNull();
+    expect(fingerprint('tsc', report, [...argv, '-stopBuildOnErrors'])).toBeNull();
+    expect(fingerprint('tsc', report, [...argv, '--stopBuildOnErrors', 'false'])?.size).toBe(2);
+    expect(fingerprint('tsc', '', [...argv, '--stopBuildOnErrors'])).toEqual(new Set());
+    // What a run shows beyond the text tsc's parser reads: a TypeScript before 5.6 under --build, or a tsc that died.
+    const failed = { ok: false, exit_code: 2, stdout: report, stderr: '' };
+    expect(observedTally('tsc', failed, argv)?.size).toBe(2);
+    expect(observedTally('tsc', { ...failed, tool_version: '5.5.4' }, argv)).toBeNull();
+    expect(observedTally('tsc', { ...failed, exit_code: 1, stdout: `${report}[ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL] Command was killed with SIGKILL (Forced termination): tsc --build\n` }, argv)).toBeNull();
+    expect(observedTally('tsc', { ...failed, stderr: 'panic: runtime error: invalid memory address or nil pointer dereference\n' }, argv)).toBeNull();
+  });
+
+  test("a tsc run that stopped short, a baseline present, is unmasked, prunes none of the check's keys, and its reason says why", async () => {
+    const tscSlots: Slot[] = [{ name: 'types' }];
+    const tscAdapters: Adapter[] = [adapter('tsc', 'types', null)];
+    const errors = "src/a.ts(1,7): error TS2322: Type 'string' is not assignable to type 'number'.\n";
+    await runBaseline({ cwd: dir, slots: tscSlots, adapters: tscAdapters, config: null, runner: tscPrinting(errors), stdout: sink().out, stderr: sink().out });
+    const before = await readFile(baselinePath(), 'utf8');
+    const stopped = `src/b.ts(2,1): error TS1005: ';' expected.\n`;
+    const result = await runChecks({ cwd: dir, slots: tscSlots, adapters: tscAdapters, config: null, runner: tscPrinting(stopped), json: true, stdout: sink().out, stderr: sink().out });
+    const types = result.summary.checks.find((c) => c.name === 'types');
+    expect(types?.ok).toBe(false);
+    expect(types?.baselined).toBeUndefined();
+    expect(types?.reason).toBe("tsc stopped short at `src/b.ts(2,1): error TS1005: ';' expected.`, so the baseline neither masked its findings nor pruned its keys");
+    expect(validateSummary(result.summary), JSON.stringify(validateSummary.errors)).toBe(true);
+    expect(await readFile(baselinePath(), 'utf8')).toBe(before);
   });
 
   test('ruff keys as <file>:<rule>:<message>, every violation of it, and neither python type checker keys', () => {

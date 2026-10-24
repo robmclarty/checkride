@@ -6,7 +6,7 @@
  */
 
 export type { Fingerprint, Tally } from './fingerprint.js';
-export { findingText, fingerprint, isFingerprintable, observedTally, reportVerdict, tallied, tally } from './fingerprint.js';
+export { findingText, fingerprint, isFingerprintable, observedTally, printedByKey, reportVerdict, stoppedShortReason, tallied, tally } from './fingerprint.js';
 export type { FallowVerdict } from './fallow.js';
 export { fallowVerdict } from './fallow.js';
 export type { BaselineDelta, Candidate, HistoryScan, Recount } from './history.js';

@@ -34,8 +34,9 @@ function start(diagnostic: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * Every diagnostic that carries a message, keyed on its rule. Served to
- * `checkride/findings` but never keyed into the baseline, since type errors
- * aren't grandfathered (D31).
+ * `checkride/findings` but never keyed into the baseline: past a syntax
+ * error, basedpyright can lose the rest of that file's errors to its parser's
+ * recovery, so a run with one can't say which of them were fixed.
  *
  * Returns `null` for output with no `generalDiagnostics` array: a run that
  * finished prints one, empty when clean, while one that couldn't start prints

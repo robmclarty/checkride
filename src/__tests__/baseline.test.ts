@@ -57,13 +57,13 @@ function fakeAdapter(over: Partial<Adapter> & { name: string; slot: string }): A
   return { description: over.name, detect: [], command: 'node', args: [], outputFile: null, devDeps: {}, ...over };
 }
 
-/** The three fingerprintable slots plus `types`, whose adapter (tsc) sits out. */
+/** The three fingerprintable slots plus `types`, whose adapter (go build, which stops at ten errors a package) sits out. */
 const slots = [{ name: 'lint' }, { name: 'struct' }, { name: 'spell' }, { name: 'types' }];
 const adapters = [
   fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' }),
   fakeAdapter({ name: 'ast-grep', slot: 'struct', outputFile: 'struct.json' }),
   fakeAdapter({ name: 'cspell', slot: 'spell' }),
-  fakeAdapter({ name: 'tsc', slot: 'types' }),
+  fakeAdapter({ name: 'go-build', slot: 'types' }),
 ];
 
 /** Feed each slot its fixture on stdout; an empty payload passes (green). */
@@ -131,7 +131,7 @@ describe('runBaseline', () => {
   test('a slot with no extractor never appears in the baseline', async () => {
     await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, stdout: sink(), stderr: sink() });
     const written = await readBaseline();
-    // tsc ran (types) but has no fingerprint extractor, so it is omitted entirely.
+    // go build ran (types) but has no fingerprint extractor, so it is omitted entirely.
     expect(Object.keys(written.slots).toSorted()).toEqual(['lint', 'spell', 'struct']);
   });
 
@@ -221,7 +221,7 @@ describe('runBaseline', () => {
     await runBaseline({ cwd: dir, slots, adapters, config: null, runner: recording, stdout: sink(), stderr: sink() });
     expect(ran.toSorted()).toEqual(['lint', 'spell', 'struct']);
     const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: { name: string; skipped?: boolean; reason?: string }[] };
-    expect(summary.checks.find((c) => c.name === 'types')).toMatchObject({ skipped: true, reason: "baseline: tsc's output adds no key" });
+    expect(summary.checks.find((c) => c.name === 'types')).toMatchObject({ skipped: true, reason: "baseline: go-build's output adds no key" });
   });
 
   describe('--only and --skip (#8)', () => {
@@ -972,13 +972,13 @@ describe('isFingerprintable', () => {
     expect(isFingerprintable('cspell')).toBe(true);
     expect(isFingerprintable('fallow')).toBe(true);
     expect(isFingerprintable('vale')).toBe(true);
-    expect(isFingerprintable('tsc')).toBe(false);
+    expect(isFingerprintable('tsc')).toBe(true);
     expect(isFingerprintable('knip')).toBe(false);
   });
 
-  test("the Go, Rust and shell linters' parsers feed the baseline, and cargo check's doesn't (D31)", () => {
+  test("the Go, Rust and shell linters' parsers feed the baseline, and the type checkers that stop short don't", () => {
     for (const adapter of ['golangci-lint', 'staticcheck', 'clippy', 'shellcheck']) expect(isFingerprintable(adapter), adapter).toBe(true);
-    expect(isFingerprintable('cargo-check')).toBe(false);
+    for (const adapter of ['go-build', 'cargo-check', 'mypy', 'basedpyright']) expect(isFingerprintable(adapter), adapter).toBe(false);
   });
 });
 

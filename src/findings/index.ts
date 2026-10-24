@@ -9,4 +9,4 @@
 export { currentKey, parseFallowReport } from './parsers/fallow.js';
 export { baselineParserFor, parserFor } from './registry.js';
 export { streamText } from './stream.js';
-export type { CheckOutput, KeyedFinding } from './types.js';
+export type { CheckOutput, KeyedFinding, RunContext } from './types.js';

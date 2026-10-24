@@ -73,7 +73,7 @@ export function parserFor(adapter: string): Parser | undefined {
 
 /**
  * The parser the baseline keys `adapter` with: its registered parser, unless
- * that one only serves `checkride/findings`, as a type checker's does (D31).
+ * that one only serves `checkride/findings`, as go build's and mypy's do.
  */
 export function baselineParserFor(adapter: string): Parser | undefined {
   const parser = parserFor(adapter);

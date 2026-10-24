@@ -11,7 +11,7 @@
  * `.check/<slot>.json` stays authoritative. Every key comes from the adapter's
  * parser in `../findings` (D28), one per tool output format, so the baseline
  * and the findings a reader sees never drift apart; an adapter with no parser,
- * or one whose parser serves only `checkride/findings` (a type checker's, D31),
+ * or one whose parser serves only `checkride/findings` (go build's, mypy's),
  * returns `null` — baseline is unsupported for that slot. A fingerprint keys
  * only the findings that can fail the check, so a finding that can only advise
  * never blocks masking, and each parser has already joined the check's root
@@ -23,7 +23,10 @@
  * format, and it belongs beside the parser, not on the registry row.
  */
 
-import type { CheckOutput, KeyedFinding } from '../findings/index.js';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import type { CheckOutput, KeyedFinding, RunContext } from '../findings/index.js';
 import { baselineParserFor, parserFor, streamText } from '../findings/index.js';
 import type { FallowVerdict } from './fallow.js';
 import type { BaselineEntry } from './store.js';
@@ -104,13 +107,15 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * empty set, never `null` — "supported but clean" and "not observed" are
  * distinct, and masking and the ratchet depend on the difference.
  *
- * `null` therefore has two readings, and callers treat them the same way: no
- * parser for this adapter (decided by name, before any output), or a parser
+ * `null` therefore has three readings, and callers treat them the same way: no
+ * parser for this adapter (decided by name, before any output); a parser
  * that read its output and could not trust it — vale's runtime-error report,
  * or a JSON format whose payload isn't the shape it prints (oxlint's
- * `diagnostics` record, ast-grep's array). Either way the run contributes
- * nothing to the baseline and prunes nothing from it. Whether the *run* can be
- * trusted is a further question this function doesn't ask; see
+ * `diagnostics` record, ast-grep's array); or output that says the tool
+ * stopped short of some of its errors, as tsc does on a syntax error, where
+ * an error it never reached would read as fixed. Either way the run
+ * contributes nothing to the baseline and prunes nothing from it. Whether the
+ * *run* can be trusted is a further question this function doesn't ask; see
  * {@link observedTally}.
  *
  * `argv` is the check's command and then its args, as declared for the run
@@ -138,21 +143,104 @@ export function fingerprint(
   return counted === null ? null : new Set(counted.keys());
 }
 
-/** {@link fingerprint}, with how many findings share each key: `null` exactly where it is. */
-export function tally(adapter: string, raw: string, argv?: readonly string[], root?: string, repoRoot?: string): Tally | null {
-  const findings = baselineParserFor(adapter)?.parse(raw, { argv, root, repoRoot });
-  return findings === undefined || findings === null ? null : gatingTally(findings);
+/**
+ * Each key of `adapter`'s output with its findings as the tool printed them,
+ * for an adapter whose parser's keys leave part of a message out (its
+ * `printed`, as tsc's), or `null` for any other adapter, or output its parser
+ * can't read. A reader showing such a key to a person or an agent shows these
+ * lines instead, since the key no longer says which name or type each
+ * finding is about. `argv`, `root` and `repoRoot` are {@link fingerprint}'s.
+ */
+export function printedByKey(
+  adapter: string,
+  raw: string,
+  argv?: readonly string[],
+  root?: string,
+  repoRoot?: string,
+): ReadonlyMap<string, readonly string[]> | null {
+  const parser = parserFor(adapter);
+  if (parser?.printed === undefined) return null;
+  const found = parser.parse(raw, { argv, root, repoRoot });
+  if (found === null) return null;
+  const byKey = new Map<string, string[]>();
+  for (const f of found) {
+    const line = parser.printed(f);
+    const under = byKey.get(f.key);
+    if (under === undefined) byKey.set(f.key, [line]);
+    else under.push(line);
+  }
+  return byKey;
 }
 
-/** The parts of a check's outcome the trust rule reads: its streams, its verdict, and its exit code. */
-type ObservedOutcome = CheckOutput & { readonly ok: boolean; readonly exit_code: number };
+/** {@link fingerprint}, with how many findings share each key: `null` exactly where it is. */
+export function tally(adapter: string, raw: string, argv?: readonly string[], root?: string, repoRoot?: string): Tally | null {
+  return tallyIn(adapter, raw, { argv, root, repoRoot });
+}
+
+/** The tally of `raw` read in `context`: `null` where {@link fingerprint} says, a run its parser says stopped short included. */
+function tallyIn(adapter: string, raw: string, context: RunContext): Tally | null {
+  const parser = baselineParserFor(adapter);
+  if (parser === undefined) return null;
+  const findings = parser.parse(raw, context);
+  return findings === null || (parser.stoppedShort?.(findings, context) ?? null) !== null ? null : gatingTally(findings);
+}
+
+/**
+ * The parts of a check's outcome the trust rule reads: its streams, its
+ * verdict, its exit code, and the version its tool's pin named, when the run
+ * recorded one.
+ */
+type ObservedOutcome = CheckOutput & { readonly ok: boolean; readonly exit_code: number; readonly tool_version?: string | undefined };
+
+/** The text of the file at `path`, or `null` when it can't be read. */
+function readText(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What a run hands a parser's `stoppedShort`: the parse context, both
+ * streams, its tool's version, and, where the repo root is known, a reader of
+ * the check's files from its root.
+ */
+function runContext(outcome: ObservedOutcome, argv?: readonly string[], root?: string, repoRoot?: string): RunContext {
+  const read = repoRoot === undefined ? {} : { read: (path: string) => readText(join(repoRoot, root ?? '', path)) };
+  return { argv, root, repoRoot, output: { stdout: outcome.stdout, stderr: outcome.stderr }, toolVersion: outcome.tool_version, ...read };
+}
+
+/**
+ * Why a run of `adapter` stopped short of some of its errors, in its parser's
+ * words, such as tsc's on a syntax error, or `null`: an adapter whose parser
+ * can't say, output it can't read, or a run that reached every error. What a
+ * run, a capture and `init` say of a check the baseline couldn't read for it.
+ * `argv`, `root` and `repoRoot` are {@link fingerprint}'s.
+ */
+export function stoppedShortReason(
+  adapter: string,
+  outcome: ObservedOutcome,
+  argv?: readonly string[],
+  root?: string,
+  repoRoot?: string,
+): string | null {
+  const parser = baselineParserFor(adapter);
+  if (parser?.stoppedShort === undefined) return null;
+  const context = runContext(outcome, argv, root, repoRoot);
+  const findings = parser.parse(findingText(adapter, outcome), context);
+  return findings === null ? null : parser.stoppedShort(findings, context);
+}
 
 /**
  * The tally one run *observed*: the one masking, the ratchet and a
  * `checkride baseline` capture all key from, so they can't disagree about which
  * runs count. `null` when there is nothing to observe — the adapter has no
- * parser or its parser couldn't trust the output ({@link fingerprint}) — and
- * also when the check never reached a verdict on its own findings:
+ * parser, its parser couldn't trust the output, or the output says the tool
+ * stopped short ({@link fingerprint}), which a run can tell from more than the
+ * output its parser reads, its other stream and its tool's version
+ * ({@link stoppedShortReason}) — and also when the check never reached a
+ * verdict on its own findings:
  *
  * - `exit_code === -1`: a timeout, spawn failure or interrupt. Whatever the
  *   tool printed before it stopped is partial, so its findings say nothing
@@ -172,7 +260,7 @@ export function observedTally(
   root?: string,
   repoRoot?: string,
 ): Tally | null {
-  const current = tally(adapter, findingText(adapter, outcome), argv, root, repoRoot);
+  const current = tallyIn(adapter, findingText(adapter, outcome), runContext(outcome, argv, root, repoRoot));
   if (current === null || outcome.exit_code === -1 || (!outcome.ok && current.size === 0)) return null;
   return current;
 }
