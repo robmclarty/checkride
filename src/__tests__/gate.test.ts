@@ -712,6 +712,83 @@ describe('runGate — the package manager refused to start the check', () => {
     expect(systemMessage).toContain('checkride red');
   });
 
+  /**
+   * A `check` script whose shell finds no checkride, because the repo's
+   * dependencies were never installed. pnpm exits 1 for it, as it does for a
+   * red, and reading it as one sent the agent to fix a check that never ran.
+   */
+  test('a check script that finds no checkride is a refusal that names the install, and stands down', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' }, devDependencies: { checkride: '0.18.0' } }));
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      pm: 'pnpm',
+      // What pnpm 11.28.5 prints on macOS, whose `sh` is bash.
+      spawn: printing('$ checkride --strict --digest\nsh: checkride: command not found\n[ELIFECYCLE] Command failed.\n'),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+    });
+    expect(result).toEqual({ exitCode: 0, ran: true, green: false, refusal: "the repo's `check` script runs checkride, and nothing installed checkride here" });
+    const { systemMessage, decision } = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
+    expect(decision).toBeUndefined();
+    expect(systemMessage).toContain("checkride: the gate could not run — the repo's `check` script runs checkride, and nothing installed checkride here.");
+    expect(systemMessage).toContain("Run `pnpm install`, since this repo declares checkride and it isn't installed, then run `pnpm check`.");
+    expect(systemMessage).toContain('This gate is not blocking the turn: the fix is an install rather than an edit');
+    expect(systemMessage).not.toContain('checkride red');
+    // An install is the fix, so the paragraph about the hook's Node would mislead.
+    expect(systemMessage).not.toContain('non-login shell');
+  });
+
+  test('names declaring checkride where no dependency does, and reads dash’s spelling too', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' } }));
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir,
+      pm: 'npm',
+      // Debian's and Ubuntu's `sh` is dash, and npm exits 127 where pnpm exits 1.
+      spawn: (_command, _args, opts) => {
+        opts.stderr.write('\n> check\n> checkride --strict --digest\n\nsh: 1: checkride: not found\n');
+        return Promise.resolve(127);
+      },
+      stdout: capture(),
+      stderr,
+      pinEnv: pinEnv(),
+    });
+    expect(result.refusal).toContain('nothing installed checkride here');
+    expect(stderr.text()).toContain("Declare it with `npm install -D checkride`, since no dependency of this repo's names checkride, then run `npm run check`.");
+  });
+
+  /**
+   * Another package's checks may have run and failed: one package's missing
+   * checkride under a recursive run's prefix must not stand the gate down.
+   */
+  test('a recursive run whose one package finds no checkride is a red that blocks', async () => {
+    const result = await runGate({
+      cwd: dir,
+      spawn: printing('packages/a check: ✘ types\npackages/b check: sh: checkride: command not found\n[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] b@1.0.0 check\n'),
+      stdout: capture(),
+      stderr: capture(),
+      pinEnv: pinEnv(),
+    });
+    expect(result).toMatchObject({ exitCode: 2, ran: true, green: false, refusal: null });
+  });
+
+  test('cursor: a check script that finds no checkride stands down, spending its one followup', async () => {
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir,
+      harness: 'cursor',
+      spawn: printing('sh: checkride: command not found\n'),
+      stdout,
+      stderr: capture(),
+      pinEnv: pinEnv(),
+      env: { CHECKRIDE_GATE_RETRY: '0' },
+    });
+    expect(result.exitCode).toBe(0);
+    expect((JSON.parse(stdout.text()) as { followup_message: string }).followup_message).toContain('the fix is an install rather than an edit');
+  });
+
   test('a package manager that is not on PATH is a refusal, not an unexplained red', async () => {
     const stderr = capture();
     const result = await runGate({

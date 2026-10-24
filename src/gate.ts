@@ -58,9 +58,12 @@ import {
   entryArgv,
   entryCheckride,
   entryText,
+  installCommand,
+  jsLockfileDeclares,
   type LaunchRefusal,
   launchRefusal,
   type PackageManager,
+  PIN_CHECKRIDE,
   resolveEntry,
   SPAWN_FAILED_MARKER,
 } from './launch/index.js';
@@ -633,6 +636,28 @@ const STOOD_DOWN =
   'would only re-ask an agent that has no lever to pull. Nothing was verified — fix the ' +
   'environment and run the check yourself before trusting this turn.';
 
+/** {@link STOOD_DOWN} for an `install` refusal, which the generated hook stands down on too. */
+const STOOD_DOWN_FOR_INSTALL =
+  'This gate is not blocking the turn: the fix is an install rather than an edit, so blocking would ' +
+  'only repeat this message. Nothing was verified — install, then run the check yourself before ' +
+  'trusting this turn.';
+
+/**
+ * The install that gives a `check` script the checkride its shell didn't
+ * find, then the check: `<pm> install` where the repo declares checkride,
+ * and declaring it where it doesn't, as a repo `init` adopted without one
+ * may not, since `init` writes the `check` script and no dependency. Only a
+ * `check` script's shell prints the line an `install` refusal is read from,
+ * so the other entries are worded as the generated hook words them.
+ */
+function installStep(cwd: string, entry: EntryCommand): string {
+  const check = entryText(entry);
+  if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
+  if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${PIN_CHECKRIDE}\`, then run \`${check}\`.`;
+  if (jsLockfileDeclares(cwd, cwd, 'checkride')) return `Run \`${entry.pm} install\`, since this repo declares checkride and it isn't installed, then run \`${check}\`.`;
+  return `Declare it with \`${installCommand(entry.pm, 'checkride')}\`, since no dependency of this repo's names checkride, then run \`${check}\`.`;
+}
+
 /**
  * The verdict for a package manager that refused to start the check script.
  *
@@ -645,20 +670,26 @@ const STOOD_DOWN =
  * {@link nodeClause} rides only on an `environment` refusal. It is a paragraph
  * about which interpreter this process got, and appending it to "this repo has
  * no `check` script" pointed a reader at their Node version to explain a missing
- * line of package.json.
+ * line of package.json. An `install` refusal names the install instead
+ * ({@link installStep}), which ends in running the check.
  */
-function refusalMessage(
-  refusal: LaunchRefusal,
-  context: { alignment: NodeAlignment | null; running: string; entry: EntryCommand },
-): string {
-  const environment = refusal.fixable === 'environment';
+function refusalMessage(refusal: LaunchRefusal, context: RefusalContext): string {
   return [
     `checkride: the gate could not run — ${refusal.cause}.`,
     'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from ' +
       'this turn and the code is not what to look at.',
-    ...(environment ? [nodeClause(context.alignment, context.running), STOOD_DOWN] : []),
-    `Run \`${entryText(context.entry)}\` in a terminal to see the same failure directly.`,
+    ...refusalRemedy(refusal.fixable, context),
   ].join(' ');
+}
+
+/** What {@link refusalMessage} reads beside the refusal: the Node this process got, the repo, and its entry command. */
+type RefusalContext = { alignment: NodeAlignment | null; running: string; cwd: string; entry: EntryCommand };
+
+/** The sentences after "Nothing ran", by who can clear the refusal. */
+function refusalRemedy(fixable: LaunchRefusal['fixable'], context: RefusalContext): string[] {
+  if (fixable === 'install') return [installStep(context.cwd, context.entry), STOOD_DOWN_FOR_INSTALL];
+  const seeIt = `Run \`${entryText(context.entry)}\` in a terminal to see the same failure directly.`;
+  return fixable === 'environment' ? [nodeClause(context.alignment, context.running), STOOD_DOWN, seeIt] : [seeIt];
 }
 
 /**
@@ -701,6 +732,7 @@ function withoutConsumerVars(env: Record<string, string | undefined>): Record<st
 
 /** Everything a failed run needs to say what failed, and whether anything ran at all. */
 type Failure = {
+  cwd: string;
   entry: EntryCommand;
   elapsedMs: number;
   summary: SummaryRead;
@@ -743,9 +775,9 @@ function failedVerdict(f: Failure): Verdict {
   // is beside the point.
   return {
     status: headline('could not run', '⚠', f.elapsedMs, refusal.cause),
-    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, entry: f.entry }),
+    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, cwd: f.cwd, entry: f.entry }),
     refusal: refusal.cause,
-    standDown: refusal.fixable === 'environment',
+    standDown: refusal.fixable !== 'repo',
     digest: null,
   };
 }
@@ -996,6 +1028,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   }
 
   const verdict = failedVerdict({
+    cwd,
     entry,
     elapsedMs: now() - startedAt,
     summary,

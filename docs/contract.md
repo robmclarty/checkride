@@ -1222,9 +1222,16 @@ stop hook as a broken hook and lets the turn end.
 **A launch that never happened is not a red.** A package manager can refuse to
 start the check script and exit non-zero for it — pnpm answers an `engines.node`
 mismatch with `ERR_PNPM_UNSUPPORTED_ENGINE` and exit 1, exactly as a failing test
-does. `gate` reports that as **could not run**, naming the cause, and `triage`
-reports it as `could-not-start`. The promise is what the two verdicts mean: a red
-says checks ran and some failed, and `.check/` describes this run; a could-not-run
+does. A `check` script whose own shell finds no `checkride` to run, in a repo
+that never installed one, fails the same way (`sh: checkride: command not
+found`, a line of its own); the same line a recursive run prefixes with one of
+its packages is not read as one, since another package's checks may have run.
+`gate` reports either as **could not run**, naming the cause, and `triage`
+reports it as `could-not-start` where the package manager exits 1, as pnpm does
+for both. npm, yarn and bun exit 127 for the second, which `triage` reports as
+off-contract, as it reports every exit outside checkride's 0/1/2. The promise is
+what the two verdicts mean: a red says the check failed, and `.check/` describes
+this run when the run wrote its summary; a could-not-run
 says **nothing ran and no artifact was written**, so no `.check/` file describes
 this turn and no code change will clear it.
 
@@ -1234,7 +1241,7 @@ script, no package.json — blocks exactly as a red does, because the agent hold
 the edit tools can fix it. A refusal only the *environment* can fix — an
 `engines` pin the hook's Node fails, a pnpm the repo's `packageManager` pin
 doesn't name, a package manager corepack will not verify, a checkride that was
-never installed — **stands down**: `gate` exits 0 with no
+never installed, whose verdict names the install — **stands down**: `gate` exits 0 with no
 `decision`, and says so. Two things are promised about that path and neither may
 be weakened: it is never silent (Claude Code gets a `systemMessage`, Cursor a
 single `followup_message`, both stating that nothing was verified — and both get

@@ -176,6 +176,25 @@ describe('exit code branching', () => {
     expect(report.doctor).not.toBeNull();
   });
 
+  /** A `check` script whose shell finds no checkride exits 1 under pnpm too, and nothing ran either. */
+  test('exit 1 from a check script whose shell finds no checkride is not red — nothing ran', async () => {
+    const { report } = await run(
+      { installCheckride: true },
+      fakeEnv({ gate: { code: 1, stdout: '$ checkride\n', stderr: 'sh: checkride: command not found\n[ELIFECYCLE] Command failed.\n' } }),
+    );
+    expect(report.gate.verdict).toBe('could-not-start');
+    expect(report.gate.refusal).toBe("the repo's `check` script runs checkride, and nothing installed checkride here");
+  });
+
+  /** npm, yarn and bun exit 127 for the same missing checkride, and triage reports every exit outside 0/1/2 as itself. */
+  test('exit 127 from a check script whose shell finds no checkride is off-contract', async () => {
+    const { report } = await run(
+      { installCheckride: true },
+      fakeEnv({ gate: { code: 127, stdout: '\n> check\n> checkride\n\n', stderr: 'sh: checkride: command not found\n' } }),
+    );
+    expect(report.gate.verdict).toBe('off-contract');
+  });
+
   /**
    * The guard. A summary written by this run proves the pipeline started, so
    * nothing in the output can mean it did not — a check that merely printed the

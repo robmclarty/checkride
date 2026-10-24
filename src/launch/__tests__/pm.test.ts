@@ -379,6 +379,29 @@ describe('launchRefusal', () => {
     expect(launchRefusal('npm warn EBADENGINE Unsupported engine {\n')).toBeNull();
   });
 
+  /** Verbatim from each manager running a `check` script whose shell finds no checkride. */
+  test.each([
+    ['pnpm 11.28.5 and npm 11.12.1 on macOS', '$ checkride --strict --digest\nsh: checkride: command not found\n[ELIFECYCLE] Command failed.'],
+    ['yarn 1.22.22', 'yarn run v1.22.22\n$ checkride --strict\n/bin/sh: checkride: command not found\nerror Command failed with exit code 127.'],
+    ['bun 1.3.10', '$ checkride --strict\n/bin/bash: checkride: command not found\nerror: script "check" exited with code 127'],
+    ['dash, on Debian and Ubuntu', '\n> check\n> checkride\n\nsh: 1: checkride: not found\n'],
+  ])('recognizes %s finding no checkride, as an install to make', (_name, output) => {
+    expect(launchRefusal(output)?.fixable).toBe('install');
+  });
+
+  /**
+   * A recursive run prefixes each line with the package that printed it, and
+   * another package's checks may have run and failed: reading one package's
+   * missing checkride as "nothing ran" would stand the gate down on a real red.
+   */
+  test.each([
+    ['pnpm -r', 'packages/a check: src/a.ts(3,1): error TS2345\npackages/b check: sh: checkride: command not found\n'],
+    ['turbo', 'b:check: sh: checkride: command not found\n'],
+    ['a test that prints the line inside its own', 'expected "sh: checkride: command not found" to be empty\n'],
+  ])("a sub-script's line under %s is not a refusal", (_name, output) => {
+    expect(launchRefusal(output)).toBeNull();
+  });
+
   test('ordinary tool failure is not a refusal', () => {
     expect(launchRefusal('src/a.ts(3,1): error TS2345: Argument of type ...\n')).toBeNull();
     expect(launchRefusal('FAIL src/__tests__/a.test.ts > adds\nExpected 2, got 3\n')).toBeNull();

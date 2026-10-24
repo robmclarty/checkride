@@ -74,6 +74,12 @@ function failingRun(dir: string, digest: string | null): GateSpawn {
   };
 }
 
+/** What pnpm prints for a `check` script whose shell finds no checkride, and exits as it does: 1. */
+const noCheckride: GateSpawn = (_command, _args, opts) => {
+  opts.stderr.write('$ checkride --strict --digest\nsh: checkride: command not found\n[ELIFECYCLE] Command failed.\n');
+  return Promise.resolve(1);
+};
+
 /** A refusal the repo itself can clear, which is the half that still blocks. */
 const noScript: GateSpawn = (_command, _args, opts) => {
   opts.stderr.write('ERR_PNPM_NO_SCRIPT  Missing script: check\n');
@@ -208,6 +214,24 @@ describe('gate verdicts', () => {
     const body = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
     expect(body.decision).toBeUndefined();
     expect(body.systemMessage).toContain('could not run');
+    expect(body.systemMessage).toContain('Nothing was verified');
+  });
+
+  /**
+   * "A checkride that was never installed" stands down: the generated hook
+   * does when it finds none to start, and the gate does when the `check`
+   * script's shell finds none, which a package manager exits 1 for, as it
+   * does for a red. The fix is an install, so the verdict names one.
+   */
+  test('a check script whose shell finds no checkride stands down, naming the install', async () => {
+    const stdout = capture();
+    const result = await runGate({ cwd: dir, spawn: noCheckride, stdout, stderr: capture(), pinEnv: bare() });
+    expect(result).toMatchObject({ exitCode: 0, ran: true, green: false });
+    expect(result.refusal).not.toBeNull();
+    const body = JSON.parse(stdout.text()) as { systemMessage: string; decision?: string };
+    expect(body.decision).toBeUndefined();
+    expect(body.systemMessage).toContain('could not run');
+    expect(body.systemMessage).toContain('the fix is an install rather than an edit');
     expect(body.systemMessage).toContain('Nothing was verified');
   });
 

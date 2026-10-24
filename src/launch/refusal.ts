@@ -23,11 +23,15 @@
  *
  * **Every pattern here must be one a check's own output cannot contain.** A
  * false positive is worse than the bug being fixed: it would tell someone their
- * environment is broken while their code is what failed. The patterns are all
- * package-manager error *codes*, and the one caller-supplied sentinel checkride
- * writes itself; callers additionally gate on "this run wrote no summary", so a
- * pipeline that demonstrably ran can never be reclassified by a tool that merely
- * printed one of these strings.
+ * environment is broken while their code is what failed. The patterns are
+ * package-manager error *codes*, the one caller-supplied sentinel checkride
+ * writes itself, and the line the `check` script's own shell prints when it
+ * finds no `checkride`, matched only as a whole line, so the same line a
+ * sub-script printed under a recursive run's prefix (`packages/b check: …`),
+ * where another package's checks may have run, never reads as one. Callers
+ * additionally gate on "this run wrote no summary", so a pipeline that
+ * demonstrably ran can never be reclassified by a tool that merely printed
+ * one of these strings.
  */
 
 /** The sentinel a caller writes when the package-manager binary itself never started. */
@@ -46,18 +50,25 @@ export const SPAWN_FAILED_MARKER = 'checkride: could not start';
  * package manager is not installed. Blocking there does not produce a fix; it
  * produces an unbounded retry against an impossible one, because the harness
  * re-prompts the same agent that already has no lever to pull.
+ *
+ * `install` refusals are the repo's dependencies never installed: the `check`
+ * script runs checkride, and nothing put one where its shell looks. An install
+ * clears that rather than an edit, so a gate stands down on it as it does on
+ * `environment`, the way the generated hook does when it finds no checkride
+ * to start, and names the install where `environment` names the Node.
  */
-export type RefusalFix = 'repo' | 'environment';
+export type RefusalFix = 'repo' | 'environment' | 'install';
 
 /**
- * A refusal checkride recognizes: the marker to look for, the cause in the words
- * a reader needs, and who can clear it.
+ * A refusal checkride recognizes: the marker to look for, text anywhere in the
+ * output or a pattern a line must match, the cause in the words a reader
+ * needs, and who can clear it.
  *
  * `cause` completes the sentence "the gate could not run — …", so it names what
  * refused and why, never what to do about it; the fix is the caller's to phrase,
  * because it differs by command.
  */
-export type LaunchRefusal = { marker: string; cause: string; fixable: RefusalFix };
+export type LaunchRefusal = { marker: string | RegExp; cause: string; fixable: RefusalFix };
 
 /**
  * Markers that mean the script never started, most specific first.
@@ -157,6 +168,18 @@ const REFUSALS: readonly LaunchRefusal[] = [
     fixable: 'environment',
   },
   {
+    // The `check` script's own shell finding no `checkride` to run, which
+    // every package manager that runs scripts through a shell prints ahead of
+    // its own failure: macOS's `sh`, bash 3.2, under pnpm 11.28.5 and npm
+    // 11.12.1, `sh: checkride: command not found`; yarn 1.22.22's
+    // `/bin/sh: …` and bun 1.3.10's `/bin/bash: …`; and dash's
+    // `sh: 1: checkride: not found`, on Debian and Ubuntu. A whole line only,
+    // never one a recursive run prefixed with the package it ran in.
+    marker: /^(?:\/\S*\/)?(?:ba|da)?sh(?:: \d+)?: checkride: (?:command )?not found\r?$/m,
+    cause: "the repo's `check` script runs checkride, and nothing installed checkride here",
+    fixable: 'install',
+  },
+  {
     marker: SPAWN_FAILED_MARKER,
     cause: 'the package-manager binary is not on this process’s PATH',
     fixable: 'environment',
@@ -173,5 +196,5 @@ const REFUSALS: readonly LaunchRefusal[] = [
  * to a wrong one.
  */
 export function launchRefusal(output: string): LaunchRefusal | null {
-  return REFUSALS.find((r) => output.includes(r.marker)) ?? null;
+  return REFUSALS.find(({ marker }) => (typeof marker === 'string' ? output.includes(marker) : marker.test(output))) ?? null;
 }

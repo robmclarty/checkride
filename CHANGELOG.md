@@ -163,6 +163,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   summary only when this run wrote that, and, where the `check` script failed
   before checkride ran, as `tsc --build && checkride` can, no `.check/` file
   at all: it says to run the check to see why.
+- **A checkride the `check` script can't find is a launch refusal, not a red.**
+  In a repo whose `check` script runs checkride but whose dependencies were
+  never installed, the script's shell prints `sh: checkride: command not
+  found`, or dash's `sh: 1: checkride: not found`, and the package manager
+  fails, pnpm with exit 1, as it does for a failing check. So a gate run by a
+  checkride from outside the repo, a global install or the bundled plugin's,
+  reported a red and sent the agent to fix a check that never ran, and so did
+  `triage` under pnpm. The gate now says it could not run, names the install,
+  `<pm> install` where the repo declares checkride and `<pm> add -D
+  checkride` where nothing does, and stands down, as the generated hook does
+  when it finds no checkride to start. `triage` reports `could-not-start`
+  where the package manager exits 1, as pnpm does, and off-contract where it
+  exits 127, as npm, yarn and bun do. Only the `check` script's own shell's
+  line counts: the same line a recursive run prefixes with one of its
+  packages, as `pnpm -r` does, is still a red, since another package's checks
+  may have run.
 - **The digest holds to its budget.** Its first section was kept whole
   whatever its size, so a check that prints its report as one compact JSON
   line, as knip does, made the digest that whole report: 83 KB for 4,000
@@ -209,6 +225,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.check/summary.json` only when this run wrote them, and points at no `.check/` file
   when it wrote no summary, where 0.18 named the digest whenever the file
   existed and the summary otherwise.
+- Changed: a `check` script whose shell finds no `checkride` is a could-not-run
+  the gate stands down on, naming the install, and, where the package manager
+  exits 1, as pnpm does, `triage`'s `could-not-start`, where 0.18 reported a
+  red that blocked.
 
 #### Additive
 
