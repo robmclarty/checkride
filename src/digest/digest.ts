@@ -2,11 +2,13 @@
  * Token-bounded failure digest.
  *
  * After a run, `--digest` writes a capped Markdown excerpt of the *failing*
- * slots to `.check/digest.md` so an agent working through a big red repo spends
- * its context on a bounded index instead of every raw `.check/<slot>.json`. The
- * digest is an INDEX, never a replacement: it truncates (the first N findings
- * per slot, a total byte budget) and never normalizes — each section points
- * back at the authoritative raw file, which this module never touches.
+ * slots to `.check/digest.md`, and the run's report prints it on stderr, so an
+ * agent working through a big red repo spends its context on a bounded index
+ * instead of every raw `.check/<slot>.json`, and reads it in the run's own
+ * output rather than in a second call. The digest is an INDEX, never a
+ * replacement: it truncates (the first N findings per slot, a total byte
+ * budget) and never normalizes — each section points back at the
+ * authoritative raw file, which this module never touches.
  *
  * It reuses the baseline module's per-adapter fingerprint extractors to list a
  * slot's findings (render the first N of the same items); a slot whose adapter
@@ -270,20 +272,21 @@ export function buildDigest(
  * directory `target.dir` when a slot failed; on a green run removes any stale
  * digest so the file's presence always means "this run failed". The output
  * directory is assumed to exist — the orchestrator creates it before running.
- * Returns whether a digest file now exists.
+ * Returns the digest it wrote, which the run's report prints too, or `null`
+ * when it wrote none.
  */
 export async function writeDigest(
   target: DigestTarget,
   runs: readonly CheckRun[],
   checks: readonly SummaryCheck[],
   budget: DigestBudget = DEFAULT_BUDGET,
-): Promise<boolean> {
+): Promise<string | null> {
   const path = join(target.dir, DIGEST_FILE);
   const digest = buildDigest(runs, checks, budget, target.label, target.repoRoot);
   if (digest === null) {
     await rm(path, { force: true });
-    return false;
+    return null;
   }
   await writeFileAtomic(path, digest);
-  return true;
+  return digest;
 }

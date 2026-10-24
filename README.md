@@ -458,11 +458,15 @@ it carries.
   roughly two thousand tokens; past the cap, remaining failing slots are named
   but not rendered. It **truncates, never normalizes**; a green run leaves no
   digest (any stale one is removed), so its presence always means "this run
-  failed". It is a file, never stdout — the machine-output split holds.
+  failed". A red run prints the same text on stderr, below the `report:` and
+  `digest:` lines, so an agent reads what failed in the run's own output. It
+  never goes to stdout, so the machine-output split holds, and a `--json` run
+  prints no report, so there it is the file alone.
 
 To debug a failure: read `summary.json` to find the failing slot, then read that
-slot's raw output for structured diagnostics. On a large repo, `--digest` writes
-`digest.md` as a capped starting point.
+slot's raw output for structured diagnostics. On a large repo, run with
+`--digest` for a capped starting point, printed below the report and kept in
+`digest.md`.
 
 ## The Claude Code plugin
 

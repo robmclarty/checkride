@@ -505,7 +505,7 @@ class Component extends DCLogic {
       ['--static-only', 'Keep only the checks that read the repo as data, skipping any that would run its code or need its install, each with a static-only: reason. A selector, not a sandbox. Never ratchets.'],
       ['--discover', 'Check the targets the repo\'s files propose, as init would declare them, writing nothing; where the config declares targets, those run, with a note. Never ratchets.'],
       ['--json', 'Machine-readable summary on stdout, mirroring .check/summary.json.'],
-      ['--digest', 'Write a token-bounded excerpt of the failing slots to .check/digest.md (green run → removed).'],
+      ['--digest', 'Write a token-bounded excerpt of the failing slots to .check/digest.md, and print it on stderr below the report (green run → removed).'],
       ['--strict', 'Zero checks actually running is an error (exit 2), not a vacuous pass. Use wherever checkride gates.'],
     ].map(([flag, effect], i) => ({ flag, effect, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 

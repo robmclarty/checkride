@@ -44,7 +44,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. Where the config declares `targets`, those run instead, with a note on stderr. Also on `doctor`. Never ratchets the baseline. |
 | `--defaults <path>` | Fill the slots the repo's config and detection leave empty from this config file, marked `[defaults]` (or set `CHECKRIDE_DEFAULTS`; the flag wins). It never beats a detected tool, and can't declare `targets`. Also on `doctor`. A run with it never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
-| `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary; a green run removes any stale one. |
+| `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary, and print it on stderr below the report; a green run removes any stale one. |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
@@ -195,8 +195,8 @@ Every run writes here. Treat it as a stable API for agents.
 | `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
 
 To debug: read `summary.json` for the failing slot, then read that slot's raw
-output for structured diagnostics. On a big repo, `--digest` writes a capped
-`digest.md` to start from.
+output for structured diagnostics. On a big repo, `--digest` prints a capped
+excerpt below the report, and keeps it in `digest.md`, to start from.
 
 ## When something is off
 
