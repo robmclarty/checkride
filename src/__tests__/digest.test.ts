@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,7 +7,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import { buildDigest, DIGEST_FILE, withinBudget, writeDigest } from '../digest/index.js';
+import { buildDigest, DIGEST_FILE, digestOf, withinBudget, writeDigest } from '../digest/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, CheckRunner, Out, SummaryCheck } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
@@ -52,6 +53,23 @@ function sink(): Out {
 function capture(): Out & { text: () => string } {
   let buf = '';
   return { write: (t: string) => { buf += t; return true; }, text: () => buf };
+}
+
+/** Is a real git usable here? The recover-hint test skips without it. */
+const gitAvailable = ((): boolean => {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'pipe' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/** Where `needle` sits in `text`, failing the test when it's missing. */
+function at(text: string, needle: string): number {
+  const i = text.indexOf(needle);
+  expect(i, needle).toBeGreaterThan(-1);
+  return i;
 }
 
 const redRunner: CheckRunner = () => Promise.resolve(outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]) }));
@@ -350,14 +368,14 @@ describe('writeDigest (filesystem)', () => {
     await writeFile(rawPath, raw);
 
     const oxlintAdapter = fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json' });
-    const wrote = await writeDigest(
-      { dir: join(dir, '.check'), label: '.check' },
+    const built = digestOf(
+      { label: '.check' },
       [run(oxlintAdapter, outcome({ stdout: raw }))],
       [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })],
     );
-    // It returns the text it wrote, which the run's report prints.
-    expect(wrote).toContain('## lint — oxlint');
-    expect(await readFile(join(dir, '.check', DIGEST_FILE), 'utf8')).toBe(wrote);
+    expect(built).toContain('## lint — oxlint');
+    await writeDigest(join(dir, '.check'), built);
+    expect(await readFile(join(dir, '.check', DIGEST_FILE), 'utf8')).toBe(built);
     // The raw file the digest points at is never rewritten.
     expect(await readFile(rawPath, 'utf8')).toBe(raw);
   });
@@ -365,8 +383,9 @@ describe('writeDigest (filesystem)', () => {
   test('a green run removes a stale digest so the file always means "failed"', async () => {
     const digestPath = join(dir, '.check', DIGEST_FILE);
     await writeFile(digestPath, '# stale digest from a prior red run\n');
-    const wrote = await writeDigest({ dir: join(dir, '.check'), label: '.check' }, [], [check('lint', { ok: true })]);
-    expect(wrote).toBeNull();
+    const built = digestOf({ label: '.check' }, [], [check('lint', { ok: true })]);
+    expect(built).toBeNull();
+    await writeDigest(join(dir, '.check'), built);
     expect(existsSync(digestPath)).toBe(false);
   });
 });
@@ -412,6 +431,58 @@ describe('runChecks --digest wiring', () => {
     await runChecks({ ...opts(redRunner, true), json: false, stderr });
     const digest = await readFile(join(dir, '.check', DIGEST_FILE), 'utf8');
     expect(stderr.text()).toContain(`report: .check/summary.json\ndigest: .check/${DIGEST_FILE}\n\n${digest}\n`);
+  });
+
+  /** Run git in the test's repo as a fixed identity, signing off. */
+  function git(...args: string[]): void {
+    execFileSync('git', ['-c', 'user.email=t@example.com', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', ...args], { cwd: dir, stdio: 'pipe' });
+  }
+
+  /**
+   * A baseline a botched merge mangled masks nothing, so every grandfathered
+   * finding reads red, and this warning is what says why. Printed past up to
+   * 8 KB of digest, it was scrolled past exactly when a wall of red needed it.
+   */
+  test('prints the unparseable-baseline warning before the digest, and the pointers above both', async () => {
+    await writeFile(join(dir, 'checkride.baseline.json'), '<<<<<<< HEAD\n{\n');
+    const stderr = capture();
+    await runChecks({ ...opts(redRunner, true), json: false, stderr });
+    const text = stderr.text();
+    const warning = at(text, 'baseline: checkride.baseline.json is present but unparseable');
+    expect(at(text, `digest: .check/${DIGEST_FILE}\n`)).toBeLessThan(warning);
+    expect(warning).toBeLessThan(at(text, '# checkride failure digest'));
+    expect(text).toContain('See `checkride recover`.\n\n# checkride failure digest');
+  });
+
+  /**
+   * The hint says the "new" findings are a merge's dropped baseline entries,
+   * so the fix is `checkride recover`, not the findings: it has to be read
+   * before the digest that lists them.
+   */
+  test.skipIf(!gitAvailable)('prints the recover hint before the digest, which comes last', async () => {
+    git('init', '-q');
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: ['a.ts:no-x:bad'] } }));
+    git('add', '.');
+    git('commit', '-q', '-m', 'baseline');
+    // A merge that dropped the key the lint finding is grandfathered under.
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { lint: [] } }));
+    const stderr = capture();
+    await runChecks({ ...opts(redRunner, true), json: false, stderr });
+    const text = stderr.text();
+    expect(at(text, 'hint: 1 of 1 new finding(s) were grandfathered until')).toBeLessThan(at(text, '# checkride failure digest'));
+    expect(text).toContain('see `checkride recover`\n\n# checkride failure digest');
+    expect(text.trimEnd().endsWith('- a.ts:no-x:bad')).toBe(true);
+  });
+
+  test('a notice that ends without a blank line still leaves exactly one before the digest', async () => {
+    // A tsconfig in a package below a root with no tool for `types` makes the
+    // run end its report with an unreached warning, which no blank line follows.
+    await mkdir(join(dir, 'packages', 'a'), { recursive: true });
+    await writeFile(join(dir, 'packages', 'a', 'tsconfig.json'), '{}');
+    const stderr = capture();
+    await runChecks({ ...opts(redRunner, true), slots: [{ name: 'lint' }, { name: 'types' }], json: false, stderr });
+    const text = stderr.text();
+    expect(text).toMatch(/warning: types has no tool under `\.`[^\n]*\n\n# checkride failure digest/);
   });
 
   test.each([

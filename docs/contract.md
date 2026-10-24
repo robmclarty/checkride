@@ -383,8 +383,11 @@ when a check failed; a green `--digest` run removes any stale digest. Its
 existence always means "this run had failures".
 
 **A red `--digest` run prints its digest.** The text it writes to `digest.md`
-also goes to stderr, below the `report:` and `digest:` lines, so an agent
-reading the run's output sees what failed without opening a file. stdout
+also goes to stderr, last: below the `report:` and `digest:` lines and every
+notice beneath them, such as a baseline that couldn't be parsed or the `hint:`
+that new findings were grandfathered until a recent commit, so an agent
+reading the run's output sees what failed without opening a file, and reads
+what changes how the red reads first. stdout
 stays as [stream discipline](#cli) keeps it, and a `--json` run prints no
 human report, so there the digest is the file alone.
 

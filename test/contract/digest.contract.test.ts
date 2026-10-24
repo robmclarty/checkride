@@ -6,7 +6,8 @@
  * failed; a green `--digest` run removes any stale digest. Its existence
  * always means "this run had failures" — a consumer may branch on the file
  * without reading it. A red `--digest` run also prints that text on stderr,
- * below its `report:` and `digest:` lines, and never on stdout.
+ * last, below its `report:` and `digest:` lines and any notice beneath them,
+ * and never on stdout.
  */
 
 import { existsSync } from 'node:fs';
@@ -78,7 +79,7 @@ describe('--digest', () => {
     expect(existsSync(digestPath())).toBe(false);
   });
 
-  test('a failing --digest run prints digest.md on stderr, below its report lines, and nothing on stdout', async () => {
+  test('a failing --digest run prints digest.md on stderr, last, below its report lines, and nothing on stdout', async () => {
     await configWithExit(1);
     const stdout = capture();
     const stderr = capture();
@@ -88,7 +89,20 @@ describe('--digest', () => {
     const pointers = err.indexOf('report: .check/summary.json\ndigest: .check/digest.md\n');
     expect(pointers).toBeGreaterThanOrEqual(0);
     expect(err.indexOf(digest)).toBeGreaterThan(pointers);
+    expect(err.trimEnd().endsWith(digest.trimEnd())).toBe(true);
     expect(stdout.text()).toBe('');
+  });
+
+  /** A notice beneath the report changes how the red above it reads, so it comes before the digest. */
+  test('a failing --digest run prints the notices beneath its report before the digest', async () => {
+    await configWithExit(1);
+    await writeFile(join(dir, 'checkride.baseline.json'), '<<<<<<< HEAD\n{\n');
+    const stderr = capture();
+    expect(await runCli(['--digest'], { cwd: dir, stdout: sink(), stderr })).toBe(1);
+    const err = stderr.text();
+    const warning = err.indexOf('baseline: checkride.baseline.json is present but unparseable');
+    expect(warning).toBeGreaterThan(err.indexOf('digest: .check/digest.md\n'));
+    expect(err.indexOf(DIGEST_HEADING)).toBeGreaterThan(warning);
   });
 
   test('a green --digest run prints none, and neither does a failing run without the flag', async () => {

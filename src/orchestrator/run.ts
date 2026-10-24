@@ -16,7 +16,7 @@ import type { Tally } from '../baseline/index.js';
 import { BASELINE_FILE, baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
-import { writeDigest } from '../digest/index.js';
+import { digestOf, writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
 import type { Target } from '../targets/index.js';
@@ -24,10 +24,11 @@ import { declaredNote, discoverRun, findUnreached, unreachedLine } from '../targ
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
-import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
+import type { BlankAwareOut } from './report.js';
+import { blankAware, buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, skipUnchanged, validateSelection, withFileLists, withFingerprintableOnly, withGoPackages, withStaticOnly } from './select.js';
 import { resetInterrupt } from './spawn.js';
-import type { Drift, Out, RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
+import type { Drift, Out, RunOptions, RunResult, Summary, SummaryCheck, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
  * Why this run saw less than the full pipeline — an `--only`/`--skip`/
@@ -357,6 +358,11 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A consumer run prunes nothing even in full, so only the repo's own says what a full run would.
   if (cause !== null && consumer === null) notePrunable(ctx, observed, narrowed, cause);
 
+  // `--digest`: the token-bounded failure excerpt, built before the summary
+  // is written. Raw `<slot>.json` files are already persisted and untouched;
+  // the digest only reads them.
+  const digest = (options.digest ?? false) ? digestOf({ label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : null;
+
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
   // deselected ride as skipped rows, so the artifact can say "without test"
   // about itself.
@@ -369,28 +375,47 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     targetsRecord(ctx.targets, ctx.discovered),
   );
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
-
-  // `--digest`: write (or, on green, clear) the token-bounded failure excerpt.
-  // A file beside summary.json, which the human report also prints on stderr,
-  // but never on stdout, so the machine-output split holds. Raw `<slot>.json`
-  // files are already persisted and untouched — the digest only reads them.
-  const digest = (options.digest ?? false) ? await writeDigest({ dir: ctx.out, label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : null;
+  // On green there's none, and a stale digest is cleared with it.
+  if (options.digest ?? false) await writeDigest(ctx.out, digest);
 
   if (ctx.json) {
     ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
-    reportSummary(ctx.stderr, summary, reported, ctx.adapters, { label: ctx.outLabel, digest });
-    // A mangled committed baseline (a botched merge, usually) masks nothing, so
-    // every grandfathered finding above reported red — say so where the person
-    // reading the wall of red will actually look, right under the summary.
-    if (ctx.baselineState === 'unparseable') {
-      writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
-    }
-    reportDrift(ctx.stderr, drifts, { partial, consumer });
-    await reportUnreached(ctx, selected);
-    await maybeRecoverHint(ctx, summary.ok, newKeys);
+    await reportHuman({ ...ctx, stderr: blankAware(ctx.stderr) }, { summary, reported, digest, drifts, selected, newKeys, run: { partial, consumer } });
   }
 
   const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);
   return { ok: summary.ok, summary, exitCode, runs };
+}
+
+/** What the human report of a finished run prints, beyond its context. */
+type Finished = {
+  summary: Summary;
+  reported: readonly SummaryCheck[];
+  digest: string | null;
+  drifts: readonly Drift[];
+  selected: readonly ResolvedCheck[];
+  newKeys: readonly string[];
+  run: { partial: boolean; consumer: string | null };
+};
+
+/**
+ * The end of a human run's report, on stderr: the summary lines, the notices
+ * beneath them, and the digest last. Each notice changes how the red above it
+ * reads, a baseline that masked nothing or findings a merge dropped, so it
+ * sits right under the summary rather than past up to 8 KB of digest, and the
+ * digest starts after exactly one blank line however the notices end.
+ */
+async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Finished): Promise<void> {
+  reportSummary(ctx.stderr, run.summary, run.reported, ctx.adapters, { label: ctx.outLabel, digest: run.digest !== null });
+  // A mangled committed baseline (a botched merge, usually) masks nothing, so
+  // every grandfathered finding above reported red — say so where the person
+  // reading the wall of red will actually look, right under the summary.
+  if (ctx.baselineState === 'unparseable') {
+    writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
+  }
+  reportDrift(ctx.stderr, run.drifts, run.run);
+  await reportUnreached(ctx, run.selected);
+  await maybeRecoverHint(ctx, run.summary.ok, run.newKeys);
+  if (run.digest !== null) writeLine(ctx.stderr, `${ctx.stderr.endsBlank() ? '' : '\n'}${run.digest}`);
 }

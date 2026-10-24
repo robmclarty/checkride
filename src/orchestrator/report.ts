@@ -20,6 +20,25 @@ export function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
 }
 
+/** An `Out` that can say whether what was last written to it ends in a blank line. */
+export type BlankAwareOut = Out & { endsBlank: () => boolean };
+
+/**
+ * `out`, remembering whether what was last written to it ends in a blank line,
+ * so a block printed after notices that may or may not end in one can start
+ * after exactly one.
+ */
+export function blankAware(out: Out): BlankAwareOut {
+  let tail = '';
+  return {
+    write: (text: string) => {
+      tail = `${tail}${text}`.slice(-2);
+      return out.write(text);
+    },
+    endsBlank: () => tail === '\n\n',
+  };
+}
+
 /**
  * Width of the slot-name column, measured from the names this run will print
  * (never below the historical 8). A fixed 8 was sized for catalogue slots, and
@@ -263,18 +282,17 @@ function coverage(summary: Summary, checks: readonly SummaryCheck[]): string {
 
 /**
  * Print the human run summary: the vacuous-green warning, the status line, and
- * artifact paths, then the digest itself when the run wrote one, so a reader
- * of a red run's output sees what failed without opening a file (#22).
- * `artifacts.label` names the output directory as the run's lines do
- * (`.check` by default), and `artifacts.digest` is the digest the run wrote
- * there, or `null`.
+ * artifact paths. `artifacts.label` names the output directory as the run's
+ * lines do (`.check` by default), and `artifacts.digest` says whether the run
+ * wrote a digest there, whose text the run prints last, below every notice
+ * that follows this (#22).
  */
 export function reportSummary(
   stderr: Out,
   summary: Summary,
   checks: readonly SummaryCheck[],
   adapters: readonly Adapter[],
-  artifacts: { label: string; digest: string | null },
+  artifacts: { label: string; digest: boolean },
 ): void {
   if (summary.checks_run === 0) warnVacuous(stderr, checks, adapters);
   writeLine(stderr, '');
@@ -285,9 +303,8 @@ export function reportSummary(
   const ran = summary.checks_run === 0 ? '' : coverage(summary, checks);
   writeLine(stderr, `${status} in ${summary.total_duration_ms}ms${ran}`);
   writeLine(stderr, `report: ${artifacts.label}/${SUMMARY_FILE}`);
-  if (artifacts.digest !== null) writeLine(stderr, `digest: ${artifacts.label}/${DIGEST_FILE}`);
+  if (artifacts.digest) writeLine(stderr, `digest: ${artifacts.label}/${DIGEST_FILE}`);
   writeLine(stderr, '');
-  if (artifacts.digest !== null) writeLine(stderr, artifacts.digest);
 }
 
 /**

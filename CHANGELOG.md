@@ -45,8 +45,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nudged a step-limited agent to run `vitest` or `tsc` alone, since they print
   their errors, and skip the gate (#22). `--digest` built the right excerpt but
   only wrote it to `.check/digest.md`. A red run now prints the same text on
-  stderr, below its `report:` and `digest:` lines, so one run shows what to
-  fix. The stop gate, which runs the check with `--digest`, hands the agent
+  stderr, last, below its `report:` and `digest:` lines and the warnings and
+  `hint:` beneath them, so one run shows what to fix and nothing that changes
+  how its red reads, such as a baseline that couldn't be parsed, is scrolled
+  past the digest. The stop gate, which runs the check with `--digest`, hands the agent
   the same text: below the instruction in the `reason` a blocked Claude Code
   turn is given, and in Cursor's `followup_message`, while `systemMessage`,
   the line the user reads, stays the one-line verdict. The instruction names
@@ -240,8 +242,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   saying why.
 - The exported `ProbeFailure` takes `stopped`, marking a `setup` failure whose
   tool ran but stopped short of some errors.
-- A red `--digest` run prints its digest on stderr, below the `report:` and
-  `digest:` lines.
+- A red `--digest` run prints its digest on stderr, last, below the
+  `report:` and `digest:` lines and the notices beneath them.
 - A red gate's `reason` and `followup_message` carry this run's digest below
   the instruction.
 

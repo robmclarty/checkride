@@ -47,13 +47,13 @@ export type DigestBudget = {
 };
 
 /**
- * Where the digest goes: the output directory `dir`, absolute, and `label`,
- * the way the run names that directory in text (`.check` by default; see
- * `outLabel`), which every raw pointer in the digest starts with. `repoRoot`,
- * the repo root's absolute path, names an absolute path in a key from the
- * repo root, as the baseline does.
+ * Where a run's digest points: `label`, the way the run names its output
+ * directory in text (`.check` by default; see `outLabel`), which every raw
+ * pointer in the digest starts with. `repoRoot`, the repo root's absolute
+ * path, names an absolute path in a key from the repo root, as the baseline
+ * does.
  */
-export type DigestTarget = { dir: string; label: string; repoRoot?: string };
+export type DigestTarget = { label: string; repoRoot?: string };
 
 /**
  * Conservative defaults: ~10 findings a slot and an 8 KB ceiling keep even a
@@ -317,25 +317,27 @@ export function withinBudget(digest: string): string {
 }
 
 /**
- * Persist the digest for a completed run. Writes `digest.md` into the output
- * directory `target.dir` when a slot failed; on a green run removes any stale
- * digest so the file's presence always means "this run failed". The output
- * directory is assumed to exist — the orchestrator creates it before running.
- * Returns the digest it wrote, which the run's report prints too, or `null`
- * when it wrote none.
+ * The digest of a completed run, at the default budget, its pointers where
+ * `target` says, or `null` when nothing failed ({@link buildDigest}). A run
+ * builds it before it writes its summary, which carries it, and its report
+ * prints it last.
  */
-export async function writeDigest(
-  target: DigestTarget,
-  runs: readonly CheckRun[],
-  checks: readonly SummaryCheck[],
-  budget: DigestBudget = DEFAULT_BUDGET,
-): Promise<string | null> {
-  const path = join(target.dir, DIGEST_FILE);
-  const digest = buildDigest(runs, checks, budget, target.label, target.repoRoot);
+export function digestOf(target: DigestTarget, runs: readonly CheckRun[], checks: readonly SummaryCheck[]): string | null {
+  return buildDigest(runs, checks, DEFAULT_BUDGET, target.label, target.repoRoot);
+}
+
+/**
+ * Persist a run's digest in its output directory `dir`: `digest.md` holding
+ * it when the run built one, and on a green run, which builds none, no file,
+ * a stale one removed, so the file's presence always means "this run failed".
+ * The output directory is assumed to exist — the orchestrator creates it
+ * before running.
+ */
+export async function writeDigest(dir: string, digest: string | null): Promise<void> {
+  const path = join(dir, DIGEST_FILE);
   if (digest === null) {
     await rm(path, { force: true });
-    return null;
+    return;
   }
   await writeFileAtomic(path, digest);
-  return digest;
 }

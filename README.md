@@ -459,8 +459,9 @@ it carries.
   but not rendered, and a first section longer than the cap on its own is cut
   where it runs out. It **truncates, never normalizes**; a green run leaves no
   digest (any stale one is removed), so its presence always means "this run
-  failed". A red run prints the same text on stderr, below the `report:` and
-  `digest:` lines, so an agent reads what failed in the run's own output. It
+  failed". A red run prints the same text on stderr, last, below the `report:`
+  and `digest:` lines and any warning or `hint:` beneath them, so an agent
+  reads what failed in the run's own output. It
   never goes to stdout, so the machine-output split holds, and a `--json` run
   prints no report, so there it is the file alone.
 
