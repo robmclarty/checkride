@@ -119,6 +119,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   1.40.2 caches nothing, so neither was held back by a cache. terraform
   validate stays parse-only too, since a configuration that fails it can't
   plan either.
+- **A run lists a check's first ten new keys on stderr.** Beneath a red
+  check, a run lists each key with findings its baseline doesn't
+  grandfather, and it listed every one. A baseline captured before tsc keyed
+  holds no `types` entry, so every type error reads as new, and 60 of them
+  printed 207 lines on a plain run, up to five findings beneath each key
+  included. The list now stops at ten keys, as the digest's does, sorted as
+  the summary's `new` is, then says
+  `` … and N more (the summary's `new` lists the first 50) ``. A key found
+  past its count still reads `(3 found, 2 grandfathered)`.
 - **A baseline capture runs only the checks whose findings it can key.**
   `checkride baseline`, and `init --baseline` with it, ran every default
   check, a long test suite included, though only a check with a parser can add
@@ -241,6 +250,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `.check/summary.json` only when this run wrote them, and points at no `.check/` file
   when it wrote no summary, where 0.18 named the digest whenever the file
   existed and the summary otherwise.
+- Changed: stderr lists the first ten of a check's keys with new findings,
+  then how many more, where 0.18 listed every one.
 - Changed: a `check` script whose shell finds no `checkride` is a could-not-run
   the gate stands down on, naming the install, and, where the package manager
   exits 1, as pnpm does, `triage`'s `could-not-start`, where 0.18 reported a

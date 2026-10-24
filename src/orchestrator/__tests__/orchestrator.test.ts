@@ -1469,6 +1469,27 @@ describe('runChecks (baseline-aware)', () => {
     expect(printed).not.toContain(KEY_A); // the grandfathered one is not re-listed
   });
 
+  /**
+   * A baseline captured before a check's tool was keyed holds no entry for it,
+   * so every finding reads as new: 60 type errors printed 207 lines of stderr.
+   * The list stops where the digest's does, and points at the summary's `new`.
+   */
+  test('lists the first ten new keys, then how many more, and the summary lists the first fifty', async () => {
+    const std = sink();
+    const many = Array.from({ length: 13 }, (_, i): [string, string, string] => [`f${String(i).padStart(2, '0')}.ts`, 'no-x', 'new']);
+    const result = await runChecks({
+      cwd: dir, slots, adapters, config: null,
+      runner: lintRunner(many),
+      baseline: { schema_version: 1, slots: { lint: [KEY_A] } },
+      json: false, stdout: sink().out, stderr: std.out,
+    });
+    const printed = std.lines.join('');
+    expect(printed).toContain('           13 new, not in baseline:\n');
+    expect(printed).toContain('             f09.ts:no-x:new\n             … and 3 more (the summary\'s `new` lists the first 50)\n');
+    expect(printed).not.toContain('f10.ts');
+    expect(result.summary.checks.find((c) => c.name === 'lint')).toMatchObject({ new_count: 13, new: many.map(([file]) => `${file}:no-x:new`) });
+  });
+
   test('ratchets the baseline smaller after a fix (fully-observed run)', async () => {
     const result = await runChecks({
       cwd: dir, slots, adapters, config: null,

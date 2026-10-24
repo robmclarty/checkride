@@ -352,11 +352,22 @@ function namedTests(cases: readonly GoTestCase[], what: string): string[] {
 const PRINTED_PER_KEY = 5;
 
 /**
- * One line per key with findings the baseline didn't grandfather, sorted: a
- * key it doesn't hold, with how many findings share it when more than one,
- * and a key it holds found more often than it grandfathers, with both counts.
+ * How many keys with new findings stderr lists beneath a check, as many as
+ * the digest lists of a slot. A baseline captured before a check's tool was
+ * keyed holds no entry for it, so every finding reads as new: 60 type errors
+ * printed 207 lines on a plain run, where the summary's `new` stops at
+ * {@link NEW_KEYS_LISTED}.
+ */
+const NEW_KEYS_PRINTED = 10;
+
+/**
+ * One line per key with findings the baseline didn't grandfather, sorted,
+ * the first {@link NEW_KEYS_PRINTED} of them, then how many more: a key it
+ * doesn't hold, with how many findings share it when more than one, and a
+ * key it holds found more often than it grandfathers, with both counts.
  * Where the key leaves part of a message out (tsc's), its findings follow it
- * as the tool printed them ({@link printedUnder}).
+ * as the tool printed them ({@link printedUnder}). The keys sort as the
+ * summary's `new` does, so the ones listed are the first it lists.
  */
 function newFindingLines(mask: MaskResult): string[] {
   const lines = mask.newKeys.map((key) => {
@@ -364,7 +375,10 @@ function newFindingLines(mask: MaskResult): string[] {
     return { key, line: found > 1 ? `${key} (${found} found)` : key };
   });
   for (const { key, found, allowed } of mask.excess) lines.push({ key, line: `${key} (${found} found, ${allowed} grandfathered)` });
-  return lines.toSorted((a, b) => (a.key < b.key ? -1 : 1)).flatMap(({ key, line }) => [line, ...printedUnder(mask.printed?.get(key))]);
+  const sorted = lines.toSorted((a, b) => (a.key < b.key ? -1 : 1));
+  const listed = sorted.slice(0, NEW_KEYS_PRINTED).flatMap(({ key, line }) => [line, ...printedUnder(mask.printed?.get(key))]);
+  const more = sorted.length - NEW_KEYS_PRINTED;
+  return more > 0 ? [...listed, `… and ${more} more (the summary's \`new\` lists the first ${NEW_KEYS_LISTED})`] : listed;
 }
 
 /**

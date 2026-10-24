@@ -762,7 +762,8 @@ elsewhere: `src/a.ts:TS2322:Type '…' is not assignable to type '…'.`, or
 `src/a.ts:TS2554:Expected … arguments, but got ….` Two such errors in one file
 share a key, and `counts` holds both. Since the key no longer says which name
 or type an error is about, a run lists each new key's findings beneath it as
-tsc printed them, and so does the digest. A run that
+tsc printed them, the first ten keys of a check and then how many more, and so
+does the digest. A run that
 stopped tsc short of some errors masks nothing and prunes nothing, and its
 check's `reason` says why: a syntax error, which leaves its whole project
 unchecked, a tsconfig tsc rejected, a reference it didn't build (`TS6305`),

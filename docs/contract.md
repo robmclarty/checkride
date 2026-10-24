@@ -557,7 +557,9 @@ no position, so two of one finding in a file, two unchecked `x.Close()` calls,
 share it. A check `counts` names is counted: each key grandfathers its count,
 or one when the entry doesn't list it, and a finding past that is new. It
 fails the check as a new key does, and stderr lists the key with both numbers,
-`(3 found, 2 grandfathered)`. A check `counts` doesn't name was captured before
+`(3 found, 2 grandfathered)`. stderr lists a check's first ten keys with new
+findings, sorted as the summary's `new` is, then a line saying how many more.
+A check `counts` doesn't name was captured before
 counts, by a release before them, and each of its keys grandfathers any number
 of findings, as every key did then, so an upgrade changes no verdict. A
 summary's `baselined` counts the findings the baseline grandfathered, not its
