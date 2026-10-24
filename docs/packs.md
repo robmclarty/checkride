@@ -52,7 +52,7 @@ head of every chain, that one included.
 | `override` | the run's `--pins` file has a `[tools]` key for it, one of the tool's `mise` ids in `TOOLS`, else its executable's name, with a version | `mise exec <id>@<version> -- <tool>`, offline, with installs off and every config file inside the repo ignored, once `mise where <id>@<version>` confirms that version is installed | the release `mise where` resolved the file's version to, such as `2.14.0` for a `2.14` |
 | `js-lockfile` | its package is a dependency in the nearest `package.json` from the check's directory up to the repo root | the project's package manager: `pnpm exec <tool>`, `npx --no-install <tool>`, `yarn <tool>` or `bunx --no-install <tool>` | the `version` in `node_modules/<package>/package.json` nearest the check's directory, for a tool whose package `TOOLS` names |
 | `go-mod-tool` | the `go.mod` nearest the check's directory, up to the repo root, names the tool's package in a `tool` directive, one-line or block | `go tool <tool>`, through the `go` a `mise.toml` pins, else the one on `PATH` | the version that `go.mod` requires for the module providing the tool |
-| `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file | the file's channel, when it names an exact release such as `1.85.0` |
+| `rust-toolchain` | a `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to the repo root pins the toolchain, for a rustup component: `cargo` itself, rustfmt and clippy | `cargo`, `cargo fmt` or `cargo clippy` through rustup's `cargo` on `PATH`, which reads the file, or, without rustup, through a Nix dev shell's toolchain at the exact release the file names | the file's channel, when it names an exact release such as `1.85.0` |
 | `uv-lock` | the `uv.lock` nearest the check's directory, up to the repo root, lists the tool's PyPI package, its name compared as PyPI compares names | the tool's executable in the project's environment: `.venv/bin/<tool>` beside the lock, which a workspace's members share, or `bin/<tool>` under the environment `UV_PROJECT_ENVIRONMENT` names, a relative one from the lock's directory; never through `uv` itself | the `version` of the lock's `[[package]]` entry for it, when the lock pins one version; a forked resolution that locks several records none |
 | `tf-version` | a `.terraform-version` or `.opentofu-version` from the check's directory up to the repo root, the nearest one, `.opentofu-version` first in one directory, for the CLI it names: `terraform` or `tofu` | that CLI from `PATH`, once `<cli> version -json` reports the release the file names, when it names one exactly | the file's release, when it names one exactly, such as `1.5.7` |
 | `mise` | a `mise.toml` or `.mise.toml` from the check's directory up to the repo root has a `[tools]` key for it: one of the tool's `mise` ids in `TOOLS`, else its executable's name | `mise exec -- <tool>`, once `mise which --version <tool>` confirms the pinned copy is installed | the version mise resolved the pin to, which that answer prints, such as `0.11.0` for `shellcheck = "0.11"`; none for a pin that resolves to no release, such as `system` |
@@ -101,13 +101,33 @@ file that pins no tool, a `[tool]` typo among them. It changes which copy of a t
 runs, never which checks run, since detection reads only the repo. A toolchain
 it names, such as `go`, runs that copy in any pack, a `go tool` included.
 `rust-toolchain` declares only a rustup component: `cargo` itself, which
-`TOOLCHAINS` describes, and rustfmt and clippy, which `TOOLS` does. Only
-rustup reads a toolchain file, through the `cargo` proxy it installs beside
-itself, so a component the file pins fails its check when `rustup` isn't on
-`PATH`, or has no `cargo` beside it, rather than run a `cargo` that ignores
-the pin. A cargo plugin such as nextest builds through `cargo` too, so under
-a toolchain file it fails the same way without `rustup`, with its own
-message. `go-mod-tool`
+`TOOLCHAINS` describes, and rustfmt and clippy, which `TOOLS` does. rustup
+reads a toolchain file through the `cargo` proxy it installs beside itself,
+so a component the file pins fails its check when the `rustup` on `PATH` has
+no `cargo` beside it, rather than run a `cargo` that ignores the pin.
+Without `rustup`, a Nix dev shell built from the file, as rust-overlay's
+`fromRustupToolchainFile` and fenix's `fromToolchainFile` build one, stands
+in for it when the file names an exact release, such as `1.85.0`. Each
+executable the check's cargo subcommand runs from `PATH` must be the shell's
+copy of that release, by the version its store path names, as
+`rust-default-1.85.0` and `rustfmt-preview-1.85.0-aarch64-unknown-linux-gnu`
+name it, and a pre-release such as `1.85.0-beta.7` isn't it. Every check
+runs `cargo` and `rustc`; `clippy` runs `cargo-clippy` too, `fmt` runs
+`cargo-fmt` and `rustfmt`, and `test` and `doc` run `rustdoc`. The
+subcommand is the first argument after `cargo` that isn't an option, so a
+custom check's `cargo fmt --check` counts the same copies the rustfmt
+adapter does. The check records `rust-toolchain` and the release, as a run
+through rustup does, so a baseline captured under one sees the same copy
+under the other. A channel only rustup resolves to a release, such as
+`stable` or `1.85`, fails the check, and so does a shell at another release
+or without one of those executables, naming each. Where the `cargo` on
+`PATH` isn't a Nix shell's, the check fails for want of `rustup`. A cargo
+plugin such as nextest builds through `cargo` too, so under a toolchain file
+it fails the same way, with its own message, unless the `cargo` and `rustc`
+it builds through are a Nix shell's copies of the file's release. Which copy
+of the plugin runs is still its own pin's to say. Neither route reads the
+variables that send cargo elsewhere: a `RUSTC`, `RUSTDOC` or `RUSTFMT` the
+shell exports picks the copy that runs, through rustup or not. `go-mod-tool`
 declares a tool only when `TOOLS` gives its Go package, which it does for
 staticcheck, deadcode and govulncheck. golangci-lint is pinned as a binary,
 never as a `go tool`.

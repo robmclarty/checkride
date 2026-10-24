@@ -29,11 +29,12 @@ import { goModDeclaration } from './go-mod.js';
 import { execTool, jsLockfileDeclares, jsLockfileVersion, missingToolRefusal } from './js-lockfile.js';
 import type { MiseAnswer, MiseDeclaration } from './mise.js';
 import { MISE_NO_INSTALL, miseCanRun, miseDeclaration, miseHasInstalled, miseVersion, miseWhereVersion, overrideEnv } from './mise.js';
+import type { NixQuery } from './nix.js';
 import { nixCopy } from './nix.js';
 import type { PackageManager } from './package-manager.js';
 import { findOnPath } from './path.js';
-import type { RustToolchainDeclaration } from './rust-toolchain.js';
-import { isExactChannel, rustToolchainDeclaration, rustupCargo, toolchainFileEnv } from './rust-toolchain.js';
+import type { NixExe, NixToolchain, RustToolchainDeclaration } from './rust-toolchain.js';
+import { isExactChannel, nixToolchain, rustToolchainDeclaration, rustupCargo, toolchainFileEnv } from './rust-toolchain.js';
 import type { TfVersionDeclaration } from './terraform.js';
 import { cliVersion, terraformCli, tfVersionDeclaration } from './terraform.js';
 import { translateExec } from './translate.js';
@@ -276,11 +277,13 @@ function toolchainKept(pin: Spawn['pin']): Pick<NonNullable<Spawn['pin']>, 'tool
  * The `rust-toolchain` source: a rustup component, such as clippy, that a
  * `rust-toolchain.toml` or `rust-toolchain` from the check's directory up to
  * the repo root pins with the toolchain it names, run through rustup's `cargo`
- * from `PATH`, which reads that file (R6.1). Only rustup reads it, so without
- * rustup on `PATH` the check fails rather than run a `cargo` that ignores the
- * pin, and so does a `cargo` with no rustup beside it, which isn't rustup's
- * proxy. It records the file's channel when it names one exact release
- * (R6.3). A tool that isn't a component is never declared here.
+ * from `PATH`, which reads that file (R6.1). Only rustup reads it, so a
+ * `cargo` with no rustup beside it, which isn't rustup's proxy, fails the
+ * check rather than run a toolchain that ignores the pin. Without rustup on
+ * `PATH`, a Nix dev shell's toolchain runs it where it's the exact release
+ * the file names, and the check fails otherwise. It records the file's
+ * channel when it names one exact release (R6.3). A tool that isn't a
+ * component is never declared here.
  */
 const RUST_TOOLCHAIN: Source = {
   declares: (req) => {
@@ -288,7 +291,7 @@ const RUST_TOOLCHAIN: Source = {
     return toolchain === null ? null : { toolchain };
   },
   run: (req, declared) => {
-    if (findOnPath(RUSTUP, req.env) === null) return { refusal: rustupMissingRefusal(req, declared?.toolchain ?? null) };
+    if (findOnPath(RUSTUP, req.env) === null) return withoutRustup(req, declared?.toolchain ?? null);
     if (findOnPath(CARGO_TOOLCHAIN.bin, req.env) === null) return { refusal: toolchainMissingRefusal(req, CARGO_TOOLCHAIN) };
     // Only rustup's own proxy reads the file, and launchCheck puts it first on PATH.
     if (rustupCargo(req.env) === null) return { refusal: proxyMissingRefusal(req) };
@@ -298,6 +301,22 @@ const RUST_TOOLCHAIN: Source = {
     return { command, args, env: MISE_NO_INSTALL, pin: { source: 'rust-toolchain', ...version } };
   },
 };
+
+/**
+ * Run a component a toolchain file pins with no rustup on `PATH` to read the
+ * file: through the Nix dev shell's toolchain, where every executable the
+ * check runs is that shell's copy of the exact release the file names. It
+ * records that release as a run through rustup records it, so a capture under
+ * one and a run under the other see the same copy. Where no shell's `cargo`
+ * is on `PATH`, the check fails for want of rustup, as it always has.
+ */
+function withoutRustup(req: ToolRequest, declared: RustToolchainDeclaration | null): Launch {
+  const [command = CARGO_TOOLCHAIN.bin, ...args] = argvOf(req.tool, req.args);
+  const shell = declared === null ? null : nixToolchain(args, declared, req);
+  if (shell === null || shell.kind === 'none') return { refusal: rustupMissingRefusal(req, declared) };
+  if (shell.kind !== 'ok') return { refusal: nixToolchainRefusal(req.slot, req.tool.bin, shell) };
+  return { command, args, env: MISE_NO_INSTALL, pin: { source: 'rust-toolchain', version: shell.release } };
+}
 
 /**
  * The `uv-lock` source: a tool the `uv.lock` nearest the check lists, run
@@ -502,10 +521,10 @@ export function overridePin(command: string, args: readonly string[], at: PinQue
  * nextest runs, or `null` for anything else, a toolchain component included,
  * which the `rust-toolchain` source governs itself.
  */
-function cargoPlugin(command: string, args: readonly string[], ctx: LaunchContext): string | null {
+function cargoPlugin(command: string, args: readonly string[], ctx: LaunchContext): readonly string[] | null {
   const tool = execTool(command, args);
   const row = tool === null ? null : toolRow(tool, ctx.tools);
-  return row?.component === undefined && row?.run?.[0] === CARGO_TOOLCHAIN.bin ? row.run.join(' ') : null;
+  return row?.component === undefined && row?.run?.[0] === CARGO_TOOLCHAIN.bin ? row.run : null;
 }
 
 /**
@@ -517,17 +536,35 @@ function cargoPlugin(command: string, args: readonly string[], ctx: LaunchContex
  * included, and, in a chain that reads `rust-toolchain` where a toolchain
  * file pins the toolchain, the ones that let it: rustup's proxy first on
  * `PATH`, and no `RUSTUP_TOOLCHAIN` from the shell. A cargo plugin there
- * builds through `cargo`, so without rustup to read the file it's refused.
+ * builds through `cargo`, so without rustup to read the file it's refused,
+ * unless that `cargo` is a Nix dev shell's copy of the release the file names.
  */
 export function launchCheck(slot: string, command: string, args: readonly string[], ctx: LaunchContext): Launch {
-  const toolchain = ctx.pins?.includes('rust-toolchain') === true ? rustToolchainDeclaration(ctx.cwd, ctx.repo ?? ctx.cwd) : null;
+  const repo = ctx.repo ?? ctx.cwd;
+  const toolchain = ctx.pins?.includes('rust-toolchain') === true ? rustToolchainDeclaration(ctx.cwd, repo) : null;
   if (toolchain === null) return withPackEnv(resolveLaunch(slot, command, args, ctx), { ...ctx.packEnv });
   const env = ctx.env ?? process.env;
-  const plugin = cargoPlugin(command, args, ctx);
-  if (plugin !== null && findOnPath(RUSTUP, env) === null) return { refusal: pluginRefusal(slot, plugin, toolchain) };
-  const pinned = toolchainFileEnv(ctx.cwd, ctx.repo ?? ctx.cwd, env);
+  const blocked = pluginBlocked(slot, cargoPlugin(command, args, ctx), toolchain, { cwd: ctx.cwd, repo, env });
+  if (blocked !== null) return blocked;
+  const pinned = toolchainFileEnv(ctx.cwd, repo, env);
   // Search the PATH the spawn gets, rustup's directory first, so the copy found is the copy that runs.
   return withPackEnv(resolveLaunch(slot, command, args, { ...ctx, env: { ...env, ...pinned } }), { ...ctx.packEnv, ...pinned });
+}
+
+/**
+ * The refusal for `plugin`, the `cargo <sub>` a check runs as a cargo plugin,
+ * such as `cargo nextest`, where `declared` pins the toolchain it builds
+ * with, or `null` where it may run: the check runs no plugin, rustup is on
+ * `PATH` to read the file, or the `cargo` and `rustc` it builds through are a
+ * Nix dev shell's copies of the release the file names. Which copy of the
+ * plugin runs is still its own pin's to say.
+ */
+function pluginBlocked(slot: string, plugin: readonly string[] | null, declared: RustToolchainDeclaration, at: NixQuery): { refusal: string } | null {
+  if (plugin === null || findOnPath(RUSTUP, at.env) !== null) return null;
+  const shell = nixToolchain(plugin.slice(1), declared, at);
+  if (shell.kind === 'ok') return null;
+  const name = plugin.join(' ');
+  return { refusal: shell.kind === 'none' ? pluginRefusal(slot, name, declared) : nixToolchainRefusal(slot, name, shell) };
 }
 
 /**
@@ -806,7 +843,6 @@ function overrideRefusal(req: ToolRequest, spec: string, detail: string, cause: 
 /** The toolchain manager whose `cargo` reads a `rust-toolchain.toml`. */
 const RUSTUP = 'rustup';
 
-/** The refusal for a component a toolchain file pins when rustup, the only reader of that file, isn't on `PATH`. */
 /** The line naming where a toolchain file pins the toolchain, and its channel, as a refusal shows it. */
 function declaredLine(declared: RustToolchainDeclaration): string {
   return `  declared in: ${declared.file}${declared.channel !== undefined ? ` (channel ${declared.channel})` : ''}`;
@@ -814,8 +850,9 @@ function declaredLine(declared: RustToolchainDeclaration): string {
 
 /**
  * The refusal for a cargo plugin, such as `cargo nextest`, where a toolchain
- * file pins the toolchain and rustup isn't on PATH: the plugin builds through
- * `cargo`, and only rustup's would read the file.
+ * file pins the toolchain, rustup isn't on PATH, and the `cargo` there isn't
+ * a Nix dev shell's: the plugin builds through `cargo`, and only rustup's
+ * would read the file.
  */
 function pluginRefusal(slot: string, plugin: string, declared: RustToolchainDeclaration): string {
   return [
@@ -847,6 +884,11 @@ function proxyMissingRefusal(req: ToolRequest): string {
   ].join('\n');
 }
 
+/**
+ * The refusal for a component a toolchain file pins when rustup, the only
+ * reader of that file, isn't on `PATH`, and no Nix dev shell's `cargo` is
+ * there to stand in for it.
+ */
 function rustupMissingRefusal(req: ToolRequest, declared: RustToolchainDeclaration | null): string {
   return [
     `checkride: the \`${req.slot}\` slot's \`${req.tool.bin}\` is pinned by a toolchain file, but \`rustup\` isn't on PATH.`,
@@ -855,6 +897,70 @@ function rustupMissingRefusal(req: ToolRequest, declared: RustToolchainDeclarati
     'Only rustup reads that file, so a `cargo` without it would run whatever',
     'toolchain it came with instead of the pinned one. Install rustup',
     '(https://rustup.rs), or remove the file.',
+    '',
+  ].join('\n');
+}
+
+/** A Nix dev shell's toolchain that can't stand in for rustup, as a refusal names it. */
+type NixToolchainMiss = Extract<NixToolchain, { kind: 'inexact' | 'off' }>;
+
+/**
+ * The refusal for `subject`, a component or a cargo plugin a check in `slot`
+ * runs on the toolchain a file pins, where no rustup reads the file and the
+ * Nix dev shell's toolchain can't stand in for it: the file names no exact
+ * release, or an executable the check runs isn't the shell's copy of it.
+ */
+function nixToolchainRefusal(slot: string, subject: string, shell: NixToolchainMiss): string {
+  return shell.kind === 'inexact' ? inexactRefusal(slot, subject, shell) : offReleaseRefusal(slot, subject, shell);
+}
+
+/** The refusal for a Nix shell's toolchain under a file whose channel, such as `stable`, only rustup resolves to a release. */
+function inexactRefusal(slot: string, subject: string, shell: Extract<NixToolchainMiss, { kind: 'inexact' }>): string {
+  return [
+    `checkride: the \`${slot}\` slot's \`${subject}\` runs on the toolchain \`${shell.declared.file}\` pins, but without \`rustup\` a Nix shell's toolchain counts only where the file names an exact release.`,
+    '',
+    declaredLine(shell.declared),
+    `  found: ${shell.cargo}`,
+    '',
+    'Only rustup resolves a channel such as `stable` or `1.85` to a release, so',
+    "checkride can't tell whether the shell's toolchain is the one the file",
+    'means. Pin an exact release in the file, such as `1.85.0`, or put rustup',
+    'in the dev shell, then re-run.',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Where one executable a check runs stands, as a refusal names it: the cause
+ * its headline gives, and the line that shows the copy found.
+ */
+function standing(e: NixExe): { cause: string; line: string } {
+  if (e.found === null) return { cause: `\`${e.exe}\` isn't on PATH`, line: `  ${e.exe}: not on PATH` };
+  if (e.nix === null) return { cause: `the \`${e.exe}\` on PATH isn't a Nix shell's`, line: `  found: ${e.found} (not a Nix shell's)` };
+  const version = e.nix.version;
+  if (version === undefined) return { cause: `the Nix shell's \`${e.exe}\` names no release`, line: `  found: ${e.found} (its store path names no release)` };
+  return { cause: `the Nix shell's \`${e.exe}\` is ${version}`, line: `  found: ${e.found} (${version})` };
+}
+
+/**
+ * The refusal for a Nix shell's toolchain at another release than the file
+ * names, or without an executable the check runs, modeled on a Terraform
+ * version file's: it names the release the file asks for and each copy that
+ * isn't it.
+ */
+function offReleaseRefusal(slot: string, subject: string, shell: Extract<NixToolchainMiss, { kind: 'off' }>): string {
+  return [
+    `checkride: the \`${slot}\` slot's \`${subject}\` runs on the toolchain \`${shell.declared.file}\` pins to ${shell.release}, but ${standing(shell.off[0]).cause}.`,
+    '',
+    declaredLine(shell.declared),
+    ...shell.off.map((e) => standing(e).line),
+    '',
+    "Without rustup to read the file, checkride runs a Nix shell's toolchain",
+    "only where every executable a check runs is the shell's copy of the",
+    "release the file names, and it won't run another in its place. Build the",
+    "shell from the file, as rust-overlay's `fromRustupToolchainFile` and",
+    "fenix's `fromToolchainFile` do, with each component the check runs in",
+    "its `components`, or put rustup in the shell, then re-run.",
     '',
   ].join('\n');
 }

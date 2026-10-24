@@ -1359,6 +1359,20 @@ describe('runDoctor probes go-mod-tool, rust-toolchain and uv-lock tools through
     expect(missing.row('lint')?.hint).toContain('Install rustup (https://rustup.rs), or remove the file.');
   });
 
+  test("a rustup component and cargo itself are ok without rustup where a Nix dev shell's toolchain is the file's release, recorded as a run records them", async () => {
+    await put('Cargo.toml', '[package]\nname = "m"\nversion = "0.1.0"\n');
+    await put('rust-toolchain.toml', '[toolchain]\nchannel = "1.85.0"\n');
+    await put('flake.nix', '{ }');
+    const store = join(bin, 'store');
+    const shell = join(store, 'fjgc2ym708yqjvkb1nhgs78hp3qq72wy-rust-default-1.85.0', 'bin');
+    await mkdir(shell, { recursive: true });
+    for (const name of ['cargo', 'rustc', 'rustdoc', 'cargo-clippy', 'cargo-fmt', 'rustfmt']) await writeFile(join(shell, name), '#!/bin/sh\n', { mode: 0o755 });
+    const launch: DoctorEnv['launch'] = (slot, command, args, ctx) => launchCheck(slot, command, args, { ...ctx, env: { PATH: shell, NIX_STORE_DIR: store } });
+    const { row } = await doctor({ launch });
+    expect(row('lint')).toMatchObject({ adapter: 'clippy', pinSource: 'rust-toolchain', toolVersion: '1.85.0', status: 'ok', found: 'cargo clippy' });
+    expect(row('types')).toMatchObject({ adapter: 'cargo-check', pinSource: 'rust-toolchain', toolVersion: '1.85.0', status: 'ok' });
+  });
+
   test('a tool uv.lock locks is ok from the project environment, and missing naming uv sync before one exists', async () => {
     await put('pyproject.toml', '[project]\nname = "m"\nversion = "0.1.0"\n');
     await put('uv.lock', '[[package]]\nname = "ruff"\nversion = "0.14.0"\n');

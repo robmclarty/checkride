@@ -437,7 +437,7 @@ class Component extends DCLogic {
     const sourceRows = [
       ['js-lockfile', 'the nearest package.json lists the tool\'s package', 'the package manager: pnpm exec, npx --no-install, yarn or bunx --no-install'],
       ['go-mod-tool', 'go.mod names the tool in a tool directive', 'go tool <tool>, through the go a mise.toml pins, else the one on PATH'],
-      ['rust-toolchain', 'a rust-toolchain.toml pins the toolchain: cargo, rustfmt and clippy', 'rustup\'s cargo, which reads the file'],
+      ['rust-toolchain', 'a rust-toolchain.toml pins the toolchain: cargo, rustfmt and clippy', 'rustup\'s cargo, which reads the file; without rustup, a Nix dev shell\'s toolchain at the release the file names'],
       ['uv-lock', 'uv.lock lists the tool\'s PyPI package', 'the project environment\'s .venv/bin/<tool>, never uv itself'],
       ['tf-version', 'a .terraform-version or .opentofu-version names the CLI', 'terraform or tofu from PATH, once it reports the release the file names'],
       ['mise', 'a mise.toml up to the repo root pins it', 'mise exec -- <tool>, once mise finds the pinned copy installed'],

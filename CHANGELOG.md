@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A Nix dev shell's Rust toolchain runs the checks a toolchain file pins.**
+  Only rustup reads a `rust-toolchain.toml`, so without `rustup` on `PATH`
+  every rust check under one failed: `cargo check`, clippy, rustfmt and the
+  cargo plugins alike. That held even in a dev shell that rust-overlay's
+  `fromRustupToolchainFile` or fenix's `fromToolchainFile` built from that
+  very file (#9). Without rustup, such a check now runs on the shell's
+  toolchain where the file names an exact release, such as `1.85.0`, and each
+  executable its cargo subcommand runs is the shell's copy of it, by the
+  version its store path names: `cargo` and `rustc` for every check,
+  `cargo-clippy` for `clippy`, `cargo-fmt` and `rustfmt` for `fmt`, and
+  `rustdoc` for `test` and `doc`, a custom check's `cargo fmt` included. A
+  pre-release such as `1.85.0-beta.7` doesn't count. It records
+  `pin_source: "rust-toolchain"` with that release, as a run through rustup
+  does, so a baseline captured under one sees the same copy under the other.
+  A channel only rustup resolves to a release, such as `stable` or `1.85`,
+  still fails, and so does a shell at another release or without one of those
+  executables, naming each copy and the release the file asks for. A cargo
+  plugin such as nextest builds through the shell's `cargo` on the same terms,
+  and still runs the copy its own pin names. `doctor` asks the run's launcher
+  about `cargo`, clippy and rustfmt, so it reports what a run does for them.
+  The store names were checked against both shells as Nix 2.35.4 built them on
+  aarch64-linux, and [Packs](./docs/packs.md#pin-sources) has the rules.
+
+### Contract
+
+#### Not additive
+
+- Changed: a check a toolchain file pins, run without `rustup` on `PATH`
+  where a Nix dev shell's toolchain is the exact release the file names, runs
+  and records `pin_source: "rust-toolchain"` with that release, where 0.17
+  refused it. A cargo plugin under such a file runs there too.
+
 ## [0.17.0] - 2026-10-22
 
 ### Added
