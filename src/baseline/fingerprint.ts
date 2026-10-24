@@ -99,8 +99,8 @@ export function reportVerdict(adapter: string): ReportVerdict | null {
  * Fingerprint one adapter's raw output — the text {@link findingText} picks —
  * or `null` when the adapter has no parser the baseline keys with (baseline
  * unsupported for that slot). Keyed on adapter name, so an alternate tool that shares a slot with a
- * supported default (biome/eslint for `lint`, knip for `dead`) opts out until
- * it grows its own parser. A supported adapter with zero findings returns an
+ * supported default (knip for `dead`) opts out until it grows its own parser.
+ * A supported adapter with zero findings returns an
  * empty set, never `null` — "supported but clean" and "not observed" are
  * distinct, and masking and the ratchet depend on the difference.
  *

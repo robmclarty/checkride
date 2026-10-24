@@ -25,25 +25,35 @@ import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import { buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
-import { selectChecks, skipUnchanged, validateSelection, withFileLists, withGoPackages, withStaticOnly } from './select.js';
+import { selectChecks, skipUnchanged, validateSelection, withFileLists, withFingerprintableOnly, withGoPackages, withStaticOnly } from './select.js';
 import { resetInterrupt } from './spawn.js';
 import type { Drift, Out, RunOptions, RunResult, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
 /**
  * Why this run saw less than the full pipeline — an `--only`/`--skip`/
- * `--changed`/`--static-only` filter or an early `--bail` break — in the
- * words {@link notePrunable} names it with, or `null` for a run that saw all
- * of it. The ratchet is gated off for these: an unobserved diagnostic must
- * not be mistaken for a fixed one. `--static-only` is a consumer run as well,
- * so its words never reach that note.
+ * `--changed`/`--static-only` filter, a baseline capture's, or an early
+ * `--bail` break — in the words {@link notePrunable} names it with, or `null`
+ * for a run that saw all of it. The ratchet is gated off for these: an
+ * unobserved diagnostic must not be mistaken for a fixed one. `--static-only`
+ * is a consumer run as well, and a capture runs with no baseline, so neither
+ * one's words reach that note.
  */
 function partialCause(options: RunOptions, changed: boolean, brokeEarly: boolean): string | null {
-  if ((options.only ?? null) !== null) return 'a run with --only';
-  if ((options.skip?.length ?? 0) > 0) return 'a run with --skip';
-  if (changed) return 'a run with --changed';
-  if (options.staticOnly === true) return 'a run with --static-only';
-  return brokeEarly ? 'a run --bail stopped early' : null;
+  return PARTIAL_CAUSES.find(([, applies]) => applies({ options, changed, brokeEarly }))?.[0] ?? null;
 }
+
+/** What {@link partialCause} weighs: the run's options, whether it ran under `--changed`, and whether `--bail` stopped it. */
+type RunShape = { options: RunOptions; changed: boolean; brokeEarly: boolean };
+
+/** Each cause of a partial run, in the words it's named with, first match winning. */
+const PARTIAL_CAUSES: readonly (readonly [string, (run: RunShape) => boolean])[] = [
+  ['a run with --only', ({ options }) => (options.only ?? null) !== null],
+  ['a run with --skip', ({ options }) => (options.skip?.length ?? 0) > 0],
+  ['a run with --changed', ({ changed }) => changed],
+  ['a run with --static-only', ({ options }) => options.staticOnly === true],
+  ['a baseline capture', ({ options }) => options.fingerprintableOnly === true],
+  ['a run --bail stopped early', ({ brokeEarly }) => brokeEarly],
+];
 
 /**
  * The summary's `run`: `partial`, as the ratchet just judged it, and each
@@ -283,6 +293,15 @@ async function withDiscovery(ctx: RunContext, options: RunOptions): Promise<RunC
   return { ...ctx, config: found.config, targets: found.targets, discovered: true, baseline: found.baseline };
 }
 
+/**
+ * The checks a run's mode filters skip, each kept in its place with its
+ * reason: `--static-only`'s, and a baseline capture's (`fingerprintableOnly`).
+ */
+async function withRunFilters(checks: readonly ResolvedCheck[], cwd: string, options: RunOptions): Promise<ResolvedCheck[]> {
+  const kept = options.staticOnly === true ? await withStaticOnly(checks, cwd) : [...checks];
+  return options.fingerprintableOnly === true ? withFingerprintableOnly(kept) : kept;
+}
+
 /** Run the selected checks against `cwd`, persist output, write the summary. */
 export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
@@ -299,8 +318,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file list too long for one argv is a usage error too, so the lists are
   // read before the output directory is touched.
   const listed = await withFileLists(skipUnchanged(selectChecks(resolved, options), changed), base.cwd, base.targets);
-  const packaged = withGoPackages(listed, base.cwd, changed);
-  const selected = options.staticOnly === true ? await withStaticOnly(packaged, base.cwd) : packaged;
+  const selected = await withRunFilters(withGoPackages(listed, base.cwd, changed), base.cwd, options);
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;

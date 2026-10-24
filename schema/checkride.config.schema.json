@@ -298,7 +298,10 @@
         },
         "fixArgs": { "type": "array", "items": { "type": "string" } },
         "timeout": { "type": "number", "minimum": 0 },
-        "name": { "type": "string" },
+        "name": {
+          "type": "string",
+          "description": "The adapter name the summary records for this check; custom:<key> when absent. A parsed adapter's name (eslint, biome, oxlint, fallow, ...) has that adapter's parser read the check's output, so the baseline keys its findings: the output must be the format the adapter's own args print."
+        },
         "detect": {
           "type": "array",
           "items": { "type": "string" },

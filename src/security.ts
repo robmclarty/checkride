@@ -15,6 +15,10 @@
  * problem, not a finding — the latter is green. The raw audit JSON is passed
  * through on stdout, so the orchestrator persists `.check/security.json` as
  * before.
+ *
+ * The args' `--fetch-<setting>` flags bound the wait on the advisory
+ * endpoint, and they reach pnpm as environment variables rather than flags
+ * ({@link fetchSettings}), since most pnpm releases refuse them on `audit`.
  */
 
 import { isRecord } from './json.js';
@@ -27,7 +31,47 @@ export type AuditSpawn = (
   args: string[],
   cwd: string,
   timeoutSec?: number,
+  env?: Readonly<Record<string, string>>,
 ) => Promise<CheckOutcome>;
+
+/** A `--fetch-<setting>` flag, its setting, and the value it carries when written `--flag=value`. */
+const FETCH_FLAG = /^--(fetch-[a-z-]+)(?:=(.*))?$/;
+
+/** The variables one pnpm setting is read from: `npm_config_` up to pnpm 10, `pnpm_config_` from 11. */
+function settingVariables(setting: string, value: string): Record<string, string> {
+  const name = setting.replaceAll('-', '_');
+  return { [`npm_config_${name}`]: value, [`pnpm_config_${name}`]: value };
+}
+
+/**
+ * The audit's args with each `--fetch-<setting>` flag taken out, and the
+ * variables that set it in their place. `pnpm audit` refuses the flags on
+ * pnpm 9, 10 and 12 (`Unknown options: 'fetch-retries', 'fetch-timeout'`,
+ * and 12's `unexpected argument`), so the slot could never reach a verdict
+ * there, while every release reads the variables: 9 and 10 the
+ * `npm_config_` ones, 11 and 12 the `pnpm_config_` ones, each ignoring the
+ * other's. A flag written `--fetch-timeout 15000` takes the next argument as
+ * its value, and one with no value, or an empty one, sets nothing. A setting
+ * the args don't name keeps pnpm's own default, so a config that drops the
+ * flags waits as long as pnpm does.
+ */
+export function fetchSettings(args: readonly string[]): { args: string[]; env: Record<string, string> } {
+  const kept: string[] = [];
+  const env: Record<string, string> = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i] ?? '';
+    const flag = FETCH_FLAG.exec(arg);
+    if (flag === null) {
+      kept.push(arg);
+      continue;
+    }
+    const next = args[i + 1];
+    const value = flag[2] ?? (next !== undefined && !next.startsWith('-') ? next : undefined);
+    if (flag[2] === undefined && value !== undefined) i += 1;
+    if (value !== undefined && value !== '' && flag[1] !== undefined) Object.assign(env, settingVariables(flag[1], value));
+  }
+  return { args: kept, env };
+}
 
 /** `--audit-level` vocabulary, weakest first. `info` never gates (as in pnpm). */
 const LEVELS = ['low', 'moderate', 'high', 'critical'] as const;
@@ -127,9 +171,11 @@ function noVerdict(command: string, outcome: CheckOutcome, json: ReturnType<type
 /**
  * Run the `security` check against `cwd`. `args` are the resolved adapter args
  * (`audit --audit-level=<l> …`, config overrides included); `--json` is
- * appended when an override dropped it, since the evaluator needs the payload.
- * Never throws: a spawn failure or unparseable output resolves to a failing
- * outcome that surfaces the tool's own message.
+ * appended when an override dropped it, since the evaluator needs the payload,
+ * and each `--fetch-<setting>` flag is passed as the variables pnpm reads it
+ * from instead ({@link fetchSettings}), over `env`, the variables its launch
+ * sets. Never throws: a spawn failure or unparseable output resolves to a
+ * failing outcome that surfaces the tool's own message.
  */
 export async function checkSecurity(opts: {
   cwd: string;
@@ -137,12 +183,14 @@ export async function checkSecurity(opts: {
   args: readonly string[];
   spawn: AuditSpawn;
   timeoutSec?: number;
+  env?: Readonly<Record<string, string>>;
 }): Promise<CheckOutcome> {
   const { cwd, command, spawn, timeoutSec } = opts;
-  const args = opts.args.includes('--json') ? [...opts.args] : [...opts.args, '--json'];
+  const fetch = fetchSettings(opts.args);
+  const args = fetch.args.includes('--json') ? fetch.args : [...fetch.args, '--json'];
   const level = auditLevelFromArgs(args);
 
-  const outcome = await spawn(command, args, cwd, timeoutSec);
+  const outcome = await spawn(command, args, cwd, timeoutSec, { ...opts.env, ...fetch.env });
   const json = parseToolJson(outcome.stdout);
   const counts = json ? severityCounts(json.value) : null;
   if (!counts) return noVerdict(command, outcome, json);

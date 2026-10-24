@@ -230,7 +230,7 @@ So the Runs column reads as `pnpm exec <tool>` under pnpm,
 | `test` | `vitest` | `vitest run --coverage --reporter=default --reporter=json --outputFile={out}/test.json`, with `--changed {base}` under `--changed` | a `vitest.config.*` or the `vitest` dependency | `test.json`, through vitest's own `--outputFile` |
 | `test` | `jest` | `jest --ci --json --outputFile={out}/test.json`, with `--changedSince {base}` under `--changed` | a `jest.config.*` | `test.json`, through jest's own `--outputFile` |
 | `mutation` (opt-in) | `stryker` | `stryker run`, with no timeout | a `stryker.config.*` or `stryker.conf.*` | `mutation.stdout.txt` |
-| `security` (opt-in) | `pnpm-audit` | built-in: `pnpm audit --audit-level=high --json --fetch-retries=1 --fetch-timeout=15000`, with the network | pnpm as the package manager | `security.json` |
+| `security` (opt-in) | `pnpm-audit` | built-in: `pnpm audit --audit-level=high --json --fetch-retries=1 --fetch-timeout=15000`, with the network; the fetch flags reach pnpm as `npm_config_*` and `pnpm_config_*` variables, since most pnpm releases refuse them on `audit` | pnpm as the package manager | `security.json` |
 | `build` (opt-in) | `build` | `<pm> run build` | `scripts.build` in `package.json` | `build.stdout.txt` |
 | `publint` (opt-in) | `publint` | `publint` | the `publint` dependency | `publint.stdout.txt` |
 | `attw` (opt-in) | `attw` | `attw --pack . --format json` | the `@arethetypeswrong/cli` dependency | `attw.json` |

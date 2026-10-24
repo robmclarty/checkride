@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -734,6 +734,54 @@ describe('CLI slot-selection validation', () => {
   test('an empty selection is rejected before any .check/ side effect', async () => {
     expect(await runCli(['--only', ','], deps(capture()))).toBe(2);
     expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+});
+
+/**
+ * Contract: `baseline` takes `--only` and `--skip`, which select as a run's
+ * do, and rewrites only the checks its capture recorded: every check the
+ * selection leaves out keeps its entry. An unknown token, or a flag naming
+ * nothing, is a usage error that writes nothing.
+ */
+/** A custom check named for the eslint adapter, so its parser keys it, that reports one error of `rule` in `a.js`. */
+function eslintCheck(rule: string): { command: string; args: string[]; name: string } {
+  return {
+    command: process.execPath,
+    args: ['-e', `console.log(JSON.stringify([{ filePath: require('path').join(process.cwd(), 'a.js'), messages: [{ ruleId: '${rule}', severity: 2, message: 'bad', line: 1, column: 1 }] }])); process.exit(1)`],
+    name: 'eslint',
+  };
+}
+
+describe('CLI baseline selection (baseline --only / --skip)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    // eslint prints the path its working directory resolves to, so the repo is named the same way.
+    dir = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-baseline-only-')));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { first: eslintCheck('one'), second: eslintCheck('two') } }));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  function deps(stderr = capture()): CliDeps {
+    return { cwd: dir, stdout: { write: () => true }, stderr, env: {} };
+  }
+
+  const slotsOf = async (): Promise<Record<string, string[]>> =>
+    (JSON.parse(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')) as { slots: Record<string, string[]> }).slots;
+
+  test('--only recaptures the checks it names, and --skip every other, and each check left out keeps its keys', async () => {
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { first: ['kept:x:y'], second: ['kept:x:y'] } }));
+    expect(await runCli(['baseline', '--only', 'first'], deps())).toBe(0);
+    expect(await slotsOf()).toEqual({ first: ['a.js:one:bad'], second: ['kept:x:y'] });
+    expect(await runCli(['baseline', '--skip', 'first'], deps())).toBe(0);
+    expect(await slotsOf()).toEqual({ first: ['a.js:one:bad'], second: ['a.js:two:bad'] });
+  });
+
+  test('an unknown token, or a flag that names nothing, is exit 2 and writes nothing', async () => {
+    const stderr = capture();
+    expect(await runCli(['baseline', '--only', 'firsts'], deps(stderr))).toBe(2);
+    expect(stderr.text()).toContain("'firsts'");
+    expect(await runCli(['baseline', '--skip', ','], deps())).toBe(2);
+    expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
   });
 });
 

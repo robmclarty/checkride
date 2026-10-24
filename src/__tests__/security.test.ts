@@ -4,9 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
+import { ADAPTERS } from '../adapters.js';
 import type { CheckOutcome } from '../links.js';
 import type { AuditSpawn } from '../security.js';
-import { auditLevelFromArgs, checkSecurity } from '../security.js';
+import { auditLevelFromArgs, checkSecurity, fetchSettings } from '../security.js';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const read = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
@@ -90,6 +91,38 @@ describe('auditLevelFromArgs', () => {
   });
 });
 
+describe('fetchSettings', () => {
+  const BOUNDS = {
+    npm_config_fetch_retries: '1',
+    pnpm_config_fetch_retries: '1',
+    npm_config_fetch_timeout: '15000',
+    pnpm_config_fetch_timeout: '15000',
+  };
+
+  test('takes the fetch flags out of the args, and sets both prefixes of each in their place', () => {
+    expect(fetchSettings(['audit', '--audit-level=high', '--json', '--fetch-retries=1', '--fetch-timeout=15000'])).toEqual({
+      args: ['audit', '--audit-level=high', '--json'],
+      env: BOUNDS,
+    });
+  });
+
+  test('a flag written apart from its value takes the next argument as the value', () => {
+    expect(fetchSettings(['audit', '--fetch-retries', '1', '--fetch-timeout', '15000', '--json'])).toEqual({
+      args: ['audit', '--json'],
+      env: BOUNDS,
+    });
+  });
+
+  test('args without a fetch flag pass through whole and set nothing, so pnpm keeps its own defaults', () => {
+    expect(fetchSettings(['audit', '--audit-level=critical', '--json'])).toEqual({ args: ['audit', '--audit-level=critical', '--json'], env: {} });
+  });
+
+  test('a flag with no value, or an empty one, is dropped rather than passed to a pnpm that refuses it', () => {
+    expect(fetchSettings(['audit', '--fetch-timeout', '--json'])).toEqual({ args: ['audit', '--json'], env: {} });
+    expect(fetchSettings(['audit', '--fetch-timeout=', '--json'])).toEqual({ args: ['audit', '--json'], env: {} });
+  });
+});
+
 describe('checkSecurity', () => {
   test('advisories below the level are green even though pnpm exited 1 (the reported bug)', async () => {
     // The consumer case: one moderate advisory, --audit-level=high. pnpm's
@@ -127,6 +160,31 @@ describe('checkSecurity', () => {
     const record: string[][] = [];
     await runAudit(auditJson({}), ['audit', '--audit-level=high'], record);
     expect(record[0]).toContain('--json');
+  });
+
+  test("the registry row's fetch flags reach pnpm as variables, over the launch's own, and never as flags", async () => {
+    // pnpm 9, 10 and 12 refuse the flags on `audit`, so passed as flags they
+    // left the slot without a verdict on every pnpm but 11 (#8).
+    const row = ADAPTERS.find((a) => a.name === 'pnpm-audit');
+    const spawned: { args: string[]; env: Readonly<Record<string, string>> | undefined }[] = [];
+    const spawn: AuditSpawn = (_command, args, _cwd, _timeout, env) => {
+      spawned.push({ args, env });
+      return Promise.resolve({ ok: true, exit_code: 0, stdout: auditJson({}), stderr: '' });
+    };
+    const outcome = await checkSecurity({ cwd: '/tmp', command: 'pnpm', args: row?.args ?? [], spawn, env: { MISE_OFFLINE: '1' } });
+    expect(outcome.ok).toBe(true);
+    expect(spawned).toEqual([
+      {
+        args: ['audit', '--audit-level=high', '--json'],
+        env: {
+          MISE_OFFLINE: '1',
+          npm_config_fetch_retries: '1',
+          pnpm_config_fetch_retries: '1',
+          npm_config_fetch_timeout: '15000',
+          pnpm_config_fetch_timeout: '15000',
+        },
+      },
+    ]);
   });
 
   test('no readable JSON verdict (registry down, timeout) fails — never a silent pass', async () => {

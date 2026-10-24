@@ -3,14 +3,16 @@
  * token (R5.2's grammar, in `../targets/`), the usage-error guard that
  * rejects a selection naming nothing a check answers to, the `--changed`
  * skip of targets nothing changed under, the file lists a file-list
- * target's checks run over, the Go packages a Go check names, and the
- * `--static-only` filter. Shared by `runChecks` and `runFix`.
+ * target's checks run over, the Go packages a Go check names, the
+ * `--static-only` filter, and a baseline capture's filter. Shared by
+ * `runChecks` and `runFix`.
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { isFingerprintable } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
 import type { ModuleImports } from '../launch/index.js';
@@ -308,6 +310,21 @@ export async function withStaticOnly(selected: readonly ResolvedCheck[], repo: s
     const above = r.adapter.configSearchesUp === true ? { above: filesAbove(repo, dir) } : {};
     const cause = staticCause(r.adapter, { dir, files: filesUnder(dir), read, ...above });
     return cause === null ? r : { ...r, skip: `${STATIC_ONLY}: ${cause}` };
+  });
+}
+
+/**
+ * For a baseline capture, skip each selected check whose output can add no
+ * key (`fingerprintableOnly`), with `baseline: <adapter>'s output adds no
+ * key`: its adapter has no parser the baseline keys with, as `test`, `types`
+ * and a custom check named for no parsed adapter haven't, so running it
+ * would cost the capture its time and record nothing. A check keeps its
+ * place, and one already skipped keeps its own reason.
+ */
+export function withFingerprintableOnly(selected: readonly ResolvedCheck[]): ResolvedCheck[] {
+  return selected.map((r) => {
+    if (r.skip !== null || r.adapter === null || isFingerprintable(r.adapter.name)) return r;
+    return { ...r, skip: `baseline: ${r.adapter.name}'s output adds no key` };
   });
 }
 

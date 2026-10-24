@@ -101,7 +101,7 @@ required ones, so a field can't reach the schema without a row here.
 
 | Field | Type | Present when |
 | --- | --- | --- |
-| `partial` | boolean | always: true when `--only`, `--skip`, `--changed` or `--static-only` narrowed the run, or `--bail` stopped it at a failure |
+| `partial` | boolean | always: true when `--only`, `--skip`, `--changed` or `--static-only` narrowed the run, it was a `checkride baseline` capture, which runs only the checks it can key, or `--bail` stopped it at a failure |
 | `only` | array of strings | `--only` was given: the names it listed |
 | `skip` | array of strings | `--skip` was given: the names it listed |
 | `include` | array of strings | `--include` was given: the names it listed |
@@ -151,8 +151,8 @@ required ones, so a field can't reach the schema without a row here.
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
 | `ok` | boolean | always: pass or fail after baseline masking; `true` for a skipped check |
 | `skipped` | `true` | the check didn't execute |
-| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt`; on a check that never reached a verdict, with `exit_code` -1: what stopped it, `timed out after <N>s` for a timeout |
-| `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it failed to spawn or timed out, `null` when skipped |
+| `reason` | string | with `skipped`: why the check sat out, `static-only: <cause>` for one `--static-only` left out; on a failed check whose adapter declares `failOnOutput`: `<adapter> exited 0 but reported findings on stdout`; on a check refused before its tool spawned, with `exit_code` 1 (a tool the project never installed, a setup step not yet run, `prose` exemplars that are missing): the refusal's first line, whose whole text is in its `.stderr.txt`; on a check that never reached a verdict, with `exit_code` -1: what stopped it, `timed out after <N>s` for a timeout, and `check-<slot>: fallow could not run: <message> (exit <n>)` when fallow printed its own error report in place of one |
+| `exit_code` | integer or `null` | always: the tool's exit code, `-1` when it never reached a verdict: it failed to spawn or timed out, a built-in couldn't complete (`security` with the advisory endpoint unreachable), or fallow reported that it couldn't run, such as on a `fallow.toml` it can't read; `null` when skipped |
 | `duration_ms` | number | always: wall-clock milliseconds, `0` when skipped |
 | `output_file` | string or `null` | always: the JSON or JSON-lines (`.jsonl`) file the run wrote in the output directory (`.check/` unless `--out` named another), relative to it and so `<target>/<file>` for a target's check, or `null` when it wrote none |
 | `origin` | `config`, `detected`, `built-in`, `custom` or `defaults` | `adapter` isn't `null`: why the check is in the run |
@@ -434,10 +434,11 @@ read is wider — see the tolerance promise below.
 
 **A key names a finding by what it is, not where it sits.** Every key is a
 string the slot's parser built; a consumer may compare keys, count them, and
-diff them, never parse them. For the diagnostic parsers — oxlint and the go,
-rust, bash, python and terraform packs' golangci-lint, staticcheck, clippy,
-shellcheck, ruff and tflint (`lint`), ast-grep (`struct`), markdownlint-cli2 and rumdl (`docs`), cspell
-and typos (`spell`), and vale (`prose`) — the key is
+diff them, never parse them. For the diagnostic parsers — oxlint, eslint and
+biome, and the go, rust, bash, python and terraform packs' golangci-lint,
+staticcheck, clippy, shellcheck, ruff and tflint (`lint`), ast-grep (`struct`),
+markdownlint-cli2 and rumdl (`docs`), cspell and typos (`spell`), and vale
+(`prose`) — the key is
 `<file>:<rule>:<message>`: the message whitespace-collapsed, the rule empty for
 cspell and typos (`<file>::<message>`). Only a finding that can fail the slot
 is keyed:
@@ -446,6 +447,11 @@ is keyed:
   lets a warning fail too (oxlint's `--deny-warnings` or `--max-warnings`,
   ast-grep's `--error`, or an argv that runs the tool through a wrapper and so
   hides its flags), in which case every finding is keyed;
+- eslint's errors (severity 2, a file it couldn't parse among them, keyed on an
+  empty rule) and biome's `error` and `fatal` diagnostics, a warning as well
+  when the argv lets it fail (eslint's `--max-warnings`, biome's
+  `--error-on-warnings`, or a wrapper that hides the flags), and never a biome
+  `info`;
 - vale's error-severity alerts, and markdownlint-cli2's `error` lines, read
   from stderr where it prints them: a rule set to `"warning"` prints but can't
   fail the slot;
@@ -466,7 +472,13 @@ but never keyed, and so are trivy's misconfigurations. Line and column are never
 keys, so a finding keeps its key when unrelated edits move it — the property
 the ratchet and the merge story stand on. fallow's three slots (`dead`, `dupes`, `health`)
 key on category and symbol instead, in the forms the parser documents, and
-add a position only for a finding with no symbol to name. A file in a key is
+add a position only for a finding with no symbol to name. A `health` unit
+fallow emits once to a file counts as a symbol: an Angular component's
+`<component>` roll-up, and the one `<template>` of a markup file (an Angular
+`templateUrl` file, or a `.vue`, `.svelte` or `.astro` component). An inline
+template in a script file keeps its position, since nothing else tells two in
+one file apart, and so does a Svelte `<snippet:NAME>`, since two in one file
+may share a name. A file in a key is
 named from the repo root: a target's check prints paths relative to its root,
 and the key joins the root on, so `src/a.ts` from a target at `apps/web` keys
 as `apps/web/src/a.ts`. A check at the repo root keeps the path as printed. An
@@ -534,7 +546,16 @@ every check, so a damaged count fails closed. A missing
 the one this release writes is dropped whole: the run reports every finding
 that is there rather than guess which ones a newer file meant to mask. The
 reader takes text, not a path, so a historical copy from `git show` parses
-under the same rules — which is what `recover` is built on.
+under the same rules — which is what `recover` is built on. A key an earlier
+release wrote in a form this one replaced reads as the key it takes now, so an
+upgrade that moves a key without a change in what it names changes no
+verdict: the `health` keys 0.18 wrote for `<component>` and a markup file's
+`<template>`, which carried a position, read without it. A counted check
+whose old keys read as one key grandfathers as many findings under it as they
+did together. The file on disk keeps the old form until the ratchet or a full
+`checkride baseline` rewrites it, since a narrowed capture and
+`baseline --versions` leave every check they don't touch as the file holds
+it.
 
 **Who writes to it.** Keys are added only by `checkride baseline` and
 `recover --pick`; a normal run only removes them, and only on a fully observed
@@ -577,7 +598,7 @@ run flags:
 
 are promised. New commands and flags are additive; removing or repurposing one
 is a breaking change. `baseline` additionally promises `--versions`, whose
-rule is below, and `init` and `agent-setup` promise
+rule is below, and `--only` and `--skip`, and `init` and `agent-setup` promise
 `--hook <a,b>` (select which hooks to write: `gate`, `dirty`, `protect`; an
 unknown name is a usage error naming the valid set), `--no-hook` (write none),
 `--remove-hook <a,b>` (tear installed ones back out — the config entry and the
@@ -987,6 +1008,23 @@ the repo root. `gate` strips `CHECKRIDE_OUT` from the check it spawns and reads
 runs' artifacts apart; they don't keep the tools apart, since build info, test
 caches and `.fallow/` are shared, so concurrent runs that write those belong in
 separate worktrees.
+
+**A capture runs only the checks whose findings it can key.** `checkride
+baseline` skips each check whose adapter no parser the baseline keys with
+reads, a type checker's, a test runner's or a built-in's among them, with
+`baseline: <adapter>'s output adds no key` as its summary entry's reason,
+since its output could add nothing to the file, and its summary records
+`run.partial: true`. `--only` and `--skip` select
+the checks a capture runs as they select a run's, an unknown token or an empty
+list being exit 2, and the capture then rewrites only the entries of the
+checks it recorded: every check they leave out keeps its keys, its counts and
+its `captured_with` record as the file holds them, byte for byte, and a
+capture that records no check, because none it selected is one the baseline
+keys or none ran to a verdict, writes nothing and says so. A file that can't be parsed
+stops a narrowed capture with exit 2 before anything runs, since the checks it
+leaves out couldn't keep their keys; a capture of every check replaces such a
+file whole, as it always did. `baseline --versions` takes `--only` and
+`--skip` too, and names only the checks they select.
 
 **`baseline diff` says what the working tree grandfathers, and writes
 nothing.** `checkride baseline diff [<ref>] [--json]` reads `<ref>`'s committed
@@ -1427,16 +1465,19 @@ parsers.** The subpath is public and semver-bound as well, and exports
   `<slot>.stderr.txt` its parser reads, under `<target>/` for a target's
   check. The entry's `cwd`, `argv` and slot decide the rest.
 - `isParseable(adapter)` says whether an adapter has a parser: `oxlint`,
-  `ast-grep`, `cspell`, `vale`, `fallow`, `golangci-lint`, `staticcheck`,
-  `clippy`, `cargo-check`, `shellcheck`, `markdownlint-cli2`, `rumdl`,
-  `typos`, `tsc`, `go-build`, `ruff`, `mypy`, `basedpyright`, `tflint`,
-  `terraform-validate` and `trivy-config` today. The set only grows.
+  `eslint`, `biome`, `ast-grep`, `cspell`, `vale`, `fallow`,
+  `golangci-lint`, `staticcheck`, `clippy`, `cargo-check`, `shellcheck`,
+  `markdownlint-cli2`, `rumdl`, `typos`, `tsc`, `go-build`, `ruff`, `mypy`,
+  `basedpyright`, `tflint`, `terraform-validate` and `trivy-config` today.
+  The set only grows. A custom check whose `name` is one of these is read by
+  that adapter's parser.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one
 its report names (`dead`, `dupes` or `health`); `file`, named from the repo
 root with forward slashes; `line` and `column`, 1-based, when the tool reports
 them; `rule`, `''` when the tool names none; `message`; `severity`, the tool's
-own level string, verbatim; and `gates`, whether the finding can fail the
+own level string, verbatim, and for eslint, whose report gives a number, the
+word its formatters print for it, `error` or `warning`; and `gates`, whether the finding can fail the
 check under the argv that ran, or under the adapter's registry args when no
 argv is known, absent when that can't be told, as for a basedpyright warning
 without `--warnings`, which fails the run only where its config sets
@@ -1454,7 +1495,10 @@ provider `init` never installed, names no file.
 can't be read, or its output can't be trusted (vale's runtime-error report, a
 fallow report checkride can't read, a golangci-lint or shellcheck report with
 no findings list, an oxlint report with no `diagnostics` list, an ast-grep,
-rumdl or ruff report that isn't an array, a basedpyright
+rumdl or ruff report that isn't an array, an eslint report that isn't an array
+of results or holds a message it can't read, a biome report with no
+`diagnostics` list, one holding a diagnostic it can't read, or one whose errors
+and warnings aren't the counts its `summary` gives, a basedpyright
 report with no `generalDiagnostics` list, a tflint report with no `issues`
 list or with an entry in `errors`, a terraform validate report with no
 `diagnostics` list, trivy output that isn't its report object, markdownlint-cli2

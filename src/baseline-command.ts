@@ -12,6 +12,9 @@
  * slot records an empty array (it opted in and had nothing to grandfather),
  * while a slot with no parser (tsc, links, …) simply never appears — exactly
  * the "supported vs. unsupported" distinction the fingerprint contract draws.
+ * The capture doesn't run such a slot at all, since its output adds nothing.
+ * `--only` and `--skip` narrow it to the checks they select, and every other
+ * check keeps the entry the file holds for it.
  * A supported slot whose check never reached a verdict (refused, timed out,
  * crashed) keeps the keys the file already held for it, so a re-capture can't
  * empty a slot it never observed.
@@ -54,7 +57,7 @@ import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { CheckRun, CheckRunner, Out, RunnerOutcome, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
-import { runChecks } from './orchestrator/index.js';
+import { narrowedAway, runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 import { packToolchain } from './launch/index.js';
 
@@ -73,6 +76,12 @@ export type BaselineOptions = {
    * `CHECKRIDE_OUT`). The baseline itself still lands at `cwd`'s root.
    */
   out?: string;
+  /**
+   * `--only` and `--skip`: run only the checks these tokens select, as a
+   * run's do, and leave every other check's entry as the file holds it.
+   */
+  only?: string[] | null;
+  skip?: string[] | null;
 };
 
 export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline };
@@ -170,12 +179,18 @@ function capturedBaseline(captures: Captures, captured: Record<string, Captured>
   };
 }
 
+/** The `--only` and `--skip` a capture selects with, each present only when given. */
+function selectionOf(options: BaselineOptions): Pick<RunOptions, 'only' | 'skip'> {
+  return { ...(options.only ? { only: options.only } : {}), ...(options.skip ? { skip: options.skip } : {}) };
+}
+
 /**
  * The run a capture makes. `json: false` so the run reports progress on
  * stderr and nothing on stdout: the baseline artifact is the file, so stdout
  * stays clean. `baseline: null` so it records the raw current diagnostics,
  * never masked or pruned by an existing baseline the run would otherwise pick
- * up, and prints no drift notice.
+ * up, and prints no drift notice. `fingerprintableOnly` skips each check
+ * whose output adds no key, and `--only` and `--skip` select as a run's do.
  */
 function captureRun(options: BaselineOptions, cwd: string, stderr: Out): RunOptions {
   return {
@@ -183,6 +198,8 @@ function captureRun(options: BaselineOptions, cwd: string, stderr: Out): RunOpti
     json: false,
     stderr,
     baseline: null,
+    fingerprintableOnly: true,
+    ...selectionOf(options),
     ...(options.slots !== undefined ? { slots: options.slots } : {}),
     ...(options.adapters !== undefined ? { adapters: options.adapters } : {}),
     ...(options.config !== undefined ? { config: options.config } : {}),
@@ -193,18 +210,87 @@ function captureRun(options: BaselineOptions, cwd: string, stderr: Out): RunOpti
   };
 }
 
+/** The flags that narrow a capture, as its messages name them, or `null` for a capture of every check. */
+function narrowingFlags(options: BaselineOptions): string | null {
+  const flags = [...(options.only ? ['--only'] : []), ...(options.skip ? ['--skip'] : [])];
+  return flags.length === 0 ? null : flags.join(' and ');
+}
+
+/**
+ * The committed baseline a narrowed capture merges into, its keys as the file
+ * holds them, or `null` when there is none yet. One that can't be parsed
+ * stops the capture before anything runs, since the checks the selection
+ * leaves out could keep none of their keys, where a capture of every check
+ * replaces the file whole.
+ */
+function baselineToNarrow(cwd: string, flags: string): Baseline | null {
+  const read = readBaselineStatus(cwd, 'as-written');
+  if (read.state === 'unparseable') {
+    throw new Error(
+      `baseline ${flags}: ${BASELINE_FILE} can't be parsed, or comes from a newer checkride, so the checks ${flags} leaves out couldn't keep their keys; restore it with \`checkride recover\`, or capture every check with \`checkride baseline\``,
+    );
+  }
+  return read.baseline;
+}
+
+/**
+ * `base` with each of `checks` taking the entry `from` holds for it, its keys,
+ * counts and capture record, or none of them where `from` holds none, and
+ * every other check keeping the entry `base` holds, byte for byte: what a
+ * narrowed capture writes, and what `baseline --versions` writes once it has
+ * re-recorded a check.
+ */
+function withEntriesOf(base: Baseline | null, from: Baseline, checks: ReadonlySet<string>): Baseline {
+  const pick = <T>(record: Readonly<Record<string, T>> | undefined, taken: boolean): Record<string, T> =>
+    Object.fromEntries(Object.entries(record ?? {}).filter(([check]) => checks.has(check) === taken));
+  const records = { ...pick(base?.captured_with, false), ...pick(from.captured_with, true) };
+  const counts = { ...pick(base?.counts, false), ...pick(from.counts, true) };
+  return {
+    schema_version: BASELINE_SCHEMA_VERSION,
+    slots: { ...pick(base?.slots, false), ...pick(from.slots, true) },
+    ...(Object.keys(records).length > 0 ? { captured_with: records } : {}),
+    ...(Object.keys(counts).length > 0 ? { counts } : {}),
+  };
+}
+
+/**
+ * Write a narrowed capture (`--only`, `--skip`): each check it recorded takes
+ * its new entry, and every other check, one the selection left out or one
+ * that didn't run to a verdict, keeps the entry `previous`, the file as
+ * written, holds for it. It writes nothing when it recorded no check, and
+ * says so; stderr has already said why for each check it ran.
+ */
+async function writeNarrowed(cwd: string, flags: string, previous: Baseline | null, captured: { captures: Captures; baseline: Baseline }, stderr: Out): Promise<Baseline> {
+  const recorded = new Set(Object.keys(captured.captures.slots).filter((name) => !captured.captures.kept.has(name)));
+  if (recorded.size === 0) {
+    stderr.write(`\nbaseline: ${flags} recorded no check, so ${BASELINE_FILE} is unchanged\n`);
+    return previous ?? EMPTY_BASELINE;
+  }
+  const baseline = withEntriesOf(previous, captured.baseline, recorded);
+  await writeBaseline(cwd, baseline);
+  const findings = countGrandfathered(withEntriesOf(null, captured.baseline, recorded));
+  const others = Object.keys(baseline.slots).length - recorded.size;
+  const kept = others > 0 ? `; ${others} other check(s) kept as they were` : '';
+  stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${findings} finding(s) across ${[...recorded].join(', ')}${kept}\n`);
+  return baseline;
+}
+
 /**
  * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
  * The repo's explicit write: it writes the file at the root whatever config
- * or output directory the run was given.
+ * or output directory the run was given. Under `--only` or `--skip` it
+ * rewrites only the checks the capture recorded ({@link writeNarrowed}).
  */
 export async function runBaseline(options: BaselineOptions): Promise<BaselineResult> {
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
+  const flags = narrowingFlags(options);
+  const narrowedFrom = flags === null ? null : baselineToNarrow(cwd, flags);
   const result = await runChecks(captureRun(options, cwd, stderr));
-  const previous = loadBaseline(cwd);
+  const previous = flags === null ? loadBaseline(cwd) : narrowedFrom;
   const captures = capturedSlots(result.runs, previous, cwd, stderr);
   const baseline = capturedBaseline(captures, capturedWith(captures.slots, captures.kept, result.summary.checks, previous));
+  if (flags !== null) return { ok: true, exitCode: 0, baseline: await writeNarrowed(cwd, flags, previous, { captures, baseline }, stderr) };
   await writeBaseline(cwd, baseline);
 
   const slotNames = Object.keys(captures.slots);
@@ -322,6 +408,8 @@ function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolN
  * `checkride baseline --versions`: run the pipeline as a capture does, then
  * re-record the copy each check's tool ran as, where that adds no key
  * (`rerecordCopies`), and write the file only when a check was re-recorded.
+ * Under `--only` or `--skip` only the checks they select run, and the rest
+ * keep their entries.
  * The fix for a check a tool upgrade holds back from the ratchet, once the
  * repo pins the new copy, that a capture isn't: a capture would grandfather
  * whatever is new in the run too. Exits 0 whenever it ran; a usage error, a
@@ -333,12 +421,21 @@ export async function runBaselineVersions(options: BaselineVersionsOptions): Pro
   const stderr = options.stderr ?? process.stderr;
   const committed = committedForVersions(cwd, options.configPath);
   const result = await runChecks(captureRun(options, cwd, stderr));
-  const { baseline, results } = rerecordCopies(committed, observations(result, cwd));
-  const written = !baselinesEqual(committed, baseline);
+  const rerecorded = rerecordCopies(committed, observations(result, cwd));
+  const { results } = rerecorded;
+  // Every check it didn't re-record is written back as the file holds it, an
+  // earlier release's key forms included, byte for byte.
+  const asWritten = readBaselineStatus(cwd, 'as-written').baseline ?? committed;
+  const moved = new Set(results.flatMap((r) => (r.outcome === 'rerecorded' ? [r.check] : [])));
+  const baseline = withEntriesOf(asWritten, rerecorded.baseline, moved);
+  const written = !baselinesEqual(asWritten, baseline);
   if (written) await writeBaseline(cwd, baseline);
   const names: ToolNames = new Map(result.summary.checks.map((c) => [c.name, { tool: c.adapter ?? c.name, toolchain: packToolchain(c.pack) }]));
+  // A check `--only` or `--skip` left out keeps its entry, as one that didn't
+  // run does, and goes unnamed, since the selection says why.
+  const away = new Set(result.summary.checks.filter(narrowedAway).map((c) => c.name));
   stderr.write('\n');
-  reportRerecords(stderr, results, names, written);
+  reportRerecords(stderr, results.filter((r) => !away.has(r.check)), names, written);
   return { ok: true, exitCode: 0, baseline, results, written };
 }
 

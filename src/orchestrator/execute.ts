@@ -100,6 +100,11 @@ type MaskResult = {
   newFindings: number;
   reason: string | null;
   observed: Tally | null;
+  /**
+   * The reason a report verdict read that its tool never ran its analysis
+   * (fallow's own error report), so the check reached no verdict.
+   */
+  stopped?: string;
 };
 
 /**
@@ -163,7 +168,28 @@ function maskOutcome(adapter: Adapter, outcome: CheckOutcome, baseline: Baseline
 function maskByReport(v: FallowVerdict, outcome: CheckOutcome): MaskResult {
   const observed = v.observed && outcome.exit_code !== -1 ? v.findings : null;
   const { ok, baselined, newKeys, excess, newFindings } = v;
-  return { ok, baselined, newKeys, excess, newFindings, reason: verdictReason(v.reason, observed !== null, outcome), observed };
+  const stopped = v.stopped === true && v.reason !== null ? { stopped: v.reason } : {};
+  return { ok, baselined, newKeys, excess, newFindings, reason: verdictReason(v.reason, observed !== null, outcome), observed, ...stopped };
+}
+
+/**
+ * The outcome of a check whose report says its tool never ran its analysis
+ * (`MaskResult`'s `stopped`): it reached no verdict, so it records
+ * `exit_code: -1`, which readers take as "could not verify", not a finding,
+ * and a `check-<slot>:` line naming the tool's reason and its exit code is
+ * appended to its stderr, the line the summary's `reason` and the digest
+ * name, as a built-in's is. A bad `fallow.toml` made fallow exit 2 with its
+ * message in a JSON report, which read as a missing `schema_version` and
+ * failed the check as a finding (#8).
+ */
+function stoppedOutcome<T extends CheckOutcome>(adapter: Adapter, outcome: T, stopped: string): T {
+  const before = outcome.stderr === '' || outcome.stderr.endsWith('\n') ? outcome.stderr : `${outcome.stderr}\n`;
+  return { ...outcome, ok: false, exit_code: -1, stderr: `${before}check-${adapter.slot}: ${stopped} (exit ${outcome.exit_code})\n` };
+}
+
+/** A check's outcome as its entry records it: {@link stoppedOutcome} when its masking says its tool never ran, and the outcome itself otherwise. */
+function settledOutcome<T extends CheckOutcome>(adapter: Adapter, outcome: T, mask: MaskResult): T {
+  return mask.stopped === undefined ? outcome : stoppedOutcome(adapter, outcome, mask.stopped);
 }
 
 /**
@@ -410,7 +436,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   // pass/fail verdict, never the authoritative output.
   const scope = { key: name, root: r.root, repoRoot: ctx.cwd, base: ctx.changedBase?.ref ?? null, out: place.outArg };
   const mask = maskOutcome(adapter, outcome, ctx.baseline, scope);
-  const run = checkRun(r, adapter, outcome);
+  const run = checkRun(r, adapter, settledOutcome(adapter, outcome, mask));
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
   if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth, run);

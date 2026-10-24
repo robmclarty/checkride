@@ -47,6 +47,12 @@ export type FallowVerdict = {
   observed: boolean;
   /** A one-line failure explanation for the console, or `null` when green. */
   reason: string | null;
+  /**
+   * True when fallow's own error report took the place of a report: it never
+   * ran its analysis (a `fallow.toml` it can't read, say), so the check
+   * reached no verdict, and `reason` names fallow's message.
+   */
+  stopped?: true;
 };
 
 /**
@@ -70,7 +76,8 @@ export type FallowVerdict = {
 export function fallowVerdict(raw: string, entry: BaselineEntry | null, root?: string): FallowVerdict {
   const parsed = parseFallowReport(raw, { root });
   if (!parsed.ok) {
-    return { ok: false, baselined: 0, newKeys: [], excess: [], newFindings: 0, findings: new Map(), observed: false, reason: parsed.reason };
+    const stopped = parsed.stopped === true ? { stopped: true as const } : {};
+    return { ok: false, baselined: 0, newKeys: [], excess: [], newFindings: 0, findings: new Map(), observed: false, reason: parsed.reason, ...stopped };
   }
   // Every counted fallow finding gates, so every key is a gating key.
   const findings = new Map<string, number>();

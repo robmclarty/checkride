@@ -186,7 +186,8 @@ export type Drift = {
 export type SummaryRun = {
   /**
    * True when `--only`, `--skip`, `--changed` or `--static-only` narrowed the
-   * run, or `--bail` stopped it at a failure: the test that keeps the run from
+   * run, it was a baseline capture, which runs only the checks it can key, or
+   * `--bail` stopped it at a failure: the test that keeps the run from
    * ratcheting the baseline, so the two always agree.
    */
   partial: boolean;
@@ -340,6 +341,15 @@ export type RunOptions = RunFlags & {
    * `pin_source: "override"`. A run with it never ratchets the baseline.
    */
   pins?: { path: string; tools: ReadonlyMap<string, string> };
+  /**
+   * Skip each selected check whose output can add no baseline key, because
+   * no parser the baseline keys with reads its adapter's output, with
+   * `baseline: <adapter>'s output adds no key` as its reason: the run a
+   * `checkride baseline` capture makes, which reads nothing else. The run
+   * sees only part of the pipeline, so its summary's `run.partial` is true
+   * and it never ratchets.
+   */
+  fingerprintableOnly?: boolean;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

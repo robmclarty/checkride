@@ -221,6 +221,8 @@ checkride doctor       Verify environment + every slot's status (read-only, exit
 checkride fix          Run every active adapter's fix command (oxlint --fix, ...).
 checkride baseline     Record current diagnostics as a committed baseline.
   --versions   re-record the copy each check's tool ran, adding no key
+  --only <a,b> capture just these checks; every other check keeps its entry
+  --skip <a,b> capture every check but these
 checkride baseline diff [<ref>]  List the keys the working tree's baseline adds
                        or drops against <ref>'s (default HEAD); --json for JSON.
 checkride recover      Rebuild checkride.baseline.json candidates from git history
@@ -721,16 +723,23 @@ file's git history and restores one additively; see `checkride recover --help`.
 *everything* currently failing — including brand-new debt you might rather
 fix — so treat re-running it as a reviewed change: do it deliberately (say,
 after adopting a stricter rule set) and read the `checkride.baseline.json`
-diff in the PR like code. `checkride baseline diff [<ref>]` lists the keys the
+diff in the PR like code. `checkride baseline --only <checks>` (or `--skip`)
+re-records just the checks it selects and leaves every other check's entry as
+it was, so adopting one check per commit touches only that check in the diff.
+`checkride baseline diff [<ref>]` lists the keys the
 working tree adds and drops against `<ref>`'s copy (default `HEAD`), per check,
 and each key whose count changed, or as JSON under `--json`, so a reviewer sees
 exactly what a change grandfathers.
 
-Only slots whose tool has a parser the baseline keys with participate: oxlint,
+Only slots whose tool has a parser the baseline keys with participate, and a
+capture doesn't run the others: oxlint, eslint, biome,
 golangci-lint, staticcheck, clippy, shellcheck, ruff and tflint for `lint`,
 ast-grep for `struct`, markdownlint-cli2 and rumdl for `docs`, cspell and typos
 for `spell`, vale for `prose`, and fallow for `dead`, `dupes` and `health`,
-each keying only the findings that can fail the slot. A type checker's or a
+each keying only the findings that can fail the slot. A custom check whose
+`name` is one of these adapters' is keyed the same way, so an eslint rule set
+run as a check of its own, with `"name": "eslint"`, can be adopted with
+findings it already has. A type checker's or a
 build's errors (`types`) and tests are never grandfathered, so those slots never
 appear in the baseline. The file's shape is a promised surface — see
 [the contract](./docs/contract.md#checkridebaselinejson). A crash or empty output is

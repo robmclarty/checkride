@@ -1,0 +1,237 @@
+[
+  {
+    "filePath": "/work/repo/eslint.config.js",
+    "messages": [],
+    "suppressedMessages": [],
+    "errorCount": 0,
+    "fatalErrorCount": 0,
+    "warningCount": 0,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "usedDeprecatedRules": []
+  },
+  {
+    "filePath": "/work/repo/src/a.js",
+    "messages": [
+      {
+        "ruleId": "no-unused-vars",
+        "severity": 1,
+        "message": "'unused' is assigned a value but never used.",
+        "line": 2,
+        "column": 7,
+        "nodeType": "Identifier",
+        "messageId": "unusedVar",
+        "endLine": 2,
+        "endColumn": 13,
+        "suggestions": [
+          {
+            "messageId": "removeVar",
+            "data": {
+              "varName": "unused"
+            },
+            "fix": {
+              "range": [
+                32,
+                47
+              ],
+              "text": ""
+            },
+            "desc": "Remove unused variable 'unused'."
+          }
+        ]
+      },
+      {
+        "ruleId": "prefer-const",
+        "severity": 1,
+        "message": "'unused' is never reassigned. Use 'const' instead.",
+        "line": 2,
+        "column": 7,
+        "nodeType": "Identifier",
+        "messageId": "useConst",
+        "endLine": 2,
+        "endColumn": 13,
+        "fix": {
+          "range": [
+            32,
+            47
+          ],
+          "text": "const unused = 1;"
+        }
+      },
+      {
+        "ruleId": "eqeqeq",
+        "severity": 2,
+        "message": "Expected '===' and instead saw '=='.",
+        "line": 3,
+        "column": 9,
+        "nodeType": "BinaryExpression",
+        "messageId": "unexpected",
+        "endLine": 3,
+        "endColumn": 11,
+        "suggestions": [
+          {
+            "messageId": "replaceOperator",
+            "data": {
+              "expectedOperator": "===",
+              "actualOperator": "=="
+            },
+            "fix": {
+              "range": [
+                56,
+                58
+              ],
+              "text": "==="
+            },
+            "desc": "Use '===' instead of '=='."
+          }
+        ]
+      },
+      {
+        "ruleId": "no-debugger",
+        "severity": 2,
+        "message": "Unexpected 'debugger' statement.",
+        "line": 4,
+        "column": 5,
+        "nodeType": "DebuggerStatement",
+        "messageId": "unexpected",
+        "endLine": 4,
+        "endColumn": 14
+      },
+      {
+        "ruleId": "eqeqeq",
+        "severity": 2,
+        "message": "Expected '===' and instead saw '=='.",
+        "line": 6,
+        "column": 12,
+        "nodeType": "BinaryExpression",
+        "messageId": "unexpected",
+        "endLine": 6,
+        "endColumn": 14,
+        "suggestions": [
+          {
+            "messageId": "replaceOperator",
+            "data": {
+              "expectedOperator": "===",
+              "actualOperator": "=="
+            },
+            "fix": {
+              "range": [
+                93,
+                95
+              ],
+              "text": "==="
+            },
+            "desc": "Use '===' instead of '=='."
+          }
+        ]
+      }
+    ],
+    "suppressedMessages": [],
+    "errorCount": 3,
+    "fatalErrorCount": 0,
+    "warningCount": 2,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 1,
+    "source": "export function check(a, b) {\n  let unused = 1;\n  if (a == b) {\n    debugger;\n  }\n  return a == 2;\n}\n",
+    "usedDeprecatedRules": []
+  },
+  {
+    "filePath": "/work/repo/src/broken.js",
+    "messages": [
+      {
+        "ruleId": null,
+        "nodeType": null,
+        "fatal": true,
+        "severity": 2,
+        "message": "Parsing error: Unexpected token =",
+        "line": 1,
+        "column": 14
+      }
+    ],
+    "suppressedMessages": [],
+    "errorCount": 1,
+    "fatalErrorCount": 1,
+    "warningCount": 0,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "source": "export const = 1;\n",
+    "usedDeprecatedRules": []
+  },
+  {
+    "filePath": "/work/repo/src/clean.js",
+    "messages": [],
+    "suppressedMessages": [],
+    "errorCount": 0,
+    "fatalErrorCount": 0,
+    "warningCount": 0,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 0,
+    "usedDeprecatedRules": []
+  },
+  {
+    "filePath": "/work/repo/src/nested/c.js",
+    "messages": [
+      {
+        "ruleId": "prefer-const",
+        "severity": 1,
+        "message": "'y' is never reassigned. Use 'const' instead.",
+        "line": 3,
+        "column": 5,
+        "nodeType": "Identifier",
+        "messageId": "useConst",
+        "endLine": 3,
+        "endColumn": 6,
+        "fix": {
+          "range": [
+            70,
+            80
+          ],
+          "text": "const y = 2;"
+        }
+      }
+    ],
+    "suppressedMessages": [
+      {
+        "ruleId": "eqeqeq",
+        "severity": 2,
+        "message": "Expected '===' and instead saw '=='.",
+        "line": 2,
+        "column": 30,
+        "nodeType": "BinaryExpression",
+        "messageId": "unexpected",
+        "endLine": 2,
+        "endColumn": 32,
+        "suggestions": [
+          {
+            "messageId": "replaceOperator",
+            "data": {
+              "expectedOperator": "===",
+              "actualOperator": "=="
+            },
+            "fix": {
+              "range": [
+                64,
+                66
+              ],
+              "text": "==="
+            },
+            "desc": "Use '===' instead of '=='."
+          }
+        ],
+        "suppressions": [
+          {
+            "kind": "directive",
+            "justification": ""
+          }
+        ]
+      }
+    ],
+    "errorCount": 0,
+    "fatalErrorCount": 0,
+    "warningCount": 1,
+    "fixableErrorCount": 0,
+    "fixableWarningCount": 1,
+    "source": "// eslint-disable-next-line eqeqeq\nexport const same = (x) => x == 1;\nlet y = 2;\nexport const z = y;\n",
+    "usedDeprecatedRules": []
+  }
+]

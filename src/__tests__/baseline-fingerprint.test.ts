@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS } from '../adapters.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { applyBaseline, findingText, fingerprint, tally } from '../baseline/index.js';
+import { applyBaseline, findingText, fingerprint, isFingerprintable, tally } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
@@ -512,9 +512,16 @@ describe('fingerprint — support boundary', () => {
 
   test('an adapter with no extractor returns null (baseline unsupported)', () => {
     // Alternates and non-diagnostic slots sit out (fallow is supported — below).
-    for (const adapter of ['knip', 'biome', 'eslint', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
+    for (const adapter of ['knip', 'biome-format', 'tsc', 'links', 'stryker', 'pnpm-audit']) {
       expect(fingerprint(adapter, '[]')).toBeNull();
     }
+  });
+
+  test('eslint and biome key the lint slot as oxlint does, their clean runs an empty set (#8)', () => {
+    expect(fingerprint('eslint', '[]')).toEqual(new Set());
+    expect(fingerprint('biome', JSON.stringify({ summary: { errors: 0, warnings: 0 }, diagnostics: [] }))).toEqual(new Set());
+    expect(isFingerprintable('eslint')).toBe(true);
+    expect(isFingerprintable('biome')).toBe(true);
   });
 
   test('findingText hands each parser the stream it declares, and stdout when there is none (D49)', () => {

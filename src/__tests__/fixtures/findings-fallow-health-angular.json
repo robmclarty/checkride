@@ -1,0 +1,575 @@
+{
+  "kind": "health",
+  "schema_version": 11,
+  "version": "3.31.0",
+  "elapsed_ms": 264,
+  "findings": [
+    {
+      "path": "src/app/foo.component.ts",
+      "name": "<component>",
+      "line": 11,
+      "col": 6,
+      "cyclomatic": 12,
+      "cognitive": 17,
+      "line_count": 27,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "component_rollup": {
+        "component": "foo.component",
+        "class_worst_function": "pick",
+        "class_cyclomatic": 5,
+        "class_cognitive": 6,
+        "template_path": "src/app/foo.component.html",
+        "template_cyclomatic": 7,
+        "template_cognitive": 11
+      },
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `foo.component` to reduce component complexity (rolled-up cyclomatic 12 = 5 on `pick` + 7 on the template)",
+          "note": "Consider splitting the template into smaller components OR extracting helpers from the worst class method; the rollup reflects the component as one complexity unit"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the worst class method (the rollup is anchored at that method's line, so a comment above it hides both the function finding and the rollup)",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-component-worst-method"
+        }
+      ]
+    },
+    {
+      "path": "src/app/foo.component.html",
+      "name": "<template>",
+      "line": 2,
+      "col": 7,
+      "cyclomatic": 7,
+      "cognitive": 11,
+      "line_count": 18,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `<template>` to reduce template complexity (simplify control flow and bindings)",
+          "note": "Consider splitting complex template branches into smaller components or simpler bindings"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with an HTML comment at the top of the template",
+          "comment": "<!-- fallow-ignore-file complexity -->",
+          "placement": "top-of-template"
+        }
+      ]
+    },
+    {
+      "path": "src/app/bar.component.ts",
+      "name": "<template>",
+      "line": 3,
+      "col": 0,
+      "cyclomatic": 6,
+      "cognitive": 9,
+      "line_count": 7,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `<template>` to reduce template complexity (simplify control flow and bindings)",
+          "note": "Consider splitting complex template branches into smaller components or simpler bindings"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the Angular decorator",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-angular-decorator"
+        }
+      ]
+    },
+    {
+      "path": "src/app/bar.component.ts",
+      "name": "<template>",
+      "line": 27,
+      "col": 0,
+      "cyclomatic": 6,
+      "cognitive": 9,
+      "line_count": 7,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `<template>` to reduce template complexity (simplify control flow and bindings)",
+          "note": "Consider splitting complex template branches into smaller components or simpler bindings"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the Angular decorator",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-angular-decorator"
+        }
+      ]
+    },
+    {
+      "path": "src/app/one.html",
+      "name": "<template>",
+      "line": 1,
+      "col": 5,
+      "cyclomatic": 6,
+      "cognitive": 9,
+      "line_count": 1,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `<template>` to reduce template complexity (simplify control flow and bindings)",
+          "note": "Consider splitting complex template branches into smaller components or simpler bindings"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with an HTML comment at the top of the template",
+          "comment": "<!-- fallow-ignore-file complexity -->",
+          "placement": "top-of-template"
+        }
+      ]
+    },
+    {
+      "path": "src/app/two.html",
+      "name": "<template>",
+      "line": 1,
+      "col": 5,
+      "cyclomatic": 6,
+      "cognitive": 9,
+      "line_count": 1,
+      "param_count": 0,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `<template>` to reduce template complexity (simplify control flow and bindings)",
+          "note": "Consider splitting complex template branches into smaller components or simpler bindings"
+        },
+        {
+          "type": "suppress-file",
+          "auto_fixable": false,
+          "description": "Suppress with an HTML comment at the top of the template",
+          "comment": "<!-- fallow-ignore-file complexity -->",
+          "placement": "top-of-template"
+        }
+      ]
+    },
+    {
+      "path": "src/app/bar.component.ts",
+      "name": "tally",
+      "line": 18,
+      "col": 7,
+      "cyclomatic": 5,
+      "cognitive": 5,
+      "line_count": 7,
+      "param_count": 2,
+      "exceeded": "all",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "crap": 30,
+      "coverage_tier": "none",
+      "coverage_source": "estimated",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `tally` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `tally` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Split into smaller functions with single responsibilities. Splitting relocates branching, so it lowers this function's score without lowering the total"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "src/app/foo.component.ts",
+      "name": "pick",
+      "line": 11,
+      "col": 6,
+      "cyclomatic": 5,
+      "cognitive": 6,
+      "line_count": 9,
+      "param_count": 1,
+      "exceeded": "all",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "crap": 30,
+      "coverage_tier": "none",
+      "coverage_source": "estimated",
+      "actions": [
+        {
+          "type": "add-tests",
+          "auto_fixable": false,
+          "description": "Add test coverage for `pick` to lower its CRAP score (coverage reduces risk even without refactoring)",
+          "note": "CRAP = CC^2 * (1 - cov/100)^3 + CC; higher coverage is the fastest way to bring CRAP under threshold"
+        },
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `pick` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Split into smaller functions with single responsibilities. Splitting relocates branching, so it lowers this function's score without lowering the total"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "src/app/two.component.ts",
+      "name": "a",
+      "line": 5,
+      "col": 3,
+      "cyclomatic": 4,
+      "cognitive": 4,
+      "line_count": 1,
+      "param_count": 1,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `a` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Split into smaller functions with single responsibilities. Splitting relocates branching, so it lowers this function's score without lowering the total"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    },
+    {
+      "path": "src/app/two.component.ts",
+      "name": "b",
+      "line": 10,
+      "col": 3,
+      "cyclomatic": 4,
+      "cognitive": 4,
+      "line_count": 1,
+      "param_count": 1,
+      "exceeded": "both",
+      "severity": "moderate",
+      "effective_severity": "error",
+      "actions": [
+        {
+          "type": "refactor-function",
+          "auto_fixable": false,
+          "description": "Refactor `b` to reduce complexity (extract helper functions, simplify branching)",
+          "note": "Split into smaller functions with single responsibilities. Splitting relocates branching, so it lowers this function's score without lowering the total"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress with an inline comment above the function declaration",
+          "comment": "// fallow-ignore-next-line complexity",
+          "placement": "above-function-declaration"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "files_analyzed": 7,
+    "functions_analyzed": 9,
+    "functions_above_threshold": 10,
+    "max_cyclomatic_threshold": 2,
+    "max_cognitive_threshold": 2,
+    "max_crap_threshold": 30,
+    "max_unit_size_threshold": 60,
+    "files_scored": 6,
+    "average_maintainability": 93.9,
+    "coverage_model": "static_estimated",
+    "coverage_source_consistency": "uniform",
+    "severity_critical_count": 0,
+    "severity_high_count": 0,
+    "severity_moderate_count": 10
+  },
+  "vital_signs": {
+    "dead_file_pct": 0,
+    "dead_export_pct": 0,
+    "avg_cyclomatic": 5.4,
+    "critical_complexity_pct": 0,
+    "p90_cyclomatic": 7,
+    "cyclomatic_population": {
+      "functions": {
+        "count": 4,
+        "sum": 18,
+        "max": 5
+      },
+      "modules": {
+        "count": 0,
+        "sum": 0,
+        "max": null
+      },
+      "templates": {
+        "count": 5,
+        "sum": 31,
+        "max": 7
+      }
+    },
+    "duplication_pct": 0,
+    "hotspot_count": 0,
+    "hotspot_top_pct_count": 0,
+    "maintainability_avg": 93.9,
+    "maintainability_low_pct": 0,
+    "unused_dep_count": 0,
+    "unused_deps_per_k_files": 0,
+    "circular_dep_count": 0,
+    "circular_deps_per_k_files": 0,
+    "counts": {
+      "total_files": 7,
+      "total_exports": 7,
+      "dead_files": 0,
+      "dead_exports": 0,
+      "duplicated_lines": 0,
+      "total_lines": 104,
+      "files_scored": 6,
+      "total_deps": 0
+    },
+    "unit_size_profile": {
+      "low_risk": 88.9,
+      "medium_risk": 11.1,
+      "high_risk": 0,
+      "very_high_risk": 0
+    },
+    "functions_over_60_loc_per_k": 0,
+    "unit_interfacing_profile": {
+      "low_risk": 100,
+      "medium_risk": 0,
+      "high_risk": 0,
+      "very_high_risk": 0
+    },
+    "p95_fan_in": 1,
+    "coupling_high_pct": 0,
+    "total_loc": 104
+  },
+  "health_score": {
+    "formula_version": 2,
+    "score": 100,
+    "grade": "A",
+    "penalties": {
+      "dead_files": 0,
+      "dead_exports": 0,
+      "complexity": 0,
+      "p90_complexity": 0,
+      "maintainability": 0,
+      "hotspots": 0,
+      "unused_deps": 0,
+      "circular_deps": 0,
+      "unit_size": 0,
+      "coupling": 0,
+      "duplication": 0
+    }
+  },
+  "file_scores": [
+    {
+      "path": "src/app/bar.component.ts",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0,
+      "complexity_density": 0.4,
+      "maintainability_index": 89.9,
+      "total_cyclomatic": 17,
+      "total_cognitive": 23,
+      "function_count": 3,
+      "lines": 42,
+      "crap_max": 30,
+      "crap_above_threshold": 1
+    },
+    {
+      "path": "src/app/foo.component.ts",
+      "fan_in": 1,
+      "fan_out": 1,
+      "dead_code_ratio": 0,
+      "complexity_density": 0.24,
+      "maintainability_index": 94.2,
+      "total_cyclomatic": 5,
+      "total_cognitive": 6,
+      "function_count": 1,
+      "lines": 21,
+      "crap_max": 30,
+      "crap_above_threshold": 1
+    },
+    {
+      "path": "src/app/two.component.ts",
+      "fan_in": 1,
+      "fan_out": 2,
+      "dead_code_ratio": 0,
+      "complexity_density": 0.67,
+      "maintainability_index": 90.8,
+      "total_cyclomatic": 8,
+      "total_cognitive": 8,
+      "function_count": 2,
+      "lines": 12,
+      "crap_max": 20,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/app/foo.component.html",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0,
+      "complexity_density": 0.37,
+      "maintainability_index": 95.8,
+      "total_cyclomatic": 7,
+      "total_cognitive": 11,
+      "function_count": 1,
+      "lines": 19,
+      "crap_max": 0,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/app/one.html",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0,
+      "complexity_density": 3,
+      "maintainability_index": 96.4,
+      "total_cyclomatic": 6,
+      "total_cognitive": 9,
+      "function_count": 1,
+      "lines": 2,
+      "crap_max": 0,
+      "crap_above_threshold": 0
+    },
+    {
+      "path": "src/app/two.html",
+      "fan_in": 1,
+      "fan_out": 0,
+      "dead_code_ratio": 0,
+      "complexity_density": 3,
+      "maintainability_index": 96.4,
+      "total_cyclomatic": 6,
+      "total_cognitive": 9,
+      "function_count": 1,
+      "lines": 2,
+      "crap_max": 0,
+      "crap_above_threshold": 0
+    }
+  ],
+  "target_thresholds": {
+    "fan_in_p95": 5,
+    "fan_in_p75": 3,
+    "fan_out_p95": 8,
+    "fan_out_p90": 5
+  },
+  "framework_health": {
+    "detected_frameworks": [
+      "angular"
+    ],
+    "detectors": [
+      {
+        "id": "unrendered-component",
+        "framework": "angular",
+        "status": "active"
+      },
+      {
+        "id": "unused-component-input",
+        "framework": "angular",
+        "status": "active"
+      },
+      {
+        "id": "unused-component-output",
+        "framework": "angular",
+        "status": "active"
+      },
+      {
+        "id": "unprovided-inject",
+        "framework": "angular",
+        "status": "active"
+      }
+    ]
+  },
+  "gate_outcomes": {
+    "health-findings": {
+      "status": "fail",
+      "enforced": true
+    }
+  },
+  "workspace_diagnostics": [
+    {
+      "path": "node_modules",
+      "kind": "node-modules-missing",
+      "message": "'node_modules' does not exist. Package exports and conditional exports cannot be read, framework plugins that activate on an installed package stay inactive, and dependency classification degrades, so imports and dependencies can be misreported. Run npm install / pnpm install / yarn / bun install first.",
+      "degrades_analysis": true
+    },
+    {
+      "path": ".",
+      "kind": "boundaries-not-configured",
+      "message": "No architecture boundaries are configured, so the boundary detector did not run and its violation counts are zero because nothing was measured. Add `boundaries` to the config, or set `boundary-violation` to off to state that the check is not wanted."
+    },
+    {
+      "path": ".",
+      "kind": "rule-packs-not-configured",
+      "message": "No rule packs are configured, so the policy detector did not run and its violation counts are zero because nothing was measured. Add `rulePacks` to the config, or set `policy-violation` to off to state that the check is not wanted."
+    },
+    {
+      "path": ".",
+      "kind": "hotspots-skipped",
+      "cause": "no-commits",
+      "message": "Hotspot analysis was skipped because the current branch has no commits yet, so the hotspots, churn and ownership sections report nothing rather than zero. Commit the project to give churn a history, or pass --churn-file with exported change history.",
+      "degrades_analysis": true
+    }
+  ],
+  "next_steps": [
+    {
+      "id": "complexity-breakdown",
+      "command": "fallow health --complexity-breakdown",
+      "reason": "see per-decision-point contributions for a hotspot"
+    },
+    {
+      "id": "audit-changed",
+      "command": "fallow audit",
+      "reason": "gate only the files your branch changed (auto-detects the base)"
+    }
+  ],
+  "_meta": {
+    "telemetry": {
+      "analysis_run_id": "run_31e9803d5c05a768"
+    }
+  }
+}

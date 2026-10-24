@@ -100,7 +100,7 @@
       "additionalProperties": false,
       "required": ["partial"],
       "properties": {
-        "partial": { "type": "boolean", "description": "True when --only, --skip, --changed or --static-only narrowed the run, or --bail stopped it at a failure. It is the test the baseline ratchet applies, so a partial run never prunes checkride.baseline.json." },
+        "partial": { "type": "boolean", "description": "True when --only, --skip, --changed or --static-only narrowed the run, it was a checkride baseline capture, which runs only the checks it can key, or --bail stopped it at a failure. It is the test the baseline ratchet applies, so a partial run never prunes checkride.baseline.json." },
         "only": { "type": "array", "items": { "type": "string" }, "description": "Present when --only was given: the names it listed." },
         "skip": { "type": "array", "items": { "type": "string" }, "description": "Present when --skip was given: the names it listed." },
         "include": { "type": "array", "items": { "type": "string" }, "description": "Present when --include was given: the names it listed." },

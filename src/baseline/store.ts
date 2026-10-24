@@ -14,6 +14,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { writeFileAtomic } from '../atomic.js';
+import { currentKey } from '../findings/index.js';
 import { isRecord } from '../json.js';
 import type { Tally } from './fingerprint.js';
 
@@ -105,8 +106,18 @@ export type BaselineAdjustment = {
  * reports the diagnostics that are actually there — more red than the author
  * intended, never a green that was not earned. Same direction as
  * {@link applyBaseline}'s refusal to mask an unparseable run.
+ *
+ * A key an earlier release wrote for a finding this one keys differently
+ * reads as the key it takes now ({@link withCurrentKeys}), so a baseline
+ * captured before an upgrade grandfathers the same findings after it.
  */
 export function parseBaseline(raw: string): Baseline | null {
+  const asWritten = parseAsWritten(raw);
+  return asWritten === null ? null : withCurrentKeys(asWritten);
+}
+
+/** {@link parseBaseline}, every key left in the form the file holds it in, an earlier release's included. */
+function parseAsWritten(raw: string): Baseline | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed) || !isRecord(parsed['slots'])) return null;
@@ -125,6 +136,34 @@ export function parseBaseline(raw: string): Baseline | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * `baseline` with each key in the form this release writes it (`currentKey`
+ * in `../findings`): through 0.18 a fallow `<component>` roll-up, say, keyed
+ * with its position, which an edit above it moved. The ratchet, `recover` and
+ * `baseline diff` all read through here, so none of them sees the old form.
+ * Two old keys that read as one new key in a counted check grandfather as
+ * many findings together as they did apart. A baseline with no old key is
+ * returned as it is.
+ */
+function withCurrentKeys(baseline: Baseline): Baseline {
+  if (!Object.values(baseline.slots).some((keys) => keys.some((key) => currentKey(key) !== key))) return baseline;
+  const slots: Record<string, string[]> = {};
+  const counts: Record<string, Record<string, number>> = {};
+  for (const [check, keys] of Object.entries(baseline.slots)) {
+    slots[check] = [...new Set(keys.map(currentKey))];
+    const own = baseline.counts?.[check];
+    if (own !== undefined) counts[check] = summedCounts(keys, own);
+  }
+  return { schema_version: baseline.schema_version, slots, ...withCaptured(baseline.captured_with), ...withCounts(counts) };
+}
+
+/** A counted check's counts once each key reads as its current key: the findings a key's old forms grandfathered, added up. */
+function summedCounts(keys: readonly string[], counts: Readonly<Record<string, number>>): Record<string, number> {
+  const summed = new Map<string, number>();
+  for (const key of new Set(keys)) summed.set(currentKey(key), (summed.get(currentKey(key)) ?? 0) + (counts[key] ?? 1));
+  return Object.fromEntries([...summed].filter(([, n]) => n >= 2));
 }
 
 /**
@@ -229,8 +268,13 @@ export type BaselineRead = {
  * unparseable is a file somebody (often a merge) mangled — the run warns about
  * the second so the damage is diagnosed at the moment it bites, not archaeology
  * later.
+ *
+ * `form` is `'current'` for the keys as this release writes them, the form
+ * masking and every comparison read, and `'as-written'` for the keys as the
+ * file holds them: what a writer that leaves a check's entry alone, a
+ * narrowed capture or `baseline --versions`, writes back for that check.
  */
-export function readBaselineStatus(cwd: string): BaselineRead {
+export function readBaselineStatus(cwd: string, form: 'current' | 'as-written' = 'current'): BaselineRead {
   const path = join(cwd, BASELINE_FILE);
   if (!existsSync(path)) return { baseline: null, state: 'absent' };
   let raw: string;
@@ -239,7 +283,7 @@ export function readBaselineStatus(cwd: string): BaselineRead {
   } catch {
     return { baseline: null, state: 'unparseable' };
   }
-  const baseline = parseBaseline(raw);
+  const baseline = form === 'current' ? parseBaseline(raw) : parseAsWritten(raw);
   return baseline === null ? { baseline: null, state: 'unparseable' } : { baseline, state: 'ok' };
 }
 

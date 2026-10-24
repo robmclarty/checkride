@@ -36,7 +36,8 @@ export type ParseContext = PathBase & { readonly argv: Argv };
  * One finding a parser read, with the key the baseline records it under.
  * `file` is already rebased (R12.4); `line` and `column` are 1-based, and
  * absent when the tool gives none; `rule` is `''` when the tool names none;
- * `severity` is the tool's own level string, verbatim, when it reports one.
+ * `severity` is the tool's own level string, verbatim, when it reports one,
+ * and for eslint, whose report gives a number, the word its formatters print.
  * `gates` says whether the finding can fail the check under the argv that
  * ran, and is absent when the parser can't tell, which the baseline reads as
  * gating. `slot` is set only by a parser whose report says which slot it
@@ -77,7 +78,8 @@ export type Parser = {
  * One parsed diagnostic, as `checkride/findings` serves it (R12.1). `file` is
  * repo-root-relative with forward slashes, unless the tool printed an absolute
  * path outside the repo; `line` and `column` are 1-based; `rule` is `''` when
- * the tool names none; `severity` is the tool's own level string, verbatim;
+ * the tool names none; `severity` is the tool's own level string, verbatim,
+ * or eslint's number as the word its formatters print;
  * `gates` says whether the finding can fail the check under the argv that ran,
  * and is absent when that can't be known (R12.3).
  */

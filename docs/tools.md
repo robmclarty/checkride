@@ -116,9 +116,14 @@ severity from the report's `advisories` map, and falls back to the
 advisory the repo ignores in `pnpm-workspace.yaml`'s
 `auditConfig.ignoreGhsas` leaves the gate: pnpm 11 drops it from the map but
 still counts it in the totals. The audit is a
-network call, so its wait is bounded: the adapter passes `--fetch-retries=1
---fetch-timeout=15000`, and an advisory endpoint that never answers turns the
-slot red in about 40 seconds rather than pnpm's default four minutes. That red
+network call, so its wait is bounded: the adapter's args carry
+`--fetch-retries=1 --fetch-timeout=15000`, and an advisory endpoint that never
+answers turns the slot red in about 40 seconds rather than pnpm's default four
+minutes. pnpm 9, 10 and 12 refuse those flags on `audit`, so the built-in takes
+each `--fetch-<setting>` flag out of the args and sets it as the variables
+pnpm reads instead, `npm_config_fetch_timeout` for pnpm 10 and earlier and
+`pnpm_config_fetch_timeout` for 11 and later, and likewise for the rest. A
+config that overrides the args sets its own, or none. That red
 is reported as `exit_code: -1` — could not verify, not a finding — with pnpm's
 own message on the slot's reason line and in `.check/security.stderr.txt`.
 Every other slot runs identically regardless of manager.
@@ -528,6 +533,29 @@ That's the boundary: reach for a custom check when the rule is specific to *your
 repo's manifest, layout, or conventions. When the rule is one many packages
 share — "the tarball is clean", "the built package imports" — prefer a slot, so
 the whole ecosystem gets it once rather than re-implementing it per repo.
+
+### A custom check whose findings the baseline keys
+
+A custom check's output is read by the parser of the adapter its `name`
+names, and by none when it has no `name`, which records it as
+`custom:<key>`. So a check that runs a tool checkride already parses can join
+the [baseline](../README.md#baseline) by naming that tool. The usual case is a
+stricter rule set adopted with findings it already has, such as Angular's
+template accessibility rules on a repo whose `lint` slot runs another config:
+
+```jsonc
+"a11y": {
+  "command": "pnpm",
+  "args": ["exec", "eslint", "--config", "eslint.a11y.config.js", "src", "--format", "json"],
+  "name": "eslint"   // keyed by eslint's parser, as the eslint adapter is
+}
+```
+
+`checkride baseline --only a11y` then grandfathers the findings it reports
+today, and a run fails only on new ones. The check's output has to be the
+format that parser reads: eslint's `--format json` here, or biome's
+`--reporter=json`, oxlint's `--format=json`, and so on, as the adapter's own
+args print it. The summary records the check's `adapter` as that name.
 
 ### A custom check that can't run everywhere
 

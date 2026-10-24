@@ -96,6 +96,14 @@ export function skippedEntry(resolved: ResolvedCheck, multiTarget: boolean): Sum
   };
 }
 
+/** The reasons a check an `--only`/`--skip` selection kept from running records ({@link narrowedEntries}). */
+const NARROWED_AWAY: ReadonlySet<string> = new Set(['not in --only', 'skipped by --skip']);
+
+/** Whether a summary entry is a check the run's `--only`/`--skip` selection kept from running, which would otherwise have run. */
+export function narrowedAway(check: SummaryCheck): boolean {
+  return check.skipped === true && check.reason !== undefined && NARROWED_AWAY.has(check.reason);
+}
+
 /**
  * Summary entries for the slots an `--only`/`--skip` selection kept from
  * running. Without them a narrowed run's summary just lists fewer checks, and

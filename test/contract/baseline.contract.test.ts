@@ -308,6 +308,51 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('trivy-config', JSON.stringify({ SchemaVersion: 2, Results: [] }))).toBeNull();
   });
 
+  test('eslint and biome key as <file>:<rule>:<message>, a warning only when argv lets it fail', () => {
+    // eslint prints absolute paths, and a key names them from the repo root.
+    const eslint = JSON.stringify([
+      {
+        filePath: '/repo/web/src/a.js',
+        messages: [
+          { ruleId: 'eqeqeq', severity: 2, message: "Expected '===' and instead saw '=='.", line: 3, column: 9 },
+          { ruleId: 'prefer-const', severity: 1, message: "'x' is never reassigned. Use 'const' instead.", line: 2, column: 7 },
+        ],
+      },
+    ]);
+    const eslintArgv = ['eslint', '.', '--format', 'json'];
+    expect(fingerprint('eslint', eslint, eslintArgv, 'web', '/repo')).toEqual(new Set(["web/src/a.js:eqeqeq:Expected '===' and instead saw '=='."]));
+    expect(fingerprint('eslint', eslint, [...eslintArgv, '--max-warnings', '0'], 'web', '/repo')?.size).toBe(2);
+    const biome = JSON.stringify({
+      summary: { errors: 1, warnings: 1, infos: 0, diagnosticsNotPrinted: 0 },
+      diagnostics: [
+        { severity: 'error', message: 'Using == may be unsafe.', category: 'lint/suspicious/noDoubleEquals', location: { path: 'src/a.js', start: { line: 3, column: 9 } } },
+        { severity: 'warning', message: 'This let declares a variable that is only assigned once.', category: 'lint/style/useConst', location: { path: 'src/a.js', start: { line: 2, column: 3 } } },
+      ],
+    });
+    const biomeArgv = ['biome', 'check', '--reporter=json'];
+    expect(fingerprint('biome', biome, biomeArgv, 'web')).toEqual(new Set(['web/src/a.js:lint/suspicious/noDoubleEquals:Using == may be unsafe.']));
+    expect(fingerprint('biome', biome, [...biomeArgv, '--error-on-warnings'], 'web')?.size).toBe(2);
+  });
+
+  test("fallow's named units key without a position, and a key in their old positional form reads as the new one", () => {
+    const health = JSON.stringify({
+      schema_version: 11,
+      kind: 'health',
+      findings: [
+        { path: 'src/foo.component.ts', name: '<component>', line: 11, col: 6 },
+        { path: 'src/foo.component.html', name: '<template>', line: 2, col: 7 },
+        { path: 'src/bar.component.ts', name: '<template>', line: 3, col: 0 },
+      ],
+    });
+    expect([...(fingerprint('fallow', health) ?? [])].toSorted()).toEqual([
+      'health:src/bar.component.ts:<template>:3:0',
+      'health:src/foo.component.html:<template>',
+      'health:src/foo.component.ts:<component>',
+    ]);
+    const old = JSON.stringify({ schema_version: 1, slots: { health: ['health:src/foo.component.ts:<component>:11:6', 'health:src/bar.component.ts:<template>:3:0'] } });
+    expect(parseBaseline(old)?.slots['health']).toEqual(['health:src/foo.component.ts:<component>', 'health:src/bar.component.ts:<template>:3:0']);
+  });
+
   test.each<{ label: string; raw: string; expected: Baseline | null }>([
     { label: 'an unknown top-level field is ignored', raw: JSON.stringify({ schema_version: 1, slots: { lint: ['a'] }, extra: true }), expected: { schema_version: 1, slots: { lint: ['a'] } } },
     { label: 'a missing schema_version reads as 1', raw: JSON.stringify({ slots: { lint: ['a'] } }), expected: { schema_version: 1, slots: { lint: ['a'] } } },

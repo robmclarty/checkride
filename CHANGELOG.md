@@ -4,6 +4,122 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **eslint and biome findings join the baseline.** The `lint` slot's two
+  alternates had no parser, so a repo whose lint runs eslint or biome could
+  adopt a stricter rule set only at zero findings: `init --baseline` disabled
+  a failing eslint or biome check rather than grandfather it, and no baseline
+  held its keys (#8). Both parse now, keyed `<file>:<rule>:<message>` as
+  oxlint is: eslint's errors, a file it couldn't parse keyed on an empty rule,
+  and biome's `error` diagnostics, its formatting and parse errors among them,
+  each one's warnings only where the argv lets them fail (`--max-warnings`,
+  `--error-on-warnings`), and never a biome `info`. Biome calls its JSON
+  reporter unstable, so a report whose diagnostics don't add up to its
+  summary's counts reads as untrustworthy: it masks nothing and prunes
+  nothing. Checked against eslint 9.36.0 and biome 2.5.6. `checkride/findings`
+  parses both, and a custom check whose `name` is a parsed adapter's, such as
+  an eslint rule set run as a check of its own with `"name": "eslint"`, is
+  read by that adapter's parser, as
+  [Tools](./docs/tools.md#a-custom-check-whose-findings-the-baseline-keys)
+  shows. A repo with a baseline whose `lint` check runs eslint or biome now
+  sees that check's findings listed as new beneath its red status line, and
+  its verdict holds until `checkride baseline` grandfathers them.
+- **`checkride baseline --only` and `--skip` recapture part of the file.**
+  `baseline` re-ran every check and rewrote every entry, so adopting one check
+  per commit meant hiding the others from the capture by hand, an `optIn` set
+  and then removed (#8). The flags select as a run's do, an unknown token
+  being exit 2, and the capture rewrites only the checks it recorded: each one
+  they leave out keeps its keys, counts and `captured_with` record byte for
+  byte. A capture that records no check, because none it selected is one the
+  baseline keys or none ran to a verdict, writes nothing and says so, and a
+  file that can't be parsed stops a narrowed capture before anything runs.
+  `baseline --versions` takes them too, and names only the checks they
+  select.
+
+### Changed
+
+- **A baseline capture runs only the checks whose findings it can key.**
+  `checkride baseline`, and `init --baseline` with it, ran every default
+  check, a long test suite included, though only a check with a parser can add
+  a key (#8). It now skips each other check, with `baseline: <adapter>'s
+  output adds no key` as its reason, so a capture costs only the checks it
+  records, and the summary it writes says `run.partial: true`. The file it
+  writes is unchanged.
+- **An Angular component's roll-up and a template file keep their `health`
+  key when code moves.** fallow names these units `<component>` and
+  `<template>`, and checkride keyed each with its position, as it keys an
+  `<arrow>`, so an import added above a component moved its key, and the gate
+  reported a grandfathered finding as new on an unrelated edit: 228 of one
+  Angular repo's 634 complexity findings were such roll-ups (#8). A
+  `<component>` roll-up, which fallow emits once for a component file, and
+  the one `<template>` of a markup file, an Angular `templateUrl` file or a
+  `.vue`, `.svelte` or `.astro` component, now key without a position. An
+  inline template keeps its own, since nothing but its decorator's position
+  tells two in one `.ts` file apart, and so does a Svelte `<snippet:NAME>`,
+  since two in one file may share a name. A baseline captured before reads
+  the old keys as the new ones, so upgrading changes no verdict. The file
+  keeps the old form until the ratchet or a full `checkride baseline`
+  rewrites it; a narrowed capture and `baseline --versions` leave the checks
+  they don't touch as they are.
+
+### Fixed
+
+- **`security` reaches a verdict on pnpm 9, 10 and 12.** The adapter passes
+  `--fetch-retries=1 --fetch-timeout=15000` to bound the wait on the advisory
+  endpoint, and only pnpm 11 takes them on `audit`: pnpm 9 and 10 exit with
+  `Unknown options: 'fetch-retries', 'fetch-timeout'`, and 12 with
+  `unexpected argument`, so the slot failed with `pnpm audit produced no
+  readable JSON verdict` on every run (#8). The built-in now takes each
+  `--fetch-<setting>` flag out of the args and sets it as the variables pnpm
+  reads instead: `npm_config_fetch_timeout` and the like for pnpm 10 and
+  earlier, and `pnpm_config_fetch_timeout` for 11 and later, each ignoring the
+  other's. The adapter's args are unchanged, and a config that overrides them
+  sets its own bounds, or none. Checked against a registry that never answers
+  under pnpm 9.15.9, 10.19.0, 10.34.7, 11.0.0, 11.28.5 and 12.15.0, each
+  giving up in about the time set. The `--config.fetch-timeout` form the issue
+  suggested breaks pnpm 11's fetch.
+- **A `fallow.toml` fallow can't read says so.** fallow prints its own error
+  report when it can't run, such as `{"error":true,"message":"invalid value:
+  integer 1000000, expected u16 in …/fallow.toml","exit_code":2}`, and
+  checkride read it as a report with no `schema_version` and failed the slot
+  as if it held findings, which hid the cause (#8). A `dead`, `dupes` or
+  `health` check that gets one now records `exit_code: -1`, could not verify,
+  with `check-<slot>: fallow could not run: <message> (exit 2)` as its reason
+  and beneath its status line. `triage` and the check skill read it as a
+  harness problem to fix first, and `init` names it.
+- **fallow's schema floor names the schema, not a release.** A report below
+  `schema_version` 7 said `checkride needs fallow >= 3.5`, but fallow 2.104.0
+  already emits 7 (#8). It now says `checkride reads schema_version 7 and
+  later`.
+
+### Contract
+
+#### Not additive
+
+- Changed: a `checkride baseline` capture, `init --baseline`'s included, skips
+  each check whose adapter has no parser the baseline keys with, recording it
+  skipped with `baseline: <adapter>'s output adds no key`, where 0.18 ran it,
+  and its summary's `run.partial` is `true`. The baseline file it writes is
+  unchanged.
+- Changed: fallow's `health` keys for a `<component>` and a markup file's
+  `<template>` carry no position, where 0.18 appended `:<line>:<col>`. A
+  baseline holding the old form reads it as the new one.
+- Changed: eslint and biome have parsers, so `checkride baseline` records a
+  `lint` check either one runs, `init --baseline` grandfathers a failing one
+  instead of disabling it, and a masked run lists its findings as new keys.
+- Changed: a fallow check whose output is fallow's own error report records
+  `exit_code: -1` and a `reason`, where 0.18 recorded fallow's exit code and
+  no reason.
+
+#### Additive
+
+- `baseline` takes `--only` and `--skip`, and so does `baseline --versions`.
+- `isParseable` answers `true` for `eslint` and `biome`.
+- The exported `RunOptions` takes `fingerprintableOnly`.
+
 ## [0.18.0] - 2026-10-24
 
 ### Changed

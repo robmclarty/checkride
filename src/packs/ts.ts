@@ -271,8 +271,10 @@ export const TS_PACK: Pack = {
       // the level, so trusting it gated at zero advisories of any severity.
       // The fetch flags bound the wait when npm's advisory endpoint is down:
       // pnpm's defaults (2 retries, 60s timeout, 10–60s backoff) sit ~250s
-      // before reporting; one retry at 15s measures ~40s. pnpm-only flags are
-      // safe here — the slot is unavailable under any other manager.
+      // before reporting; one retry at 15s measures ~40s. The evaluator passes
+      // them to pnpm as variables, not flags (`fetchSettings` in
+      // `security.ts`), since only pnpm 11 takes them on `audit`. The slot is
+      // unavailable under any other manager.
       args: ['audit', '--audit-level=high', '--json', '--fetch-retries=1', '--fetch-timeout=15000'],
       outputFile: 'security.json',
       builtin: 'security',

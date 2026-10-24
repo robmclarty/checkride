@@ -10,9 +10,10 @@
  * `baseline/fallow.ts`). An unrecognized schema is a reason, never a clean
  * report, so the verdict fails loudly rather than passing silently.
  *
- * The JSON is fallow's `schema_version` >= 7 shape (fallow >= 3.5; fallow 2.x
- * was schema 4 with a different layout and is no longer supported). Its lines
- * are 1-based and its columns 0-based.
+ * The JSON is fallow's `schema_version` >= 7 shape, which fallow 2.104 and
+ * every 3.x release emit; earlier 2.x releases emitted 3 or 4, with a
+ * different layout, and are no longer supported. Its lines are 1-based and
+ * its columns 0-based.
  */
 
 import { isRecord } from '../../json.js';
@@ -25,16 +26,18 @@ import type { KeyedFinding, Parser } from '../types.js';
 /**
  * Minimum fallow JSON schema version checkride understands, and deliberately a
  * floor rather than an exact match: fallow bumps the number for layout changes
- * that leave the fields below untouched. 3.5.0 through 3.9.1 emitted 7 for all
- * three kinds; 3.22.0 emitted 11 for health and 9 for dead-code and dupes; and
- * 3.31.0 emits 11 for health, 9 for dead-code and 10 for dupes. Every field
- * these parsers read (`findings[].path`/`.name`, `summary.total_issues`,
- * `clone_groups[].fingerprint`) is unchanged across that span — re-verified
- * against 3.31.0 output carrying a real finding of each kind, since a shape
- * drift here would read as zero findings and pass. 2.x emitted 4 with an
- * incompatible layout. A report below
- * this floor — or one whose kind/shape we can't read — is a hard failure,
- * never a silent pass.
+ * that leave the fields below untouched. 2.104.0 and 3.0.0 through 3.9.1
+ * emitted 7 for all three kinds; 3.22.0 emitted 11 for health and 9 for
+ * dead-code and dupes; and 3.31.0 emits 11 for health, 9 for dead-code and 10
+ * for dupes. Every field these parsers read (`findings[].path`/`.name`,
+ * `summary.total_issues`, `clone_groups[].fingerprint`) is unchanged across
+ * that span — re-verified against 3.31.0 output carrying a real finding of
+ * each kind, since a shape drift here would read as zero findings and pass.
+ * Earlier 2.x releases emitted 3 (2.0.0) or 4 (2.60.0), with an incompatible
+ * layout. A report below this floor — or one whose kind/shape we can't read —
+ * is a hard failure, never a silent pass. The floor is named by its schema,
+ * never a fallow version, since the releases that emit it don't follow one
+ * line.
  */
 const FALLOW_SCHEMA_MIN = 7;
 
@@ -47,11 +50,13 @@ const FALLOW_SCHEMA_MIN = 7;
  * authoritative issue count (keys for something uncounted, or findings the
  * parse never read). A key *collision* does not clear it: findings are counted
  * before a key set collapses duplicates, so two findings sharing a key stay
- * fully tracked and the baseline coarsens rather than disabling.
+ * fully tracked and the baseline coarsens rather than disabling. `stopped`
+ * marks a reason fallow gave itself, in its own error report: it never ran
+ * its analysis, so the check reached no verdict at all.
  */
 export type FallowReport =
   | { ok: true; kind: string; findings: KeyedFinding[]; issueCount: number; fullyTracked: boolean }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; stopped?: true };
 
 /** Read a field as a trimmed string, or `''` when missing/not a string. */
 function str(value: unknown): string {
@@ -153,6 +158,46 @@ function withPosition(key: string, item: Record<string, unknown>): string {
  * position appended, since every such placeholder in a file is otherwise equal.
  */
 const STABLE_IDENTIFIER = /^[A-Za-z_$][\w$.]*$/;
+
+/** A script file's name, `.ts`, `.mjs` or `.jsx` among them, as against a markup file's. */
+const SCRIPT_FILE = /\.[cm]?[jt]sx?$/;
+
+/**
+ * Whether a health finding's name keys it without its position: a real
+ * identifier, or a synthetic unit fallow emits once to a file. A component's
+ * roll-up, `<component>`, comes once to a component file, and a `<template>`
+ * once to a markup file: an Angular `templateUrl` file, or a `.vue`,
+ * `.svelte` or `.astro` component. An inline Angular template sits in a
+ * script file beside any others the file holds, with nothing but its
+ * decorator's position to tell them apart, so it keeps the position, as
+ * `<arrow>` does, and so does a Svelte `<snippet:NAME>`, since two snippets in
+ * one file may share a name, and a baseline captured before counts would
+ * then grandfather the second under the first's key. Checked against fallow
+ * 3.31.0's report over each kind.
+ */
+function namedUnit(name: string, file: string): boolean {
+  if (STABLE_IDENTIFIER.test(name) || name === '<component>') return true;
+  return name === '<template>' && !SCRIPT_FILE.test(file);
+}
+
+/** A health key with a position appended to one of the units {@link namedUnit} can key without it. */
+const POSITIONAL_UNIT = /^health:(.+):(<component>|<template>)(?::\d+){1,2}$/;
+
+/**
+ * The key a finding takes now, for a key an earlier release wrote. Through
+ * 0.18 a `<component>` roll-up and a markup file's `<template>` keyed with
+ * their position appended, so an edit above one moved its key, and a baseline
+ * that grandfathered it read it as new (#8). They key without it now
+ * ({@link namedUnit}), and a baseline reads such a key in the old form as the
+ * new one, so a file captured before still grandfathers them. Every other key
+ * is returned as it is.
+ */
+export function currentKey(key: string): string {
+  const match = POSITIONAL_UNIT.exec(key);
+  if (match === null) return key;
+  const [, file = '', unit = ''] = match;
+  return namedUnit(unit, file) ? `health:${file}:${unit}` : key;
+}
 
 /**
  * A cross-file finding (circular_dependencies, re_export_cycles), keyed on its
@@ -297,11 +342,11 @@ function parseDupes(j: Record<string, unknown>, base: PathBase): FallowReport {
 
 /**
  * Extract health (complexity) findings — one per function over threshold, keyed
- * on file + function name. A named function stays line-free so its key survives
- * edits above it; an anonymous placeholder (`<arrow>`, `<anonymous>`) shares its
- * name with every sibling in the file, so it gets a position appended to stay
- * distinct. The issue count is the number of findings. Each path is rebased
- * from `base`.
+ * on file + function name. A named function, or a unit fallow names by what it
+ * is ({@link namedUnit}), stays line-free so its key survives edits above it;
+ * an anonymous placeholder (`<arrow>`, `<anonymous>`) shares its name with
+ * every sibling in the file, so it gets a position appended to stay distinct.
+ * The issue count is the number of findings. Each path is rebased from `base`.
  */
 function parseHealth(j: Record<string, unknown>, base: PathBase): FallowReport {
   const items = j['findings'];
@@ -314,7 +359,7 @@ function parseHealth(j: Record<string, unknown>, base: PathBase): FallowReport {
     const name = str(f['name']);
     const file = rebasePath(base, str(f['path']));
     const key = `health:${file}:${name}`;
-    findings.push(finding('health', f, { file, ...at(f, 'line', 'col'), rule: 'complexity', message: name, key: STABLE_IDENTIFIER.test(name) ? key : withPosition(key, f) }));
+    findings.push(finding('health', f, { file, ...at(f, 'line', 'col'), rule: 'complexity', message: name, key: namedUnit(name, file) ? key : withPosition(key, f) }));
   }
   return { ok: true, kind: 'health', findings, issueCount: items.length, fullyTracked: findings.length === items.length };
 }
@@ -327,17 +372,31 @@ function fallowSchemaError(j: Record<string, unknown>): string | null {
   const schema = j['schema_version'];
   if (typeof schema !== 'number') return 'fallow JSON has no schema_version';
   if (schema < FALLOW_SCHEMA_MIN) {
-    return `unsupported fallow schema_version ${schema}; checkride needs fallow >= 3.5 (schema_version ${FALLOW_SCHEMA_MIN}). Run \`pnpm up fallow\`.`;
+    return `unsupported fallow schema_version ${schema}; checkride reads schema_version ${FALLOW_SCHEMA_MIN} and later. Upgrade fallow: \`pnpm up fallow\`.`;
   }
   return null;
 }
 
 /**
+ * The first line of fallow's own error report, which it prints in place of a
+ * report when it can't run at all, a `fallow.toml` holding a value it can't
+ * read among the causes: an object with `error: true`, its `message` such as
+ * `invalid value: integer 1000000, expected u16 in …/fallow.toml`, and
+ * `exit_code: 2` (fallow 3.31.0, every subcommand alike). A TOML syntax error
+ * runs to several lines, the first naming the file and the position. `null`
+ * for any other payload, a report included.
+ */
+function fallowError(j: Record<string, unknown>): string | null {
+  if (j['error'] !== true) return null;
+  return str(j['message']).split('\n').map((line) => line.trim()).find(Boolean) ?? 'it gave no message';
+}
+
+/**
  * Parse a fallow report into findings + an issue count, or the reason it could
- * not be trusted. Every failure path (bad JSON, missing/old schema, unknown
- * kind, missing count field) is a *loud* failure the verdict turns into a red
- * slot — checkride never treats an unreadable fallow report as "clean". Every
- * path in a key is rebased from `base`.
+ * not be trusted. Every failure path (bad JSON, fallow's own error report,
+ * missing/old schema, unknown kind, missing count field) is a *loud* failure
+ * the verdict turns into a red slot — checkride never treats an unreadable
+ * fallow report as "clean". Every path in a key is rebased from `base`.
  */
 export function parseFallowReport(raw: string, base: PathBase): FallowReport {
   if (raw.trim() === '') return { ok: false, reason: 'fallow produced no JSON output' };
@@ -346,6 +405,8 @@ export function parseFallowReport(raw: string, base: PathBase): FallowReport {
   if (!parsed) return { ok: false, reason: 'fallow did not emit valid JSON' };
   const j = parsed.value;
   if (!isRecord(j)) return { ok: false, reason: 'fallow output was not a JSON object' };
+  const error = fallowError(j);
+  if (error !== null) return { ok: false, reason: `fallow could not run: ${error}`, stopped: true };
 
   const schemaError = fallowSchemaError(j);
   if (schemaError !== null) return { ok: false, reason: schemaError };

@@ -4,15 +4,18 @@
  * an up-front list.
  *
  * Keyed on the adapter's name, so an alternate tool that shares a slot with a
- * parsed default (biome or eslint for `lint`, knip for `dead`) has no parser
- * until it grows its own, and a custom check that names itself after a parsed
- * adapter is read by that adapter's parser.
+ * parsed default (knip for `dead`) has no parser until it grows its own, and
+ * a custom check whose `name` is a parsed adapter's is read by that adapter's
+ * parser: a custom check named `eslint` that runs eslint with `--format json`
+ * is keyed as the `eslint` adapter is.
  */
 
 import { astGrepParser } from './parsers/ast-grep.js';
 import { basedpyrightParser } from './parsers/basedpyright.js';
+import { biomeParser } from './parsers/biome.js';
 import { cargoCheckParser, clippyParser } from './parsers/cargo.js';
 import { cspellParser } from './parsers/cspell.js';
+import { eslintParser } from './parsers/eslint.js';
 import { fallowParser } from './parsers/fallow.js';
 import { goBuildParser } from './parsers/go-build.js';
 import { golangciLintParser } from './parsers/golangci-lint.js';
@@ -39,6 +42,8 @@ import type { Parser } from './types.js';
  */
 const PARSERS: Readonly<Record<string, Parser>> = {
   oxlint: oxlintParser,
+  biome: biomeParser,
+  eslint: eslintParser,
   'ast-grep': astGrepParser,
   cspell: cspellParser,
   vale: valeParser,

@@ -100,6 +100,33 @@ describe('fallowVerdict (unreadable report → loud failure, never a silent pass
     expect(v.observed).toBe(false); // don't ratchet a baseline from a run we couldn't read
   });
 
+  test('the schema floor is named by its schema, not by a fallow release (fallow 2.104 emits 7 too, #8)', () => {
+    const v = fallowVerdict(JSON.stringify({ schema_version: 4, kind: 'health', findings: [] }), null);
+    expect(v.reason).toBe('unsupported fallow schema_version 4; checkride reads schema_version 7 and later. Upgrade fallow: `pnpm up fallow`.');
+  });
+
+  test("fallow's own error report says why fallow couldn't run, and marks the check as stopped, not as findings (#8)", () => {
+    const bad = JSON.stringify({ error: true, message: 'invalid value: integer `1000000`, expected u16 in /repo/fallow.toml', exit_code: 2 });
+    const v = fallowVerdict(bad, null);
+    expect(v).toMatchObject({ ok: false, observed: false, stopped: true });
+    expect(v.reason).toBe('fallow could not run: invalid value: integer `1000000`, expected u16 in /repo/fallow.toml');
+    // A TOML syntax error runs to several lines: the first names the file and where.
+    const syntax = JSON.stringify({
+      error: true,
+      message: 'Failed to parse config file /repo/fallow.toml: TOML parse error at line 1, column 10\n  |\n1 | entry = [\n  |          ^\nunclosed array, expected `]`\n',
+      exit_code: 2,
+    });
+    expect(fallowVerdict(syntax, null).reason).toBe('fallow could not run: Failed to parse config file /repo/fallow.toml: TOML parse error at line 1, column 10');
+    // Even with a baseline holding keys, a run that never analysed anything masks nothing.
+    expect(fallowVerdict(bad, { keys: ['dead-code:unused_files:src/a.ts'] })).toMatchObject({ ok: false, observed: false, stopped: true });
+  });
+
+  test('only an error report is stopped: an unreadable report is a plain failure', () => {
+    expect(fallowVerdict('', null).stopped).toBeUndefined();
+    expect(fallowVerdict(JSON.stringify({ error: 'nope' }), null).stopped).toBeUndefined();
+    expect(fallowVerdict(JSON.stringify({ schema_version: 4, kind: 'dupes', clone_groups: [] }), null).stopped).toBeUndefined();
+  });
+
   test('an unrecognized kind fails', () => {
     const v = fallowVerdict(JSON.stringify({ schema_version: 7, kind: 'flags' }), null);
     expect(v.ok).toBe(false);
@@ -394,6 +421,24 @@ describe('runChecks — the fallow (dead) slot gates on findings, not the exit c
     expect(missing).not.toContain('did not emit valid JSON');
     const timedOut = await said(() => Promise.resolve({ ok: false, exit_code: -1, stdout: '', stderr: 'timed out after 600s\n' }));
     expect(timedOut).toContain('timed out after 600s');
+  });
+
+  test("fallow's own error report records could-not-verify, exit -1, with fallow's message as the reason (#8)", async () => {
+    const stdout = JSON.stringify({ error: true, message: 'invalid value: integer `1000000`, expected u16 in /repo/fallow.toml', exit_code: 2 });
+    const lines: string[] = [];
+    const stderr = { write: (text: string) => { lines.push(text); return true; } };
+    const result = await runChecks({
+      cwd: dir, slots: [{ name: 'dead' }], adapters: [deadAdapter], config: null,
+      runner: staticRunner({ ok: false, exit_code: 2, stdout }), baseline: null, json: false, stdout: sink(), stderr,
+    });
+    const dead = result.summary.checks.find((c) => c.name === 'dead');
+    const reason = 'check-dead: fallow could not run: invalid value: integer `1000000`, expected u16 in /repo/fallow.toml (exit 2)';
+    expect(dead).toMatchObject({ ok: false, exit_code: -1, reason });
+    expect(result.ok).toBe(false);
+    expect(lines.join('')).toContain(reason);
+    expect(lines.join('')).not.toContain('schema_version');
+    // fallow's report is still the artifact, as it printed it.
+    expect(JSON.parse(await readFile(join(dir, '.check', 'dead.json'), 'utf8'))).toMatchObject({ error: true, exit_code: 2 });
   });
 
   test('the verdict is keyed by adapter name, not slot: the same report under `knip` is judged by exit code', async () => {

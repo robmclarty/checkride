@@ -6,7 +6,7 @@
  * siblings import from `../findings/index.js`, never from a file inside it.
  */
 
-export { parseFallowReport } from './parsers/fallow.js';
+export { currentKey, parseFallowReport } from './parsers/fallow.js';
 export { baselineParserFor, parserFor } from './registry.js';
 export { streamText } from './stream.js';
 export type { CheckOutput, KeyedFinding } from './types.js';

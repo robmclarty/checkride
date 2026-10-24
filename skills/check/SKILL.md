@@ -169,8 +169,10 @@ Two rules that outrank the table:
 
 1. **A slot with `exit_code: -1` is not a finding.** It failed to spawn, timed
    out, or ran without reaching a verdict — `security` with the advisory
-   endpoint unreachable says so on its `check-security:` line. That is a
-   harness problem wearing a failure's clothes, and it comes first.
+   endpoint unreachable says so on its `check-security:` line, and fallow on a
+   `fallow.toml` it can't read says so on its `check-<slot>:` line. That is a
+   harness problem wearing a failure's clothes, and it comes first: fix what
+   the line names before anything else.
 2. **The prose lane is independent.** `docs`, `spell` and `links` never share a
    cause with the code lane. `types` red *and* `spell` red is two pieces of work,
    not one — say so rather than folding them together.

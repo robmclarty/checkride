@@ -65,9 +65,11 @@ const RUN_OPTIONS = {
   pins: { type: 'string' },
 } as const;
 
-/** `baseline` takes only `--versions`, `--config` and `--out`; anything else is a usage error. */
+/** `baseline` takes only `--versions`, `--only`, `--skip`, `--config` and `--out`; anything else is a usage error. */
 const BASELINE_OPTIONS = {
   versions: { type: 'boolean', default: false },
+  only: { type: 'string' },
+  skip: { type: 'string' },
   config: { type: 'string' },
   out: { type: 'string' },
 } as const;
@@ -143,9 +145,11 @@ Commands:
                    --static-only, --discover, --base, --out, --defaults and
                    --pins (exit 2).
   baseline         Record current diagnostics as a committed baseline.
-                   \`baseline --versions\` re-records the copy each check's tool
-                   ran, adding no key. \`baseline diff [<ref>]\` lists the keys
-                   added and removed since <ref> (default HEAD).
+                   --only/--skip <a,b> capture just the checks they select and
+                   keep every other check's entry. \`baseline --versions\`
+                   re-records the copy each check's tool ran, adding no key.
+                   \`baseline diff [<ref>]\` lists the keys added and removed
+                   since <ref> (default HEAD).
   recover          Rebuild checkride.baseline.json candidates from git history
                    and restore one (a merge that dropped entries fails closed).
   target           Declare a target: \`target add <name> --lang <pack> --root
@@ -359,12 +363,16 @@ Docs: https://github.com/robmclarty/checkride#readme
 
 const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings, or diff them against git
 
-Usage: checkride baseline [--versions] [--config <path>] [--out <dir>]
+Usage: checkride baseline [--versions] [--only <a,b>] [--skip <a,b>]
+                          [--config <path>] [--out <dir>]
        checkride baseline diff [<ref>] [--json]
 
 \`baseline\` runs the checks and writes their current findings, per check, to
 checkride.baseline.json at the repo root. Commit the file: a later run fails
 only on findings it doesn't list, and a full run prunes the ones fixed since.
+It runs only the checks whose findings the file can key, and skips the rest.
+With --only or --skip it runs just the checks they select and rewrites only
+their entries: every other check keeps its entry as the file holds it.
 
 \`baseline --versions\` runs the checks and adds no key. A tool upgrade holds a
 check back from the ratchet when it ran another copy than the file records.
@@ -382,6 +390,10 @@ empty, so a ref from before the baseline existed lists every key as added.
 
 Options:
   --versions       Re-record the copy of each check's tool, adding no key
+  --only <a,b>     Capture only these checks, each named by a slot, a custom
+                   check, a target, or <target>:<slot>; an unknown name is
+                   exit 2 (baseline only; with --versions, re-record only them)
+  --skip <a,b>     Capture every check but these, named the same way
   --config <path>  Read this config file instead of ./checkride.config.json
                    (baseline only; or set CHECKRIDE_CONFIG). With --versions
                    it must sit inside the repo.
@@ -392,11 +404,13 @@ Options:
                    added_count, removed_count (baseline diff only)
   -h, --help       Show this help
 
-Exit codes: \`baseline\` exits 0 once the file is written, and with
---versions whenever it ran, a check left or not; with --versions, 2 when
-there's no file, it can't be parsed, or --config names a file outside the
-repo. \`baseline diff\` exits 0 whenever it ran, keys added or not, and 2
-when the ref names no commit, git is missing, or either copy can't be parsed.
+Exit codes: \`baseline\` exits 0 once the file is written, or found nothing
+to write, and with --versions whenever it ran, a check left or not; 2 for an
+unknown or empty --only or --skip, with --only or --skip when the file can't
+be parsed, and with --versions when there's no file, it can't be parsed, or
+--config names a file outside the repo. \`baseline diff\` exits 0 whenever
+it ran, keys added or not, and 2 when the ref names no commit, git is
+missing, or either copy can't be parsed.
 
 Docs: https://github.com/robmclarty/checkride#readme
 `;
@@ -828,16 +842,21 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
 async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> {
   const { rest } = detectCommand(argv);
   if (rest[0] === 'diff') return dispatchBaselineDiff(rest.slice(1), deps);
-  // `baseline` takes only `--versions`, `--config` and `--out` and no positionals, so a
-  // stray flag (for example a typo) or a `diff` that isn't first throws
-  // ERR_PARSE_ARGS_* → runCli's catch maps it to exit 2, rather than rewriting
-  // the file. It is the repo's explicit write, so it writes the baseline at the
-  // repo root wherever the config lives and wherever the artifacts go.
+  // `baseline` takes only `--versions`, `--only`, `--skip`, `--config` and
+  // `--out` and no positionals, so a stray flag (for example a typo) or a
+  // `diff` that isn't first throws ERR_PARSE_ARGS_* → runCli's catch maps it
+  // to exit 2, rather than rewriting the file. It is the repo's explicit
+  // write, so it writes the baseline at the repo root wherever the config
+  // lives and wherever the artifacts go.
   const { values } = parseArgs({ args: rest, options: BASELINE_OPTIONS });
   const named = namedConfig(values.config, deps);
+  const only = parseList(values.only, 'only');
+  const skip = parseList(values.skip, 'skip');
   const options = {
     ...(named ? { config: named.config } : {}),
     ...outOption(values.out, deps),
+    ...(only !== null ? { only } : {}),
+    ...(skip !== null ? { skip } : {}),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -31,6 +31,7 @@ import { runBaseline, runBaselineDiff, runBaselineVersions } from '../baseline-c
 import { runCli } from '../cli.js';
 import type { GitResult, GitRunner } from '../git.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
+import { runChecks } from '../orchestrator/index.js';
 
 /** A run's tally of `keys`, each found once unless a key repeats. */
 function tallyOf(...keys: string[]): Tally {
@@ -85,6 +86,9 @@ const GREEN: CheckRunner = (r) => Promise.resolve({ ok: true, exit_code: 0, stdo
 
 const RED = runnerFor({ lint: OXLINT, struct: AST_GREP, spell: CSPELL });
 
+/** Every slot's tool refuses: exit 1 and nothing on stdout, so none reaches a verdict. */
+const EVERY_TOOL_REFUSES: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: 'refused' });
+
 describe('runBaseline', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-baseline-')); });
@@ -106,6 +110,22 @@ describe('runBaseline', () => {
     expect(new Set(written.slots['spell'])).toEqual(fingerprint('cspell', CSPELL));
     expect(result.baseline).toEqual(written);
     expect(result.exitCode).toBe(0);
+  });
+
+  test("a custom check named after a parsed adapter is keyed by that adapter's parser, and masks the next run (#8)", async () => {
+    // An eslint rule set adopted with existing findings, as a custom check of its own.
+    const report = JSON.stringify([
+      {
+        filePath: join(dir, 'src', 'app.html'),
+        messages: [{ ruleId: '@angular-eslint/template/alt-text', severity: 2, message: '<img/> element must have a text alternative.', line: 3, column: 5 }],
+      },
+    ]);
+    const config = { checks: { a11y: { command: 'pnpm', args: ['exec', 'eslint', 'src', '--format', 'json'], name: 'eslint' } } };
+    const runner: CheckRunner = () => Promise.resolve({ ok: false, exit_code: 1, stdout: report, stderr: '' });
+    await runBaseline({ cwd: dir, slots: [], adapters: [], config, runner, stdout: sink(), stderr: sink() });
+    expect((await readBaseline()).slots).toEqual({ a11y: ['src/app.html:@angular-eslint/template/alt-text:<img/> element must have a text alternative.'] });
+    const result = await runChecks({ cwd: dir, slots: [], adapters: [], config, runner, json: true, stdout: sink(), stderr: sink() });
+    expect(result.summary.checks[0]).toMatchObject({ name: 'a11y', adapter: 'eslint', ok: true, baselined: 1 });
   });
 
   test('a slot with no extractor never appears in the baseline', async () => {
@@ -190,6 +210,109 @@ describe('runBaseline', () => {
     // `lint` proves the run happened; `prose` is absent rather than empty.
     expect(written.slots['lint']?.length).toBeGreaterThan(0);
     expect(written.slots).not.toHaveProperty('prose');
+  });
+
+  test("a capture never runs a check whose output adds no key, and says why it sat out (#8)", async () => {
+    const ran: string[] = [];
+    const recording: CheckRunner = (r, ctx) => {
+      ran.push(r.slot);
+      return RED(r, ctx);
+    };
+    await runBaseline({ cwd: dir, slots, adapters, config: null, runner: recording, stdout: sink(), stderr: sink() });
+    expect(ran.toSorted()).toEqual(['lint', 'spell', 'struct']);
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: { name: string; skipped?: boolean; reason?: string }[] };
+    expect(summary.checks.find((c) => c.name === 'types')).toMatchObject({ skipped: true, reason: "baseline: tsc's output adds no key" });
+  });
+
+  describe('--only and --skip (#8)', () => {
+    const counted: Baseline = {
+      schema_version: 1,
+      slots: { lint: ['old.ts:no-x:bad'], spell: ['docs/old.md::teh', 'docs/older.md::teh'], struct: ['old.ts:no-class:no classes'] },
+      captured_with: { spell: { pin_source: 'path' }, struct: { pin_source: 'js-lockfile', tool_version: '0.45.3' } },
+      counts: { spell: { 'docs/old.md::teh': 2 } },
+    };
+
+    test('--only captures just the checks it names, and every other check keeps its entry, counts and record', async () => {
+      await writeBaseline(dir, counted);
+      const err = capture();
+      const ran: string[] = [];
+      const recording: CheckRunner = (r, ctx) => {
+        ran.push(r.slot);
+        return RED(r, ctx);
+      };
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: recording, only: ['lint'], stdout: sink(), stderr: err.out });
+      expect(ran).toEqual(['lint']);
+      const written = await readBaseline();
+      expect(new Set(written.slots['lint'])).toEqual(fingerprint('oxlint', OXLINT));
+      expect(written.slots['spell']).toEqual(counted.slots['spell']);
+      expect(written.slots['struct']).toEqual(counted.slots['struct']);
+      expect(written.captured_with).toEqual(counted.captured_with);
+      expect(written.counts?.['spell']).toEqual({ 'docs/old.md::teh': 2 });
+      expect(err.text()).toMatch(/baseline: wrote checkride\.baseline\.json — \d+ finding\(s\) across lint; 2 other check\(s\) kept as they were\n/);
+    });
+
+    test('--skip captures every other check, and the skipped one keeps its entry', async () => {
+      await writeBaseline(dir, counted);
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, skip: ['spell'], stdout: sink(), stderr: sink() });
+      const written = await readBaseline();
+      expect(new Set(written.slots['struct'])).toEqual(fingerprint('ast-grep', AST_GREP));
+      expect(written.slots['spell']).toEqual(counted.slots['spell']);
+      expect(written.counts?.['spell']).toEqual({ 'docs/old.md::teh': 2 });
+      // struct was recaptured with no pin source, so the record it had goes with its old keys.
+      expect(written.captured_with).toEqual({ spell: { pin_source: 'path' } });
+    });
+
+    test('a selection of no check the baseline keys writes nothing, and says so', async () => {
+      await writeBaseline(dir, counted);
+      const before = await readFile(join(dir, 'checkride.baseline.json'), 'utf8');
+      const err = capture();
+      const result = await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, only: ['types'], stdout: sink(), stderr: err.out });
+      expect(result.exitCode).toBe(0);
+      expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(before);
+      expect(err.text()).toContain('baseline: --only recorded no check, so checkride.baseline.json is unchanged\n');
+    });
+
+    test('a selected check that never reached a verdict records nothing, and says why rather than blaming the selection', async () => {
+      const err = capture();
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: EVERY_TOOL_REFUSES, only: ['lint'], stdout: sink(), stderr: err.out });
+      expect(err.text()).toContain("baseline: lint didn't run to a verdict (refused, timed out or crashed), so it keeps its 0 previous key(s)\n");
+      expect(err.text()).toContain('baseline: --only recorded no check, so checkride.baseline.json is unchanged\n');
+      expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(false);
+    });
+
+    test("every check the selection leaves out is written back byte for byte, an earlier release's key form included", async () => {
+      // Written by hand, as 0.18 wrote it: a positional roll-up key, counted.
+      const old = 'health:src/app/foo.component.ts:<component>:11:6';
+      await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { health: [old], lint: ['old.ts:no-x:bad'] } }));
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, only: ['lint'], stdout: sink(), stderr: sink() });
+      const written = await readBaseline();
+      expect(written.slots['health']).toEqual([old]);
+      expect(new Set(written.slots['lint'])).toEqual(fingerprint('oxlint', OXLINT));
+    });
+
+    test("the summary a capture writes says it saw part of the pipeline", async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, stdout: sink(), stderr: sink() });
+      const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { run: { partial: boolean } };
+      expect(summary.run.partial).toBe(true);
+    });
+
+    test('a file that can\'t be parsed stops a narrowed capture before anything runs', async () => {
+      await writeFile(join(dir, 'checkride.baseline.json'), '<<<<<<< HEAD\n{ mangled\n');
+      let ran = false;
+      const runner: CheckRunner = (r, ctx) => {
+        ran = true;
+        return RED(r, ctx);
+      };
+      await expect(runBaseline({ cwd: dir, slots, adapters, config: null, runner, only: ['lint'], stdout: sink(), stderr: sink() })).rejects.toThrow(
+        "baseline --only: checkride.baseline.json can't be parsed, or comes from a newer checkride, so the checks --only leaves out couldn't keep their keys",
+      );
+      expect(ran).toBe(false);
+    });
+
+    test('a narrowed capture with no file yet writes the checks it captured', async () => {
+      await runBaseline({ cwd: dir, slots, adapters, config: null, runner: RED, only: ['lint', 'struct'], stdout: sink(), stderr: sink() });
+      expect(Object.keys((await readBaseline()).slots).toSorted()).toEqual(['lint', 'struct']);
+    });
   });
 
   test('skipped slots contribute nothing (no adapter, no output)', async () => {
@@ -612,6 +735,26 @@ describe('runBaselineVersions', () => {
     expect(err.text()).toContain('baseline --versions: checkride.baseline.json is unchanged: 0 re-recorded, 2 left, 0 unchanged\n');
   });
 
+  test("a check it doesn't re-record is written back byte for byte, an earlier release's key form included", async () => {
+    const old = 'health:src/app/foo.component.ts:<component>:11:6';
+    await writeFile(file(), JSON.stringify({ ...committed, slots: { ...committed.slots, health: [old] } }));
+    await runBaselineVersions({ cwd: dir, slots, adapters, config: null, runner: ranUnder([LINT_A], '1.88.0'), stdout: sink(), stderr: sink() });
+    expect(JSON.parse(await readFile(file(), 'utf8'))).toMatchObject({
+      slots: { health: [old], lint: ['a.ts:no-x:bad'] },
+      captured_with: { lint: { pin_source: 'js-lockfile', tool_version: '1.88.0' } },
+    });
+  });
+
+  test('--only runs just the checks it names, and names only those (#8)', async () => {
+    await writeBaseline(dir, committed);
+    const err = capture();
+    const result = await runBaselineVersions({ cwd: dir, slots, adapters, config: null, runner: ranUnder([LINT_A], '1.88.0'), only: ['lint'], stdout: sink(), stderr: err.out });
+    expect(result.written).toBe(true);
+    expect(JSON.parse(await readFile(file(), 'utf8'))).toMatchObject({ slots: { lint: ['a.ts:no-x:bad'], spell: ['docs/old.md::teh'] } });
+    expect(err.text()).not.toContain('spell');
+    expect(err.text()).toContain('baseline --versions: wrote checkride.baseline.json: 1 re-recorded, 0 left, 0 unchanged; review it with `git diff checkride.baseline.json`\n');
+  });
+
   test('a check that didn\'t run, or ran to no verdict, is left with its keys and record', async () => {
     await writeBaseline(dir, committed);
     const err = capture();
@@ -739,6 +882,67 @@ describe('loadBaseline / writeBaseline', () => {
   test('parseBaseline applies the same tolerance to raw text (a git-show blob)', () => {
     expect(parseBaseline('{ not json')).toBeNull();
     expect(parseBaseline(JSON.stringify({ schema_version: 1, slots: { lint: ['a', 5] } }))?.slots['lint']).toEqual(['a']);
+  });
+});
+
+describe('parseBaseline reads a key an earlier release wrote as the key it takes now', () => {
+  const OLD_COMPONENT = 'health:src/app/foo.component.ts:<component>:11:6';
+  const OLD_TEMPLATE = 'health:src/app/foo.component.html:<template>:2:7';
+  const INLINE = 'health:src/app/bar.component.ts:<template>:3:0';
+
+  test("fallow's positional roll-up and template keys read without their position; an inline template's stays (#8)", () => {
+    const parsed = parseBaseline(JSON.stringify({ schema_version: 1, slots: { health: [OLD_COMPONENT, OLD_TEMPLATE, INLINE, 'health:src/a.ts:render'] } }));
+    expect(parsed?.slots['health']?.toSorted()).toEqual([
+      'health:src/a.ts:render',
+      INLINE,
+      'health:src/app/foo.component.html:<template>',
+      'health:src/app/foo.component.ts:<component>',
+    ]);
+  });
+
+  test('a counted check keeps its counts, and old keys that read as one new key add theirs up', () => {
+    const raw = {
+      schema_version: 1,
+      slots: { health: [OLD_TEMPLATE, 'health:src/app/foo.component.html:<template>:9:2', OLD_COMPONENT], lint: ['a.ts:x:m'] },
+      counts: { health: { [OLD_COMPONENT]: 3 } },
+      captured_with: { health: { pin_source: 'js-lockfile', tool_version: '3.31.0' } },
+    };
+    expect(parseBaseline(JSON.stringify(raw))).toEqual({
+      schema_version: 1,
+      slots: { health: ['health:src/app/foo.component.html:<template>', 'health:src/app/foo.component.ts:<component>'], lint: ['a.ts:x:m'] },
+      captured_with: { health: { pin_source: 'js-lockfile', tool_version: '3.31.0' } },
+      counts: { health: { 'health:src/app/foo.component.html:<template>': 2, 'health:src/app/foo.component.ts:<component>': 3 } },
+    });
+  });
+
+  test('a check captured before counts stays uncounted, and a file with no old key reads as it is', () => {
+    expect(parseBaseline(JSON.stringify({ schema_version: 1, slots: { health: [OLD_COMPONENT] } }))).toEqual({
+      schema_version: 1,
+      slots: { health: ['health:src/app/foo.component.ts:<component>'] },
+    });
+    const current = { schema_version: 1, slots: { health: [INLINE] }, counts: { health: {} } };
+    expect(parseBaseline(JSON.stringify(current))).toEqual(current);
+  });
+
+  test('a run grandfathers a component its baseline captured under the old key, and the ratchet keeps it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-oldkeys-'));
+    try {
+      await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { health: [OLD_COMPONENT] } }));
+      const report = JSON.stringify({
+        schema_version: 11,
+        kind: 'health',
+        // The component moved: its worst method now starts on line 14.
+        findings: [{ path: 'src/app/foo.component.ts', name: '<component>', line: 14, col: 6, severity: 'high' }],
+      });
+      const result = await runChecks({
+        cwd: dir, slots: [{ name: 'health' }], adapters: [fakeAdapter({ name: 'fallow', slot: 'health', outputFile: 'health.json' })], config: null,
+        runner: () => Promise.resolve({ ok: false, exit_code: 1, stdout: report, stderr: '' }), json: true, stdout: sink(), stderr: sink(),
+      });
+      expect(result.summary.checks[0]).toMatchObject({ name: 'health', ok: true, baselined: 1 });
+      expect(loadBaseline(dir)?.slots['health']).toEqual(['health:src/app/foo.component.ts:<component>']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

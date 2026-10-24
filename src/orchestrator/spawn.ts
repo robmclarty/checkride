@@ -289,12 +289,13 @@ type BuiltinCall = {
 /**
  * `security` runs the adapter's own args, launched like any check's: its
  * `--audit-level` doubles as the threshold the evaluator enforces, since
- * pnpm's JSON-mode exit code ignores the level.
+ * pnpm's JSON-mode exit code ignores the level, and the variables the launch
+ * sets ride along, as they do for a tool's spawn.
  */
 function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome> {
   const launch = launchCheck(adapter.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), launchContext(ctx));
   if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));
-  return checkSecurity({ ...base, command: launch.command, args: launch.args });
+  return checkSecurity({ ...base, command: launch.command, args: launch.args, ...(launch.env !== undefined ? { env: launch.env } : {}) });
 }
 
 /**
