@@ -46,6 +46,10 @@
       "type": "array",
       "items": { "$ref": "#/definitions/check" },
       "description": "One entry per selected check, in pipeline order: group sequence, then catalogue position, then repo-scope before target-scope, then target order, then custom checks in config order."
+    },
+    "digest": {
+      "type": "string",
+      "description": "Present when the run was given --digest and a check failed: the text the run wrote to digest.md beside this file, a Markdown excerpt of the failing checks held to 8,000 bytes, each section naming the raw file that holds the rest, and the same text the run prints last on stderr. A harness that parses --json reads what failed here without opening a second file."
     }
   },
   "definitions": {

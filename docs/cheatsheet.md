@@ -44,7 +44,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. Where the config declares `targets`, those run instead, with a note on stderr. Also on `doctor`. Never ratchets the baseline. |
 | `--defaults <path>` | Fill the slots the repo's config and detection leave empty from this config file, marked `[defaults]` (or set `CHECKRIDE_DEFAULTS`; the flag wins). It never beats a detected tool, and can't declare `targets`. Also on `doctor`. A run with it never ratchets the baseline. |
 | `--json` | Write machine-readable output to stdout. |
-| `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary, and print it on stderr below the report; a green run removes any stale one. |
+| `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary, which carries it as `digest`, and print it on stderr below the report; a green run removes any stale one. |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
@@ -192,7 +192,7 @@ Every run writes here. Treat it as a stable API for agents.
 | `<slot>.json` / `<slot>.jsonl` | Raw tool JSON, or JSON lines, when the check declares that file and its stdout takes that form. |
 | `<slot>.stdout.txt` / `<slot>.stderr.txt` | Raw streams otherwise. A check refused before it ran prints why under its ✘ and keeps the full text in its `.stderr.txt`. |
 | `<target>/` | With `targets`, each target's checks write the same files under their target's directory, as `web/lint.json`. |
-| `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
+| `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file, and the text of the summary's `digest`. Absent on a green run. |
 
 To debug: start beneath each red ✘. A check says why it failed when it says,
 then lists the findings a baseline didn't grandfather, or a `go test` run's

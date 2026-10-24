@@ -22,6 +22,8 @@
  *   others (`targets`, `target`, `slot`, `pack`, `cwd`, `narrowed`) belong to
  *   multi-target mode, a non-`ts` implicit pack, a target root or Go
  *   narrowing, so one appearing here is itself the regression, and it fails.
+ *   The top-level `digest` (0.19.0) is stripped too: a red `--digest` run, as
+ *   agent-loop's canonical one is, carries it.
  *
  * Changing the golden is a contract change. Re-record it deliberately with
  * `CHECKRIDE_UPDATE_INVARIANCE=1 pnpm test:e2e test/e2e/invariance.e2e.test.ts`,
@@ -83,8 +85,8 @@ const SHAPES = ['flat', 'monorepo', 'hybrid'] as const;
 /** Stands in for a value that changes run to run. */
 const VOLATILE = '<volatile>';
 
-/** R8's top-level fields that a 0.13 TypeScript repo's run may gain. */
-const ADDITIVE_TOP: readonly string[] = ['run', 'git'];
+/** The additive top-level fields a 0.13 TypeScript repo's run may gain: R8's `run` and `git`, and `digest`. */
+const ADDITIVE_TOP: readonly string[] = ['run', 'git', 'digest'];
 
 /** R8's per-check fields that a 0.13 TypeScript repo's run may gain. */
 const ADDITIVE_CHECK: readonly string[] = ['origin', 'detected_by', 'pin_source', 'tool_version', 'argv'];

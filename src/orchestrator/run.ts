@@ -358,9 +358,10 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A consumer run prunes nothing even in full, so only the repo's own says what a full run would.
   if (cause !== null && consumer === null) notePrunable(ctx, observed, narrowed, cause);
 
-  // `--digest`: the token-bounded failure excerpt, built before the summary
-  // is written. Raw `<slot>.json` files are already persisted and untouched;
-  // the digest only reads them.
+  // `--digest`: the token-bounded failure excerpt, built before the summary,
+  // which carries it, so a harness reading `--json` gets it in the same read.
+  // Raw `<slot>.json` files are already persisted and untouched; the digest
+  // only reads them.
   const digest = (options.digest ?? false) ? digestOf({ label: ctx.outLabel, repoRoot: ctx.cwd }, runs, checks) : null;
 
   // The summary carries the run's own narrowing: the slots `--only`/`--skip`
@@ -373,6 +374,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     runRecord(options, ctx.cwd, partial),
     gitRecord(gitState, changedBase),
     targetsRecord(ctx.targets, ctx.discovered),
+    digest,
   );
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
   // On green there's none, and a stale digest is cleared with it.

@@ -54,8 +54,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the line the user reads, stays the one-line verdict. The instruction names
   `.check/digest.md` as the digest's copy rather than asking for a read.
   stdout still carries only `--json`'s summary, and a `--json` run prints no
-  report, so there the digest stays in the file. A green run, and a run
-  without the flag, print nothing new.
+  report, so there the summary carries the digest instead (below). A green
+  run, and a run without the flag, print nothing new.
+- **A red `--digest` run's summary carries its digest.** A harness that
+  parses `--json` got the summary and then had to read `.check/digest.md` for
+  what failed, the second read #22 asks to avoid. The summary now has a
+  top-level `digest`, after `checks`, holding the same text as the file,
+  present exactly when the run wrote one: under `--digest`, when a check
+  failed. It's at most 8,000 bytes, and only on a red run that asked for it,
+  where it's what a reader would open next.
 - **A red check names its first finding beneath its status line.** A red
   check that no baseline masked printed nothing beneath its ✘ line, even when
   checkride had parsed what it found, so a run without `--digest` named
@@ -271,6 +278,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `report:` and `digest:` lines and the notices beneath them.
 - A red gate's `reason` and `followup_message` carry this run's digest below
   the instruction.
+- The summary takes a top-level `digest`, present when `--digest` was given
+  and a check failed, holding the text of `digest.md`.
 
 ## [0.18.0] - 2026-10-24
 

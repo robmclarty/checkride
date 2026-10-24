@@ -244,6 +244,13 @@ export type Summary = {
    */
   targets?: SummaryTarget[];
   checks: SummaryCheck[];
+  /**
+   * Under `--digest`, when a check failed: the text the run wrote to
+   * `digest.md`, so a harness that parses `--json` reads what failed in the
+   * same read. Held to the digest's 8,000-byte budget. Additive field;
+   * `schema_version` holds.
+   */
+  digest?: string;
 };
 
 /**

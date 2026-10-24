@@ -147,6 +147,29 @@ describe('summary.json shape', () => {
     }));
     const summary = await runAndValidate([]);
     expect(summary['ok']).toBe(false);
+    // Without --digest the summary carries no digest.
+    expect(summary).not.toHaveProperty('digest');
+  });
+
+  /** Contract: `digest` is present exactly when the run wrote `digest.md`, and holds its text. */
+  test('a failing --digest run validates, and its digest is the text of digest.md', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: {
+        links: false,
+        probe: { command: 'node', args: ['-e', 'console.log("probe: no"); process.exit(1)'] },
+      },
+    }));
+    const summary = await runAndValidate(['--digest']);
+    expect(summary['digest']).toBe(await readFile(join(dir, '.check', 'digest.md'), 'utf8'));
+    // The checks come first, so the head of the file still says what ran.
+    expect(Object.keys(summary).at(-1)).toBe('digest');
+  });
+
+  test('a green --digest run validates, and carries no digest', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract' }));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { links: false, probe: { command: 'node', args: ['-e', 'process.exit(0)'] } } }));
+    expect(await runAndValidate(['--digest'])).not.toHaveProperty('digest');
   });
 
   /**

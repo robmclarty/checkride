@@ -461,9 +461,10 @@ it carries.
   digest (any stale one is removed), so its presence always means "this run
   failed". A red run prints the same text on stderr, last, below the `report:`
   and `digest:` lines and any warning or `hint:` beneath them, so an agent
-  reads what failed in the run's own output. It
-  never goes to stdout, so the machine-output split holds, and a `--json` run
-  prints no report, so there it is the file alone.
+  reads what failed in the run's own output. The report never prints it on
+  stdout, so the machine-output split holds, but the summary carries the same
+  text as `digest`, so a `--json` run, which prints no report, hands it over
+  inside the JSON on stdout.
 
 To debug a failure: start from the run's own lines. Beneath each red check's
 status line, the run says why it failed when the check says, then what it

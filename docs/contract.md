@@ -70,9 +70,9 @@ Additive fields to date: per-check `baselined` (0.2.0), top-level `checks_run`
 (0.3.0), per-check `origin`, `detected_by`, `argv`, `pin_source`,
 `tool_version`, `narrowed`, `target`, `slot`, `pack` and `cwd`, `reason` on a
 failed check, top-level `run`, `git` and `targets` (0.15.0), per-check
-`baseline_captured_with` and `toolchain_version` (0.16.0), and per-check
+`baseline_captured_with` and `toolchain_version` (0.16.0), per-check
 `new_count` and `new`, with `reason` on a check that reached no verdict
-(0.17.0).
+(0.17.0), and top-level `digest` (0.19.0).
 
 The tables below name every field the schema allows, each with the rule for
 when it's present. A field whose rule isn't "always" is left out otherwise,
@@ -96,6 +96,7 @@ required ones, so a field can't reach the schema without a row here.
 | `git` | object, below | the working directory is in a git work tree whose `HEAD` names a commit, and git answered within 5 seconds |
 | `targets` | array of target entries, below | multi-target mode, when `checkride.config.json` declares `targets` or `--discover` proposes them: each target the run checked, in config or discovery order |
 | `checks` | array of per-check entries | always: one per selected check, skipped ones included, plus a skipped entry for each check `--only` or `--skip` left out, in the order below |
+| `digest` | string, Markdown | `--digest` was given and a check failed: the text the run wrote to `digest.md`, held to 8,000 bytes, so a reader of `--json` gets what failed in the same read |
 
 **`run` fields.**
 
@@ -389,7 +390,8 @@ that new findings were grandfathered until a recent commit, so an agent
 reading the run's output sees what failed without opening a file, and reads
 what changes how the red reads first. stdout
 stays as [stream discipline](#cli) keeps it, and a `--json` run prints no
-human report, so there the digest is the file alone.
+human report, so there the digest rides in the summary's `digest` field,
+which holds the same text, and in the file.
 
 ## `checkride.baseline.json`
 

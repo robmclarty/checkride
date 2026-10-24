@@ -192,7 +192,8 @@ Run options:
   --concurrency <n>  Max checks running at once within a wave (default auto; 1 = sequential)
   --json           Emit the summary as JSON on stdout
   --digest         Write a capped failure excerpt to digest.md beside the
-                   summary, and print it below the report (not under --json)
+                   summary, which carries it as digest, and print it below
+                   the report (not under --json)
   --strict         Zero checks actually running is an error (exit 2), not a pass
   --config <path>  Read this config file instead of ./checkride.config.json
                    (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).

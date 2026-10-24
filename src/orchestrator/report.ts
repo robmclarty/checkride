@@ -160,7 +160,8 @@ export function narrowedEntries(
  * whenever execution is sequential (one check in flight at a time), unless the
  * run had to wait for git's answer after its last check. `run`, `git` and
  * `targets` come before `checks`, so the head of the file says what the run
- * covered.
+ * covered, and `digest`, the run's digest when it wrote one, comes after
+ * them, below the checks it excerpts.
  */
 export function buildSummary(
   checks: SummaryCheck[],
@@ -168,6 +169,7 @@ export function buildSummary(
   run: SummaryRun,
   git: SummaryGit | null,
   targets: SummaryTarget[] | null,
+  digest: string | null = null,
 ): Summary {
   return {
     schema_version: SCHEMA_VERSION,
@@ -179,6 +181,7 @@ export function buildSummary(
     ...(git !== null ? { git } : {}),
     ...(targets !== null ? { targets } : {}),
     checks,
+    ...(digest !== null ? { digest } : {}),
   };
 }
 

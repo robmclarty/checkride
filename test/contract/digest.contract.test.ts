@@ -7,7 +7,8 @@
  * always means "this run had failures" — a consumer may branch on the file
  * without reading it. A red `--digest` run also prints that text on stderr,
  * last, below its `report:` and `digest:` lines and any notice beneath them,
- * and never on stdout.
+ * and never on stdout, where under `--json` the summary carries it as
+ * `digest`.
  */
 
 import { existsSync } from 'node:fs';
@@ -117,13 +118,20 @@ describe('--digest', () => {
     expect(unflagged.text()).not.toContain(DIGEST_HEADING);
   });
 
-  test('a failing --json --digest run keeps the digest in the file: stdout is the summary alone', async () => {
+  /**
+   * A harness that parses `--json` gets the digest in the summary it parsed,
+   * so what failed costs it no second read (#22), and stdout stays the
+   * summary alone.
+   */
+  test('a failing --json --digest run carries the digest in its summary, and keeps the file: stdout is the summary alone', async () => {
     await configWithExit(1);
     const stdout = capture();
     const stderr = capture();
     expect(await runCli(['--json', '--digest'], { cwd: dir, stdout, stderr })).toBe(1);
     expect(existsSync(digestPath())).toBe(true);
-    expect(JSON.parse(stdout.text())).toMatchObject({ ok: false });
+    const summary = JSON.parse(stdout.text()) as { ok: boolean; digest?: string };
+    expect(summary.ok).toBe(false);
+    expect(summary.digest).toBe(await readFile(digestPath(), 'utf8'));
     expect(stderr.text()).not.toContain(DIGEST_HEADING);
   });
 });
