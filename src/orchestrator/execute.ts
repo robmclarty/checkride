@@ -14,7 +14,7 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, BaselineEntry, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
-import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, printedByKey, reportVerdict, stoppedShortReason } from '../baseline/index.js';
+import { applyBaseline, baselineDrift, entryFor, findingText, firstFinding, observedTally, printedByKey, reportVerdict, stoppedShortReason } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GoTestCase } from '../digest/index.js';
 import { caseName, goTestReport } from '../digest/index.js';
@@ -168,7 +168,7 @@ function maskOutcome(adapter: Adapter, outcome: RunnerOutcome, baseline: Baselin
   const entry = baseline ? entryFor(baseline, scope.key) : null;
   const verdict = reportVerdict(adapter.name);
   if (verdict !== null) return maskByReport(verdict(findingText(adapter.name, outcome), entry, scope.root), outcome);
-  const read: Reading = { argv: [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)], root: scope.root, repoRoot: scope.repoRoot };
+  const read = readingOf(adapter, scope);
   const current = entry !== null ? observedTally(adapter.name, outcome, read.argv, read.root, read.repoRoot) : null;
   if (entry !== null && current !== null) return maskObserved(adapter, outcome, entry, current, read);
   return unmasked(adapter, outcome, entry !== null, current, read);
@@ -176,6 +176,11 @@ function maskOutcome(adapter: Adapter, outcome: RunnerOutcome, baseline: Baselin
 
 /** How a check's output is read: the argv it ran with, its root, and the repo root its paths are named from. */
 type Reading = { argv: string[]; root: string | undefined; repoRoot: string };
+
+/** How `adapter`'s output is read in `scope`: under the argv it ran with, `scope`'s placeholders filled. */
+function readingOf(adapter: Adapter, scope: MaskScope): Reading {
+  return { argv: [adapter.command, ...runtimeArgs(adapter, scope.base, scope.out)], root: scope.root, repoRoot: scope.repoRoot };
+}
 
 /**
  * A run its baseline entry masks: what it grandfathers and what's new, and,
@@ -279,18 +284,46 @@ function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContex
   return entry;
 }
 
-/** Print one check's status line, its baselined count, why it failed when it says, and any new (non-grandfathered) findings. */
-function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number, run: CheckRun): void {
+/**
+ * Print one check's status line, its baselined count, why it failed when it
+ * says, and what it found: its new (non-grandfathered) findings, its failing
+ * tests, or, where neither lists anything, its first finding.
+ */
+function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number, run: CheckRun, read: Reading): void {
   writeLine(stderr, formatStatusLine(entry, width));
   if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
   if (entry.ok) return;
   const reason = entry.reason ?? mask.reason;
   if (reason) writeLine(stderr, `           ${reason}`);
-  if (mask.newFindings > 0) {
-    writeLine(stderr, `           ${mask.newFindings} new, not in baseline:`);
-    for (const line of newFindingLines(mask)) writeLine(stderr, `             ${line}`);
-  }
-  for (const line of goTestLines(run)) writeLine(stderr, line);
+  const found = [...newFindingsList(mask), ...goTestLines(run)];
+  for (const line of found.length > 0 ? found : firstFindingLine(run, mask, read)) writeLine(stderr, line);
+}
+
+/** The findings a baseline didn't grandfather, under a line counting them, or nothing for a check with none. */
+function newFindingsList(mask: MaskResult): string[] {
+  if (mask.newFindings === 0) return [];
+  return [`           ${mask.newFindings} new, not in baseline:`, ...newFindingLines(mask).map((line) => `             ${line}`)];
+}
+
+/**
+ * Beneath a red check that lists nothing it found, the first finding its
+ * parser read that can fail it, in the tool's order, with how many more
+ * ({@link firstFinding}): one line that names something to fix, where no
+ * baseline masked the check, and the digest holds the rest. Nothing for a
+ * check that reached no verdict or was refused before its tool ran, nor for
+ * one a baseline couldn't mask because its tool stopped short, whose reason
+ * line names what stopped it (with no baseline there's no such line, so such
+ * a run names its first finding as any other does), nor for an adapter with
+ * no parser, such as vitest, which the digest covers. The
+ * parse is this line's own: masking parses only under a baseline entry, and
+ * a red check it masked lists its new findings instead.
+ */
+function firstFindingLine(run: CheckRun, mask: MaskResult, read: Reading): string[] {
+  const { adapter, outcome } = run;
+  if (outcome.exit_code === -1 || outcome.refusal !== undefined || mask.stoppedShort !== undefined) return [];
+  const first = firstFinding(adapter.name, findingText(adapter.name, outcome), read.argv, read.root, read.repoRoot);
+  if (first === null) return [];
+  return [`           ${first.line}${first.more > 0 ? ` (+${first.more} more)` : ''}`];
 }
 
 /** How many failing or unfinished tests a red go-test check names beneath its status line, of each. */
@@ -492,7 +525,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const run = checkRun(r, adapter, settledOutcome(adapter, outcome, mask));
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
-  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth, run);
+  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth, run, readingOf(adapter, scope));
   const observed = ratchetFeed(name, mask, drift, sawWhole(r, adapter, scope.base));
   return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
 }

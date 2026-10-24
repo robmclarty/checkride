@@ -465,10 +465,15 @@ it carries.
   never goes to stdout, so the machine-output split holds, and a `--json` run
   prints no report, so there it is the file alone.
 
-To debug a failure: read `summary.json` to find the failing slot, then read that
-slot's raw output for structured diagnostics. On a large repo, run with
-`--digest` for a capped starting point, printed below the report and kept in
-`digest.md`.
+To debug a failure: start from the run's own lines. Beneath each red check's
+status line, the run says why it failed when the check says, then what it
+found: the findings a baseline didn't grandfather, a `go test` run's failing
+tests, or, where neither lists anything, the first finding its parser read
+that can fail it, with how many more, as `src/a.ts:3:7 Variable 'x' is
+declared but never used. (+4 more)`, or as tsc printed it. Then read
+`summary.json` to find the failing slot, and that slot's raw output for
+structured diagnostics. On a large repo, run with `--digest` for a capped
+starting point, printed below the report and kept in `digest.md`.
 
 ## The Claude Code plugin
 

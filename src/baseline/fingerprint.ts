@@ -172,6 +172,53 @@ export function printedByKey(
   return byKey;
 }
 
+/** How long a {@link firstFinding} line runs before it's cut, marked `…`. */
+const FIRST_FINDING_CHARS = 200;
+
+/**
+ * A finding on one line, as a reader names it: `file:line:col message`, the
+ * message's first line, or its rule where the message is empty, as fallow's
+ * unused file's is.
+ */
+function named(f: KeyedFinding): string {
+  const place = f.file === '' ? '' : [f.file, f.line, f.column].filter((part) => part !== undefined).join(':');
+  const [first = ''] = f.message.split('\n');
+  return [place, first.trim() === '' ? f.rule : first.trim()].filter((part) => part !== '').join(' ');
+}
+
+/**
+ * The first finding `adapter`'s parser read in its output that can fail the
+ * check, in the tool's order, on one line (its `printed` form where it has
+ * one, as tsc's parser does, else {@link named}, cut at
+ * {@link FIRST_FINDING_CHARS}), and how many more there are. What a red
+ * check's status line shows beneath it when nothing else there lists what it
+ * found. `null` for an adapter with no parser, output its parser can't read,
+ * or a run that found nothing that gates. `argv`, `root` and `repoRoot` are
+ * {@link fingerprint}'s.
+ */
+export function firstFinding(
+  adapter: string,
+  raw: string,
+  argv?: readonly string[],
+  root?: string,
+  repoRoot?: string,
+): { line: string; more: number } | null {
+  const parser = parserFor(adapter);
+  const gating = parser?.parse(raw, { argv, root, repoRoot })?.filter((f) => f.gates !== false) ?? [];
+  const [first] = gating;
+  if (parser === undefined || first === undefined) return null;
+  return { line: cutAt(parser.printed?.(first) ?? named(first), FIRST_FINDING_CHARS), more: gating.length - 1 };
+}
+
+/** `text` held to `max` UTF-16 units, the last of them a `…` where it's cut, never splitting a surrogate pair. */
+function cutAt(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const end = max - 1;
+  const code = text.charCodeAt(end - 1);
+  // A high surrogate there would lose the low one it pairs with.
+  return `${text.slice(0, code >= 0xd800 && code <= 0xdbff ? end - 1 : end)}…`;
+}
+
 /** {@link fingerprint}, with how many findings share each key: `null` exactly where it is. */
 export function tally(adapter: string, raw: string, argv?: readonly string[], root?: string, repoRoot?: string): Tally | null {
   return tallyIn(adapter, raw, { argv, root, repoRoot });

@@ -194,9 +194,14 @@ Every run writes here. Treat it as a stable API for agents.
 | `<target>/` | With `targets`, each target's checks write the same files under their target's directory, as `web/lint.json`. |
 | `digest.md` | `--digest` only: capped Markdown excerpt of the failing slots, each linking its raw file. Absent on a green run. |
 
-To debug: read `summary.json` for the failing slot, then read that slot's raw
-output for structured diagnostics. On a big repo, `--digest` prints a capped
-excerpt below the report, and keeps it in `digest.md`, to start from.
+To debug: start beneath each red ✘. A check says why it failed when it says,
+then lists the findings a baseline didn't grandfather, or a `go test` run's
+failing tests, or else names its first finding, with how many more
+(`src/a.ts:3:7 Variable 'x' is declared but never used. (+4 more)`), for a
+check whose tool checkride parses. Then read `summary.json` for the failing
+slot, and that slot's raw output for structured diagnostics. On a big repo,
+`--digest` prints a capped excerpt below the report, and keeps it in
+`digest.md`, to start from.
 
 ## When something is off
 

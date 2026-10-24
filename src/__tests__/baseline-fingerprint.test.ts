@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS } from '../adapters.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { applyBaseline, BASELINE_FILE, findingText, fingerprint, isFingerprintable, observedTally, stoppedShortReason, tally } from '../baseline/index.js';
+import { applyBaseline, BASELINE_FILE, findingText, fingerprint, firstFinding, isFingerprintable, observedTally, stoppedShortReason, tally } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
@@ -501,6 +501,29 @@ describe('fingerprint — a prose slot through capture and masking', () => {
     // `null` short-circuits masking in the orchestrator and the ratchet's
     // observed map alike, so a broken config leaves the captured keys standing.
     expect(fingerprint('vale', VALE_ERROR)).toBeNull();
+  });
+});
+
+/** An oxlint report of one finding, `message` at a.ts:3:7. */
+function oneFinding(message: string, severity = 'error'): string {
+  return JSON.stringify({ diagnostics: [{ filename: 'a.ts', code: 'no-x', message, severity, labels: [{ span: { line: 3, column: 7 } }] }] });
+}
+
+/** What a red check's status line names beneath it when nothing else there lists what it found. */
+describe('firstFinding', () => {
+  test('is null for an adapter with no parser, output its parser cannot read, or nothing that gates', () => {
+    expect(firstFinding('vitest', 'FAIL a.test.ts')).toBeNull();
+    expect(firstFinding('oxlint', 'not json')).toBeNull();
+    expect(firstFinding('oxlint', '{"diagnostics":[]}')).toBeNull();
+    // With the argv in hand, an oxlint warning can't fail the check.
+    expect(firstFinding('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json'])).toBeNull();
+    expect(firstFinding('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json', '--deny-warnings'])).toEqual({ line: 'a.ts:3:7 only advice', more: 0 });
+  });
+
+  test('a cut never splits a character that takes two UTF-16 units', () => {
+    // "a.ts:3:7 " is 9 units, so the emoji's first unit lands on the 199th, the last kept before `…`.
+    const { line } = firstFinding('oxlint', oneFinding(`${'x'.repeat(189)}😀${'x'.repeat(50)}`)) ?? { line: '' };
+    expect(line).toBe(`a.ts:3:7 ${'x'.repeat(189)}…`);
   });
 });
 

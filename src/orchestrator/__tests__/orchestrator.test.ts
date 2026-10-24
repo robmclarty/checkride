@@ -1952,6 +1952,105 @@ function ranWith(findings: [string, string, string][], pin: { pin_source?: 'nix'
  * is held back from the ratchet, says so, and carries the record in the
  * summary; its verdict is unchanged.
  */
+/** An oxlint report of `[file, code, message, severity]`, each placed at line 3, column 7. */
+function placed(findings: [string, string, string, string][]): string {
+  return JSON.stringify({
+    diagnostics: findings.map(([filename, code, message, severity]) => ({ filename, code, message, severity, labels: [{ span: { line: 3, column: 7 } }] })),
+  });
+}
+
+/**
+ * A red check that no baseline masks printed nothing beneath its status line,
+ * so the run named no finding to fix and an agent had to open a file to
+ * learn what failed (#22). It now names the first one, on one line.
+ */
+describe('runChecks (the first finding beneath a red check)', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-first-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const oxlintRow = fakeAdapter({ name: 'oxlint', slot: 'lint', outputFile: 'lint.json', command: 'pnpm', args: ['exec', 'oxlint', '--format=json'] });
+  const tscRow = fakeAdapter({ name: 'tsc', slot: 'types', command: 'pnpm', args: ['exec', 'tsc', '--noEmit'] });
+
+  /** What stderr says of one red check that printed `stdout`, filled by `adapter`, with no baseline unless one is given. */
+  async function beneath(adapter: Adapter, outcome: Partial<Awaited<ReturnType<CheckRunner>>>, baseline: Baseline | null = null): Promise<string> {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots: [{ name: adapter.slot }], adapters: [adapter], config: null, baseline, json: false, stdout: sink().out, stderr: std.out,
+      runner: () => Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: '', ...outcome }),
+    });
+    const text = std.lines.join('');
+    const status = text.indexOf(`✘ ${adapter.slot}`);
+    expect(status, 'the red status line').toBeGreaterThan(-1);
+    // Everything from the status line's end to the run's summary.
+    return text.slice(text.indexOf('\n', status) + 1, text.indexOf('\n✘ one or more checks failed'));
+  }
+
+  test('names its first finding where it sits, and how many more there are', async () => {
+    const report = placed([['a.ts', 'no-x', 'bad', 'error'], ['b.ts', 'no-y', 'worse', 'error'], ['c.ts', 'no-z', 'worst', 'error']]);
+    expect(await beneath(oxlintRow, { stdout: report })).toBe('           a.ts:3:7 bad (+2 more)\n');
+    expect(await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', 'bad', 'error']]) })).toBe('           a.ts:3:7 bad\n');
+  });
+
+  test('a parser with a printed form shows the finding as the tool printed it', async () => {
+    const stdout = "src/a.ts(1,22): error TS2304: Cannot find name 'shippingCents'.\nsrc/b.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.\n";
+    expect(await beneath(tscRow, { stdout })).toBe("           src/a.ts(1,22): error TS2304: Cannot find name 'shippingCents'. (+1 more)\n");
+  });
+
+  test('names the first finding that can fail the check, past ones that only advise', async () => {
+    const report = placed([['a.ts', 'no-x', 'only a warning', 'warning'], ['b.ts', 'no-y', 'an error', 'error']]);
+    expect(await beneath(oxlintRow, { stdout: report })).toBe('           b.ts:3:7 an error\n');
+    expect(await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', 'only a warning', 'warning']]) })).toBe('');
+  });
+
+  test("shows a message's first line, cut short, and the rule where the message is empty", async () => {
+    const long = `${'x'.repeat(300)}\nsecond line`;
+    const line = await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', long, 'error']]) });
+    // 200 characters in all, the `…` included.
+    expect(line).toBe(`           a.ts:3:7 ${'x'.repeat(190)}…\n`);
+    // fallow names an unused file by its path alone.
+    const fallow = fakeAdapter({ name: 'fallow', slot: 'dead', outputFile: 'dead.json' });
+    const report = await readFile(new URL('../../__tests__/fixtures/baseline-fallow-dead-code.json', import.meta.url), 'utf8');
+    expect(await beneath(fallow, { stdout: report })).toContain('\n           src/unused.ts unused_files (+1 more)\n');
+  });
+
+  test('a check whose new findings are listed names no first finding', async () => {
+    const report = placed([['a.ts', 'no-x', 'bad', 'error'], ['c.ts', 'no-z', 'new', 'error']]);
+    const text = await beneath(oxlintRow, { stdout: report }, { schema_version: 1, slots: { lint: ['a.ts:no-x:bad'] } });
+    expect(text).toBe('           1 baselined (grandfathered)\n           1 new, not in baseline:\n             c.ts:no-z:new\n');
+  });
+
+  test('nothing beneath a check with no parser, one that timed out, or one refused before its tool ran', async () => {
+    const vitest = fakeAdapter({ name: 'vitest', slot: 'test' });
+    expect(await beneath(vitest, { stdout: 'FAIL src/a.test.ts > adds\n' })).toBe('');
+    const report = placed([['a.ts', 'no-x', 'bad', 'error']]);
+    expect(await beneath(oxlintRow, { exit_code: -1, stdout: report, stderr: 'timed out after 60s\n' })).not.toContain('a.ts:3:7');
+    expect(await beneath(oxlintRow, { stdout: report, refusal: 'checkride: oxlint is not installed' })).toBe('           checkride: oxlint is not installed\n');
+  });
+
+  /** Its reason line names the diagnostic that stopped tsc, which is the one to fix first. */
+  test('a tsc run that stopped short says why, and names no first finding', async () => {
+    const stdout = "src/a.ts(1,5): error TS1005: ';' expected.\nsrc/b.ts(2,1): error TS2304: Cannot find name 'x'.\n";
+    const text = await beneath(tscRow, { stdout }, { schema_version: 1, slots: { types: [] } });
+    expect(text).toBe("           tsc stopped short at `src/a.ts(1,5): error TS1005: ';' expected.`, so the baseline neither masked its findings nor pruned its keys\n");
+  });
+
+  /** With no baseline there's no reason line to name what stopped tsc, so the first finding does. */
+  test('with no baseline, a tsc run that stopped short names its first finding', async () => {
+    const stdout = "src/a.ts(1,5): error TS1005: ';' expected.\nsrc/b.ts(2,1): error TS2304: Cannot find name 'x'.\n";
+    expect(await beneath(tscRow, { stdout })).toBe("           src/a.ts(1,5): error TS1005: ';' expected. (+1 more)\n");
+  });
+
+  test('--json prints no report, so no first finding either', async () => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }], adapters: [oxlintRow], config: null, baseline: null, json: true, stdout: sink().out, stderr: std.out,
+      runner: () => Promise.resolve({ ok: false, exit_code: 1, stdout: placed([['a.ts', 'no-x', 'bad', 'error']]), stderr: '' }),
+    });
+    expect(std.lines.join('')).toBe('');
+  });
+});
+
 describe('runChecks (a baseline captured with another copy of the tool)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-drift-')); });

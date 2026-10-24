@@ -56,6 +56,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stdout still carries only `--json`'s summary, and a `--json` run prints no
   report, so there the digest stays in the file. A green run, and a run
   without the flag, print nothing new.
+- **A red check names its first finding beneath its status line.** A red
+  check that no baseline masked printed nothing beneath its ✘ line, even when
+  checkride had parsed what it found, so a run without `--digest` named
+  nothing to fix (#22). Beneath such a check the run now prints the first
+  finding its parser read that can fail it, in the tool's order, and how
+  many more: `src/a.ts:3:7 Variable 'x' is declared but never used. (+4
+  more)`, or for tsc the line tsc printed, the message's first line cut at
+  200 characters. A check that lists its new findings or its failing tests
+  already names them, a tsc run a baseline couldn't mask because it stopped
+  short already names the diagnostic that stopped it on its reason line, and
+  a check checkride doesn't parse, such as vitest, gets no new line, since
+  the digest covers it. With no baseline, a tsc run that stopped short names
+  its first finding as any other red check does. The status line still ends
+  with its provenance tag.
 
 ### Changed
 
