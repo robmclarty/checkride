@@ -7,7 +7,8 @@
  * locks is the *distinction the body carries*, which is what an agent acts on:
  *
  *   green            — checks ran, all passed.
- *   red              — checks ran, some failed; `.check/` describes this run.
+ *   red              — checks ran, some failed; `.check/` describes this run,
+ *                      and the agent's channel carries this run's digest.
  *   could not run    — the package manager refused to start the script. NOTHING
  *                      ran, no artifact was written, and no code change clears it.
  *                      Blocks when the repo can fix it (a missing `check`
@@ -48,11 +49,30 @@ const refusing: GateSpawn = (_command, _args, opts) => {
   return Promise.resolve(1);
 };
 
-/** A spawn that fails a check the ordinary way. */
+/** A check script that failed before checkride wrote anything, as `tsc --build && checkride` does. */
 const failing: GateSpawn = (_command, _args, opts) => {
   opts.stderr.write('src/a.ts(3,1): error TS2345\n');
   return Promise.resolve(1);
 };
+
+/** What a red `--digest` run leaves in `.check/digest.md`. */
+const DIGEST = "# checkride failure digest\n\n1 of 1 check(s) failed.\n\n## types — tsc\n\n- src/a.ts(3,1): error TS2345: Argument of type 'string' is not assignable to parameter of type 'number'.\n";
+
+/**
+ * A spawn that fails a check the ordinary way: the run writes its summary in
+ * `dir`, and its digest when given one, as `--digest` makes it.
+ */
+function failingRun(dir: string, digest: string | null): GateSpawn {
+  return async (_command, _args, opts) => {
+    opts.stderr.write('  ✘ types\n');
+    await mkdir(join(dir, '.check'), { recursive: true });
+    const check = { name: 'types', adapter: 'tsc', description: 'types', ok: false, exit_code: 1, duration_ms: 10, output_file: null };
+    const summary = { schema_version: 1, timestamp: new Date().toISOString(), ok: false, checks_run: 1, total_duration_ms: 10, checks: [check] };
+    await writeFile(join(dir, '.check', 'summary.json'), JSON.stringify(summary));
+    if (digest !== null) await writeFile(join(dir, '.check', 'digest.md'), digest);
+    return 1;
+  };
+}
 
 /** A refusal the repo itself can clear, which is the half that still blocks. */
 const noScript: GateSpawn = (_command, _args, opts) => {
@@ -104,14 +124,49 @@ describe('gate verdicts', () => {
     expect(systemMessage).toContain('Nothing ran');
   });
 
-  test('an ordinary failure is still a red, and still names the artifact', async () => {
+  test('an ordinary failure is still a red, and names the artifact this run wrote', async () => {
     const stdout = capture();
-    const result = await runGate({ cwd: dir, spawn: failing, stdout, stderr: capture(), pinEnv: bare() });
+    const result = await runGate({ cwd: dir, spawn: failingRun(dir, null), stdout, stderr: capture(), pinEnv: bare() });
     const { systemMessage, reason } = JSON.parse(stdout.text()) as { systemMessage: string; reason: string };
 
     expect(result.refusal).toBeNull();
     expect(systemMessage).toContain('checkride red');
-    expect(reason).toContain('.check/summary.json');
+    expect(reason).toContain('read .check/summary.json');
+  });
+
+  /**
+   * #22, the promise this gate exists to keep: one look at a red gate shows
+   * what to fix. The agent's channel carries this run's digest whole, so no
+   * read of `.check/` stands between the verdict and the fix, while the line
+   * the user reads stays the one-line verdict.
+   */
+  test("a red run's digest reaches the agent: in Claude Code's reason, and in Cursor's followup_message", async () => {
+    const claude = capture();
+    expect((await runGate({ cwd: dir, spawn: failingRun(dir, DIGEST), stdout: claude, stderr: capture(), pinEnv: bare() })).exitCode).toBe(2);
+    const body = JSON.parse(claude.text()) as { reason: string; systemMessage: string };
+    expect(body.reason).toContain(DIGEST.trimEnd());
+    expect(body.reason).toContain('.check/digest.md is a copy of it');
+    expect(body.systemMessage).not.toContain('# checkride failure digest');
+
+    const cursor = capture();
+    await runGate({ cwd: dir, harness: 'cursor', spawn: failingRun(dir, DIGEST), stdout: cursor, stderr: capture(), pinEnv: bare() });
+    expect((JSON.parse(cursor.text()) as { followup_message: string }).followup_message).toContain(DIGEST.trimEnd());
+  });
+
+  /**
+   * A red names only what this run wrote. A check script that failed before
+   * checkride ran leaves every `.check/` file an earlier run's, and naming one
+   * would send the agent to fix whatever failed last time.
+   */
+  test('a red that wrote no summary names no artifact, an earlier digest included', async () => {
+    await mkdir(join(dir, '.check'), { recursive: true });
+    await writeFile(join(dir, '.check', 'digest.md'), DIGEST);
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: failing, stdout, stderr: capture(), pinEnv: bare(), now: () => Date.now() + 60_000 });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    expect(reason).toContain('this run wrote no .check/summary.json');
+    expect(reason).not.toContain('read .check/');
+    expect(reason).not.toContain('digest');
   });
 
   /**

@@ -1303,6 +1303,21 @@ submits a turn). The exit code above is unchanged and remains the promise; the
 body is additive, and a hook script that ignores stdout still gates correctly on
 the code alone.
 
+**A red verdict carries what failed, and names only what this run wrote.** The
+gate always runs the check with `--digest`. When this run wrote a summary and a
+digest, the agent's half of the body, `reason` under `--harness claude` and
+`followup_message` under `--harness cursor`, carries the digest's text, held to
+its 8,000-byte budget, below the instruction, which names `.check/digest.md` as
+its copy, so the agent reads what failed without opening a file. A digest file
+with no text counts as none. `systemMessage` stays the one-line verdict, and
+the stderr line doesn't repeat the digest, which the check's own output above it
+already printed. A red whose run wrote no digest points at `.check/summary.json`.
+One whose run wrote no summary either, as a `check` script that fails before
+checkride runs leaves it, points the agent at no `.check/` file, since each one
+there is an earlier run's: it says the run wrote no summary, and to run the
+check to see why. A file is this run's when its mtime is no more than a second
+before the gate started, the slack a coarse filesystem clock needs.
+
 One exception is promised alongside it: under `--harness claude`, `gate` reports
 `ran: false` and exits 0 without running the pipeline when Cursor is executing
 the repo's Claude Code hooks *and* a native Cursor gate is registered — Cursor

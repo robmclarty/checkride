@@ -456,7 +456,8 @@ it carries.
   grandfather, and counts the rest; a `go test` check lists its failing tests,
   with what each printed, and any still running when a timeout stopped it. The bound: **ten findings per slot, 8 kB overall** —
   roughly two thousand tokens; past the cap, remaining failing slots are named
-  but not rendered. It **truncates, never normalizes**; a green run leaves no
+  but not rendered, and a first section longer than the cap on its own is cut
+  where it runs out. It **truncates, never normalizes**; a green run leaves no
   digest (any stale one is removed), so its presence always means "this run
   failed". A red run prints the same text on stderr, below the `report:` and
   `digest:` lines, so an agent reads what failed in the run's own output. It

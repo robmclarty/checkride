@@ -46,11 +46,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their errors, and skip the gate (#22). `--digest` built the right excerpt but
   only wrote it to `.check/digest.md`. A red run now prints the same text on
   stderr, below its `report:` and `digest:` lines, so one run shows what to
-  fix. Under Claude Code that reaches the agent from the stop gate too, which
-  runs the check with `--digest` and forwards its output to the stderr a
-  blocked turn is shown. stdout still carries only `--json`'s summary, and a
-  `--json` run prints no report, so there the digest stays in the file. A
-  green run, and a run without the flag, print nothing new.
+  fix. The stop gate, which runs the check with `--digest`, hands the agent
+  the same text: below the instruction in the `reason` a blocked Claude Code
+  turn is given, and in Cursor's `followup_message`, while `systemMessage`,
+  the line the user reads, stays the one-line verdict. The instruction names
+  `.check/digest.md` as the digest's copy rather than asking for a read.
+  stdout still carries only `--json`'s summary, and a `--json` run prints no
+  report, so there the digest stays in the file. A green run, and a run
+  without the flag, print nothing new.
 
 ### Changed
 
@@ -153,6 +156,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `schema_version` 7 said `checkride needs fallow >= 3.5`, but fallow 2.104.0
   already emits 7 (#8). It now says `checkride reads schema_version 7 and
   later`.
+- **A red gate points the agent only at files this run wrote.** It sent the agent to
+  `.check/digest.md` whenever the file existed, one an earlier run left
+  included, and to `.check/summary.json` otherwise, whether or not this run
+  had written it. It now points at the digest only when this run wrote it, the
+  summary only when this run wrote that, and, where the `check` script failed
+  before checkride ran, as `tsc --build && checkride` can, no `.check/` file
+  at all: it says to run the check to see why.
+- **The digest holds to its budget.** Its first section was kept whole
+  whatever its size, so a check that prints its report as one compact JSON
+  line, as knip does, made the digest that whole report: 83 KB for 4,000
+  unused files, against a budget of 8,000 bytes. A first section past the
+  budget is now cut where it runs out, with a line saying so, and the
+  section's `Raw:` line names the file holding the rest. The note naming the
+  failing checks a full digest leaves out now fits within the budget too,
+  where it went on top of it.
 
 ### Contract
 
@@ -187,6 +205,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Changed: a fallow check whose output is fallow's own error report records
   `exit_code: -1` and a `reason`, where 0.18 recorded fallow's exit code and
   no reason.
+- Changed: a red gate's instruction names `.check/digest.md` and
+  `.check/summary.json` only when this run wrote them, and points at no `.check/` file
+  when it wrote no summary, where 0.18 named the digest whenever the file
+  existed and the summary otherwise.
 
 #### Additive
 
@@ -200,6 +222,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tool ran but stopped short of some errors.
 - A red `--digest` run prints its digest on stderr, below the `report:` and
   `digest:` lines.
+- A red gate's `reason` and `followup_message` carry this run's digest below
+  the instruction.
 
 ## [0.18.0] - 2026-10-24
 

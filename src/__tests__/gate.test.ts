@@ -9,7 +9,7 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -386,17 +386,120 @@ describe('runGate', () => {
     expect(result.green).toBe(false);
   });
 
-  test('points at the digest when the run wrote one, the summary otherwise', async () => {
-    const bare = capture();
-    await runGate({ cwd: dir, spawn: exits(1), stdout: capture(), stderr: bare });
-    expect(bare.text()).toContain('.check/summary.json');
+  /** What a red `--digest` run leaves in `.check/digest.md`. */
+  const DIGEST = [
+    '# checkride failure digest',
+    '',
+    '1 of 1 check(s) failed.',
+    '',
+    '## types — tsc',
+    '',
+    "- src/a.ts(1,22): error TS2304: Cannot find name 'shippingCents'.",
+    '',
+  ].join('\n');
 
+  /** A spawn that runs as a red check does: it writes this run's summary, and its digest when given one. */
+  function redRun(digest: string | null): GateSpawn {
+    return async () => {
+      await writeSummary({ ok: false, checks: [{ name: 'types', ok: false, duration_ms: 900 }] });
+      if (digest !== null) await writeFile(join(dir, '.check', 'digest.md'), digest);
+      return 1;
+    };
+  }
+
+  /** Leave a digest an earlier run wrote an hour ago. */
+  async function staleDigest(): Promise<void> {
     await mkdir(join(dir, '.check'), { recursive: true });
-    await writeFile(join(dir, '.check', 'digest.md'), '# failures');
-    const withDigest = capture();
-    await runGate({ cwd: dir, spawn: exits(1), stdout: capture(), stderr: withDigest });
-    // The capped excerpt is a far better landing spot than raw summary.json.
-    expect(withDigest.text()).toContain('.check/digest.md');
+    const path = join(dir, '.check', 'digest.md');
+    await writeFile(path, DIGEST);
+    const anHourAgo = new Date(Date.now() - 3_600_000);
+    await utimes(path, anHourAgo, anHourAgo);
+  }
+
+  /**
+   * #22: an agent sent to read `.check/digest.md` spends a tool call on it
+   * every time the gate is red. The digest rides in the channel the agent is
+   * shown instead, and the user's line stays the one-line verdict.
+   */
+  test('claude: a red carries this run’s digest in its reason, and its systemMessage stays the status', async () => {
+    const stdout = capture();
+    const stderr = capture();
+    await runGate({ cwd: dir, spawn: redRun(DIGEST), stdout, stderr, env: terminal, now: fakeClock(2700) });
+    const body = JSON.parse(stdout.text()) as { decision: string; reason: string; systemMessage: string };
+    expect(body.decision).toBe('block');
+    expect(body.systemMessage).toBe('\n\ncheckride red in 2.7s ✘ (1 of 1 failed: types)');
+    expect(body.reason).toMatch(/^checkride red in 2\.7s ✘ \(1 of 1 failed: types\)\ncheckride: the gate is red — fix what this run's digest names, then finish/);
+    expect(body.reason).toContain(
+      "\nThis run's digest follows; .check/digest.md is a copy of it, and each section names the raw file that holds the rest.\n\n# checkride failure digest\n",
+    );
+    expect(body.reason.endsWith("Cannot find name 'shippingCents'.")).toBe(true);
+    expect(body.reason).not.toContain('read .check/');
+    // The check's own output, forwarded to stderr above this line, printed the
+    // digest already, and that stream is what an exit-2 hook shows the agent.
+    expect(stderr.text()).toContain("This run's digest is above, in the check's own output; .check/digest.md is a copy of it.\n");
+    expect(stderr.text()).not.toContain('# checkride failure digest');
+  });
+
+  test('cursor: a red carries this run’s digest in its followup_message', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, harness: 'cursor', spawn: redRun(DIGEST), stdout, stderr: capture(), now: fakeClock(2700) });
+    const { followup_message } = JSON.parse(stdout.text()) as { followup_message: string };
+    expect(followup_message).toMatch(/^checkride red in 2\.7s ✘ \(1 of 1 failed: types\)\n/);
+    expect(followup_message).toContain("This run's digest follows; .check/digest.md is a copy of it");
+    expect(followup_message).toContain("Cannot find name 'shippingCents'.");
+  });
+
+  test('a red whose run wrote a summary and no digest points at the summary', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: redRun(null), stdout, stderr: capture() });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    expect(reason).toContain('the gate is red — read .check/summary.json, fix the failing slot, then finish');
+    expect(reason).not.toContain('digest');
+  });
+
+  /** checkride never writes an empty digest, but the file is anyone's to write. */
+  test('a digest file with no text is no digest: the red points at the summary', async () => {
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: redRun(' \n\n'), stdout, stderr: capture() });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    expect(reason).toContain('read .check/summary.json');
+    expect(reason).not.toContain('digest');
+  });
+
+  /** A release before 0.19 kept a digest's first section whole, whatever its size. */
+  test('carries a digest past its budget held to it', async () => {
+    const long = `${DIGEST}\n## dead — knip\n\nRaw: \`.check/dead.json\`\n\n\`\`\`\n${'x'.repeat(30_000)}\n\`\`\`\n`;
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: redRun(long), stdout, stderr: capture() });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    const carried = reason.slice(reason.indexOf('# checkride failure digest'));
+    expect(Buffer.byteLength(carried, 'utf8')).toBeLessThanOrEqual(8000);
+    expect(carried).toContain("Cannot find name 'shippingCents'.");
+    expect(carried).toContain('_Digest cut here to keep to its budget');
+  });
+
+  /** A digest is this run's only by its mtime, the way the summary is. */
+  test('never carries or names a digest an earlier run left', async () => {
+    await staleDigest();
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: redRun(null), stdout, stderr: capture() });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    expect(reason).toContain('read .check/summary.json');
+    expect(reason).not.toContain('digest');
+  });
+
+  /**
+   * A `check` script of the shape `tsc --build && checkride` fails before
+   * checkride writes anything, so every `.check/` file is an earlier run's.
+   */
+  test('a red whose run wrote no summary names no artifact, and says how to see the failure', async () => {
+    await staleDigest();
+    const stdout = capture();
+    await runGate({ cwd: dir, spawn: exits(1), stdout, stderr: capture() });
+    const { reason } = JSON.parse(stdout.text()) as { reason: string };
+    expect(reason).toContain('the gate is red — this run wrote no .check/summary.json, so nothing in .check/ describes it — run `checkride` to see why, fix that, then finish');
+    expect(reason).not.toContain('read .check/');
+    expect(reason).not.toContain('digest');
   });
 
   test('names a reader the agent can actually reach, spelled for the repo’s PM', async () => {

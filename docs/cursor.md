@@ -142,7 +142,9 @@ offers two places to say what is going on, and checkride uses both: a
 
 So under Cursor a **red** gate carries the verdict line at the top of the
 follow-up it submits — visible in the chat, because Cursor shows the message it
-submits — and a **green** gate says nothing at all. The common `user_message`
+submits — with the instruction below it, and below that this run's digest, the
+capped excerpt of what failed, so the agent starts on the fix rather than on a
+read of `.check/digest.md`. A **green** gate says nothing at all. The common `user_message`
 field is documented for *denials*, not for the `stop` event, and with
 `failClosed: true` an output Cursor rejects as malformed is a hook failure that
 blocks the turn. Guessing at an undocumented field is not worth that risk, so

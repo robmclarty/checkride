@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
-import { buildDigest, DIGEST_FILE, writeDigest } from '../digest/index.js';
+import { buildDigest, DIGEST_FILE, withinBudget, writeDigest } from '../digest/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { CheckRun, CheckRunner, Out, SummaryCheck } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
@@ -127,20 +127,82 @@ describe('buildDigest', () => {
   test('byte budget drops whole sections past the cap and names what was omitted', () => {
     const astAdapter = fakeAdapter({ name: 'ast-grep', slot: 'struct', outputFile: 'struct.json' });
     const lintRun = run(OXLINT, outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]) }));
-    const structRun = run(astAdapter, outcome({ stdout: astGrep([['b.ts', 'no-y', 'worse']]) }));
+    // Ten findings, so the struct section is longer than the room the note leaves.
+    const structRun = run(astAdapter, outcome({ stdout: astGrep(Array.from({ length: 10 }, (_, i): [string, string, string] => [`b${i}.ts`, 'no-y', 'worse'])) }));
     const lintCheck = check('lint', { adapter: 'oxlint', output_file: 'lint.json' });
     const structCheck = check('struct', { adapter: 'ast-grep', output_file: 'struct.json' });
 
-    // Measure a one-section digest, then budget for exactly that: the second
-    // section overflows and must be dropped (header length is digit-stable).
+    // Measure a one-section digest, then budget for that and the note naming
+    // what was dropped: the second section overflows and must be dropped
+    // (header length is digit-stable).
     const oneSection = buildDigest([lintRun], [lintCheck], { maxItemsPerSlot: 10, maxBytes: 1_000_000 }) ?? '';
-    const budget = { maxItemsPerSlot: 10, maxBytes: Buffer.byteLength(oneSection, 'utf8') };
+    const budget = { maxItemsPerSlot: 10, maxBytes: Buffer.byteLength(oneSection, 'utf8') + 120 };
 
     const digest = buildDigest([lintRun, structRun], [lintCheck, structCheck], budget) ?? '';
-    expect(digest).toContain('## lint');
+    // The lint section is kept whole.
+    expect(digest).toContain(oneSection.slice(oneSection.indexOf('\n## lint')));
     expect(digest).not.toContain('## struct');
     expect(digest).toContain('Digest truncated');
     expect(digest).toContain('1 more failing slot(s) omitted');
+    // The note fits inside the budget too.
+    expect(Buffer.byteLength(digest, 'utf8')).toBeLessThanOrEqual(budget.maxBytes);
+  });
+
+  /** Sections that fill the budget leave room for the note that names the ones dropped. */
+  test('a digest whose sections fill its budget still holds to it, the note included', () => {
+    const findings = Array.from({ length: 10 }, (_, i): [string, string, string] => [`f${i}.ts`, 'no-x', 'm'.repeat(40)]);
+    const runs = Array.from({ length: 40 }, (_, i) => run(fakeAdapter({ name: 'oxlint', slot: `s${i}`, outputFile: 'lint.json' }), outcome({ stdout: oxlint(findings) })));
+    const checks = runs.map((r) => check(r.slot, { adapter: 'oxlint', output_file: 'lint.json' }));
+    for (const maxBytes of [2000, 2050, 2100, 2150, 2200]) {
+      const digest = buildDigest(runs, checks, { maxItemsPerSlot: 10, maxBytes }) ?? '';
+      expect(digest).toContain('more failing slot(s) omitted');
+      expect(Buffer.byteLength(digest, 'utf8'), String(maxBytes)).toBeLessThanOrEqual(maxBytes);
+    }
+  });
+
+  /**
+   * The first section is kept whatever its size, so the digest is never empty,
+   * and a tool that prints its report as one compact JSON line, as knip does,
+   * made that section the whole report: 83 KB for 4,000 unused files, in a
+   * digest whose budget is 8,000 bytes.
+   */
+  test('holds a first section longer than the budget to it, cut where the budget runs out', () => {
+    const knip = fakeAdapter({ name: 'knip', slot: 'dead', outputFile: 'dead.json' });
+    const line = JSON.stringify({ files: Array.from({ length: 4000 }, (_, i) => `src/unused-${i}.ts`) });
+    const digest = buildDigest([run(knip, outcome({ stdout: line }))], [check('dead', { adapter: 'knip', output_file: 'dead.json' })]) ?? '';
+    expect(Buffer.byteLength(digest, 'utf8')).toBeLessThanOrEqual(8000);
+    expect(digest).toContain('Raw: `.check/dead.json`');
+    expect(digest).toContain('{"files":["src/unused-0.ts"');
+    expect(digest).toContain('…\n```\n');
+    expect(digest).toContain("_Digest cut here to keep to its budget; the file this section's `Raw:` line names holds the rest._");
+    // The fence the cut fell inside is closed, so the note isn't read as code.
+    expect((digest.match(/^```/gm) ?? []).length % 2).toBe(0);
+  });
+
+  test('a cut never splits a character, and a later section still drops whole', () => {
+    const goBuild = fakeAdapter({ name: 'go-build', slot: 'types' });
+    const wide = '…'.repeat(4000); // 3 bytes a character, 12,000 bytes on one line
+    // Ten findings, so the lint section is longer than the room the note leaves.
+    const lintRun = run(OXLINT, outcome({ stdout: oxlint(Array.from({ length: 10 }, (_, i): [string, string, string] => [`a${i}.ts`, 'no-x', 'bad'])) }));
+    const digest = buildDigest(
+      [run(goBuild, outcome({ stdout: wide })), lintRun],
+      [check('types', { adapter: 'go-build' }), check('lint', { adapter: 'oxlint', output_file: 'lint.json' })],
+    ) ?? '';
+    expect(digest).not.toContain('\uFFFD');
+    expect(digest).toContain('_Digest cut here to keep to its budget');
+    expect(digest).not.toContain('## lint');
+    expect(digest).toContain('1 more failing slot(s) omitted');
+    // Cut to leave room for the note that a later section was dropped.
+    expect(Buffer.byteLength(digest, 'utf8')).toBeLessThanOrEqual(8000);
+  });
+
+  /** A reader of a file an earlier release wrote, which kept a first section whole, holds it to the budget too. */
+  test('withinBudget holds a digest to the default budget, and leaves one within it as it is', () => {
+    const long = `# checkride failure digest\n\n## dead — knip\n\nRaw: \`.check/dead.json\`\n\n\`\`\`\n${'x'.repeat(20_000)}\n\`\`\`\n`;
+    const held = withinBudget(long);
+    expect(Buffer.byteLength(held, 'utf8')).toBeLessThanOrEqual(8000);
+    expect(held).toContain('Raw: `.check/dead.json`');
+    expect(withinBudget('# checkride failure digest\n')).toBe('# checkride failure digest\n');
   });
 
   test('falls back to a text tail for a slot with no fingerprint extractor', () => {

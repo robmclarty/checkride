@@ -218,14 +218,48 @@ function driftNote(check: SummaryCheck, tool: string): string {
   return `\n_The baseline was captured with ${tool} ${copyNamed(captured, toolchain)}, and this run used ${tool} ${copyNamed(check, toolchain)}, so a new key may be the tool's churn, not new debt. Run under the copy the baseline was captured with, or have a human review the new keys and re-capture._\n`;
 }
 
+/** What a cut leaves room for past the budget it holds the kept text to: a `…\n` and a closing fence. */
+const CUT_SLACK = Buffer.byteLength('…\n```\n', 'utf8');
+
+/** The longest prefix of `text` at most `bytes` long in UTF-8, never splitting a character. */
+function utf8Prefix(text: string, bytes: number): string {
+  const encoded = Buffer.from(text, 'utf8');
+  if (encoded.length <= bytes) return text;
+  let end = Math.max(bytes, 0);
+  // The first byte left out is a continuation byte (10xxxxxx) when the cut
+  // falls inside a character, so step back to where that character starts.
+  while (end > 0 && ((encoded[end] ?? 0) & 0xc0) === 0x80) end -= 1;
+  return encoded.subarray(0, end).toString('utf8');
+}
+
+/**
+ * The digest so far, its first section included, held to `maxBytes`: as it
+ * is when it fits, and otherwise cut where the budget runs out, inside a line
+ * if that's where, marked `…`, with a code fence it left open closed and a
+ * line saying so. A later section that doesn't fit is dropped whole, so only
+ * a first section longer than the budget is ever cut, as one line of a JSON
+ * report a check prints compact makes one; the section's `Raw:` line, above
+ * the cut, names the file that holds the rest.
+ */
+function heldTo(digest: string, maxBytes: number): string {
+  if (Buffer.byteLength(digest, 'utf8') <= maxBytes) return digest;
+  const note = "\n_Digest cut here to keep to its budget; the file this section's `Raw:` line names holds the rest._\n";
+  const kept = utf8Prefix(digest, maxBytes - Buffer.byteLength(note, 'utf8') - CUT_SLACK);
+  const ended = kept.endsWith('\n') ? kept : `${kept}…\n`;
+  const fenceOpen = (ended.match(/^```/gm)?.length ?? 0) % 2 === 1;
+  return `${ended}${fenceOpen ? '```\n' : ''}${note}`;
+}
+
 /**
  * Build the Markdown digest for a completed run, or `null` when nothing failed.
  * A check is "failing" when the summary marks it `ok: false` and not skipped —
  * so a slot whose findings a baseline fully grandfathers (still `ok: true`) is
  * correctly absent. Sections are added in summary (cheapest-first) order until
  * the byte budget is spent; any remaining failing slots are named in a trailing
- * note rather than silently dropped. Every pointer starts with `label`, the
- * output directory as the run names it.
+ * note rather than silently dropped. The first section is always kept, so the
+ * digest is never empty, but held to the budget too ({@link heldTo}), so the
+ * digest stays within it however long one check's excerpt runs. Every pointer
+ * starts with `label`, the output directory as the run names it.
  */
 export function buildDigest(
   runs: readonly CheckRun[],
@@ -245,6 +279,8 @@ export function buildDigest(
     `${budget.maxItemsPerSlot} finding(s) per slot; read each linked raw file under ` +
     `\`${label}/\` for the complete, authoritative diagnostics.\n`;
 
+  const truncated = (omitted: number): string =>
+    `\n_Digest truncated at ${budget.maxBytes} bytes; ${omitted} more failing slot(s) omitted — see \`${summaryPointer}\`._\n`;
   let rendered = 0;
   for (const check of failing) {
     const run = runByName.get(check.name);
@@ -256,15 +292,28 @@ export function buildDigest(
 
     // Byte budget: once a section would overflow, stop and name what's left —
     // but only after at least one section is in, so the digest is never empty.
-    if (rendered > 0 && Buffer.byteLength(out + section, 'utf8') > budget.maxBytes) {
-      const omitted = failing.length - rendered;
-      out += `\n_Digest truncated at ${budget.maxBytes} bytes; ${omitted} more failing slot(s) omitted — see \`${summaryPointer}\`._\n`;
-      return out;
-    }
-    out += section;
+    // Each section leaves room for that note while more could follow, so the
+    // note never takes the digest past its budget either.
+    const room = budget.maxBytes - noteRoom(failing.length - rendered - 1, truncated);
+    if (rendered > 0 && Buffer.byteLength(out + section, 'utf8') > room) return `${out}${truncated(failing.length - rendered)}`;
+    out = rendered === 0 ? heldTo(out + section, room) : out + section;
     rendered += 1;
   }
   return out;
+}
+
+/** The bytes a "truncated" note naming `after` dropped sections takes, or none when no section follows to drop. */
+function noteRoom(after: number, truncated: (omitted: number) => string): number {
+  return after > 0 ? Buffer.byteLength(truncated(after), 'utf8') : 0;
+}
+
+/**
+ * `digest` held to the default budget, as {@link buildDigest} holds every
+ * digest it builds: for a reader of a `digest.md` an earlier release may have
+ * written, when a first section was kept whole whatever its size.
+ */
+export function withinBudget(digest: string): string {
+  return heldTo(digest, DEFAULT_BUDGET.maxBytes);
 }
 
 /**

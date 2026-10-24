@@ -448,8 +448,9 @@ select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
   runs the check the way your repo does — your **detected package manager**'s
   `run check` where there's a `package.json`, or `mise exec -- checkride` in a
   repo whose `mise.toml` pins checkride — with `--strict --digest`, and on red
-  points the agent at `.check/digest.md` (the capped failure excerpt) when it
-  exists, `.check/summary.json` otherwise.
+  hands the agent this run's digest (the capped failure excerpt) below its
+  instruction, or points it at `.check/summary.json` when the run wrote no
+  digest.
 - **`dirty`** — touches an edit marker, `.check/.dirty`. The gate exits 0
   immediately when the marker is absent, so pure-conversation turns don't pay
   for a pipeline run; a green gate clears it. (File writes made through a shell

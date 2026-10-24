@@ -4,6 +4,6 @@
  * from `./digest.js` directly.
  */
 
-export { buildDigest, DIGEST_FILE, writeDigest } from './digest.js';
+export { buildDigest, DIGEST_FILE, withinBudget, writeDigest } from './digest.js';
 export type { GoTestCase } from './go-test.js';
 export { caseName, goTestReport } from './go-test.js';

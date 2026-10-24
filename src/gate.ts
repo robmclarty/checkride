@@ -39,13 +39,14 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
 import { formatDuration, OUT_ENV, outDir, readSummary, type SummaryRead } from './artifacts/index.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, resolveChecks } from './config.js';
-import { DIGEST_FILE } from './digest/index.js';
+import { DIGEST_FILE, withinBudget } from './digest/index.js';
 import { BASE_ENV } from './git.js';
 import { PINS_ENV } from './launch/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
@@ -97,8 +98,11 @@ export const DIRTY_MARKER = '.check/.dirty';
  */
 export const GATE_RETRY_ENV = 'CHECKRIDE_GATE_RETRY';
 
-/** Where the gate points a red agent when `--digest` wrote nothing. */
+/** Where the gate points a red agent when this run wrote a summary and no digest. */
 const SUMMARY_PATH = '.check/summary.json';
+
+/** The digest's file, which a red verdict carrying the digest names as its copy. */
+const DIGEST_PATH = `.check/${DIGEST_FILE}`;
 
 /**
  * Cursor's own hook config. It lives here rather than in `agent-setup/cursor.ts`
@@ -341,6 +345,7 @@ function profileVerdict(block: ProfileBlock, elapsedMs: number): Verdict {
       'Nothing ran: no check executed and no artifact was written.',
     refusal: block.refusal,
     standDown: false,
+    digest: null,
   };
 }
 
@@ -486,6 +491,29 @@ function isFresh(read: SummaryRead, startedAt: number): boolean {
 }
 
 /**
+ * This run's digest: the text of `digest.md` in `dir` when its mtime says
+ * this run wrote it, by {@link isFresh}'s rule, or `null`. The gate always
+ * passes `--digest`, but the `check` script is the repo's to write, and one
+ * that never reaches checkride leaves the last run's digest in place, which
+ * must never read as this one's. Asked only once this run's summary is fresh.
+ *
+ * The file is anyone's to write, so a digest with no text is none, and one
+ * past the budget, as a release before 0.19 could write, is held to it
+ * ({@link withinBudget}), since the verdict hands it to the agent whole.
+ */
+async function freshDigest(dir: string, startedAt: number): Promise<string | null> {
+  const path = join(dir, DIGEST_FILE);
+  try {
+    const { mtimeMs } = await stat(path);
+    if (mtimeMs < startedAt - MTIME_TOLERANCE_MS) return null;
+    const text = await readFile(path, 'utf8');
+    return text.trim() === '' ? null : withinBudget(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The one line a human reads to know the gate ran, what it decided, and how long
  * they waited on it: `checkride green in 3.6s ✔ (10 checks, without test,
  * slowest: spell in 1.8s)`. The glyph trails the clause it confirms and the
@@ -520,9 +548,24 @@ function gateArgv(entry: EntryCommand, profile: GateProfile | null): [string, ..
   return entryArgv(entry, ['--strict', '--digest', ...profileArgs(profile)]);
 }
 
-/** The sentence a red gate hands the agent, naming what to open first. */
-function redMessage(cwd: string, entry: EntryCommand, profile: GateProfile | null): string {
-  const where = existsSync(join(cwd, '.check', DIGEST_FILE)) ? `.check/${DIGEST_FILE}` : SUMMARY_PATH;
+/**
+ * What this run wrote for a red verdict to send the agent to: its digest,
+ * which the verdict carries; its summary, when it wrote no digest; or neither,
+ * when the check failed before checkride wrote a summary, as a `check` script
+ * of the shape `tsc --build && checkride` does, so no `.check/` file describes
+ * this run and naming one would send the agent to an earlier run's.
+ */
+type RedEvidence = 'digest' | 'summary' | 'none';
+
+/** The first thing a red verdict asks of the agent, by what this run wrote. */
+function redStep(evidence: RedEvidence, entry: EntryCommand): string {
+  if (evidence === 'digest') return "fix what this run's digest names";
+  if (evidence === 'summary') return `read ${SUMMARY_PATH}, fix the failing slot`;
+  return `this run wrote no ${SUMMARY_PATH}, so nothing in .check/ describes it — run \`${entryText(entry)}\` to see why, fix that`;
+}
+
+/** The sentence a red gate hands the agent, naming what to open first, if anything. */
+function redMessage(entry: EntryCommand, profile: GateProfile | null, evidence: RedEvidence): string {
   // A narrowed red is still a red, but it is not the whole story: the slots the
   // profile skipped were never asked, so fixing what it names may not be enough.
   const narrowed =
@@ -530,10 +573,24 @@ function redMessage(cwd: string, entry: EntryCommand, profile: GateProfile | nul
       ? ''
       : ` This gate ran a profile, not the full check — run \`${entryText(entry)}\` for the rest.`;
   return (
-    `checkride: the gate is red — read ${where}, fix the failing slot, then finish ` +
+    `checkride: the gate is red — ${redStep(evidence, entry)}, then finish ` +
     `(do not stop while checkride is red). Run \`${triageCommand(entry)}\` for full triage.${narrowed}`
   );
 }
+
+/**
+ * Said above the digest a red verdict carries to the agent: that this is it,
+ * so there's nothing to open first, and that the file is a copy.
+ */
+const DIGEST_FOLLOWS = `This run's digest follows; ${DIGEST_PATH} is a copy of it, and each section names the raw file that holds the rest.`;
+
+/**
+ * Said on the stderr line instead. The check's own output, which the gate
+ * forwards to stderr ahead of this line, already printed the digest, and
+ * that whole stream is what an exit-2 hook with no body shows the agent, so a
+ * second copy would only double it.
+ */
+const DIGEST_ABOVE = `This run's digest is above, in the check's own output; ${DIGEST_PATH} is a copy of it.`;
 
 /**
  * The Node half of a refusal message: what this process is running, what the
@@ -644,17 +701,24 @@ function withoutConsumerVars(env: Record<string, string | undefined>): Record<st
 
 /** Everything a failed run needs to say what failed, and whether anything ran at all. */
 type Failure = {
-  cwd: string;
   entry: EntryCommand;
   elapsedMs: number;
   summary: SummaryRead;
   /** Whether the summary on disk was written by this run. */
   fresh: boolean;
+  /** This run's digest, when it wrote a fresh summary and a digest ({@link freshDigest}). */
+  digest: string | null;
   output: string;
   alignment: NodeAlignment | null;
   running: string;
   profile: GateProfile | null;
 };
+
+/** What this run wrote for its red verdict to point at ({@link RedEvidence}). */
+function evidenceOf(f: Failure): RedEvidence {
+  if (f.digest !== null) return 'digest';
+  return f.fresh ? 'summary' : 'none';
+}
 
 /**
  * Classify a non-green run and phrase it.
@@ -669,9 +733,10 @@ function failedVerdict(f: Failure): Verdict {
   if (refusal === null) {
     return {
       status: headline('red', '✘', f.elapsedMs, gateDetail(f.summary, f.fresh, false, f.profile)),
-      instruction: redMessage(f.cwd, f.entry, f.profile),
+      instruction: redMessage(f.entry, f.profile, evidenceOf(f)),
       refusal: null,
       standDown: false,
+      digest: f.digest,
     };
   }
   // A launch refusal names no profile: nothing ran, so how much would have run
@@ -681,6 +746,7 @@ function failedVerdict(f: Failure): Verdict {
     instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, entry: f.entry }),
     refusal: refusal.cause,
     standDown: refusal.fixable === 'environment',
+    digest: null,
   };
 }
 
@@ -742,6 +808,8 @@ type Verdict = {
   refusal: string | null;
   /** True when the cause is outside the turn's reach, so the gate declines to block. */
   standDown: boolean;
+  /** This run's digest, which the agent's channel carries below the instruction, or `null`. */
+  digest: string | null;
 };
 
 /**
@@ -799,12 +867,13 @@ function reportStandDown(
  *
  * Claude Code gets both spellings of the same verdict, because which one lands
  * depends on the hook script the repo happens to have. The JSON body
- * (`decision: "block"`) is what a current script forwards on its own exit 0 —
- * Claude Code parses hook JSON *only* on exit 0, and that body is the one form
- * that can carry a user-visible `systemMessage` alongside the block. The stderr
- * line is what a script generated before that change relies on, where the block
- * rides on exit 2 and stdout is ignored. Emitting both is what lets an
- * already-installed hook script keep gating across the upgrade.
+ * (`decision: "block"`) is what a current script forwards on its own exit 0,
+ * and that body is the one form that can carry a user-visible `systemMessage`
+ * alongside the block. The stderr line is what a script that blocks on exit 2
+ * relies on, one generated before that change: Claude Code shows the agent
+ * such a hook's stderr, unless its stdout holds a blocking body, whose
+ * `reason` it gives instead. Emitting both is what lets an already-installed
+ * hook script keep gating across the upgrade.
  *
  * Cursor gets `{"followup_message": …}` on stdout and **exit 0**: it reads a
  * non-zero stop hook as a *failed hook* and lets the turn end anyway, so the
@@ -812,6 +881,15 @@ function reportStandDown(
  * per script by default; the hook entry `agent-setup` writes opts out
  * (`loop_limit: null`), because a gate that stops replying after five turns is
  * not a gate.
+ *
+ * The agent's channel, `reason` under Claude Code and `followup_message`
+ * under Cursor, carries this run's digest below the instruction when the run
+ * wrote one, so a red verdict shows what failed without a read of its own
+ * (#22). Claude Code shows the agent no stderr from a hook that exits 0, as
+ * the current script does, so stderr can't carry it there. The digest is
+ * held to its 8,000-byte budget, under the 10,000 characters Claude Code caps
+ * a hook's `systemMessage` and `additionalContext` at; neither harness
+ * documents a cap on these two fields.
  */
 function reportRed(
   harness: HarnessName,
@@ -824,14 +902,15 @@ function reportRed(
   // would bury the one line they are actually reading.
   const full = `${verdict.status}\n${verdict.instruction}`;
   if (verdict.standDown) return reportStandDown(harness, out, full, env);
+  const agent = verdict.digest === null ? full : `${full}\n${DIGEST_FOLLOWS}\n\n${verdict.digest.trimEnd()}`;
   if (harness === 'cursor') {
-    out.stdout.write(`${JSON.stringify({ followup_message: full })}\n`);
+    out.stdout.write(`${JSON.stringify({ followup_message: agent })}\n`);
     return 0;
   }
   out.stdout.write(
-    `${JSON.stringify({ decision: 'block', reason: full, systemMessage: noticePad(verdict.status, env) })}\n`,
+    `${JSON.stringify({ decision: 'block', reason: agent, systemMessage: noticePad(verdict.status, env) })}\n`,
   );
-  out.stderr.write(`${full}\n`);
+  out.stderr.write(`${verdict.digest === null ? full : `${full}\n${DIGEST_ABOVE}`}\n`);
   return 2;
 }
 
@@ -917,11 +996,11 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   }
 
   const verdict = failedVerdict({
-    cwd,
     entry,
     elapsedMs: now() - startedAt,
     summary,
     fresh,
+    digest: fresh ? await freshDigest(outDir(cwd), startedAt) : null,
     output: output.text(),
     alignment,
     running: pinEnv.running(),
