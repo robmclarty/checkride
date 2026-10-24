@@ -379,8 +379,9 @@ adopts the "exit 0 = done" rule on its own.
 - **`AGENTS.md`** — a stanza, between `<!-- checkride:begin … -->` and
   `<!-- checkride:end -->` markers, stating that `pnpm check` is the definition
   of done (`mise exec -- checkride` in a repo whose `mise.toml` pins
-  checkride), how to read `.check/` when it fails, the module-boundary
-  conventions, and the tight-loop commands.
+  checkride), how to read `.check/` when it fails, that the check run with
+  `--digest` prints a capped excerpt of what failed below its report, the
+  module-boundary conventions, and the tight-loop commands.
 - **`CLAUDE.md`** — an `@AGENTS.md` import. If you already have a
   `CLAUDE.md`, `init` adds that one line to its end and leaves the rest
   alone, unless it already imports `AGENTS.md`.

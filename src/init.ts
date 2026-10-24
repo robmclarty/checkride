@@ -38,7 +38,7 @@ import type { CheckOutcome } from './links.js';
 import type { CheckRun, Out, SummaryCheck } from './orchestrator/index.js';
 import { runChecks, selectChecks } from './orchestrator/index.js';
 import type { EntryLike, PackageManager } from './launch/index.js';
-import { detectPackageManager, entryCheckride, entryText, failureLine, resolveEntry, setupHint } from './launch/index.js';
+import { detectPackageManager, entryCheckride, entryText, entryTextWith, failureLine, resolveEntry, setupHint } from './launch/index.js';
 import { PACKS } from './packs/index.js';
 import { readResource } from './resources.js';
 import { readRawConfig, writeTargetChange } from './target-files.js';
@@ -434,6 +434,7 @@ export function buildStanza(
 ): string {
   const check = entryText(entry);
   const triage = entryCheckride(entry, ['triage']);
+  const flagged = (...flags: string[]): string => entryTextWith(entry, flags);
   return [
     '## Checkride: the definition of done',
     '',
@@ -449,11 +450,14 @@ export function buildStanza(
     "   target's check writes under `.check/<target>/` instead.",
     '3. Fix the root cause, then re-run.',
     '',
+    `\`${flagged('--digest')}\` prints a capped excerpt of what failed below its report,`,
+    'each section naming the raw file that holds the rest, so start from that.',
+    '',
     `\`${triage}\` runs this procedure in full and reads \`.check/\` for you`,
     '(`/checkride:check` and `/checkride-check` are the same thing as a skill).',
     '',
-    `Tight feedback loops: \`${check} --bail\`, \`${check} --only types,lint\`, and`,
-    `\`${check} --changed\`.`,
+    `Tight feedback loops: \`${flagged('--bail')}\`, \`${flagged('--only', 'types,lint')}\`, and`,
+    `\`${flagged('--changed')}\`.`,
     '',
     'If a stop-gate hook is configured (`.claude/settings.json` or `.cursor/hooks.json`),',
     'it runs the check when a turn ends — so while iterating, prefer the narrow commands',

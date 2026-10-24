@@ -57,6 +57,16 @@ describe('AGENTS stanza (idempotency)', () => {
     expect(body).toContain('`pnpm exec checkride triage` runs this procedure in full');
   });
 
+  /**
+   * An agent that runs the check as told got one line beneath each red check
+   * and never the excerpt, since the `check` script passes no `--digest` (#22).
+   */
+  test('says the check run with --digest prints a capped excerpt of what failed', () => {
+    expect(body).toContain(
+      '`pnpm check --digest` prints a capped excerpt of what failed below its report,\neach section naming the raw file that holds the rest, so start from that.',
+    );
+  });
+
   test('names both harnesses’ gate config, since the stanza is harness-neutral', () => {
     expect(body).toContain('.claude/settings.json');
     expect(body).toContain('.cursor/hooks.json');
@@ -113,7 +123,10 @@ describe('AGENTS stanza (idempotency)', () => {
     const npm = buildStanza(['types'], 'npm');
     expect(npm).not.toContain('pnpm');
     expect(npm).toContain('`npm run check` is the single source of truth');
-    expect(npm).toContain('`npm run check --bail`');
+    // npm keeps a flag after the script's name for itself, so `npm run check
+    // --bail` runs the whole check: a flag reaches the script only past `--`.
+    expect(npm).toContain('`npm run check -- --bail`, `npm run check -- --only types,lint`, and\n`npm run check -- --changed`.');
+    expect(npm).toContain('`npm run check -- --digest` prints a capped excerpt');
     expect(npm).toContain('`npx --no-install checkride triage` runs this procedure');
 
     // `yarn check` is Yarn 1's integrity checker, not the repo's script.
@@ -128,6 +141,7 @@ describe('AGENTS stanza (idempotency)', () => {
     const pinned = buildStanza(['types'], { kind: 'mise' });
     expect(pinned).toContain('`mise exec -- checkride` is the single source of truth');
     expect(pinned).toContain('`mise exec -- checkride --bail`');
+    expect(pinned).toContain('`mise exec -- checkride --digest` prints a capped excerpt of what failed below its report');
     expect(pinned).toContain('`mise exec -- checkride triage` runs this procedure');
     const bare = buildStanza(['types'], { kind: 'path' });
     expect(bare).toContain('`checkride` is the single source of truth');
@@ -176,6 +190,19 @@ describe('AGENTS stanza (edit detection)', () => {
     // The stamp travels with the block, so a refresh that would *change* the
     // stanza is not an edit — only a change already on disk is.
     expect(inspectStanza(stanza, buildStanza(['types', 'lint', 'spell']))).toBe('pristine');
+  });
+
+  /**
+   * The wording moves between releases, as the `--digest` line arrived, and a
+   * repo that never touched its stanza must take the new one on its next
+   * refresh rather than refuse it as edited.
+   */
+  test('a stanza an earlier release stamped, in its own wording, is pristine against today’s', () => {
+    const earlier = body.replace(/\n`pnpm check --digest`[^\n]*\n[^\n]*\n/, '\n');
+    expect(earlier).not.toContain('--digest');
+    const written = applyStanza('# AGENTS.md\n\nintro\n', earlier);
+    expect(inspectStanza(written, body)).toBe('pristine');
+    expect(applyStanza(written, body)).toContain('`pnpm check --digest` prints a capped excerpt');
   });
 
   test('an addition inside the markers reads as edited', () => {

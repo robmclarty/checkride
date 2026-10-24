@@ -87,6 +87,17 @@ export function entryText(entry: EntryLike): string {
 }
 
 /**
+ * The full check with `flags` appended, as a person types it: {@link
+ * entryText}, with npm's `--` ahead of the flags, as {@link entryArgv} has
+ * it, since npm reads a flag after the script's name as its own and runs the
+ * check without it.
+ */
+export function entryTextWith(entry: EntryLike, flags: readonly string[]): string {
+  const e = asEntry(entry);
+  return [entryText(e), ...(e.kind === 'script' && e.pm === 'npm' ? ['--'] : []), ...flags].join(' ');
+}
+
+/**
  * A checkride subcommand, as a person or a hook script types it: `pnpm exec
  * checkride triage`, `mise exec -- checkride triage` or `checkride triage`.
  * `quiet` keeps a package manager's own narration off stdout, for a caller

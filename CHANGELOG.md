@@ -63,6 +63,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   present exactly when the run wrote one: under `--digest`, when a check
   failed. It's at most 8,000 bytes, and only on a red run that asked for it,
   where it's what a reader would open next.
+- **The agent instructions name `--digest`.** The AGENTS.md stanza `init`
+  and `agent-setup` write never mentioned it, and the `check` script doesn't
+  pass it, so an agent running the check as instructed got one line beneath
+  each red check and never the excerpt (#22). Below the steps for a red
+  check, the stanza now says `pnpm check --digest` (`mise exec -- checkride
+  --digest` where mise pins checkride) prints a capped excerpt of what
+  failed below its report, each section naming the raw file that holds the
+  rest. A stanza an earlier release wrote, untouched, takes the new wording
+  on the next `init` or `agent-setup`.
 - **A red check names its first finding beneath its status line.** A red
   check that no baseline masked printed nothing beneath its ✘ line, even when
   checkride had parsed what it found, so a run without `--digest` named
@@ -195,6 +204,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   summary only when this run wrote that, and, where the `check` script failed
   before checkride ran, as `tsc --build && checkride` can, no `.check/` file
   at all: it says to run the check to see why.
+- **The agent instructions pass npm a flag past `--`.** In an npm repo the
+  stanza's tight-loop commands read `npm run check --bail`, and npm keeps a
+  flag after the script's name for itself, so that ran the whole check
+  without bailing, as `--only` and `--changed` ran it unnarrowed. They now
+  read `npm run check -- --bail`, as the gate already runs the check.
 - **A checkride the `check` script can't find is a launch refusal, not a red.**
   In a repo whose `check` script runs checkride but whose dependencies were
   never installed, the script's shell prints `sh: checkride: command not

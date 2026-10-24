@@ -1,4 +1,4 @@
-<!-- checkride:begin hash=v1ee1734eded2a8c5a -->
+<!-- checkride:begin hash=v1d53c96ae88382189 -->
 
 ## Checkride: the definition of done
 
@@ -13,6 +13,9 @@ When it fails:
    or `.check/<slot>.stderr.txt`, where a check refused before it ran says why. A
    target's check writes under `.check/<target>/` instead.
 3. Fix the root cause, then re-run.
+
+`pnpm check --digest` prints a capped excerpt of what failed below its report,
+each section naming the raw file that holds the rest, so start from that.
 
 `pnpm exec checkride triage` runs this procedure in full and reads `.check/` for you
 (`/checkride:check` and `/checkride-check` are the same thing as a skill).
