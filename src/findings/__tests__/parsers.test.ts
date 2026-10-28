@@ -300,6 +300,41 @@ describe('the fallow parser', () => {
     expect(report.ok && report.findings[0]).toMatchObject({ file: 'src/a.ts', message: 'src/a.ts -> src/b.ts' });
   });
 
+  test('an import across a boundary keys on its two ends, and a forbidden call or an unzoned file on its path and position (#23)', () => {
+    // fallow 3.31.0 over one import out of a zone, one forbidden call, and one
+    // file no zone covers: one finding in each of the three boundary arrays.
+    const report = parseFallowReport(read('findings-fallow-dead-boundaries.json'), WEB);
+    expect(report.ok && report.findings.map((f) => f.key)).toEqual([
+      'dead-code:boundary_violations:apps/web/src/core.ts:apps/web/src/edge.ts',
+      'dead-code:boundary_coverage_violations:apps/web/src/clock.ts:1:0',
+      'dead-code:boundary_call_violations:apps/web/src/core.ts:2:43',
+    ]);
+    expect(report.ok && report.findings[0]).toMatchObject({ file: 'apps/web/src/core.ts', line: 1, column: 10, rule: 'boundary_violations', message: 'apps/web/src/core.ts -> apps/web/src/edge.ts' });
+    expect(report).toMatchObject({ issueCount: 3, fullyTracked: true, unkeyed: [] });
+  });
+
+  test('a package cycle keys on its package roots, and the package baselines fallow lists are no finding (#23)', () => {
+    // fallow 3.31.0 over two workspace packages importing each other, under a
+    // `workspaces.changedSince` that lists one package's baseline.
+    const report = parseFallowReport(read('findings-fallow-dead-packages.json'), { root: undefined });
+    expect(report.ok && report.findings.map((f) => f.key)).toEqual([
+      'dead-code:circular_dependencies:packages/alpha/src/index.ts->packages/beta/src/index.ts',
+      'dead-code:package_cycles:packages/alpha->packages/beta',
+    ]);
+    expect(report).toMatchObject({ issueCount: 2, fullyTracked: true, unkeyed: [] });
+  });
+
+  test('a finding with no key is named by its array', () => {
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 2 },
+      unused_files: [{ path: 'src/a.ts' }],
+      future_cycles: [{ members: ['a', 'b'] }],
+    });
+    expect(parseFallowReport(raw, { root: undefined })).toMatchObject({ fullyTracked: false, unkeyed: ['future_cycles'] });
+  });
+
   test('an unreadable report is a reason, and the parser reads it as untrustworthy', () => {
     expect(parseFallowReport('', { root: undefined })).toEqual({ ok: false, reason: 'fallow produced no JSON output' });
     expect(parserFor('fallow')?.parse('boom: fatal error', { argv: undefined, root: undefined })).toBeNull();

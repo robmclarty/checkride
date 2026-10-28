@@ -20,6 +20,7 @@
  * fingerprint comes from.
  */
 
+import type { FallowReport } from '../findings/index.js';
 import { parseFallowReport } from '../findings/index.js';
 import type { Tally } from './fingerprint.js';
 import type { BaselineEntry, Excess } from './store.js';
@@ -48,12 +49,32 @@ export type FallowVerdict = {
   /** A one-line failure explanation for the console, or `null` when green. */
   reason: string | null;
   /**
+   * Set when the report counts findings its keys don't cover, so no baseline
+   * can grandfather each one and none masks the check: its count, and the
+   * arrays of the findings with no key, or how many keys it made where every
+   * finding it read was keyed. `3 finding(s), 1 checkride can't key
+   * (package_cycles)`, say.
+   */
+  untracked?: string;
+  /**
    * True when fallow's own error report took the place of a report: it never
    * ran its analysis (a `fallow.toml` it can't read, say), so the check
    * reached no verdict, and `reason` names fallow's message.
    */
   stopped?: true;
 };
+
+/**
+ * What a failing report's keys miss ({@link FallowVerdict}'s `untracked`), or
+ * `null` when they cover each finding it counts, or it counts none.
+ */
+function untrackedOf(report: Extract<FallowReport, { ok: true }>): string | null {
+  if (report.fullyTracked || report.issueCount === 0) return null;
+  const count = `${report.issueCount} finding(s)`;
+  const { unkeyed } = report;
+  if (unkeyed.length === 0) return `${count}, and checkride keyed ${report.findings.length}`;
+  return `${count}, ${unkeyed.length} checkride can't key (${[...new Set(unkeyed)].toSorted().join(', ')})`;
+}
 
 /**
  * Decide a fallow slot's verdict from its raw JSON and (optionally) the slot's
@@ -65,7 +86,8 @@ export type FallowVerdict = {
  * A report whose keys don't map one-per-finding onto its issue count — an
  * un-keyable finding, or a key produced for something the count doesn't include
  * — has findings that can't be individually grandfathered; a baseline must never
- * mask such a slot to green, so it stays at the raw findings-based verdict. A key
+ * mask such a slot to green, so it stays at the raw findings-based verdict, and
+ * its reason names what the keys miss ({@link untrackedOf}). A key
  * *collision* (two findings sharing a key) is not un-keyable — both are keyed,
  * and the key's count says how many share it, so a counted baseline
  * grandfathers both and no third, and one captured before counts any number.
@@ -84,9 +106,11 @@ export function fallowVerdict(raw: string, entry: BaselineEntry | null, root?: s
   for (const { key } of parsed.findings) findings.set(key, (findings.get(key) ?? 0) + 1);
   const rawOk = parsed.issueCount === 0;
   const issueReason = rawOk ? null : `${parsed.issueCount} finding(s)`;
+  const untracked = untrackedOf(parsed);
+  const why = untracked === null ? {} : { untracked };
 
   if (entry === null) {
-    return { ok: rawOk, baselined: 0, newKeys: [], excess: [], newFindings: 0, findings, observed: true, reason: issueReason };
+    return { ok: rawOk, baselined: 0, newKeys: [], excess: [], newFindings: 0, findings, observed: true, reason: issueReason, ...why };
   }
 
   const adj = applyBaseline(findings, entry, rawOk);
@@ -94,9 +118,10 @@ export function fallowVerdict(raw: string, entry: BaselineEntry | null, root?: s
   // verdict. A key collision does NOT (both findings are keyed, so the report
   // stays fully tracked), so it coarsens the baseline instead of disabling it. A
   // *deduplicated* size comparison could not tell the two apart, which is what
-  // disabled the whole slot on any collision.
-  const masked = { baselined: adj.baselined, newKeys: adj.newKeys, excess: adj.excess, newFindings: adj.newFindings, findings, observed: true };
-  if (!parsed.fullyTracked) return { ok: rawOk, ...masked, reason: issueReason };
+  // disabled the whole slot on any collision. The reason names what the keys
+  // miss, since the slot stays red with every key it has grandfathered.
+  const masked = { baselined: adj.baselined, newKeys: adj.newKeys, excess: adj.excess, newFindings: adj.newFindings, findings, observed: true, ...why };
+  if (!parsed.fullyTracked) return { ok: rawOk, ...masked, reason: untracked === null ? issueReason : `${untracked}, so the baseline can't mask the check` };
   // Fully tracked: a masked slot (all findings grandfathered) is green; a slot
   // that fails does so on `newKeys` and `excess`, which the orchestrator lists —
   // so no extra reason line is needed either way.

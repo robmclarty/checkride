@@ -33,8 +33,11 @@ import type { KeyedFinding, Parser } from '../types.js';
  * `summary.total_issues`, `clone_groups[].fingerprint`) is unchanged across
  * that span — re-verified against 3.31.0 output carrying a real finding of
  * each kind, since a shape drift here would read as zero findings and pass.
- * Earlier 2.x releases emitted 3 (2.0.0) or 4 (2.60.0), with an incompatible
- * layout. A report below this floor — or one whose kind/shape we can't read —
+ * The fields a boundary import and a package cycle key on (`from_path` and
+ * `to_path`, `package_roots`) are checked against 3.31.0 alone; a release
+ * whose entries lack them reads as findings the keys miss, which keeps a
+ * baseline from masking the check, never as a pass. Earlier 2.x releases
+ * emitted 3 (2.0.0) or 4 (2.60.0), with an incompatible layout. A report below this floor — or one whose kind/shape we can't read —
  * is a hard failure, never a silent pass. The floor is named by its schema,
  * never a fallow version, since the releases that emit it don't follow one
  * line.
@@ -50,12 +53,14 @@ const FALLOW_SCHEMA_MIN = 7;
  * authoritative issue count (keys for something uncounted, or findings the
  * parse never read). A key *collision* does not clear it: findings are counted
  * before a key set collapses duplicates, so two findings sharing a key stay
- * fully tracked and the baseline coarsens rather than disabling. `stopped`
- * marks a reason fallow gave itself, in its own error report: it never ran
- * its analysis, so the check reached no verdict at all.
+ * fully tracked and the baseline coarsens rather than disabling. `unkeyed`
+ * names the array of each counted finding that produced no key, one entry a
+ * finding, so a reader can say which findings the keys miss. `stopped` marks
+ * a reason fallow gave itself, in its own error report: it never ran its
+ * analysis, so the check reached no verdict at all.
  */
 export type FallowReport =
-  | { ok: true; kind: string; findings: KeyedFinding[]; issueCount: number; fullyTracked: boolean }
+  | { ok: true; kind: string; findings: KeyedFinding[]; issueCount: number; fullyTracked: boolean; unkeyed: string[] }
   | { ok: false; reason: string; stopped?: true };
 
 /** Read a field as a trimmed string, or `''` when missing/not a string. */
@@ -200,13 +205,15 @@ export function currentKey(key: string): string {
 }
 
 /**
- * A cross-file finding (circular_dependencies, re_export_cycles), keyed on its
- * sorted file membership — a list of files/segments rather than one location.
- * Returns `null` when the item carries no such list. Each file is rebased from
- * `base`, as every path in a key is.
+ * A cross-file finding (circular_dependencies, re_export_cycles,
+ * package_cycles), keyed on its sorted membership — a list of files/segments
+ * rather than one location: the files a cycle passes through, or a package
+ * cycle's `package_roots`, since a package's root names it uniquely where two
+ * packages can share a name. Returns `null` when the item carries no such
+ * list. Each path is rebased from `base`, as every path in a key is.
  */
 function cycleFinding(category: string, item: Record<string, unknown>, base: PathBase): KeyedFinding | null {
-  for (const field of ['cycle', 'files', 'chain']) {
+  for (const field of ['cycle', 'files', 'chain', 'package_roots']) {
     const arr = item[field];
     if (!Array.isArray(arr)) continue;
     const files = arr
@@ -222,13 +229,33 @@ function cycleFinding(category: string, item: Record<string, unknown>, base: Pat
 }
 
 /**
+ * An import that crosses a zone boundary (`boundary_violations`), keyed on its
+ * two ends, `<from>:<to>`, and never its position, so the key survives edits
+ * that move the import, as a symbol's does. fallow reports one per importing
+ * file and file it imports, however many statements import it, through a
+ * barrel or not (checked against fallow 3.31.0). Its file is the importing
+ * one. Returns `null` for an item that doesn't name both ends. Both paths are
+ * rebased from `base`.
+ */
+function edgeFinding(category: string, item: Record<string, unknown>, base: PathBase): KeyedFinding | null {
+  const from = str(item['from_path']);
+  const to = str(item['to_path']);
+  if (!from || !to) return null;
+  const file = rebasePath(base, from);
+  const target = rebasePath(base, to);
+  return finding('dead-code', item, { file, ...at(item, 'line', 'col'), rule: category, message: `${file} -> ${target}`, key: `dead-code:${category}:${file}:${target}` });
+}
+
+/**
  * One dead-code finding, keyed `dead-code:<category>:<identity>`, where
  * identity is a file and symbol (never a line or column, so the key survives
  * edits that only move the code). When a finding has a file but no symbol —
- * `stale_suppressions`, `policy_violations` and the boundary categories carry
- * only a path — the path alone would collide with its siblings in the same
- * file, so the position is appended to keep them distinct, at the cost of a
- * key that moves. Cross-file findings (cycles) key on the sorted set of files.
+ * `stale_suppressions`, `policy_violations`, `boundary_coverage_violations`
+ * and `boundary_call_violations` carry only a path — the path alone would
+ * collide with its siblings in the same file, so the position is appended to
+ * keep them distinct, at the cost of a key that moves. An import across a
+ * boundary keys on its two ends ({@link edgeFinding}), and cross-file
+ * findings (cycles) on their sorted membership ({@link cycleFinding}).
  * Returns `null` when no stable identity can be read — the finding still
  * counts toward `issueCount`, it just can't be individually grandfathered
  * (which keeps the slot conservatively red, never silently green). Its file is
@@ -236,6 +263,8 @@ function cycleFinding(category: string, item: Record<string, unknown>, base: Pat
  */
 function deadFinding(category: string, item: unknown, base: PathBase): KeyedFinding | null {
   if (!isRecord(item)) return null;
+  const edge = edgeFinding(category, item, base);
+  if (edge !== null) return edge;
   const file = rebasePath(base, str(item['path']) || str(item['file']));
   const symbol = symbolIdentity(item);
   const where = at(item, 'line', 'col');
@@ -250,16 +279,22 @@ function deadFinding(category: string, item: unknown, base: PathBase): KeyedFind
 /**
  * Top-level arrays that are NOT counted in `total_issues`, so keying them would
  * push the key count past the issue count and leave the two out of step: the
- * advisory `next_steps`, the project-level `workspace_diagnostics`, and the
- * three opt-in "health signal" rules that fallow's own `issue-registry.json`
- * marks `counts_in_total: false`. They have to be skipped by name rather than
- * left to {@link deadFinding} — `workspace_diagnostics` carries a `path`, and
+ * advisory `next_steps`, the project-level `workspace_diagnostics`, the
+ * `package_baselines` a `workspaces.changedSince` config makes fallow list,
+ * one per package it applied a git ref to, and the three opt-in "health
+ * signal" rules that fallow's own `issue-registry.json` marks
+ * `counts_in_total: false`. They have to be skipped by name rather than left
+ * to {@link deadFinding}: `workspace_diagnostics` carries a `path`, and
  * `thin_wrappers` and `duplicate_prop_shapes` a `file`, so all three key
- * readily. Verified against fallow 3.9.1's registry; every other array counts.
+ * readily, and a `package_baselines` entry, which keys on nothing, would read
+ * as a finding the keys miss and keep a baseline from masking the check.
+ * Verified against fallow 3.31.0's registry and report types; every other
+ * array counts.
  */
 const UNCOUNTED_ARRAYS = new Set<string>([
   'next_steps',
   'workspace_diagnostics',
+  'package_baselines',
   'prop_drilling_chains',
   'thin_wrappers',
   'duplicate_prop_shapes',
@@ -267,17 +302,17 @@ const UNCOUNTED_ARRAYS = new Set<string>([
 
 /**
  * Every counted finding in a dead-code report — duplicate keys intact, so a
- * collision stays visible to the caller's tracking check — and how many items
- * carried no stable identity to key on.
+ * collision stays visible to the caller's tracking check — and the array of
+ * each item that carried no stable identity to key on.
  */
-function collectDeadFindings(j: Record<string, unknown>, base: PathBase): { findings: KeyedFinding[]; unkeyed: number } {
+function collectDeadFindings(j: Record<string, unknown>, base: PathBase): { findings: KeyedFinding[]; unkeyed: string[] } {
   const findings: KeyedFinding[] = [];
-  let unkeyed = 0;
+  const unkeyed: string[] = [];
   for (const [category, value] of Object.entries(j)) {
     if (!Array.isArray(value) || UNCOUNTED_ARRAYS.has(category)) continue;
     for (const item of value) {
       const found = deadFinding(category, item, base);
-      if (found === null) unkeyed += 1;
+      if (found === null) unkeyed.push(category);
       else findings.push(found);
     }
   }
@@ -312,8 +347,13 @@ function parseDeadCode(j: Record<string, unknown>, base: PathBase): FallowReport
   // `total` omits would otherwise offset a real un-keyable finding back to zero.
   // `findings.length` counts keys BEFORE a set collapses collisions, so a
   // collision still reads as fully tracked.
-  const fullyTracked = unkeyed === 0 && findings.length === total;
-  return { ok: true, kind: 'dead-code', findings, issueCount: total, fullyTracked };
+  const fullyTracked = unkeyed.length === 0 && findings.length === total;
+  return { ok: true, kind: 'dead-code', findings, issueCount: total, fullyTracked, unkeyed };
+}
+
+/** The `unkeyed` of a report whose one array, `name`, holds `items`, of which `findings` were keyed. */
+function missed(name: string, items: readonly unknown[], findings: readonly KeyedFinding[]): string[] {
+  return Array.from({ length: items.length - findings.length }, () => name);
 }
 
 /**
@@ -337,7 +377,7 @@ function parseDupes(j: Record<string, unknown>, base: PathBase): FallowReport {
     const file = rebasePath(base, str(instance['file']));
     findings.push(finding('dupes', g, { file, ...at(instance, 'start_line', 'start_col'), rule: 'code-duplication', message: fp, key: `dupes:${fp}` }));
   }
-  return { ok: true, kind: 'dupes', findings, issueCount: groups.length, fullyTracked: findings.length === groups.length };
+  return { ok: true, kind: 'dupes', findings, issueCount: groups.length, fullyTracked: findings.length === groups.length, unkeyed: missed('clone_groups', groups, findings) };
 }
 
 /**
@@ -361,7 +401,7 @@ function parseHealth(j: Record<string, unknown>, base: PathBase): FallowReport {
     const key = `health:${file}:${name}`;
     findings.push(finding('health', f, { file, ...at(f, 'line', 'col'), rule: 'complexity', message: name, key: namedUnit(name, file) ? key : withPosition(key, f) }));
   }
-  return { ok: true, kind: 'health', findings, issueCount: items.length, fullyTracked: findings.length === items.length };
+  return { ok: true, kind: 'health', findings, issueCount: items.length, fullyTracked: findings.length === items.length, unkeyed: missed('findings', items, findings) };
 }
 
 /**

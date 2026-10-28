@@ -546,7 +546,11 @@ fallow emits once to a file counts as a symbol: an Angular component's
 `templateUrl` file, or a `.vue`, `.svelte` or `.astro` component). An inline
 template in a script file keeps its position, since nothing else tells two in
 one file apart, and so does a Svelte `<snippet:NAME>`, since two in one file
-may share a name. A file in a key is
+may share a name. An import across a zone boundary keys on the two files it
+joins, and a package cycle on its packages' roots. A fallow finding the parser
+can't key still counts, so no baseline masks its check: the line beneath the
+check's status says what the keys miss, and `checkride baseline` says so on
+stderr. A file in a key is
 named from the repo root: a target's check prints paths relative to its root,
 and the key joins the root on, so `src/a.ts` from a target at `apps/web` keys
 as `apps/web/src/a.ts`. A check at the repo root keeps the path as printed. An

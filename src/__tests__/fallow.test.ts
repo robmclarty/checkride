@@ -1,12 +1,15 @@
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../adapters.js';
 import type { Baseline, BaselineEntry } from '../baseline/index.js';
 import { fallowVerdict } from '../baseline/index.js';
+import { runBaseline } from '../baseline-command.js';
 import type { CheckRunner, Out } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
 
@@ -52,6 +55,15 @@ function capture(raw: string): BaselineEntry {
   const { findings } = fallowVerdict(raw, null);
   return { keys: [...findings.keys()], counts: Object.fromEntries([...findings].filter(([, n]) => n >= 2)) };
 }
+
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
+const fixture = (name: string): string => readFileSync(join(FIXTURES, name), 'utf8');
+
+/** fallow 3.31.0's report of one finding in each boundary array: an import out of a zone, a forbidden call, an unzoned file. */
+const BOUNDARIES = fixture('findings-fallow-dead-boundaries.json');
+
+/** fallow 3.31.0's report of a package cycle and the file cycle under it, with a package baseline listed beside them. */
+const PACKAGES = fixture('findings-fallow-dead-packages.json');
 
 const sink = (): Out => ({ write: () => true });
 
@@ -237,7 +249,7 @@ describe('fallowVerdict (with baseline)', () => {
     });
     const v = fallowVerdict(raw, capture(raw));
     expect(v.ok).toBe(false);
-    expect(v.reason).toBe('2 finding(s)');
+    expect(v.reason).toBe("2 finding(s), 1 checkride can't key (unused_store_members), so the baseline can't mask the check");
   });
 
   test('findings the parse never reached block masking, though nothing was un-keyable', () => {
@@ -252,7 +264,7 @@ describe('fallowVerdict (with baseline)', () => {
     });
     const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false);
-    expect(v.reason).toBe('2 finding(s)');
+    expect(v.reason).toBe("2 finding(s), and checkride keyed 1, so the baseline can't mask the check");
   });
 
   test('untracked findings (count exceeds fingerprints) block masking to green', () => {
@@ -267,7 +279,44 @@ describe('fallowVerdict (with baseline)', () => {
     });
     const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false); // cannot be masked green: one finding is untracked
-    expect(v.reason).toBe('2 finding(s)');
+    expect(v.reason).toBe("2 finding(s), 1 checkride can't key (unused_store_members), so the baseline can't mask the check");
+  });
+});
+
+describe('fallowVerdict (boundary and package findings key, so a baseline masks them, #23)', () => {
+  test('an import out of a zone, a forbidden call and an unzoned file baseline back to green', () => {
+    const v = fallowVerdict(BOUNDARIES, capture(BOUNDARIES));
+    expect(v).toMatchObject({ ok: true, baselined: 3, newKeys: [], reason: null });
+    expect(v.untracked).toBeUndefined();
+  });
+
+  test('a package cycle baselines back to green, beside the package baseline fallow lists', () => {
+    expect(fallowVerdict(PACKAGES, capture(PACKAGES))).toMatchObject({ ok: true, baselined: 2, reason: null });
+  });
+
+  test('an import keeps its key when edits move it', () => {
+    const report = JSON.parse(BOUNDARIES) as { boundary_violations: { line: number; col: number }[] };
+    report.boundary_violations = report.boundary_violations.map((v) => ({ ...v, line: 40, col: 2 }));
+    expect(fallowVerdict(JSON.stringify(report), capture(BOUNDARIES)).ok).toBe(true);
+  });
+
+  test('a report its keys miss names what they miss, with or without a baseline', () => {
+    const raw = JSON.stringify({
+      schema_version: 7,
+      kind: 'dead-code',
+      summary: { total_issues: 3 },
+      unused_files: [{ path: 'src/a.ts' }],
+      unused_store_members: [{ note: 'opaque' }],
+      future_cycles: [{ members: ['a', 'b'] }],
+    });
+    const v = fallowVerdict(raw, null);
+    expect(v.reason).toBe('3 finding(s)');
+    expect(v.untracked).toBe("3 finding(s), 2 checkride can't key (future_cycles, unused_store_members)");
+    expect(fallowVerdict(raw, capture(raw)).untracked).toBe(v.untracked);
+  });
+
+  test('a clean report has nothing to miss', () => {
+    expect(fallowVerdict(deadCode([]), null).untracked).toBeUndefined();
   });
 });
 
@@ -353,7 +402,7 @@ describe('fallowVerdict (key collisions coarsen the baseline; un-keyable finding
     });
     const v = fallowVerdict(raw, { keys: ['dead-code:unused_files:src/a.ts'] });
     expect(v.ok).toBe(false);
-    expect(v.reason).toBe('2 finding(s)');
+    expect(v.reason).toBe("2 finding(s), 1 checkride can't key (unused_store_members), so the baseline can't mask the check");
   });
 });
 
@@ -406,6 +455,42 @@ describe('runChecks — the fallow (dead) slot gates on findings, not the exit c
     const dead = result.summary.checks.find((c) => c.name === 'dead');
     expect(dead?.ok).toBe(true);
     expect(dead?.baselined).toBe(1);
+  });
+
+  /** Capture a baseline of the dead slot from `runner`'s report, and what the capture said on stderr. */
+  async function captured(runner: CheckRunner): Promise<{ baseline: Baseline; said: string }> {
+    const lines: string[] = [];
+    const stderr = { write: (text: string) => { lines.push(text); return true; } };
+    const { baseline } = await runBaseline({ cwd: dir, slots: [{ name: 'dead' }], adapters: [deadAdapter], config: null, runner, stdout: sink(), stderr });
+    return { baseline, said: lines.join('') };
+  }
+
+  test('a capture of boundary findings keys each one, and the run after it is green (#23)', async () => {
+    const runner = staticRunner({ ok: false, exit_code: 1, stdout: BOUNDARIES });
+    const { baseline, said } = await captured(runner);
+    expect(baseline.slots['dead']).toHaveLength(3);
+    expect(said).toContain('3 finding(s) across dead');
+    expect(said).not.toContain("can't key");
+    expect((await run(runner, baseline)).summary.checks.find((c) => c.name === 'dead')).toMatchObject({ ok: true, baselined: 3 });
+  });
+
+  test("a capture says what its keys miss, and so does the run it can't mask (#23)", async () => {
+    const stdout = JSON.stringify({
+      schema_version: 9,
+      kind: 'dead-code',
+      total_issues: 2,
+      unused_files: [{ path: 'src/a.ts' }],
+      future_cycles: [{ members: ['a', 'b'] }],
+    });
+    const runner = staticRunner({ ok: false, exit_code: 1, stdout });
+    const { baseline, said } = await captured(runner);
+    expect(baseline.slots['dead']).toEqual(['dead-code:unused_files:src/a.ts']);
+    expect(said).toContain("baseline: dead has 2 finding(s), 1 checkride can't key (future_cycles), so the baseline can't mask it and it stays red\n");
+    const lines: string[] = [];
+    const stderr = { write: (text: string) => { lines.push(text); return true; } };
+    const result = await runChecks({ cwd: dir, slots: [{ name: 'dead' }], adapters: [deadAdapter], config: null, runner, baseline, json: false, stdout: sink(), stderr });
+    expect(result.ok).toBe(false);
+    expect(lines.join('')).toContain("2 finding(s), 1 checkride can't key (future_cycles), so the baseline can't mask the check");
   });
 
   test('a report it never got says what stopped fallow beneath the status line: the install pnpm needs, or a timeout', async () => {

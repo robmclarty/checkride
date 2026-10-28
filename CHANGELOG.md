@@ -4,6 +4,55 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **An import across a fallow zone boundary has a key, and so does a package
+  cycle.** fallow names a `boundary_violations` entry by its two ends,
+  `from_path` and `to_path`, where other findings carry a `path`, and a
+  `package_cycles` entry by its `packages` and `package_roots`, where a file
+  cycle carries `files`, so checkride read no key for either (#23). Both
+  still failed the `dead` slot, but `--digest` left them out, and showed the
+  raw JSON's tail when one was all a run found. `checkride baseline` wrote
+  only the other findings and counted only those, and the slot stayed red
+  after the capture with no word on why. An import now keys on its two ends,
+  `dead-code:boundary_violations:<from>:<to>`, with no position, since
+  fallow reports one per pair of files, however many statements import
+  across, and a package cycle keys on its sorted package roots, as a file
+  cycle keys on its files. Checked against fallow 3.31.0, whose every counted
+  `dead-code` array now has a field checkride keys on.
+- **A `fallow.toml` that sets `workspaces.changedSince` no longer keeps a
+  baseline from masking `dead`.** fallow then lists each package's git ref
+  in a `package_baselines` array, which holds no finding, and checkride read
+  each entry as a finding its keys missed, so no baseline could mask the
+  check (#23). The array is skipped now, as `next_steps` is.
+- **A fallow check a baseline can't mask says why.** Where a report counts
+  findings checkride can't key, a capture says so on stderr, as in
+  `baseline: dead has 3 finding(s), 1 checkride can't key (<array>), so the
+  baseline can't mask it and it stays red`, and the line beneath a red run's
+  status line says the same, where it gave only the count (#23).
+
+### Contract
+
+#### Not additive
+
+- Changed: fallow's `dead` parser keys `boundary_violations`, as
+  `dead-code:boundary_violations:<from>:<to>`, and `package_cycles`, on the
+  cycle's sorted package roots, where 0.19 keyed neither, so `checkride
+  baseline` records them, `--digest` lists them, and a masked run lists them
+  as new keys until a capture grandfathers them.
+- Changed: a `dead` report's `package_baselines` counts as no finding, so a
+  baseline masks a `dead` check whose `fallow.toml` sets
+  `workspaces.changedSince`, where 0.19 held it at its raw verdict.
+- Changed: the line beneath a red fallow check a baseline can't mask names
+  what its keys miss, where 0.19 gave only the count.
+
+#### Additive
+
+- `checkride baseline` names on stderr each fallow check whose report counts
+  findings its keys don't cover.
+
 ## [0.19.0] - 2026-10-24
 
 ### Added

@@ -46,11 +46,13 @@ import {
   copyNamed,
   countGrandfathered,
   diffBaselines,
+  findingText,
   isFingerprintable,
   loadBaseline,
   observedTally,
   readBaselineAt,
   readBaselineStatus,
+  reportVerdict,
   rerecordCopies,
   stoppedShortReason,
   writeBaseline,
@@ -103,6 +105,10 @@ export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline
  * it, and their counts, or none, and stderr names it. Leaving it out instead
  * would write the file without it, which masks exactly what an empty entry
  * does: the capture would throw away debt the run never looked at.
+ *
+ * A check whose report counts findings its keys don't cover is recorded with
+ * the keys it has, and stderr says what they miss, since no baseline masks
+ * it: it stays red however many of its keys the file holds.
  */
 function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd: string, stderr: Out): Captures {
   const captures: Captures = { slots: {}, counts: {}, kept: new Set<string>() };
@@ -115,8 +121,21 @@ function capturedSlots(runs: readonly CheckRun[], previous: Baseline | null, cwd
     }
     captures.slots[name] = [...tally.keys()].toSorted();
     if (tally.size > 0) captures.counts[name] = Object.fromEntries([...tally].filter(([, n]) => n >= 2));
+    const untracked = untrackedBy(byName.get(name));
+    if (untracked !== null) stderr.write(`baseline: ${name} has ${untracked}, so the baseline can't mask it and it stays red\n`);
   }
   return captures;
+}
+
+/**
+ * What a run's keys miss of the findings its report counts, in its report
+ * verdict's words, or `null`: they cover each one, or its exit code is its
+ * verdict, so there is no count to miss.
+ */
+function untrackedBy(run: CheckRun | undefined): string | null {
+  const verdict = run === undefined ? null : reportVerdict(run.adapter.name);
+  if (run === undefined || verdict === null) return null;
+  return verdict(findingText(run.adapter.name, run.outcome), null, run.root).untracked ?? null;
 }
 
 /**
