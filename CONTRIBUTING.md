@@ -116,13 +116,16 @@ and 5; step 4 is still by hand.
 6. The tag push triggers two independent workflows, kept separate so the npm
    credential surface and the release-authoring surface never share a job:
    - [.github/workflows/publish.yaml](./.github/workflows/publish.yaml):
-     full check + e2e, then `npm publish --provenance` — every published
-     tarball is provenance-attested to its commit. Auth is npm **Trusted
-     Publishing** (OIDC): no token exists anywhere, so there is nothing to
-     leak, rotate, or bypass 2FA with. The job runs in the `npm-publish`
-     GitHub Environment and **pauses for a required-reviewer approval** — the
-     CI equivalent of the old local MFA prompt. Approve it from the run page
-     (or the repo's Environments tab) to release.
+     a `build` job runs the full check + e2e and packs the tarball, with no
+     way to publish; then a `publish` job runs `npm publish --provenance` on
+     that tarball — every published tarball is provenance-attested to its
+     commit. Auth is npm **Trusted Publishing** (OIDC): no token exists
+     anywhere, so there is nothing to leak, rotate, or bypass 2FA with, and
+     the identity never shares a job with the repo's dependencies. The
+     `publish` job runs in the `npm-publish` GitHub Environment and **pauses
+     for a required-reviewer approval** — the CI equivalent of the old local
+     MFA prompt. Approve it from the run page (or the repo's Environments
+     tab) to release.
    - [.github/workflows/release.yaml](./.github/workflows/release.yaml):
      creates the GitHub Release for the tag, with notes pulled from the
      matching `CHANGELOG.md` section.
