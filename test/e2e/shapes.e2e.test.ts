@@ -138,6 +138,41 @@ async function check(dir: string): Promise<{ code: number; failed: string[]; tag
   return { code, failed: summary.checks.filter((c) => !c.ok).map((c) => c.name).toSorted(), tags: statusTags(stderr) };
 }
 
+/** How much of each file a red check's report keeps: its last lines, and at most this many characters of them. */
+const TAIL_LINES = 20;
+const TAIL_CHARS = 2000;
+
+/** The tail of `file`, bounded by {@link TAIL_LINES} and {@link TAIL_CHARS}, or `''` when there is no such file. */
+async function tail(file: string): Promise<string> {
+  const text = await readFile(file, 'utf8').catch(() => '');
+  return text.trimEnd().split('\n').slice(-TAIL_LINES).join('\n').slice(-TAIL_CHARS);
+}
+
+/**
+ * What each red check captured, for an assertion's message. The temp directory
+ * goes with `afterAll`, so a log that names only the exit code — or only the
+ * slot — leaves a CI-only failure with nothing to read. Each red check reports
+ * its two streams and, when the tool wrote its findings as JSON instead, the
+ * `output_file` the summary names; all three are relative to `.check/`, a
+ * target's check under its `<target>/`.
+ */
+async function redReport(dir: string): Promise<string> {
+  const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
+    checks: { name: string; ok: boolean; target?: string; slot?: string; output_file: string | null }[];
+  };
+  const reports = await Promise.all(
+    summary.checks
+      .filter((c) => !c.ok)
+      .map(async (c) => {
+        const stem = c.target !== undefined && c.slot !== undefined ? `${c.target}/${c.slot}` : c.name;
+        const files = [`${stem}.stderr.txt`, `${stem}.stdout.txt`, ...(c.output_file === null ? [] : [c.output_file])];
+        const excerpts = await Promise.all(files.map(async (file) => `--- ${file}\n${await tail(join(dir, '.check', file))}`));
+        return `${c.name} failed:\n${excerpts.join('\n')}`;
+      }),
+  );
+  return reports.join('\n\n');
+}
+
 /** The ids of the ast-grep rules the last run's `struct` check matched. */
 async function firedRules(dir: string): Promise<string[]> {
   const matches = JSON.parse(await readFile(join(dir, '.check', 'struct.json'), 'utf8')) as { ruleId: string }[];
@@ -235,6 +270,9 @@ describeWithToolchain('repo')('init --lang', () => {
 
       test('init -> its setup -> checkride exits 0, every tool through a pin', async () => {
         const result = await check(dir);
+        // The slots by name, and what each captured: the message is what a run
+        // on a CI leg this machine can't reproduce leaves behind.
+        expect(result.failed, await redReport(dir)).toEqual([]);
         expect(result.code).toBe(0);
         const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as {
           checks: { name: string; ok: boolean; argv?: string[]; pin_source?: string }[];
