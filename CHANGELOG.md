@@ -4,6 +4,43 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-10-31
+
+### Fixed
+
+- **The quality report's dead-code table lists only the arrays `total_issues`
+  counts.** The `qa` reader skipped fallow's `next_steps` and nothing else,
+  where the findings parser skips six arrays the count leaves out, so a clean
+  run whose `fallow.toml` sets `workspaces.changedSince`, or whose config
+  fallow 3.36 marks with a "redundant config entry" diagnostic, read
+  `0 issue(s) · 1 non-empty bucket(s)` and drew a bucket table where "No
+  finding bucket is non-empty." belonged, and such an array could push a real
+  bucket past the eight the table shows. The reader now takes the parser's
+  list, so `package_baselines`, `workspace_diagnostics` and the opt-in health
+  signals (`prop_drilling_chains`, `thin_wrappers`, `duplicate_prop_shapes`)
+  are not buckets, and the report's buckets and the baseline's keys agree on
+  what the count leaves out. Report-only: the gate and the baseline went by
+  fallow's count throughout.
+
+### Changed
+
+- **`init` pins stryker at 10.1.1.** A project that turns `mutation` on gets
+  `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` 10.1.1, which
+  ships the vitest 5 test-name separator fix (stryker-js #6210), where 0.19
+  pinned 10.0.0 and told a vitest 5 project to carry the fix as a pnpm patch.
+  A project on 10.0.0 bumps both, or stays on vitest 4.
+
+### Internal
+
+- checkride's own stryker moves to 10.1.1 and the pnpm patch that carried the
+  fix on 10.0.0 retires, with its `patchedDependencies` entry. The mutation
+  canary, `test/e2e/mutation-canary.e2e.test.ts`, now guards the release
+  rather than the patch, and `AGENTS.md` counts two patched dependencies.
+- The go and rust shape e2e cases name the slots that went red, with the tail
+  of each one's captured output, where they asserted only checkride's exit
+  code: v0.19.1's one failing CI leg (a flake, green on re-run) left a log
+  that read `expected 1 to be +0` and nothing else.
+
 ## [0.19.1] - 2026-10-28
 
 ### Fixed
@@ -4394,6 +4431,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.19.2]: https://www.npmjs.com/package/checkride/v/0.19.2
 [0.19.1]: https://www.npmjs.com/package/checkride/v/0.19.1
 [0.19.0]: https://www.npmjs.com/package/checkride/v/0.19.0
 [0.18.0]: https://www.npmjs.com/package/checkride/v/0.18.0
