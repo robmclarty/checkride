@@ -11,9 +11,11 @@
  * three-test project, in seconds. Its tests sit inside a `describe`, because
  * #6210 bites only on nested test names, and it carries a `tsconfig.json`,
  * because the TypeScript 7 crash needs one. A run that kills nothing fails here.
- * If it does, read the `patchedDependencies` comment in pnpm-workspace.yaml
- * before anything else: that's where the carried stryker fix and its
- * retirement test live.
+ * If it does, suspect the runner first: #6210 was fixed in
+ * @stryker-mutator/vitest-runner 10.1.1 (checkride carried the fix as a pnpm
+ * patch on 10.0.0 until then), so compare the separator `collectTestName`
+ * joins with, in its dist/src/stryker-setup.js, against the one vitest's
+ * reporter uses.
  */
 
 import { execFile } from 'node:child_process';
@@ -96,7 +98,7 @@ describe('mutation canary', () => {
       await mkdir(dirname(join(dir, path)), { recursive: true });
       await writeFile(join(dir, path), body);
     }
-    // The repo's install, patched runner included, resolves from the temp dir.
+    // The repo's install resolves from the temp dir, so the run uses the pinned runner.
     await symlink(join(ROOT, 'node_modules'), join(dir, 'node_modules'), 'dir');
   });
 
@@ -132,7 +134,7 @@ describe('mutation canary', () => {
     expect(
       killed,
       `stryker killed no mutants (${JSON.stringify(counts)}). Mutation testing is broken without saying so; ` +
-        'check the patchedDependencies comment in pnpm-workspace.yaml (stryker-js #6210).',
+        'check the vitest runner package.json pins against vitest (stryker-js #6210, fixed in 10.1.1).',
     ).toBeGreaterThan(0);
     // A healthy run kills most of them; the one survivor class here is the
     // equivalent `<` to `<=` boundary, which returns the same value either way.

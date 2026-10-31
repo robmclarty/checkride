@@ -255,8 +255,8 @@ export const TS_PACK: Pack = {
       timeout: 0,
       outputFile: null,
       devDeps: {
-        '@stryker-mutator/core': '10.0.0',
-        '@stryker-mutator/vitest-runner': '10.0.0',
+        '@stryker-mutator/core': '10.1.1',
+        '@stryker-mutator/vitest-runner': '10.1.1',
       },
     },
     {

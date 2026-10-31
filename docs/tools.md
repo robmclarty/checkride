@@ -311,16 +311,14 @@ ships the JavaScript compiler API, and two kinds of tools still need it:
   up to 6. A project that relies on either stays on TypeScript 6 until they
   catch up.
 
-Mutation testing on vitest 5 needs one fix stryker hasn't released yet. Its
-vitest runner (10.0.0) filters tests by name with the separator vitest 4 used, so
+Mutation testing on vitest 5 needs stryker's vitest runner at 10.1.1 or later.
+The 10.0.0 runner filters tests by name with the separator vitest 4 used, so
 under vitest 5 every mutant run executes zero tests, every mutant survives, and
 no error says why
-([stryker-js #6210](https://github.com/stryker-mutator/stryker-js/issues/6210)).
-checkride carries the two-line fix as a pnpm patch,
-[`patches/@stryker-mutator__vitest-runner@10.0.0.patch`](../patches/@stryker-mutator__vitest-runner@10.0.0.patch).
-A project that adds `mutation` on vitest 5 can carry the same patch (copy the
-file and its `patchedDependencies` entry in `pnpm-workspace.yaml`), or stay on
-vitest 4 until a stryker release includes the fix.
+([stryker-js #6210](https://github.com/stryker-mutator/stryker-js/issues/6210),
+fixed in 10.1.1). `init` pins `@stryker-mutator/core` and
+`@stryker-mutator/vitest-runner` at 10.1.1; a project that added `mutation` on
+10.0.0 bumps both, or stays on vitest 4.
 
 And `fallow`, the one unfamiliar name in the table: a Rust-native
 codebase-intelligence tool (unused code, duplication, circular dependencies,
