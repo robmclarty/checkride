@@ -10,13 +10,20 @@
  * reader with a fixed list would silently omit a new finding type.
  *
  * `total_issues` stays the authoritative count (it is what checkride gates on),
- * and the buckets explain it. Each bucket carries a couple of sample labels so
- * the finding has a location without the file being opened.
+ * and the buckets explain it — so the arrays that count leaves out (advice,
+ * workspace diagnostics, the per-package refs of a `changedSince` run, the
+ * opt-in health signals) are not buckets, or a clean run would read as one
+ * non-empty bucket and zero issues. Which arrays those are is the findings
+ * parser's call, {@link UNCOUNTED_DEAD_ARRAYS}, read here rather than copied
+ * so the report and the baseline's keys never disagree. Each bucket carries a
+ * couple of sample labels so the finding has a location without the file
+ * being opened.
  *
  * The `../qa` barrel is this module's only public surface.
  */
 
 import { asNumberOrNull, asRecord, asStringOrNull, isRecord } from '../artifacts/index.js';
+import { UNCOUNTED_DEAD_ARRAYS } from '../findings/index.js';
 
 /** Buckets listed; the rest are counted. */
 const TOP_BUCKETS = 8;
@@ -39,13 +46,6 @@ export type DeadExtract = {
   buckets: DeadBucket[];
   omittedBuckets: number;
 };
-
-/**
- * Arrays that are report metadata rather than findings. `next_steps` is
- * fallow's advice list; it is not a finding and does not count toward
- * `total_issues`.
- */
-const NON_FINDING_ARRAYS = new Set(['next_steps']);
 
 /** Where a finding says it is, and what it says it is about. */
 const FILE_FIELDS = ['path', 'file'] as const;
@@ -81,7 +81,7 @@ function label(item: unknown): string {
 function collectBuckets(value: Record<string, unknown>): DeadBucket[] {
   const buckets: DeadBucket[] = [];
   for (const [name, entry] of Object.entries(value)) {
-    if (!Array.isArray(entry) || entry.length === 0 || NON_FINDING_ARRAYS.has(name)) continue;
+    if (!Array.isArray(entry) || entry.length === 0 || UNCOUNTED_DEAD_ARRAYS.has(name)) continue;
     buckets.push({ name, count: entry.length, samples: entry.slice(0, SAMPLES_PER_BUCKET).map(label) });
   }
   return buckets.toSorted((a, b) => b.count - a.count || a.name.localeCompare(b.name));

@@ -581,6 +581,25 @@ describe('the dead fold', () => {
     expect(extract?.buckets[0]?.samples).toEqual(['src/a.ts:gone', 'src/b.ts:also']);
   });
 
+  test('the arrays total_issues leaves out are not buckets, so a clean run reads clean', () => {
+    // The same list the findings parser skips: a `changedSince` run's per-package
+    // refs, workspace diagnostics (fallow 3.36 adds "redundant config entry"
+    // kinds), and the opt-in health signals fallow's registry marks
+    // counts_in_total: false. Each carries a path or file, so each would label
+    // readily — and a clean run would read "0 issue(s) · 3 non-empty bucket(s)".
+    const extract = extractDead({
+      total_issues: 0,
+      summary: { total_issues: 0 },
+      entry_points: { total: 3 },
+      unused_exports: [],
+      package_baselines: [{ package: 'packages/a', ref: 'abc123' }],
+      workspace_diagnostics: [{ kind: 'entry-pattern-redundant', path: 'fallow.toml', pattern: 'src/**', message: 'already an entry' }],
+      thin_wrappers: [{ file: 'src/w.tsx', line: 4, component: 'Wrap', child_component: 'Inner' }],
+      next_steps: [{ id: 'trace', command: 'fallow dead-code --trace src/a.ts', reason: 'verify' }],
+    });
+    expect(extract).toEqual({ totalIssues: 0, entryPoints: 3, buckets: [], omittedBuckets: 0 });
+  });
+
   test('a report with no readable issue count folds to null, never to clean', () => {
     expect(extractDead({ kind: 'dead-code', unused_exports: [] })).toBeNull();
   });

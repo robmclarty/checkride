@@ -290,8 +290,12 @@ function deadFinding(category: string, item: unknown, base: PathBase): KeyedFind
  * as a finding the keys miss and keep a baseline from masking the check.
  * Verified against fallow 3.31.0's registry and report types; every other
  * array counts.
+ *
+ * Exported for the `qa` reader of `dead.json`, whose buckets explain the same
+ * `total_issues`: one list, so the report and the fingerprints never disagree
+ * on which arrays the count leaves out.
  */
-const UNCOUNTED_ARRAYS = new Set<string>([
+export const UNCOUNTED_DEAD_ARRAYS = new Set<string>([
   'next_steps',
   'workspace_diagnostics',
   'package_baselines',
@@ -309,7 +313,7 @@ function collectDeadFindings(j: Record<string, unknown>, base: PathBase): { find
   const findings: KeyedFinding[] = [];
   const unkeyed: string[] = [];
   for (const [category, value] of Object.entries(j)) {
-    if (!Array.isArray(value) || UNCOUNTED_ARRAYS.has(category)) continue;
+    if (!Array.isArray(value) || UNCOUNTED_DEAD_ARRAYS.has(category)) continue;
     for (const item of value) {
       const found = deadFinding(category, item, base);
       if (found === null) unkeyed.push(category);
@@ -326,7 +330,7 @@ function collectDeadFindings(j: Record<string, unknown>, base: PathBase): { find
  * keys: the summary aggregates a few categories under one name (for example dev and
  * optional deps both count as `unused_dependencies`) whose items live in
  * separately named arrays, so keying off the summary would miss them. Iterating
- * every array except the {@link UNCOUNTED_ARRAYS} covers whatever categories
+ * every array except the {@link UNCOUNTED_DEAD_ARRAYS} covers whatever categories
  * fallow reports — including ones added in a future minor — without a
  * hand-maintained list of the ones that do count. A category whose items carry
  * no stable identity simply isn't fingerprinted; it still counts toward
