@@ -215,7 +215,7 @@ slot, and that slot's raw output for structured diagnostics. On a big repo,
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
-| Want a hard gate for a coding agent | `checkride agent-setup` (or `init`) writes the hooks (gate + edit marker + baseline guard) for Claude Code and Cursor |
+| Want a hard gate for a coding agent | `checkride hooks add` writes the stop gate, its edit marker and the baseline guard for Claude Code and Cursor (`init` and `agent-setup` write only the guard) |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
 | Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
 | Wall of "new, not in baseline" right after a merge (or a `hint:` line names a commit) | `checkride recover` lists restorable baseline states; `--pick <sha>` restores additively — not `checkride baseline`, which would grandfather new debt too |

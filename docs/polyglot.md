@@ -115,7 +115,8 @@ checkride init: adopted 1 slot(s); wrote 8 file(s).
 
 `init` wrote those targets into `checkride.config.json`, added a `check`
 script to the root `package.json`, put `.check/` in `.gitignore`, and wrote the
-agent contract: the AGENTS.md stanza and the Claude Code hooks. The stanza's
+agent contract: the AGENTS.md stanza and the Claude Code baseline guard (the
+stop gate is opt-in). The stanza's
 last line lists the checks the gate runs:
 
 ```text

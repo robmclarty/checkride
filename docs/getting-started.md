@@ -163,9 +163,9 @@ mise exec -- checkride
 
 `init` adopts the repo through the pack its root marks. It names the checks
 the tools it finds fill, `types` and `test` for a `go.mod`, say, plus `lint`
-where a `.golangci.yml` sits, writes the AGENTS.md stanza and the hooks
-spelled `mise exec -- checkride`, and writes no `check` script, since there's
-no `package.json` to hold one. `--baseline` grandfathers today's findings here
+where a `.golangci.yml` sits, writes the AGENTS.md stanza spelled
+`mise exec -- checkride` (the stop gate too, if you opt in to it), and writes
+no `check` script, since there's no `package.json` to hold one. `--baseline` grandfathers today's findings here
 as it does anywhere. Pin the pack's own tools in the same `mise.toml`
 (`mise use golangci-lint@<version>`, for one), and run the setup step a check
 won't, such as `go mod download` or `uv sync`, before the first run.
@@ -440,12 +440,12 @@ pnpm exec checkride hooks add     # every hook: gate, dirty, protect
 Which harnesses get wired is detected — Claude Code always, Cursor when
 `.cursor/` exists — and `--harness <a,b>` overrides that.
 
-`init` writes the hooks automatically (both new and existing projects). To add
-them to a repo you have already set up — without re-running the full `init` —
-use:
+`init` writes the default hooks, which is `protect` alone, in new and existing
+projects. To add them to a repo you have already set up — without re-running
+the full `init` — use:
 
 ```bash
-pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + hooks, nothing else
+pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + protect, nothing else
 ```
 
 Both commands are idempotent (re-running is a no-op), take `--hook <a,b>` to
@@ -454,8 +454,8 @@ and opt out entirely with `--no-hook`. Without `--hook` they write `protect`,
 plus whatever hooks the repo already has, so a repo that opted in keeps its
 gate refreshed on every re-run. Three hooks exist:
 
-- **`gate`** — the hard gate, opt-in. The config entry is a stable one-liner invoking a
-  checkride-owned script (`.claude/hooks/checkride-gate.sh`,
+- **`gate`** — the hard gate, opt-in. The config entry is a stable one-liner
+  invoking a checkride-owned script (`.claude/hooks/checkride-gate.sh`,
   `.cursor/hooks/checkride-gate.sh`); checkride overwrites that script freely
   on refresh, so put customization in a sibling script, never inside it. The
   script is a thin adapter over [`checkride gate`](#the-gate-command), which
@@ -472,8 +472,8 @@ gate refreshed on every re-run. Three hooks exist:
   don't set the marker — a known, accepted gap; the next tool-edited turn
   re-covers it. If you select `--hook gate` without `dirty`, the generated
   script is unconditional.)
-- **`protect`** — written by default. Denies edits to `checkride.baseline.json` and `.check/**`,
-  turning "never add to the baseline to make a check pass" into enforcement.
+- **`protect`** — written by default. Denies edits to `checkride.baseline.json`
+  and `.check/**`, turning "never add to the baseline to make a check pass" into enforcement.
   Reads are never denied; triage depends on them.
 
 Each lands on the nearest thing its harness offers:
@@ -797,9 +797,10 @@ devDependency (or the `npm:checkride` pin in `mise.toml`),
 `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the `@AGENTS.md` import in
-CLAUDE.md, or the whole CLAUDE.md if `init` created it), the hook entries in
-`.claude/settings.json` and
-`.cursor/hooks.json` with their `checkride-*` scripts, the
+CLAUDE.md, or the whole CLAUDE.md if `init` created it), checkride's deny
+rules in `.claude/settings.json` and its entries in `.cursor/hooks.json` with
+their `checkride-*` scripts (plus the stop gate's entries and scripts, if you
+opted in), the
 `.cursor/skills/checkride-*` directories, and the gitignored `.check/` output
 directory. Remove those and checkride is gone. The
 tools keep working untouched — they are ordinary `devDependencies` with their

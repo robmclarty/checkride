@@ -120,8 +120,8 @@ CI file), here is what checkride returns and what it costs.
   preset release, not a campaign of pull requests.
 - **The agent dividend.** Checks are increasingly read by LLMs, not humans.
   checkride was designed for that consumer: raw per-tool JSON in `.check/`, a
-  stable summary schema, a token-bounded digest, and a hook that stops an
-  agent from declaring victory on a red pipeline. A script pile offers an
+  stable summary schema, a token-bounded digest, and an opt-in hook that stops
+  an agent from declaring victory on a red pipeline. A script pile offers an
   agent a wall of interleaved text on stdout.
 
 **What it costs:**

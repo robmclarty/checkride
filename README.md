@@ -64,7 +64,7 @@ pnpm exec checkride init
 ```
 
 The same two steps under another package manager — `init` detects it and
-spells the alias, stanza, and hooks for it (see
+spells the alias and stanza (and the stop gate, if you opt in) for it (see
 [Package managers](#package-managers)):
 
 ```bash
@@ -385,7 +385,7 @@ first match wins — and falls back to **pnpm** when neither exists. With
 targets, a target's checks run under the manager nearest its root: the first
 `packageManager` field or lockfile from there up to the repo root. Every
 command checkride generates is spelled for that manager: the `check` alias the
-hooks run, the AGENTS.md stanza, and each adapter's canonical `pnpm exec <tool>`
+stop gate runs, the AGENTS.md stanza, and each adapter's canonical `pnpm exec <tool>`
 (which becomes `npx --no-install`, `yarn`, or `bunx --no-install`). `doctor`
 reports the detected manager on its first line; `init` and `agent-setup` report
 it under their headline. Two of the ts pack's slots are manager-specific: its

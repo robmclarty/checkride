@@ -23,8 +23,8 @@ pnpm exec checkride init
 below 1.0, where a minor release may break.
 
 `init` writes a `check` script, so `pnpm check` (or `npm run check`, and so
-on) runs the gate, and the hooks, the AGENTS.md stanza and the plugin skills
-run that script. [Getting started](./getting-started.md) walks through it.
+on) runs the gate, and the AGENTS.md stanza, the plugin skills and the stop
+gate, where a repo opts in to it, run that script. [Getting started](./getting-started.md) walks through it.
 
 ## The mise route
 
@@ -63,8 +63,8 @@ steps for that reason.
 
 checkride still runs on Node, so `node` is a pin like any other tool's: mise
 installs it, and nothing on the machine's `PATH` has to provide it. Where a
-root `mise.toml` pins `npm:checkride`, the hooks, the AGENTS.md stanza and the
-plugin skills run `mise exec -- checkride`, and `doctor` reports that harness
+root `mise.toml` pins `npm:checkride`, the AGENTS.md stanza, the plugin skills
+and an opted-in stop gate run `mise exec -- checkride`, and `doctor` reports that harness
 as pinned. A repo with no `package.json` that pins nothing runs the
 `checkride` on `PATH`, which `doctor` reports as the harness unpinned, naming
 the `mise use` above.
