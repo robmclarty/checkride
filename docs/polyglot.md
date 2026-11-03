@@ -448,8 +448,8 @@ Node at all.
 
 ## Where agents come in
 
-Nothing here changes for an agent. The stop gate `init` wrote runs the repo's
-`check` script, so it checks every target, and the stanza tells the agent
+Nothing here changes for an agent. The stop gate, where a repo opted in to it,
+runs the repo's `check` script, so it checks every target, and the stanza tells the agent
 where a target's output lands: `.check/<target>/`. `checkride triage` and the
 `/checkride:check` skill read those directories too, and name each check the
 way the run does, `api:test` rather than `test`.

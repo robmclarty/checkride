@@ -274,7 +274,8 @@ describe('AGENTS stanza (edit detection)', () => {
       const dir = await mkdtemp(join(tmpdir(), 'checkride-refuse-'));
       try {
         await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
-        await runAgentSetup({ cwd: dir });
+        // The gate is opt-in, and it is the hook this test asks to remove.
+        await runAgentSetup({ cwd: dir, hooks: ['gate'] });
         const agents = await readFile(join(dir, 'AGENTS.md'), 'utf8');
         await writeFile(join(dir, 'AGENTS.md'), agents.replace('### Baseline', '### Mine\n\nkeep\n\n### Baseline'));
         await expect(runAgentSetup({ cwd: dir, removeHooks: ['gate'] })).rejects.toThrow('refusing to overwrite');
@@ -300,7 +301,7 @@ describe('AGENTS stanza (edit detection)', () => {
       const dir = await mkdtemp(join(tmpdir(), 'checkride-unstamped-'));
       try {
         await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'demo' }));
-        await runAgentSetup({ cwd: dir });
+        await runAgentSetup({ cwd: dir, hooks: ['gate'] });
         const unstamped = legacy('## Checkride: the definition of done\n\nA wording checkride never shipped.');
         await writeFile(join(dir, 'AGENTS.md'), unstamped);
         expect(inspectStanza(unstamped, buildStanza(['types', 'lint']))).toBe('unstamped');
@@ -1229,11 +1230,21 @@ describe('existing-project adoption (idempotent)', () => {
     expect(result.skipped).toContain('.oxlintrc.json (exists)');
   });
 
-  test('init writes the agent hooks, and --no-hook skips them', async () => {
+  test('init writes protect by default, the stop gate only when asked, and --no-hook skips them', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
-    const withHook = await runInit({ cwd: dir, probeFailures: noFailures });
-    expect(withHook.written).toContain(CLAUDE_SETTINGS_FILE);
-    expect(withHook.written).toContain(GATE_SCRIPT_FILE);
+    const byDefault = await runInit({ cwd: dir, probeFailures: noFailures });
+    expect(byDefault.written).toContain(CLAUDE_SETTINGS_FILE);
+    expect(byDefault.written).not.toContain(GATE_SCRIPT_FILE);
+    const protectOnly = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
+      hooks?: unknown;
+      permissions: { deny: string[] };
+    };
+    expect(protectOnly.hooks).toBeUndefined();
+    expect(protectOnly.permissions.deny).toContain('Edit(**/checkride.baseline.json)');
+
+    await rm(join(dir, '.claude'), { recursive: true, force: true });
+    const withGate = await runInit({ cwd: dir, hooks: ['gate', 'dirty', 'protect'], probeFailures: noFailures });
+    expect(withGate.written).toContain(GATE_SCRIPT_FILE);
     const settings = JSON.parse(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')) as {
       hooks: { Stop: { hooks: { command: string }[] }[] };
     };
@@ -1456,13 +1467,14 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(lines[1]).toBe('  package manager: yarn (detected)');
   });
 
-  test('writes the check alias, AGENTS stanza, and Stop hook; second run is a no-op', async () => {
+  test('writes the check alias, AGENTS stanza, and protect rules — no stop gate; second run is a no-op', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
     await writeFile(join(dir, 'tsconfig.json'), '{}');
 
     const first = await runAgentSetup({ cwd: dir });
     expect(first.written).toContain('AGENTS.md');
     expect(first.written).toContain(CLAUDE_SETTINGS_FILE);
+    expect(first.written).not.toContain(GATE_SCRIPT_FILE);
     expect(first.written).toContain('package.json (added check script)');
     const pkg = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
     expect(pkg.scripts['check']).toBe('checkride');
@@ -1474,7 +1486,18 @@ describe('runAgentSetup (existing repo, no full init)', () => {
     expect(second.written).toEqual([]);
     expect(second.skipped).toContain('AGENTS.md (stanza unchanged)');
     expect(second.skipped).toContain(`${CLAUDE_SETTINGS_FILE} (unchanged)`);
-    expect(second.skipped).toContain(`${GATE_SCRIPT_FILE} (unchanged)`);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+  });
+
+  /** The default decides what a repo starts with; a repo that opted in keeps its gate current. */
+  test('a bare re-run refreshes a gate the repo opted into', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'legacy' }));
+    await runAgentSetup({ cwd: dir, hooks: ['gate', 'dirty', 'protect'] });
+    await writeFile(join(dir, GATE_SCRIPT_FILE), '# stale\n');
+
+    const refresh = await runAgentSetup({ cwd: dir });
+    expect(refresh.written).toContain(GATE_SCRIPT_FILE);
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('checkride gate --harness claude --if-dirty');
   });
 
   test('stanza reports the configured gate, not detection: opted-in slots and custom checks appear', async () => {

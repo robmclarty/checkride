@@ -421,11 +421,21 @@ detection is automatic from then on.
 
 ### Make it a hard gate
 
-To turn "exit 0 = done" from advice into a mechanical gate, checkride writes
-**hooks** into your agent harness's config — `.claude/settings.json` for Claude
-Code, `.cursor/hooks.json` for Cursor. The load-bearing one is the **stop
-gate**: it fires when the agent tries to finish and refuses to let it, so the
-agent keeps working until the pipeline is green.
+checkride writes **hooks** into your agent harness's config —
+`.claude/settings.json` for Claude Code, `.cursor/hooks.json` for Cursor. By
+default that is only `protect`, the guard on the baseline and `.check/`. The
+**stop gate** is opt-in. It turns "exit 0 = done" from advice into a mechanical
+gate: it fires when the agent tries to finish and refuses to let it, so the
+agent keeps working until the pipeline is green. That costs a full pipeline run
+at the end of every turn that edited a file. The AGENTS.md stanza already
+carries the same rule as instruction, and agents mostly follow it, so whether
+the run is worth it is yours to decide.
+
+To opt in:
+
+```bash
+pnpm exec checkride hooks add     # every hook: gate, dirty, protect
+```
 
 Which harnesses get wired is detected — Claude Code always, Cursor when
 `.cursor/` exists — and `--harness <a,b>` overrides that.
@@ -439,9 +449,12 @@ pnpm exec checkride agent-setup   # "check" alias + AGENTS.md stanza + hooks, no
 ```
 
 Both commands are idempotent (re-running is a no-op), take `--hook <a,b>` to
-select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
+choose which hooks to write (`--hook gate,dirty,protect` opts in to the gate),
+and opt out entirely with `--no-hook`. Without `--hook` they write `protect`,
+plus whatever hooks the repo already has, so a repo that opted in keeps its
+gate refreshed on every re-run. Three hooks exist:
 
-- **`gate`** — the hard gate. The config entry is a stable one-liner invoking a
+- **`gate`** — the hard gate, opt-in. The config entry is a stable one-liner invoking a
   checkride-owned script (`.claude/hooks/checkride-gate.sh`,
   `.cursor/hooks/checkride-gate.sh`); checkride overwrites that script freely
   on refresh, so put customization in a sibling script, never inside it. The
@@ -452,13 +465,14 @@ select a subset, and opt out entirely with `--no-hook`. Three hooks exist:
   hands the agent this run's digest (the capped failure excerpt) below its
   instruction, or points it at `.check/summary.json` when the run wrote no
   digest.
-- **`dirty`** — touches an edit marker, `.check/.dirty`. The gate exits 0
+- **`dirty`** — opt-in, and only useful alongside the gate. Touches an edit
+  marker, `.check/.dirty`. The gate exits 0
   immediately when the marker is absent, so pure-conversation turns don't pay
   for a pipeline run; a green gate clears it. (File writes made through a shell
   don't set the marker — a known, accepted gap; the next tool-edited turn
   re-covers it. If you select `--hook gate` without `dirty`, the generated
   script is unconditional.)
-- **`protect`** — denies edits to `checkride.baseline.json` and `.check/**`,
+- **`protect`** — written by default. Denies edits to `checkride.baseline.json` and `.check/**`,
   turning "never add to the baseline to make a check pass" into enforcement.
   Reads are never denied; triage depends on them.
 
@@ -602,7 +616,7 @@ in `--remove-hook`:
 
 ```bash
 pnpm exec checkride agent-setup --remove-hook gate   # keep the guards, drop the stop gate
-pnpm exec checkride agent-setup --hook gate          # and put it back
+pnpm exec checkride hooks add gate,dirty             # and put it back
 ```
 
 On its own, `--remove-hook` still refreshes everything else (that is what
@@ -740,8 +754,9 @@ replaced, never duplicated.
 
 ### Avoiding duplicate runs
 
-A Stop hook and the AGENTS.md stanza both want `pnpm check`, so the agent can run
-the full pipeline itself and then the hook runs it again. Two things head that
+In a repo that opted in to the stop gate, the Stop hook and the AGENTS.md stanza
+both want `pnpm check`, so the agent can run the full pipeline itself and then
+the hook runs it again. Two things head that
 off. The `dirty` marker already skips the gate entirely on turns that touched
 no files. For turns that did edit, the generated stanza tells the agent that
 *if a stop-gate hook is configured* it runs the check when the turn ends — so

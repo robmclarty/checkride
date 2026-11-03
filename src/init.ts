@@ -98,11 +98,14 @@ export type InitOptions = {
    */
   force?: boolean;
   /**
-   * Write the agent stop-gate hooks into each selected harness's config.
-   * Opt-out: defaults to on; `--no-hook` sets it `false`.
+   * Write the agent hooks into each selected harness's config. Defaults to on;
+   * `--no-hook` sets it `false`.
    */
   hook?: boolean;
-  /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
+  /**
+   * Which hooks to write (`--hook <a,b>`). Omitted → `protect`, plus any hook
+   * the harness already carries: the stop gate is opt-in.
+   */
   hooks?: readonly HookName[];
   /**
    * Hooks to tear out of an already-wired repo (`--remove-hook <a,b>`): the
@@ -1026,7 +1029,7 @@ async function initNew(options: InitOptions, cwd: string): Promise<InitResult> {
   const w: Writer = { cwd, dryRun: options.dryRun ?? false, written: [], removed: [] };
   await writeNewScaffold(w, scaffold);
 
-  // Claude Code Stop hook (opt-out). A fresh project has no PM lockfile
+  // Agent hooks (the gate only if asked for). A fresh project has no PM lockfile
   // yet, so it resolves to the `pnpm` default — matching the generated scripts.
   await writeHook(w, options);
   await writeSkills(w, options);
@@ -2080,7 +2083,7 @@ async function initExisting(options: InitOptions, cwd: string): Promise<InitResu
   // written above so it reports the gate as configured, not as detected.
   await writeAgentsStanza(w, cwd, { slots, adapters }, pm, skipped);
   const claudeNote = await ensureClaudeImport(w, cwd, skipped);
-  // Claude Code Stop hook (opt-out), using the repo's detected PM.
+  // Agent hooks (the gate only if asked for, or already there), using the repo's detected PM.
   await writeHook(w, options, skipped);
   await writeSkills(w, options, skipped);
 
@@ -2210,7 +2213,10 @@ export type AgentSetupOptions = {
   dryRun?: boolean;
   /** Write the agent hooks (opt-out; `--no-hook`). Defaults to on. */
   hook?: boolean;
-  /** Which hooks to write (`--hook <a,b>`). Omitted → all of them. */
+  /**
+   * Which hooks to write (`--hook <a,b>`). Omitted → `protect`, plus any hook
+   * the harness already carries: the stop gate is opt-in.
+   */
   hooks?: readonly HookName[];
   /**
    * Hooks to tear out (`--remove-hook <a,b>`): the config entry is stripped and
@@ -2242,10 +2248,10 @@ export type AgentSetupResult = {
  * `checkride agent-setup` — wire the agent contract into an *existing* repo
  * without a full `init`: the `check` alias the hook resolves to, the AGENTS.md
  * stanza (the human-readable contract), the CLAUDE.md import that loads it in
- * Claude Code, the stop-gate hooks for every detected harness (the mechanical
- * gate), and the skills a harness cannot get from the bundled plugin. Every
- * write is additive and idempotent — a second run is a no-op — and the hooks
- * are opt-out (`hook: false`).
+ * Claude Code, the agent hooks for every detected harness (the stop gate only
+ * when asked for or already installed), and the skills a harness cannot get
+ * from the bundled plugin. Every write is additive and idempotent — a second
+ * run is a no-op — and the hooks are opt-out (`hook: false`).
  */
 export async function runAgentSetup(options: AgentSetupOptions): Promise<AgentSetupResult> {
   const cwd = options.cwd ?? process.cwd();

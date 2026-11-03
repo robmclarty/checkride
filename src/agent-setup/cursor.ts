@@ -30,7 +30,7 @@
 
 import type { HarnessName } from '../gate.js';
 import { CURSOR_HOOKS_FILE } from '../gate.js';
-import type { HarnessSpec, WriteOptions } from './harness.js';
+import type { HarnessSpec, HookName, WriteOptions } from './harness.js';
 import { GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
 
@@ -287,6 +287,16 @@ export function removeCursorHooks(
     .reduce((acc, spec) => removeHook(acc, spec), config);
 }
 
+/** The hooks a parsed config already carries, on any of the events each one spans. */
+function installedCursorHooks(config: CursorHooks = {}): HookName[] {
+  const carried = new Set(
+    hookSpecs()
+      .filter((spec) => eventHooks(config, spec.event).some((h) => isSpecHook(spec, h)))
+      .map((spec) => spec.name),
+  );
+  return HOOK_NAMES.filter((name) => carried.has(name));
+}
+
 const SPEC: HarnessSpec<CursorHooks> = {
   name: HARNESS,
   configFile: CURSOR_HOOKS_FILE,
@@ -295,6 +305,7 @@ const SPEC: HarnessSpec<CursorHooks> = {
   apply: applyCursorHooks,
   scripts: { gate: GATE_SCRIPT_FILE, dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
   remove: removeCursorHooks,
+  installed: installedCursorHooks,
 };
 
 /** Write or refresh the selected Cursor hooks in `cwd`. */

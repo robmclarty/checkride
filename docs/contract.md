@@ -674,7 +674,10 @@ are promised. New commands and flags are additive; removing or repurposing one
 is a breaking change. `baseline` additionally promises `--versions`, whose
 rule is below, and `--only` and `--skip`, and `init` and `agent-setup` promise
 `--hook <a,b>` (select which hooks to write: `gate`, `dirty`, `protect`; an
-unknown name is a usage error naming the valid set), `--no-hook` (write none),
+unknown name is a usage error naming the valid set; omitted, they write
+`protect` plus every hook the harness's config already carries, so the stop
+gate is opt-in for a new repo and kept refreshed in one that has it),
+`--no-hook` (write none),
 `--remove-hook <a,b>` (tear installed ones back out — the config entry and the
 generated script; same usage-error rule, and naming one hook in both `--hook`
 and `--remove-hook` is a usage error), and `--harness <a,b>` (which harnesses to
@@ -1178,7 +1181,8 @@ pick); never 1, because nothing here is a check failure.
 and `checkride hooks remove <a,b>` write or tear out the harness config entries
 and generated scripts for the named hooks, taking `--harness <a,b>` and
 `--dry-run`. They never read or write AGENTS.md — so no state of that file can
-block them, and no run of them can change it. `add` defaults to every hook;
+block them, and no run of them can change it. `add` defaults to every hook,
+the gate included, which makes a bare `hooks add` the one-command opt-in;
 `remove` requires an explicit list, because a bare command that tore out the gate
 would be the silent un-gating this tool exists to prevent. Both are idempotent.
 

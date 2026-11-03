@@ -65,7 +65,7 @@ the default mode stdout is empty — clean and pipe-friendly by design.
 | `--add <a,b>` | Scaffold config for the named empty slots. |
 | `--baseline` | (existing repo) Grandfather current debt instead of disabling failing slots. |
 | `--force` | Overwrite existing files (new repo), or refresh an AGENTS.md stanza carrying local edits (existing repo), instead of refusing. |
-| `--hook <a,b>` | Write only these hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). |
+| `--hook <a,b>` | Write only these hooks: `gate`, `dirty`, `protect` (also on `agent-setup`). Default: `protect`, plus any hook already installed. The stop gate is opt-in. |
 | `--no-hook` | Skip writing the agent hooks (also honored by `agent-setup`). |
 | `--remove-hook <a,b>` | Remove installed hooks — entry + generated script. With `--no-hook`, remove only. |
 | `--harness <a,b>` | Write hooks for these harnesses: `claude`, `cursor`. Default: `claude`, plus `cursor` when `.cursor/` exists. |
@@ -94,7 +94,7 @@ rewrite your contract file.
 
 | Command | Does |
 | --- | --- |
-| `checkride hooks add [a,b]` | Install the named hooks (default: all). |
+| `checkride hooks add [a,b]` | Install the named hooks (default: all, the stop gate included). |
 | `checkride hooks remove <a,b>` | Tear out the named hooks — entry + generated script. An explicit list is required. |
 
 Both take `--harness <a,b>` and `--dry-run`, and both are idempotent.

@@ -1,11 +1,13 @@
 # Cursor
 
-checkride wires Cursor the same way it wires Claude Code: a stop gate, an edit
-marker, a baseline guard, and the two reader skills. `checkride agent-setup`
-writes all of it.
+checkride wires Cursor the same way it wires Claude Code: a baseline guard and
+the two reader skills by default, and a stop gate with its edit marker for a
+repo that opts in. `checkride agent-setup` writes the defaults, and
+`checkride hooks add` adds the gate.
 
 ```bash
 pnpm exec checkride agent-setup --harness cursor
+pnpm exec checkride hooks add --harness cursor   # opt in to the stop gate
 ```
 
 In a repo with no `package.json`, run it as
@@ -19,13 +21,13 @@ directory, and Claude Code always. That asymmetry is deliberate: seeding
 `.cursor/` into every repo checkride touches would put config in front of people
 who never asked for it.
 
-What lands:
+What lands, with the gate opted in (without it, the two opt-in rows are absent):
 
 | path | what it is |
 | --- | --- |
-| `.cursor/hooks.json` | the three hook entries |
-| `.cursor/hooks/checkride-gate.sh` | stop gate — a thin adapter over `checkride gate --harness cursor` |
-| `.cursor/hooks/checkride-dirty.sh` | edit marker, so conversation-only turns skip the pipeline |
+| `.cursor/hooks.json` | the hook entries |
+| `.cursor/hooks/checkride-gate.sh` | stop gate (opt-in) — a thin adapter over `checkride gate --harness cursor` |
+| `.cursor/hooks/checkride-dirty.sh` | edit marker (opt-in, with the gate), so conversation-only turns skip the pipeline |
 | `.cursor/hooks/checkride-protect.cjs` | denies edits to the baseline and `.check/` |
 | `.cursor/skills/checkride-check/SKILL.md` | `/checkride-check` — triage a red gate |
 | `.cursor/skills/checkride-qa/SKILL.md` | `/checkride-qa` — read the quality artifacts |
@@ -80,9 +82,8 @@ so its entry overrides all three:
   prevent, so the gate opts in to failing closed.
 
 **These three are checkride-owned.** Editing them in `.cursor/hooks.json` gets
-them restored on the next `agent-setup`. The supported way to turn the gate off
-is to not write it (`--hook dirty,protect`, or `--no-hook` for none of the
-three), or to take an installed one back out with `--remove-hook gate` — which
+them restored on the next `agent-setup`. The gate is off unless a repo asks for
+it, and a repo that did can take it back out with `--remove-hook gate`, which
 deletes the entry and the script it invoked.
 
 The two guards keep Cursor's fail-open default, deliberately and for the same

@@ -59,6 +59,27 @@ export async function dropFile(
 }
 
 /**
+ * The error for a config file that is not JSON, naming it, so a consumer sees
+ * `invalid .claude/settings.json: <reason>` instead of a bare `SyntaxError`
+ * stack (mirrors `invalidConfig` in `config.ts`).
+ */
+function invalidJson(rel: string, err: unknown): Error {
+  const reason = err instanceof Error ? err.message : String(err);
+  return new Error(`invalid ${rel}: ${reason}`, { cause: err });
+}
+
+/** The parsed JSON config at `cwd/rel`, or `undefined` when there is none. */
+export async function readJson<T>(cwd: string, rel: string): Promise<T | undefined> {
+  const raw = await readIfExists(join(cwd, rel));
+  if (raw === null) return undefined;
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    throw invalidJson(rel, err);
+  }
+}
+
+/**
  * Merge `next` into the JSON config at `cwd/rel` and write it back when it
  * changed. `merge` receives the parsed file — or `undefined` when there is none
  * — and returns the merged value; it must be idempotent.
@@ -68,9 +89,7 @@ export async function dropFile(
  * writing `{}` into a `.claude/settings.json` that did not exist would be a
  * confusing way to say "nothing to remove".
  *
- * A malformed file is named in the error, so a consumer sees
- * `invalid .claude/settings.json: <reason>` instead of a bare `SyntaxError`
- * stack (mirrors `invalidConfig` in `config.ts`).
+ * A malformed file is named in the error (see {@link invalidJson}).
  */
 export async function putJson<T>(
   cwd: string,
@@ -86,8 +105,7 @@ export async function putJson<T>(
     try {
       current = JSON.parse(raw);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      throw new Error(`invalid ${rel}: ${reason}`, { cause: err });
+      throw invalidJson(rel, err);
     }
   }
   const nextRaw = `${JSON.stringify(merge(current), null, 2)}\n`;

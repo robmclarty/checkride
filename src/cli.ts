@@ -136,9 +136,10 @@ Usage: checkride [command] [options]
 Commands:
   (default)        Run the checks. Exit 0 pass / 1 fail / 2 error.
   init             Set up a project (new or existing — auto-detected). Writes the
-                   agent stop-gate hooks (--no-hook to skip). New mode refuses to
-                   overwrite existing files (--force to override). Existing mode:
-                   --baseline grandfathers current debt.
+                   agent hooks (--hook gate,dirty,protect for the stop gate;
+                   --no-hook to skip). New mode refuses to overwrite existing
+                   files (--force to override). Existing mode: --baseline
+                   grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command. Takes --only, --skip,
                    --include, --all, --concurrency and --config; refuses
@@ -160,7 +161,8 @@ Commands:
                    --harness <a,b> to pick the harnesses; --force to refresh a
                    stanza carrying local edits).
   hooks            Install or remove agent hooks on their own, without touching
-                   AGENTS.md: \`hooks add [a,b]\`, \`hooks remove <a,b>\`.
+                   AGENTS.md: \`hooks add [a,b]\`, \`hooks remove <a,b>\`. A
+                   bare \`hooks add\` installs every hook, the stop gate too.
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
   triage           Triage a red gate: run it, then read .check/ as a bounded
@@ -244,7 +246,8 @@ Options:
   --baseline       Grandfather currently-failing slots into a baseline (existing mode)
   --force          Overwrite instead of refusing: existing files (new mode), or
                    an AGENTS.md stanza carrying local edits (existing mode)
-  --hook <a,b>     Write only these hooks (${HOOK_NAMES.join(' | ')}; default all)
+  --hook <a,b>     Write only these hooks (${HOOK_NAMES.join(' | ')}; default
+                   protect, plus any already installed — the stop gate is opt-in)
   --no-hook        Skip writing the agent hooks entirely
   --remove-hook <a,b>  Remove these already-installed hooks (config entry +
                    generated script). Combine with --no-hook to remove without
@@ -318,8 +321,10 @@ state of that file can block it and no run of it can change that file — which 
 what separates it from \`agent-setup\`, where the hooks ride along with the stanza,
 the check alias, and the Cursor skills.
 
-\`add\` defaults to every hook. \`remove\` requires an explicit list, so a bare
-command cannot silently tear out the gate.
+\`add\` defaults to every hook, the stop gate included — it is how a repo opts
+in, since \`init\` and \`agent-setup\` leave the gate out unless asked.
+\`remove\` requires an explicit list, so a bare command cannot silently tear
+out the gate.
 
 Options:
   --harness <a,b>  Act on these harnesses (${HARNESS_NAMES.join(' | ')};

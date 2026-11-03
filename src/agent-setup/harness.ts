@@ -13,7 +13,7 @@ import { gatePreflight, type HarnessName } from '../gate.js';
 import type { EntryLike, PackageManager } from '../launch/index.js';
 import { detectPackageManager, entryText, resolveEntry } from '../launch/index.js';
 import type { HookFile } from './files.js';
-import { dropFile, putFile, putJson } from './files.js';
+import { dropFile, putFile, putJson, readJson } from './files.js';
 import { dirtyScript, gateScript, protectScript } from './scripts.js';
 
 /**
@@ -23,6 +23,22 @@ import { dirtyScript, gateScript, protectScript } from './scripts.js';
  */
 export const HOOK_NAMES = ['gate', 'dirty', 'protect'] as const;
 export type HookName = (typeof HOOK_NAMES)[number];
+
+/**
+ * The hooks a run writes when nobody named any: the ones that guard without
+ * getting in the way.
+ *
+ * The gate is opt-in. It runs the whole pipeline every time a turn ends, which
+ * is a heavy price for every repo to pay by default, and the AGENTS.md stanza
+ * carries the same contract as advice an agent follows anyway. `dirty` exists
+ * only to arm the gate, so it goes with it. `protect` stays: it is a permission
+ * rule, costs nothing per turn, and is what keeps the baseline a reviewed diff.
+ *
+ * A default only decides what a repo *starts* with. A refresh also keeps every
+ * hook the harness already has (see {@link writeHarnessHooks}), so a repo that
+ * opted in keeps getting its gate updated.
+ */
+const DEFAULT_HOOKS: ReadonlySet<HookName> = new Set(['protect']);
 
 /**
  * Ceiling for the gate run, in seconds, for any harness whose config carries
@@ -85,12 +101,18 @@ export type HarnessSpec<T> = {
   apply: (config: T | undefined, names: readonly string[], entry: EntryLike) => T;
   /** Strip the named hooks from a parsed config. Must be idempotent. */
   remove: (config: T | undefined, names: readonly string[]) => T;
+  /** The hooks a parsed config already carries, in any spelling `remove` would take out. */
+  installed: (config: T | undefined) => HookName[];
 };
 
 export type WriteOptions = {
   pm?: PackageManager;
   dryRun?: boolean;
-  hooks: readonly string[];
+  /**
+   * The hooks to write. Omitted means the default: {@link DEFAULT_HOOKS}, plus
+   * every hook this harness's config already carries.
+   */
+  hooks?: readonly string[];
   /**
    * Hooks to tear out: their config entries are stripped and their scripts
    * deleted. Removal wins over `hooks`, so a name in both is removed — the
@@ -99,6 +121,20 @@ export type WriteOptions = {
    */
   remove?: readonly string[];
 };
+
+/**
+ * The hooks to write when the caller named none: {@link DEFAULT_HOOKS}, plus
+ * whatever this harness's config already carries.
+ *
+ * The second half is what makes the default a decision about new repos only.
+ * Without it, re-running `agent-setup` in a repo that opted into the gate would
+ * stop refreshing it — not remove it, just leave its script at whatever version
+ * wrote it, still firing, while every other file moved on.
+ */
+async function defaultHooks<T extends object>(cwd: string, spec: HarnessSpec<T>): Promise<HookName[]> {
+  const present = new Set(spec.installed(await readJson<T>(cwd, spec.configFile)));
+  return HOOK_NAMES.filter((name) => DEFAULT_HOOKS.has(name) || present.has(name));
+}
 
 /**
  * Write or refresh `spec`'s hooks in `cwd` and tear out the ones marked for
@@ -119,7 +155,7 @@ export async function writeHarnessHooks<T extends object>(
   const entry = resolveEntry(cwd, pm);
   const dryRun = opts.dryRun ?? false;
   const gone = opts.remove ?? [];
-  const names = opts.hooks.filter((name) => !gone.includes(name));
+  const names = (opts.hooks ?? (await defaultHooks(cwd, spec))).filter((name) => !gone.includes(name));
   // Read on every write, which is what makes the preflight the one seam that
   // survives a refresh: `hooks add` rewrites the script and re-points the
   // harness config, and re-derives this from the repo's own config each time.

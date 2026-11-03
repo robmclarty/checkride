@@ -22,7 +22,7 @@ import { posix } from 'node:path';
 import type { HarnessName } from '../gate.js';
 import { DIRTY_MARKER } from '../gate.js';
 import type { EntryLike } from '../launch/index.js';
-import type { HarnessSpec, WriteOptions } from './harness.js';
+import type { HarnessSpec, HookName, WriteOptions } from './harness.js';
 import { gateStatusMessage, GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
 
@@ -364,6 +364,19 @@ export function removeHooks(
   return names.includes(PROTECT) ? removeDeny(removeHook(removed, RETIRED_PROTECT_HOOK)) : removed;
 }
 
+/**
+ * The hooks parsed settings already carry, in any spelling {@link removeHooks}
+ * would take out: a hook entry matched by sentinel, legacy forms included, or —
+ * for `protect` — any of checkride's deny rules.
+ */
+function installedHooks(settings: ClaudeSettings = {}): HookName[] {
+  const carried = (spec: HookSpec): boolean =>
+    eventGroups(settings, spec.event).some((g) => (g.hooks ?? []).some((h) => isSpecHook(spec, h)));
+  const present = new Set([...hookSpecs('pnpm'), RETIRED_PROTECT_HOOK].filter(carried).map((spec) => spec.name));
+  if (denyRules(settings).some((rule) => PROTECT_DENY_RULES.includes(rule))) present.add(PROTECT);
+  return HOOK_NAMES.filter((name) => present.has(name));
+}
+
 const SPEC: HarnessSpec<ClaudeSettings> = {
   name: HARNESS,
   configFile: CLAUDE_SETTINGS_FILE,
@@ -371,6 +384,7 @@ const SPEC: HarnessSpec<ClaudeSettings> = {
   retired: { dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
   apply: applyHooks,
   remove: removeHooks,
+  installed: installedHooks,
 };
 
 /** Write or refresh the selected Claude Code hooks in `cwd`. */

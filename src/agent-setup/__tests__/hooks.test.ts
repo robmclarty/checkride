@@ -49,6 +49,12 @@ const CURSOR_FILES = [
   '.cursor/hooks/checkride-protect.cjs',
 ];
 
+/**
+ * Every hook, named outright. The default leaves the gate out, so a test about
+ * how the gate is *written* has to ask for it, the way a repo opting in does.
+ */
+const EVERY = { hooks: HOOK_NAMES };
+
 describe('generated scripts', () => {
   test('the gate script delegates to `checkride gate` rather than carrying the logic', () => {
     const script = gateScript('pnpm', { harness: 'claude' });
@@ -814,28 +820,28 @@ describe('writeHooks', () => {
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   test('writes one harness’s files, then a second run is a no-op', async () => {
-    const first = await writeHooks(dir, { harnesses: ['claude'] });
+    const first = await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(first.files.map((f) => f.path)).toEqual(CLAUDE_FILES);
     expect(first.files.every((f) => f.changed)).toBe(true);
-    const second = await writeHooks(dir, { harnesses: ['claude'] });
+    const second = await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(second.files.every((f) => !f.changed)).toBe(true);
   });
 
   test('fans out over every selected harness', async () => {
-    const result = await writeHooks(dir, { harnesses: ['claude', 'cursor'] });
+    const result = await writeHooks(dir, { ...EVERY, harnesses: ['claude', 'cursor'] });
     expect(result.files.map((f) => f.path)).toEqual([...CLAUDE_FILES, ...CURSOR_FILES]);
     expect(existsSync(join(dir, CURSOR_HOOKS_FILE))).toBe(true);
   });
 
   test('defaults to the detected harnesses', async () => {
     await mkdir(join(dir, '.cursor'), { recursive: true });
-    const result = await writeHooks(dir);
+    const result = await writeHooks(dir, EVERY);
     expect(result.files.map((f) => f.path)).toEqual([...CLAUDE_FILES, ...CURSOR_FILES]);
   });
 
   test('with no package.json, the gate runs the checkride mise pins, or the one on PATH (R6.6)', async () => {
     await writeFile(join(dir, 'mise.toml'), '[tools]\n"npm:checkride" = "0.14.0"\n');
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     const pinned = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
     expect(pinned).toContain('body=$(mise exec -- checkride gate --harness claude --if-dirty)');
     expect(pinned).toContain('if mise which checkride >/dev/null 2>&1; then');
@@ -843,7 +849,7 @@ describe('writeHooks', () => {
     expect(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')).toContain('checkride gate — running `mise exec -- checkride`');
 
     await rm(join(dir, 'mise.toml'));
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     const bare = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
     expect(bare).toContain('body=$(checkride gate --harness claude --if-dirty)');
     expect(bare).toContain('if command -v checkride >/dev/null 2>&1; then');
@@ -854,7 +860,7 @@ describe('writeHooks', () => {
   test('the script uses the detected package manager (npm lockfile → npx)', async () => {
     await writeFile(join(dir, 'package.json'), '{}');
     await writeFile(join(dir, 'package-lock.json'), '{}');
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('npx --no-install checkride gate');
   });
 
@@ -869,7 +875,7 @@ describe('writeHooks', () => {
       join(dir, 'checkride.config.json'),
       JSON.stringify({ gate: { preflight: 'scripts/pre.sh' } }),
     );
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain("sh 'scripts/pre.sh'");
 
     // The refresh a teammate runs, with no flags and no knowledge of the seam.
@@ -881,10 +887,10 @@ describe('writeHooks', () => {
   test('removing gate.preflight from config removes it from the script', async () => {
     const config = join(dir, 'checkride.config.json');
     await writeFile(config, JSON.stringify({ gate: { preflight: 'scripts/pre.sh' } }));
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
 
     await writeFile(config, JSON.stringify({}));
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('preflight');
   });
 
@@ -905,7 +911,7 @@ describe('writeHooks', () => {
   });
 
   test('dryRun computes without writing', async () => {
-    const result = await writeHooks(dir, { dryRun: true, harnesses: ['claude', 'cursor'] });
+    const result = await writeHooks(dir, { ...EVERY, dryRun: true, harnesses: ['claude', 'cursor'] });
     expect(result.files.every((f) => f.changed)).toBe(true);
     for (const rel of [...CLAUDE_FILES, ...CURSOR_FILES]) {
       expect(existsSync(join(dir, rel))).toBe(false);
@@ -944,7 +950,7 @@ describe('writeHooks — removal', () => {
   }
 
   test('takes out the config entry and the script it invoked', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     const result = await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
 
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
@@ -957,7 +963,7 @@ describe('writeHooks — removal', () => {
   });
 
   test('leaves the hooks it was not asked to remove', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
     // `protect` and `dirty` are configuration here, so "still installed" is a
     // deny rule and a PostToolUse entry rather than two files on disk.
@@ -967,7 +973,7 @@ describe('writeHooks — removal', () => {
   });
 
   test('removing twice is a no-op, like every other write here', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
     const again = await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
     expect(again.files.every((f) => !f.changed || f.removed !== true)).toBe(true);
@@ -979,7 +985,7 @@ describe('writeHooks — removal', () => {
    * every turn — it would find no marker and skip.
    */
   test('removing dirty rewrites a surviving gate unguarded', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('--if-dirty');
     await writeHooks(dir, { remove: ['dirty'], harnesses: ['claude'] });
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('--if-dirty');
@@ -992,7 +998,7 @@ describe('writeHooks — removal', () => {
   });
 
   test('removes from every selected harness', async () => {
-    await writeHooks(dir, { harnesses: ['claude', 'cursor'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude', 'cursor'] });
     await writeHooks(dir, { remove: ['gate'], harnesses: ['claude', 'cursor'] });
     expect(existsSync(join(dir, '.cursor/hooks/checkride-gate.sh'))).toBe(false);
     const cursor = JSON.parse(await readFile(join(dir, CURSOR_HOOKS_FILE), 'utf8')) as {
@@ -1005,18 +1011,101 @@ describe('writeHooks — removal', () => {
   });
 
   test('dryRun removes nothing', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     const result = await writeHooks(dir, { dryRun: true, remove: ['gate'], harnesses: ['claude'] });
     expect(result.files.find((f) => f.path === GATE_SCRIPT_FILE)?.changed).toBe(true);
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
   });
 
   test('a hook removed by hand from settings still has its script cleaned up', async () => {
-    await writeHooks(dir, { harnesses: ['claude'] });
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     await writeFile(join(dir, CLAUDE_SETTINGS_FILE), JSON.stringify({ model: 'sonnet' }));
     await writeHooks(dir, { hooks: [], remove: ['gate'], harnesses: ['claude'] });
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
     expect((await settings())['model']).toBe('sonnet');
+  });
+});
+
+/**
+ * The stop gate is opt-in. A run that names no hooks writes `protect` alone into
+ * a repo that has none, and refreshes whatever a repo that opted in already has,
+ * so the default decides what a new repo starts with and nothing more.
+ */
+describe('writeHooks — the default selection', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-default-hook-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** The parsed config at `rel`. */
+  async function parsed(rel: string): Promise<{
+    hooks?: Record<string, unknown[]>;
+    permissions?: { deny?: string[] };
+  }> {
+    return JSON.parse(await readFile(join(dir, rel), 'utf8')) as {
+      hooks?: Record<string, unknown[]>;
+      permissions?: { deny?: string[] };
+    };
+  }
+
+  test('a new repo gets protect, and no gate or edit marker, under Claude Code', async () => {
+    const result = await writeHooks(dir, { harnesses: ['claude'] });
+    expect(result.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE]);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    const settings = await parsed(CLAUDE_SETTINGS_FILE);
+    expect(settings.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)']);
+    expect(settings.hooks).toBeUndefined();
+  });
+
+  test('a new repo gets protect, and no gate or edit marker, under Cursor', async () => {
+    const result = await writeHooks(dir, { harnesses: ['cursor'] });
+    expect(result.files.map((f) => f.path)).toEqual([CURSOR_HOOKS_FILE, '.cursor/hooks/checkride-protect.cjs']);
+    const hooks = (await parsed(CURSOR_HOOKS_FILE)).hooks ?? {};
+    expect(Object.keys(hooks).toSorted()).toEqual(['beforeShellExecution', 'preToolUse']);
+    expect(existsSync(join(dir, '.cursor/hooks/checkride-gate.sh'))).toBe(false);
+  });
+
+  test('a bare run in a repo with the gate keeps refreshing it', async () => {
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude', 'cursor'] });
+    await writeFile(join(dir, GATE_SCRIPT_FILE), '# stale\n');
+    await writeFile(join(dir, '.cursor/hooks/checkride-gate.sh'), '# stale\n');
+
+    await writeHooks(dir, { harnesses: ['claude', 'cursor'] });
+    for (const script of [GATE_SCRIPT_FILE, '.cursor/hooks/checkride-gate.sh']) {
+      const body = await readFile(join(dir, script), 'utf8');
+      expect(body).toContain('checkride gate');
+      // `dirty` was installed too, so it is kept, and the gate stays guarded.
+      expect(body).toContain('--if-dirty');
+    }
+    expect((await parsed(CLAUDE_SETTINGS_FILE)).hooks?.['Stop']).toHaveLength(1);
+  });
+
+  test('a bare run is a no-op in a repo that opted in to everything', async () => {
+    await writeHooks(dir, { ...EVERY, harnesses: ['claude', 'cursor'] });
+    const again = await writeHooks(dir, { harnesses: ['claude', 'cursor'] });
+    expect(again.files.every((f) => !f.changed)).toBe(true);
+  });
+
+  /** A repo that chose the gate without the marker keeps that choice. */
+  test('a bare run adds no hook the repo did not have, beyond protect', async () => {
+    await writeHooks(dir, { hooks: ['gate'], harnesses: ['claude'] });
+    await writeHooks(dir, { harnesses: ['claude'] });
+    const settings = await parsed(CLAUDE_SETTINGS_FILE);
+    expect(settings.hooks?.['Stop']).toHaveLength(1);
+    expect(settings.hooks?.['PostToolUse']).toBeUndefined();
+    expect(settings.permissions?.deny).toHaveLength(2);
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('--if-dirty');
+  });
+
+  /** An older spelling is still the gate, so it is migrated rather than dropped from the refresh. */
+  test('the legacy inline gate counts as installed, and is migrated in place', async () => {
+    await mkdir(join(dir, '.claude'), { recursive: true });
+    const legacy = { type: 'command', command: 'pnpm run check || { echo "checkride: the gate is red" >&2; exit 2; }' };
+    await writeFile(join(dir, CLAUDE_SETTINGS_FILE), JSON.stringify({ hooks: { Stop: [{ hooks: [legacy] }] } }));
+    await writeHooks(dir, { harnesses: ['claude'] });
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+    const stop = (await parsed(CLAUDE_SETTINGS_FILE)).hooks?.['Stop'] as { hooks: { command: string }[] }[];
+    expect(stop).toHaveLength(1);
+    expect(stop[0]?.hooks[0]?.command).toContain(GATE_SCRIPT_FILE);
   });
 });
 

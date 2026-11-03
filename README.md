@@ -108,17 +108,20 @@ stanza stating the "exit 0 = done" rule, an `@AGENTS.md` import in CLAUDE.md
 loads the stanza; an existing CLAUDE.md gains that one line and nothing else),
 and **hooks** in your agent harness's
 config — `.claude/settings.json` for Claude Code, `.cursor/hooks.json` for
-Cursor. Three of them: a stop gate (a checkride-owned script that runs your
-detected package manager's `run check --strict --digest` and blocks an agent
-from finishing while the pipeline is red), an edit marker so turns that touched
-no files skip the gate, and a guard that denies edits to
-`checkride.baseline.json` and `.check/**`. In a repo with no `package.json`,
-the gate, the stanza and the skills run `mise exec -- checkride` where a root
-`mise.toml` pins `npm:checkride`, and the `checkride` on `PATH` otherwise,
-which `doctor` reports as the harness unpinned. Select hooks with `--hook <a,b>`
-(gate | dirty | protect), harnesses with `--harness <a,b>` (claude | cursor;
-detected by default), skip the hooks with `--no-hook`, or take an installed one
-back out with `--remove-hook <a,b>`. To add all of this — alias, stanza,
+Cursor. Three of them: a guard that denies edits to `checkride.baseline.json`
+and `.check/**`, written by default, and two that are **opt-in**: a stop gate
+(a checkride-owned script that runs your detected package manager's
+`run check --strict --digest` and blocks an agent from finishing while the
+pipeline is red) and an edit marker so turns that touched no files skip the
+gate. The stanza already tells the agent the contract, and that is usually
+enough. Ask for the gate with `checkride hooks add` (every hook) or
+`--hook gate,dirty,protect`. Once a repo has it, a re-run keeps it refreshed. In a repo with no
+`package.json`, the gate, the stanza and the skills run `mise exec -- checkride`
+where a root `mise.toml` pins `npm:checkride`, and the `checkride` on `PATH`
+otherwise, which `doctor` reports as the harness unpinned. Select hooks with
+`--hook <a,b>` (gate | dirty | protect), harnesses with `--harness <a,b>`
+(claude | cursor; detected by default), skip the hooks with `--no-hook`, or
+take an installed one back out with `--remove-hook <a,b>`. To add all of this — alias, stanza,
 CLAUDE.md import, hooks, and the Cursor skills — to a repo you already set up, run
 `checkride agent-setup`.
 
@@ -130,8 +133,9 @@ pass `--force` to discard the edits and refresh. A stanza written before the has
 existed is matched against the wordings checkride released, so upgrading is not
 itself mistaken for an edit.
 
-To add or remove a hook on its own, use `checkride hooks add <a,b>` /
-`checkride hooks remove <a,b>`. It writes only the harness config and the
+To add or remove a hook on its own, use `checkride hooks add [a,b]` /
+`checkride hooks remove <a,b>` (a bare `hooks add` installs all three, the stop
+gate included). It writes only the harness config and the
 generated scripts, and never reads or writes AGENTS.md — managing a hook is not
 managing your contract file, and an edited stanza does not stand in its way.
 
@@ -212,7 +216,8 @@ checkride init         Set up a project (new or existing — auto-detected).
   --baseline   (existing mode) grandfather current debt instead of disabling slots
   --force      overwrite existing files (new mode), or refresh an edited
                AGENTS.md stanza (existing mode), instead of refusing
-  --hook <a,b> write only these hooks (gate | dirty | protect)
+  --hook <a,b> write only these hooks (gate | dirty | protect; default: protect,
+               plus any already installed — the stop gate is opt-in)
   --no-hook    skip writing the agent hooks
   --remove-hook <a,b>  remove these installed hooks (entry + generated script)
   --harness <a,b> write them for these harnesses (claude | cursor; default: detected)
@@ -239,14 +244,15 @@ checkride target add <name> --lang <pack> --root <dir>
   --add <a,b>  name the blessed tool (a ts, python or terraform target also gets its config)
   --dry-run    print the changes; write nothing
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
-  --hook <a,b> write only these hooks (gate | dirty | protect)
+  --hook <a,b> write only these hooks (gate | dirty | protect; default as init)
   --no-hook    skip the hooks (write only the stanza)
   --remove-hook <a,b>  remove these installed hooks; with --no-hook, remove only
   --harness <a,b> which harnesses to write for (claude | cursor; default: detected)
   --force      refresh a stanza that has local edits (refused otherwise)
 checkride hooks add [a,b] | remove <a,b>
                        Install or remove agent hooks on their own, without
-                       touching AGENTS.md (--harness <a,b>, --dry-run).
+                       touching AGENTS.md (--harness <a,b>, --dry-run). A bare
+                       `hooks add` installs every hook, the stop gate included.
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
 checkride triage [<repo>]  Triage a red gate: run it, then read .check/ as a

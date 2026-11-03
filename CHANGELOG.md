@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **The stop gate is opt-in.** `init` and `agent-setup` without `--hook` now
+  write `protect` and leave out `gate` and `dirty`, where they wrote all three.
+  A full pipeline run at the end of every editing turn is a lot to charge every
+  repo by default, and the AGENTS.md stanza carries the same "exit 0 = done"
+  rule as instruction. The default only decides what a repo starts with: a run
+  without `--hook` also refreshes every hook the harness's config already
+  carries, so a repo that has the gate keeps it current, and upgrading changes
+  nothing there. To opt in, run `checkride hooks add`, which still writes every
+  hook, or pass `--hook gate,dirty,protect`. `docs/contract.md` states the new
+  default, and `test/contract/flags.contract.test.ts` locks it.
+
 ## [0.19.2] - 2026-10-31
 
 ### Fixed

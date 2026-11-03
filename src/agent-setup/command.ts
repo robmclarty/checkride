@@ -15,7 +15,7 @@
 
 import type { HarnessName } from '../gate.js';
 import type { HookFile } from './files.js';
-import { type HookName, writeHooks } from './hook.js';
+import { HOOK_NAMES, type HookName, writeHooks } from './hook.js';
 
 /** What the command does to the named hooks. */
 export type HooksAction = 'add' | 'remove';
@@ -57,12 +57,14 @@ function partition(files: readonly HookFile[]): Omit<HooksResult, 'exitCode'> {
  *
  * `remove` requires an explicit list. Defaulting it to every hook would let a
  * bare `checkride hooks remove` silently tear out the gate, which is the one
- * thing making "done" mean anything here; `add` defaults to all because the
- * worst it can do is rewrite a file that was already correct.
+ * thing making "done" mean anything here. `add` defaults to every hook, the gate
+ * included, rather than to the narrower set `init` and `agent-setup` write: this
+ * command is the explicit opt-in, and the worst a bare `add` can do is rewrite a
+ * file that was already correct.
  */
 function hookSelection(options: HooksOptions): { hooks?: readonly HookName[]; remove?: readonly HookName[] } {
   const names = options.hooks;
-  if (options.action !== 'remove') return names ? { hooks: names } : {};
+  if (options.action !== 'remove') return { hooks: names ?? HOOK_NAMES };
   if (!names || names.length === 0) {
     throw new Error('hooks remove: name the hooks to remove (e.g. `checkride hooks remove gate`)');
   }

@@ -76,7 +76,7 @@ per-repo costs into one amortized cost:
   legacy codebase with a baseline somewhere else. Every edge case one repo
   hits and fixes hardens the package for all the others. This is the standard
   open-source leverage argument, applied to the one concern every repo shares.
-- **The agent contract becomes uniform.** The AGENTS.md stanza, the Stop hook,
+- **The agent contract becomes uniform.** The AGENTS.md stanza, the opt-in Stop hook,
   the "exit 0 = done" rule — identical in every repo, written by
   `checkride agent-setup`, upgraded centrally. An organization adopting
   agentic tools across a fleet gets one check interface to teach its agents

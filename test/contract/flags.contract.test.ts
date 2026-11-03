@@ -787,9 +787,11 @@ describe('CLI baseline selection (baseline --only / --skip)', () => {
 
 /**
  * Contract: `init`/`agent-setup` take `--hook <a,b>` to select which agent
- * hooks to write (default: all), `--no-hook` as the write-none escape, and
+ * hooks to write (default: `protect`, plus every hook the harness already
+ * carries — the stop gate is opt-in), `--no-hook` as the write-none escape, and
  * `--remove-hook <a,b>` to tear installed ones back out. An unknown hook name is
- * a usage error (exit 2) naming the valid set, for either selecting flag.
+ * a usage error (exit 2) naming the valid set, for either selecting flag. A bare
+ * `hooks add` writes every hook, the gate included.
  */
 describe('CLI hook selection (--hook / --no-hook / --remove-hook)', () => {
   let dir: string;
@@ -812,6 +814,19 @@ describe('CLI hook selection (--hook / --no-hook / --remove-hook)', () => {
     expect(await runCli(['agent-setup', '--hook', 'bogus', '--dry-run'], deps(stderr))).toBe(2);
     expect(stderr.text()).toContain("'bogus'");
     expect(stderr.text()).toContain('gate');
+  });
+
+  /** The stop gate is opt-in: a bare setup leaves it out, and asking for it is one command. */
+  test('agent-setup writes no stop gate unless asked; a bare `hooks add` writes it', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'x' }));
+    expect(await runCli(['agent-setup'], deps(capture()))).toBe(0);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
+    expect(await runCli(['hooks', 'add'], deps(capture()))).toBe(0);
+    expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(true);
+    // Once opted in, a bare re-run refreshes the gate rather than dropping it.
+    await writeFile(join(dir, GATE_SCRIPT_FILE), '# stale\n');
+    expect(await runCli(['agent-setup'], deps(capture()))).toBe(0);
+    expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).toContain('checkride gate');
   });
 
   test('--no-hook still parses (the escape hatch is unchanged)', async () => {

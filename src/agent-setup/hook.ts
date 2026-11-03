@@ -5,7 +5,8 @@
  * selected harness's config. The load-bearing one is the gate: it runs the
  * project's `check` script when the turn ends and refuses to let the agent
  * finish while the pipeline is red, so "exit 0 = done" becomes enforcement, not
- * just advice.
+ * just advice. It is opt-in (`DEFAULT_HOOKS` leaves it out): a repo asks for it
+ * with `--hook` or `checkride hooks add`.
  *
  * This module is the harness-neutral half — which hooks exist, which harnesses a
  * repo wants, and the fan-out. Everything harness-shaped lives in a sibling:
@@ -57,8 +58,10 @@ export function detectHarnesses(cwd: string): HarnessName[] {
 }
 
 /**
- * Write or refresh the selected hooks (default: all) for the selected harnesses
- * (default: detected) in `cwd`, and tear out any named in `remove`. Every write
+ * Write or refresh the selected hooks for the selected harnesses (default:
+ * detected) in `cwd`, and tear out any named in `remove`. With no `hooks`, each
+ * harness gets `DEFAULT_HOOKS` plus whatever it already carries, so a new repo
+ * starts without the gate and one that opted in keeps it refreshed. Every write
  * is idempotent — a second run reports `changed: false` per file — and `dryRun`
  * computes the result without writing.
  *
@@ -77,13 +80,12 @@ export async function writeHooks(
     harnesses?: readonly HarnessName[];
   } = {},
 ): Promise<{ files: HookFile[] }> {
-  const hooks = opts.hooks ?? HOOK_NAMES;
   const harnesses = opts.harnesses ?? detectHarnesses(cwd);
   const write: WriteOptions = {
     ...(opts.pm ? { pm: opts.pm } : {}),
     ...(opts.remove ? { remove: opts.remove } : {}),
+    ...(opts.hooks ? { hooks: opts.hooks } : {}),
     dryRun: opts.dryRun ?? false,
-    hooks,
   };
   // Concurrent: no two harnesses share a path, and `Promise.all` keeps the
   // reported order tied to the selection rather than to who finished first.
