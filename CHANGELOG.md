@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.19.3] - 2026-11-03
 
 ### Changed
 
@@ -18,6 +18,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing there. To opt in, run `checkride hooks add`, which still writes every
   hook, or pass `--hook gate,dirty,protect`. `docs/contract.md` states the new
   default, and `test/contract/flags.contract.test.ts` locks it.
+
+### Internal
+
+- The README, the docs, the CLI help and the site say the stop gate is opt-in
+  and how to ask for it, where several still had `init` writing it.
 
 ## [0.19.2] - 2026-10-31
 
@@ -4446,6 +4451,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.19.3]: https://www.npmjs.com/package/checkride/v/0.19.3
 [0.19.2]: https://www.npmjs.com/package/checkride/v/0.19.2
 [0.19.1]: https://www.npmjs.com/package/checkride/v/0.19.1
 [0.19.0]: https://www.npmjs.com/package/checkride/v/0.19.0
