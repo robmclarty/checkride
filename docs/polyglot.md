@@ -467,6 +467,7 @@ way the run does, `api:test` rather than `test`.
   [`go-workspace`](../examples/go-workspace/),
   [`rust-workspace`](../examples/rust-workspace/),
   [`python-project`](../examples/python-project/),
-  [`terraform-roots`](../examples/terraform-roots/) and
+  [`terraform-roots`](../examples/terraform-roots/),
+  [`odin-package`](../examples/odin-package/) and
   [`polyglot-stack`](../examples/polyglot-stack/), each a pack or a mix of
   them, run end to end on every push.

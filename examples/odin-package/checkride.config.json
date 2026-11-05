@@ -1,0 +1,20 @@
+{
+  "targets": {
+    "app": { "lang": "odin", "root": "app" },
+    "kit": { "lang": "odin", "root": "kit" }
+  },
+  "packs": {
+    "odin": {
+      "checks": {
+        "lint": {
+          "use": "odin-vet",
+          "args": [
+            "check", ".", "-no-entry-point", "-json-errors", "-thread-count:1", "-max-error-count:100000",
+            "-vet", "-vet-cast", "-vet-style", "-vet-semicolon", "-vet-tabs", "-warnings-as-errors", "-disallow-do"
+          ]
+        }
+      },
+      "note": "The vet row's args restated with two style opinions the pack leaves to the repo: tabs, and no `do`."
+    }
+  }
+}

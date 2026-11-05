@@ -1,0 +1,50 @@
+{
+  "description": "A program and the library it imports on the odin pack, each package its own target, the compiler every row, the vet row's style opinions added through a packs block, each plant failing the check it names.",
+  "args": [],
+  "requires": ["odin"],
+  "exitCode": 0,
+  "checks": {
+    "app:types": { "ok": true, "skipped": false, "description": "odin check: Odin compilation" },
+    "kit:types": { "ok": true, "skipped": false },
+    "app:lint": { "ok": true, "skipped": false, "description": "odin check -vet: the compiler's vet" },
+    "kit:lint": { "ok": true, "skipped": false },
+    "app:dead": { "ok": true, "skipped": false, "description": "odin check -vet-unused-procedures: procedures nothing calls" },
+    "kit:dead": { "ok": true, "skipped": true, "reason": "no main procedure in kit: unused procedures are vetted from a program" },
+    "app:test": { "ok": true, "skipped": false, "description": "odin test: Odin tests" },
+    "kit:test": { "ok": true, "skipped": false },
+    "links": { "ok": true, "skipped": false },
+    "unclaimed": { "ok": true, "skipped": false }
+  },
+  "violations": [
+    {
+      "name": "an import nothing uses",
+      "edits": [{ "file": "app/main.odin", "find": "import \"core:fmt\"\n", "replace": "import \"core:fmt\"\nimport \"core:os\"\n" }],
+      "exitCode": 1,
+      "failing": ["app:lint"]
+    },
+    {
+      "name": "a do, which the packs block disallows",
+      "edits": [{ "file": "app/main.odin", "find": "\tfmt.println(twice(2))", "replace": "\tif true do fmt.println(twice(2))" }],
+      "exitCode": 1,
+      "failing": ["app:lint"]
+    },
+    {
+      "name": "a procedure nothing calls",
+      "edits": [{ "file": "app/spare.odin", "contents": "package app\n\nspare :: proc() {}\n" }],
+      "exitCode": 1,
+      "failing": ["app:dead"]
+    },
+    {
+      "name": "a failing test",
+      "edits": [{ "file": "app/app_test.odin", "find": "twice(2) == 4", "replace": "twice(2) == 5" }],
+      "exitCode": 1,
+      "failing": ["app:test"]
+    },
+    {
+      "name": "an Odin package no target claims",
+      "edits": [{ "file": "tools/gen/main.odin", "contents": "package gen\n\nmain :: proc() {}\n" }],
+      "exitCode": 1,
+      "failing": ["unclaimed"]
+    }
+  ]
+}

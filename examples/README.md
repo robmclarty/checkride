@@ -9,7 +9,7 @@ on every push. An example that stops behaving as its README claims fails CI,
 which is the only reason to trust anything written here.
 
 The language examples (`go-*`, `rust-workspace`, `python-project`,
-`terraform-roots` and the two polyglot ones) each show one pack or one mix.
+`terraform-roots`, `odin-package` and the two polyglot ones) each show one pack or one mix.
 [A polyglot repo, end to end](../docs/polyglot.md) puts them together: one
 repo adopted from install to CI, with the output at each step.
 
@@ -26,6 +26,7 @@ repo adopted from install to CI, with the output at each step.
 | [`polyglot-stack/`](./polyglot-stack/) | A TypeScript app, a Go service and shell scripts as three targets, with links, the Go dialect rules and `unclaimed` checked once for the whole repo | `0` |
 | [`polyglot-ts-bash/`](./polyglot-ts-bash/) | Two targets in one repo: a TypeScript app checked by tsc from its own root, shell scripts checked by shellcheck over their file list, and `unclaimed` failing on a package no target checks | `0` |
 | [`terraform-roots/`](./terraform-roots/) | Two Terraform root modules and their shared modules on the terraform pack: OpenTofu pinned by `.opentofu-version`, terraform fmt opted in for every target through a packs block, tflint, and `validate` only where a lock file marks a root module | `0` |
+| [`odin-package/`](./odin-package/) | An Odin program and the library it imports on the odin pack: the compiler as every row, each package its own target, the unused-procedure vet standing down for the library, and the vet row's style opinions added through a packs block | `0` |
 | [`python-project/`](./python-project/) | A Python project on the python pack: ruff, mypy and pytest detected from `pyproject.toml` and run from the uv-synced `.venv`, ast-grep rules in Python, and a custom check for what no pack ships | `0` |
 | [`prose-voice/`](./prose-voice/) | The `prose` slot: a repo-owned vale style over markdown and TypeScript doc comments, drift control for model-generated text, voice exemplars the agent contract points at, and a grandfathered legacy doc | `0` |
 | [`module-boundaries/`](./module-boundaries/) | Domain boundaries enforced inside one deployment — directed dependencies, hidden internals, no unzoned escape hatch — and how that compares to splitting into services | `0` |
@@ -54,10 +55,10 @@ without it, pnpm walks up to the repo root, finds *that* workspace, and installs
 the root project instead — leaving the example with no `node_modules` and no
 error to explain why.
 
-`go-existing-baseline`, `python-project` and `terraform-roots` are the
-exceptions: they have no `package.json` and no `pnpm-workspace.yaml`, because
-a root `package.json` would make each a TypeScript repo. Run any of them with
-`node ../../dist/cli.js` from its directory, after `uv sync` in
+`go-existing-baseline`, `python-project`, `terraform-roots` and `odin-package`
+are the exceptions: they have no `package.json` and no `pnpm-workspace.yaml`,
+because a root `package.json` would make each a TypeScript repo. Run any of
+them with `node ../../dist/cli.js` from its directory, after `uv sync` in
 `python-project` and a `tofu init -backend=false` in each of
 `terraform-roots`' root modules.
 
