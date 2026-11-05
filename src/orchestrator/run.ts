@@ -26,7 +26,7 @@ import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
 import type { BlankAwareOut } from './report.js';
 import { blankAware, buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
-import { selectChecks, skipUnchanged, validateSelection, withFileLists, withFingerprintableOnly, withGoPackages, withStaticOnly } from './select.js';
+import { selectChecks, skipUnchanged, validateSelection, withFileLists, withFingerprintableOnly, withGoPackages, withOdinPackage, withStaticOnly } from './select.js';
 import { resetInterrupt } from './spawn.js';
 import type { Drift, Out, RunOptions, RunResult, Summary, SummaryCheck, SummaryGit, SummaryRun, SummaryTarget } from './types.js';
 
@@ -319,7 +319,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A file list too long for one argv is a usage error too, so the lists are
   // read before the output directory is touched.
   const listed = await withFileLists(skipUnchanged(selectChecks(resolved, options), changed), base.cwd, base.targets);
-  const selected = await withRunFilters(withGoPackages(listed, base.cwd, changed), base.cwd, options);
+  const selected = await withRunFilters(withOdinPackage(withGoPackages(listed, base.cwd, changed), base.cwd), base.cwd, options);
 
   await mkdir(base.out, { recursive: true });
   // A target the config dropped leaves a directory no run refreshes again;

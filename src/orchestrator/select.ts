@@ -16,7 +16,20 @@ import { isFingerprintable } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import type { GitRunner } from '../git.js';
 import type { ModuleImports } from '../launch/index.js';
-import { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from '../launch/index.js';
+import {
+  expandGoPackages,
+  expandOdinPackage,
+  goImports,
+  goPackagePatterns,
+  noOdinPackageReason,
+  noOdinProgramReason,
+  odinPackage,
+  readGoWorkspace,
+  takesGoPackages,
+  takesOdinPackage,
+  usePattern,
+  withDependents,
+} from '../launch/index.js';
 import { staticCause } from '../packs/index.js';
 import type { Target } from '../targets/index.js';
 import {
@@ -253,6 +266,31 @@ export function withGoPackages(selected: readonly ResolvedCheck[], repo: string,
     if (r.skip !== null || adapter === null) return r;
     if (!takesGoPackages(adapter.args) && !takesGoPackages(adapter.fixArgs)) return r;
     return withPackages(r, adapter, goPackagesFor(adapter, repo, r.root ?? '.', changed, importsAt));
+  });
+}
+
+/**
+ * Hand each check that takes `{odin-package}` the name of the Odin package at
+ * its root, in its args and fix args alike, so `-vet-packages:<name>` vets
+ * that package's own procedures and the summary's `argv` names it. The root
+ * is the check's target root, or the repo root for a check of none. A root
+ * whose files declare no package sits the check out with `no package clause
+ * in <root>`, and a package with no `main` procedure with the reason that a
+ * vet of unused procedures needs a program, since it would flag every
+ * procedure a library exports. A check resolution or `--changed` already
+ * skipped reads nothing.
+ */
+export function withOdinPackage(selected: readonly ResolvedCheck[], repo: string): ResolvedCheck[] {
+  return selected.map((r) => {
+    const adapter = r.adapter;
+    if (r.skip !== null || adapter === null) return r;
+    if (!takesOdinPackage(adapter.args) && !takesOdinPackage(adapter.fixArgs)) return r;
+    const root = r.root ?? '.';
+    const pkg = odinPackage(join(repo, root));
+    if (pkg === null) return { ...r, skip: noOdinPackageReason(root) };
+    if (!pkg.program) return { ...r, skip: noOdinProgramReason(root) };
+    const fixArgs = adapter.fixArgs === undefined ? {} : { fixArgs: expandOdinPackage(adapter.fixArgs, pkg.name) };
+    return { ...r, adapter: { ...adapter, args: expandOdinPackage(adapter.args, pkg.name), ...fixArgs } };
   });
 }
 

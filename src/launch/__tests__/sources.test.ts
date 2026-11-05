@@ -103,7 +103,8 @@ describe('the version mise says it resolved a pin to (R6.3)', () => {
   test('`mise which --version` names it on its last line, and a line that is no release names none', () => {
     expect(miseVersion({ stdout: '0.11.0\n' })).toBe('0.11.0');
     expect(miseVersion({ stdout: 'a notice\n1.27.2\n\n' })).toBe('1.27.2');
-    for (const stdout of ['system\n', 'ref:main\n', 'path:/opt/go\n', 'latest\n', '', '\n']) expect(miseVersion({ stdout }), stdout).toBeUndefined();
+    expect(miseVersion({ stdout: 'dev-2026-11a\n' })).toBe('dev-2026-11a');
+    for (const stdout of ['system\n', 'ref:main\n', 'path:/opt/go\n', 'latest\n', 'dev\n', '', '\n']) expect(miseVersion({ stdout }), stdout).toBeUndefined();
   });
 
   test('`mise where` names it as the install directory it prints last', () => {

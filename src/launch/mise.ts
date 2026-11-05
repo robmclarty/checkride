@@ -187,14 +187,21 @@ function lastLine(text: string): string | undefined {
 }
 
 /**
+ * A release as mise names one: a version starting with a digit, or one of
+ * Odin's dated releases (`dev-2026-11a`), whose tags mise passes through as
+ * they are.
+ */
+const RELEASE = /^(?:\d|dev-\d)/;
+
+/**
  * The version `mise which --version` printed for the copy it would run: its
- * last line, kept only when it starts with a digit, so a `system` pin, a
- * `ref:` build or a `path:` copy records none (checked against mise
- * 2026.10.4).
+ * last line, kept only when it names a release ({@link RELEASE}), so a
+ * `system` pin, a `ref:` build or a `path:` copy records none (checked
+ * against mise 2026.10.4).
  */
 export function miseVersion(answer: { stdout: string }): string | undefined {
   const last = lastLine(answer.stdout);
-  return last !== undefined && /^\d/.test(last) ? last : undefined;
+  return last !== undefined && RELEASE.test(last) ? last : undefined;
 }
 
 /**

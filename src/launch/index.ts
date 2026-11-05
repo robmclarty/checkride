@@ -22,6 +22,7 @@ export { asEntry, entryArgv, entryCheckride, entryText, entryTextWith, PIN_CHECK
 export { failureLine, packEnv, setupHint } from './env.js';
 export type { ModuleImports } from './go-mod.js';
 export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
+export { expandOdinPackage, noOdinPackageReason, noOdinProgramReason, odinPackage, takesOdinPackage } from './odin-package.js';
 export type { PackageManager } from './package-manager.js';
 export { detectPackageManager, nearestPackageManager } from './package-manager.js';
 export type { LaunchRefusal } from './refusal.js';
