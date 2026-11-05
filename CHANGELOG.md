@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.0] - 2026-11-05
 
 ### Added
 
@@ -45,6 +45,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   as it replaces `{go-packages}`, and skips the check with `no package clause
   in <root>` or `no main procedure in <root>: unused procedures are vetted
   from a program` where it can't.
+
+### Internal
+
+- The e2e suite runs the odin pack against the release the root `mise.toml`
+  pins (`odin = "dev-2026-11a"`, which CI's mise-action installs on ubuntu
+  and macOS), and its pin test accepts Odin's dated releases beside `x.y.z`.
+- `examples/odin-package/` checks an Odin program and the library it imports
+  as two targets, with a packs block adding `-vet-tabs` and `-disallow-do`
+  and five planted violations, and the README, the docs, the site and
+  `package.json` name Odin beside the other languages.
 
 ## [0.19.3] - 2026-11-03
 
@@ -4493,6 +4503,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.20.0]: https://www.npmjs.com/package/checkride/v/0.20.0
 [0.19.3]: https://www.npmjs.com/package/checkride/v/0.19.3
 [0.19.2]: https://www.npmjs.com/package/checkride/v/0.19.2
 [0.19.1]: https://www.npmjs.com/package/checkride/v/0.19.1
