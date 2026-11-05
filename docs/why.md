@@ -247,7 +247,7 @@ that genuinely is unique fits in a custom check without forking the contract.
 **"What about non-TypeScript checks? Our repo is a TS frontend plus a
 backend in a compiled server language."**
 Declare each half as a [target](./targets.md). A `go`, `rust`, `python`,
-`terraform` or `bash` target runs its [language pack](./packs.md)'s tools from
+`terraform`, `odin` or `bash` target runs its [language pack](./packs.md)'s tools from
 its own root: `go build`, golangci-lint and `go test` for a Go backend,
 `cargo check`, clippy and nextest for a Rust one, each resolving the copy the
 repo pins through `go.mod`, `rust-toolchain.toml`, `uv.lock` or a `mise.toml`,
@@ -283,7 +283,7 @@ done, and no tool choice will paper over the difference.
 checkride is not for everyone, and pretending otherwise would undercut the
 rest of this page.
 
-- Its packs cover TypeScript, Go, Rust, Python, Terraform and shell. Another
+- Its packs cover TypeScript, Go, Rust, Python, Terraform, Odin and shell. Another
   language runs through custom checks, without blessed adapters, scaffolding
   or baseline keys of its own.
 - Targets run each part of a repo from its own root, and `--changed` skips

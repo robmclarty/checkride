@@ -150,7 +150,7 @@ ones you agree with.
 
 ### An existing repository without Node
 
-A Go, Rust, Python or Terraform repo with no `package.json` pins checkride in
+A Go, Rust, Python, Terraform or Odin repo with no `package.json` pins checkride in
 its `mise.toml`, beside a `node` for it to run on, and runs it through mise:
 
 ```bash

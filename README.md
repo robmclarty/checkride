@@ -11,7 +11,7 @@ enforces module boundaries so parallel changes stay out of each other's way.
 Together those give an LLM agent the two things it otherwise lacks: a
 definition of done, and lanes to stay inside.
 
-It checks TypeScript, Go, Rust, Python, Terraform and shell code through
+It checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code through
 [language packs](./docs/packs.md), each running its own tools from the copy
 the repo pins, and a mixed-language monorepo's parts as named
 [targets](./docs/targets.md), each from its own root. A repo with no Node
@@ -92,7 +92,7 @@ configs a bare repository lacks (`init --add struct,dead`, for example).
 For a **repo without Node**, such as a Go or Rust project with no
 `package.json`, mise installs checkride beside a pinned `node` and runs it as
 `mise exec -- checkride`. `init --lang go|rust` writes that `mise.toml` for a
-new project. A Go, Rust, Python or Terraform repo that already exists adds the
+new project. A Go, Rust, Python, Terraform or Odin repo that already exists adds the
 pin with `mise use`, then runs `mise exec -- checkride init`, which adopts the
 tools its root configures through that language's pack.
 [Installing checkride](./docs/distribution.md) shows the pin, and the
@@ -276,8 +276,8 @@ default; alternates are wired so checkride can run them, but `init` only
 generates config for the blessed default. A slot's **scope** says what it
 checks: a `target` slot checks one language's code, once for each target
 whose pack fills it, and a `repo` slot checks the repo as a whole, once. The
-tools below are the ts and repo packs'; the bash, go, rust, python and
-terraform packs fill the target slots with their own (see
+tools below are the ts and repo packs'; the bash, go, rust, python, terraform and
+odin packs fill the target slots with their own (see
 [Packs and pins](./docs/packs.md)).
 
 | Slot       | Scope  | Role                                   | Blessed default     | Alternates       |
@@ -364,6 +364,7 @@ the alternates and every argv in [Packs and pins](./docs/packs.md):
 | `rust` | `Cargo.toml` | cargo check | clippy | cargo-machete | nextest | rustfmt, doctests, cargo-deny, cargo-mutants | `rust-toolchain.toml`, then `mise.toml`, then `PATH` |
 | `python` | `pyproject.toml`, `setup.cfg`, `setup.py` | mypy | ruff | — | pytest | ruff format | `uv.lock`, then `mise.toml`, then `PATH` |
 | `terraform` | `.terraform.lock.hcl`, `*.tf` | terraform validate | tflint | — | — | terraform fmt, trivy | `.terraform-version` or `.opentofu-version`, then `mise.toml`, then `PATH` |
+| `odin` | `*.odin` | odin check | odin check `-vet` | odin check `-vet-unused-procedures` | odin test | — | `mise.toml`, then `PATH` |
 | `bash` | none: a target's shell files | — | shellcheck | — | — | shfmt | `mise.toml`, then `PATH` |
 
 The repo pack's slots (`struct`, `docs`, `links`, `spell`, `prose` and

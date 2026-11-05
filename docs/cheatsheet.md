@@ -80,7 +80,7 @@ named `app` at `.`, its top-level entries and baseline keys moving with it.
 
 | Flag | Effect |
 | ---- | ------ |
-| `--lang <pack>` | The target's pack: `ts`, `bash`, `go`, `rust`, `python` or `terraform`. |
+| `--lang <pack>` | The target's pack: `ts`, `bash`, `go`, `rust`, `python`, `terraform` or `odin`. |
 | `--root <dir>` | Its directory, relative to the repo root (`.` for the root). |
 | `--add <a,b>` | Name the blessed tool for these slots; a ts, python or terraform target also gets its config scaffolded under the root. |
 | `--root-name <n>` | The name a converted repo's implicit target takes (default `app`). |

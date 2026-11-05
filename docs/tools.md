@@ -6,7 +6,7 @@ slots checkride spawns `<pm> exec <tool>` — where `<pm>` is your repo's packag
 manager (see [Package managers](#package-managers) below) — so the tools are
 ordinary project `devDependencies`, pinned and owned by your repository.
 "Installing a missing tool" therefore means adding an npm package — not a
-separate system binary. The bash, go, rust, python and terraform packs resolve
+separate system binary. The bash, go, rust, python, terraform and odin packs resolve
 their tools through their own pin chains instead (`go.mod`,
 `rust-toolchain.toml`, `uv.lock`, `.terraform-version`, a `mise.toml`, then
 `PATH`); [Packs and pins](./packs.md) covers each one.

@@ -135,7 +135,7 @@ required ones, so a field can't reach the schema without a row here.
 | Field | Type | Present when |
 | --- | --- | --- |
 | `name` | string | always: the target's name, which names its checks `<name>:<slot>` and its directory `<out>/<name>/` |
-| `pack` | string | always: the pack that checks it: `ts`, `bash`, `go`, `rust`, `python` or `terraform` |
+| `pack` | string | always: the pack that checks it: `ts`, `bash`, `go`, `rust`, `python`, `terraform` or `odin` |
 | `root` | string | always: the directory its checks run from, relative to the repo root and normalized, `.` for the root itself |
 | `discovered` | `true` | `--discover` proposed the target |
 
@@ -146,7 +146,7 @@ required ones, so a field can't reach the schema without a row here.
 | `name` | string | always: the slot name (`lint`), or the custom check's config key; `<target>:<slot>` (`web:lint`) for a target's check |
 | `target` | string | multi-target mode, on a target's check: the target it belongs to |
 | `slot` | string | multi-target mode, on every check: the catalogue slot or custom check name it fills |
-| `pack` | string | multi-target mode, on every check, and implicit mode when the repo root marks a pack other than `ts` (a `go.mod`, `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl` or `*.tf` file): the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
+| `pack` | string | multi-target mode, on every check, and implicit mode when the repo root marks a pack other than `ts` (a `go.mod`, `go.work`, `Cargo.toml`, `pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl`, `*.tf` or `*.odin` file): the pack that fills it, the target's for a target's check and `repo` for a check of the repo as a whole, a top-level custom check included |
 | `cwd` | string, repo-relative | the check ran from a directory other than the repo root, as a target's check does when its root isn't `.` |
 | `adapter` | string or `null` | always: the adapter that ran or would have run (`oxlint`, or `custom:<key>` for a custom check with no `name`); `null` when the slot resolved to nothing |
 | `description` | string | always: the adapter's description, or the slot name when the slot resolved to nothing |
@@ -311,7 +311,7 @@ clearing what those targets left when the config has just dropped its
 pack is the first match: a root `package.json` or `tsconfig.json` picks `ts`, a
 root `go.mod` or `go.work` picks `go`, a root `Cargo.toml` picks `rust`, a root
 `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`, a root
-`.terraform.lock.hcl` or `*.tf` file picks `terraform`, and nothing picks `ts`. The top-level `checks` are that target's own entries, so
+`.terraform.lock.hcl` or `*.tf` file picks `terraform`, a root `*.odin` file picks `odin`, and nothing picks `ts`. The top-level `checks` are that target's own entries, so
 for a target-scope slot or a custom check they rank above
 `packs.<pack>.checks`, as they will once `target add` moves them into the
 target, and the pack block is read for the root's pack alone. A ts root runs
@@ -956,8 +956,8 @@ nothing to narrow.
 repo-scope slot that runs in every multi-target run. A marker is a file that
 marks one language's code: `package.json` and `tsconfig.json` for `ts`,
 `go.mod` and `go.work` for `go`, `Cargo.toml` for `rust`, `pyproject.toml`,
-`setup.cfg` and `setup.py` for `python`, and `.terraform.lock.hcl` and every
-`*.tf` file for `terraform`. A marker is claimed when a target of its pack is
+`setup.cfg` and `setup.py` for `python`, `.terraform.lock.hcl` and every
+`*.tf` file for `terraform`, and every `*.odin` file for `odin`. A marker is claimed when a target of its pack is
 rooted at the marker's directory or above it, so a target at the root of a
 workspace claims every package in it. Every marker no target claims fails the check (exit 1),
 except one under `node_modules/`,

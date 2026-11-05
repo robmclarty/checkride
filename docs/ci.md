@@ -139,7 +139,7 @@ govulncheck and cargo-deny read their advisory databases over the network, as
 
 ## A repo without Node
 
-A Go, Rust, Python or Terraform repo with no `package.json` pins checkride in
+A Go, Rust, Python, Terraform or Odin repo with no `package.json` pins checkride in
 its `mise.toml` (`init --lang go` and `--lang rust` write it), so CI installs
 it with mise rather than a package manager. Checks never download, so fetch
 dependencies first:
