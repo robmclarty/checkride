@@ -52,6 +52,7 @@ export const TOOLCHAINS = {
     { name: 'tflint', mise: 'tflint', probe: ['tflint', '--version'] },
     { name: 'trivy', mise: 'trivy', probe: ['trivy', '--version'] },
   ],
+  odin: [{ name: 'odin', mise: 'odin', probe: ['odin', 'version'] }],
   // The repo-scope slots' Node-free alternates.
   repo: [
     { name: 'typos', mise: 'typos', probe: ['typos', '--version'] },

@@ -781,7 +781,10 @@ clause its files open with, so `-vet-packages` vets that package's own
 procedures and never a dependency's. The vet of unused procedures flags every
 procedure nothing in the program calls, so `dead` runs only where a `main`
 procedure makes the package a program, and sits a library out with the
-reason `no main procedure in <root>`.
+reason `no main procedure in <root>`. A test file opens with the `#+test`
+file tag, which keeps it out of `odin check`, as `odin test` compiles it
+anyway: without the tag the vet flags each `@(test)` procedure, which
+nothing calls.
 
 `-vet-tabs` and `-disallow-do` are style opinions the row leaves to the
 repo. An override restates the row's args with them added, for every odin

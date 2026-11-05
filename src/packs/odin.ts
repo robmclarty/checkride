@@ -19,7 +19,9 @@
  * 36, so the baseline sees every error; and `-thread-count:1` keeps the
  * checker on one thread, since dev-2026-07 hung now and then checking a
  * package that imports another, and a check costs a tenth of a second
- * either way. Each row was checked against odin dev-2026-07-nightly:819fdc7.
+ * either way. Each row was checked against odin dev-2026-07-nightly:819fdc7
+ * and dev-2026-11a, whose output the parser's fixtures and the e2e suite
+ * hold.
  *
  * The vet of unused procedures names the package it vets, through
  * `{odin-package}`, which the orchestrator reads from the package clause, so

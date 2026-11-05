@@ -53,7 +53,8 @@ Mutation is deliberately not in the default gate: a cold run has no warm
 
 Each language pack's e2e cases run that pack's real tools, pinned in the root
 [`mise.toml`](./mise.toml): Go, Rust, Python and uv, shellcheck, shfmt,
-golangci-lint, typos, rumdl, vale, ast-grep, OpenTofu, tflint and trivy. Node
+golangci-lint, typos, rumdl, vale, ast-grep, OpenTofu, tflint, trivy and
+Odin. Node
 isn't among them; `engines.node` and CI's matrix own it. Fetch the pins once
 (this needs the network), then run the suite with them on `PATH`:
 

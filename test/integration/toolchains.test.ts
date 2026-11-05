@@ -42,9 +42,9 @@ describe('the dev mise.toml', () => {
     expect([...misePins().keys()].toSorted()).toEqual([...gated].toSorted());
   });
 
-  test('pins every tool to an exact version', () => {
+  test('pins every tool to an exact version: x.y.z, or one of Odin’s dated releases', () => {
     for (const [tool, version] of misePins()) {
-      expect(version, `${tool} must pin an exact x.y.z version`).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(version, `${tool} must pin an exact x.y.z or dev-YYYY-MM[a] version`).toMatch(/^\d+\.\d+\.\d+$|^dev-\d{4}-\d{2}[a-z]?$/);
     }
   });
 });
