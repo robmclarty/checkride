@@ -4,6 +4,7 @@
 
 import { BASH_PACK } from './bash.js';
 import { GO_PACK } from './go.js';
+import { ODIN_PACK } from './odin.js';
 import { PYTHON_PACK } from './python.js';
 import { RUST_PACK } from './rust.js';
 import { REPO_PACK } from './repo.js';
@@ -20,6 +21,7 @@ export const PACKS: Readonly<Record<Pack['name'], Pack>> = {
   rust: RUST_PACK,
   python: PYTHON_PACK,
   terraform: TERRAFORM_PACK,
+  odin: ODIN_PACK,
 };
 
 /** The pack named `name`, or `undefined` for none, as for a check of implicit ts mode, which has no pack. */

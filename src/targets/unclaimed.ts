@@ -93,7 +93,8 @@ function remedy({ suggest }: Unclaimed, targets: readonly Claimant[]): string {
     return `  no ${suggest.lang} target can claim it: one rooted at ${suggest.root} would hold ${held}, and two targets of one pack can't nest; list it in unclaimed.ignore`;
   }
   const held = targets.filter((t) => t.pack === suggest.lang && t.root !== suggest.root && isWithin(t.root, suggest.root));
-  const off = held.length > 0 ? `, switching ${nestedSlots(suggest.lang)} off in ${held.map((t) => t.name).join(', ')}, which it would hold` : '';
+  const slots = nestedSlots(suggest.lang);
+  const off = held.length > 0 && slots !== '' ? `, switching ${slots} off in ${held.map((t) => t.name).join(', ')}, which it would hold` : '';
   return `  claim it: "${suggest.name}": { "lang": "${suggest.lang}", "root": "${suggest.root}" } under targets${off}, or list it in unclaimed.ignore`;
 }
 

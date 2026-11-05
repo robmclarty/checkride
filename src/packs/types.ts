@@ -32,7 +32,7 @@ export type PinSourceName =
 /** One language's adapters, with the root markers and pin sources that go with them. */
 export type Pack = {
   /** The pack's name, which is also its key in `PACKS`. */
-  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust' | 'python' | 'terraform';
+  name: 'ts' | 'repo' | 'bash' | 'go' | 'rust' | 'python' | 'terraform' | 'odin';
   /**
    * Files whose presence marks a directory as holding this pack's code, each
    * a file name or a glob over one (`*.tf`). The repo pack has none, since its

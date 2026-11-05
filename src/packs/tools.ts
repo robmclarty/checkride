@@ -50,6 +50,18 @@ export const TOFU_TOOLCHAIN: Tool = {
 };
 
 /**
+ * The Odin compiler, which an odin target's every check runs: `odin check`
+ * type-checks and vets, and `odin test` builds and runs a package's tests. A
+ * `mise.toml` pins a release (`dev-2026-11a`, say) through mise's registry
+ * entry for it; otherwise it comes from `PATH`.
+ */
+const ODIN_TOOLCHAIN: Tool = {
+  bin: 'odin',
+  mise: ['odin', 'github:odin-lang/Odin'],
+  install: 'install Odin (https://odin-lang.org/docs/install), or pin it with `mise use odin@<version>`',
+};
+
+/**
  * The executables a toolchain ships, which an adapter runs directly rather
  * than as a tool: each resolves through the toolchain's own pin, the `go` a
  * `mise.toml` declares running both `go` and `gofmt`.
@@ -59,6 +71,7 @@ export const TOOLCHAINS: readonly Tool[] = [
   CARGO_TOOLCHAIN,
   TERRAFORM_TOOLCHAIN,
   TOFU_TOOLCHAIN,
+  ODIN_TOOLCHAIN,
   {
     bin: 'gofmt',
     mise: ['go', 'core:go'],

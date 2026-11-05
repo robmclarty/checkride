@@ -1,0 +1,31 @@
+{
+	"error_count": 2,
+	"errors": [
+		{
+			"type": "error",
+			"pos": {
+				"file": "/private/tmp/fixture-odin/game/game.odin",
+				"offset": 39,
+				"line": 4,
+				"column": 8,
+				"end_column": 8
+			},
+			"msgs": [
+				"'os' declared but not used"
+			]
+		},
+		{
+			"type": "error",
+			"pos": {
+				"file": "/private/tmp/fixture-odin/game/game.odin",
+				"offset": 93,
+				"line": 9,
+				"column": 2,
+				"end_column": 2
+			},
+			"msgs": [
+				"'unused_local' declared but not used"
+			]
+		}
+	]
+}

@@ -120,8 +120,8 @@
   },
   "definitions": {
     "packName": {
-      "description": "A language pack: ts checks TypeScript code from its root, bash checks a list of shell scripts under its root, go checks a Go module or workspace from its root, rust checks a Cargo package or workspace from its root, python checks a Python project from its root, and terraform checks a Terraform or OpenTofu root module from its root.",
-      "enum": ["ts", "bash", "go", "rust", "python", "terraform"]
+      "description": "A language pack: ts checks TypeScript code from its root, bash checks a list of shell scripts under its root, go checks a Go module or workspace from its root, rust checks a Cargo package or workspace from its root, python checks a Python project from its root, terraform checks a Terraform or OpenTofu root module from its root, and odin checks one Odin package from its directory.",
+      "enum": ["ts", "bash", "go", "rust", "python", "terraform", "odin"]
     },
     "targetName": {
       "type": "string",

@@ -58,7 +58,7 @@ describe('findUnclaimed', () => {
 
   test('reports the markers of every pack R11.3 names, each kind by its file, a .tf file by its glob', async () => {
     await put('svc/go.mod', 'svc/go.work', 'crates/a/Cargo.toml', 'py/pyproject.toml', 'py/setup.cfg', 'py/setup.py');
-    await put('infra/main.tf', 'infra/.terraform.lock.hcl', 'infra/notes.tfvars');
+    await put('infra/main.tf', 'infra/.terraform.lock.hcl', 'infra/notes.tfvars', 'tools/gen/main.odin');
     const found = await findUnclaimed(repo, { targets: [root] });
     expect(found.map((u) => [u.path, u.kind])).toEqual([
       ['crates/a/Cargo.toml', 'rust'],
@@ -69,11 +69,12 @@ describe('findUnclaimed', () => {
       ['py/setup.py', 'python'],
       ['svc/go.mod', 'go'],
       ['svc/go.work', 'go'],
+      ['tools/gen/main.odin', 'odin'],
     ]);
-    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'py', 'crates'] });
+    const red = await checkUnclaimed(repo, { targets: [root], ignore: ['svc', 'py', 'crates', 'tools'] });
     expect(red.stderr).toContain('unclaimed: infra/.terraform.lock.hcl marks terraform code that no terraform target checks.');
     expect(red.stderr).toContain('claim it: "infra": { "lang": "terraform", "root": "infra" } under targets, or list it in unclaimed.ignore');
-    expect(await findUnclaimed(repo, { targets: [{ name: 'infra', pack: 'terraform', root: 'infra' }], ignore: ['svc', 'py', 'crates'] })).toEqual([]);
+    expect(await findUnclaimed(repo, { targets: [{ name: 'infra', pack: 'terraform', root: 'infra' }], ignore: ['svc', 'py', 'crates', 'tools'] })).toEqual([]);
   });
 
   // F43: a .tf directory outside every terraform target fails and suggests one.

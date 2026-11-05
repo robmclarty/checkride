@@ -28,6 +28,10 @@
  *   switches off what the outer one's tools already walk (`Pack.nests`).
  *   Each top-most directory holding `.tf` files that none of those claims
  *   proposes one more.
+ * - Each directory holding a `.odin` file proposes an `odin` target, one
+ *   below another included: an Odin package is one directory, checked and
+ *   tested from it, so a nested package is a target of its own that claims
+ *   nothing above or below it.
  * - Shell files R11.2's defaults keep, outside every other proposed target's
  *   root, propose one `bash` target at the deepest directory holding them
  *   all, named `scripts` when that's `scripts` and `shell` otherwise.
@@ -245,6 +249,11 @@ function terraformRoots(files: readonly string[]): { root: string; nested: boole
   return unclaimedRoots(locks, clusters).map((root) => ({ root, nested: locks.some((other) => other !== root && isWithin(root, other)) }));
 }
 
+/** The odin roots: each directory holding a `.odin` file, since an Odin package is one directory and is checked and tested from it, a nested one too. */
+function odinRoots(files: readonly string[]): string[] {
+  return [...new Set(files.filter((f) => markerKind(f) === PACKS.odin.name).map((f) => posix.dirname(f)))];
+}
+
 /** The checks a nested target of a pack whose targets nest switches off: those the target above it already runs over its files. */
 function nestedChecks(lang: string): Record<string, false> {
   const off = Object.values(PACKS).find((p) => p.name === lang)?.nests?.off ?? [];
@@ -296,7 +305,8 @@ export async function discoverTargets(repo: string, git: GitRunner = realGit(rep
   const terraform = terraformRoots(files)
     .toSorted((a, b) => (a.root < b.root ? -1 : 1))
     .map(({ root, nested }) => ({ lang: PACKS.terraform.name, root, ...(nested ? { checks: nestedChecks(PACKS.terraform.name) } : {}) }));
-  const toolchains = [...ts, ...go, ...rust, ...python, ...terraform];
+  const odin = odinRoots(files).toSorted().map((root) => ({ lang: PACKS.odin.name, root }));
+  const toolchains = [...ts, ...go, ...rust, ...python, ...terraform, ...odin];
   const bash = bashRoot(repo, files, toolchains.map((t) => t.root));
   return named([...toolchains, ...(bash === null ? [] : [{ lang: PACKS.bash.name, root: bash }])], config);
 }

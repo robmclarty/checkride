@@ -339,3 +339,41 @@ describe('the terraform pack (R5.8)', () => {
     expect(toolRow('trivy')?.mise).toEqual(['trivy', 'aqua:aquasecurity/trivy']);
   });
 });
+
+/** The odin pack's row named `name`. */
+const odinRow = (name: string): Adapter | undefined => PACKS.odin.adapters.find((a) => a.name === name);
+
+describe('the odin pack', () => {
+  test('marks a package by its .odin files, pins the compiler through mise then PATH, sets no variable, and lets its targets nest', () => {
+    expect(PACKS.odin.markers).toEqual(['*.odin']);
+    expect(PACKS.odin.pins).toEqual(['mise', 'path']);
+    expect(PACKS.odin.env).toEqual({});
+    expect(PACKS.odin.toolchain).toBeUndefined();
+    expect(PACKS.odin.nests).toEqual({ off: [] });
+  });
+
+  test('runs the compiler as a toolchain, declared in mise by its registry ids', () => {
+    expect(TOOLCHAINS.find((t) => t.bin === 'odin')?.mise).toEqual(['odin', 'github:odin-lang/Odin']);
+  });
+
+  test('fills types, lint, dead and test, each the compiler itself printing to stderr, on in every odin target', () => {
+    expect(PACKS.odin.adapters.map((a) => [a.slot, a.name, a.command, a.outputFile])).toEqual([
+      ['types', 'odin-check', 'odin', null],
+      ['lint', 'odin-vet', 'odin', null],
+      ['dead', 'odin-unused', 'odin', null],
+      ['test', 'odin-test', 'odin', null],
+    ]);
+    expect(PACKS.odin.adapters.every((a) => SLOTS.find((s) => s.name === a.slot)?.scope === 'target')).toBe(true);
+    expect(PACKS.odin.adapters.every((a) => a.detect.length === 0 && a.detectPin === undefined)).toBe(true);
+  });
+
+  test('checks on one thread with the error cap lifted, vets with warnings as errors, names its package only to the unused-procedure vet, and never fixes', () => {
+    const check = ['check', '.', '-no-entry-point', '-json-errors', '-thread-count:1', '-max-error-count:100000'];
+    expect(odinRow('odin-check')?.args).toEqual(check);
+    expect(odinRow('odin-vet')?.args).toEqual([...check, '-vet', '-vet-cast', '-vet-style', '-vet-semicolon', '-warnings-as-errors']);
+    expect(odinRow('odin-unused')?.args).toEqual([...check, '-vet-unused-procedures', '-vet-packages:{odin-package}']);
+    expect(odinRow('odin-test')?.args).toEqual(['test', '.', '-define:ODIN_TEST_FANCY=false']);
+    expect(PACKS.odin.adapters.filter((a) => a.args.some((arg) => arg.includes('{odin-package}'))).map((a) => a.name)).toEqual(['odin-unused']);
+    expect(PACKS.odin.adapters.filter((a) => a.fixArgs !== undefined || a.static === true || a.network === true)).toEqual([]);
+  });
+});

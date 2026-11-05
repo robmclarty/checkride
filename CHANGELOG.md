@@ -4,6 +4,48 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The odin pack checks Odin packages.** An odin target checks one Odin
+  package from its directory, every row the compiler itself, which a
+  `mise.toml` pins through mise's registry entry for it or `PATH` holds:
+  `odin check` for `types`, `odin check` with the compiler's vet flags and
+  `-warnings-as-errors` for `lint`, the vet of unused procedures for `dead`,
+  which names its package through the new `{odin-package}` token and sits a
+  library package, one with no `main` procedure, out with its reason, and
+  `odin test` for `test`. Each check row prints every error as JSON on
+  stderr, which `checkride/findings` reads and the baseline keys; the
+  compiler's error cap is lifted, and a syntax error, which stops it before
+  it checks anything, marks the run as stopped short. A repo with several
+  packages declares one target each, a package nested in another's directory
+  included, `--discover` proposes one per directory holding `.odin` files,
+  and a root `.odin` file makes a repo without `targets` an odin repo.
+  `docs/packs.md` has the section, with the override that adds `-vet-tabs`
+  and `-disallow-do`.
+- A `mise.toml` pin of an Odin release (`dev-2026-11a`) now records its
+  `tool_version`, where a `mise which --version` answer not starting with a
+  digit recorded none.
+
+### Contract
+
+- Additive: `PACKS` gains `odin` (marker `*.odin`, the pin chain `mise`,
+  `path`, no environment, and targets that may nest with nothing switched
+  off), the exported `Pack` type's `name` takes `odin`, and the config
+  schema's pack names take `odin`. A repo without `targets` whose root holds
+  only `.odin` files now records `pack: "odin"` on its checks.
+- Additive: `PACKS.odin` holds its rows (`odin-check`, `odin-vet`,
+  `odin-unused` and `odin-test`), and `TOOLCHAINS` gains `odin`, declared in
+  mise as `odin` or `github:odin-lang/Odin`. `checkride/findings` parses the
+  three check rows' output, so `isParseable` is true for `odin-check`,
+  `odin-vet` and `odin-unused`, in the contract doc and both contract tests.
+- Additive: an adapter's argument may carry `{odin-package}` inside it, which
+  a run replaces with the package name at the check's root before it spawns,
+  as it replaces `{go-packages}`, and skips the check with `no package clause
+  in <root>` or `no main procedure in <root>: unused procedures are vetted
+  from a program` where it can't.
+
 ## [0.19.3] - 2026-11-03
 
 ### Changed

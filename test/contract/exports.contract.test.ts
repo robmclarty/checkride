@@ -139,6 +139,10 @@ describe('the checkride/findings subpath', () => {
     for (const adapter of ['tflint', 'terraform-validate', 'trivy-config']) expect(findings.isParseable(adapter), adapter).toBe(true);
   });
 
+  test('the odin pack\'s compiler output is parseable under each row that runs odin check', () => {
+    for (const adapter of ['odin-check', 'odin-vet', 'odin-unused']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
   test('an adapter with no parser returns null (F45)', () => {
     expect(findings.isParseable('vitest')).toBe(false);
     expect(findings.parseFindings('vitest', 'FAIL src/a.test.ts')).toBeNull();

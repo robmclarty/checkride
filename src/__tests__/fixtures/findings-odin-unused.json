@@ -1,0 +1,31 @@
+{
+	"error_count": 2,
+	"errors": [
+		{
+			"type": "error",
+			"pos": {
+				"file": "/private/tmp/fixture-odin/game/game.odin",
+				"offset": 107,
+				"line": 12,
+				"column": 1,
+				"end_column": 1
+			},
+			"msgs": [
+				"'helper' declared but not used"
+			]
+		},
+		{
+			"type": "error",
+			"pos": {
+				"file": "/private/tmp/fixture-odin/game/game.odin",
+				"offset": 160,
+				"line": 17,
+				"column": 1,
+				"end_column": 1
+			},
+			"msgs": [
+				"'uncalled' declared but not used"
+			]
+		}
+	]
+}

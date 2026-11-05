@@ -61,7 +61,7 @@
         "name": { "type": "string", "description": "Slot name (e.g. lint), or a custom check's key; <target>:<slot> (e.g. web:lint) for a target's check in multi-target mode." },
         "target": { "type": "string", "description": "Present in multi-target mode on a target-scope check: the target it belongs to." },
         "slot": { "type": "string", "description": "Present on every check in multi-target mode: the catalogue slot (lint) or custom check name the check fills." },
-        "pack": { "type": "string", "description": "Present on every check in multi-target mode, and in implicit mode when the repo root marks a pack other than ts (go, rust, python, terraform): the pack that fills it, its target's for a target-scope check (ts) and repo for a check of the repo as a whole, a top-level custom check included." },
+        "pack": { "type": "string", "description": "Present on every check in multi-target mode, and in implicit mode when the repo root marks a pack other than ts (go, rust, python, terraform, odin): the pack that fills it, its target's for a target-scope check (ts) and repo for a check of the repo as a whole, a top-level custom check included." },
         "cwd": { "type": "string", "description": "Present when the check ran from a directory other than the repo root, as a target's check does when its root isn't .: that directory, relative to the repo root." },
         "adapter": { "type": ["string", "null"], "description": "Adapter that ran (e.g. oxlint), or null when the slot resolved to nothing." },
         "description": { "type": "string", "description": "Human description of the check." },
@@ -143,7 +143,7 @@
       "required": ["name", "pack", "root"],
       "properties": {
         "name": { "type": "string", "description": "The target's name, as checkride.config.json declares it; its checks are named <name>:<slot> and write under <out>/<name>/." },
-        "pack": { "type": "string", "description": "The pack that checks the target: ts, bash, go, rust, python or terraform." },
+        "pack": { "type": "string", "description": "The pack that checks the target: ts, bash, go, rust, python, terraform or odin." },
         "root": { "type": "string", "description": "The directory its target-scope checks run from, relative to the repo root and normalized: . for the root itself." },
         "discovered": { "const": true, "description": "Present when --discover proposed the target rather than the config declaring it." }
       }

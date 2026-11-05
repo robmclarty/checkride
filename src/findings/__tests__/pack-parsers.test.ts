@@ -487,3 +487,71 @@ describe('trivy config', () => {
     expect(attempt('trivy-config', '[]')).toBeNull();
   });
 });
+
+/**
+ * The odin pack's parser, captured at `/tmp/fixture-odin` (real path
+ * `/private/tmp/fixture-odin`, which the compiler prints) from odin
+ * dev-2026-07-nightly:819fdc7 over a program package at `game/`: a vet run,
+ * a run of the unused-procedure vet, a syntax error, and a warning about the
+ * build as a whole, which has no position.
+ */
+const ODIN_REPO = '/private/tmp/fixture-odin';
+
+/** The vet row's registry args, under which a warning exits 1. */
+const ODIN_VET_ARGV = ['odin', 'check', '.', '-no-entry-point', '-json-errors', '-thread-count:1', '-max-error-count:100000', '-vet', '-warnings-as-errors'];
+
+describe('the odin pack’s parser', () => {
+  test('one parser reads stderr for each row that runs odin check, and keys the baseline for each', () => {
+    for (const adapter of ['odin-check', 'odin-vet', 'odin-unused']) {
+      expect(parserFor(adapter)?.stream, adapter).toBe('stderr');
+      expect(baselineParserFor(adapter), adapter).toBe(parserFor(adapter));
+    }
+    expect(parserFor('odin-vet')).toBe(parserFor('odin-check'));
+  });
+
+  test('every error gates, keyed on its file and message since the compiler names no rule, its absolute path named from the repo root', () => {
+    const findings = parse('odin-vet', 'findings-odin-vet.json', { root: 'game', repoRoot: ODIN_REPO, argv: ODIN_VET_ARGV });
+    expect(findings).toEqual([
+      { file: 'game/game.odin', line: 4, column: 8, rule: '', message: "'os' declared but not used", severity: 'error', gates: true, key: "game/game.odin::'os' declared but not used" },
+      { file: 'game/game.odin', line: 9, column: 2, rule: '', message: "'unused_local' declared but not used", severity: 'error', gates: true, key: "game/game.odin::'unused_local' declared but not used" },
+    ]);
+    expect(parse('odin-unused', 'findings-odin-unused.json', { root: 'game', repoRoot: ODIN_REPO }).map((f) => [f.line, f.key])).toEqual([
+      [12, "game/game.odin::'helper' declared but not used"],
+      [17, "game/game.odin::'uncalled' declared but not used"],
+    ]);
+    // With no repo root to measure from, the compiler's absolute path stays.
+    expect(parse('odin-vet', 'findings-odin-vet.json', { root: 'game' })[0]?.file).toBe('/private/tmp/fixture-odin/game/game.odin');
+  });
+
+  test('a warning about the build has no file, keeps every line of its message, and gates only under -warnings-as-errors', () => {
+    const [warning] = parse('odin-check', 'findings-odin-null-pos.json', { root: 'game', repoRoot: ODIN_REPO });
+    expect(warning).toEqual({
+      file: '',
+      rule: '',
+      message: 'Warning: given -define:UNUSED_THING is unused in the project\n\tSuggestion: use the -show-defineables flag for an overview of the possible defines',
+      severity: 'warning',
+      gates: false,
+      key: '::Warning: given -define:UNUSED_THING is unused in the project',
+    });
+    expect(parse('odin-vet', 'findings-odin-null-pos.json', { root: 'game', argv: ODIN_VET_ARGV })[0]?.gates).toBe(true);
+  });
+
+  test('a syntax error, which the compiler stops at before checking anything, is a finding of a run that stopped short', () => {
+    const context = { root: 'game', repoRoot: ODIN_REPO, argv: ODIN_VET_ARGV };
+    const findings = parse('odin-vet', 'findings-odin-syntax.json', context);
+    expect(findings).toEqual([
+      { file: 'game/bad.odin', line: 3, column: 17, rule: '', message: "Syntax Error: Expected a type, got '{'", severity: 'error', gates: true, key: "game/bad.odin::Syntax Error: Expected a type, got '{'" },
+    ]);
+    expect(parserFor('odin-vet')?.stoppedShort?.(findings, context)).toBe("odin stopped short at `game/bad.odin(3:17) Syntax Error: Expected a type, got '{'`");
+    expect(parserFor('odin-vet')?.stoppedShort?.(parse('odin-vet', 'findings-odin-vet.json', context), context)).toBeNull();
+  });
+
+  test('empty stderr is a clean run, mise’s own lines ahead of the object are passed over, and anything else there is untrustworthy', () => {
+    expect(attempt('odin-check', '')).toEqual([]);
+    expect(attempt('odin-check', 'mise WARN mise version 2026.11.0 available\n')).toEqual([]);
+    expect(attempt('odin-check', `mise WARN mise version 2026.11.0 available\n${read('findings-odin-syntax.json')}`)).toHaveLength(1);
+    expect(attempt('odin-check', '{"error_count": 0}')).toBeNull();
+    expect(attempt('odin-check', 'odin: command not found\n')).toBeNull();
+    expect(attempt('odin-check', '{"error_count": 1, "errors": [{"type": "error", "pos": null, "msgs": []}]}')).toEqual([]);
+  });
+});

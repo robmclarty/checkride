@@ -37,11 +37,12 @@ the first that matches:
 3. a root `Cargo.toml` picks `rust`;
 4. a root `pyproject.toml`, `setup.cfg` or `setup.py` picks `python`;
 5. a root `.terraform.lock.hcl` or `*.tf` file picks `terraform`;
-6. anything else picks `ts`, where every slot stands down as it always has.
+6. a root `*.odin` file picks `odin`;
+7. anything else picks `ts`, where every slot stands down as it always has.
    When [`target add`](#declaring-targets) converts such a repo, its root
    becomes a target only if it configures a tool of its own.
 
-A Go, Rust, Python or Terraform root runs its pack's checks under their bare slot names (`types`,
+A Go, Rust, Python, Terraform or Odin root runs its pack's checks under their bare slot names (`types`,
 `lint`, `test`), from the root and into `.check/`, as a declared target of that
 pack rooted at `.` would run them otherwise: the pack's tools, pin chain and
 spawn environment, and no check for a slot the pack doesn't fill. A top-level
@@ -90,6 +91,7 @@ counts as a change.
 | `rust` | a Cargo package or workspace from its root | cargo check, rustfmt (opt-in), clippy, cargo-machete, nextest or cargo test, doctests (opt-in), cargo-deny (opt-in) and cargo-mutants (opt-in), offline, with the toolchain its `rust-toolchain.toml` names |
 | `python` | a Python project from its root | ruff (`lint`, and `format`, opt-in), mypy or basedpyright and pytest, each from the project's `.venv` when `uv.lock` lists it, with pip's and uv's downloads switched off |
 | `terraform` | a Terraform or OpenTofu module from its root | terraform fmt (opt-in), tflint, terraform validate where a `.terraform.lock.hcl` marks a root module, and trivy (opt-in), with `terraform` or `tofu` as its version file declares, at the release that file names, and no prompt or call home |
+| `odin` | one Odin package from its directory | odin check (`types`, and `lint` with the compiler's vet flags), the unused-procedure vet (`dead`, in a package with a `main` procedure) and odin test, all the `odin` a `mise.toml` pins or `PATH` holds |
 
 A bash target's checks run over its files: by default every `.sh` and `.bash`
 file and each extensionless file with a shell shebang, narrowed with `include`
@@ -104,8 +106,8 @@ how each tool resolves to the copy that runs.
 
 `unclaimed` runs in every multi-target run and fails when a toolchain marker
 (`package.json`, `tsconfig.json`, `go.mod`, `go.work`, `Cargo.toml`,
-`pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl` or a `*.tf`
-file) sits outside every target of its language, naming the target that would
+`pyproject.toml`, `setup.cfg`, `setup.py`, `.terraform.lock.hcl`, a `*.tf`
+file or a `*.odin` file) sits outside every target of its language, naming the target that would
 claim it in `.check/unclaimed.json`. A root `package.json` that only
 installs tools, above ts targets in their own directories, goes in
 `unclaimed.ignore`, since two ts targets can't nest, and so does any marker
@@ -144,8 +146,10 @@ target, which the message names in place of a target to add.
   top-most `pyproject.toml`, `setup.cfg` or `setup.py` directory, which
   claims the ones under it, a terraform target for each top-most
   `.terraform.lock.hcl` directory and then each top-most directory of `.tf`
-  files none of those claims, and a bash target where the shell files outside
-  every other target gather. Where a pack's
+  files none of those claims, an odin target for each directory holding
+  `.odin` files, a package nested in another's directory included, and a
+  bash target where the shell files outside every other target gather. Where
+  a pack's
   second rule finds a root above one its first proposed, a `go.mod` above a
   `go.work`, a `[package]` above a `[workspace]` or `.tf` files above a lock
   file, the inner root wins, and `unclaimed` reports the outer one's markers.

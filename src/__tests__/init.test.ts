@@ -355,7 +355,7 @@ describe('detectMode', () => {
     await writeFile(join(dir, 'package.json'), '{}');
     expect(await detectMode(dir)).toBe('existing');
   });
-  test.each(['go.mod', 'go.work', 'Cargo.toml', 'pyproject.toml', 'setup.cfg', 'setup.py', '.terraform.lock.hcl', 'main.tf'])(
+  test.each(['go.mod', 'go.work', 'Cargo.toml', 'pyproject.toml', 'setup.cfg', 'setup.py', '.terraform.lock.hcl', 'main.tf', 'main.odin'])(
     'existing when another shipped pack marks the root with %s',
     async (marker) => {
       await writeFile(join(dir, marker), '');

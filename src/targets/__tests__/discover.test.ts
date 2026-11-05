@@ -295,6 +295,40 @@ describe('discoverTargets for python', () => {
   });
 });
 
+describe('discoverTargets for odin', () => {
+  let repo: string;
+  beforeEach(async () => { repo = await mkdtemp(join(tmpdir(), 'checkride-discover-odin-')); });
+  afterEach(async () => { await rm(repo, { recursive: true, force: true }); });
+
+  const write = async (path: string): Promise<void> => {
+    await mkdir(dirname(join(repo, path)), { recursive: true });
+    await writeFile(join(repo, path), '');
+  };
+
+  test('each directory holding a .odin file proposes a target of its own, a package nested in another’s directory included', async () => {
+    for (const path of ['src/main.odin', 'src/game.odin', 'src/physics/body.odin', 'examples/headless/headless.odin', 'tools/gen/main.odin', 'docs/odin-lang/README.md']) {
+      await write(path);
+    }
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'headless', lang: 'odin', root: 'examples/headless' },
+      { name: 'src', lang: 'odin', root: 'src' },
+      { name: 'physics', lang: 'odin', root: 'src/physics' },
+      { name: 'gen', lang: 'odin', root: 'tools/gen' },
+    ]);
+  });
+
+  test('a .odin file at the root is the implicit odin mode, and an odin package beside a go module proposes both', async () => {
+    await write('main.odin');
+    expect(await discoverTargets(repo)).toEqual([{ name: 'app', lang: 'odin', root: '.' }]);
+    expect(isImplicit(await discoverTargets(repo), 'odin')).toBe(true);
+    await write('go.mod');
+    expect(await discoverTargets(repo)).toEqual([
+      { name: 'go', lang: 'go', root: '.' },
+      { name: 'odin', lang: 'odin', root: '.' },
+    ]);
+  });
+});
+
 describe('discoverRun (R13.2)', () => {
   let repo: string;
   beforeEach(async () => { repo = await mkdtemp(join(tmpdir(), 'checkride-discover-run-')); });

@@ -1,0 +1,13 @@
+{
+	"error_count": 1,
+	"errors": [
+		{
+			"type": "warning",
+			"pos": null,
+			"msgs": [
+				"Warning: given -define:UNUSED_THING is unused in the project",
+				"\tSuggestion: use the -show-defineables flag for an overview of the possible defines"
+			]
+		}
+	]
+}

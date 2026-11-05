@@ -21,6 +21,7 @@ import { goBuildParser } from './parsers/go-build.js';
 import { golangciLintParser } from './parsers/golangci-lint.js';
 import { markdownlintCli2Parser } from './parsers/markdownlint-cli2.js';
 import { mypyParser } from './parsers/mypy.js';
+import { odinCheckParser } from './parsers/odin.js';
 import { oxlintParser } from './parsers/oxlint.js';
 import { ruffParser } from './parsers/ruff.js';
 import { rumdlParser } from './parsers/rumdl.js';
@@ -64,6 +65,9 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   tflint: tflintParser,
   'terraform-validate': terraformValidateParser,
   'trivy-config': trivyConfigParser,
+  'odin-check': odinCheckParser,
+  'odin-vet': odinCheckParser,
+  'odin-unused': odinCheckParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

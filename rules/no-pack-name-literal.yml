@@ -1,7 +1,7 @@
 id: no-pack-name-literal
 message: |
   The orchestrator and the launcher never branch on a pack's name: don't
-  spell 'ts', 'go', 'rust', 'bash', 'python' or 'terraform' here. Read what
+  spell 'ts', 'go', 'rust', 'bash', 'python', 'terraform' or 'odin' here. Read what
   differs between packs from the pack's own data (its pins, env and adapter
   rows in src/packs/), so a new pack is a new row, not a new branch.
 severity: error
@@ -13,4 +13,4 @@ ignores:
   - '**/__tests__/**'
 rule:
   kind: string_fragment
-  regex: "^(ts|go|rust|bash|python|terraform)$"
+  regex: "^(ts|go|rust|bash|python|terraform|odin)$"

@@ -44,6 +44,7 @@ describe('markerKind', () => {
     expect(markerKind('infra/main.tf')).toBe('terraform');
     expect(markerKind('infra/.terraform.lock.hcl')).toBe('terraform');
     expect(markerKind('svc/go.mod')).toBe('go');
+    expect(markerKind('tools/gen/main.odin')).toBe('odin');
     expect(markerKind('infra/vars.tfvars')).toBeNull();
   });
 });

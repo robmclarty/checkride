@@ -374,7 +374,7 @@ export function configuredTargets(config: { readonly targets?: unknown } | null)
  * R2.1's order: the packs a repo's root can be checked as without targets,
  * first match first.
  */
-const IMPLICIT_ORDER: readonly string[] = ['ts', 'go', 'rust', 'python', 'terraform'];
+const IMPLICIT_ORDER: readonly string[] = ['ts', 'go', 'rust', 'python', 'terraform', 'odin'];
 
 /**
  * The first pack, in R2.1's order among the packs that ship, with a marker

@@ -1428,8 +1428,8 @@ the file that holds it, the repo's config, a preset it extends, or a
 `--config` file, so a misspelled key such as `check` doesn't sit there
 unnoticed while the run ignores it.
 
-Seven packs ship, `ts`, `repo`, `bash`, `go`, `rust`, `python` and
-`terraform`, which [Packs and pins](./packs.md) covers. A run checks each
+Eight packs ship, `ts`, `repo`, `bash`, `go`, `rust`, `python`,
+`terraform` and `odin`, which [Packs and pins](./packs.md) covers. A run checks each
 declared target as the [summary section](#checksummaryjson) describes, and
 reports the code no target checks through `unclaimed`. A `schemas` key is
 accepted, and held to the rule above, but no run acts on it: the `schema` slot
@@ -1511,7 +1511,7 @@ public and semver-bound:
 
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
-`python`, `terraform`) to its adapter rows, root markers, pin sources and
+`python`, `terraform`, `odin`) to its adapter rows, root markers, pin sources and
 environment, and the go pack's to the toolchain its checks run on, `go`, as
 `toolchain`. `ADAPTERS` is the `ts` and
 `repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
@@ -1569,8 +1569,8 @@ parsers.** The subpath is public and semver-bound as well, and exports
   `eslint`, `biome`, `ast-grep`, `cspell`, `vale`, `fallow`,
   `golangci-lint`, `staticcheck`, `clippy`, `cargo-check`, `shellcheck`,
   `markdownlint-cli2`, `rumdl`, `typos`, `tsc`, `go-build`, `ruff`, `mypy`,
-  `basedpyright`, `tflint`, `terraform-validate` and `trivy-config` today.
-  The set only grows. A custom check whose `name` is one of these is read by
+  `basedpyright`, `tflint`, `terraform-validate`, `trivy-config`,
+  `odin-check`, `odin-vet` and `odin-unused` today. The set only grows. A custom check whose `name` is one of these is read by
   that adapter's parser.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one

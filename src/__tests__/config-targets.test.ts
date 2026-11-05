@@ -377,6 +377,32 @@ describe('a terraform target formats everywhere and validates only a root module
   });
 });
 
+describe('an odin target runs the compiler in every slot the pack fills, with nothing to detect', () => {
+  const game = { lang: 'odin', root: 'src' } as const;
+
+  test('types, lint, dead and test are each the compiler, on with no config file, and no other slot is filled', () => {
+    const checks = resolve({ targets: { game } });
+    expect([...checks.keys()].filter((name) => name.startsWith('game:'))).toEqual(['game:types', 'game:lint', 'game:dead', 'game:test']);
+    for (const [slot, adapter] of [['types', 'odin-check'], ['lint', 'odin-vet'], ['dead', 'odin-unused'], ['test', 'odin-test']]) {
+      expect(check(checks, `game:${slot}`), slot).toMatchObject({ pack: 'odin', root: 'src', adapter: { name: adapter }, skip: null });
+    }
+    expect(check(checks, 'game:lint').detectedBy).toBeUndefined();
+  });
+
+  test('a pack-wide override restates the vet row’s args, keeping its name for the parser', () => {
+    const args = ['check', '.', '-no-entry-point', '-json-errors', '-vet', '-vet-tabs', '-disallow-do'];
+    const checks = resolve({ targets: { game }, packs: { odin: { checks: { lint: { use: 'odin-vet', args } } } } });
+    expect(check(checks, 'game:lint')).toMatchObject({ adapter: { name: 'odin-vet', args }, origin: 'config' });
+  });
+
+  test('a repo without targets at a .odin root runs the odin pack under bare slot names', () => {
+    const checks = repoSlots(present('*.odin'));
+    expect(check(checks, 'types')).toMatchObject({ pack: 'odin', adapter: { name: 'odin-check' } });
+    expect(check(checks, 'dead')).toMatchObject({ pack: 'odin', adapter: { name: 'odin-unused' } });
+    expect(checks.has('format')).toBe(false);
+  });
+});
+
 /** Resolve the catalogue with `config` (none by default), keyed by each check's name. */
 const repoSlots =(fileExists: (f: string) => boolean, config: CheckrideConfig | null = null): Map<string, ResolvedCheck> =>
   new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, fileExists, manifest: NO_MANIFEST }).map((c) => [checkName(c), c]));
@@ -453,6 +479,8 @@ describe('the implicit pack follows R2.1 among the packs that ship', () => {
     { files: ['pyproject.toml', 'go.mod'], pack: 'go' },
     { files: ['.terraform.lock.hcl'], pack: 'terraform' },
     { files: ['.terraform.lock.hcl', 'pyproject.toml'], pack: 'python' },
+    { files: ['*.odin'], pack: 'odin' },
+    { files: ['*.odin', '.terraform.lock.hcl'], pack: 'terraform' },
     { files: [], pack: 'ts' },
   ])('a root holding $files is checked as $pack', ({ files, pack }) => {
     expect(implicitPack(present(...files))).toBe(pack);

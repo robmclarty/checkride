@@ -1,13 +1,13 @@
 # Packs and pins
 
 A pack is one language's adapters, together with where its tools are pinned
-and the environment its checks run with. Seven packs ship: `ts`, which
+and the environment its checks run with. Eight packs ship: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
 `docs`, `links`, `spell`, `prose` and, with targets, `unclaimed`), `bash`,
 which checks shell scripts, `go`, which checks Go modules and workspaces,
 `rust`, which checks Cargo packages and workspaces, `python`, which checks
-Python projects, and `terraform`, which checks Terraform and OpenTofu
-modules. This page covers how a check's
+Python projects, `terraform`, which checks Terraform and OpenTofu
+modules, and `odin`, which checks Odin packages. This page covers how a check's
 tool resolves to the copy that runs, what the summary records about that copy,
 each pack's slots and the adapters that fill them, the file lists a bash
 target's checks run over, and the spawn environment each pack sets.
@@ -32,9 +32,11 @@ order.
 | `rust` | `rust-toolchain`, then `mise`, then `path` |
 | `python` | `uv-lock`, then `mise`, then `path` |
 | `terraform` | `tf-version`, then `mise`, then `path` |
+| `odin` | `mise`, then `path` |
 
 In a repo without `targets`, a root that marks a pack other than ts (a
-`go.mod`, a `Cargo.toml`, a `pyproject.toml`, a Terraform root) is checked as
+`go.mod`, a `Cargo.toml`, a `pyproject.toml`, a Terraform root, a `.odin`
+file) is checked as
 one target of that pack, so its checks resolve through that pack's chain and
 its repo-scope checks through the `repo` pack's. Every other repo without
 `targets`, one whose root holds a `package.json` or `tsconfig.json` or no
@@ -176,8 +178,8 @@ the checkout isn't the repo's pin.
 A custom check resolves the way a catalogue check does. A `pnpm exec <tool>`
 command resolves the tool through its pack's chain, any other `pnpm`
 subcommand, such as `pnpm run lint:ci`, runs under the project's package
-manager as `js-lockfile`, and a toolchain such as `go`, `cargo` or
-`terraform` resolves through the chain when it reads `mise`, each recording
+manager as `js-lockfile`, and a toolchain such as `go`, `cargo`,
+`terraform` or `odin` resolves through the chain when it reads `mise`, each recording
 its `pin_source`. Any other command, such as `node scripts/x.mjs`, spawns as
 written through no pin source, and records `argv` but no `pin_source`. `checkride fix`
 launches each fixer the way its check is launched, so a fixer runs the same
@@ -728,6 +730,92 @@ and a CLI from `PATH` runs even under `requirePins`, as a toolchain does. Both
 CLIs report `terraform_version` from `version -json`, checked against
 Terraform 1.9.8 and OpenTofu 1.13.1.
 
+## The odin pack
+
+An odin target checks one Odin package from its directory, since an Odin
+package is one directory and every `.odin` file in it belongs to it. A repo
+with several packages declares one target each, a package nested in another's
+directory included:
+
+```json
+{
+  "targets": {
+    "game": { "lang": "odin", "root": "src" },
+    "headless": { "lang": "odin", "root": "examples/headless" }
+  }
+}
+```
+
+| Slot | Adapter | Runs | Detected by | Writes |
+| --- | --- | --- | --- | --- |
+| `types` | `odin-check` | `odin check . -no-entry-point -json-errors -thread-count:1 -max-error-count:100000` | every odin target | `types.stderr.txt` |
+| `lint` | `odin-vet` | the same, with `-vet -vet-cast -vet-style -vet-semicolon -warnings-as-errors` | every odin target | `lint.stderr.txt` |
+| `dead` | `odin-unused` | the same, with `-vet-unused-procedures -vet-packages:{odin-package}` | every odin target with a `main` procedure | `dead.stderr.txt` |
+| `test` | `odin-test` | `odin test . -define:ODIN_TEST_FANCY=false` | every odin target | `test.stderr.txt`, the runner's log |
+
+Every row is the compiler, `odin`, which resolves through a `mise.toml` pin
+(`mise use odin@dev-2026-11a` writes one; mise's registry knows the release
+tarballs), then `PATH`. No row has a config file to detect, so each is on in
+every odin target. `-no-entry-point` lets a library package, one with no
+`main`, check as a program does. The three check rows each compile the
+package, so a type error appears under `types`, `lint` and `dead` alike;
+`odin test` builds and links it too, and a package with no `@(test)`
+procedure passes with "No tests to run.", which makes `test` a build check
+for it.
+
+`-json-errors` prints every error to stderr, and `checkride/findings` reads
+it: each error is a finding at its file, line and column, keyed on the file
+and the message's first line, since the compiler names no rule. A warning
+(an unused `-define`, say) gates only under `-warnings-as-errors`, which the
+vet row runs with. `-max-error-count:100000` lifts the compiler's cap of 36
+errors, so the baseline sees every one. A syntax error stops the compiler
+before it checks anything, so a run that reports one stopped short: the
+baseline neither masks its findings nor prunes its keys, since an error the
+checker never reached would read as fixed. `-thread-count:1` keeps the
+checker on one thread, because dev-2026-07 hung now and then checking a
+package that imports another, and a check costs about a tenth of a second
+either way.
+
+`{odin-package}` expands to the package's name, read from the `package`
+clause its files open with, so `-vet-packages` vets that package's own
+procedures and never a dependency's. The vet of unused procedures flags every
+procedure nothing in the program calls, so `dead` runs only where a `main`
+procedure makes the package a program, and sits a library out with the
+reason `no main procedure in <root>`.
+
+`-vet-tabs` and `-disallow-do` are style opinions the row leaves to the
+repo. An override restates the row's args with them added, for every odin
+target at once:
+
+```json
+{
+  "packs": {
+    "odin": {
+      "checks": {
+        "lint": {
+          "use": "odin-vet",
+          "args": [
+            "check", ".", "-no-entry-point", "-json-errors", "-thread-count:1", "-max-error-count:100000",
+            "-vet", "-vet-cast", "-vet-style", "-vet-semicolon", "-vet-tabs", "-warnings-as-errors", "-disallow-do"
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+Keep `-json-errors` in the override: without it the compiler prints text,
+which the parser can't read, and the baseline sees no findings.
+
+Under `--changed`, a target no changed path sits under is skipped whole, as
+any target is; the pack reads no import graph, so a target that imports a
+changed package elsewhere in the repo isn't re-run on that account. Every row
+compiles, so `--static-only` skips them all. `checkride target add --lang
+odin` declares a target and scaffolds nothing, since no row has a config
+file, and `--discover` proposes one target per directory holding `.odin`
+files. odinfmt has no check mode, so the pack fills no `format` slot.
+
 ## The entry command
 
 The entry command is how the stop-hook gate, the AGENTS.md stanza and the
@@ -755,7 +843,7 @@ because mise hasn't trusted the `mise.toml`, the gate stands down naming
 
 `checkride doctor` names the mode under its package-manager line: `implicit`,
 where the repo is one project at its root, naming the pack its root marks
-(`ts`, `go`, `rust`, `python` or `terraform`, as
+(`ts`, `go`, `rust`, `python`, `terraform` or `odin`, as
 [Targets](./targets.md#a-repo-without-targets) explains), or `multi-target`,
 followed by a table of the targets the config declares. Each check gets a row, named `<target>:<slot>` in a target,
 whose tool is looked for where that check runs from. The row names the pin

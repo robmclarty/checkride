@@ -35,7 +35,7 @@ describe('packEnv (R6.4)', () => {
   });
 
   test('a check of a pack that sets none, or of no pack, sets none', () => {
-    for (const pack of ['ts', 'repo', 'bash', undefined]) expect(packEnv(pack), String(pack)).toEqual({});
+    for (const pack of ['ts', 'repo', 'bash', 'odin', undefined]) expect(packEnv(pack), String(pack)).toEqual({});
   });
 });
 

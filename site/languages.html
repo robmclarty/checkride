@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>checkride languages — packs, targets and pins</title>
-<meta name="description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<meta name="description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code: the eight language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
 <link rel="canonical" href="https://robmclarty.github.io/checkride/languages.html">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="checkride">
 <meta property="og:locale" content="en_US">
 <meta property="og:url" content="https://robmclarty.github.io/checkride/languages.html">
 <meta property="og:title" content="checkride languages — packs, targets and pins">
-<meta property="og:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<meta property="og:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code: the eight language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="checkride languages — packs, targets and pins">
-<meta name="twitter:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform and shell code: the seven language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
+<meta name="twitter:description" content="How checkride checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code: the eight language packs, targets for a mixed-language repo, the pin chains that pick each tool's copy, and the mise route for a repo without Node.">
 <script src="https://cdn.usefathom.com/script.js" data-site="CXTTSEDC" defer></script>
 <script src="./support.js"></script>
 <script src="./stars.js" defer></script>
@@ -87,7 +87,7 @@
         <div>
           <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">LANGUAGE PACKS</div>
           <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Every language, its own tools.</h1>
-          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride's slots — <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">types</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">dead</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">test</span> and the rest — are roles, not tools. A <strong>pack</strong> fills them for one language: its adapters, where each tool is pinned, and the environment its checks run with. Seven ship: five languages beside TypeScript, and <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">repo</span>, which checks the repo as a whole.</p>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">checkride's slots — <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">types</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">lint</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">dead</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">test</span> and the rest — are roles, not tools. A <strong>pack</strong> fills them for one language: its adapters, where each tool is pinned, and the environment its checks run with. Eight ship: six languages beside TypeScript, and <span style="font-family:'JetBrains Mono',monospace; font-size:15px;">repo</span>, which checks the repo as a whole.</p>
           <p style="font-size:16px; line-height:1.6; color:#2A3A31; margin-top:18px;">In each card, a slot's first tool is its blessed default: the one detection prefers and <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">init</span> scaffolds. The others are alternates, which run when their own config file is the one the repo holds. A slot marked <strong>opt-in</strong> stays out of the default run until the config names it or <span style="font-family:'JetBrains Mono',monospace; font-size:14px;">--include</span> does.</p>
 
           <div style="display:grid; grid-template-columns:repeat(2,1fr); gap:22px; margin-top:32px;">
@@ -357,7 +357,7 @@ class Component extends DCLogic {
   renderVals() {
     const sec = this.state.section;
     const navDef = [
-      { title: 'PACKS', items: [['packs', 'The seven packs']] },
+      { title: 'PACKS', items: [['packs', 'The eight packs']] },
       { title: 'MIXED REPOS', items: [['targets', 'Targets']] },
       { title: 'TOOLCHAINS', items: [['pins', 'Pins and the offline spawn'], ['no-node', 'Without Node']] },
     ];
@@ -401,6 +401,9 @@ class Component extends DCLogic {
       ['terraform', 'Terraform and OpenTofu modules', '.terraform.lock.hcl · *.tf', [
         ['types', 'terraform validate'], ['lint', 'tflint'], ['format', 'terraform fmt', OPT], ['security', 'trivy', OPT],
       ], 'the version file → mise.toml → PATH', 'terraform init -backend=false'],
+      ['odin', 'Odin packages, one per directory', '*.odin', [
+        ['types', 'odin check'], ['lint', 'odin check -vet'], ['dead', 'odin check -vet-unused-procedures'], ['test', 'odin test'],
+      ], 'mise.toml → PATH', '—'],
       ['bash', 'Shell scripts', "no marker: a target's shell files", [
         ['lint', 'shellcheck'], ['format', 'shfmt', OPT],
       ], 'mise.toml → PATH', '—'],

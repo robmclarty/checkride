@@ -372,6 +372,21 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('trivy-config', JSON.stringify({ SchemaVersion: 2, Results: [] }))).toBeNull();
   });
 
+  test('odin check keys as <file>::<first message line>, every error, a warning only under -warnings-as-errors, and a run stopped at a syntax error keys nothing', () => {
+    // The compiler prints absolute paths, and a key names them from the repo root.
+    const vet = JSON.stringify({
+      error_count: 1,
+      errors: [{ type: 'error', pos: { file: '/repo/game/a.odin', offset: 20, line: 3, column: 2, end_column: 2 }, msgs: ["'x' declared but not used"] }],
+    });
+    const odinArgv = ['odin', 'check', '.', '-json-errors'];
+    expect(fingerprint('odin-vet', vet, odinArgv, 'game', '/repo')).toEqual(new Set(["game/a.odin::'x' declared but not used"]));
+    const warned = JSON.stringify({ error_count: 1, errors: [{ type: 'warning', pos: null, msgs: ['Warning: given -define:X is unused in the project', '\tSuggestion: see -show-defineables'] }] });
+    expect(fingerprint('odin-check', warned, odinArgv, 'game', '/repo')).toEqual(new Set());
+    expect(fingerprint('odin-check', warned, [...odinArgv, '-warnings-as-errors'], 'game', '/repo')).toEqual(new Set(['::Warning: given -define:X is unused in the project']));
+    const syntax = JSON.stringify({ error_count: 1, errors: [{ type: 'warning', pos: { file: '/repo/game/b.odin', line: 3, column: 17 }, msgs: ["Syntax Error: Expected a type, got '{'"] }] });
+    expect(fingerprint('odin-vet', syntax, odinArgv, 'game', '/repo')).toBeNull();
+  });
+
   test('eslint and biome key as <file>:<rule>:<message>, a warning only when argv lets it fail', () => {
     // eslint prints absolute paths, and a key names them from the repo root.
     const eslint = JSON.stringify([

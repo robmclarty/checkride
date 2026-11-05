@@ -225,8 +225,8 @@ Usage: checkride init [options]
 New project: scaffolds a full project. Refuses to overwrite existing files
 unless --force.
 Existing project, whose root holds a package.json, go.mod, go.work,
-Cargo.toml, pyproject.toml, setup.cfg, setup.py, .terraform.lock.hcl or *.tf
-file (a tsconfig.json alone doesn't make one): adopts detectable slots
+Cargo.toml, pyproject.toml, setup.cfg, setup.py, .terraform.lock.hcl, *.tf
+or *.odin file (a tsconfig.json alone doesn't make one): adopts detectable slots
 through the root's pack, and proposes the targets its files suggest;
 --baseline grandfathers current debt.
 Either mode refuses (exit 2) rather than overwrite an AGENTS.md stanza that has
@@ -438,8 +438,8 @@ that marks no pack and configures no tool becomes no target, and the new one
 is declared alone. Each change is printed.
 
 Options:
-  --lang <pack>       The target's pack: ts, bash, go, rust, python or
-                      terraform
+  --lang <pack>       The target's pack: ts, bash, go, rust, python,
+                      terraform or odin
   --root <dir>        Its directory, relative to the repo root (. for the root)
   --add <a,b>         Name the blessed tool for these slots, and for a ts,
                       python or terraform target scaffold its config under the

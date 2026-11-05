@@ -37,7 +37,7 @@ describe('isParseable', () => {
   test('names the adapters with a parser, and no others', () => {
     const parseable = [
       'oxlint', 'ast-grep', 'cspell', 'vale', 'fallow', 'golangci-lint', 'staticcheck', 'clippy', 'cargo-check', 'shellcheck',
-      'markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build', 'eslint', 'biome',
+      'markdownlint-cli2', 'rumdl', 'typos', 'tsc', 'go-build', 'eslint', 'biome', 'odin-check', 'odin-vet', 'odin-unused',
     ];
     for (const adapter of parseable) expect(isParseable(adapter), adapter).toBe(true);
     for (const adapter of ['vitest', 'knip', 'biome-format', 'constructor']) expect(isParseable(adapter), adapter).toBe(false);
