@@ -7,7 +7,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -139,6 +139,32 @@ describe('the schema slot', () => {
     expect((await entries()).find((c) => c.name === 'schema')?.reason).toBe(
       "the `schema` slot reads `ajv` from node_modules, which Yarn Plug'n'Play doesn't write: run the standalone checkride binary, which bundles it, or set `nodeLinker: node-modules` in .yarnrc.yml",
     );
+  });
+
+  test('containment: a schema path that is absolute or holds .. is exit 2, and a schema or a data file whose real path is outside the repo is never read', async () => {
+    await installLibraries(dir, ['ajv']);
+    for (const schema of ['../label.schema.json', '/etc/passwd', 'C:\\s.json', '\\\\server\\share\\s.json']) {
+      await config({ schemas: [{ files: ['labels/*.json'], schema }] });
+      expect((await run()).code, schema).toBe(2);
+    }
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-schema-contract-outside-'));
+    try {
+      await writeFile(join(outside, 'file.json'), JSON.stringify({ secret: 'never-read' }));
+      await symlink(join(outside, 'file.json'), join(dir, 'linked.schema.json'));
+      await config({ schemas: [{ files: ['labels/*.json'], schema: 'linked.schema.json' }] });
+      expect((await run()).code).toBe(1);
+      expect((await entries()).find((c) => c.name === 'schema')?.reason).toBe('schemas[0] names the schema `linked.schema.json`, which resolves outside the repository: a schema is read only from inside it');
+
+      await symlink(join(outside, 'file.json'), join(dir, 'labels', 'leak.json'));
+      await config({ schemas: [RULE] });
+      expect((await run()).code).toBe(1);
+      expect(JSON.parse(readFileSync(join(dir, '.check', 'schema.json'), 'utf8'))).toEqual({
+        rules: [{ schema: 'label.schema.json', files: 2 }],
+        errors: [{ file: 'labels/leak.json', rule: 0, instancePath: '', keyword: 'symlink', message: "resolves outside the repository, so it isn't read" }],
+      });
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   test("a named suite's schemas rules declare the check, and its report lands in the suite's directory", async () => {

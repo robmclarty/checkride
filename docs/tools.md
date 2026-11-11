@@ -471,6 +471,22 @@ outside a git repo they're every file but those under `.git`, `node_modules`,
 `target` and `vendor`. Globs take `**`, `*`, `?` and `{a,b}`. `schema` is a
 bundled schema or a path from the repo root, never a URL.
 
+The slot reads nothing outside the repository. That matters most under
+`--static-only`, which checks a repo whose author you don't know, and whose
+config could otherwise point the slot at any file on the machine and have its
+contents printed in a finding. One rule covers every file it opens: the
+file's real path, symlinks followed, is inside the repository root.
+
+- A rule's `schema` that is absolute, in POSIX or Windows spelling (`/etc/x`,
+  `C:\x`, `C:/x`, `\\server\share`), or that holds a `..` segment, stops
+  the config from loading (exit 2).
+- A schema file, or a file a `$ref` names, whose real path is outside the
+  repository fails the check with a reason that names the reference. The
+  file isn't opened.
+- A matched data file whose real path is outside, a symlink that leaves the
+  repo, is a finding on that file under the keyword `symlink`, and isn't
+  read. A symlink to a file inside the repo is read as that file.
+
 Otherwise it's a slot like the rest. `--only schema` and `--skip schema`
 select it, and a `checks.schema` entry tunes its `timeout`, `order` and
 `optIn`, or turns it off with `false`. Under `--changed` it still runs every
@@ -516,7 +532,9 @@ names in the repo. Only a `$ref` where a schema can sit counts. One inside an
 `enum`, a `default`, an `examples` entry or an `x-` annotation is data.
 
 A schema that's missing, isn't JSON, or isn't a valid schema fails the check
-before any file is read, with a reason that names it. A rule that matches no
+before any file is read, with a reason that names it. For one that isn't
+JSON the reason gives the line and column where it stops, and none of the
+file's text. A rule that matches no
 file is a finding too, on the config file, as a `prose` slot whose exemplars
 are gone is: a config that points at nothing mustn't stay green.
 
@@ -601,7 +619,8 @@ with how many files it matched, and every error:
 `rule` is the rule's index in `schemas`, `instancePath` a JSON pointer into
 the file, and `keyword` the JSON Schema keyword the value broke, or one of the
 slot's own: `parse`, `frontmatter`, `files` for a rule that matched nothing,
-`$ref` for a URL, `directory-name`. `param` is there when the keyword names
+`$ref` for a URL, `symlink` for a file that resolves outside the repo,
+`directory-name`. `param` is there when the keyword names
 what is at fault: the property a `required` error misses, the one an
 `additionalProperties` error found, the name `propertyNames` refused. `line`
 is there when the parser kept positions, which strict `json` doesn't.

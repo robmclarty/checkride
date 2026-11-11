@@ -36,6 +36,7 @@ import { join, posix, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
+import { SCHEMA_SLOT } from './adapters.js';
 import { outLabel } from './artifacts/index.js';
 import { countGrandfathered, parseBaseline } from './baseline/index.js';
 import type { Channel } from './channel.js';
@@ -43,8 +44,8 @@ import { channel, nodeVersion } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
-import type { LibraryLookup } from './schema/index.js';
-import { probeSchemaLibraries } from './schema/index.js';
+import type { LibrarySource } from './schema/index.js';
+import { probeSchemaLibraries, schemaLibrarySource } from './schema/index.js';
 import type { Suite } from './suite.js';
 import { listSuites, suiteCommand } from './suite.js';
 import { isRecord } from './json.js';
@@ -73,7 +74,7 @@ import {
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator/index.js';
-import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
+import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, refusalDetail, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
@@ -218,8 +219,8 @@ export type DoctorEnv = {
    * environment.
    */
   nixCopy?: (found: string, at: { cwd: string; repo: string }) => { version?: string } | null;
-  /** The libraries the `schema` slot's rules need, as a run in the repo would find them; the repo's install, or the binary's bundle, when omitted. */
-  schemaLibraries?: LibraryLookup;
+  /** Where the `schema` slot's libraries come from for a run in the repo; the repo's install, or the binary's bundle, when omitted. */
+  schemaLibraries?: (repo: string) => LibrarySource;
 };
 
 export type DoctorOptions = {
@@ -816,16 +817,19 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
 }
 
 /**
- * {@link probeTool}, but for the one built-in that needs something installed:
- * `schema`, whose probe is the libraries its rules validate with.
+ * The `schema` built-in's probe, the one built-in that needs something
+ * installed: the libraries its rules need, as a run from `at` would find
+ * them, with the skip a `--static-only` run gives where one is missing, in
+ * that run's own words. `null` for any other adapter.
  */
-function probeCheck(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: () => Launch): Promise<ToolProbe> {
-  return adapter.builtin === SCHEMA_SLOT ? Promise.resolve(schemaProbe(adapter, at, env)) : probeTool(adapter, at, env, launch);
-}
+type LibraryProbe = { probe: ToolProbe; skip: string | null };
 
-/** The `schema` built-in's probe: the libraries its rules need, as a run from `at` would find them. */
-function schemaProbe(adapter: Adapter, at: ProbeAt, env: DoctorEnv): ToolProbe {
-  return probeSchemaLibraries(adapter.options?.schema?.rules ?? [], at, env.schemaLibraries);
+function libraryProbe(adapter: Adapter, at: ProbeAt, env: DoctorEnv): LibraryProbe | null {
+  if (adapter.builtin !== SCHEMA_SLOT) return null;
+  const source = (env.schemaLibraries ?? schemaLibrarySource)(at.repo);
+  const { refusal, ...row } = probeSchemaLibraries(adapter.options?.schema?.rules ?? [], at, source);
+  if (refusal === null) return { probe: { ...row, hint: null }, skip: null };
+  return { probe: { ...row, hint: `${refusalDetail(refusal)}.` }, skip: installSkip(refusal) };
 }
 
 /**
@@ -867,9 +871,6 @@ function copyLabel(path: string, nix: { version?: string } | null): string {
 
 /** The shared prefix of every `tool`-category doctor row: the check's name in the slot column, and its target. */
 type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null; target?: string };
-
-/** The one slot that keeps its row while the config leaves it off, so the report says its rules are what it waits for. */
-const SCHEMA_SLOT = 'schema';
 
 /** The reason resolution gives a check its config switched off. */
 const DISABLED_REASON = 'disabled in checkride.config.json';
@@ -1001,10 +1002,17 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   if (!adapter) {
     return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: await possibilitiesHint(r, at, ctx) };
   }
-  const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
+  // Probed once, for the skip and for the row.
+  const libraries = libraryProbe(adapter, at, ctx.env);
+  const skip = ctx.staticOnly ? (staticSkip ?? libraries?.skip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);
-  // Adapter resolved: probe the tool where its pin chain finds it, classify by default-run membership.
-  const probe = await probeCheck(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx));
+  return probedRow(base, r, adapter, { ctx, at, libraries });
+}
+
+/** The row of a check whose adapter can run: its tool probed where its pin chain finds it, or its libraries as already probed, classified by default-run membership. */
+async function probedRow(base: ToolRowBase, r: ResolvedCheck, adapter: Adapter, where: { ctx: SlotContext; at: ProbeAt; libraries: LibraryProbe | null }): Promise<DoctorCheck> {
+  const { ctx, at, libraries } = where;
+  const probe = libraries?.probe ?? (await probeTool(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx)));
   return toolRow(base, r, adapter, ctx.defaultActive, probe);
 }
 
@@ -1045,15 +1053,10 @@ function askLauncher(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotC
  * needs an install, asked of the launcher a run spawns it through, which
  * pre-flights `node_modules/.bin` under every package manager but a PnP
  * install (R13.4), or `null` when its tool resolves as the checkout stands.
- * A built-in launches no tool, and only `schema` needs the install, for the
- * libraries it validates with: a run skips it with its refusal's first line,
- * and so does its row.
+ * A built-in launches no tool; the one that needs the install all the same,
+ * `schema`, answers through its own probe.
  */
 function needsInstall(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotContext): string | null {
-  if (adapter.builtin === SCHEMA_SLOT) {
-    const { status, hint } = schemaProbe(adapter, at, ctx.env);
-    return status === 'missing' && hint !== null ? installSkip(hint) : null;
-  }
   if (adapter.builtin !== undefined) return null;
   const launch = askLauncher(r, adapter, at, ctx);
   return 'refusal' in launch ? installSkip(launch.refusal) : null;
@@ -1506,6 +1509,7 @@ async function checkRows(
   env: DoctorEnv,
 ): Promise<DoctorCheck[]> {
   const { cwd, slots, adapters, config, suite, defaults } = common;
+  // `schema` alone keeps its row while the config leaves it off, so the report says its rules are what it waits for.
   const resolved = resolveChecks({ slots, adapters, config, defaults, cwd, suite }).filter((r) => r.inactive !== true || r.slot === SCHEMA_SLOT);
   const overrides = run.pins?.tools;
   const ctx: SlotContext = {

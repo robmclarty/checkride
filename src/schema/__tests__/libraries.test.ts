@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { CHECKOUT, clearBundledLibraries, installLibraries, registerBundledLibraries, stubLibrary } from '../../../test/helpers/schema-libraries.js';
 import { fakeSea } from '../../../test/helpers/sea.js';
 import { runSchemaCheck } from '../run.js';
-import { BUNDLED_LIBRARIES, librariesFor, libraryRefusal, libraryStates, loadLibraries, SUPPORTED_MAJORS } from '../libraries.js';
+import { BUNDLED_LIBRARIES, bundledSource, librariesFor, libraryRefusal, loadLibraries, repoSource, SUPPORTED_MAJORS } from '../libraries.js';
+import { schemaLibrarySource } from '../source.js';
 
 let repo: string;
 
@@ -54,8 +55,8 @@ describe('the peer ranges package.json declares', () => {
 
 describe('resolving from the repo a run is in', () => {
   test("a repo with no install has none, though checkride's own install holds all three", async () => {
-    expect(libraryStates(ALL, CHECKOUT).map((s) => s.problem)).toEqual([null, null, null]);
-    expect(libraryStates(ALL, repo)).toEqual(ALL.map((name) => ({ name, version: null, problem: 'missing' })));
+    expect(repoSource(CHECKOUT).states(ALL).map((s) => s.problem)).toEqual([null, null, null]);
+    expect(schemaLibrarySource(repo).states(ALL)).toEqual(ALL.map((name) => ({ name, version: null, problem: 'missing' })));
     const loaded = loadLibraries(['ajv'], { repo, pm: 'pnpm' });
     expect(loaded).toHaveProperty('refusal');
   });
@@ -63,7 +64,7 @@ describe('resolving from the repo a run is in', () => {
   test("the version it reports is the repo's copy's, not checkride's", async () => {
     await stubLibrary(repo, 'ajv', '8.0.1');
     await stubLibrary(repo, 'yaml', '2.0.0');
-    expect(libraryStates(['ajv', 'yaml'], repo)).toEqual([
+    expect(repoSource(repo).states(['ajv', 'yaml'])).toEqual([
       { name: 'ajv', version: '8.0.1', problem: null },
       { name: 'yaml', version: '2.0.0', problem: null },
     ]);
@@ -77,7 +78,7 @@ describe('resolving from the repo a run is in', () => {
     expect(typeof loaded.libraries.ajv.draft2020).toBe('function');
     expect(loaded.libraries.yaml).toBeUndefined();
     expect(loaded.libraries.jsonc).toBeUndefined();
-    expect(Object.keys(loaded.libraries.versions)).toEqual(['ajv']);
+    expect(Object.keys(loaded.libraries)).toEqual(['ajv']);
   });
 
   test('all three load, each with the members the slot calls', async () => {
@@ -86,7 +87,7 @@ describe('resolving from the repo a run is in', () => {
     if (!('libraries' in loaded)) throw new Error(loaded.refusal);
     expect(typeof loaded.libraries.yaml?.parseDocument).toBe('function');
     expect(typeof loaded.libraries.jsonc?.parseTree).toBe('function');
-    expect(Object.keys(loaded.libraries.versions)).toEqual([...ALL]);
+    expect(Object.keys(loaded.libraries)).toEqual(['ajv', 'yaml', 'jsonc']);
   });
 });
 
@@ -123,7 +124,7 @@ describe('the refusal for a library the repo lacks', () => {
 
   test('nothing is refused when every library is there', async () => {
     await installLibraries(repo);
-    expect(libraryRefusal(libraryStates(ALL, repo), { repo, pm: 'pnpm' })).toBeNull();
+    expect(libraryRefusal(schemaLibrarySource(repo).states(ALL), { repo, pm: 'pnpm' })).toBeNull();
   });
 });
 
@@ -169,6 +170,24 @@ describe('an install that holds a library and cannot load it', () => {
   });
 });
 
+describe('the source a caller hands the loader', () => {
+  test("is the repo's install from npm and the bundle in the binary, and the loader asks neither which it is", async () => {
+    expect(schemaLibrarySource(repo).label).toBe('repo');
+    // The bundle, handed to the loader on the npm channel, loads all the same: the loader reads what it is given.
+    await registerBundledLibraries();
+    const loaded = loadLibraries(ALL, { repo, pm: 'pnpm' }, bundledSource());
+    expect(loaded).toHaveProperty('libraries');
+    // And with no source handed in, it is the repo's install, which here holds nothing.
+    expect(loadLibraries(['ajv'], { repo, pm: 'pnpm' })).toHaveProperty('refusal');
+  });
+
+  test('a bundle that will not load is a broken build, thrown, never a refusal that names an install', async () => {
+    await registerBundledLibraries();
+    const broken = { ...bundledSource(), load: () => ({}) };
+    expect(() => loadLibraries(['ajv'], { repo, pm: 'pnpm' }, broken)).toThrow('ajv exports no constructor');
+  });
+});
+
 describe('in the standalone binary', () => {
   beforeEach(async () => {
     fakeSea();
@@ -177,29 +196,30 @@ describe('in the standalone binary', () => {
 
   test('a run in such a binary fails its check with that reason, and the run goes on', async () => {
     clearBundledLibraries();
-    const run = await runSchemaCheck({ rules: [{ files: ['a.json'], schema: 's.json' }], configFile: 'checkride.config.json' }, { repo, pm: 'pnpm' });
+    const run = await runSchemaCheck({ rules: [{ files: ['a.json'], schema: 's.json' }], configFile: 'checkride.config.json' }, { repo, pm: 'pnpm', source: schemaLibrarySource(repo) });
     expect(run).toEqual({ refusal: "checkride: the schema check stopped on an error it didn't expect: this checkride binary was built without the schema slot's libraries.\n" });
   });
 
   test('a binary built without the libraries says so, rather than read a repo', () => {
     clearBundledLibraries();
     expect(Reflect.get(globalThis, BUNDLED_LIBRARIES)).toBeUndefined();
-    expect(() => loadLibraries(ALL, { repo: CHECKOUT, pm: 'pnpm' })).toThrow("this checkride binary was built without the schema slot's libraries");
+    expect(() => loadLibraries(ALL, { repo: CHECKOUT, pm: 'pnpm' }, schemaLibrarySource(CHECKOUT))).toThrow("this checkride binary was built without the schema slot's libraries");
   });
 
   test("the bundled copies load, and a repo's own install is never consulted", async () => {
     // A copy the slot would refuse on the npm channel: the binary doesn't look at it.
     await stubLibrary(repo, 'ajv', '6.12.6');
-    const loaded = loadLibraries(ALL, { repo, pm: 'pnpm' });
+    const source = schemaLibrarySource(repo);
+    expect(source.label).toBe('bundled');
+    const loaded = loadLibraries(ALL, { repo, pm: 'pnpm' }, source);
     if (!('libraries' in loaded)) throw new Error(loaded.refusal);
     expect(typeof loaded.libraries.ajv.draft2020).toBe('function');
     expect(typeof loaded.libraries.yaml?.parseDocument).toBe('function');
     expect(typeof loaded.libraries.jsonc?.parseTree).toBe('function');
-    expect(loaded.libraries.versions.ajv).toMatch(/^8\./);
   });
 
   test('every library reads as there, at its bundled version, in a repo with no install', async () => {
-    const states = libraryStates(ALL, repo);
+    const states = schemaLibrarySource(repo).states(ALL);
     expect(states.map((s) => s.problem)).toEqual([null, null, null]);
     expect(states.map((s) => Number.parseInt(s.version ?? '', 10))).toEqual([8, 2, 3]);
   });

@@ -7,7 +7,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -155,5 +155,110 @@ describe('the schema slot in a repo with several rules', () => {
     expect(run.code).toBe(1);
     expect(beneath(run.stderr)[0]).toBe("the schema `schemas/service.schema.json` refers to `defs/name.json`, and schemas/defs/name.json can't be read");
     await expect(report()).rejects.toThrow();
+  });
+});
+
+/**
+ * A repo whose author is a stranger, checked the way a review agent checks
+ * one: `--static-only`. Its config, its schemas and its symlinks each try to
+ * make the slot read a file outside the repository, a secret beside it, and
+ * none of them gets the file opened or a word of it printed.
+ */
+describe('a hostile repo under --static-only', () => {
+  const SECRET = 'hunter2-never-printed';
+  let parent: string;
+  let dir: string;
+
+  async function write(rel: string, body: string | object): Promise<void> {
+    const full = join(dir, rel);
+    await mkdir(join(full, '..'), { recursive: true });
+    await writeFile(full, typeof body === 'string' ? body : `${JSON.stringify(body, null, 2)}\n`);
+  }
+
+  /** A `--static-only` run, with everything it printed and everything it wrote under `.check/`. */
+  async function staticRun(): Promise<{ code: number; everything: string }> {
+    const stdout = capture();
+    const stderr = capture();
+    const code = await runCli(['--static-only', '--only', 'schema'], { cwd: dir, stdout, stderr, env: {} });
+    const written = await Promise.all(['schema.json', 'schema.stderr.txt', 'summary.json', 'digest.md'].map((file) => readFile(join(dir, '.check', file), 'utf8').catch(() => '')));
+    return { code, everything: [stdout.text(), stderr.text(), ...written].join('\n') };
+  }
+
+  const rules = (schemas: object[]): Promise<void> => write('checkride.config.json', { checks: { links: false }, schemas });
+
+  beforeEach(async () => {
+    parent = await mkdtemp(join(tmpdir(), 'checkride-schema-hostile-'));
+    dir = join(parent, 'repo');
+    await mkdir(dir);
+    await installLibraries(dir);
+    await writeFile(join(parent, 'secret.json'), JSON.stringify({ token: SECRET }));
+    await writeFile(join(parent, 'secret.txt'), `${SECRET}\n`);
+    await write('schemas/any.json', { type: 'object', properties: { token: { const: 'nope' } } });
+    await write('data/ok.json', {});
+  });
+  afterEach(async () => { await rm(parent, { recursive: true, force: true }); });
+
+  test('a schema path with .. never loads: exit 2, before any check runs', async () => {
+    await rules([{ files: ['data/*.json'], schema: '../secret.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(2);
+    expect(everything).toContain("schemas[0].schema \"../secret.json\" has a '..' segment: name a schema inside the repo");
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test.each(['/etc/passwd', 'C:\\Windows\\win.ini', 'C:/Windows/win.ini', '\\\\server\\share\\s.json'])('an absolute schema path never loads: %s', async (schema) => {
+    await rules([{ files: ['data/*.json'], schema }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(2);
+    expect(everything).toContain('is absolute: give it relative to the repo root');
+  });
+
+  test('a schema that is a symlink out of the repo fails the check, unread', async () => {
+    await symlink(join(parent, 'secret.txt'), join(dir, 'schemas', 'linked.json'));
+    await rules([{ files: ['data/*.json'], schema: 'schemas/linked.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(1);
+    expect(everything).toContain('schemas[0] names the schema `schemas/linked.json`, which resolves outside the repository');
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test.each(['../../secret.txt', '../../secret.json#/token'])('a $ref that climbs out fails the check, unread: %s', async (ref) => {
+    await write('schemas/main.json', { properties: { token: { $ref: ref } } });
+    await rules([{ files: ['data/*.json'], schema: 'schemas/main.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(1);
+    expect(everything).toContain(`the schema \`schemas/main.json\` refers to \`${ref}\`, which resolves outside the repository`);
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test('a data file that is a symlink out of the repo is a finding on that file, and the file is never read', async () => {
+    await symlink(join(parent, 'secret.json'), join(dir, 'data', 'leak.json'));
+    await rules([{ files: ['data/*.json'], schema: 'schemas/any.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(1);
+    expect(everything).toContain("data/leak.json  resolves outside the repository, so it isn't read  [symlink]");
+    expect(JSON.parse(await readFile(join(dir, '.check', 'schema.json'), 'utf8'))).toEqual({
+      rules: [{ schema: 'schemas/any.json', files: 2 }],
+      errors: [{ file: 'data/leak.json', rule: 0, instancePath: '', keyword: 'symlink', message: "resolves outside the repository, so it isn't read" }],
+    });
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test('a symlink that stays inside the repo is read as the file it names', async () => {
+    await write('real/token.json', { token: 'in-repo' });
+    await symlink(join(dir, 'real', 'token.json'), join(dir, 'data', 'alias.json'));
+    await rules([{ files: ['data/*.json'], schema: 'schemas/any.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(1);
+    expect(everything).toContain('data/alias.json  /token must be equal to constant  [const]');
+  });
+
+  test('a schema in the repo that is not JSON is named with where it stops, and none of its text', async () => {
+    await write('schemas/broken.json', `{ "type": "object" }\n${SECRET}\n`);
+    await rules([{ files: ['data/*.json'], schema: 'schemas/broken.json' }]);
+    const { code, everything } = await staticRun();
+    expect(code).toBe(1);
+    expect(everything).toMatch(/the schema `schemas\/broken\.json` is not valid JSON( \(line 2, column 1\))?\n/);
+    expect(everything).not.toContain(SECRET);
   });
 });

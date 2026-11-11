@@ -26,7 +26,19 @@ export {
   targetFiles,
 } from './files.js';
 export { markerAt } from './markers.js';
-export { checkKeys, configProblem, configuredTargets, implicitPack, markedPack, normalizeRoot, presetProblem, skipExitCodeProblem } from './resolve.js';
+export {
+  checkKeys,
+  configProblem,
+  configuredTargets,
+  hasParentSegment,
+  implicitPack,
+  isAbsoluteForm,
+  markedPack,
+  normalizeRoot,
+  presetProblem,
+  show,
+  skipExitCodeProblem,
+} from './resolve.js';
 export type { Target } from './resolve.js';
 export { checkName, namedBy, selectedBy, tokenProblem } from './tokens.js';
 export { checkUnclaimed, findUnclaimed } from './unclaimed.js';

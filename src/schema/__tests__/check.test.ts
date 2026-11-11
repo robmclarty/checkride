@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -277,6 +277,132 @@ describe('nothing a file or a schema holds ends the check', () => {
     expect((JSON.parse(checked.outcome.stdout) as SchemaReport).errors).toEqual([
       { file: 'a.json', rule: 0, instancePath: '', keyword: 'validate', message: "couldn't be validated: stack exhausted" },
     ]);
+  });
+});
+
+/** The whole of what a run of `rules` said, wherever it said it. */
+async function said(rules: readonly SchemaRule[], git: GitRunner = noGit): Promise<string> {
+  return JSON.stringify(await checkSchemas(dir, { rules, configFile: 'checkride.config.json', libraries, git }));
+}
+
+describe('containment: nothing outside the repository is read', () => {
+  const SECRET = 'hunter2-do-not-echo';
+  let outside: string;
+
+  beforeEach(async () => {
+    outside = await mkdtemp(join(tmpdir(), 'checkride-schema-outside-'));
+    await writeFile(join(outside, 'secret.json'), JSON.stringify({ password: SECRET }));
+    await writeFile(join(outside, 'schema.json'), JSON.stringify({ title: SECRET, required: ['a'] }));
+    await writeFile(join(outside, 'notes.txt'), `${SECRET}\n`);
+    await write('s.json', { type: 'object', properties: { password: { const: 'x' } } });
+    await write('a.json', {});
+  });
+  afterEach(async () => {
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  test('a schema path that climbs out with .. is refused, and never read', async () => {
+    const schema = join('..', outside.split('/').at(-1) ?? '', 'schema.json');
+    const text = await refusal([{ files: ['a.json'], schema }]);
+    expect(text).toBe(`checkride: schemas[0] names the schema \`${schema}\`, which resolves outside the repository: a schema is read only from inside it.\n`);
+    expect(text).not.toContain(SECRET);
+  });
+
+  test('so is an absolute schema path, which a config can no longer hold but a caller might', async () => {
+    expect(await refusal([{ files: ['a.json'], schema: join(outside, 'schema.json') }])).toMatch(/which resolves outside the repository/);
+  });
+
+  test('a schema that is a symlink to a file outside is refused: the real path is what is tested', async () => {
+    await symlink(join(outside, 'schema.json'), join(dir, 'linked.schema.json'));
+    const text = await refusal([{ files: ['a.json'], schema: 'linked.schema.json' }]);
+    expect(text).toBe('checkride: schemas[0] names the schema `linked.schema.json`, which resolves outside the repository: a schema is read only from inside it.\n');
+  });
+
+  test('a schema reached through a symlinked directory that leaves the repo is refused too', async () => {
+    await symlink(outside, join(dir, 'vendor-schemas'));
+    expect(await refusal([{ files: ['a.json'], schema: 'vendor-schemas/schema.json' }])).toMatch(/resolves outside the repository/);
+  });
+
+  test('a schema that is a symlink to a file inside the repo is read', async () => {
+    await write('schemas/real.json', { required: ['a'] });
+    await symlink(join(dir, 'schemas', 'real.json'), join(dir, 'alias.json'));
+    expect((await run([{ files: ['a.json'], schema: 'alias.json' }])).errors.map((e) => e.keyword)).toEqual(['required']);
+  });
+
+  test.each([
+    ['a relative $ref with ..', (out: string) => `../${out.split('/').at(-1) ?? ''}/schema.json`],
+    ['an absolute path $ref', (out: string) => join(out, 'schema.json')],
+    ['a $ref to a file that is not JSON at all', (out: string) => join(out, 'notes.txt')],
+  ])('%s that resolves outside is refused, with nothing of the file in the refusal', async (_name, refOf) => {
+    const ref = refOf(outside);
+    await write('main.json', { properties: { a: { $ref: ref } } });
+    const text = await refusal([{ files: ['a.json'], schema: 'main.json' }]);
+    expect(text).toBe(`checkride: the schema \`main.json\` refers to \`${ref}\`, which resolves outside the repository: a schema is read only from inside it.\n`);
+    expect(text).not.toContain(SECRET);
+  });
+
+  test('a $ref to a sibling that is a symlink out of the repo is refused', async () => {
+    await symlink(join(outside, 'schema.json'), join(dir, 'defs.json'));
+    await write('main.json', { $ref: 'defs.json' });
+    expect(await refusal([{ files: ['a.json'], schema: 'main.json' }])).toMatch(/refers to `defs\.json`, which resolves outside the repository/);
+  });
+
+  test('a file: URL $ref is a finding on the schema, and the file it names is never read', async () => {
+    await write('main.json', { $ref: `file://${join(outside, 'schema.json')}` });
+    const report = await run([{ files: ['a.json'], schema: 'main.json' }]);
+    expect(report.errors.map((e) => `${e.file}:${e.keyword}`)).toEqual(['main.json:$ref']);
+    expect(JSON.stringify(report)).not.toContain(SECRET);
+  });
+
+  test('a schema inside the repo that is not JSON is named with where it stops, and none of its text', async () => {
+    await write('broken.json', `{ "ok": true }\n${SECRET}: [\n`);
+    const text = await refusal([{ files: ['a.json'], schema: 'broken.json' }]);
+    expect(text).toMatch(/^checkride: the schema `broken\.json` is not valid JSON( \(line 2, column 1\))?\.\n$/);
+    expect(text).not.toContain(SECRET);
+  });
+
+  test('a matched data file that is a symlink out of the repo is an error on that file, counted, and never read', async () => {
+    await symlink(join(outside, 'secret.json'), join(dir, 'leak.json'));
+    const report = await run([{ files: ['{a,leak}.json'], schema: 's.json' }]);
+    expect(report.rules).toEqual([{ schema: 's.json', files: 2 }]);
+    expect(report.errors).toEqual([{ file: 'leak.json', rule: 0, instancePath: '', keyword: 'symlink', message: "resolves outside the repository, so it isn't read" }]);
+    expect(await said([{ files: ['{a,leak}.json'], schema: 's.json' }])).not.toContain(SECRET);
+  });
+
+  test('so is a file listed under a symlinked directory that leaves the repo', async () => {
+    await symlink(outside, join(dir, 'shared'));
+    const git = listing(['a.json', 's.json', 'shared/secret.json']);
+    const report = await run([{ files: ['shared/*.json'], schema: 's.json' }], git);
+    expect(report.errors.map((e) => `${e.file}:${e.keyword}`)).toEqual(['shared/secret.json:symlink']);
+    expect(await said([{ files: ['shared/*.json'], schema: 's.json' }], git)).not.toContain(SECRET);
+  });
+
+  test('a data file that is a symlink to a file inside the repo is read and validated as that file', async () => {
+    await write('real/b.json', { password: 'not-x' });
+    await symlink(join(dir, 'real', 'b.json'), join(dir, 'alias.json'));
+    const report = await run([{ files: ['alias.json'], schema: 's.json' }]);
+    expect(report.errors).toEqual([{ file: 'alias.json', rule: 0, instancePath: '/password', keyword: 'const', message: 'must be equal to constant' }]);
+  });
+
+  test('a dangling symlink is no file, as a path gone from disk is none', async () => {
+    await symlink(join(dir, 'nowhere.json'), join(dir, 'dangling.json'));
+    const report = await run([{ files: ['{a,dangling}.json'], schema: 's.json' }], listing(['a.json', 'dangling.json']));
+    expect(report).toMatchObject({ ok: true, rules: [{ files: 1 }] });
+  });
+});
+
+describe('two rules that name one schema', () => {
+  test('share one compile: the schema is read once, and each rule still reports under its own index', async () => {
+    await write('s.json', { required: ['a'] });
+    await write('x/a.json', {});
+    await write('y/b.json', {});
+    const report = await run([{ files: ['x/*.json'], schema: 's.json' }, { files: ['y/*.json'], schema: 's.json' }]);
+    expect(report.errors.map((e) => `${e.rule}:${e.file}`)).toEqual(['0:x/a.json', '1:y/b.json']);
+  });
+
+  test('a schema that cannot be used is refused at the first rule that names it', async () => {
+    await write('a.json', {});
+    expect(await refusal([{ files: ['a.json'], schema: 'ok.json' }, { files: ['a.json'], schema: 'ok.json' }])).toMatch(/^checkride: schemas\[0\] names the schema `ok\.json`/);
   });
 });
 

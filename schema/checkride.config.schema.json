@@ -60,8 +60,8 @@
           "schema": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?!/)",
-            "description": "A bundled schema (checkride:agent-skill or checkride:checkride-config) or a path relative to the repo root, to a draft 2020-12 or draft-07 JSON Schema. Never a URL or an absolute path, because a check never fetches."
+            "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))",
+            "description": "A bundled schema (checkride:agent-skill or checkride:checkride-config) or a path relative to the repo root, to a draft 2020-12 or draft-07 JSON Schema. Never a URL, because a check never fetches, and never an absolute path or one with a .. segment, because a check reads a schema only from inside the repository."
           },
           "format": {
             "enum": ["json", "jsonc", "yaml", "frontmatter"],
@@ -162,7 +162,7 @@
         "root": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))",
           "description": "The target's directory, relative to the repo root (. for the root itself). It must exist, can't be absolute or pass through .., and two targets of one pack can't share or nest their roots."
         },
         "include": {

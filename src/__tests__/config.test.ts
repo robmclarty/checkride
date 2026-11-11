@@ -14,9 +14,16 @@ import type { CheckrideConfig, CustomCheck, ResolvedCheck, SlotConfig, UseConfig
 import { CONFIG_KEYS, configSchemaUrl, configuredSlots, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
 import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
+import { schemaRulesProblem } from '../schema/index.js';
 import { configProblem } from '../targets/index.js';
 
 const never = (): boolean => false;
+
+/** The first rule `config` breaks, with the `schema` module's rules for `schemas` handed to the targets module's, as a loader hands them. */
+const held = (config: Record<string, unknown>): string | null => configProblem(config, { cwd: '/repo', layer: 'repo', schemas: schemaRulesProblem });
+
+/** Whether the loader takes `ref` as a `schemas` rule's schema. */
+const loads = (ref: string): boolean => schemaRulesProblem([{ files: ['a.json'], schema: ref }]) === null;
 const present = (...files: string[]) => (f: string): boolean => files.includes(f);
 
 type Manifest = { scripts: ReadonlySet<string>; deps: ReadonlySet<string> };
@@ -1046,6 +1053,11 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     expect(at('/etc')).toMatch(/targets\.web\.root "\/etc" is absolute/);
     expect(at('apps/../apps/web')).toMatch(/has a '\.\.' segment/);
     expect(at('..')).toMatch(/has a '\.\.' segment/);
+    // Absolute in any system's spelling, and a `..` under either separator: a config travels between machines.
+    for (const root of ['C:\\repo\\apps', 'C:/repo/apps', 'c:apps', '\\\\server\\share\\apps', '\\apps']) {
+      expect(at(root), root).toContain(`targets.web.root ${JSON.stringify(root)} is absolute`);
+    }
+    expect(at('apps\\..\\..\\elsewhere')).toMatch(/has a '\.\.' segment/);
     expect(at('README.md')).toMatch(/targets\.web\.root "README\.md" is a file, not a directory/);
     expect(at('')).toMatch(/targets\.web\.root must be a directory relative to the repo root \(got ""\)/);
     expect(at(7)).toMatch(/\(got 7\)/);
@@ -1127,11 +1139,13 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
   });
 
   test('V8 takes a bundled id or a repo-relative path, and nothing fetched or absolute', () => {
-    expect(problem({ schemas: [{ files: ['a.json'], schema: 'checkride:agent-skill' }, { files: ['b.yml'], schema: 'schemas/b.json' }] })).toBeNull();
-    expect(problem({ schemas: [{ files: ['a.json'], schema: 'HTTP://example.com/s.json' }] })).toMatch(/is a URL/);
-    expect(problem({ schemas: [{ files: ['a.json'], schema: '/etc/s.json' }] })).toMatch(/schemas\[0\]\.schema "\/etc\/s\.json" is absolute/);
-    expect(problem({ schemas: [{ files: ['a.json'] }] })).toMatch(/schemas\[0\]\.schema must name a bundled checkride:<id> schema/);
-    expect(problem({ schemas: { files: ['a.json'] } })).toMatch(/schemas must be an array of rules/);
+    expect(held({ schemas: [{ files: ['a.json'], schema: 'checkride:agent-skill' }, { files: ['b.yml'], schema: 'schemas/b.json' }] })).toBeNull();
+    expect(held({ schemas: [{ files: ['a.json'], schema: 'HTTP://example.com/s.json' }] })).toMatch(/is a URL/);
+    expect(held({ schemas: [{ files: ['a.json'], schema: '/etc/s.json' }] })).toMatch(/schemas\[0\]\.schema "\/etc\/s\.json" is absolute/);
+    expect(held({ schemas: [{ files: ['a.json'] }] })).toMatch(/schemas\[0\]\.schema must name a bundled checkride:<id> schema/);
+    expect(held({ schemas: { files: ['a.json'] } })).toMatch(/schemas must be an array of rules/);
+    // Without them handed in, the key goes unread there.
+    expect(problem({ schemas: { files: ['a.json'] } })).toBeNull();
   });
 
   test('V10 holds each packs block and each target to its own pack’s adapters', () => {
@@ -1410,6 +1424,23 @@ describe('published JSON Schema', () => {
     }
     expect(validate({ schemas: [{ files: ['a.json'] }] })).toBe(false);
     expect(validate({ schemas: [{ files: ['a.json'], schema: 'a.json', format: 'toml' }] })).toBe(false);
+  });
+
+  test("holds a target's root to the same forms: a Windows drive, a UNC share and a backslashed .. are refused", () => {
+    for (const root of ['C:\\repo\\apps', 'C:/repo/apps', 'c:apps', '\\\\server\\share\\apps', '\\apps', 'apps\\..\\x', '/etc', 'a/../b']) {
+      expect(validate({ targets: { web: { lang: 'ts', root } } }), root).toBe(false);
+    }
+    for (const root of ['.', 'apps/web', 'apps/a..b']) expect(validate({ targets: { web: { lang: 'ts', root } } }), root).toBe(true);
+  });
+
+  test('holds a schema path inside the repo exactly where the loader does: no .. segment, and absolute in no system', () => {
+    const refs = [
+      '../s.json', 'schemas/../../s.json', 'schemas\\..\\s.json', '..',
+      '/etc/passwd', 'C:\\s.json', 'C:/s.json', 'c:s.json', '\\\\server\\share\\s.json', '\\s.json',
+      'schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config',
+    ];
+    for (const ref of refs) expect(validate({ schemas: [{ files: ['a.json'], schema: ref }] }), ref).toBe(loads(ref));
+    expect(refs.filter(loads)).toEqual(['schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config']);
     expect(validate({ schemas: { files: ['a.json'], schema: 'a.json' } })).toBe(false);
   });
 

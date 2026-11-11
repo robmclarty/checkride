@@ -131,8 +131,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   library. A Yarn Plug'n'Play repo, which has no `node_modules` to read them
   from, is told to use the binary or `nodeLinker: node-modules`. The
   standalone binary bundles all three, so a repo with no Node installs
-  nothing, and nothing the npm package ships imports any of them. This repo runs the slot on its own skills and on every
-  checkride config in its tree. `docs/tools.md` has the guide.
+  nothing, and nothing the npm package ships imports any of them. The slot
+  reads no file outside the repository, which is what lets `--static-only`
+  check a stranger's repo: a rule's `schema` that is absolute, in POSIX or
+  Windows spelling, or holds a `..` segment is a config error; a schema, or a
+  `$ref`'s target, whose real path is outside the repo fails the check
+  unread; a matched data file that is a symlink out of the repo is a
+  `symlink` finding, unread; and a schema that isn't JSON is reported with
+  where it stops and none of its text. This repo runs the slot on its own
+  skills and on every checkride config in its tree. `docs/tools.md` has the
+  guide.
 
 ### Changed
 
@@ -248,6 +256,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   is one of the four, a `checkride:<id>` is one of the two that ship, and
   with no `format` each glob's extension names one. A config that carried a
   rule outside those, ahead of the slot, is exit 2 until it is fixed.
+- A target's `root` is refused when it is absolute in Windows spelling as
+  well as POSIX (`C:\x`, `C:/x`, `C:x`, a leading backslash, a UNC share),
+  and when a `..` segment sits behind a backslash. It shares the path rule a
+  `schemas` rule's `schema` is held to, and the config schema's patterns for
+  both say the same. No such root named a directory in the repo before, so
+  each was already an error, under another message.
 - A custom check named `schema`, a `command` entry with no `use`, runs as it
   did in a config with no `schemas` rule: the slot stands aside. A config
   that holds both that check and a `schemas` rule is exit 2, naming the clash

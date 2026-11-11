@@ -19,6 +19,7 @@ import type { CheckrideConfig } from '../../config.js';
 import type { DoctorCheck, DoctorEnv } from '../../doctor.js';
 import { runDoctor } from '../../doctor.js';
 import { suiteNamed } from '../../suite.js';
+import type { LibraryState } from '../libraries.js';
 import { probeSchemaLibraries } from '../probe.js';
 
 let dir: string;
@@ -177,19 +178,29 @@ describe('in the standalone binary', () => {
   });
 });
 
+/** What a source a test hands in says of the libraries. */
+const handed = (): LibraryState[] => [{ name: 'ajv', version: '8.9.9', problem: null }];
+
 describe('probeSchemaLibraries', () => {
-  test('asks for the libraries of the rules it is given, through the lookup it is handed', () => {
+  test('asks the source it is handed for the libraries of the rules it is given', () => {
     const asked: string[] = [];
-    const probe = probeSchemaLibraries(RULES, { repo: '/repo', pm: 'pnpm' }, (rules, repo) => {
-      asked.push(`${rules.length} rules in ${repo}`);
-      return [{ name: 'ajv', version: '8.1.0', problem: null }, { name: 'yaml', version: '1.10.2', problem: 'unsupported' }];
+    const probe = probeSchemaLibraries(RULES, { repo: '/repo', pm: 'pnpm' }, {
+      label: 'repo',
+      load: () => undefined,
+      states: (names) => {
+        asked.push(names.join(' '));
+        return [{ name: 'ajv', version: '8.1.0', problem: null }, { name: 'yaml', version: '1.10.2', problem: 'unsupported' }];
+      },
     });
-    expect(asked).toEqual(['2 rules in /repo']);
-    expect(probe).toEqual({
-      status: 'missing',
-      found: null,
-      expected: 'ajv 8.x, yaml 2.x',
-      hint: 'the `schema` slot needs `yaml` 2 (this project installs 1.10.2): run `pnpm add -D yaml@^2`.',
+    expect(asked).toEqual(['ajv yaml']);
+    expect(probe).toMatchObject({ status: 'missing', found: null, expected: 'ajv 8.x, yaml 2.x' });
+    expect(probe.refusal?.split('\n')[0]).toBe('checkride: the `schema` slot needs `yaml` 2 (this project installs 1.10.2): run `pnpm add -D yaml@^2`.');
+  });
+
+  test("doctor takes the source from its environment, when a test hands one", async () => {
+    expect(await row({ schemas: [{ files: ['a.json'], schema: 's.json' }] }, { schemaLibraries: () => ({ label: 'bundled', states: handed, load: () => undefined }) })).toMatchObject({
+      status: 'ok',
+      found: 'bundled: ajv 8.9.9',
     });
   });
 });

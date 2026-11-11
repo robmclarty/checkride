@@ -10,7 +10,18 @@
  * config that points at nothing must not stay green.
  *
  * Every schema is compiled before any file is read, so a schema that can't be
- * used refuses the check with nothing half done.
+ * used refuses the check with nothing half done, and two rules that name one
+ * schema share one compile.
+ *
+ * A file is read only when its real path is inside the repository
+ * (`./contain.ts`). A schema outside it refuses the check, and a matched data
+ * file outside it, a symlink that leaves the repo, is an error on that file
+ * and is never opened.
+ *
+ * Each file is resolved, read and validated on its own, behind its own
+ * `await`s, so the orchestrator's loop keeps draining the other checks' pipes
+ * and firing their timers while this one works. The report keeps the order
+ * the rules and the listed files have.
  *
  * The result is the report the orchestrator persists as `<out>/schema.json`:
  *
@@ -25,7 +36,8 @@
  * the baseline keys on it, and never on a message.
  */
 
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 
 import type { GitRunner } from '../git.js';
@@ -34,13 +46,14 @@ import type { CheckOutcome } from '../links.js';
 import { globRegExp, listFiles } from '../targets/index.js';
 import type { ExtraCheck, ExtraError } from './bundled.js';
 import { bundledSchema } from './bundled.js';
-import type { Compiled, RemoteRef, SchemaSource } from './compile.js';
+import type { Compiled, RemoteRef, SchemaRead, SchemaSource } from './compile.js';
 import { compileSchema } from './compile.js';
+import type { Located } from './contain.js';
+import { located, locatedSync, realRoot } from './contain.js';
 import type { Parsed } from './formats.js';
 import { formatOfPath, parseAs } from './formats.js';
-import type { SchemaFormat } from './libraries.js';
 import type { AjvError, AjvValidate, SchemaLibraries } from './library-types.js';
-import type { SchemaRule } from './rules.js';
+import type { SchemaFormat, SchemaRule } from './rules.js';
 
 /** One error of the report. `rule` is the index of the rule that found it. */
 export type SchemaError = {
@@ -72,30 +85,29 @@ export type SchemaCheckOptions = {
 /** What a run of the check came to: its outcome, or the refusal it fails with before reading a file. */
 export type SchemaChecked = { outcome: CheckOutcome } | { refusal: string };
 
-/** A rule ready to run: its schema compiled, and the check a bundled schema adds. */
-type Ready = { rule: SchemaRule; compiled: Exclude<Compiled, { kind: 'refused' }>; extra?: ExtraCheck };
+/** A schema ready to validate with: compiled, and the check a bundled schema adds. */
+type Schema = { compiled: Exclude<Compiled, { kind: 'refused' }>; extra?: ExtraCheck };
 
-/**
- * A file's text, without the byte order mark an editor may have led it with,
- * or `null` for one that can't be read: a directory, a file gone or one this
- * user may not open. Bytes that aren't UTF-8 read as replacement characters,
- * which a parser then reports.
- */
-function readText(path: string): string | null {
-  try {
-    const text = readFileSync(path, 'utf8');
-    return text.startsWith('\uFEFF') ? text.slice(1) : text;
-  } catch {
-    return null;
-  }
+/** A rule ready to run, with its schema. */
+type Ready = Schema & { rule: SchemaRule };
+
+/** `text` without the byte order mark an editor may have led it with. */
+function withoutMark(text: string): string {
+  return text.startsWith('\uFEFF') ? text.slice(1) : text;
 }
 
-/** True for a path that is a file on disk: git still lists one a commit hasn't yet removed. */
-function isFile(path: string): boolean {
+/**
+ * A schema file's text, by the containment rule: read only when its real
+ * path is inside the repository at the real root `root`. `missing` covers a
+ * directory, a file gone and one this user may not open.
+ */
+function readSchema(root: string, path: string): SchemaRead {
+  const where = locatedSync(root, path);
+  if (typeof where === 'string') return where;
   try {
-    return statSync(path).isFile();
+    return { text: withoutMark(readFileSync(where.inside, 'utf8')) };
   } catch {
-    return false;
+    return 'missing';
   }
 }
 
@@ -104,22 +116,42 @@ function nameIn(cwd: string, path: string): string {
   return relative(cwd, path).split(sep).join('/');
 }
 
-/** The schema a rule names: a bundled one, or the file at its repo-relative path; `null` for a file that can't be read. */
-function sourceOf(rule: SchemaRule, cwd: string): { source: SchemaSource; extra?: ExtraCheck } | null {
+/** Where a run reads from: the repo as a finding names paths from it, and its real path, which containment is tested against. */
+type Repo = { cwd: string; root: string };
+
+/** The schema a rule names: a bundled one, or the file at its repo-relative path; or why that file isn't read. */
+function sourceOf(rule: SchemaRule, repo: Repo): { source: SchemaSource; extra?: ExtraCheck } | 'outside' | 'missing' {
   const bundled = bundledSchema(rule.schema);
   if (bundled !== null) return { source: { label: rule.schema, text: bundled.text, path: null }, ...(bundled.extra === undefined ? {} : { extra: bundled.extra }) };
-  const path = isAbsolute(rule.schema) ? rule.schema : join(cwd, rule.schema);
-  const text = readText(path);
-  return text === null ? null : { source: { label: rule.schema, text, path } };
+  const path = isAbsolute(rule.schema) ? rule.schema : join(repo.cwd, rule.schema);
+  const read = readSchema(repo.root, path);
+  return typeof read === 'string' ? read : { source: { label: rule.schema, text: read.text, path } };
 }
 
 /** Compile one rule's schema, or the refusal for one that can't be used. */
-function ready(rule: SchemaRule, at: number, cwd: string, libraries: SchemaLibraries): Ready | { refusal: string } {
-  const found = sourceOf(rule, cwd);
-  if (found === null) return { refusal: `checkride: schemas[${at}] names the schema \`${rule.schema}\`, which can't be read: no such file from the repo root.\n` };
-  const compiled = compileSchema(found.source, { ajv: libraries.ajv, read: readText, nameOf: (path) => nameIn(cwd, path) });
+function compiledFor(rule: SchemaRule, at: number, repo: Repo, libraries: SchemaLibraries): Schema | { refusal: string } {
+  const found = sourceOf(rule, repo);
+  if (found === 'outside') return { refusal: `checkride: schemas[${at}] names the schema \`${rule.schema}\`, which resolves outside the repository: a schema is read only from inside it.\n` };
+  if (found === 'missing') return { refusal: `checkride: schemas[${at}] names the schema \`${rule.schema}\`, which can't be read: no such file from the repo root.\n` };
+  const compiled = compileSchema(found.source, { ajv: libraries.ajv, read: (path) => readSchema(repo.root, path), nameOf: (path) => nameIn(repo.cwd, path) });
   if (compiled.kind === 'refused') return { refusal: compiled.refusal };
-  return { rule, compiled, ...(found.extra === undefined ? {} : { extra: found.extra }) };
+  return { compiled, ...(found.extra === undefined ? {} : { extra: found.extra }) };
+}
+
+/**
+ * Every rule with its schema compiled, or the first refusal. A schema two
+ * rules name is read and compiled once, at the first rule that names it.
+ */
+function readyRules(rules: readonly SchemaRule[], repo: Repo, libraries: SchemaLibraries): Ready[] | { refusal: string } {
+  const schemas = new Map<string, Schema>();
+  const items: Ready[] = [];
+  for (const [at, rule] of rules.entries()) {
+    const schema = schemas.get(rule.schema) ?? compiledFor(rule, at, repo, libraries);
+    if ('refusal' in schema) return schema;
+    schemas.set(rule.schema, schema);
+    items.push({ ...schema, rule });
+  }
+  return items;
 }
 
 /** What `ajv` said of one error, with the property an `additionalProperties` error is about. */
@@ -164,7 +196,7 @@ function invalidIn(validate: AjvValidate, value: unknown): Reported[] {
 }
 
 /** An error of the report, with its line when `parsed` can place its pointer. */
-function located(file: string, rule: number, error: Reported, parsed: Extract<Parsed, { ok: true }>): SchemaError {
+function placed(file: string, rule: number, error: Reported, parsed: Extract<Parsed, { ok: true }>): SchemaError {
   const line = parsed.lineOf(error.instancePath);
   return { file, rule, ...error, ...(line === undefined ? {} : { line }) };
 }
@@ -174,9 +206,55 @@ function wholeFile(file: string, rule: number, keyword: string, message: string,
   return [{ file, rule, instancePath: '', keyword, message, ...(line === undefined ? {} : { line }) }];
 }
 
+/** What every rule of one run reads: the repo, the libraries, the config file's name, and where each listed path really is. */
+type Run = Repo & { libraries: SchemaLibraries; configFile: string; where: (file: string) => Promise<Entry> };
+
+/**
+ * A listed path, resolved: `file`, with the real path to read it by; `outside`,
+ * a symlink that leaves the repository; or `none`, for a path that is no file
+ * on disk, as git still lists one a commit hasn't yet removed.
+ */
+type Entry = { kind: 'file'; real: string } | { kind: 'outside' } | { kind: 'none' };
+
+/** {@link Entry} for where a listed path was {@link Located}. A path inside the repo counts only when it is a regular file. */
+async function entryOf(where: Located): Promise<Entry> {
+  if (where === 'outside') return { kind: 'outside' };
+  if (where === 'missing') return { kind: 'none' };
+  try {
+    return (await stat(where.inside)).isFile() ? { kind: 'file', real: where.inside } : { kind: 'none' };
+  } catch {
+    return { kind: 'none' };
+  }
+}
+
+/**
+ * Where each listed path really is, asked once for each path a rule's globs
+ * match and never for the rest: a repo lists far more files than its rules
+ * name, and each answer is a `realpath` and a `stat`.
+ */
+function entryLookup(repo: Repo): (file: string) => Promise<Entry> {
+  const known = new Map<string, Promise<Entry>>();
+  return (file) => {
+    const seen = known.get(file);
+    if (seen !== undefined) return seen;
+    const found = located(repo.root, join(repo.cwd, file)).then(entryOf);
+    known.set(file, found);
+    return found;
+  };
+}
+
+/** The text at the real path `real`, or `null` for a file that can't be read. Bytes that aren't UTF-8 read as replacement characters, which a parser then reports. */
+async function readData(real: string): Promise<string | null> {
+  try {
+    return withoutMark(await readFile(real, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 /** One file read as its rule's format, or by its extension where the rule sets none; or the error that stopped the read. */
-function readAs(file: string, at: number, rule: SchemaRule, run: { cwd: string; libraries: SchemaLibraries }): Extract<Parsed, { ok: true }> | SchemaError[] {
-  const text = readText(join(run.cwd, file));
+async function readAs(file: string, real: string, at: number, rule: SchemaRule, run: Run): Promise<Extract<Parsed, { ok: true }> | SchemaError[]> {
+  const text = await readData(real);
   if (text === null) return wholeFile(file, at, 'read', "can't be read");
   const format = rule.format ?? formatOfPath(file);
   if (format === null) return wholeFile(file, at, 'format', `has an extension that doesn't say how to read it: set schemas[${at}].format`);
@@ -193,13 +271,19 @@ function parsedSafely(format: SchemaFormat, text: string, libraries: SchemaLibra
   }
 }
 
-/** Every error of one file: the one that stopped its read, or each its schema and its bundled check report. */
-function fileErrors(file: string, at: number, { rule, compiled, extra }: Ready, run: { cwd: string; libraries: SchemaLibraries }): SchemaError[] {
+/**
+ * Every error of one matched file: that it leaves the repository, which
+ * stops it being read at all; the one that stopped its read; or each its
+ * schema and its bundled check report.
+ */
+async function fileErrors(file: string, at: number, { rule, compiled, extra }: Ready, run: Run): Promise<SchemaError[]> {
+  const entry = await run.where(file);
+  if (entry.kind !== 'file') return wholeFile(file, at, 'symlink', "resolves outside the repository, so it isn't read");
   if (compiled.kind !== 'ready') return [];
-  const parsed = readAs(file, at, rule, run);
+  const parsed = await readAs(file, entry.real, at, rule, run);
   if (Array.isArray(parsed)) return parsed;
   const added = extra?.(join(run.cwd, file), parsed.value) ?? [];
-  return [...invalidIn(compiled.validate, parsed.value), ...added].map((error) => located(file, at, error, parsed));
+  return [...invalidIn(compiled.validate, parsed.value), ...added].map((error) => placed(file, at, error, parsed));
 }
 
 /** The finding for a `$ref` to a URL, on the schema file that holds it. */
@@ -207,36 +291,26 @@ function remoteError(ref: RemoteRef, rule: number): SchemaError {
   return { file: ref.file, rule, instancePath: ref.pointer, keyword: '$ref', message: `refers to the URL ${ref.ref}, and a check makes no network call: keep the schema it names in the repo, and refer to it by relative path` };
 }
 
-/** What every rule of one run reads: the repo, the libraries, the config file's name, and whether a listed path is a file on disk. */
-type Run = { cwd: string; libraries: SchemaLibraries; configFile: string; onDisk: (file: string) => boolean };
-
-/**
- * Whether a listed path is a file on disk, asked once for each path a rule's
- * globs match and never for the rest: a repo lists far more files than its
- * rules name, and each answer is a `stat`.
- */
-function diskLookup(cwd: string): (file: string) => boolean {
-  const known = new Map<string, boolean>();
-  return (file) => {
-    const seen = known.get(file);
-    if (seen !== undefined) return seen;
-    const found = isFile(join(cwd, file));
-    known.set(file, found);
-    return found;
-  };
+/** The paths among `listed` that `item`'s globs match and that are there to check: a file, or a symlink that leaves the repo. */
+async function matchedBy(item: Ready, listed: readonly string[], run: Run): Promise<string[]> {
+  const globs = item.rule.files.map(globRegExp);
+  const named = listed.filter((file) => globs.some((glob) => glob.test(file)));
+  const entries = await Promise.all(named.map((file) => run.where(file)));
+  return named.filter((_, at) => entries[at]?.kind !== 'none');
 }
 
 /** One rule's row of the report, and its errors, over the paths the repo lists. */
-function ruleResult(item: Ready, at: number, listed: readonly string[], run: Run): { row: SchemaReport['rules'][number]; errors: SchemaError[] } {
-  const globs = item.rule.files.map(globRegExp);
-  const matched = listed.filter((file) => globs.some((glob) => glob.test(file)) && run.onDisk(file));
+async function ruleResult(item: Ready, at: number, listed: readonly string[], run: Run): Promise<{ row: SchemaReport['rules'][number]; errors: SchemaError[] }> {
+  const matched = await matchedBy(item, listed, run);
   const row = { schema: item.rule.schema, files: matched.length };
   if (matched.length === 0) {
     const message = `matches no files (${item.rule.files.join(', ')})`;
     return { row, errors: [{ file: run.configFile, rule: at, instancePath: `/schemas/${at}/files`, keyword: 'files', message }] };
   }
   const remote = item.compiled.kind === 'remote' ? item.compiled.refs.map((ref) => remoteError(ref, at)) : [];
-  return { row, errors: [...remote, ...matched.flatMap((file) => fileErrors(file, at, item, run))] };
+  // Each file is read and checked on its own, behind its own awaits; `map` keeps the listed order.
+  const perFile = await Promise.all(matched.map((file) => fileErrors(file, at, item, run)));
+  return { row, errors: [...remote, ...perFile.flat()] };
 }
 
 /** One error as stderr prints it: `schema: <file>:<line>: <pointer> <message> [<keyword>]`. */
@@ -268,15 +342,12 @@ async function listedFiles(cwd: string, git: GitRunner): Promise<string[] | stri
  * parsed is an error of the report, never a throw.
  */
 export async function checkSchemas(cwd: string, options: SchemaCheckOptions): Promise<SchemaChecked> {
-  const items: Ready[] = [];
-  for (const [at, rule] of options.rules.entries()) {
-    const item = ready(rule, at, cwd, options.libraries);
-    if ('refusal' in item) return item;
-    items.push(item);
-  }
+  const repo: Repo = { cwd, root: realRoot(cwd) };
+  const items = readyRules(options.rules, repo, options.libraries);
+  if ('refusal' in items) return items;
   const listed = await listedFiles(cwd, options.git ?? realGit(cwd));
   if (typeof listed === 'string') return { refusal: listed };
-  const run: Run = { cwd, libraries: options.libraries, configFile: options.configFile, onDisk: diskLookup(cwd) };
-  const results = items.map((item, at) => ruleResult(item, at, listed, run));
+  const run: Run = { ...repo, libraries: options.libraries, configFile: options.configFile, where: entryLookup(repo) };
+  const results = await Promise.all(items.map((item, at) => ruleResult(item, at, listed, run)));
   return { outcome: outcomeOf({ rules: results.map((r) => r.row), errors: results.flatMap((r) => r.errors) }) };
 }

@@ -12,6 +12,7 @@ import { cpus } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { SCHEMA_SLOT } from '../adapters.js';
 import { CHECK_DIR } from '../artifacts/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { DEFAULT_BASE } from '../git.js';
@@ -21,7 +22,7 @@ import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
 import { KILL_GRACE_SECONDS, killGroup } from '../proc.js';
-import { runSchemaCheck } from '../schema/index.js';
+import { runSchemaCheck, schemaLibrarySource } from '../schema/index.js';
 import { checkSecurity } from '../security.js';
 import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
@@ -307,9 +308,10 @@ function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome>
  */
 async function runSchema({ adapter, ctx }: BuiltinCall): Promise<CheckOutcome> {
   const options = adapter.options?.schema ?? { rules: [], configFile: '' };
-  const run = await runSchemaCheck(options, { repo: ctx.repo ?? ctx.cwd, pm: ctx.pm });
+  const repo = ctx.repo ?? ctx.cwd;
+  const run = await runSchemaCheck(options, { repo, pm: ctx.pm, source: schemaLibrarySource(repo) });
   if ('install' in run) return refusedOutcome(run.install, ctx);
-  if ('refusal' in run) return { ok: false, exit_code: 1, stdout: '', stderr: run.refusal, refusal: refusalDetail(run.refusal) };
+  if ('refusal' in run) return failedWith(run.refusal);
   return run.outcome;
 }
 
@@ -323,7 +325,7 @@ const BUILTINS: ReadonlyMap<string, (call: BuiltinCall) => Promise<CheckOutcome>
   ['pack', ({ ctx, base }) => checkPack({ ...base, pm: ctx.pm })],
   ['smoke', ({ ctx, base }) => checkSmoke({ ...base, scratch: ctx.scratch })],
   ['security', runSecurity],
-  ['schema', runSchema],
+  [SCHEMA_SLOT, runSchema],
   ['snippets', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'src', pm: ctx.pm })],
   ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'dist', pm: ctx.pm })],
   [
@@ -344,9 +346,18 @@ function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: 
 }
 
 /** A refusal's first line, its `checkride: ` prefix and closing period dropped, as a skip reason quotes it. */
-function refusalDetail(refusal: string): string {
+export function refusalDetail(refusal: string): string {
   const first = refusal.split('\n').find((line) => line.trim() !== '') ?? refusal;
   return first.replace(/^checkride:\s*/, '').replace(/\.$/, '');
+}
+
+/**
+ * The outcome of a check that failed before its tool ran, or with no tool to
+ * run: the whole message on stderr, its first line as `refusal`, and exit 1,
+ * for the reason {@link refusedOutcome} gives.
+ */
+function failedWith(stderr: string): CheckOutcome {
+  return { ok: false, exit_code: 1, stdout: '', stderr, refusal: refusalDetail(stderr) };
 }
 
 /**
@@ -372,7 +383,7 @@ export function installSkip(refusal: string): string {
 function refusedOutcome(refusal: string, ctx: Parameters<CheckRunner>[1]): CheckOutcome {
   // Under --static-only, a tool that needs an install is a skip, not a failure (R6.2).
   if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: installSkip(refusal) };
-  return { ok: false, exit_code: 1, stdout: '', stderr: refusal, refusal: refusalDetail(refusal) };
+  return failedWith(refusal);
 }
 
 /**
@@ -414,7 +425,7 @@ export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOut
   ].join('\n');
   // Exit 1 for the same reason as refusedOutcome above: nothing spawned, but
   // this is the finding the run exists to surface, not a harness problem.
-  return { ok: false, exit_code: 1, stdout: '', stderr, refusal: refusalDetail(stderr) };
+  return failedWith(stderr);
 }
 
 /**

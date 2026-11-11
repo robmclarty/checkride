@@ -1046,14 +1046,32 @@ A byte order mark at the head of a file or a schema is dropped. `keyword` is the
 Schema keyword the value broke, or one of the slot's own: `parse` for a file
 that doesn't parse, `frontmatter` for one with no block, `files` for a rule
 that matched no file, reported on the config file at `/schemas/<n>/files`,
-`$ref` for a reference to a URL, reported on the schema file, and
+`$ref` for a reference to a URL, reported on the schema file, `symlink` for a
+matched file whose real path is outside the repository, and
 `directory-name` for a skill whose `name` isn't its directory's. More
 keywords would be more values, which is additive. It exits 0 with no errors
 and 1 otherwise.
 
+**The slot reads no file outside the repository**, whatever a config, a
+schema or a symlink names, so a `--static-only` run of an untrusted repo
+can't be made to print another file's contents. One rule covers every file it
+opens: its real path, symlinks followed, is inside the repository root. A
+rule's `schema` that is absolute (`/x`, `C:\x`, `C:/x`, `C:x`, a leading
+backslash or a `\\server\share`) or holds a `..` segment is a config error,
+exit 2. A schema file, or the target of a relative `$ref`, that resolves
+outside fails the check, exit 1, with a reason that names the reference
+(`… which resolves outside the repository: a schema is read only from inside it`),
+and is never opened; a `file:` URL is a URL, a `$ref` finding. A matched data
+file that resolves outside is one `symlink` error on that file, counted among
+the rule's files and never read, and a symlink that stays inside is read as
+the file it names. A schema file that isn't JSON is reported as
+`is not valid JSON`, with the line and column where it stops when the parser
+gives one, and none of its text.
+
 Two things fail the check before it reads a file, exit 1, with the cause as
 the entry's `reason` and no `schema.json`. One is a schema it can't use:
-missing, not JSON, not a valid schema, or of a draft it doesn't read. The
+missing, outside the repository, not JSON, not a valid schema, or of a draft
+it doesn't read. The
 other is a library it needs and the repo hasn't installed. The package
 declares `ajv` (`^8.0.0`), `yaml` (`^2.0.0`) and `jsonc-parser` (`^3.0.0`) as
 optional peer dependencies and depends on none: it loads each from
@@ -1657,8 +1675,10 @@ written:
   names belongs to that pack. A repo-scope slot is configured only at the top
   level.
 - `schemas` is an array of rules, and each rule's `schema` names a bundled
-  `checkride:<id>` schema or a path relative to the repo root, never a URL or
-  an absolute path, because a check never fetches. A bundled id is one of the
+  `checkride:<id>` schema or a path relative to the repo root: never a URL,
+  because a check never fetches, and never an absolute path, in POSIX or
+  Windows spelling, or one with a `..` segment, because a schema is read only
+  from inside the repository. A bundled id is one of the
   two that ship. A rule's `files` is an array of globs and its `format`, when
   set, one of `json`, `jsonc`, `yaml` and `frontmatter`; with none set, each
   glob's extension has to name one (`.json`, `.jsonc`, `.yaml`, `.yml`, `.md`

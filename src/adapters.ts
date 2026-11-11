@@ -94,11 +94,25 @@ export type AdapterOptions = {
    * entry: its `schemas` rules, and `configFile`, the config file that holds
    * them, which a finding about a rule itself names.
    */
-  schema?: {
-    rules: { files: string[]; schema: string; format?: 'json' | 'jsonc' | 'yaml' | 'frontmatter' }[];
-    configFile: string;
-  };
+  schema?: { rules: SchemaRule[]; configFile: string };
 };
+
+/** The `schema` slot's name, and its built-in's: the one place either is spelled. */
+export const SCHEMA_SLOT = 'schema';
+
+/** How the `schema` slot reads a file, in the order the docs and the errors list the formats. */
+export const SCHEMA_FORMATS = ['json', 'jsonc', 'yaml', 'frontmatter'] as const;
+
+/** One of {@link SCHEMA_FORMATS}. */
+export type SchemaFormat = (typeof SCHEMA_FORMATS)[number];
+
+/**
+ * One rule of a config's `schemas`, as the `schema` slot reads it: the globs,
+ * relative to the repo root, for the files it validates; the schema, a bundled
+ * `checkride:<id>` or a path from the repo root; and how each file is read,
+ * which follows its extension when unset.
+ */
+export type SchemaRule = { files: string[]; schema: string; format?: SchemaFormat };
 
 /** A concrete tool that can fill a slot. */
 export type Adapter = {
@@ -326,7 +340,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'smoke', scope: 'target', optIn: true, order: 20 },
   { name: 'snippets', scope: 'target', optIn: true },
   { name: 'unclaimed', scope: 'repo', activeWith: 'targets' },
-  { name: 'schema', scope: 'repo', activeWith: 'schemas' },
+  { name: SCHEMA_SLOT, scope: 'repo', activeWith: 'schemas' },
 ];
 
 /**

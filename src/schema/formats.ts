@@ -18,11 +18,9 @@
 import { posix } from 'node:path';
 
 import { isRecord } from '../json.js';
-import type { SchemaFormat } from './libraries.js';
+import type { SchemaFormat } from '../adapters.js';
+import { SCHEMA_FORMATS } from '../adapters.js';
 import type { JsoncLibrary, JsoncNode, SchemaLibraries, YamlLibrary } from './library-types.js';
-
-/** Every format, in the order the docs and the errors list them. */
-export const SCHEMA_FORMATS: readonly SchemaFormat[] = ['json', 'jsonc', 'yaml', 'frontmatter'];
 
 /** The format each extension names when a rule sets none. */
 const FORMAT_OF_EXTENSION: Readonly<Record<string, SchemaFormat>> = {
@@ -33,6 +31,9 @@ const FORMAT_OF_EXTENSION: Readonly<Record<string, SchemaFormat>> = {
   '.md': 'frontmatter',
   '.mdx': 'frontmatter',
 };
+
+/** Every extension that names a format, in the order an error lists them. */
+export const SCHEMA_EXTENSIONS: readonly string[] = Object.keys(FORMAT_OF_EXTENSION);
 
 /** The format `path`'s extension names, or `null` for one it can't place. */
 export function formatOfPath(path: string): SchemaFormat | null {

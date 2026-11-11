@@ -92,6 +92,9 @@ async function main() {
   rmSync(OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
 
+  // Walked once: the asset map the config embeds is the one the last line counts.
+  const embedded = assets();
+
   const bundle = join(OUT_DIR, 'checkride.mjs');
   await build({
     entryPoints: [join(HERE, 'entry.mjs')],
@@ -127,7 +130,7 @@ async function main() {
         disableExperimentalSEAWarning: true,
         useSnapshot: false,
         useCodeCache: false,
-        assets: assets(),
+        assets: embedded,
       },
       null,
       2,
@@ -141,7 +144,7 @@ async function main() {
   if (process.platform === 'darwin') run(['codesign', '--force', '--sign', '-', output]);
 
   const megabytes = (statSync(output).size / 1024 / 1024).toFixed(1);
-  process.stderr.write(`build:sea: Node ${SEA_NODE_VERSION}, ${Object.keys(assets()).length} assets, ${megabytes} MB\n`);
+  process.stderr.write(`build:sea: Node ${SEA_NODE_VERSION}, ${Object.keys(embedded).length} assets, ${megabytes} MB\n`);
   process.stdout.write(`${output}\n`);
 }
 

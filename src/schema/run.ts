@@ -9,8 +9,8 @@
 import type { GitRunner } from '../git.js';
 import type { CheckOutcome } from '../links.js';
 import { checkSchemas } from './check.js';
-import type { LibrariesAt, LibraryState } from './libraries.js';
-import { librariesFor, libraryStates, loadLibraries } from './libraries.js';
+import type { LibrariesAt, LibrarySource } from './libraries.js';
+import { librariesFor, loadLibraries } from './libraries.js';
 import type { LibraryName } from './library-types.js';
 import type { SchemaRule } from './rules.js';
 import { ruleFormats } from './rules.js';
@@ -30,15 +30,10 @@ export function neededLibraries(rules: readonly SchemaRule[]): LibraryName[] {
   return librariesFor(rules.flatMap(ruleFormats));
 }
 
-/** Each library `rules` need, as a run in `repo` would find it: what `doctor` reports. */
-export function schemaLibraryStates(rules: readonly SchemaRule[], repo: string): LibraryState[] {
-  return libraryStates(neededLibraries(rules), repo);
-}
-
-/** Run the slot's `options` against the repo at `at.repo`. */
-export async function runSchemaCheck(options: SchemaOptions, at: LibrariesAt & { git?: GitRunner }): Promise<SchemaRun> {
+/** Run the slot's `options` against the repo at `at.repo`, with the libraries `at.source` holds. */
+export async function runSchemaCheck(options: SchemaOptions, at: LibrariesAt & { source: LibrarySource; git?: GitRunner }): Promise<SchemaRun> {
   try {
-    const loaded = loadLibraries(neededLibraries(options.rules), at);
+    const loaded = loadLibraries(neededLibraries(options.rules), at, at.source);
     if ('refusal' in loaded) return { install: loaded.refusal };
     return await checkSchemas(at.repo, { ...options, libraries: loaded.libraries, ...(at.git === undefined ? {} : { git: at.git }) });
   } catch (error) {

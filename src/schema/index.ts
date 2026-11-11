@@ -7,7 +7,8 @@
  * `../schema/index.js`, never from a file inside it.
  */
 
+export type { LibrarySource } from './libraries.js';
 export { probeSchemaLibraries } from './probe.js';
-export type { LibraryLookup } from './probe.js';
 export { schemaRulesProblem } from './rules.js';
 export { runSchemaCheck } from './run.js';
+export { schemaLibrarySource } from './source.js';

@@ -14,10 +14,13 @@
  *   `$ref` inside an `enum`, a `default`, an `examples` entry or an
  *   annotation is data.
  * - **A schema that can't be used** (unreadable, not JSON, not a valid
- *   schema, a reference nothing resolves) is a refusal naming it.
+ *   schema, a reference nothing resolves) is a refusal naming it. So is a
+ *   reference to a file outside the repository, which is never read. A file
+ *   that isn't JSON is named with where it stops parsing and nothing of what
+ *   it holds: the parser's own message quotes the text.
  *
  * Nothing here reads the network, and nothing reads a file but through the
- * `read` it is handed.
+ * `read` it is handed, which holds the containment rule (`./contain.ts`).
  */
 
 import { dirname, resolve } from 'node:path';
@@ -28,6 +31,9 @@ import type { AjvConstructor, AjvInstance, AjvLibrary, AjvValidate } from './lib
 /** A schema as a rule names it: `label`, the rule's own word for it; its text; and `path`, where it sits on disk, `null` for a bundled one. */
 export type SchemaSource = { label: string; text: string; path: string | null };
 
+/** What reading a file came to: its text; `outside`, for one whose real path is outside the repository, which is never opened; or `missing`. */
+export type SchemaRead = { text: string } | 'outside' | 'missing';
+
 /** A `$ref` to a URL: the schema file that holds it, as its finding names it, the JSON pointer to it, and the URL. */
 export type RemoteRef = { file: string; pointer: string; ref: string };
 
@@ -37,10 +43,10 @@ export type RemoteRef = { file: string; pointer: string; ref: string };
  */
 export type Compiled = { kind: 'ready'; validate: AjvValidate } | { kind: 'remote'; refs: RemoteRef[] } | { kind: 'refused'; refusal: string };
 
-/** What a compile reads beside the schema: `ajv`, a file's text (`null` for one that can't be read), and how a finding names a file. */
+/** What a compile reads beside the schema: `ajv`, a file's text by the containment rule, and how a finding names a file. */
 export type CompileContext = {
   ajv: AjvLibrary;
-  read: (path: string) => string | null;
+  read: (path: string) => SchemaRead;
   nameOf: (path: string) => string;
 };
 
@@ -160,13 +166,32 @@ type Gathering = { instance: AjvInstance; context: CompileContext; seen: Set<str
 /** A failure to register a schema, as the refusal's reason. */
 type Refusal = string;
 
+/** The 1-based line and column `offset` sits at in `text`. */
+function placeAt(text: string, offset: number): string {
+  const before = text.slice(0, offset).split('\n');
+  return ` (line ${before.length}, column ${(before.at(-1) ?? '').length + 1})`;
+}
+
+/**
+ * Where `JSON.parse` stopped in `text`, from the position its error names, or
+ * `''` when it names none. Only the place is kept: the message itself quotes
+ * what it read, and a schema file's text is not a refusal's to repeat.
+ */
+function stoppedAt(error: unknown, text: string): string {
+  const message = error instanceof Error ? error.message : '';
+  const named = /\(line (\d+) column (\d+)\)/.exec(message);
+  if (named !== null) return ` (line ${named[1] ?? ''}, column ${named[2] ?? ''})`;
+  const position = /position (\d+)/.exec(message)?.[1];
+  return position === undefined ? '' : placeAt(text, Number(position));
+}
+
 /** The schema `text` holds, or why it holds none. */
 function schemaIn(text: string, label: string): Record<string, unknown> | Refusal {
   let schema: unknown;
   try {
     schema = JSON.parse(text);
   } catch (error) {
-    return `the schema \`${label}\` is not valid JSON: ${error instanceof Error ? error.message : String(error)}`;
+    return `the schema \`${label}\` is not valid JSON${stoppedAt(error, text)}`;
   }
   return isRecord(schema) ? schema : `the schema \`${label}\` is not a JSON Schema: it must be an object`;
 }
@@ -194,9 +219,13 @@ function followSibling(ref: string, key: string | null, unit: Unit, into: Gather
   if (key === null || unit.path === null) return `the schema \`${unit.label}\` refers to \`${ref}\`, which names no file beside it`;
   const path = siblingPath(unit.path, fileHalf(ref));
   if (path === null) return `the schema \`${unit.label}\` refers to \`${ref}\`, which is no path: its percent-encoding is malformed`;
-  const text = into.context.read(path);
-  if (text === null) return `the schema \`${unit.label}\` refers to \`${ref}\`, and ${into.context.nameOf(path)} can't be read`;
-  return register(text, { key, path, label: into.context.nameOf(path) }, into);
+  if (into.seen.has(key)) return null;
+  const read = into.context.read(path);
+  if (read === 'outside') return `the schema \`${unit.label}\` refers to \`${ref}\`, which resolves outside the repository: a schema is read only from inside it`;
+  if (read === 'missing') return `the schema \`${unit.label}\` refers to \`${ref}\`, and ${into.context.nameOf(path)} can't be read`;
+  const label = into.context.nameOf(path);
+  const schema = schemaIn(read.text, label);
+  return typeof schema === 'string' ? schema : register(schema, { key, path, label }, into);
 }
 
 /**
@@ -216,12 +245,10 @@ function follow(ref: { ref: string; pointer: string }, unit: Unit, base: string,
   return null;
 }
 
-/** Register the schema `text` under `unit.key`, and every sibling file its references reach. */
-function register(text: string, unit: Unit, into: Gathering): Refusal | null {
+/** Register `schema` under `unit.key`, and every sibling file its references reach. */
+function register(schema: Record<string, unknown>, unit: Unit, into: Gathering): Refusal | null {
   if (into.seen.has(unit.key)) return null;
   into.seen.add(unit.key);
-  const schema = schemaIn(text, unit.label);
-  if (typeof schema === 'string') return schema;
   const walked: Walked = { refs: [], ids: [] };
   walk(schema, '', walked);
   const own = schema['$id'];
@@ -258,7 +285,7 @@ export function compileSchema(source: SchemaSource, context: CompileContext): Co
   }
   const key = resolved(source.path === null ? source.label.replaceAll(':', '/') : context.nameOf(source.path), LOCAL_BASE) ?? LOCAL_BASE;
   const into: Gathering = { instance: new draft(AJV_OPTIONS), context, seen: new Set(), remote: [] };
-  const refusal = register(source.text, { key, path: source.path, label: source.label }, into);
+  const refusal = register(root, { key, path: source.path, label: source.label }, into);
   if (refusal !== null) return refusedWith(refusal);
   if (into.remote.length > 0) return { kind: 'remote', refs: into.remote };
   const validate = validatorOf(into.instance, key, source.label);

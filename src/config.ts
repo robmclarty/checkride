@@ -27,8 +27,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 
-import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
-import { SLOTS } from './adapters.js';
+import type { Adapter, AdapterOptions, Order, SchemaRule as SchemaRuleFields, Slot, TableSignal } from './adapters.js';
+import { SCHEMA_SLOT, SLOTS } from './adapters.js';
 import { channel } from './channel.js';
 import { isRecord } from './json.js';
 import { schemaRulesProblem } from './schema/index.js';
@@ -190,14 +190,7 @@ type PackConfig = Noted & { checks?: Record<string, SlotConfig> };
  * they must satisfy. The slot runs once `schemas` holds a rule, each in
  * order, and a rule that matches no file fails it.
  */
-type SchemaRule = Noted & {
-  /** Globs, relative to the repo root, for the files the rule validates. */
-  files: string[];
-  /** A bundled `checkride:<id>` schema or a repo-relative path, never a URL or an absolute path. */
-  schema: string;
-  /** How each file is read; unset, it follows the extension, and a glob whose extension names no format is a config error. */
-  format?: 'json' | 'jsonc' | 'yaml' | 'frontmatter';
-};
+type SchemaRule = Noted & SchemaRuleFields;
 
 /** Shape of `checkride.config.json`. */
 export type CheckrideConfig = Noted & {
@@ -839,10 +832,20 @@ function rootedChain(chain: Chain, own: Record<string, unknown>): Chain {
  * name, for the errors resolution finds later.
  */
 function validated(config: Record<string, unknown>, cwd: string, file: string): CheckrideConfig {
-  const problem = configProblem(config, { cwd, layer: 'repo' }) ?? schemaRulesProblem(config['schemas']) ?? schemaClashProblem({ config, defaults: null });
+  const problem = shapeProblem(config, cwd, 'repo') ?? schemaClashProblem({ config, defaults: null });
   if (problem !== null) invalidConfig(problem, undefined, file);
   if (file !== CONFIG_FILE) LABELS.set(config, file);
   return config;
+}
+
+/**
+ * The first rule a config of `layer` breaks, or `null`: the targets module's
+ * rules, with the `schema` module's for the `schemas` key handed in, since
+ * that module owns them and reads the targets module itself. The one place
+ * the two are joined, for the repo's config and a defaults file alike.
+ */
+function shapeProblem(config: Record<string, unknown>, cwd: string, layer: 'repo' | 'defaults'): string | null {
+  return configProblem(config, { cwd, layer, schemas: schemaRulesProblem });
 }
 
 /**
@@ -937,7 +940,7 @@ function checkDefaultsEntries(config: CheckrideConfig): void {
  */
 export function loadDefaultsFile(path: string, cwd: string): CheckrideConfig {
   const config = resolveConfigFile(path, rootChain(path));
-  const problem = configProblem(config, { cwd, layer: 'defaults' }) ?? schemaRulesProblem(config['schemas']) ?? defaultsKeyProblem(config);
+  const problem = shapeProblem(config, cwd, 'defaults') ?? defaultsKeyProblem(config);
   if (problem !== null) invalidConfig(problem, undefined, path);
   relabeled(path, () => checkDefaultsEntries(config));
   LABELS.set(config, path);
@@ -1776,7 +1779,7 @@ function withClaims(check: ResolvedCheck, targets: readonly Target[], config: Ch
  * an entry that names it can still run, to find nothing to check.
  */
 function withSchemas(check: ResolvedCheck, input: Pick<ResolveInput, 'config' | 'defaults'>): ResolvedCheck {
-  if (check.adapter?.builtin !== 'schema') return check;
+  if (check.adapter?.builtin !== SCHEMA_SLOT) return check;
   const config = holderOf(input, 'schemas');
   const rules = (config?.schemas ?? []).map(({ files, schema, format }) => ({ files, schema, ...(format === undefined ? {} : { format }) }));
   return { ...check, adapter: withOptions(check.adapter, { schema: { rules, configFile: labelOf(config) } }) };
@@ -2030,11 +2033,8 @@ function declaredOnlyOf(input: ResolveInput): boolean {
  * nothing would be the config that points at nothing and stays green.
  */
 function declaredByRules(check: ResolvedCheck): boolean {
-  return check.adapter?.builtin === 'schema' && check.inactive !== true;
+  return check.adapter?.builtin === SCHEMA_SLOT && check.inactive !== true;
 }
-
-/** The slot whose name a repo's custom check may have taken before the slot existed. */
-const SCHEMA_SLOT = 'schema';
 
 /**
  * The top-level `checks.schema` entry when it's a custom check, a `command`

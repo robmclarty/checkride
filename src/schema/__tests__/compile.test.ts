@@ -25,7 +25,8 @@ function compile(schema: unknown, files: Record<string, unknown> = {}, path: str
     ajv,
     read: (file) => {
       const rel = file.slice(REPO.length + 1);
-      return Object.hasOwn(files, rel) ? JSON.stringify(files[rel]) : null;
+      if (!file.startsWith(`${REPO}/`)) return 'outside';
+      return Object.hasOwn(files, rel) ? { text: JSON.stringify(files[rel]) } : 'missing';
     },
     nameOf: (file) => file.slice(REPO.length + 1),
   });
@@ -227,6 +228,23 @@ describe('$ref', () => {
     expect(validate(1)).toBe(false);
   });
 
+  test('a reference that resolves outside the repository is a refusal naming it, and the file is never read', () => {
+    for (const ref of ['../../outside.json', '/etc/passwd', '../../../etc/passwd#/x']) {
+      expect(refusal(compile({ $ref: ref })), ref).toBe(`checkride: the schema \`schemas/main.json\` refers to \`${ref}\`, which resolves outside the repository: a schema is read only from inside it.\n`);
+    }
+  });
+
+  test('a file: URL is a URL: a finding on the schema, and nothing is read', () => {
+    expect(compile({ $ref: 'file:///etc/passwd' })).toEqual({ kind: 'remote', refs: [{ file: 'schemas/main.json', pointer: '/$ref', ref: 'file:///etc/passwd' }] });
+  });
+
+  test('a file that is not JSON is named with where it stops, and nothing of what it holds', () => {
+    const secret = 'root:x:0:0:hunter2:/root:/bin/sh';
+    const said = refusal(compile(`{ "a": 1 }\n${secret}\n`));
+    expect(said).toMatch(/^checkride: the schema `schemas\/main\.json` is not valid JSON( \(line 2, column 1\))?\.\n$/);
+    for (const word of ['root', 'hunter2', 'Unexpected', 'token']) expect(said).not.toContain(word);
+  });
+
   test('a sibling that cannot be read is a refusal naming both files', () => {
     expect(refusal(compile({ $ref: 'gone.json' }))).toBe("checkride: the schema `schemas/main.json` refers to `gone.json`, and schemas/gone.json can't be read.\n");
   });
@@ -242,7 +260,7 @@ describe('$ref', () => {
 
 describe('a schema that cannot be used', () => {
   test('text that is not JSON', () => {
-    expect(refusal(compile('{ "type": '))).toMatch(/^checkride: the schema `schemas\/main\.json` is not valid JSON: /);
+    expect(refusal(compile('{ "type": '))).toMatch(/^checkride: the schema `schemas\/main\.json` is not valid JSON( \(line 1, column \d+\))?\.\n$/);
   });
 
   test('JSON that is not an object', () => {

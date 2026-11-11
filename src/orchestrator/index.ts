@@ -21,5 +21,5 @@ export { runFix } from './fix.js';
 export { enableCandidates, enableEntry, installHint, narrowedAway, provenanceTag } from './report.js';
 export { runChecks } from './run.js';
 export { selectChecks, withStaticOnly } from './select.js';
-export { DEFAULT_TIMEOUT_SECONDS, installSkip, killLiveChecks } from './spawn.js';
+export { DEFAULT_TIMEOUT_SECONDS, installSkip, killLiveChecks, refusalDetail } from './spawn.js';
 export type { CheckRun, CheckRunner, Out, RunFlags, RunnerOutcome, RunOptions, RunResult, Summary, SummaryCheck } from './types.js';

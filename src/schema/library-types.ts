@@ -59,13 +59,9 @@ export type JsoncLibrary = {
   printParseErrorCode: (code: number) => string;
 };
 
-/**
- * The libraries a run loaded: `ajv` always, `yaml` and `jsonc` only when a
- * rule reads that format, and the version of each one loaded.
- */
+/** The libraries a run loaded: `ajv` always, `yaml` and `jsonc` only when a rule reads that format. */
 export type SchemaLibraries = {
   ajv: AjvLibrary;
   yaml?: YamlLibrary;
   jsonc?: JsoncLibrary;
-  versions: Partial<Record<LibraryName, string>>;
 };

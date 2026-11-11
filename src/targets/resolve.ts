@@ -36,6 +36,12 @@ type ValidationContext = {
   slots?: readonly Slot[];
   /** The pack registry's rows: `PACKS` unless a test swaps it. */
   packs?: readonly PackRows[];
+  /**
+   * What holds the `schemas` key to its rules, the first problem with it or
+   * `null`: the `schema` module's, which owns them and which a loader hands
+   * in, since that module reads this one. Omitted, the key goes unread.
+   */
+  schemas?: (schemas: unknown) => string | null;
 };
 
 /** The context with the catalogue read into the sets the rules ask about. */
@@ -96,8 +102,24 @@ const FILE_LIST_KEYS: readonly string[] = ['include', 'exclude'];
 const LIFTABLE_KEYS: readonly string[] = ['optIn', 'timeout', 'order', 'note'];
 
 /** A value as the config spelled it, for a message. */
-function show(value: unknown): string {
+export function show(value: unknown): string {
   return JSON.stringify(value);
+}
+
+/**
+ * True for a path that is absolute in any system's spelling: a POSIX root
+ * (`/etc`), a Windows drive, with or without a slash after it (`C:\x`,
+ * `C:/x`, `C:x`), and a leading backslash, a UNC share (`\\server\share`)
+ * or a rooted path. A repo-relative path is none of them, on any machine a
+ * config travels to.
+ */
+export function isAbsoluteForm(path: string): boolean {
+  return posix.isAbsolute(path) || /^[A-Za-z]:/.test(path) || path.startsWith('\\');
+}
+
+/** True for a path with a `..` segment, under either separator: one that can leave the directory it's relative to. */
+export function hasParentSegment(path: string): boolean {
+  return path.split(/[/\\]/).includes('..');
 }
 
 /** True for an array whose every element is a string. */
@@ -292,8 +314,8 @@ function rootProblem(root: unknown, where: string, cwd: string): string | null {
   if (typeof root !== 'string' || root === '') {
     return `${where}.root must be a directory relative to the repo root (got ${show(root)})`;
   }
-  if (posix.isAbsolute(root)) return `${where}.root ${show(root)} is absolute: give it relative to the repo root`;
-  if (root.split('/').includes('..')) return `${where}.root ${show(root)} has a '..' segment: give a directory inside the repo`;
+  if (isAbsoluteForm(root)) return `${where}.root ${show(root)} is absolute: give it relative to the repo root`;
+  if (hasParentSegment(root)) return `${where}.root ${show(root)} has a '..' segment: give a directory inside the repo`;
   const abs = join(cwd, root);
   if (!existsSync(abs)) return `${where}.root ${show(root)} doesn't exist in the repo`;
   return statSync(abs).isDirectory() ? null : `${where}.root ${show(root)} is a file, not a directory`;
@@ -496,27 +518,6 @@ function packsProblem(packs: unknown, cat: Catalogue): string | null {
   return null;
 }
 
-/** V8 for one rule: a schema is bundled or in the repo, never fetched. */
-function schemaRefProblem(ref: unknown, where: string): string | null {
-  if (typeof ref !== 'string' || ref === '') {
-    return `${where} must name a bundled checkride:<id> schema or a repo-relative path (got ${show(ref)})`;
-  }
-  if (/^https?:\/\//i.test(ref)) {
-    return `${where} ${show(ref)} is a URL, and a check never fetches: name a bundled checkride:<id> schema or a repo-relative path`;
-  }
-  return posix.isAbsolute(ref) ? `${where} ${show(ref)} is absolute: give it relative to the repo root` : null;
-}
-
-function schemasProblem(schemas: unknown): string | null {
-  if (schemas === undefined) return null;
-  if (!Array.isArray(schemas)) return `schemas must be an array of rules (got ${show(schemas)})`;
-  for (const [i, rule] of schemas.entries()) {
-    const problem = schemaRefProblem(isRecord(rule) ? rule['schema'] : undefined, `schemas[${i}].schema`);
-    if (problem !== null) return problem;
-  }
-  return null;
-}
-
 /** The two top-level keys that aren't blocks of targets or checks. */
 function keysProblem(config: Record<string, unknown>): string | null {
   const pins = config['requirePins'];
@@ -543,7 +544,7 @@ export function configProblem(config: Record<string, unknown>, context: Validati
     targetsProblem(config, cat) ??
     topChecksProblem(config['checks'], declaredTargets(config['targets']), cat) ??
     packsProblem(config['packs'], cat) ??
-    schemasProblem(config['schemas']) ??
+    context.schemas?.(config['schemas']) ??
     gateProblem(config['gate'])
   );
 }

@@ -96,6 +96,12 @@ export function jsLockfileDeclares(cwd: string, repo: string, tool: string): boo
   });
 }
 
+/** The version of the package `pkg` installed under `dir/node_modules`, from its `package.json`, or `undefined` when none is there. */
+export function installedVersion(dir: string, pkg: string): string | undefined {
+  const version = readJsonObject(join(dir, 'node_modules', pkg, 'package.json'))?.['version'];
+  return typeof version === 'string' && version !== '' ? version : undefined;
+}
+
 /**
  * The version of `tool` the lockfile installed, read from
  * `node_modules/<package>/package.json` in the nearest directory from `cwd`
@@ -107,8 +113,8 @@ export function jsLockfileVersion(cwd: string, repo: string, tool: string): stri
   const pkg = TOOLS.find((t) => t.bin === tool)?.npm;
   if (pkg === undefined) return undefined;
   for (const dir of dirsUpTo(cwd, repo)) {
-    const version = readJsonObject(join(dir, 'node_modules', pkg, 'package.json'))?.['version'];
-    if (typeof version === 'string' && version !== '') return version;
+    const version = installedVersion(dir, pkg);
+    if (version !== undefined) return version;
   }
   return undefined;
 }

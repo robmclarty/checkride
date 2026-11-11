@@ -71,7 +71,37 @@ describe('what a rule must hold', () => {
     expect(problem({ files: 'a.json', schema: 's.json' })).toBe('schemas[1].files must be an array of globs (got "a.json")');
     expect(problem({ schema: 's.json' })).toMatch(/schemas\[1\]\.files must be an array of globs/);
     expect(problem({ files: [''], schema: 's.json' })).toMatch(/must be an array of globs/);
-    expect(problem('a.json')).toBe('schemas[1] must be an object with files and schema (got "a.json")');
+    // A rule that is no object has no schema reference, which is the first thing asked of every rule.
+    expect(problem('a.json')).toBe('schemas[1].schema must name a bundled checkride:<id> schema or a repo-relative path (got undefined)');
+    expect(schemaRulesProblem({ files: ['a.json'] })).toBe('schemas must be an array of rules (got {"files":["a.json"]})');
+  });
+});
+
+describe('a schema path that could leave the repo', () => {
+  test.each([
+    ['../shared/s.json', "has a '..' segment"],
+    ['schemas/../../s.json', "has a '..' segment"],
+    ['schemas\\..\\..\\s.json', "has a '..' segment"],
+    ['..', "has a '..' segment"],
+    ['/etc/passwd', 'is absolute'],
+    ['C:\\Users\\me\\s.json', 'is absolute'],
+    ['C:/Users/me/s.json', 'is absolute'],
+    ['c:s.json', 'is absolute'],
+    ['\\\\server\\share\\s.json', 'is absolute'],
+    ['\\rooted\\s.json', 'is absolute'],
+  ])('%s %s', (schema, why) => {
+    const said = problem({ files: ['a.json'], schema });
+    expect(said).toContain(`schemas[1].schema ${JSON.stringify(schema)} ${why}`);
+  });
+
+  test('a name with dots in it, a dotfile directory and a bundled id are none of those', () => {
+    for (const schema of ['schemas/a..b.json', '.schemas/s.json', 'schemas/...json', 'checkride:agent-skill', 'ab:c/s.json']) {
+      expect(problem({ files: ['a.json'], schema }), schema).toBeNull();
+    }
+  });
+
+  test('a reference that leaves the repo is the error named, ahead of anything else wrong with any rule', () => {
+    expect(schemaRulesProblem([{ files: 'not globs', schema: 's.json' }, { files: ['a.json'], schema: '../s.json' }])).toContain("schemas[1].schema \"../s.json\" has a '..' segment");
   });
 });
 
