@@ -30,6 +30,8 @@ import { writeFileAtomic } from './atomic.js';
 import type { Tally } from './baseline/index.js';
 import { BASELINE_FILE, isFingerprintable, stoppedShortReason, tallied } from './baseline/index.js';
 import { observedChecks, runBaseline } from './baseline-command.js';
+import type { Host } from './channel.js';
+import { currentHost, hasBinary, hostName, MISE_IDS } from './channel.js';
 import { claudeMd, claudeMdEdit, STANZA_BEGIN_PREFIX } from './claude-md.js';
 import type { CheckrideConfig, CustomCheck, SlotConfig } from './config.js';
 import { configSchemaUrl, configuredBy, loadConfig, resolveChecks, tsTargets, validateConfigObject } from './config.js';
@@ -83,6 +85,8 @@ export type InitOptions = {
   shape?: Shape;
   /** New mode, `go`: the module path (`--module`). Omitted, `example.com/<name>`. */
   module?: string;
+  /** New mode, another language: the machine the scaffold is for, which decides how it pins checkride. Omitted, this one. */
+  host?: Host;
   name?: string;
   scope?: string | null;
   license?: string;
@@ -1063,20 +1067,35 @@ type LangPlan = {
   files: readonly LangFile[];
   /** The target's checks: each default slot the pack fills, by its blessed adapter. */
   checks: Record<string, SlotConfig>;
-  /** The steps that need the network, printed after the scaffold. */
+  /** The pack's own steps that need the network, printed after mise's. */
   setup: readonly string[];
 };
 
 /** The repo-scope slots a Node-free scaffold names, with the binary each runs. */
 const NODE_FREE_REPO_CHECKS: Record<string, SlotConfig> = { struct: 'ast-grep', docs: 'rumdl', links: 'links', spell: 'typos' };
 
+/** How a language scaffold pins checkride: its `mise.toml` entries, the mise steps its setup opens with, and a line saying why, where it isn't the binary. */
+type CheckridePin = { tools: string; setup: readonly string[]; note: string | null };
+
 /**
- * The mise steps every language scaffold's setup opens with. mise loads a
- * `mise.toml` that sets a tool option only once it's trusted, and checkride's
- * `allow_low_downloads` is one (D80), so until `mise trust` runs, no check
- * mise pins can run either.
+ * The checkride a language scaffold pins for `host` (D46). Where a release
+ * carries a binary the host can run, that binary, with no `node`: the entry
+ * sets no tool option, so mise reads the file without a `mise trust` (mise
+ * 2026.10.4). Anywhere else, such as Alpine, whose musl can't run a glibc
+ * build, or Windows, the npm package with `node` beside it. That entry sets
+ * `allow_low_downloads`, without which mise's npm backend refuses a package
+ * under 1000 weekly downloads (D80), and a tool option is something mise
+ * loads only from a file it trusts, so `mise trust` comes first there.
  */
-const MISE_SETUP: readonly string[] = ['mise trust', 'mise install'];
+function checkridePin(host: Host): CheckridePin {
+  const version = productVersion();
+  if (hasBinary(host)) return { tools: `"${MISE_IDS.binary}" = "${version}"\n`, setup: ['mise install'], note: null };
+  return {
+    tools: `node = "22.18.0"\n"${MISE_IDS.npm}" = { version = "${version}", allow_low_downloads = true }\n`,
+    setup: ['mise trust', 'mise install'],
+    note: `no standalone binary ships for ${hostName(host)}, so mise.toml pins checkride from npm, with node beside it.`,
+  };
+}
 
 /** The tested deadcode a Go scaffold's setup declares as a `go.mod` tool. */
 const DEADCODE_TOOL = 'golang.org/x/tools/cmd/deadcode@v0.52.0';
@@ -1096,7 +1115,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
           { to: 'cli/main.go', from: 'go/workspace/main.go' },
         ],
         checks,
-        setup: [...MISE_SETUP, `go get -C core -tool ${DEADCODE_TOOL}`],
+        setup: [`go get -C core -tool ${DEADCODE_TOOL}`],
       };
     }
     return {
@@ -1107,7 +1126,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
         { to: 'internal/greet/greet_test.go', from: 'go/module/greet_test.go' },
       ],
       checks,
-      setup: [...MISE_SETUP, `go get -tool ${DEADCODE_TOOL}`],
+      setup: [`go get -tool ${DEADCODE_TOOL}`],
     };
   }
   const checks = { types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' };
@@ -1129,7 +1148,7 @@ function langPlan(lang: Exclude<Lang, 'ts'>, shape: Shape, name: string): LangPl
         { to: 'src/lib.rs', from: 'rust/crate/lib.rs' },
         { to: 'src/main.rs', from: 'rust/crate/main.rs' },
       ];
-  return { files: [...shared, ...files], checks, setup: [...MISE_SETUP, 'cargo fetch'] };
+  return { files: [...shared, ...files], checks, setup: ['cargo fetch'] };
 }
 
 /** Each `[tools]` key and its raw value in a `mise.toml` fragment, in order. */
@@ -1142,14 +1161,14 @@ function toolLines(text: string): [string, string][] {
 
 /**
  * The root `mise.toml` a language scaffold writes (R11.6): checkride itself,
- * as `npm:checkride` at this release with `node` beside it until a binary
- * ships (D46), then the pack's tools and the repo pack's Node-free ones, each
- * at the version it was tested with. A key a later fragment repeats keeps the
- * first one's version. checkride's entry sets `allow_low_downloads`, without
- * which mise's npm backend refuses a package under 1000 weekly downloads (D80).
+ * as `pin` has it, then the pack's tools and the repo pack's Node-free ones,
+ * each at the version it was tested with. A key a later fragment repeats
+ * keeps the first one's version. None of those tools installs through Node
+ * or runs on it, so the file pins a `node` only where checkride's own pin
+ * brings one.
  */
-function langMiseToml(lang: Exclude<Lang, 'ts'>): string {
-  const own = `[tools]\nnode = "22.18.0"\n"npm:checkride" = { version = "${productVersion()}", allow_low_downloads = true }\n`;
+function langMiseToml(lang: Exclude<Lang, 'ts'>, pin: CheckridePin): string {
+  const own = `[tools]\n${pin.tools}`;
   const tools = new Map<string, string>();
   for (const fragment of [own, readTemplate(`${lang}/shared/mise.toml`), readTemplate('repo/shared/mise.toml')]) {
     for (const [key, value] of toolLines(fragment)) if (!tools.has(key)) tools.set(key, value);
@@ -1196,7 +1215,7 @@ function langReadme(name: string, lang: Exclude<Lang, 'ts'>): string {
 }
 
 /** The derived inputs a language scaffold is generated from. */
-type LangScaffold = { lang: Exclude<Lang, 'ts'>; shape: Shape; name: string; license: string; author: string | null; vars: Record<string, string> };
+type LangScaffold = { lang: Exclude<Lang, 'ts'>; shape: Shape; name: string; license: string; author: string | null; vars: Record<string, string>; pin: CheckridePin };
 
 /** Resolve a language scaffold's inputs, applying every default. */
 function resolveLangScaffold(options: InitOptions, cwd: string): LangScaffold {
@@ -1204,7 +1223,7 @@ function resolveLangScaffold(options: InitOptions, cwd: string): LangScaffold {
   const { name } = resolveProjectName(options, cwd);
   const shape = options.shape ?? LANG_SHAPES[lang][0] ?? 'module';
   const vars = { name, module: options.module ?? `example.com/${name}`, crate: name.replaceAll('-', '_') };
-  return { lang, shape, name, license: options.license ?? 'MIT', author: options.author ?? null, vars };
+  return { lang, shape, name, license: options.license ?? 'MIT', author: options.author ?? null, vars, pin: checkridePin(options.host ?? currentHost()) };
 }
 
 /** Emit every file of a language scaffold into `w`. */
@@ -1220,14 +1239,25 @@ async function writeLangScaffold(w: Writer, s: LangScaffold): Promise<string[]> 
   await put(w, 'sgconfig.yml', readTemplate('repo/shared/sgconfig.yml'));
   await put(w, '.rumdl.toml', readTemplate('repo/shared/rumdl.toml'));
   await put(w, '_typos.toml', readTemplate('repo/shared/typos.toml'));
-  await put(w, 'mise.toml', langMiseToml(s.lang));
+  await put(w, 'mise.toml', langMiseToml(s.lang, s.pin));
   await put(w, 'checkride.config.json', langConfigFile(s.lang, plan.checks));
   await put(w, 'LICENSE', licenseText(s.license, s.author ?? s.name));
   await put(w, 'README.md', langReadme(s.name, s.lang));
   const intro = ['# AGENTS.md', '', 'Instructions for any coding agent working in this repository.', ''].join('\n');
   await put(w, 'AGENTS.md', applyStanza(intro, buildStanza(langCheckNames(plan.checks), { kind: 'mise' })));
   await put(w, 'CLAUDE.md', claudeMd());
-  return [...plan.setup, 'mise exec -- checkride'];
+  return [...s.pin.setup, ...plan.setup, 'mise exec -- checkride'];
+}
+
+/** What `init` prints after a language scaffold: what it wrote, why checkride is pinned from npm where it is, and the setup still to run. */
+function langReport(scaffold: LangScaffold, w: Writer, next: readonly string[]): string {
+  return [
+    `checkride init: generated a ${scaffold.lang} ${scaffold.shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.`,
+    ...(scaffold.pin.note === null ? [] : [`  ${scaffold.pin.note}`]),
+    '  next, with the network:',
+    ...next.map((step) => `    ${step}`),
+    '',
+  ].join('\n');
 }
 
 /**
@@ -1251,10 +1281,7 @@ async function initNewLang(options: InitOptions, cwd: string): Promise<InitResul
   const next = await writeLangScaffold(w, scaffold);
   await writeHook(w, options);
   await writeSkills(w, options);
-  if (options.stdout) {
-    options.stdout.write(`checkride init: generated a ${scaffold.lang} ${scaffold.shape} project (${w.written.length} files)${w.dryRun ? ' [dry run]' : ''}.\n`);
-    options.stdout.write(`  next, with the network:\n${next.map((step) => `    ${step}\n`).join('')}`);
-  }
+  if (options.stdout) options.stdout.write(langReport(scaffold, w, next));
   return { mode: 'new', shape: scaffold.shape, written: w.written, removed: w.removed, skipped: [], disabled: [], grandfathered: [], setup: [], exitCode: 0 };
 }
 

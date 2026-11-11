@@ -92,18 +92,18 @@ existing-repository path above — `init --add <slots>` scaffolds the tool
 configs a bare repository lacks (`init --add struct,dead`, for example).
 
 For a **repo without Node**, such as a Go or Rust project with no
-`package.json`, mise installs checkride beside a pinned `node` and runs it as
+`package.json`, mise installs checkride's standalone binary and runs it as
 `mise exec -- checkride`. `init --lang go|rust` writes that `mise.toml` for a
 new project. A Go, Rust, Python, Terraform or Odin repo that already exists adds the
 pin with `mise use`, then runs `mise exec -- checkride init`, which adopts the
 tools its root configures through that language's pack.
 [Installing checkride](./docs/distribution.md) shows the pin, and the
-`allow_low_downloads = true` opt-in mise needs before it installs checkride.
+`npm:checkride` one for a repo that would rather run the npm package.
 
 A **standalone binary** takes Node out of that picture: one executable with
 the CLI and its templates embedded, for macOS and Linux on arm64 and x64. It
-ships from the first release that attaches binaries to its GitHub release,
-which none has yet.
+ships with every release from 0.21.0, attached to its GitHub release, and is
+what that `mise.toml` pins.
 [Installing checkride](./docs/distribution.md#the-standalone-binary) covers
 what it carries and leaves out, and how to verify a download.
 
@@ -126,7 +126,7 @@ gate. The stanza already tells the agent the contract, and that is usually
 enough. Ask for the gate with `checkride hooks add` (every hook) or
 `--hook gate,dirty,protect`. Once a repo has it, a re-run keeps it refreshed. In a repo with no
 `package.json`, the gate, the stanza and the skills run `mise exec -- checkride`
-where a root `mise.toml` pins `npm:checkride`, and the `checkride` on `PATH`
+where a root `mise.toml` pins checkride, and the `checkride` on `PATH`
 otherwise, which `doctor` reports as the harness unpinned. Select hooks with
 `--hook <a,b>` (gate | dirty | protect), harnesses with `--harness <a,b>`
 (claude | cursor; detected by default), skip the hooks with `--no-hook`, or

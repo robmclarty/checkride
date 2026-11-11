@@ -5,6 +5,7 @@
  * renders the full check, a subcommand and the gate's argv its own way.
  */
 
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,7 +13,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { fakeSea } from '../../../test/helpers/sea.js';
-import { runtime } from '../../channel.js';
+import { MISE_IDS, runtime } from '../../channel.js';
 
 import type { EntryCommand } from '../index.js';
 import { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, resolveEntry } from '../index.js';
@@ -112,5 +113,11 @@ describe('by channel', () => {
     expect(runtime().pin).toBe("mise use 'npm:checkride[allow_low_downloads=true]@<version>'");
     fakeSea();
     expect(runtime().pin).toBe('mise use github:robmclarty/checkride@<version>');
+  });
+
+  test('the binary’s mise id names the repository package.json does, whose releases carry the binaries', () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', '..', 'package.json'), 'utf8')) as { repository: { url: string } };
+    const slug = /github\.com\/(.+?)(?:\.git)?$/.exec(pkg.repository.url)?.[1];
+    expect(MISE_IDS.binary).toBe(`github:${slug}`);
   });
 });

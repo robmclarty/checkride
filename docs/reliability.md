@@ -61,7 +61,8 @@ declaring what already held.
 
 Because pre-1.0 minor versions may break by the semver rule, consumers should
 pin checkride **exactly** (`"checkride": "0.15.0"`, no caret, or the same exact
-version on a `mise.toml`'s `npm:checkride` entry in a repo without Node) and
+version on a `mise.toml`'s checkride entry, `github:robmclarty/checkride` or
+`npm:checkride`, in a repo without Node) and
 upgrade deliberately. A caret range is the intended usage only after 1.0. A consumer
 sitting on an exact old pin isn't behind — it's following policy correctly.
 

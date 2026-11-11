@@ -6,15 +6,16 @@
  * repo has since 0.1, and so does a root `package.json` without one, whose
  * definition of done `init` wires through that script. A repo with no
  * `package.json`, the binary-only case, runs the checkride its root
- * `mise.toml` pins (`npm:checkride`, or `github:robmclarty/checkride` once a
- * binary ships), and failing that the `checkride` on `PATH`, which nothing
- * pins and `doctor` reports as the harness unpinned (D40, D46).
+ * `mise.toml` pins (`github:robmclarty/checkride`, the release's binary, which
+ * a language scaffold writes, or `npm:checkride`, the package, for a repo that
+ * keeps Node), and failing that the `checkride` on `PATH`, which nothing pins
+ * and `doctor` reports as the harness unpinned (D40, D46).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { runtime } from '../channel.js';
+import { MISE_IDS, runtime } from '../channel.js';
 import { isRecord } from '../json.js';
 import { miseDeclaration } from './mise.js';
 import type { PackageManager } from './package-manager.js';
@@ -27,7 +28,7 @@ export type EntryCommand = { kind: 'script'; pm: PackageManager } | { kind: 'mis
 export type EntryLike = EntryCommand | PackageManager;
 
 /** The `[tools]` keys that declare checkride in a `mise.toml` (D46). */
-const CHECKRIDE_MISE_IDS: readonly string[] = ['npm:checkride', 'github:robmclarty/checkride'];
+const CHECKRIDE_MISE_IDS: readonly string[] = Object.values(MISE_IDS);
 
 /** The script a repo's `package.json` defines done with. */
 const CHECK_SCRIPT = 'check';

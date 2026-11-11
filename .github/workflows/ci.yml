@@ -7,6 +7,12 @@ on:
 
 # One run per ref: a new push to a PR supersedes its in-flight run; pushes to
 # main queue instead of cancelling, so every landed commit gets a full verdict.
+# Nothing here writes to the repo: the checkout reads it, and the e2e step's
+# token only identifies the job to GitHub's API. Artifact upload and the
+# dependency cache go through their own service, not this token.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -114,7 +120,15 @@ jobs:
       # the PM quartet and the interrupted-run (never-torn artifacts) cases.
       # CHECKRIDE_REQUIRE_TOOLCHAINS turns a pack's missing tool from a local
       # skip into a failure (test/helpers/toolchains.ts).
+      #
+      # GITHUB_TOKEN: the mise route case (test/e2e/binary.e2e.test.ts)
+      # installs a released binary through mise's `github:` backend, which
+      # lists the release's assets through GitHub's API. Anonymous, that is 60
+      # requests an hour per IP, shared across a hosted runner's neighbours;
+      # the job's own token lifts it, and `permissions` above keeps it
+      # read-only, since every process the suite spawns inherits it.
       - name: pnpm test:e2e
         run: pnpm test:e2e
         env:
           CHECKRIDE_REQUIRE_TOOLCHAINS: '1'
+          GITHUB_TOKEN: ${{ github.token }}

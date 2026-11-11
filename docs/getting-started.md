@@ -150,12 +150,12 @@ ones you agree with.
 
 ### An existing repository without Node
 
-A Go, Rust, Python, Terraform or Odin repo with no `package.json` pins checkride in
-its `mise.toml`, beside a `node` for it to run on, and runs it through mise:
+A Go, Rust, Python, Terraform or Odin repo with no `package.json` pins
+checkride's standalone binary in its `mise.toml` and runs it through mise,
+with no Node anywhere:
 
 ```bash
-mise use node@22.18.0 'npm:checkride[allow_low_downloads=true]@<version>'
-mise trust
+mise use github:robmclarty/checkride@<version>
 mise install
 mise exec -- checkride init
 mise exec -- checkride
@@ -169,8 +169,9 @@ no `check` script, since there's no `package.json` to hold one. `--baseline` gra
 as it does anywhere. Pin the pack's own tools in the same `mise.toml`
 (`mise use golangci-lint@<version>`, for one), and run the setup step a check
 won't, such as `go mod download` or `uv sync`, before the first run.
-[Installing checkride](./distribution.md) explains the pin and its
-`allow_low_downloads` opt-in.
+[Installing checkride](./distribution.md) explains the pin, the platforms it
+installs on, and the `npm:checkride` pin for a repo that would rather run the
+npm package.
 
 A repo whose languages all live in subdirectories, with no `go.mod`,
 `Cargo.toml`, `pyproject.toml` or `.tf` file at the root and nothing there but
@@ -278,14 +279,15 @@ mise runs:
 ```bash
 mkdir my-api && cd my-api
 pnpm dlx checkride init --lang go --shape module --module github.com/acme/my-api
-mise trust
 mise install
 go get -tool golang.org/x/tools/cmd/deadcode@v0.52.0
 mise exec -- checkride
 ```
 
 `init` prints the steps that need the network, since a check never fetches
-anything. Pick a shape:
+anything. On a machine with no Node, mise runs the same `init` from the
+binary: `mise exec github:robmclarty/checkride@<version> -- checkride init`
+with the same flags. Pick a shape:
 
 - **go module** — `go.mod`, `cmd/<name>/main.go` and `internal/greet/` with a
   test. Go's `internal/` is the deep-module boundary, and the compiler holds
@@ -296,9 +298,9 @@ anything. Pick a shape:
   `src/main.rs`.
 - **rust workspace** — a virtual manifest over `crates/core` and `crates/cli`.
 
-Each writes a `mise.toml` that pins checkride (as `npm:checkride`, with `node`
-beside it) and every binary tool its checks run, at the versions they were
-tested with, and a `checkride.config.json` with one target, `app`, at the
+Each writes a `mise.toml` that pins checkride (as
+`github:robmclarty/checkride`, the release's standalone binary) and every
+binary tool its checks run, at the versions they were tested with, and a `checkride.config.json` with one target, `app`, at the
 root, naming every slot, with `requirePins: true`. The `struct` check runs the
 pack's dialect rules from `rules/go/` or `rules/rust/`: no dot imports, no
 import aliases and no `init` outside `package main` in Go, and no glob
@@ -307,11 +309,16 @@ toolchain, with rustfmt and clippy, and its config names `snippets`, so its
 doctests run. Every shape is green once its setup has run, and an end-to-end
 test holds each one.
 
-checkride's entry in that `mise.toml` sets `allow_low_downloads = true`. mise
-won't install an npm package with fewer than 1000 weekly downloads without it,
-and checkride has fewer. A tool option like that one is also why `mise trust`
-comes first: mise won't load the file until you trust it. To add the same pin
-to a repo you already have, see [Installing checkride](./distribution.md).
+Nothing in that `mise.toml` installs through Node or runs on it, so the
+project needs none, and no entry sets a tool option, so `mise install` works
+without a `mise trust` before it. If mise reports the file as untrusted all
+the same (an older or stricter mise, or once the file gains `[env]`, tasks or
+a template), run `mise trust`. On a machine no release has a binary for, such
+as Alpine or Windows, `init` pins `npm:checkride` with a `node` beside it
+instead, says so, and prints `mise trust` first, which that pin needs. mise finds the binary through GitHub's API,
+which rate-limits anonymous requests: in CI, give the install a token, as
+[Installing checkride](./distribution.md#githubs-rate-limit) shows. The same
+page has the pin for a repo you already have.
 
 ## The daily loop
 
@@ -811,7 +818,8 @@ is:
 ## Uninstalling
 
 No lock-in needs undoing. checkride's whole footprint is: the `checkride`
-devDependency (or the `npm:checkride` pin in `mise.toml`),
+devDependency (or its pin in `mise.toml`, `github:robmclarty/checkride` or
+`npm:checkride`),
 `checkride.config.json`, `checkride.baseline.json` (if you
 baselined), the `check` script alias, the AGENTS.md stanza between the
 `checkride:begin`/`checkride:end` markers (plus the `@AGENTS.md` import in
@@ -828,8 +836,8 @@ run exactly as before; you have merely dropped the orchestrator.
 ## Where to go next
 
 - [Cheat sheet](./cheatsheet.md) — every command and flag at a glance.
-- [Installing checkride](./distribution.md) — npm, and the mise route for a
-  repo without Node.
+- [Installing checkride](./distribution.md) — npm, the standalone binary, and
+  the mise route for a repo without Node.
 - [A polyglot repo, end to end](./polyglot.md) — adopting checkride in a repo
   with more than one language, from install to CI.
 - [Targets](./targets.md) and [Packs and pins](./packs.md) — the rules behind

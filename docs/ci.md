@@ -219,13 +219,15 @@ jobs:
   check:
     runs-on: ubuntu-latest
     env:
-      # mise loads no mise.toml it hasn't trusted; this one is the repo's own.
+      # For a mise.toml that sets a tool option or an env var, which mise
+      # loads only once it's trusted; this one is the repo's own.
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v7
 
-      # Installs every tool mise.toml pins: checkride and its Node, and the
-      # language's own tools, such as go and golangci-lint.
+      # Installs every tool mise.toml pins: checkride's binary, and the
+      # language's own tools, such as go and golangci-lint. It passes the
+      # job's token to mise, which asks GitHub's API for the binary.
       - uses: jdx/mise-action@v5
 
       # One per pack the repo uses: checks run offline, so a missing module,
@@ -241,12 +243,29 @@ jobs:
           path: .check/
 ```
 
-`MISE_TRUSTED_CONFIG_PATHS` trusts the repo's `mise.toml`, which mise won't
-load untrusted while checkride's own pin there sets a tool option. mise already
-trusts every config file when it detects a CI run, as on GitHub Actions; the
-variable says so explicitly, and keeps the job working on a runner mise
-doesn't recognize as CI. See [Installing checkride](./distribution.md) for the
-pin itself.
+`MISE_TRUSTED_CONFIG_PATHS` trusts the repo's `mise.toml`. The file
+`init --lang go|rust` writes needs no trust, since mise asks for it only where
+a file sets a tool option or an env var; the variable covers the day the
+repo's file does, as it does where checkride is pinned as `npm:checkride`.
+mise already trusts every config file when it detects a CI run, as on GitHub
+Actions; the variable says so explicitly, and keeps the job working on a
+runner mise doesn't recognize as CI. See
+[Installing checkride](./distribution.md) for the pin itself.
+
+mise finds checkride's binary by listing the release's assets through
+GitHub's API, whose anonymous limit is 60 requests an hour per IP address. A
+hosted runner shares its address, so an install without a token can fail with
+a 403. `jdx/mise-action` passes the job's token by default, which is why the
+recipe above sets none. A job that runs `mise install` itself sets it on that
+step:
+
+```yaml
+      - run: mise install
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+```
+
+[GitHub's rate limit](./distribution.md#githubs-rate-limit) has the rest.
 
 ## A repo with targets in other languages
 
@@ -278,9 +297,11 @@ pnpm install --frozen-lockfile
 pnpm exec checkride --strict   # or the npx / yarn / bunx form
 ```
 
-A repo on the mise route runs `mise install` instead, with `mise trust` first
-where mise doesn't detect CI, fetches its dependencies, and runs
-`mise exec -- checkride --strict`.
+A repo on the mise route runs `mise install` instead, with `GITHUB_TOKEN` set
+so GitHub's API doesn't rate-limit the binary's download, fetches its
+dependencies, and runs `mise exec -- checkride --strict`. A `mise.toml` that
+sets a tool option or an env var needs `mise trust` first where mise doesn't
+detect CI.
 
 If the platform supports build artifacts, archive `.check/` on failure the way
 the GitHub recipe does — that is where humans and agents read the diagnostics.

@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
-import { CI_MARKERS } from '../helpers/mise.js';
+import { BINARY_PIN, CI_MARKERS, describeWithMise, findMise, withNpmPin, withoutCheckridePin } from '../helpers/mise.js';
 import { setupStep } from '../helpers/setup.js';
 import { describeWithToolchain } from '../helpers/toolchains.js';
 
@@ -255,18 +255,19 @@ describeWithToolchain('repo')('init --lang', () => {
         dir = await mkdtemp(join(tmpdir(), `checkride-e2e-${lang}-${shape}-`));
         await execFileP('node', [CLI, 'init', '--lang', lang, '--shape', shape, '--name', 't-demo'], { cwd: dir, ...BIG });
         await execFileP('git', ['init', '-q'], { cwd: dir });
-        // The setup init prints opens with `mise trust`: checkride's entry sets a
-        // tool option, so mise won't load the file, or run a pin, until then.
-        // `mise install` it skips, since the dev mise.toml has the same versions.
-        await execFileP('mise', ['trust'], { cwd: dir, ...BIG });
+        // No `mise trust`: the scaffold's mise.toml sets no tool option, so mise
+        // reads it as written. The `mise install` init prints it skips, since
+        // the dev mise.toml has the same versions of every tool but checkride,
+        // which these cases run from the local build: its entry comes out, so
+        // no `mise exec -- <tool>` meets a pin nothing here installed.
+        const tomlPath = join(dir, 'mise.toml');
+        const toml = await readFile(tomlPath, 'utf8');
+        expect(toml).toMatch(BINARY_PIN);
+        await writeFile(tomlPath, withoutCheckridePin(toml));
         // Setup may download; the checks never do.
         for (const [command, ...args] of setup) await setupStep(command, args, { cwd: dir });
       }, 300_000);
-      afterAll(async () => {
-        // The trust lives in this machine's mise state, so take it back with the directory.
-        await execFileP('mise', ['trust', '--untrust'], { cwd: dir, ...BIG });
-        await rm(dir, { recursive: true, force: true });
-      });
+      afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 
       test('init -> its setup -> checkride exits 0, every tool through a pin', async () => {
         const result = await check(dir);
@@ -292,86 +293,7 @@ describeWithToolchain('repo')('init --lang', () => {
   }
 });
 
-/**
- * The checkride the mise route installs: a published release, since the
- * scaffold pins this package's own version, which npm may not have yet.
- */
-const PUBLISHED = '0.14.0';
-
-/** The mise on `PATH`, or `null`, probed from the temp directory, as the toolchain gate probes. */
-function findMise(): string | null {
-  const found = spawnSync('sh', ['-c', 'command -v mise'], { cwd: tmpdir(), encoding: 'utf8' });
-  return found.status === 0 ? found.stdout.trim() : null;
-}
-
-/**
- * `describe` when mise runs, else `describe.skip` with the reason on stderr,
- * or, under `CHECKRIDE_REQUIRE_TOOLCHAINS=1`, which CI sets, a throw, so a
- * runner without mise can't pass the route as a skip (D42).
- */
-function describeWithMise(mise: string | null) {
-  if (mise !== null) return describe;
-  if (process.env['CHECKRIDE_REQUIRE_TOOLCHAINS'] === '1') {
-    throw new Error('CHECKRIDE_REQUIRE_TOOLCHAINS=1 and mise is not on PATH; install mise (https://mise.jdx.dev)');
-  }
-  console.warn('skipping the mise route e2e case: mise is not on PATH (install it, or set CHECKRIDE_REQUIRE_TOOLCHAINS=1 to fail instead)');
-  return describe.skip;
-}
-
 const MISE = findMise();
-
-/**
- * The mise route, the supported way to run checkride in a repo without Node
- * (D46, D80). A scaffold's `mise.toml`, its checkride pin moved to a published
- * release, installs through a mise that shares nothing with this machine's
- * (its own home, data, cache and state) and finds no Node on `PATH`, and
- * `mise exec -- checkride` then runs. It installs only the route's two
- * entries, `node` and `npm:checkride`, since the pack's tools are the shapes'
- * cases to prove, and turns mise's auto-install off so `exec` fetches nothing
- * else. Setup may download; this case is setup, and runs no check.
- */
-describeWithMise(MISE)('the mise route', () => {
-  let dir: string;
-  beforeAll(async () => {
-    dir = await realpath(await mkdtemp(join(tmpdir(), 'checkride-e2e-mise-route-')));
-    await mkdir(join(dir, 'repo'));
-    await mkdir(join(dir, 'bin'));
-    await symlink(MISE ?? 'mise', join(dir, 'bin', 'mise'));
-    await execFileP('node', [CLI, 'init', '--lang', 'go', '--name', 't-demo'], { cwd: join(dir, 'repo'), ...BIG });
-  }, 60_000);
-  afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
-
-  test('a scaffold’s mise.toml installs with no Node on PATH, and mise exec -- checkride runs', async () => {
-    const repo = join(dir, 'repo');
-    const tomlPath = join(repo, 'mise.toml');
-    const toml = await readFile(tomlPath, 'utf8');
-    // mise's npm backend refuses a package under 1000 weekly downloads unless its entry opts in.
-    const entry = /^"npm:checkride" = \{ version = "[^"]+", allow_low_downloads = true \}$/m;
-    expect(toml).toMatch(entry);
-    await writeFile(tomlPath, toml.replace(entry, `"npm:checkride" = { version = "${PUBLISHED}", allow_low_downloads = true }`));
-
-    const env = {
-      HOME: join(dir, 'home'),
-      PATH: [join(dir, 'bin'), '/usr/bin', '/bin'].join(':'),
-      MISE_DATA_DIR: join(dir, 'mise', 'data'),
-      MISE_CONFIG_DIR: join(dir, 'mise', 'config'),
-      MISE_CACHE_DIR: join(dir, 'mise', 'cache'),
-      MISE_STATE_DIR: join(dir, 'mise', 'state'),
-      MISE_EXEC_AUTO_INSTALL: 'false',
-      MISE_YES: '1',
-    };
-    const mise = join(dir, 'bin', 'mise');
-    expect(spawnSync('sh', ['-c', 'command -v node'], { cwd: repo, env }).status, 'node is on the stripped PATH').not.toBe(0);
-
-    // The setup init prints, minus the pack's tools: trust, since the entry sets a tool option, then install.
-    await execFileP(mise, ['trust'], { cwd: repo, env, ...BIG });
-    await execFileP(mise, ['install', 'node', 'npm:checkride'], { cwd: repo, env, ...BIG });
-    const { stdout } = await execFileP(mise, ['exec', '--', 'checkride', '--version'], { cwd: repo, env, ...BIG });
-    expect(stdout.trim()).toBe(PUBLISHED);
-    // The gate hook's test for an installed checkride, which an untrusted mise.toml fails.
-    expect((await execFileP(mise, ['which', 'checkride'], { cwd: repo, env, ...BIG })).stdout).toContain(join(dir, 'mise', 'data'));
-  }, 300_000);
-});
 
 /**
  * What a run inherits from mise's environment that would trust a file unasked:
@@ -382,9 +304,10 @@ describeWithMise(MISE)('the mise route', () => {
 const TRUSTING = new Set(['MISE_YES', 'MISE_TRUSTED_CONFIG_PATHS', ...CI_MARKERS]);
 
 /**
- * A scaffold before `mise trust` (D82). checkride's entry sets a tool option,
- * so mise won't read the `mise.toml` until someone trusts it, and a check it
- * pins refuses naming `mise trust`. checkride runs from Node here, not through
+ * A `mise.toml` before `mise trust` (D82). A scaffold's own needs none, so the
+ * case pins checkride the npm route's way, whose entry sets a tool option:
+ * mise won't read that file until someone trusts it, and a check it pins
+ * refuses naming `mise trust`. checkride runs from Node here, not through
  * `mise exec`, which trusts the config it reads, and mise keeps what it trusts
  * in a state directory of the case's own. No Go is needed: the refusal comes
  * before anything runs.
@@ -396,10 +319,12 @@ describeWithMise(MISE)('an untrusted mise.toml', () => {
     await mkdir(join(dir, 'repo'));
     await execFileP('node', [CLI, 'init', '--lang', 'go', '--name', 't-demo'], { cwd: join(dir, 'repo'), ...BIG });
     await execFileP('git', ['init', '-q'], { cwd: join(dir, 'repo') });
+    const tomlPath = join(dir, 'repo', 'mise.toml');
+    await writeFile(tomlPath, withNpmPin(await readFile(tomlPath, 'utf8')));
   }, 60_000);
   afterAll(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  test('a check in a scaffold before mise trust refuses naming mise trust, not mise install', async () => {
+  test('a check in a repo whose mise.toml sets a tool option, before mise trust, refuses naming mise trust, not mise install', async () => {
     const repo = join(dir, 'repo');
     const inherited = Object.entries(process.env).filter(([key]) => !TRUSTING.has(key));
     const env = { ...Object.fromEntries(inherited), MISE_STATE_DIR: join(dir, 'state') };

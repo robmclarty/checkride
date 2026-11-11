@@ -832,10 +832,11 @@ plugin skills run checkride in a repo, chosen from the repo root:
 1. A root `package.json` with a `check` script: `<pm> run check`, as every
    release has run it. `init` writes that script.
 2. Otherwise, a root `mise.toml` or `.mise.toml` whose `[tools]` declares
-   `npm:checkride` or `github:robmclarty/checkride`: `mise exec -- checkride`.
-   The second id installs the
-   [standalone binary](./distribution.md#the-standalone-binary), from the
-   first release that carries one.
+   `github:robmclarty/checkride` or `npm:checkride`: `mise exec -- checkride`.
+   The first id installs the
+   [standalone binary](./distribution.md#the-standalone-binary), and is the
+   one `init --lang go|rust` writes. The second installs the npm package, and
+   wants a `node` pinned beside it.
 3. Otherwise, a root `package.json` with no `check` script: still
    `<pm> run check`, which fails naming the missing script.
 4. None of those: the `checkride` on `PATH`, which nothing pins, so `doctor`
