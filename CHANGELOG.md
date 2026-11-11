@@ -101,6 +101,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the flag, every command but the run ignores the variable without a word,
   so a CI job can set it for all its steps, and `gate` strips it from the
   check it runs, since a hook's output goes to an agent. `docs/ci.md` has the workflow snippet.
+- **The `schema` slot validates data files against JSON Schemas.** The
+  `schemas` key a config could already hold now runs: each rule names `files`
+  globs and a `schema`, and the built-in reads every file the repo lists that
+  a glob matches and validates it. A file is read as strict `json`, `jsonc`
+  (comments and trailing commas), `yaml` (YAML 1.2 core, a duplicate key an
+  error) or `frontmatter` (the YAML between a file's opening `---` line and
+  the next), by the rule's `format` or by its extension. A schema is draft
+  2020-12 or draft-07, `format` keywords aren't asserted, and a `$ref`
+  reaches the schema file and sibling files by relative path; one to a URL is
+  a finding, since a check makes no network call. A rule that matches no file
+  fails, as `prose` fails on exemplars that are gone, and so does a file that
+  doesn't parse. Two schemas ship: `checkride:agent-skill`, for a skill's
+  `SKILL.md` frontmatter, which also checks that `name` is the directory's
+  name, and `checkride:checkride-config`, the config schema. The report is
+  `.check/schema.json`, its errors are findings the baseline keys by file,
+  keyword, pointer and the property a keyword names, a red run
+  lists them as `path:line  message  [keyword]`, and `--annotate github`
+  annotates them. `--only`, `--skip`, `order`, `timeout`, `optIn` and a
+  `checks.schema` entry work as for any slot, `--changed` still runs every
+  rule, and a named suite runs it when its own config holds `schemas`.
+  **checkride still has no runtime dependency.** `ajv` (8.x), `yaml` (2.x)
+  and `jsonc-parser` (3.x) are optional peer dependencies, loaded from the
+  repo's own `node_modules` and only when a rule needs them: `ajv` for any
+  rule, `yaml` for `yaml` and `frontmatter`, `jsonc-parser` for `jsonc`. One
+  the repo lacks fails the check before it reads a file, with the package
+  and the install command as the reason, and `doctor` reports the slot as
+  not configured, ready with the versions it would load, or missing a
+  library. A Yarn Plug'n'Play repo, which has no `node_modules` to read them
+  from, is told to use the binary or `nodeLinker: node-modules`. The
+  standalone binary bundles all three, so a repo with no Node installs
+  nothing, and nothing the npm package ships imports any of them. This repo runs the slot on its own skills and on every
+  checkride config in its tree. `docs/tools.md` has the guide.
 
 ### Changed
 
@@ -188,6 +220,38 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `triage` running the binary itself for the `checkride` on `PATH`,
   the `doctor` that `triage` asks, and the `github:` pin its hints name.
   From npm, every command behaves as it did.
+- Additive: the `schema` slot, the last entry of `SLOTS`, with its `schema`
+  adapter the last of `ADAPTERS` and of the repo pack, and `schema` on
+  `AdapterOptions`. It is inactive until the config holds a `schemas` rule,
+  as `unclaimed` is without `targets`: a repo that configures none gets the
+  output and the `summary.json` it got before, under every flag. With a rule
+  it writes `schema.json` in the output directory, `{ rules, errors }` as
+  `docs/contract.md` gives it, and exits 0 or 1. `isParseable('schema')` is
+  true, `parseFindings` and `findingsFor` read the report, and its baseline
+  key is `<file>:<keyword>:<instancePath>`, then `:<param>` for an error
+  whose keyword names what is at fault, with no message in it.
+  `package.json` gains `peerDependencies` on `ajv` `^8.0.0`, `yaml` `^2.0.0`
+  and `jsonc-parser` `^3.0.0`, each optional in `peerDependenciesMeta`, and
+  still no `dependencies`. `doctor` gains a `schema` row in every report,
+  `not configured` and required by nothing in a repo with no rule. In a
+  named suite the `schemas` rules declare the check, with no `checks.schema`
+  entry beside them.
+- Additive: in a file with `extends`, the config schema accepts an entry of
+  the top-level `checks`, or of a `packs` block's `checks`, that overrides
+  part of a check a preset declares, such as `{ "description": "…" }` with no
+  `use` or `command`, which the loader has always deep-merged.
+  `examples/shared-preset` holds one, and the schema refused it. A file with
+  no `extends` is held to what it was, and so is a target's `checks` in any
+  file, since a preset declares no targets for one to merge with.
+- A `schemas` rule is now held to what the slot can run, where a load used to
+  check its `schema` reference alone: `files` is an array of globs, `format`
+  is one of the four, a `checkride:<id>` is one of the two that ship, and
+  with no `format` each glob's extension names one. A config that carried a
+  rule outside those, ahead of the slot, is exit 2 until it is fixed.
+- A custom check named `schema`, a `command` entry with no `use`, runs as it
+  did in a config with no `schemas` rule: the slot stands aside. A config
+  that holds both that check and a `schemas` rule is exit 2, naming the clash
+  and saying to rename the custom check, so neither replaces the other.
 
 ## [0.20.0] - 2026-11-05
 

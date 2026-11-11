@@ -169,6 +169,7 @@ check between two later without shifting the others.
 | `smoke` | Built package imports cleanly | built-in | opt-in |
 | `snippets` | Tagged doc fences type-check | built-in (`tsc`) | opt-in |
 | `unclaimed` | Every toolchain marker sits in a target | built-in | with `targets` |
+| `schema` | Data files satisfy their JSON Schemas | built-in | with `schemas` |
 
 `build`, `publint`, `attw`, `pack`, `smoke` and `snippets` are the
 **publish-ready bundle** — opt-in library slots that check the shipped artifact
@@ -218,6 +219,7 @@ slot, and that slot's raw output for structured diagnostics. On a big repo,
 | `doctor` says a tool is not installed | `pnpm install`, or `pnpm add -D <pkg>`; `mise install` for a tool `mise.toml` pins; otherwise the command its hint names, such as `uv sync` |
 | A check runs that your config never named | Its status line's tag names why, as `[detected: <file>]`; set `"<slot>": false` to stop it |
 | Checks fail naming `mise trust` | mise won't read a `mise.toml` it hasn't trusted: review the file, then `mise trust` |
+| `schema` fails | Read `.check/schema.json`: each error names its file, the JSON pointer and the keyword. A rule that matches no file fails too. `needs ajv`, `yaml` or `jsonc-parser` means the repo hasn't installed it: run the `add -D` command in the reason |
 | `unclaimed` fails | A toolchain marker sits outside every target: `checkride target add <name> --lang <pack> --root <dir>`, or add a glob for its path to `unclaimed.ignore` |
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |

@@ -85,6 +85,7 @@ src/
   orchestrator/     slot selection, spawning, .check/ writing, the summary
   packs/            the language packs' adapter rows, and the tools they run (data-only)
   qa/               bundled-plugin reader: the quality artifacts
+  schema/           built-in data-file validation: the `schemas` rules, their formats, the libraries a repo installs
   targets/          named (pack, root) targets, and the rules their config keeps
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
@@ -101,9 +102,9 @@ build/              sea/build.mjs: `pnpm build:sea`, the standalone binary for t
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Eleven modules (`agent-setup/`, `artifacts/`,
+siblings reach only the index. Twelve modules (`agent-setup/`, `artifacts/`,
 `baseline/`, `digest/`, `findings/`, `launch/`, `orchestrator/`, `packs/`,
-`qa/`, `targets/`, `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
+`qa/`, `schema/`, `targets/`, `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
 same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 

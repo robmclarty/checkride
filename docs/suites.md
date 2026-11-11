@@ -46,12 +46,18 @@ reason no code edit clears.
 
 ## An evals suite
 
-A suite's config has the shape of any checkride config. Each check here is a
-plain `command`: a script of the repo's own that reads the saved records and
-exits 0 when they pass.
+A suite's config has the shape of any checkride config. Most checks here are
+a plain `command`: a script of the repo's own that reads the saved records
+and exits 0 when they pass. The label files need no script. "Every label file
+is well formed" is a `schemas` rule, which the built-in
+[`schema` slot](./tools.md#the-schema-slot-data-files-against-json-schemas)
+validates against a JSON Schema the repo keeps.
 
 ```json
 {
+  "schemas": [
+    { "files": ["evals/cases/**/*.label.yaml"], "schema": "evals/label.schema.json" }
+  ],
   "checks": {
     "refusals": {
       "command": "node",
@@ -67,11 +73,6 @@ exits 0 when they pass.
       "command": "node",
       "args": ["evals/checks/identifier-leaks.mjs", "evals/runs/latest.json"],
       "description": "No code identifier in a user-facing answer"
-    },
-    "labels": {
-      "command": "node",
-      "args": ["evals/checks/labels.mjs", "evals/cases"],
-      "description": "Every label file is well formed"
     },
     "case-pool": {
       "command": "node",
@@ -94,6 +95,7 @@ $ checkride --suite evals
 
 Running 6 check(s) of suite evals...
 
+  ✔ schema            58ms  Data files satisfy their JSON Schemas  [built-in]
   ✔ refusals          41ms  No false answer on a case that should be refused  [custom]
   ...
 
@@ -108,20 +110,28 @@ suite wrote it. A run of the default suite carries no such field.
 
 In the default suite, checkride detects the tools a repo has and fills each
 slot it can. A named suite doesn't. It runs exactly the checks its config
-declares: each custom check, and each slot the config names an adapter for.
+declares: each custom check, each slot the config names an adapter for, and
+the `schema` check when the config holds `schemas` rules.
 
 ```json
 {
+  "schemas": [
+    { "files": ["evals/cases/**/*.label.yaml"], "schema": "evals/label.schema.json" }
+  ],
   "checks": {
     "docs": "markdownlint-cli2",
-    "labels": { "command": "node", "args": ["evals/checks/labels.mjs", "evals/cases"] }
+    "case-pool": { "command": "node", "args": ["evals/checks/case-pool-hash.mjs", "evals/cases", "evals/pool.sha256"] }
   }
 }
 ```
 
-That suite runs two checks. It doesn't run `lint` because the repo has an
+That suite runs three checks. It doesn't run `lint` because the repo has an
 oxlint config, and it doesn't run the `links` built-in, which every default
-run does. An entry that only tunes a slot, such as `"lint": { "timeout": 30 }`,
+run does. The `schemas` rules are themselves the declaration of `schema`: they
+say what to check, so the suite needs no `checks.schema` entry beside them,
+and a suite with no `schemas` has no `schema` check. Its report lands in the
+suite's own directory, `.check/suites/evals/schema.json`, and a rule that
+matches no file is a finding on `checkride.evals.config.json`. An entry that only tunes a slot, such as `"lint": { "timeout": 30 }`,
 is a config error in a suite, because no detected tool is left to take the
 tuning. That holds on every machine, whether or not the repo has a linter.
 

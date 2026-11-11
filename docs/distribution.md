@@ -95,7 +95,9 @@ through a mise that shares nothing with the machine's and finds no Node on
 The binary is the same CLI as the npm package, built as a Node
 [single executable application](https://nodejs.org/api/single-executable-applications.html):
 the bundled CLI, the scaffold templates, the schemas and the skills, embedded
-in a copy of Node. It runs the code paths the npm CLI runs, on the Node it
+in a copy of Node, with the three libraries the
+[`schema` slot](./tools.md#the-schema-slot-data-files-against-json-schemas)
+validates with (`ajv`, `yaml` and `jsonc-parser`) bundled in. It runs the code paths the npm CLI runs, on the Node it
 carries, so a Go, Rust, Python, Terraform or Odin repo needs no Node and no
 package manager to run its gate. `checkride --version` prints the same
 version in both channels, and `init` scaffolds the same files, byte for byte.
@@ -224,6 +226,14 @@ the pinned install in front of one that doesn't, or that holds no `node`.
   default to an npm tool. Cursor's generated `protect` hook is a Node script
   as well, so on a machine with no `node` Cursor can't run it. Claude Code's
   `protect` is a permission rule and needs none.
+
+One thing the binary carries that the npm package doesn't: the `schema`
+slot's libraries. From npm they're optional peers the repo installs. A repo
+with no Node has no install to hold them, so the binary bundles `ajv` 8,
+`yaml` 2 and `jsonc-parser` 3 at the versions the release was built with, and
+a `schemas` rule runs there with nothing to install. It never consults a copy
+in the repo's own `node_modules`, and `doctor` shows the slot's row as
+`bundled:` with each version.
 
 `doctor`'s `node` row fails nothing in the binary when `PATH` holds no
 `node`: it reads `not on PATH (checkride embeds Node <version>)`, and the

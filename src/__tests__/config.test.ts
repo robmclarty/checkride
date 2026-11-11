@@ -1386,6 +1386,18 @@ describe('published JSON Schema', () => {
     expect(validate({ unclaimed: { ignored: [] } })).toBe(false);
   });
 
+  test('accepts an override of part of a check a preset declares, which the loader deep-merges onto it', () => {
+    // examples/shared-preset: the repo rewords an inherited check and keeps its command.
+    expect(validate({ extends: '@acme/preset', checks: { 'no-todos': { description: 'waived for src/legacy' } } })).toBe(true);
+    expect(validate({ extends: './base.json', checks: { test: { args: ['run', '--coverage'], timeout: 300 }, licenses: { detect: ['LICENSE'] } } })).toBe(true);
+    // With no preset beneath it there is nothing to inherit, so the same entry names no tool.
+    expect(validate({ checks: { 'no-todos': { description: 'waived for src/legacy' } } })).toBe(false);
+    // Under a preset, a key nothing reads is still refused, and so is a value of the wrong type.
+    expect(validate({ extends: './base.json', checks: { 'no-todos': { summary: 'no such key' } } })).toBe(false);
+    expect(validate({ extends: './base.json', checks: { 'no-todos': { description: 3 } } })).toBe(false);
+    expect(validate({ extends: './base.json', checks: { lint: { timeout: 5 }, links: false, test: 'vitest' } })).toBe(true);
+  });
+
   test('accepts the schemas rules the loader accepts, and rejects what V8 rules out', () => {
     const rules: CheckrideConfig['schemas'] = [
       { files: ['skills/*/SKILL.md'], schema: 'checkride:agent-skill', format: 'frontmatter', note: 'why' },
@@ -1413,8 +1425,8 @@ describe('published JSON Schema', () => {
     expect(definitionEnum(['packName'])).toEqual(languagePacks);
   });
 
-  test('the target names it reserves are every slot name, unclaimed included, plus schema, doc-snippets and suites', () => {
-    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'doc-snippets', 'suites']);
+  test('the target names it reserves are every slot name, unclaimed and schema included, plus doc-snippets and suites', () => {
+    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'doc-snippets', 'suites']);
   });
 });
 

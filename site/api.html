@@ -579,7 +579,8 @@ class Component extends DCLogic {
       ['smoke', 'target', 'Built package imports cleanly', 'built-in', '—', true],
       ['snippets', 'target', 'Tagged doc fences type-check', 'built-in (tsc)', 'snippets-dist', true],
       ['unclaimed', 'repo', 'Every toolchain marker sits in a target', 'built-in', '—', 'targets'],
-    ].map(([slot, scope, role, tool, alts, optIn], i) => ({ slot, scope, role, tool, alts, def: optIn === 'targets' ? 'with targets' : optIn ? '○' : '✅', accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
+      ['schema', 'repo', 'Data files satisfy their JSON Schemas', 'built-in', '—', 'schemas'],
+    ].map(([slot, scope, role, tool, alts, optIn], i) => ({ slot, scope, role, tool, alts, def: typeof optIn === 'string' ? 'with ' + optIn : optIn ? '○' : '✅', accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 
     // ---- programmatic exports ----
     const fnExports = ['runChecks', 'runFix', 'selectChecks', 'runDoctor', 'runInit', 'loadConfig', 'resolveChecks', 'ADAPTERS', 'SLOTS', 'PACKS', 'TOOLS', 'SCHEMA_VERSION', 'DEFAULT_TIMEOUT_SECONDS'].map(name => ({ name }));
@@ -598,7 +599,7 @@ class Component extends DCLogic {
       ['unclaimed', '{ ignore: [...] }: the toolchain markers the unclaimed check leaves alone.'],
       ['gate', 'What the stop gate runs: only, skip, changed, preflight and note. Every verdict names the narrowing.'],
       ['note', 'Free text for the humans reading the file.'],
-      ['schemas', 'Reserved for the schema slot, which ships in a later release; a run checks only each rule\'s schema reference.'],
+      ['schemas', 'Rules for the schema slot, each { files, schema, format }: the files its globs match must satisfy a JSON Schema, a bundled checkride:<id> one or a path in the repo. The slot runs once this holds a rule.'],
     ].map(([k, v], i) => ({ k, v, bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 
     return {

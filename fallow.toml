@@ -10,6 +10,8 @@
 # vitest.stryker.config.ts as a string, which fallow can't follow.
 # build/sea/build.mjs is `pnpm build:sea`, which builds the standalone binary:
 # a script package.json runs and nothing imports, and the one user of esbuild.
+# fallow leaves build/ out by default, so what that directory imports is
+# listed under ignoreDependencies below.
 entry = [
   "src/index.ts",
   "src/findings/api.ts",
@@ -39,6 +41,12 @@ ignoreDependencies = [
   "@arethetypeswrong/cli",
   "@vvago/vale",
   "publint",
+  # The schema slot's parsers. Nothing under src/ imports them, by design: the
+  # npm package loads them from the repo it checks. Here they are what the
+  # standalone binary bundles (build/sea/schema-libraries.mjs, which fallow
+  # doesn't read) and what the tests link into their temp repos by path.
+  "yaml",
+  "jsonc-parser",
 ]
 
 [rules]

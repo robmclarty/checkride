@@ -43,6 +43,8 @@ import { channel, nodeVersion } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
+import type { LibraryLookup } from './schema/index.js';
+import { probeSchemaLibraries } from './schema/index.js';
 import type { Suite } from './suite.js';
 import { listSuites, suiteCommand } from './suite.js';
 import { isRecord } from './json.js';
@@ -216,6 +218,8 @@ export type DoctorEnv = {
    * environment.
    */
   nixCopy?: (found: string, at: { cwd: string; repo: string }) => { version?: string } | null;
+  /** The libraries the `schema` slot's rules need, as a run in the repo would find them; the repo's install, or the binary's bundle, when omitted. */
+  schemaLibraries?: LibraryLookup;
 };
 
 export type DoctorOptions = {
@@ -812,6 +816,19 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
 }
 
 /**
+ * {@link probeTool}, but for the one built-in that needs something installed:
+ * `schema`, whose probe is the libraries its rules validate with.
+ */
+function probeCheck(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: () => Launch): Promise<ToolProbe> {
+  return adapter.builtin === SCHEMA_SLOT ? Promise.resolve(schemaProbe(adapter, at, env)) : probeTool(adapter, at, env, launch);
+}
+
+/** The `schema` built-in's probe: the libraries its rules need, as a run from `at` would find them. */
+function schemaProbe(adapter: Adapter, at: ProbeAt, env: DoctorEnv): ToolProbe {
+  return probeSchemaLibraries(adapter.options?.schema?.rules ?? [], at, env.schemaLibraries);
+}
+
+/**
  * What an unavailable check could be turned on with: its own pack's
  * candidate adapters, or `adapters` for a check with no pack, each with what
  * would turn it on, as the run's vacuous-green warning names them, led by a
@@ -851,15 +868,23 @@ function copyLabel(path: string, nix: { version?: string } | null): string {
 /** The shared prefix of every `tool`-category doctor row: the check's name in the slot column, and its target. */
 type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null; target?: string };
 
+/** The one slot that keeps its row while the config leaves it off, so the report says its rules are what it waits for. */
+const SCHEMA_SLOT = 'schema';
+
 /** The reason resolution gives a check its config switched off. */
 const DISABLED_REASON = 'disabled in checkride.config.json';
 
 /**
- * A row for a slot that is off but not simply missing its tool — disabled in
- * config, or its adapter can't run under this PM. `null` when neither applies
+ * A row for a slot that is off but not simply missing its tool — not switched
+ * on by the config, disabled in it, or its adapter can't run under this PM.
+ * `null` when none applies
  * (the caller then handles the no-adapter case and the live probe).
  */
 function offRow(base: ToolRowBase, r: ResolvedCheck, adapter: Adapter | null, pm: PackageManager): DoctorCheck | null {
+  // Not switched on by the config: the reason resolution gave says what would.
+  if (r.inactive === true) {
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: 'not configured', expected: null, hint: `It ${r.skip ?? 'is inactive'}.` };
+  }
   // Explicitly disabled in config, at any layer: off by the user's choice.
   if (adapter === null && r.skip === DISABLED_REASON) {
     return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'disabled', found: DISABLED_REASON, expected: null, hint: null };
@@ -979,7 +1004,7 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);
   // Adapter resolved: probe the tool where its pin chain finds it, classify by default-run membership.
-  const probe = await probeTool(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx));
+  const probe = await probeCheck(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx));
   return toolRow(base, r, adapter, ctx.defaultActive, probe);
 }
 
@@ -1020,9 +1045,15 @@ function askLauncher(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotC
  * needs an install, asked of the launcher a run spawns it through, which
  * pre-flights `node_modules/.bin` under every package manager but a PnP
  * install (R13.4), or `null` when its tool resolves as the checkout stands.
- * A built-in launches no tool.
+ * A built-in launches no tool, and only `schema` needs the install, for the
+ * libraries it validates with: a run skips it with its refusal's first line,
+ * and so does its row.
  */
 function needsInstall(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotContext): string | null {
+  if (adapter.builtin === SCHEMA_SLOT) {
+    const { status, hint } = schemaProbe(adapter, at, ctx.env);
+    return status === 'missing' && hint !== null ? installSkip(hint) : null;
+  }
   if (adapter.builtin !== undefined) return null;
   const launch = askLauncher(r, adapter, at, ctx);
   return 'refusal' in launch ? installSkip(launch.refusal) : null;
@@ -1464,8 +1495,9 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
 /**
  * A row for every check, so off/opt-in/disabled slots stay visible instead of
  * silently dropped, then one for each tool nothing pins. The orchestrator
- * decides what runs by default. A slot the config hasn't activated
- * (`unclaimed` without targets) isn't one this repo runs, so it has no row.
+ * decides what runs by default. A slot the config hasn't activated isn't one
+ * this repo runs: `unclaimed` without targets has no row, since the markers
+ * row speaks for it, and `schema` without rules has one that says so.
  */
 async function checkRows(
   common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; suite: Suite; defaults: CheckrideConfig | null },
@@ -1474,7 +1506,7 @@ async function checkRows(
   env: DoctorEnv,
 ): Promise<DoctorCheck[]> {
   const { cwd, slots, adapters, config, suite, defaults } = common;
-  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd, suite }).filter((r) => r.inactive !== true);
+  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd, suite }).filter((r) => r.inactive !== true || r.slot === SCHEMA_SLOT);
   const overrides = run.pins?.tools;
   const ctx: SlotContext = {
     repo: cwd,

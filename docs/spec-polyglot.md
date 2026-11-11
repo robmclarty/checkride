@@ -3,8 +3,10 @@
 **Status:** implemented, apart from what a later build takes up: the standalone binary, its
 release pipeline and the `github:` mise channel (R14.1 and R14.3, steps 69 to 71,
 [D80 (binary-deferred)](../.plumbbob/builds/2026-10-09-polyglot-targets-language-packs/intent.md#d80)), and the `schema` slot with its bundled schemas (R11.5, steps 66
-to 68, [D85 (schema-deferred)](../.plumbbob/builds/2026-10-09-polyglot-targets-language-packs/intent.md#d85)), whose `schemas` key a config may hold while no run acts on
-it. R11.6's `bash-strict-mode` dialect rule wasn't built either, since no scaffold ships bash
+to 68, [D85 (schema-deferred)](../.plumbbob/builds/2026-10-09-polyglot-targets-language-packs/intent.md#d85)). The `schema` slot has shipped since, with `ajv`, `yaml` and
+`jsonc-parser` as optional peer dependencies the repo installs, where C6 planned three runtime
+dependencies: [Tools](./tools.md#the-schema-slot-data-files-against-json-schemas) covers it.
+R11.6's `bash-strict-mode` dialect rule wasn't built either, since no scaffold ships bash
 rules. Written 2026-10-08 and absorbed whole by `/plumbbob:plan` as the build
 `2026-10-09-polyglot-targets-language-packs`, whose `intent.md` became the live plan and records
 every amendment; kept as the design record.

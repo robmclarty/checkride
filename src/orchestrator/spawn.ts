@@ -21,6 +21,7 @@ import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
 import { KILL_GRACE_SECONDS, killGroup } from '../proc.js';
+import { runSchemaCheck } from '../schema/index.js';
 import { checkSecurity } from '../security.js';
 import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
@@ -299,6 +300,20 @@ function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome>
 }
 
 /**
+ * `schema` runs its rules in-process, with the libraries the repo installed.
+ * A library it needs and the repo lacks refuses it as a tool the project
+ * never installed refuses its check, and a schema it can't use fails it with
+ * the reason, whatever the run's mode.
+ */
+async function runSchema({ adapter, ctx }: BuiltinCall): Promise<CheckOutcome> {
+  const options = adapter.options?.schema ?? { rules: [], configFile: '' };
+  const run = await runSchemaCheck(options, { repo: ctx.repo ?? ctx.cwd, pm: ctx.pm });
+  if ('install' in run) return refusedOutcome(run.install, ctx);
+  if ('refusal' in run) return { ok: false, exit_code: 1, stdout: '', stderr: run.refusal, refusal: refusalDetail(run.refusal) };
+  return run.outcome;
+}
+
+/**
  * Every built-in that spawns or reads in-process, by its `builtin` id, apart
  * from `links`, which the runner calls first. The snippets pair shares one
  * execution path, differing only in mode, and `unclaimed` checks against the
@@ -308,6 +323,7 @@ const BUILTINS: ReadonlyMap<string, (call: BuiltinCall) => Promise<CheckOutcome>
   ['pack', ({ ctx, base }) => checkPack({ ...base, pm: ctx.pm })],
   ['smoke', ({ ctx, base }) => checkSmoke({ ...base, scratch: ctx.scratch })],
   ['security', runSecurity],
+  ['schema', runSchema],
   ['snippets', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'src', pm: ctx.pm })],
   ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'dist', pm: ctx.pm })],
   [

@@ -372,6 +372,30 @@ describe('checkride.baseline.json', () => {
     expect(fingerprint('trivy-config', JSON.stringify({ SchemaVersion: 2, Results: [] }))).toBeNull();
   });
 
+  test('the schema built-in adds what a keyword names as at fault to its key, so two errors of one keyword at one pointer differ', () => {
+    for (const param of ['name', 'description']) {
+      const report = JSON.stringify({ rules: [], errors: [{ file: 'skills/pdf/SKILL.md', rule: 0, instancePath: '', keyword: 'required', message: `must have required property '${param}'`, param }] });
+      expect(fingerprint('schema', report)).toEqual(new Set([`skills/pdf/SKILL.md:required::${param}`]));
+    }
+  });
+
+  test('the schema built-in keys as <file>:<keyword>:<instancePath>, every error, and never on the message', () => {
+    const keys = new Set(['skills/pdf/SKILL.md:pattern:/name', 'config/app.json:parse:']);
+    for (const message of ['must match pattern "^[a-z0-9]+(-[a-z0-9]+)*$"', 'must match pattern "^[a-z]+$"']) {
+      const report = JSON.stringify({
+        rules: [{ schema: 'checkride:agent-skill', files: 2 }],
+        errors: [
+          { file: 'skills/pdf/SKILL.md', rule: 0, instancePath: '/name', keyword: 'pattern', message, line: 2 },
+          { file: 'config/app.json', rule: 1, instancePath: '', keyword: 'parse', message: 'Unexpected end of JSON input' },
+        ],
+      });
+      expect(fingerprint('schema', report)).toEqual(keys);
+    }
+    expect(fingerprint('schema', JSON.stringify({ rules: [], errors: [] }))).toEqual(new Set());
+    // A payload that isn't the report is not observed, so it prunes nothing.
+    expect(fingerprint('schema', JSON.stringify({ ok: true }))).toBeNull();
+  });
+
   test('odin check keys as <file>::<first message line>, every error, a warning only under -warnings-as-errors, and a run stopped at a syntax error keys nothing', () => {
     // The compiler prints absolute paths, and a key names them from the repo root.
     const vet = JSON.stringify({

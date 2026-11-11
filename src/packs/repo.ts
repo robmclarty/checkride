@@ -223,5 +223,22 @@ export const REPO_PACK: Pack = {
       static: true,
       devDeps: {},
     },
+    {
+      name: 'schema',
+      slot: 'schema',
+      description: 'Data files satisfy their JSON Schemas',
+      // Always available once the slot is active, which takes a `schemas`
+      // rule: the rules say which files to read and what each must satisfy.
+      detect: [],
+      command: 'node',
+      args: [],
+      outputFile: 'schema.json',
+      builtin: 'schema',
+      // It reads the repo as data. The libraries it validates with are the
+      // repo's own, so a `--static-only` run of a checkout nobody installed
+      // skips it, as it skips any check whose tool needs the install.
+      static: true,
+      devDeps: {},
+    },
   ],
 };

@@ -69,13 +69,6 @@ export type Target = {
   readonly exclude?: readonly string[];
 };
 
-/**
- * Repo-scope slots R5.1 appends after `snippets` that haven't joined `SLOTS`
- * yet. V2 reserves each name anyway, so a target named after one doesn't break
- * on the upgrade that adds it (R5.1).
- */
-export const RESERVED_SLOTS: readonly string[] = ['schema'];
-
 /** The pack whose slots check the repo as a whole; a target or a `packs` key never names it. */
 const REPO_PACK = 'repo';
 
@@ -119,9 +112,9 @@ function catalogue(context: ValidationContext): Catalogue {
   return {
     cwd: context.cwd,
     layer: context.layer,
-    slotNames: new Set([...names(() => true), ...RESERVED_SLOTS]),
+    slotNames: new Set(names(() => true)),
     targetSlots: new Set(names((s) => s.scope !== 'repo')),
-    repoSlots: new Set([...names((s) => s.scope === 'repo'), ...RESERVED_SLOTS]),
+    repoSlots: new Set(names((s) => s.scope === 'repo')),
     packs: new Map(packs.map((p) => [p.name, p])),
   };
 }

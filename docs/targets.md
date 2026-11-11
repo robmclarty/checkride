@@ -60,7 +60,7 @@ preset's pack block then fills what the repo's own entries leave open.
 
 Each target runs the slots its pack fills, once, from its root: `web:types`,
 `web:lint`, `scripts:lint` and so on. The repo-scope slots (`struct`, `docs`,
-`links`, `spell`, `prose` and `unclaimed`) still run once, for the whole repo,
+`links`, `spell`, `prose`, `unclaimed` and `schema`) still run once, for the whole repo,
 under their bare names, and so do top-level custom checks.
 
 A target's slot takes its tool from the target's own `checks`, then from

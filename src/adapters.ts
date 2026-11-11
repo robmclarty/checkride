@@ -49,7 +49,8 @@ export type Slot = {
   scope?: 'target' | 'repo';
   /**
    * A `checkride.config.json` key the slot needs before its tool can run:
-   * `unclaimed` needs `targets`. Without the key the slot is inactive, absent
+   * `unclaimed` needs `targets`, and `schema` needs `schemas` with a rule in
+   * it. Without the key the slot is inactive, absent
    * from a run the way an unselected opt-in slot is, even under `--all`,
    * unless a token names it, which records it as skipped with the reason. A
    * config entry that picks a tool for the slot runs it either way.
@@ -88,6 +89,15 @@ export type AdapterOptions = {
    * `checks` blocks hold, which no target it suggests may take.
    */
   unclaimed?: { targets: { name: string; pack: string; root: string }[]; ignore: string[]; taken?: string[] };
+  /**
+   * Read by the `schema` built-in, from the config rather than a `checks`
+   * entry: its `schemas` rules, and `configFile`, the config file that holds
+   * them, which a finding about a rule itself names.
+   */
+  schema?: {
+    rules: { files: string[]; schema: string; format?: 'json' | 'jsonc' | 'yaml' | 'frontmatter' }[];
+    configFile: string;
+  };
 };
 
 /** A concrete tool that can fill a slot. */
@@ -316,6 +326,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'smoke', scope: 'target', optIn: true, order: 20 },
   { name: 'snippets', scope: 'target', optIn: true },
   { name: 'unclaimed', scope: 'repo', activeWith: 'targets' },
+  { name: 'schema', scope: 'repo', activeWith: 'schemas' },
 ];
 
 /**

@@ -402,6 +402,81 @@ describe('the standalone binary', () => {
     });
   });
 
+  describe('the schema slot, on the libraries the binary bundles', () => {
+    const RULES = {
+      checks: { links: false },
+      schemas: [
+        { files: ['skills/*/SKILL.md'], schema: 'checkride:agent-skill' },
+        { files: ['.vscode/*.jsonc'], schema: 'schemas/settings.schema.json' },
+        { files: ['workflows/*.yml'], schema: 'schemas/settings.schema.json' },
+        { files: ['checkride.config.json'], schema: 'checkride:checkride-config' },
+      ],
+    };
+    const SETTINGS = { type: 'object', required: ['name'], properties: { name: { type: 'string' }, tabSize: { type: 'integer' } } };
+
+    beforeEach(() => {
+      for (const sub of ['skills/pdf', '.vscode', 'workflows', 'schemas']) mkdirSync(join(dir, sub), { recursive: true });
+      write(dir, 'checkride.config.json', RULES);
+      write(dir, 'schemas/settings.schema.json', SETTINGS);
+      write(dir, 'skills/pdf/SKILL.md', '---\nname: pdf\ndescription: Reads and fills PDF forms.\n---\n\n# PDF\n');
+      write(dir, '.vscode/settings.jsonc', '{\n  // the editor\n  "name": "editor",\n  "tabSize": 2,\n}\n');
+      write(dir, 'workflows/ci.yml', 'name: CI\non: push\n');
+    });
+
+    test('the repo has no node_modules, and no node to install one with', () => {
+      expect(existsSync(join(dir, 'node_modules'))).toBe(false);
+      expect(spawn('/bin/sh', ['-c', 'command -v node'], dir, BARE_ENV).code).not.toBe(0);
+    });
+
+    test('YAML frontmatter, JSONC and YAML rules go green, and the report counts their files', () => {
+      const run = binary([], dir);
+      expect(run.stderr).toContain('✔ all checks passed');
+      expect(run.code).toBe(0);
+      expect(JSON.parse(readFileSync(join(dir, '.check', 'schema.json'), 'utf8'))).toEqual({
+        rules: [
+          { schema: 'checkride:agent-skill', files: 1 },
+          { schema: 'schemas/settings.schema.json', files: 1 },
+          { schema: 'schemas/settings.schema.json', files: 1 },
+          { schema: 'checkride:checkride-config', files: 1 },
+        ],
+        errors: [],
+      });
+    });
+
+    test('they go red on a skill misnamed for its directory, a JSONC value of the wrong type and a duplicate YAML key', () => {
+      write(dir, 'skills/pdf/SKILL.md', '---\nname: pdf-tools\ndescription: Reads and fills PDF forms.\n---\n');
+      write(dir, '.vscode/settings.jsonc', '{\n  "name": "editor", // still a comment\n  "tabSize": "two",\n}\n');
+      write(dir, 'workflows/ci.yml', 'name: CI\nname: Again\n');
+      const run = binary([], dir);
+      expect(run.code).toBe(1);
+      expect(run.stderr).toMatch(/^ {2}✘ schema /m);
+      const report = JSON.parse(readFileSync(join(dir, '.check', 'schema.json'), 'utf8')) as { errors: { file: string; keyword: string; instancePath: string; line?: number }[] };
+      expect(report.errors.map(({ file, keyword, instancePath, line }) => ({ file, keyword, instancePath, line }))).toEqual([
+        { file: 'skills/pdf/SKILL.md', keyword: 'directory-name', instancePath: '/name', line: 2 },
+        { file: '.vscode/settings.jsonc', keyword: 'type', instancePath: '/tabSize', line: 3 },
+        { file: 'workflows/ci.yml', keyword: 'parse', instancePath: '', line: 2 },
+      ]);
+      expect(run.stderr).toContain("skills/pdf/SKILL.md:2  /name must equal the parent directory's name, 'pdf'  [directory-name]");
+    });
+
+    test('a copy of a library in the repo is never the one that runs', () => {
+      // An ajv the npm CLI would refuse, and would crash on if it loaded it.
+      mkdirSync(join(dir, 'node_modules', 'ajv'), { recursive: true });
+      write(dir, 'node_modules/ajv/package.json', { name: 'ajv', version: '6.12.6', main: 'index.js' });
+      write(dir, 'node_modules/ajv/index.js', 'throw new Error("the repo\'s ajv was loaded");\n');
+      const run = binary(['--only', 'schema'], dir);
+      expect(run.stderr).not.toContain('ajv');
+      expect(run.code).toBe(0);
+    });
+
+    test('doctor reports the slot ready, with the bundled versions', () => {
+      const report = JSON.parse(binary(['doctor', '--json'], dir).stdout) as { checks: { slot?: string; status: string; found: string | null }[] };
+      const row = report.checks.find((c) => c.slot === 'schema');
+      expect(row?.status).toBe('ok');
+      expect(row?.found).toMatch(/^bundled: ajv 8\.\d+\.\d+, yaml 2\.\d+\.\d+, jsonc-parser 3\.\d+\.\d+$/);
+    });
+  });
+
   test('triage runs the gate through the binary on PATH and asks the binary’s own doctor, and qa reads the run', () => {
     write(dir, 'checkride.config.json', GREEN);
     const triage = binary(['triage'], dir);

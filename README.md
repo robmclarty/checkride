@@ -316,6 +316,7 @@ odin packs fill the target slots with their own (see
 | `smoke`    | target | Built package imports cleanly (opt-in) | built-in            | —                |
 | `snippets` | target | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
 | `unclaimed` | repo   | Every toolchain marker sits in a target (with `targets`) | built-in | — |
+| `schema`   | repo   | Data files satisfy their JSON Schemas (with `schemas`) | built-in | — |
 
 Most of these tools you already know. The one unfamiliar name, `fallow`, is a
 Rust-native codebase-analysis tool covering dead code, duplication, and
@@ -346,6 +347,13 @@ then it fails when a toolchain marker, such as a `package.json` or a
 check reads. Without `targets` it stays out of
 every run, `--all` included, and naming it with `--only unclaimed` records it
 as skipped with the reason.
+
+`schema` is inactive the same way, until the config holds a `schemas` rule.
+Then it validates the files each rule names (JSON, JSONC, YAML, or a Markdown
+file's YAML frontmatter) against a JSON Schema: one the repo keeps, or one of
+the two that ship, `checkride:agent-skill` and `checkride:checkride-config`.
+A rule that matches no file fails, and so does a file that doesn't parse.
+[Validate data files](#validate-data-files) shows the config.
 
 To **configure a slot without opting it in** — say, give `attw` a `--profile` but keep it
 in the full sweep only — add `"optIn": true` to its entry: it stays out of the default run
@@ -641,6 +649,33 @@ root. Once targets exist, a top-level entry for a target slot may only turn it
 off or tune it (`optIn`, `timeout`, `order`), since the tool depends on the
 pack. `checkride target add` writes a target for you, and
 [Targets](./docs/targets.md) holds the rules.
+
+### Validate data files
+
+`schemas` is a list of rules for the `schema` slot, each a set of globs and
+the JSON Schema their files must satisfy:
+
+```jsonc
+{
+  "schemas": [
+    { "files": ["skills/*/SKILL.md"],       "schema": "checkride:agent-skill" },      // bundled; reads the frontmatter
+    { "files": ["config/*.json"],           "schema": "schemas/service.schema.json" },
+    { "files": [".github/workflows/*.yml"], "schema": "schemas/workflow.schema.json" }
+  ]
+}
+```
+
+A file is read by its extension, or by the rule's `format`: `json`, `jsonc`,
+`yaml` or `frontmatter`. Schemas are draft 2020-12 or draft-07, and a `$ref`
+may reach a sibling file but never a URL, since a check makes no network
+call.
+
+The package still has no runtime dependency. The slot validates with the
+`ajv` (8.x), `yaml` (2.x) and `jsonc-parser` (3.x) the repo installs, each
+only when a rule needs it, and a missing one fails the check with the install
+command. The standalone binary bundles all three.
+[The `schema` slot](./docs/tools.md#the-schema-slot-data-files-against-json-schemas)
+covers the formats, the bundled schemas and the report.
 
 ### Custom checks
 

@@ -476,6 +476,17 @@ is keyed:
 - tflint's issues at or above the argv's `--minimum-failure-severity`, every
   one by default, a notice included, and none under `--force`.
 
+The `schema` built-in's key has the same three parts and no message:
+`<file>:<keyword>:<instancePath>`, so `skills/pdf/SKILL.md:pattern:/name`, and
+`config/app.json:parse:` for a file that doesn't parse. An error with a
+`param` adds it, `<file>:<keyword>:<instancePath>:<param>`, so a missing
+`name` is `skills/pdf/SKILL.md:required::name` and a missing `description` a
+key of its own: two errors of one keyword at one pointer never share a key,
+and one can't be swapped for the other under a baseline that counts them. A
+message quotes the schema, and a parser's own wording moves with its version,
+so neither a reworded pattern nor a library bump turns a grandfathered
+finding new. Every error is keyed, since each fails the slot.
+
 tsc's key (`types`) has the same form, its rule the diagnostic's `TS` code and
 its message the first line of tsc's with what tsc filled into it written
 `…`: each single-quoted span as `'…'`, then each double-quoted span as
@@ -997,6 +1008,87 @@ the reason `runs only when checkride.config.json declares targets`. A config
 entry that picks a tool for the slot, such as a custom check of the same
 name, runs either way.
 
+**With `schemas`, `schema` validates data files against JSON Schemas.** It's
+a repo-scope built-in that runs once the config's `schemas` holds a rule, the
+defaults layer's where the repo's config has no `schemas` key. Each rule runs
+in order, over the files git lists at the repo root, tracked or untracked but
+not ignored, or every file outside a git repository, that one of its `files`
+globs matches. A file is read by the rule's `format`, or by its own extension
+where the rule sets none: `json` is strict, `jsonc` allows comments and
+trailing commas, `yaml` is the YAML 1.2 core schema with a duplicate key an
+error, and `frontmatter` is the YAML between a file's first line, which must
+be `---`, and the next line that is exactly `---`. A schema is draft 2020-12
+or draft-07 by its `$schema`, 2020-12 when it names none; `format` keywords
+aren't asserted; a `$ref` reaches the schema file itself, by pointer or by an
+`$id` it declares, the draft's own meta-schema, and sibling files by relative
+path, and is read only where a schema can sit. Under `--changed` it runs every rule over every file.
+
+It writes `schema.json` in the output directory, a named suite's own for a
+suite, in checkride's own format, even when it passes:
+
+```json
+{ "rules": [ { "schema": "checkride:agent-skill", "files": 3 } ],
+  "errors": [ { "file": "skills/pdf/SKILL.md", "rule": 0, "instancePath": "/name",
+                "keyword": "pattern", "message": "must match pattern ...", "line": 2 },
+              { "file": "skills/docx/SKILL.md", "rule": 0, "instancePath": "",
+                "keyword": "required", "message": "must have required property 'description'",
+                "param": "description", "line": 2 } ] }
+```
+
+`rules` holds each rule, in order, with how many files it matched. Each error
+names its `file` from the repo root, the index of its `rule`, the JSON pointer
+`instancePath`, a `keyword` and a `message`; `param`, what the keyword names
+as at fault, when it names something (the property a `required` or
+`dependentRequired` error misses, the one an `additionalProperties` or
+`unevaluatedProperties` error found, the name `propertyNames` refused); and
+`line`, 1-based, when the parser kept positions, which strict `json` doesn't.
+A byte order mark at the head of a file or a schema is dropped. `keyword` is the JSON
+Schema keyword the value broke, or one of the slot's own: `parse` for a file
+that doesn't parse, `frontmatter` for one with no block, `files` for a rule
+that matched no file, reported on the config file at `/schemas/<n>/files`,
+`$ref` for a reference to a URL, reported on the schema file, and
+`directory-name` for a skill whose `name` isn't its directory's. More
+keywords would be more values, which is additive. It exits 0 with no errors
+and 1 otherwise.
+
+Two things fail the check before it reads a file, exit 1, with the cause as
+the entry's `reason` and no `schema.json`. One is a schema it can't use:
+missing, not JSON, not a valid schema, or of a draft it doesn't read. The
+other is a library it needs and the repo hasn't installed. The package
+declares `ajv` (`^8.0.0`), `yaml` (`^2.0.0`) and `jsonc-parser` (`^3.0.0`) as
+optional peer dependencies and depends on none: it loads each from
+`node_modules` at the repo root, `ajv` for any rule, `yaml` for a `yaml` or
+`frontmatter` rule and `jsonc-parser` for a `jsonc` one. A missing one, or
+one at another major, gives the reason
+``the `schema` slot needs `yaml`, which is not installed in this project: run `pnpm add -D yaml@^2` ``,
+with the install command of the repo's package manager, and under
+`--static-only` skips the check as any tool that needs the install does, with
+the same reason on `doctor --static-only`'s row. A Yarn Plug'n'Play install
+writes no `node_modules`, so there the reason names no install command:
+``the `schema` slot reads `ajv` from node_modules, which Yarn Plug'n'Play doesn't write: run the standalone checkride binary, which bundles it, or set `nodeLinker: node-modules` in .yarnrc.yml``.
+The standalone binary bundles all three and reads no copy from the repo, and
+no file the npm package ships imports any of them.
+
+Two schemas ship, `checkride:agent-skill` and `checkride:checkride-config`.
+The first holds a skill's frontmatter to a `name` matching
+`^[a-z0-9]+(-[a-z0-9]+)*$` of at most 64 characters and a `description` of 1
+to 1024, allows any other property, and adds the `directory-name` check. The
+second is the config schema.
+
+Without a `schemas` rule, `schema` is **inactive** exactly as `unclaimed` is
+without `targets`: absent from `checks` under every flag, so a repo that
+configures none sees the output and the `summary.json` it always has, and
+`--only schema` records one skipped entry with the reason
+`runs only when checkride.config.json declares schemas`. An empty `schemas`
+list is no rule. A custom check named `schema`, a `command` entry with no
+`use`, is untouched by the slot in a config with no rule: it resolves and
+runs as the custom check it was, `origin: "custom"`, gated by its `detect`.
+A config that holds both that check and a `schemas` rule is exit 2,
+`checks.schema is a custom check, and schemas switches on the built-in schema check, which takes that name: rename the custom check`,
+so neither stands in for the other. `doctor` gives the slot a row either way: `not configured`,
+the versions of the libraries a run would load, or the library that's missing
+with its install command.
+
 **`checkride target add` declares a target and converts a repo that has
 none.** `checkride target add <name> --lang <pack> --root <dir>` adds the
 target to `checkride.config.json`, creating the file when it's absent, and
@@ -1114,8 +1206,10 @@ it wins for the directory. A config error in a suite's config names the file
 by its short name, `checkride.<name>.config.json`.
 
 A named suite runs exactly the checks its config declares: each entry that
-names an adapter, and each custom check. Detection fills no slot, no built-in
-joins on its own, and `unclaimed` never runs. An entry that tunes a slot and
+names an adapter, each custom check, and the `schema` check when its config
+holds a `schemas` rule, since the rules are what the suite wrote to be
+checked and they need no `checks.schema` entry beside them. Detection fills
+no slot, no built-in joins on its own, and `unclaimed` never runs. An entry that tunes a slot and
 names no tool is a config error, whatever tools the repo holds, unless
 another layer of a target's check names the tool. `extends`, `order`,
 `timeout`, `optIn` and `targets` work as they do in the default suite.
@@ -1564,7 +1658,11 @@ written:
   level.
 - `schemas` is an array of rules, and each rule's `schema` names a bundled
   `checkride:<id>` schema or a path relative to the repo root, never a URL or
-  an absolute path, because a check never fetches.
+  an absolute path, because a check never fetches. A bundled id is one of the
+  two that ship. A rule's `files` is an array of globs and its `format`, when
+  set, one of `json`, `jsonc`, `yaml` and `frontmatter`; with none set, each
+  glob's extension has to name one (`.json`, `.jsonc`, `.yaml`, `.yml`, `.md`
+  or `.mdx`).
 - `skipExitCode` sits only on a `{ command }` entry, and a repo's config never
   sets `static`, which only a defaults file may.
 - A defaults file declares no `targets`, and nor does anything it `extends`.
@@ -1580,10 +1678,9 @@ unnoticed while the run ignores it.
 Eight packs ship, `ts`, `repo`, `bash`, `go`, `rust`, `python`,
 `terraform` and `odin`, which [Packs and pins](./packs.md) covers. A run checks each
 declared target as the [summary section](#checksummaryjson) describes, and
-reports the code no target checks through `unclaimed`. A `schemas` key is
-accepted, and held to the rule above, but no run acts on it: the `schema` slot
-that reads it waits for a later release, so a config may carry its rules ahead
-of that slot. `requirePins` fails a check whose tool
+reports the code no target checks through `unclaimed`. A `schemas` key with a
+rule in it switches the `schema` slot on, which validates the files each rule
+names as [the `schema` paragraphs above](#cli) describe. `requirePins` fails a check whose tool
 resolves from `PATH` with no pin, apart from a toolchain's own executable,
 such as `go`, `cargo`, `terraform` or `tofu`, whose version the project's own
 files bound. A ts root without targets resolves every tool through its
@@ -1782,7 +1879,8 @@ parsers.** The subpath is public and semver-bound as well, and exports
   `golangci-lint`, `staticcheck`, `clippy`, `cargo-check`, `shellcheck`,
   `markdownlint-cli2`, `rumdl`, `typos`, `tsc`, `go-build`, `ruff`, `mypy`,
   `basedpyright`, `tflint`, `terraform-validate`, `trivy-config`,
-  `odin-check`, `odin-vet` and `odin-unused` today. The set only grows. A custom check whose `name` is one of these is read by
+  `odin-check`, `odin-vet`, `odin-unused` and `schema`, the built-in's own
+  report, today. The set only grows. A custom check whose `name` is one of these is read by
   that adapter's parser.
 
 Each `Finding` carries `adapter`; `slot`, the check's, or for `fallow` the one

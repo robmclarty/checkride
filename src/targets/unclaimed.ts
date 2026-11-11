@@ -20,7 +20,7 @@ import { PACKS } from '../packs/index.js';
 import { excluded, globRegExp } from './files.js';
 import { isWithin, markerKind, repoFiles, slugName } from './markers.js';
 import { nameTargets } from './names.js';
-import { nestingPack, RESERVED_SLOTS } from './resolve.js';
+import { nestingPack } from './resolve.js';
 
 /** A target as `unclaimed` reads it: the pack that checks it, from its root. */
 export type Claimant = { readonly name: string; readonly pack: string; readonly root: string };
@@ -65,7 +65,7 @@ function outPrefix(repo: string, out: string | undefined): string | null {
 export async function findUnclaimed(repo: string, input: UnclaimedInput, git: GitRunner = realGit(repo)): Promise<Unclaimed[]> {
   const ignore = (input.ignore ?? []).map(globRegExp);
   const out = outPrefix(repo, input.out);
-  const taken = new Set([...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, ...input.targets.map((t) => t.name), ...(input.taken ?? [])]);
+  const taken = new Set([...SLOTS.map((s) => s.name), ...input.targets.map((t) => t.name), ...(input.taken ?? [])]);
   const paths = await repoFiles(repo, git);
   const found = paths.flatMap((path) => {
     const kind = markerKind(path);

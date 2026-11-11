@@ -1,7 +1,10 @@
 // Build the standalone `checkride` binary for the host platform (R14.1).
 //
-// A Node single executable application: esbuild bundles the built CLI
-// (`dist/cli.js`) into one ES module, every file under `templates/`, `schema/`
+// A Node single executable application: esbuild bundles `./entry.mjs`, which
+// is the built CLI (`dist/cli.js`) behind the three libraries the `schema`
+// slot validates with (`./schema-libraries.mjs`: `ajv`, `yaml` and
+// `jsonc-parser`, at the versions package.json pins as dev dependencies),
+// into one ES module, every file under `templates/`, `schema/`
 // and `skills/` is embedded as an asset beside `package.json`, under the
 // relative path `src/resources.ts` reads it by, and `node --build-sea` injects
 // both into a copy of the Node binary. Run as `pnpm build:sea`, which builds
@@ -33,6 +36,15 @@ const SEA_NODE_VERSION = readFileSync(join(HERE, '.node-version'), 'utf8').trim(
 const ASSET_ROOTS = ['templates', 'schema', 'skills'];
 
 const ROOT = join(HERE, '..', '..');
+
+/** The `require` the bundle's CommonJS modules reach Node's built-ins through. */
+const REQUIRE_BUILTINS = [
+  'const require = (id) => {',
+  '  const builtin = process.getBuiltinModule(id);',
+  '  if (builtin === undefined) throw new Error(`the checkride binary bundles no module named ${id}`);',
+  '  return builtin;',
+  '};',
+].join('\n');
 
 /** Where the build lands: gitignored, outside `dist/`, so `npm pack` never sees it. */
 const OUT_DIR = join(ROOT, '.sea');
@@ -82,11 +94,22 @@ async function main() {
 
   const bundle = join(OUT_DIR, 'checkride.mjs');
   await build({
-    entryPoints: [join(ROOT, 'dist', 'cli.js')],
+    entryPoints: [join(HERE, 'entry.mjs')],
     outfile: bundle,
     bundle: true,
     platform: 'node',
     format: 'esm',
+    // The npm package depends on nothing, and nothing under `dist/` imports
+    // the `schema` slot's libraries: it loads them from the repo it runs in.
+    // The binary has no install to load them from, so `./schema-libraries.mjs`
+    // imports all three and this bundle carries them. An ES module build is
+    // preferred where a package ships one, since jsonc-parser's `main` is a
+    // UMD file whose `require` calls no bundler can follow.
+    mainFields: ['module', 'main'],
+    // ajv and yaml are CommonJS, and `require` a Node built-in here and
+    // there, which an ES module bundle has no `require` for. Everything else
+    // they require is in the bundle, so built-ins are all this one answers.
+    banner: { js: REQUIRE_BUILTINS },
     target: `node${SEA_NODE_VERSION}`,
     legalComments: 'none',
     logLevel: 'warning',

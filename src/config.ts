@@ -31,6 +31,7 @@ import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapte
 import { SLOTS } from './adapters.js';
 import { channel } from './channel.js';
 import { isRecord } from './json.js';
+import { schemaRulesProblem } from './schema/index.js';
 import type { Suite } from './suite.js';
 import { declaresItsChecks, DEFAULT_SUITE } from './suite.js';
 import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.js';
@@ -186,15 +187,15 @@ type PackConfig = Noted & { checks?: Record<string, SlotConfig> };
 
 /**
  * One rule for the `schema` slot: the files it validates and the JSON Schema
- * they must satisfy. The slot ships in a later release; until then the loader
- * holds `schema` to its rule and no run acts on the rest.
+ * they must satisfy. The slot runs once `schemas` holds a rule, each in
+ * order, and a rule that matches no file fails it.
  */
 type SchemaRule = Noted & {
   /** Globs, relative to the repo root, for the files the rule validates. */
   files: string[];
   /** A bundled `checkride:<id>` schema or a repo-relative path, never a URL or an absolute path. */
   schema: string;
-  /** How each file is read; unset, it follows the extension. */
+  /** How each file is read; unset, it follows the extension, and a glob whose extension names no format is a config error. */
   format?: 'json' | 'jsonc' | 'yaml' | 'frontmatter';
 };
 
@@ -237,7 +238,7 @@ export type CheckrideConfig = Noted & {
   requirePins?: boolean;
   /** The `unclaimed` check's settings: marker paths it never reports. */
   unclaimed?: { ignore?: string[] };
-  /** Data-file rules for the `schema` slot, which a later release ships. */
+  /** Data-file rules for the `schema` slot, which runs once this holds a rule. */
   schemas?: SchemaRule[];
 };
 
@@ -838,7 +839,7 @@ function rootedChain(chain: Chain, own: Record<string, unknown>): Chain {
  * name, for the errors resolution finds later.
  */
 function validated(config: Record<string, unknown>, cwd: string, file: string): CheckrideConfig {
-  const problem = configProblem(config, { cwd, layer: 'repo' });
+  const problem = configProblem(config, { cwd, layer: 'repo' }) ?? schemaRulesProblem(config['schemas']) ?? schemaClashProblem({ config, defaults: null });
   if (problem !== null) invalidConfig(problem, undefined, file);
   if (file !== CONFIG_FILE) LABELS.set(config, file);
   return config;
@@ -936,9 +937,10 @@ function checkDefaultsEntries(config: CheckrideConfig): void {
  */
 export function loadDefaultsFile(path: string, cwd: string): CheckrideConfig {
   const config = resolveConfigFile(path, rootChain(path));
-  const problem = configProblem(config, { cwd, layer: 'defaults' }) ?? defaultsKeyProblem(config);
+  const problem = configProblem(config, { cwd, layer: 'defaults' }) ?? schemaRulesProblem(config['schemas']) ?? defaultsKeyProblem(config);
   if (problem !== null) invalidConfig(problem, undefined, path);
   relabeled(path, () => checkDefaultsEntries(config));
+  LABELS.set(config, path);
   return config;
 }
 
@@ -1669,14 +1671,32 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
 }
 
 /**
+ * The config a top-level `key` is read from: the repo's own when it holds the
+ * key, else the defaults layer's when that does (R13.1), else `null`.
+ */
+function holderOf(input: Pick<ResolveInput, 'config' | 'defaults'>, key: string): CheckrideConfig | null {
+  const holds = (config: CheckrideConfig | null | undefined): config is CheckrideConfig => config !== null && config !== undefined && Object.hasOwn(config, key);
+  if (holds(input.config)) return input.config;
+  return holds(input.defaults) ? input.defaults : null;
+}
+
+/** True when `input` holds `key` with something in it: an empty list, as `schemas: []` is, declares nothing. */
+function declaresKey(input: Pick<ResolveInput, 'config' | 'defaults'>, key: string): boolean {
+  const holder = holderOf(input, key);
+  if (holder === null) return false;
+  const value: unknown = Reflect.get(holder, key);
+  return !Array.isArray(value) || value.length > 0;
+}
+
+/**
  * The inactive check for `slot` when the config lacks the key the slot needs
  * (`Slot.activeWith`) and no entry picks its tool, or `null` when the slot is
  * active. An entry that picks a tool, a repo's own custom check of that name
  * among them, runs it either way.
  */
-function inactiveCheck(slot: Slot, entry: SlotConfig | undefined, config: CheckrideConfig | null): ResolvedCheck | null {
+function inactiveCheck(slot: Slot, entry: SlotConfig | undefined, input: Pick<ResolveInput, 'config' | 'defaults'>): ResolvedCheck | null {
   const key = slot.activeWith;
-  if (key === undefined || decides(entry) || (config !== null && Object.hasOwn(config, key))) return null;
+  if (key === undefined || decides(entry) || declaresKey(input, key)) return null;
   return { ...skipped(slot, `runs only when checkride.config.json declares ${key}`), inactive: true };
 }
 
@@ -1732,7 +1752,7 @@ function repoSlotCheck(slot: Slot, input: ResolveInput, detection: Detection, be
   const repo = [top, below?.repo];
   // An entry with nothing under it resolves as written, as it always has.
   const entry = below?.repo === undefined ? top : layeredEntry(repo, slot.name);
-  const resolved = inactiveCheck(slot, entry, input.config) ?? resolveOne(slot, entry, input.adapters, detection);
+  const resolved = inactiveCheck(slot, entry, input) ?? resolveOne(slot, entry, input.adapters, detection);
   const defaults = [below?.defaults, input.defaults?.checks?.[slot.name]];
   return filledByDefaults(resolved, entry, { slot, repo, defaults, adapters: input.adapters, detection });
 }
@@ -1746,6 +1766,20 @@ function withClaims(check: ResolvedCheck, targets: readonly Target[], config: Ch
   if (check.adapter?.builtin !== 'unclaimed') return check;
   const claims = { targets: targets.map(({ name, pack, root }) => ({ name, pack, root })), ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config) };
   return { ...check, adapter: withOptions(check.adapter, { unclaimed: claims }) };
+}
+
+/**
+ * The `schema` built-in with what it checks carried on its options: the
+ * config's `schemas` rules, the defaults layer's where the repo's config holds
+ * no `schemas` key, and the file that holds them. Any other check
+ * passes through, and so does the built-in under a config with no rule, which
+ * an entry that names it can still run, to find nothing to check.
+ */
+function withSchemas(check: ResolvedCheck, input: Pick<ResolveInput, 'config' | 'defaults'>): ResolvedCheck {
+  if (check.adapter?.builtin !== 'schema') return check;
+  const config = holderOf(input, 'schemas');
+  const rules = (config?.schemas ?? []).map(({ files, schema, format }) => ({ files, schema, ...(format === undefined ? {} : { format }) }));
+  return { ...check, adapter: withOptions(check.adapter, { schema: { rules, configFile: labelOf(config) } }) };
 }
 
 /** The pack of a repo without targets (R2.1), from the markers its root holds. */
@@ -1990,15 +2024,63 @@ function declaredOnlyOf(input: ResolveInput): boolean {
 }
 
 /**
+ * True for the `schema` built-in a suite's `schemas` rules switched on. The
+ * rules are the suite's own words for what to check, so they declare the
+ * check with no `checks.schema` entry beside them: a suite whose rules ran
+ * nothing would be the config that points at nothing and stays green.
+ */
+function declaredByRules(check: ResolvedCheck): boolean {
+  return check.adapter?.builtin === 'schema' && check.inactive !== true;
+}
+
+/** The slot whose name a repo's custom check may have taken before the slot existed. */
+const SCHEMA_SLOT = 'schema';
+
+/**
+ * The top-level `checks.schema` entry when it's a custom check, a `command`
+ * with no `use`, from the repo's config or else the defaults layer's; `null`
+ * for any other entry, and for none.
+ */
+function customSchemaCheck(input: Pick<ResolveInput, 'config' | 'defaults'>): SlotConfig | null {
+  const entry = input.config?.checks?.[SCHEMA_SLOT] ?? input.defaults?.checks?.[SCHEMA_SLOT];
+  return isEntryObject(entry) && 'command' in entry && !('use' in entry) ? entry : null;
+}
+
+/**
+ * Why a config can't hold both `schemas` rules and a custom check named
+ * `schema`, or `null` when it holds at most one. The rules switch on the
+ * built-in check of that name, and one would silently stand in for the
+ * other, so the config says which it means by renaming its own.
+ */
+function schemaClashProblem(input: Pick<ResolveInput, 'config' | 'defaults'>): string | null {
+  if (customSchemaCheck(input) === null || !declaresKey(input, 'schemas')) return null;
+  return 'checks.schema is a custom check, and schemas switches on the built-in schema check, which takes that name: rename the custom check (checks.schema-lint, say), so that neither stands in for the other';
+}
+
+/**
+ * The slots a resolution reads. A repo could name a custom check `schema`
+ * before the slot of that name existed, so where the config holds no
+ * `schemas` rule and `checks.schema` is such a check, the slot stands aside
+ * and the check resolves as the custom check it always was: after the
+ * catalogue, gated by its `detect`, recorded as `custom`.
+ */
+function slotsOf(input: ResolveInput): readonly Slot[] {
+  const problem = schemaClashProblem(input);
+  if (problem !== null) invalidConfig(problem);
+  return customSchemaCheck(input) === null ? input.slots : input.slots.filter((slot) => slot.name !== SCHEMA_SLOT);
+}
+
+/**
  * The checks of a named suite, out of everything resolution found: each one
  * an entry of its config picks a tool for, a custom check or a `use` of an
- * adapter, and nothing detection or a built-in's default added. A declared
+ * adapter, the `schema` check its `schemas` rules declare, and nothing
+ * detection or a built-in's default added. A declared
  * check that can't run, as one naming an adapter the registry lacks, stays as
  * a skipped row, so the mistake shows.
  */
 function declaredChecks(checks: readonly ResolvedCheck[], catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
   return checks.filter((check) => {
-    if (check.origin === 'config' || !catalogueNames.has(check.slot)) return true;
+    if (check.origin === 'config' || !catalogueNames.has(check.slot) || declaredByRules(check)) return true;
     return check.adapter === null && check.explicit === true;
   });
 }
@@ -2031,11 +2113,12 @@ function declaredChecks(checks: readonly ResolvedCheck[], catalogueNames: Readon
  * declares ({@link declaredChecks}), and an entry that tunes a slot without
  * naming a tool is a config error, whatever detection would find.
  */
-export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
-  return relabeled(labelOf(input.config), () => {
+export function resolveChecks(given: ResolveInput): ResolvedCheck[] {
+  return relabeled(labelOf(given.config), () => {
+    const input: ResolveInput = { ...given, slots: slotsOf(given) };
     const catalogueNames = new Set(input.slots.map((s) => s.name));
     const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
-      sortByGroup((declaredOnlyOf(input) ? declaredChecks(checks, catalogueNames) : checks).map((check) => withClaims(check, targets, input.config)));
+      sortByGroup((declaredOnlyOf(input) ? declaredChecks(checks, catalogueNames) : checks).map((check) => withSchemas(withClaims(check, targets, input.config), input)));
     const declared = configuredTargets(input.config);
     if (declared !== null) return claimed(targetChecks(input, declared, catalogueNames), declared);
     const pack = implicitPackOf(input);
