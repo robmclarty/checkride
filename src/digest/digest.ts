@@ -25,7 +25,7 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { artifactStem, CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
+import { CHECK_DIR, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import { copyNamed, findingText, fingerprint, printedByKey } from '../baseline/index.js';
 import { parserFor } from '../findings/index.js';
@@ -34,6 +34,7 @@ import type { CheckOutcome } from '../links.js';
 import type { CheckRun, SummaryCheck } from '../orchestrator/index.js';
 import type { GoTestCase } from './go-test.js';
 import { caseName, goTestReport } from './go-test.js';
+import { capped, lastLines, rawPointer } from './raw.js';
 
 /** The digest file, beside `summary.json` in the output directory. */
 export const DIGEST_FILE = 'digest.md';
@@ -62,28 +63,6 @@ export type DigestTarget = { label: string; repoRoot?: string };
  */
 const DEFAULT_BUDGET: DigestBudget = { maxItemsPerSlot: 10, maxBytes: 8000 };
 
-/**
- * The output-directory path holding the bytes this section excerpts, under
- * `label` as an agent would type it (`.check/lint.json`), and matched to how
- * `persistOutput` in `../orchestrator/execute.ts` persisted them: the file the
- * summary names as `output_file` when the run wrote one, everything else in
- * `<slot>.stdout.txt` / `<slot>.stderr.txt`, a target's check under its
- * `<target>/` directory. Points the agent at exactly what to read for the full
- * diagnostics.
- */
-function rawPointer(check: SummaryCheck, outcome: CheckOutcome, label: string): string {
-  if (check.output_file !== null) return `${label}/${check.output_file}`;
-  const stem = artifactStem(check);
-  if (outcome.stdout.trim()) return `${label}/${stem}.stdout.txt`;
-  if (outcome.stderr.trim()) return `${label}/${stem}.stderr.txt`;
-  return `${label}/${SUMMARY_FILE}`;
-}
-
-/** Non-empty lines of the raw text, used by the tail fallback. */
-function contentLines(text: string): string[] {
-  return text.split('\n').filter((line) => line.trim() !== '');
-}
-
 /** What one section renders from: the check's run and summary entry, its raw file's pointer, and the item cap. */
 type Section = { run: CheckRun; check: SummaryCheck; raw: string; maxItems: number; repoRoot: string | undefined };
 
@@ -100,12 +79,6 @@ function renderSection(run: CheckRun, check: SummaryCheck, maxItems: number, lab
   const section: Section = { run, check, raw: rawPointer(check, run.outcome, label), maxItems, repoRoot };
   const body = newFindingsBody(section) ?? goTestBody(section) ?? findingsBody(section) ?? tailBody(section);
   return `## ${check.name} — ${run.adapter.name}\n\n${body}`;
-}
-
-/** Up to `max` lines of `items`, then a `… N more` line pointing at `raw` when there are more. */
-function capped(items: readonly string[], max: number, raw: string): string[] {
-  const lines = items.slice(0, max);
-  return items.length > max ? [...lines, `- … ${items.length - max} more (see \`${raw}\`)`] : lines;
 }
 
 /**
@@ -173,7 +146,7 @@ function findingsBody({ run, check, raw, maxItems, repoRoot }: Section): string 
   // From the stream the baseline reads, a target's paths from the repo root.
   const keys = fingerprint(adapter.name, findingText(adapter.name, outcome), [adapter.command, ...adapter.args], run.root, repoRoot);
   if (keys === null || keys.size === 0) return null;
-  const lines = capped([...keys].map((k) => `- ${k}`), maxItems, raw);
+  const lines = capped([...keys].map((k) => `- ${k}`), maxItems, (more) => `- … ${more} more (see \`${raw}\`)`);
   return `Raw: \`${raw}\` — ${keys.size} finding(s)\n${stoppedBy(check, outcome)}${driftNote(check, adapter.name)}\n${lines.join('\n')}\n`;
 }
 
@@ -181,14 +154,15 @@ function findingsBody({ run, check, raw, maxItems, repoRoot }: Section): string 
  * The tail of the raw text, for an adapter with no extractor (vitest, go
  * build, …), one whose keys leave part of a message out (tsc), or a supported one
  * that failed with no parsed findings — truncation, not normalization —
- * pointing at the file for the rest.
+ * pointing at the file for the rest. It tails the stream that file holds:
+ * stdout when it printed anything, except for a tool whose parser reads
+ * stderr, which `raw` names when it printed anything there.
  */
 function tailBody({ run, check, raw, maxItems }: Section): string {
   const { outcome } = run;
-  const all = contentLines(outcome.stdout.trim() ? outcome.stdout : outcome.stderr);
-  if (all.length === 0) return `Raw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n${stoppedBy(check, outcome)}`;
-  const tail = all.slice(-maxItems);
-  const note = tail.length < all.length ? ` — last ${tail.length} of ${all.length} lines` : '';
+  const { lines: tail, total } = lastLines(outcome.stdout.trim() && !raw.endsWith('.stderr.txt') ? outcome.stdout : outcome.stderr, maxItems);
+  if (total === 0) return `Raw: \`${raw}\` — exited ${outcome.exit_code} with no captured output\n${stoppedBy(check, outcome)}`;
+  const note = tail.length < total ? ` — last ${tail.length} of ${total} lines` : '';
   return `Raw: \`${raw}\`${note}\n${stoppedBy(check, outcome)}\n\`\`\`\n${tail.join('\n')}\n\`\`\`\n`;
 }
 

@@ -14,18 +14,17 @@ import { performance } from 'node:perf_hooks';
 import type { Adapter, Order } from '../adapters.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Baseline, BaselineEntry, Excess, FallowVerdict, RanWith, Tally } from '../baseline/index.js';
-import { applyBaseline, baselineDrift, entryFor, findingText, firstFinding, observedTally, printedByKey, reportVerdict, stoppedShortReason } from '../baseline/index.js';
+import { applyBaseline, baselineDrift, entryFor, findingText, observedTally, printedByKey, reportVerdict, stoppedShortReason } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import type { GoTestCase } from '../digest/index.js';
-import { caseName, goTestReport } from '../digest/index.js';
 import { failureLine, isAvailableUnder, packEnv, packToolchain, pinChain } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
 import type { RunContext } from './context.js';
+import { failureExcerpt } from './excerpt.js';
 import type { Place } from './place.js';
 import { placeOf } from './place.js';
-import { checkIdentity, formatStatusLine, provenanceFields, skippedEntry, writeLine } from './report.js';
+import { checkIdentity, formatStatusLine, provenanceFields, REPORT_INDENT, skippedEntry, writeLine } from './report.js';
 import { runtimeArgs } from './spawn.js';
 import type { CheckRun, CheckRunner, Drift, RunnerOutcome, SummaryCheck } from './types.js';
 
@@ -286,66 +285,42 @@ function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContex
 
 /**
  * Print one check's status line, its baselined count, why it failed when it
- * says, and what it found: its new (non-grandfathered) findings, its failing
- * tests, or, where neither lists anything, its first finding.
+ * says, and what it found: its new (non-grandfathered) findings, or, where it
+ * lists none and its reason line isn't the whole cause, an excerpt of its
+ * failing tests, its findings or its output ({@link failureExcerpt}). Last,
+ * the file that holds all of its output.
  */
-function reportCheckResult(stderr: RunContext['stderr'], entry: SummaryCheck, mask: MaskResult, width: number, run: CheckRun, read: Reading): void {
-  writeLine(stderr, formatStatusLine(entry, width));
-  if (mask.baselined > 0) writeLine(stderr, `           ${mask.baselined} baselined (grandfathered)`);
+function reportCheckResult(ctx: Pick<RunContext, 'stderr' | 'nameWidth' | 'outLabel'>, entry: SummaryCheck, mask: MaskResult, run: CheckRun, read: Reading): void {
+  const { stderr } = ctx;
+  writeLine(stderr, formatStatusLine(entry, ctx.nameWidth));
+  if (mask.baselined > 0) writeLine(stderr, `${REPORT_INDENT}${mask.baselined} baselined (grandfathered)`);
   if (entry.ok) return;
   const reason = entry.reason ?? mask.reason;
-  if (reason) writeLine(stderr, `           ${reason}`);
-  const found = [...newFindingsList(mask), ...goTestLines(run)];
-  for (const line of found.length > 0 ? found : firstFindingLine(run, mask, read)) writeLine(stderr, line);
+  if (reason) writeLine(stderr, `${REPORT_INDENT}${reason}`);
+  const found = newFindingsList(mask);
+  const stated = found.length > 0 || reasonIsCause(run, mask);
+  const excerpt = failureExcerpt({ run, check: entry, label: ctx.outLabel, argv: read.argv, repoRoot: read.repoRoot, stated });
+  for (const line of [...found, ...excerpt]) writeLine(stderr, line);
 }
 
 /** The findings a baseline didn't grandfather, under a line counting them, or nothing for a check with none. */
 function newFindingsList(mask: MaskResult): string[] {
   if (mask.newFindings === 0) return [];
-  return [`           ${mask.newFindings} new, not in baseline:`, ...newFindingLines(mask).map((line) => `             ${line}`)];
+  return [`${REPORT_INDENT}${mask.newFindings} new, not in baseline:`, ...newFindingLines(mask).map((line) => `${REPORT_INDENT}  ${line}`)];
 }
 
 /**
- * Beneath a red check that lists nothing it found, the first finding its
- * parser read that can fail it, in the tool's order, with how many more
- * ({@link firstFinding}): one line that names something to fix, where no
- * baseline masked the check, and the digest holds the rest. Nothing for a
- * check that reached no verdict or was refused before its tool ran, nor for
- * one a baseline couldn't mask because its tool stopped short, whose reason
- * line names what stopped it (with no baseline there's no such line, so such
- * a run names its first finding as any other does), nor for an adapter with
- * no parser, such as vitest, which the digest covers. The
- * parse is this line's own: masking parses only under a baseline entry, and
- * a red check it masked lists its new findings instead.
+ * Whether a red check's reason line is the whole of why it failed, so an
+ * excerpt of its output beneath it would only say it twice: a check that
+ * reached no verdict, whose line names what stopped it (a timeout, a tool
+ * that couldn't start, a built-in's `check-<slot>:` line), one refused before
+ * its tool ran, and one a baseline couldn't mask because its tool stopped
+ * short, whose line names the diagnostic that stopped it. Any other reason
+ * line (a setup hint, a `failOnOutput` verdict, fallow's) says how the check
+ * failed, not on what, and the excerpt follows it.
  */
-function firstFindingLine(run: CheckRun, mask: MaskResult, read: Reading): string[] {
-  const { adapter, outcome } = run;
-  if (outcome.exit_code === -1 || outcome.refusal !== undefined || mask.stoppedShort !== undefined) return [];
-  const first = firstFinding(adapter.name, findingText(adapter.name, outcome), read.argv, read.root, read.repoRoot);
-  if (first === null) return [];
-  return [`           ${first.line}${first.more > 0 ? ` (+${first.more} more)` : ''}`];
-}
-
-/** How many failing or unfinished tests a red go-test check names beneath its status line, of each. */
-const TESTS_NAMED = 10;
-
-/**
- * For a red `go test -json` check, the tests it failed and the ones still
- * running when it stopped, the first {@link TESTS_NAMED} of each, since its
- * raw output is events that a reader can't skim for a name.
- */
-function goTestLines(run: CheckRun): string[] {
-  if (run.adapter.name !== 'go-test') return [];
-  const report = goTestReport(run.outcome.stdout);
-  if (report === null) return [];
-  return [...namedTests(report.failed, 'failing test(s)'), ...namedTests(report.running, 'still running when it stopped')];
-}
-
-/** A heading with how many cases, then the first {@link TESTS_NAMED} of them, or nothing for none. */
-function namedTests(cases: readonly GoTestCase[], what: string): string[] {
-  if (cases.length === 0) return [];
-  const more = cases.length > TESTS_NAMED ? [`             … ${cases.length - TESTS_NAMED} more`] : [];
-  return [`           ${cases.length} ${what}:`, ...cases.slice(0, TESTS_NAMED).map((c) => `             ${caseName(c)}`), ...more];
+function reasonIsCause(run: CheckRun, mask: MaskResult): boolean {
+  return run.outcome.exit_code === -1 || run.outcome.refusal !== undefined || mask.stoppedShort !== undefined;
 }
 
 /** How many of a key's findings stderr lists beneath it, as the tool printed them. */
@@ -540,7 +515,7 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const run = checkRun(r, adapter, settledOutcome(adapter, outcome, mask));
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
-  if (!ctx.json) reportCheckResult(ctx.stderr, entry, mask, ctx.nameWidth, run, readingOf(adapter, scope));
+  if (!ctx.json) reportCheckResult(ctx, entry, mask, run, readingOf(adapter, scope));
   const observed = ratchetFeed(name, mask, drift, sawWhole(r, adapter, scope.base));
   return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
 }

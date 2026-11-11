@@ -189,7 +189,8 @@ describe('named suites', () => {
     expect(evals.suite).toBe('evals');
     expect(evals.checks.find((c) => c.name === 'suites')).toBeUndefined();
     expect(evals.checks.find((c) => c.name === '.check/suites/evals')).toBeDefined();
-  });
+    // Two `doctor` runs, each probing every tool: seconds under a loaded full run, as the other doctor tests allow for.
+  }, 30_000);
 
   test('a target can’t be named suites, in a config or through target add', async () => {
     await mkdir(join(dir, 'web'));

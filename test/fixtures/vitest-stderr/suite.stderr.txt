@@ -1,0 +1,25 @@
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  suite/broken.test.js [ suite/broken.test.js ]
+Error: Cannot find module './no-such-module.js' imported from /private/tmp/cr-vt/suite/broken.test.js
+ ❯ suite/broken.test.js:2:1
+      1| import { test } from 'vitest';
+      2| import { missing } from './no-such-module.js';
+       | ^
+      3| test('never runs', () => { missing(); });
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  suite/throws.test.js [ suite/throws.test.js ]
+Error: setup exploded
+ ❯ suite/throws.test.js:2:7
+      1| import { test } from 'vitest';
+      2| throw new Error('setup exploded');
+       |       ^
+      3| test('never runs', () => {});
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+

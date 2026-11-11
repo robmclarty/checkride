@@ -88,6 +88,13 @@ export function provenanceFields(resolved: ResolvedCheck): Pick<SummaryCheck, 'o
   };
 }
 
+/**
+ * What each line printed beneath a check's status line starts with: its
+ * baselined count, its reason, what it found, and the file that holds the
+ * rest. It sets them under the check's name.
+ */
+export const REPORT_INDENT = '           ';
+
 export function formatStatusLine(check: SummaryCheck, width: number): string {
   const mark = check.ok ? '✔' : '✘';
   const name = check.name.padEnd(width);

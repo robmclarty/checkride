@@ -338,11 +338,25 @@ Run the full `pnpm check` once at the end to confirm green.
 
 ## When a check fails
 
-Every run writes machine-readable output to `.check/`. To debug a failure:
+Every run writes machine-readable output to `.check/`, and a red check says
+why in the terminal. Beneath its ✘ line it prints a short excerpt of the
+cause, then the file that holds the rest:
+
+```text
+  ✘ lint         40ms  Oxlint, type-aware with oxlint-tsgolint  [detected: .oxlintrc.json]
+           src/a.ts:3:7  Variable 'x' is declared but never used.  [eslint(no-unused-vars)]
+           full output: .check/lint.json
+```
+
+For a tool checkride parses, the excerpt is up to five findings. For vitest
+it's the tests that failed, each with its error. For any
+other check, a custom `command` among them, it's the last eight lines the
+check printed, from stdout and stderr both when both hold any. That's often
+enough to fix it. When it isn't:
 
 1. Read **`.check/summary.json`** — the aggregate report. Find the check whose
    `ok` is `false`.
-2. Read that slot's raw output — **`.check/<slot>.json`** (for example
+2. Read that slot's raw output, the file its `full output:` line names — **`.check/<slot>.json`** (for example
    `.check/lint.json`), or `.check/<slot>.stdout.txt` when the tool's output is
    not JSON. In a repo with targets, a target's check writes under
    `.check/<target>/` instead, as `.check/web/lint.json`. A check refused

@@ -39,6 +39,61 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
   next `agent-setup` or `hooks add` appends.
 
+### Changed
+
+- **A red check says why, in the terminal.** A red check that checkride
+  parses named one finding beneath its status line, and one it doesn't
+  parse, a custom `command` or a test runner, named nothing, so a CI log
+  said that a check failed and never on what. Beneath its status line and
+  its reason, a red check now prints a bounded excerpt of its cause, then
+  `full output: <file>`, the file under the output directory that holds the
+  rest, under `<target>/` for a target's check and in a named suite's own
+  directory. For a tool with a parser the excerpt is up to five of the
+  findings that can fail the check, in the tool's order, each as
+  `path:line:col  message  [rule]`, then `… and N more`. This replaces the
+  single `path:line:col message (+N more)` line, and a tsc finding now reads
+  as any other, its code as the rule. For any other check it's the last
+  eight lines the check printed that aren't blank, with escape sequences and
+  control characters removed, a carriage return read as a line break, and
+  each line cut at 200 characters. They come from whichever stream holds
+  any. When both do, both are shown, under `stderr:` and `stdout:`, four
+  lines each with either taking what the other leaves unused, and the
+  pointer names both files, since nothing says which stream a tool reports
+  on. A tool its `failOnOutput` verdict failed shows stdout alone. A JSON
+  report is never shown as text: a check that failed with one checkride
+  reads no finding in, oxlint exiting 1 on warnings alone or a tool with no
+  parser, prints `exit N, no findings checkride can read in the JSON
+  report`. A red `go test` run still names its failing tests, and now
+  prints up to eight of the lines they printed beneath them, the first
+  failing test's first. A red vitest run names the tests that failed, up to
+  four, each as vitest names it, `<file> > <suite> > <test>`, with the
+  first line of its error beneath it, then `… and N more`: a tail of its
+  output ended in a code frame and named neither. A file that threw as it
+  was imported and an error thrown outside any test are named the same
+  way. That reading is for display alone, of the text vitest's default
+  reporter prints, so vitest stays outside `checkride/findings` and the
+  baseline, and a run it reads no failure in shows its last lines as any
+  other check does. A check that captured nothing says `no output
+  captured (exit N)`. A check whose cause is already on screen prints the
+  pointer alone: one that lists its new findings, one that reached no
+  verdict (a timeout, a tool that couldn't start), one refused before its
+  tool ran, and a tsc run a baseline couldn't mask because it stopped short.
+  A passing check prints nothing new, and `--json`, `summary.json` and exit
+  codes are as they were.
+
+### Fixed
+
+- **The digest points a stderr-parsed tool at the file its findings are
+  in.** A digest section's `Raw:` line named `<slot>.stdout.txt` whenever
+  the check printed anything on stdout. markdownlint-cli2 and the Odin
+  compiler print their findings on stderr, so their sections listed
+  findings from one file and pointed at the other. The line now names the
+  stream the tool's parser reads, `<slot>.stderr.txt` for those two, and
+  the `full output:` line beneath a red check names the same file. Where
+  such a tool printed no finding its parser reads, a config it couldn't
+  load, the section's excerpt is the end of that stderr file too, where it
+  was the end of stdout. Every other tool's section is as it was.
+
 ### Contract
 
 - Additive: the run flag `--suite <name>` and the variable `CHECKRIDE_SUITE`;

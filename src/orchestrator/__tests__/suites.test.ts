@@ -175,6 +175,12 @@ describe('runChecks for a named suite', () => {
     expect(outArg).toBe('.check/suites/evals');
   });
 
+  test("a red check's excerpt points into the suite's own output directory", async () => {
+    const std = sink();
+    await run({ suite: EVALS, runner: lintRunner([A]) }, std.out);
+    expect(std.lines.join('')).toContain('           a.ts  bad  [no-x]\n           full output: .check/suites/evals/lint.json\n');
+  });
+
   test('masks with its own baseline, never the default suite’s', async () => {
     await write(DEFAULT_FILE, [KEY_A]);
     // The default suite grandfathers A; the suite has no baseline, so A is new there.

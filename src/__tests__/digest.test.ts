@@ -83,6 +83,27 @@ describe('buildDigest', () => {
     expect(buildDigest([], [check('lint', { ok: true })])).toBeNull();
   });
 
+  test('points at the stream the tool’s parser reads, so a tool that reports on stderr is never pointed at its stdout', () => {
+    const markdownlint = fakeAdapter({ name: 'markdownlint-cli2', slot: 'docs' });
+    const stderr = 'README.md:3:1 error MD018/no-missing-space-atx No space after hash on atx style heading\n';
+    const red = [run(markdownlint, outcome({ stdout: 'Finding: README.md\nSummary: 1 error(s)\n', stderr }))];
+    const text = buildDigest(red, [check('docs', { adapter: 'markdownlint-cli2' })]) ?? '';
+    expect(text).toContain('Raw: `.check/docs.stderr.txt` — 1 finding(s)');
+    expect(text).not.toContain('docs.stdout.txt');
+    // A tool whose parser reads stdout, and one with no parser, keep stdout's file while it holds anything.
+    const noisy = [run(OXLINT, outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]), stderr: 'warning: slow rule\n' }))];
+    expect(buildDigest(noisy, [check('lint', { adapter: 'oxlint', output_file: 'lint.json' })])).toContain('Raw: `.check/lint.json`');
+    const vitest = fakeAdapter({ name: 'vitest', slot: 'test' });
+    expect(buildDigest([run(vitest, outcome({ stdout: 'FAIL a\n', stderr: 'noise\n' }))], [check('test', { adapter: 'vitest' })])).toContain('Raw: `.check/test.stdout.txt`');
+    // Where its parser reads no finding, the tail comes from the file the section names.
+    const crashed = buildDigest([run(markdownlint, outcome({ stdout: 'markdownlint-cli2 v0.23.3\n', stderr: 'Error: bad config\n' }))], [check('docs', { adapter: 'markdownlint-cli2' })]) ?? '';
+    expect(crashed).toContain('Raw: `.check/docs.stderr.txt`');
+    expect(crashed).toContain('Error: bad config');
+    expect(crashed).not.toContain('v0.23.3');
+    // With nothing on stderr there's no such file to name.
+    expect(buildDigest([run(markdownlint, outcome({ stdout: 'crashed\n' }))], [check('docs', { adapter: 'markdownlint-cli2' })])).toContain('Raw: `.check/docs.stdout.txt`');
+  });
+
   test('a check run with another copy than its baseline keys were captured with says its new keys may be churn', () => {
     const red = [run(OXLINT, outcome({ stdout: oxlint([['a.ts', 'no-x', 'bad']]) }))];
     const drifted = check('lint', { adapter: 'oxlint', output_file: 'lint.json', pin_source: 'nix', tool_version: '2.11.4', baseline_captured_with: { pin_source: 'path' } });

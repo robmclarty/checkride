@@ -1,0 +1,22 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  one/sum.test.js > sum > adds two numbers
+AssertionError: expected 3 to be 4 // Object.is equality
+
+- Expected
++ Received
+
+- 4
++ 3
+
+ ❯ one/sum.test.js:4:19
+      2| describe('sum', () => {
+      3|   test('adds two numbers', () => {
+      4|     expect(1 + 2).toBe(4);
+       |                   ^
+      5|   });
+      6| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

@@ -1,0 +1,102 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  many/many.test.js > many > one
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ many/many.test.js:3:33
+      1| import { describe, expect, test } from 'vitest';
+      2| describe('many', () => {
+      3|   test('one', () => { expect(1).toBe(2); });
+       |                                 ^
+      4|   test('two', () => { throw new Error('boom two'); });
+      5|   test('three', () => { null.x; });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  many/many.test.js > many > two
+Error: boom two
+ ❯ many/many.test.js:4:29
+      2| describe('many', () => {
+      3|   test('one', () => { expect(1).toBe(2); });
+      4|   test('two', () => { throw new Error('boom two'); });
+       |                             ^
+      5|   test('three', () => { null.x; });
+      6|   test('four', () => { expect({ a: 1 }).toEqual({ a: 2 }); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  many/many.test.js > many > three
+TypeError: Cannot read properties of null (reading 'x')
+ ❯ many/many.test.js:5:30
+      3|   test('one', () => { expect(1).toBe(2); });
+      4|   test('two', () => { throw new Error('boom two'); });
+      5|   test('three', () => { null.x; });
+       |                              ^
+      6|   test('four', () => { expect({ a: 1 }).toEqual({ a: 2 }); });
+      7|   test('five', () => { expect('a').toBe('b'); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  many/many.test.js > many > four
+AssertionError: expected { a: 1 } to deeply equal { a: 2 }
+
+- Expected
++ Received
+
+  {
+-   "a": 2,
++   "a": 1,
+  }
+
+ ❯ many/many.test.js:6:41
+      4|   test('two', () => { throw new Error('boom two'); });
+      5|   test('three', () => { null.x; });
+      6|   test('four', () => { expect({ a: 1 }).toEqual({ a: 2 }); });
+       |                                         ^
+      7|   test('five', () => { expect('a').toBe('b'); });
+      8|   test('six', () => { expect(true).toBe(false); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  many/many.test.js > many > five
+AssertionError: expected 'a' to be 'b' // Object.is equality
+
+Expected: "b"
+Received: "a"
+
+ ❯ many/many.test.js:7:36
+      5|   test('three', () => { null.x; });
+      6|   test('four', () => { expect({ a: 1 }).toEqual({ a: 2 }); });
+      7|   test('five', () => { expect('a').toBe('b'); });
+       |                                    ^
+      8|   test('six', () => { expect(true).toBe(false); });
+      9| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+ FAIL  many/many.test.js > many > six
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ many/many.test.js:8:36
+      6|   test('four', () => { expect({ a: 1 }).toEqual({ a: 2 }); });
+      7|   test('five', () => { expect('a').toBe('b'); });
+      8|   test('six', () => { expect(true).toBe(false); });
+       |                                    ^
+      9| });
+     10|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/6]⎯
+

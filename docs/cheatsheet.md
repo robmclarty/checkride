@@ -197,9 +197,14 @@ Every run writes here. Treat it as a stable API for agents.
 
 To debug: start beneath each red ✘. A check says why it failed when it says,
 then lists the findings a baseline didn't grandfather, or a `go test` run's
-failing tests, or else names its first finding, with how many more
-(`src/a.ts:3:7 Variable 'x' is declared but never used. (+4 more)`), for a
-check whose tool checkride parses. Then read `summary.json` for the failing
+failing tests and what they printed, or a vitest run's failing tests, each
+with its error, or else up to five of its findings
+(`src/a.ts:3:7  Variable 'x' is declared but never used.  [no-unused-vars]`,
+then `… and N more`) for a check whose tool checkride parses, and the last
+eight lines it printed for any other, a custom `command` among them, from
+both streams under `stderr:` and `stdout:` when both hold any. A
+`full output:` line then names the file that holds the rest, as
+`.check/lint.json`, or both files where it showed both streams. Then read `summary.json` for the failing
 slot, and that slot's raw output for structured diagnostics. On a big repo,
 `--digest` prints a capped excerpt below the report, and keeps it in
 `digest.md`, to start from.
@@ -217,6 +222,7 @@ slot, and that slot's raw output for structured diagnostics. On a big repo,
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
 | Want a hard gate for a coding agent | `checkride hooks add` writes the stop gate, its edit marker and the baseline guard for Claude Code and Cursor (`init` and `agent-setup` write only the guard) |
+| A check is red and you want to know why | Read the lines beneath its ✘: an excerpt of what it found, then `full output:` naming the file with the rest |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
 | Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
 | Wall of "new, not in baseline" right after a merge (or a `hint:` line names a commit) | `checkride recover` lists restorable baseline states; `--pick <sha>` restores additively — not `checkride baseline`, which would grandfather new debt too |

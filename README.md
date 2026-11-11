@@ -478,13 +478,46 @@ it carries.
 
 To debug a failure: start from the run's own lines. Beneath each red check's
 status line, the run says why it failed when the check says, then what it
-found: the findings a baseline didn't grandfather, a `go test` run's failing
-tests, or, where neither lists anything, the first finding its parser read
-that can fail it, with how many more, as `src/a.ts:3:7 Variable 'x' is
-declared but never used. (+4 more)`, or as tsc printed it. Then read
-`summary.json` to find the failing slot, and that slot's raw output for
-structured diagnostics. On a large repo, run with `--digest` for a capped
-starting point, printed below the report and kept in `digest.md`.
+found, then the file that holds all of its output:
+
+```text
+  ✘ lint         40ms  Oxlint, type-aware with oxlint-tsgolint  [config]
+           src/a.ts:3:7  Variable 'x' is declared but never used.  [eslint(no-unused-vars)]
+           src/b.ts:12:9  Expected === and instead saw ==  [eslint(eqeqeq)]
+           full output: .check/lint.json
+  ✘ deploy        8ms  Custom deploy check  [custom]
+           stderr:
+             error: service "api" has no healthcheck
+               at manifests/api.yaml:14
+           stdout:
+             loaded 3 services
+           full output: .check/deploy.stdout.txt, .check/deploy.stderr.txt
+```
+
+What it found is the first of these that applies: the findings a baseline
+didn't grandfather, by key; a `go test` run's failing tests, then up to eight
+of the lines they printed; a vitest run's failing tests, up to four, each
+with the first line of its error beneath it, as
+`src/sum.test.ts > sum > adds` then `AssertionError: expected 3 to be 4`,
+then `… and N more`; for a tool checkride parses, up to five of the
+findings that can fail the check, each as `path:line:col`, its message and
+its rule, then `… and N more`; and for any other check, a custom `command`
+among them, the last eight lines it printed that aren't blank. Those come
+from whichever stream holds any. When both do, the run shows both, each
+under its name, four lines each, and either takes what the other leaves
+unused, since nothing says which stream a tool reports on. Each line is
+printed without its colour codes and cut at 200 characters, and a carriage
+return counts as a line break. A JSON report is never shown as text: a check
+that failed with a report checkride reads no finding in says so in one line.
+A check whose reason line is the whole cause, one that timed out or was
+refused before its tool ran, prints no excerpt beneath it. The `full output:`
+line names the file to open for the rest, both files where it showed both
+streams, under `<target>/` for a target's check and in a named suite's own
+directory. A `--json` run prints none of this, and the summary doesn't carry
+it. Then read `summary.json` to find the
+failing slot, and that slot's raw output for structured diagnostics. On a
+large repo, run with `--digest` for a capped starting point, printed below
+the report and kept in `digest.md`.
 
 ## The Claude Code plugin
 
