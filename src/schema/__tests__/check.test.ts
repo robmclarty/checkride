@@ -258,20 +258,9 @@ describe('nothing a file or a schema holds ends the check', () => {
 
   test('a validator that throws is one error on that file, and the next file is still checked', async () => {
     await write('s.json', {});
-    await write('a.json', {});
+    await write('a.json', { throws: true });
     await write('b.json', {});
-    let calls = 0;
-    const flaky = function Flaky(): { addSchema: () => void; getSchema: () => (value: unknown) => boolean } {
-      return {
-        addSchema: () => undefined,
-        getSchema: () => () => {
-          calls += 1;
-          if (calls === 1) throw new Error('stack exhausted');
-          return true;
-        },
-      };
-    };
-    const throwing = { ...libraries, ajv: { ...libraries.ajv, draft2020: flaky as unknown as SchemaLibraries['ajv']['draft2020'] } };
+    const throwing = { ...libraries, ajv: { ...libraries.ajv, draft2020: throwingAjv as unknown as SchemaLibraries['ajv']['draft2020'] } };
     const checked = await checkSchemas(dir, { rules: [{ files: ['{a,b}.json'], schema: 's.json' }], configFile: 'checkride.config.json', libraries: throwing, git: noGit });
     if (!('outcome' in checked)) throw new Error('refused');
     expect((JSON.parse(checked.outcome.stdout) as SchemaReport).errors).toEqual([
@@ -279,6 +268,21 @@ describe('nothing a file or a schema holds ends the check', () => {
     ]);
   });
 });
+
+/**
+ * A stand-in for the Ajv constructor whose validator throws on the one file
+ * holding `{"throws":true}`. Files are checked concurrently, so the throw is
+ * keyed on the file's content, never on call order.
+ */
+function throwingAjv(): { addSchema: () => void; getSchema: () => (value: unknown) => boolean } {
+  return {
+    addSchema: () => undefined,
+    getSchema: () => (value: unknown) => {
+      if (JSON.stringify(value) === '{"throws":true}') throw new Error('stack exhausted');
+      return true;
+    },
+  };
+}
 
 /** The whole of what a run of `rules` said, wherever it said it. */
 async function said(rules: readonly SchemaRule[], git: GitRunner = noGit): Promise<string> {

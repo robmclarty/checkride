@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff, runBaselineVersions } from './baseline-command.js';
-import { channel } from './channel.js';
+import { runtime } from './channel.js';
 import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
@@ -1205,7 +1205,7 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
  */
 function isEntryPoint(): boolean {
   // The binary is one bundle with this module as its main: there is no other entry point to be.
-  if (channel() === 'binary') return true;
+  if (runtime().main) return true;
   const invokedPath = process.argv[1];
   if (invokedPath === undefined) return false;
   try {

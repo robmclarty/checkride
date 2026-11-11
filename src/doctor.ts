@@ -40,7 +40,7 @@ import { SCHEMA_SLOT } from './adapters.js';
 import { outLabel } from './artifacts/index.js';
 import { countGrandfathered, parseBaseline } from './baseline/index.js';
 import type { Channel } from './channel.js';
-import { channel, nodeVersion } from './channel.js';
+import { runtime } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
@@ -64,7 +64,6 @@ import {
   nixCopy,
   overrideCause,
   overridePin,
-  pinCheckride,
   pinChain,
   pinResolution,
   resolveEntry,
@@ -446,20 +445,9 @@ async function checkVersioned(name: string, cmd: string, min: Semver, env: Docto
  * reports its own tool missing.
  */
 function checkNode(min: Semver, env: DoctorEnv): Promise<{ row: DoctorCheck; version: string | null }> {
-  const need: Need = channel() === 'binary' ? { required: false, absent: `not on PATH (checkride embeds Node ${nodeVersion()})` } : REQUIRED;
+  const { embeddedNode } = runtime();
+  const need: Need = embeddedNode === null ? REQUIRED : { required: false, absent: `not on PATH (checkride embeds Node ${embeddedNode})` };
   return versioned('node', 'node', min, env, need);
-}
-
-/**
- * The environment the `node pin` row reads. The standalone binary's Node is
- * the `node` on `PATH`, never the one it embeds, and the `node` row has just
- * asked that one for its version, so the pin row's hint names the same
- * answer and nothing is asked twice. A caller's own environment is used as
- * given.
- */
-function pinEnvFor(given: PinEnv | undefined, pathNode: string | null): PinEnv {
-  if (given !== undefined) return given;
-  return channel() === 'binary' ? { ...realPinEnv, running: () => pathNode } : realPinEnv;
 }
 
 async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<DoctorCheck> {
@@ -1469,7 +1457,7 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
     found: 'unpinned (`checkride` from PATH)',
     hint:
       'harness unpinned: with no package.json, the hooks and the AGENTS.md stanza run whatever `checkride` PATH holds. ' +
-      `Pin it with \`${pinCheckride()}\`, and they run \`mise exec -- checkride\` instead.`,
+      `Pin it with \`${runtime().pin}\`, and they run \`mise exec -- checkride\` instead.`,
   };
 }
 
@@ -1483,7 +1471,9 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
   const node = await checkNode(nodeMin, env);
-  const nodePin = checkNodePin(cwd, engines, pinEnvFor(pinEnv, node.version));
+  // The `node` row has just asked the `node` on `PATH` for its version, so where the repo's Node is that
+  // one, the pin row's hint names the same answer and nothing is asked twice.
+  const nodePin = checkNodePin(cwd, engines, pinEnv ?? { ...realPinEnv, running: () => runtime().repoNode(() => node.version) });
   const harness = checkHarness(cwd, pm, env);
   return [
     node.row,
@@ -1564,8 +1554,8 @@ async function modeOf(
 
 /** The channel this checkride runs from, as the report gives it, with the Node a binary embeds. */
 function channelFields(): Pick<DoctorReport, 'channel' | 'embeddedNode'> {
-  const from = channel();
-  return from === 'binary' ? { channel: from, embeddedNode: nodeVersion() } : { channel: from };
+  const { channel, embeddedNode } = runtime();
+  return embeddedNode === null ? { channel } : { channel, embeddedNode };
 }
 
 /** Run the doctor against `cwd`; render and return the report. */

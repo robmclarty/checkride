@@ -12,9 +12,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { fakeSea } from '../../../test/helpers/sea.js';
+import { runtime } from '../../channel.js';
 
 import type { EntryCommand } from '../index.js';
-import { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, pinCheckride, resolveEntry } from '../index.js';
+import { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, resolveEntry } from '../index.js';
 
 const mise: EntryCommand = { kind: 'mise' };
 const path: EntryCommand = { kind: 'path' };
@@ -108,8 +109,8 @@ describe('by channel', () => {
 
   test('the pin each channel recommends installs that channel', () => {
     fakeSea(false);
-    expect(pinCheckride()).toBe("mise use 'npm:checkride[allow_low_downloads=true]@<version>'");
+    expect(runtime().pin).toBe("mise use 'npm:checkride[allow_low_downloads=true]@<version>'");
     fakeSea();
-    expect(pinCheckride()).toBe('mise use github:robmclarty/checkride@<version>');
+    expect(runtime().pin).toBe('mise use github:robmclarty/checkride@<version>');
   });
 });

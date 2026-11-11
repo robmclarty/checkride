@@ -39,8 +39,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
-import type { Channel } from './channel.js';
-import { channel } from './channel.js';
+import { runtime } from './channel.js';
 
 /** The environment variable that overrides, or disables, alignment. */
 export const NODE_BIN_VAR = 'CHECKRIDE_NODE_BIN';
@@ -148,21 +147,14 @@ function askPathNode(): string | null {
 }
 
 /**
- * The Node a child of this process would run on: for the npm package the one
- * running it, and for the standalone binary the `node` on `PATH`, which
- * `ask` reports, `null` when there is none. The binary's embedded Node runs
- * checkride and nothing of the repo's, so it never stands for the repo's
- * Node: not in alignment, not in a refusal, not in doctor's hint.
+ * The repo's Node for this process (`runtime().repoNode`), asked once: a
+ * `PATH` doesn't change under a running command. Only the standalone binary
+ * asks `PATH` at all, and nothing asks until a caller needs the answer.
  */
-export function runningNode(from: Channel, ask: () => string | null = askPathNode): string | null {
-  return from === 'binary' ? ask() : process.version.replace(/^v/, '');
-}
-
-/** {@link runningNode} for this process, asked once: a `PATH` doesn't change under a running command. */
 function realRunning(): () => string | null {
   let answer: { version: string | null } | undefined;
   return () => {
-    answer ??= { version: runningNode(channel()) };
+    answer ??= { version: runtime().repoNode(askPathNode) };
     return answer.version;
   };
 }
@@ -275,12 +267,15 @@ export function findPinnedNode(pin: NodePin, env: PinEnv = realPinEnv): NodeInst
 export function alignNode(cwd: string, env: PinEnv = realPinEnv): NodeAlignment | null {
   const override = env.variable(NODE_BIN_VAR);
   if (override === OFF) return null;
-  const running = env.running();
-  if (override !== undefined && override.length > 0) {
-    return { pin: readNodePin(cwd, env), running, bin: override, version: null };
-  }
+  // The pin first: the running Node is asked only when there is something to hold it to, since for the
+  // standalone binary asking is a `node --version`, and most repos it gates pin no Node at all.
   const pin = readNodePin(cwd, env);
-  if (pin === null || (running !== null && satisfiesPin(pin.version, running))) return null;
+  if (override !== undefined && override.length > 0) {
+    return { pin, running: env.running(), bin: override, version: null };
+  }
+  if (pin === null) return null;
+  const running = env.running();
+  if (running !== null && satisfiesPin(pin.version, running)) return null;
   const install = findPinnedNode(pin, env);
   return { pin, running, bin: install?.bin ?? null, version: install?.version ?? null };
 }

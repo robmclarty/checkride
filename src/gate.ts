@@ -44,6 +44,7 @@ import { join } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
 import { formatDuration, OUT_ENV, readSummary, type SummaryRead } from './artifacts/index.js';
+import { runtime } from './channel.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, resolveChecks } from './config.js';
 import { DIGEST_FILE, withinBudget } from './digest/index.js';
@@ -65,7 +66,6 @@ import {
   type LaunchRefusal,
   launchRefusal,
   type PackageManager,
-  pinCheckride,
   resolveEntry,
   SPAWN_FAILED_MARKER,
 } from './launch/index.js';
@@ -726,7 +726,7 @@ const STOOD_DOWN_FOR_INSTALL =
 function installStep(cwd: string, entry: EntryCommand, suite: Suite): string {
   const check = checkText(entry, suite);
   if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
-  if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${pinCheckride()}\`, then run \`${check}\`.`;
+  if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${runtime().pin}\`, then run \`${check}\`.`;
   if (jsLockfileDeclares(cwd, cwd, 'checkride')) return `Run \`${entry.pm} install\`, since this repo declares checkride and it isn't installed, then run \`${check}\`.`;
   return `Declare it with \`${installCommand(entry.pm, 'checkride')}\`, since no dependency of this repo's names checkride, then run \`${check}\`.`;
 }
@@ -756,13 +756,13 @@ function refusalMessage(refusal: LaunchRefusal, context: RefusalContext): string
 }
 
 /** What {@link refusalMessage} reads beside the refusal: the Node this process got, the repo, and its entry command. */
-type RefusalContext = { alignment: NodeAlignment | null; running: string | null; cwd: string; entry: EntryCommand; suite: Suite };
+type RefusalContext = { alignment: NodeAlignment | null; running: () => string | null; cwd: string; entry: EntryCommand; suite: Suite };
 
 /** The sentences after "Nothing ran", by who can clear the refusal. */
 function refusalRemedy(fixable: LaunchRefusal['fixable'], context: RefusalContext): string[] {
   if (fixable === 'install') return [installStep(context.cwd, context.entry, context.suite), STOOD_DOWN_FOR_INSTALL];
   const seeIt = `Run \`${checkText(context.entry, context.suite)}\` in a terminal to see the same failure directly.`;
-  return fixable === 'environment' ? [nodeClause(context.alignment, context.running), STOOD_DOWN, seeIt] : [seeIt];
+  return fixable === 'environment' ? [nodeClause(context.alignment, context.running()), STOOD_DOWN, seeIt] : [seeIt];
 }
 
 /**
@@ -820,7 +820,8 @@ type Failure = {
   digest: string | null;
   output: string;
   alignment: NodeAlignment | null;
-  running: string | null;
+  /** The repo's Node as the hook found it, asked only by a refusal that names it. */
+  running: () => string | null;
   profile: GateProfile | null;
   suite: Suite;
 };
@@ -1118,7 +1119,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
     digest: fresh ? await freshDigest(out, startedAt) : null,
     output: output.text(),
     alignment,
-    running: pinEnv.running(),
+    running: () => pinEnv.running(),
     profile,
     suite,
   });

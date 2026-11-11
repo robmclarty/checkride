@@ -96,6 +96,16 @@ describe('the gate in the binary', () => {
     expect(stderr.text()).not.toContain('started on');
   });
 
+  test('a repo with no Node pin never asks for the running Node, green or red: no node is spawned', async () => {
+    let asked = 0;
+    const unpinned: PinEnv = { ...pinned('24.15.0'), read: () => null, running: () => { asked += 1; return '24.15.0'; } };
+    const green = recording();
+    await gate(green.spawn, unpinned);
+    await gate(() => Promise.resolve(1), unpinned);
+    expect(green.calls.map((c) => c.command)).toEqual([process.execPath]);
+    expect(asked).toBe(0);
+  });
+
   test('with no node on PATH and no pin, nothing is aligned and nothing is said', async () => {
     const stderr = capture();
     const { spawn, calls } = recording();

@@ -366,6 +366,22 @@ describe('the standalone binary', () => {
       write(dir, '.nvmrc', '24\n');
     });
 
+    test('a repo with no Node pin costs the gate no node at all: the one on PATH is never run', () => {
+      rmSync(join(dir, '.nvmrc'));
+      const path = pathWithNode('24.15.0');
+      const ran = join(path, 'node-ran');
+      writeFileSync(join(path, 'node'), `#!/bin/sh\necho ran >> ${ran}\necho v24.15.0\n`);
+      const env = { PATH: path, HOME: scratch };
+      expect(spawn(BIN, ['gate', '--harness', 'claude'], dir, env).code).toBe(0);
+      write(dir, 'checkride.config.json', RED);
+      expect(spawn(BIN, ['gate', '--harness', 'claude'], dir, env).code).not.toBe(0);
+      expect(existsSync(ran)).toBe(false);
+      // The same PATH with a pin does run it, once a gate: the marker is how this case would know.
+      write(dir, '.nvmrc', '24\n');
+      spawn(BIN, ['gate', '--harness', 'claude'], dir, env);
+      expect(readFileSync(ran, 'utf8')).toBe('ran\n');
+    });
+
     test('a PATH node that satisfies .nvmrc is left alone, though the binary embeds another major', () => {
       const gate = spawn(BIN, ['gate', '--harness', 'claude'], dir, { PATH: pathWithNode('24.15.0'), HOME: homeWithNvm('24.18.1') });
       expect(gate.stderr).not.toContain('running the check on Node');

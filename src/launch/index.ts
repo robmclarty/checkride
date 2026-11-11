@@ -18,7 +18,7 @@
  */
 
 export type { EntryCommand, EntryLike } from './entry.js';
-export { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, entryTextWith, pinCheckride, resolveEntry } from './entry.js';
+export { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, entryTextWith, resolveEntry } from './entry.js';
 export { failureLine, packEnv, setupHint } from './env.js';
 export type { ModuleImports } from './go-mod.js';
 export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';

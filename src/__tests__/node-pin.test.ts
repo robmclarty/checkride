@@ -18,10 +18,10 @@ import {
   NODE_BIN_VAR,
   type PinEnv,
   readNodePin,
-  runningNode,
   satisfiesPin,
   withNodeBin,
 } from '../node-pin.js';
+import { binaryRuntime, npmRuntime } from '../channel.js';
 
 const HOME = '/home/dev';
 
@@ -213,22 +213,49 @@ describe('withNodeBin', () => {
   });
 });
 
+/** A binary's asset reader for a test that reads none. */
+function noAsset(): string {
+  throw new Error('read an asset');
+}
+
 /** A `PATH` lookup that fails the test if anything makes it. */
 function neverAsked(): string | null {
   throw new Error('asked PATH');
 }
 
-describe('the running Node, by channel', () => {
+describe('the repo’s Node, by runtime', () => {
   test('from npm it is the Node running this process, and PATH is never asked', () => {
-    expect(runningNode('npm', neverAsked)).toBe(process.version.replace(/^v/, ''));
+    expect(npmRuntime().repoNode(neverAsked)).toBe(process.version.replace(/^v/, ''));
   });
 
   test('in the binary it is the node on PATH, never the embedded one', () => {
-    expect(runningNode('binary', () => '24.15.0')).toBe('24.15.0');
+    expect(binaryRuntime(noAsset).repoNode(() => '24.15.0')).toBe('24.15.0');
   });
 
   test('in the binary with no node on PATH there is none', () => {
-    expect(runningNode('binary', () => null)).toBeNull();
+    expect(binaryRuntime(noAsset).repoNode(() => null)).toBeNull();
+  });
+});
+
+describe('alignNode asks for the running Node only when there is a pin to hold it to', () => {
+  test('a repo with no pin never asks, which in the binary would spawn node --version', () => {
+    expect(alignNode('/repo', pinEnv({ running: neverAsked }))).toBeNull();
+  });
+
+  test('alignment switched off never asks', () => {
+    expect(alignNode('/repo', pinEnv({ running: neverAsked, variable: () => 'off', read: () => '24\n' }))).toBeNull();
+  });
+
+  test('a pin asks once, and so does an override', () => {
+    let asked = 0;
+    const running = (): string => {
+      asked += 1;
+      return '24.9.0';
+    };
+    alignNode('/repo', pinEnv({ running, read: (path) => (path.endsWith('.nvmrc') ? '22\n' : null) }));
+    expect(asked).toBe(1);
+    alignNode('/repo', pinEnv({ running, variable: () => '/opt/node/bin' }));
+    expect(asked).toBe(2);
   });
 });
 

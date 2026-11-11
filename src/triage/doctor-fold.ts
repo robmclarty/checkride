@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { asStringOrNull, isRecord, parseJson } from '../artifacts/index.js';
-import { channel } from '../channel.js';
+import { runtime } from '../channel.js';
 import { detectPackageManager, entrySpawn, resolveEntry } from '../launch/index.js';
 import type { TriageEnv } from './env.js';
 
@@ -80,11 +80,11 @@ export function resolveCheckrideCli(cwd: string): string | null {
  * ({@link entrySpawn}), or mise's pinned copy.
  */
 function doctorArgv(cwd: string): [string, ...string[]] | null {
-  const cli = resolveCheckrideCli(cwd);
-  if (channel() !== 'binary') return cli === null ? null : [process.execPath, cli];
+  const { runsEntry, node } = runtime();
   const entry = resolveEntry(cwd, detectPackageManager({ cwd }));
-  if (entry.kind !== 'script') return entrySpawn(entry, []);
-  return cli === null ? null : ['node', cli];
+  if (runsEntry && entry.kind !== 'script') return entrySpawn(entry, []);
+  const cli = resolveCheckrideCli(cwd);
+  return cli === null ? null : [node, cli];
 }
 
 /** Narrow one `checks[]` row to a finding, or `null` when it is not a problem. */

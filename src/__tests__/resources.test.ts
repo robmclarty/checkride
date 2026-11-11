@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { fakeSea } from '../../test/helpers/sea.js';
-import { channel, embeddedAsset, nodeVersion } from '../channel.js';
+import { runtime, useRuntime } from '../channel.js';
 import { readResource } from '../resources.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -47,32 +47,50 @@ describe('readResource in the binary', () => {
   });
 });
 
-describe('channel', () => {
+describe('runtime', () => {
   test('is npm outside a single executable application, and binary inside one', () => {
-    expect(channel()).toBe('npm');
+    expect(runtime().channel).toBe('npm');
     sea.binary = true;
-    expect(channel()).toBe('binary');
+    expect(runtime().channel).toBe('binary');
   });
 
-  test('names the Node this process runs on, the one a binary embeds', () => {
-    expect(nodeVersion()).toBe(process.versions.node);
+  test('names the Node this process runs on as the one a binary embeds, and none for npm', () => {
+    expect(runtime().embeddedNode).toBeNull();
+    sea.binary = true;
+    expect(runtime().embeddedNode).toBe(process.versions.node);
   });
-});
 
-describe('embeddedAsset', () => {
-  test('refuses outside the binary, which embeds nothing', () => {
+  test('outside the binary there is no embedded file to read', () => {
     sea.assets.set('package.json', '{}');
-    expect(() => embeddedAsset('package.json')).toThrow('no embedded asset package.json: not the standalone binary');
+    expect(runtime().asset).toBeNull();
+  });
+
+  test('is worked out once, from node:sea', () => {
+    useRuntime(undefined);
+    const lookup = vi.spyOn(process, 'getBuiltinModule');
+    const first = runtime();
+    expect(runtime()).toBe(first);
+    expect(lookup.mock.calls.filter(([id]) => id === 'node:sea')).toHaveLength(1);
+    expect(first.channel).toBe('npm');
+  });
+
+  test('inside a single executable application it is the binary’s, reading its assets', () => {
+    useRuntime(undefined);
+    const real = process.getBuiltinModule.bind(process);
+    const module = { isSea: () => true, getAsset: (key: string, encoding: string) => `${key} as ${encoding}` };
+    vi.spyOn(process, 'getBuiltinModule').mockImplementation((id: string) => (id === 'node:sea' ? module : real(id)));
+    expect(runtime().channel).toBe('binary');
+    expect(runtime().asset?.('package.json')).toBe('package.json as utf8');
   });
 
   test('a runtime with no node:sea, as Bun has none, is the npm channel', () => {
-    vi.restoreAllMocks();
+    useRuntime(undefined);
     vi.spyOn(process, 'getBuiltinModule').mockImplementation(() => undefined);
-    expect(channel()).toBe('npm');
-    expect(() => embeddedAsset('package.json')).toThrow(/not the standalone binary/);
+    expect(runtime().channel).toBe('npm');
+    useRuntime(undefined);
     vi.spyOn(process, 'getBuiltinModule').mockImplementation(() => {
       throw new Error('No such built-in module: node:sea');
     });
-    expect(channel()).toBe('npm');
+    expect(runtime().channel).toBe('npm');
   });
 });

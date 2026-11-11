@@ -29,7 +29,7 @@ import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, SchemaRule as SchemaRuleFields, Slot, TableSignal } from './adapters.js';
 import { SCHEMA_SLOT, SLOTS } from './adapters.js';
-import { channel } from './channel.js';
+import { runtime } from './channel.js';
 import { isRecord } from './json.js';
 import { schemaRulesProblem } from './schema/index.js';
 import type { Suite } from './suite.js';
@@ -770,7 +770,7 @@ function isFilePath(spec: string): boolean {
  */
 function assertExtendsEntry(spec: unknown, chain: Chain): asserts spec is string {
   if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${chain.label})`, undefined, chain.root);
-  if (channel() === 'binary' && !isFilePath(spec)) {
+  if (!runtime().packagePresets && !isFilePath(spec)) {
     invalidConfig(`package presets need the npm distribution; use a file path: extends "${spec}" (in ${chain.label})`, undefined, chain.root);
   }
 }
