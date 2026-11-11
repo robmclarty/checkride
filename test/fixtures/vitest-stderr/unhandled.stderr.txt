@@ -1,0 +1,32 @@
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 2 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: late rejection
+ ❯ unhandled/late.test.js:3:18
+      1| import { expect, test } from 'vitest';
+      2| test('passes but leaks a rejection', () => {
+      3|   Promise.reject(new Error('late rejection'));
+       |                  ^
+      4|   setTimeout(() => { throw new Error('late throw'); }, 0);
+      5|   expect(1).toBe(1);
+
+This error originated in "unhandled/late.test.js" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: late throw
+ ❯ Timeout._onTimeout unhandled/late.test.js:4:28
+      2| test('passes but leaks a rejection', () => {
+      3|   Promise.reject(new Error('late rejection'));
+      4|   setTimeout(() => { throw new Error('late throw'); }, 0);
+       |                            ^
+      5|   expect(1).toBe(1);
+      6| });
+ ❯ listOnTimeout node:internal/timers:605:17
+ ❯ processTimers node:internal/timers:541:7
+
+This error originated in "unhandled/late.test.js" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+

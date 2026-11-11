@@ -71,6 +71,9 @@ const PROTECT = 'protect';
 const PROTECT_DENY_RULES: readonly string[] = [
   'Edit(**/checkride.baseline.json)',
   'Edit(**/.check/**)',
+  // A named suite's baseline, `checkride.<name>.baseline.json`. Last, so the
+  // two rules every earlier release wrote keep their places.
+  'Edit(**/checkride.*.baseline.json)',
 ];
 
 /**

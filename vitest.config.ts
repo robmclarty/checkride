@@ -7,6 +7,8 @@ export default defineConfig({
       'test/**/*.{test,spec}.ts',
     ],
     exclude: ['**/node_modules/**', '**/dist/**', 'test/e2e/**'],
+    // No test reads a CHECKRIDE_* variable the shell or CI exported.
+    setupFiles: ['test/helpers/clean-env.ts'],
     reporters: ['default'],
     coverage: {
       provider: 'v8',

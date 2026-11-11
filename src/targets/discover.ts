@@ -64,12 +64,13 @@ import type { GitRunner } from '../git.js';
 import { realGit } from '../git.js';
 import { readGoWorkspace } from '../launch/index.js';
 import { PACKS } from '../packs/index.js';
+import { SUITES_DIR } from '../suite.js';
 import { liftDiscovered, picksTool } from './add.js';
 import { isDefaultShellFile } from './files.js';
 import { isWithin, markerAt, markerKind, repoFiles, slugName } from './markers.js';
 import { nameTargets } from './names.js';
 import type { Target } from './resolve.js';
-import { checkKeys, configProblem, configuredTargets, implicitPack, RESERVED_SLOTS } from './resolve.js';
+import { checkKeys, configProblem, configuredTargets, implicitPack } from './resolve.js';
 
 /**
  * A target discovery proposes, with `checks` switching off what a target of
@@ -78,7 +79,7 @@ import { checkKeys, configProblem, configuredTargets, implicitPack, RESERVED_SLO
 export type ProposedTarget = { name: string; lang: string; root: string; checks?: Record<string, false> };
 
 /** Names a proposed target can't take: the slots', and the ones V2 reserves. */
-const TAKEN: readonly string[] = [...SLOTS.map((s) => s.name), ...RESERVED_SLOTS, 'doc-snippets'];
+const TAKEN: readonly string[] = [...SLOTS.map((s) => s.name), 'doc-snippets', SUITES_DIR];
 
 /** The file that marks a Terraform root module, the directory `terraform init` runs in. */
 const TERRAFORM_LOCK = '.terraform.lock.hcl';

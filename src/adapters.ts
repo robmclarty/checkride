@@ -49,7 +49,8 @@ export type Slot = {
   scope?: 'target' | 'repo';
   /**
    * A `checkride.config.json` key the slot needs before its tool can run:
-   * `unclaimed` needs `targets`. Without the key the slot is inactive, absent
+   * `unclaimed` needs `targets`, and `schema` needs `schemas` with a rule in
+   * it. Without the key the slot is inactive, absent
    * from a run the way an unselected opt-in slot is, even under `--all`,
    * unless a token names it, which records it as skipped with the reason. A
    * config entry that picks a tool for the slot runs it either way.
@@ -88,7 +89,30 @@ export type AdapterOptions = {
    * `checks` blocks hold, which no target it suggests may take.
    */
   unclaimed?: { targets: { name: string; pack: string; root: string }[]; ignore: string[]; taken?: string[] };
+  /**
+   * Read by the `schema` built-in, from the config rather than a `checks`
+   * entry: its `schemas` rules, and `configFile`, the config file that holds
+   * them, which a finding about a rule itself names.
+   */
+  schema?: { rules: SchemaRule[]; configFile: string };
 };
+
+/** The `schema` slot's name, and its built-in's: the one place either is spelled. */
+export const SCHEMA_SLOT = 'schema';
+
+/** How the `schema` slot reads a file, in the order the docs and the errors list the formats. */
+export const SCHEMA_FORMATS = ['json', 'jsonc', 'yaml', 'frontmatter'] as const;
+
+/** One of {@link SCHEMA_FORMATS}. */
+export type SchemaFormat = (typeof SCHEMA_FORMATS)[number];
+
+/**
+ * One rule of a config's `schemas`, as the `schema` slot reads it: the globs,
+ * relative to the repo root, for the files it validates; the schema, a bundled
+ * `checkride:<id>` or a path from the repo root; and how each file is read,
+ * which follows its extension when unset.
+ */
+export type SchemaRule = { files: string[]; schema: string; format?: SchemaFormat };
 
 /** A concrete tool that can fill a slot. */
 export type Adapter = {
@@ -316,6 +340,7 @@ export const SLOTS: readonly Slot[] = [
   { name: 'smoke', scope: 'target', optIn: true, order: 20 },
   { name: 'snippets', scope: 'target', optIn: true },
   { name: 'unclaimed', scope: 'repo', activeWith: 'targets' },
+  { name: SCHEMA_SLOT, scope: 'repo', activeWith: 'schemas' },
 ];
 
 /**

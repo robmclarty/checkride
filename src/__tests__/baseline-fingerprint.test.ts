@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS } from '../adapters.js';
 import type { Fingerprint } from '../baseline/index.js';
-import { applyBaseline, BASELINE_FILE, findingText, fingerprint, firstFinding, isFingerprintable, observedTally, stoppedShortReason, tally } from '../baseline/index.js';
+import { applyBaseline, BASELINE_FILE, findingText, fingerprint, gatingFindings, isFingerprintable, observedTally, stoppedShortReason, tally } from '../baseline/index.js';
 import { runBaseline } from '../baseline-command.js';
 import type { CheckrideConfig } from '../config.js';
 import type { CheckRunner } from '../orchestrator/index.js';
@@ -509,21 +509,23 @@ function oneFinding(message: string, severity = 'error'): string {
   return JSON.stringify({ diagnostics: [{ filename: 'a.ts', code: 'no-x', message, severity, labels: [{ span: { line: 3, column: 7 } }] }] });
 }
 
-/** What a red check's status line names beneath it when nothing else there lists what it found. */
-describe('firstFinding', () => {
-  test('is null for an adapter with no parser, output its parser cannot read, or nothing that gates', () => {
-    expect(firstFinding('vitest', 'FAIL a.test.ts')).toBeNull();
-    expect(firstFinding('oxlint', 'not json')).toBeNull();
-    expect(firstFinding('oxlint', '{"diagnostics":[]}')).toBeNull();
+/** What a red check's excerpt lists beneath its status line. */
+describe('gatingFindings', () => {
+  test('is null for an adapter with no parser or output its parser cannot read, and empty for nothing that gates', () => {
+    expect(gatingFindings('vitest', 'FAIL a.test.ts')).toBeNull();
+    expect(gatingFindings('oxlint', 'not json')).toBeNull();
+    expect(gatingFindings('oxlint', '{"diagnostics":[]}')).toEqual([]);
     // With the argv in hand, an oxlint warning can't fail the check.
-    expect(firstFinding('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json'])).toBeNull();
-    expect(firstFinding('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json', '--deny-warnings'])).toEqual({ line: 'a.ts:3:7 only advice', more: 0 });
+    expect(gatingFindings('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json'])).toEqual([]);
+    expect(gatingFindings('oxlint', oneFinding('only advice', 'warning'), ['pnpm', 'exec', 'oxlint', '--format=json', '--deny-warnings'])).toMatchObject([
+      { file: 'a.ts', line: 3, column: 7, rule: 'no-x', message: 'only advice' },
+    ]);
   });
 
-  test('a cut never splits a character that takes two UTF-16 units', () => {
-    // "a.ts:3:7 " is 9 units, so the emoji's first unit lands on the 199th, the last kept before `…`.
-    const { line } = firstFinding('oxlint', oneFinding(`${'x'.repeat(189)}😀${'x'.repeat(50)}`)) ?? { line: '' };
-    expect(line).toBe(`a.ts:3:7 ${'x'.repeat(189)}…`);
+  test('keeps the tool’s order, and rebases a target’s paths onto the repo root', () => {
+    const report = JSON.stringify({ diagnostics: [{ filename: 'b.ts', code: 'no-y', message: 'worse' }, { filename: 'a.ts', code: 'no-x', message: 'bad' }] });
+    expect(gatingFindings('oxlint', report)?.map((f) => f.file)).toEqual(['b.ts', 'a.ts']);
+    expect(gatingFindings('oxlint', report, undefined, 'apps/web')?.map((f) => f.file)).toEqual(['apps/web/b.ts', 'apps/web/a.ts']);
   });
 });
 

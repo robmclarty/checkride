@@ -12,13 +12,17 @@
  * and the JSON report is the thing being parsed. It is also deliberately the
  * *repo's* installed checkride rather than the one this reader ships inside —
  * diagnosing an environment with a different version's doctor is how a reader
- * reports a problem the repo does not have.
+ * reports a problem the repo does not have. The standalone binary holds to the
+ * same rule ({@link doctorArgv}): it asks its own doctor only where the gate
+ * ran the binary itself.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { asStringOrNull, isRecord, parseJson } from '../artifacts/index.js';
+import { runtime } from '../channel.js';
+import { detectPackageManager, entrySpawn, resolveEntry } from '../launch/index.js';
 import type { TriageEnv } from './env.js';
 
 /** One required doctor row that is not ok — an environment problem to fix. */
@@ -62,6 +66,27 @@ export function resolveCheckrideCli(cwd: string): string | null {
   return null;
 }
 
+/**
+ * The argv that runs checkride for `cwd`, ahead of its subcommand: the
+ * checkride the gate ran, so the two never come from two versions. `null`
+ * when there is none to run.
+ *
+ * From npm that is this Node on the repo's installed CLI. The standalone
+ * binary is not a Node to run a script on, so where the gate went through
+ * the repo's `check` script it runs that installed CLI on the `node` on
+ * `PATH`, the Node the script ran on, and reports none installed as npm
+ * does. Only where the gate ran the entry command as it stands does the
+ * fold run it too: the binary itself for the `checkride` on `PATH`
+ * ({@link entrySpawn}), or mise's pinned copy.
+ */
+function doctorArgv(cwd: string): [string, ...string[]] | null {
+  const { runsEntry, node } = runtime();
+  const entry = resolveEntry(cwd, detectPackageManager({ cwd }));
+  if (runsEntry && entry.kind !== 'script') return entrySpawn(entry, []);
+  const cli = resolveCheckrideCli(cwd);
+  return cli === null ? null : [node, cli];
+}
+
 /** Narrow one `checks[]` row to a finding, or `null` when it is not a problem. */
 function toFinding(value: unknown): DoctorFinding | null {
   if (!isRecord(value)) return null;
@@ -91,12 +116,13 @@ function readFindings(stdout: string): DoctorFinding[] | null {
  * `vars` are set in doctor's environment, so a triage given `--out` has doctor
  * probe that directory.
  */
-export async function foldDoctor(cwd: string, env: TriageEnv, vars: Readonly<Record<string, string>> = {}): Promise<DoctorFold> {
-  const cli = resolveCheckrideCli(cwd);
-  if (cli === null) {
+export async function foldDoctor(cwd: string, env: TriageEnv, vars: Readonly<Record<string, string>> = {}, flags: readonly string[] = []): Promise<DoctorFold> {
+  const self = doctorArgv(cwd);
+  if (self === null) {
     return { state: 'unavailable', reason: 'checkride is not installed in this repo (no node_modules/checkride)' };
   }
-  const outcome = await env.spawn(process.execPath, [cli, 'doctor', '--json'], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS, env: vars });
+  const [command, ...args] = self;
+  const outcome = await env.spawn(command, [...args, 'doctor', '--json', ...flags], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS, env: vars });
   if (outcome.error !== null) return { state: 'unreadable', reason: `could not run doctor: ${outcome.error}` };
   const findings = readFindings(outcome.stdout);
   if (findings === null) return { state: 'unreadable', reason: 'doctor --json did not produce a readable report' };

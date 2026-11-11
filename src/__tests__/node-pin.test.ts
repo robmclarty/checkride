@@ -21,6 +21,7 @@ import {
   satisfiesPin,
   withNodeBin,
 } from '../node-pin.js';
+import { binaryRuntime, npmRuntime } from '../channel.js';
 
 const HOME = '/home/dev';
 
@@ -209,5 +210,74 @@ describe('withNodeBin', () => {
 
   test('leaves everything else in the environment alone', () => {
     expect(withNodeBin({ PATH: '/bin', HOME: '/home/dev' }, '/opt/node/bin')['HOME']).toBe('/home/dev');
+  });
+});
+
+/** A binary's asset reader for a test that reads none. */
+function noAsset(): string {
+  throw new Error('read an asset');
+}
+
+/** A `PATH` lookup that fails the test if anything makes it. */
+function neverAsked(): string | null {
+  throw new Error('asked PATH');
+}
+
+describe('the repo’s Node, by runtime', () => {
+  test('from npm it is the Node running this process, and PATH is never asked', () => {
+    expect(npmRuntime().repoNode(neverAsked)).toBe(process.version.replace(/^v/, ''));
+  });
+
+  test('in the binary it is the node on PATH, never the embedded one', () => {
+    expect(binaryRuntime(noAsset).repoNode(() => '24.15.0')).toBe('24.15.0');
+  });
+
+  test('in the binary with no node on PATH there is none', () => {
+    expect(binaryRuntime(noAsset).repoNode(() => null)).toBeNull();
+  });
+});
+
+describe('alignNode asks for the running Node only when there is a pin to hold it to', () => {
+  test('a repo with no pin never asks, which in the binary would spawn node --version', () => {
+    expect(alignNode('/repo', pinEnv({ running: neverAsked }))).toBeNull();
+  });
+
+  test('alignment switched off never asks', () => {
+    expect(alignNode('/repo', pinEnv({ running: neverAsked, variable: () => 'off', read: () => '24\n' }))).toBeNull();
+  });
+
+  test('a pin asks once, and so does an override', () => {
+    let asked = 0;
+    const running = (): string => {
+      asked += 1;
+      return '24.9.0';
+    };
+    alignNode('/repo', pinEnv({ running, read: (path) => (path.endsWith('.nvmrc') ? '22\n' : null) }));
+    expect(asked).toBe(1);
+    alignNode('/repo', pinEnv({ running, variable: () => '/opt/node/bin' }));
+    expect(asked).toBe(2);
+  });
+});
+
+describe('alignNode with no running Node', () => {
+  const nvm = join(HOME, '.nvm', 'versions', 'node');
+
+  test('a pinned repo is searched for the pin, as for a Node that diverged', () => {
+    const env = pinEnv({
+      running: () => null,
+      read: (path) => (path.endsWith('.nvmrc') ? '24\n' : null),
+      list: (dir) => (dir === nvm ? ['v24.1.0'] : []),
+      exists: (path) => path.startsWith(join(nvm, 'v24.1.0')),
+    });
+    expect(alignNode('/repo', env)).toEqual({ pin: { file: '.nvmrc', version: '24' }, running: null, bin: join(nvm, 'v24.1.0', 'bin'), version: '24.1.0' });
+  });
+
+  test('a pinned repo with no install reports the pin and no bin', () => {
+    const env = pinEnv({ running: () => null, read: (path) => (path.endsWith('.nvmrc') ? '24\n' : null) });
+    expect(alignNode('/repo', env)).toEqual({ pin: { file: '.nvmrc', version: '24' }, running: null, bin: null, version: null });
+  });
+
+  test('a repo with no pin is untouched', () => {
+    expect(alignNode('/repo', pinEnv({ running: () => null }))).toBeNull();
   });
 });

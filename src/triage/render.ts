@@ -287,6 +287,7 @@ function renderDoctor(report: TriageReport): string {
 
 function renderCoverage(report: TriageReport): string {
   const { coverage, gate } = report;
+  const config = report.suite.configFile;
   const lines: string[] = [];
   if (gate.narrowingFlags.length > 0) {
     lines.push(`The \`check\` script narrows the run on purpose (${gate.narrowingFlags.join(', ')}). A green here is green *for those slots*.`);
@@ -294,11 +295,11 @@ function renderCoverage(report: TriageReport): string {
   if (!summaryParsed(report)) {
     lines.push('What this run covered is unknown — there is no parseable summary to read it from.');
   } else if (coverage.configured === null) {
-    lines.push('This repo has no `checkride.config.json`, so the slots below are simply what the run selected — this reader will not guess at the default catalogue.');
+    lines.push(`This repo has no \`${config}\`, so the slots below are simply what the run selected — this reader will not guess at the default catalogue.`);
   } else if (coverage.uncovered.length > 0) {
-    lines.push(`\`checkride.config.json\` names ${coverage.configured.length} slot(s); ${coverage.uncovered.length} had no entry in this run: ${coverage.uncovered.join(', ')}.`);
+    lines.push(`\`${config}\` names ${coverage.configured.length} slot(s); ${coverage.uncovered.length} had no entry in this run: ${coverage.uncovered.join(', ')}.`);
   } else {
-    lines.push(`Every slot named in \`checkride.config.json\` (${coverage.configured.length}) has an entry in this run.`);
+    lines.push(`Every slot named in \`${config}\` (${coverage.configured.length}) has an entry in this run.`);
   }
   return heading('coverage', lines.join('\n\n'));
 }
@@ -416,10 +417,10 @@ function renderDigest(report: TriageReport): string {
   return heading('digest', `${at} (${formatBytes(digest.bytes)}) — checkride's own bounded excerpt of this run's failing slots. Read it before any raw file.`);
 }
 
-function baselineCaveats(rows: readonly SlotRow[]): string[] {
+function baselineCaveats(rows: readonly SlotRow[], baseline: string): string[] {
   return rows
     .filter((r) => r.baselined !== null)
-    .map((r) => `\`${r.slot}\` reports \`baselined: ${r.baselined}\` — that many current findings are grandfathered by \`checkride.baseline.json\`. Passing here does not mean clean.`);
+    .map((r) => `\`${r.slot}\` reports \`baselined: ${r.baselined}\` — that many current findings are grandfathered by \`${baseline}\`. Passing here does not mean clean.`);
 }
 
 function skipCaveats(rows: readonly SlotRow[]): string[] {
@@ -462,7 +463,7 @@ function summaryCaveats(report: TriageReport): string[] {
 function renderCaveats(report: TriageReport): string {
   const items = [
     ...summaryCaveats(report),
-    ...baselineCaveats(report.rows),
+    ...baselineCaveats(report.rows, report.suite.baselineFile),
     ...spawnFailureCaveats(report.rows),
     ...skipCaveats(report.rows),
     ...staleCaveats(report.stale, report.outLabel),

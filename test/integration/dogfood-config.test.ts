@@ -17,13 +17,21 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, test } from 'vitest';
 
 import { ADAPTERS } from '../../src/adapters.js';
+import { globRegExp } from '../../src/targets/index.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 type CheckEntry = { use?: string; args?: readonly string[] };
 const config = JSON.parse(readFileSync(join(ROOT, 'checkride.config.json'), 'utf8')) as {
   checks: Record<string, CheckEntry | string | boolean>;
+  schemas: { files: string[]; schema: string }[];
 };
+
+/** The globs of every `schemas` rule that validates against `schema`. */
+const reachedBy = (schema: string): RegExp[] => config.schemas.filter((rule) => rule.schema === schema).flatMap((rule) => rule.files.map(globRegExp));
+
+/** The `files` that no `schemas` rule validating against `schema` reaches. */
+const unreached = (files: readonly string[], schema: string): string[] => files.filter((file) => !reachedBy(schema).some((glob) => glob.test(file)));
 
 describe("this repo's checkride.config.json", () => {
   /**
@@ -125,5 +133,24 @@ describe("this repo's checkride.config.json", () => {
     for (const [from, to] of pairs) {
       expect(readFileSync(to, 'utf8'), `${to} drifted from ${from}`).toBe(readFileSync(from, 'utf8'));
     }
+  });
+
+  /**
+   * The `schema` slot dogfoods both bundled schemas: the plugin's skills
+   * against `checkride:agent-skill`, and every config file in the tree against
+   * `checkride:checkride-config`. A new example's config, or a new skill, has
+   * to land inside these globs, or it ships unvalidated while the slot stays
+   * green.
+   */
+  test('the schemas rules reach every tracked skill and every tracked checkride config', () => {
+    const tracked = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n');
+
+    const skills = tracked.filter((file) => /^skills\/[^/]+\/SKILL\.md$/.test(file));
+    expect(skills.length).toBeGreaterThan(0);
+    expect(unreached(skills, 'checkride:agent-skill')).toEqual([]);
+
+    const configs = tracked.filter((file) => /(^|\/)checkride(\.[a-z][a-z0-9-]*)?\.config\.json$/.test(file));
+    expect(configs).toContain('checkride.config.json');
+    expect(unreached(configs, 'checkride:checkride-config')).toEqual([]);
   });
 });

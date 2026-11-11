@@ -16,6 +16,7 @@ checkride target add   Declare a target (<name> --lang <pack> --root <dir>); a r
 checkride recover      Restore checkride.baseline.json from git history (--pick applies).
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
 checkride hooks        Install/remove agent hooks only — never touches AGENTS.md.
+checkride protect      The edit guard as a hook command (Cursor, in a repo with no package manager); not run by hand.
 checkride triage       Triage a red gate into one root cause (what /checkride:check runs).
 checkride qa           Read the quality artifacts a previous run left.
 ```
@@ -39,6 +40,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--base <ref>` | The ref `--changed` measures from (or set `CHECKRIDE_BASE`, or `changedBase` in the config; the flag wins). Default `origin/main`, else `HEAD` with a warning. A named ref that doesn't resolve exits 2. |
 | `--config <path>` | Read this config file instead of `./checkride.config.json` (or set `CHECKRIDE_CONFIG`; the flag wins). Also on `doctor`, `fix` and `baseline`. A file outside the repo never ratchets the baseline. |
 | `--out <dir>` | Write the summary, raw output and digest to `<dir>` instead of `./.check` (or set `CHECKRIDE_OUT`; the flag wins). Also on `baseline`, `triage` and `qa`; `doctor` probes it. A directory outside the repo never ratchets the baseline. |
+| `--suite <name>` | Run the named suite instead of the default one (or set `CHECKRIDE_SUITE`; the flag wins): `checkride.<name>.config.json`, `checkride.<name>.baseline.json` and `.check/suites/<name>/`. It runs exactly the checks its config declares. Also on `fix`, `doctor`, `baseline`, `recover`, `gate`, `triage` and `qa`. Exits 2 with `--config`, `--defaults` or `--discover`, or when the suite has no config. See [Suites](./suites.md). |
 | `--pins <mise.toml>` | Run each tool this file's `[tools]` pins as that version, `mise exec <id>@<version>`, ahead of the repo's pins (or set `CHECKRIDE_PINS`; the flag wins). Never installs: a version mise lacks fails the check. Also on `doctor`, which reports the version mise has for each. Never ratchets the baseline. |
 | `--static-only` | Keep only the checks that read the repo as data, skipping each that would run its code or need its install with a `static-only:` reason. A selector for a pass before the install, not a sandbox. Also on `doctor`. Never ratchets the baseline. |
 | `--discover` | Check the targets the repo's files propose, as `init` would declare them, without writing anything. Where the config declares `targets`, those run instead, with a note on stderr. Also on `doctor`. Never ratchets the baseline. |
@@ -46,6 +48,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary, which carries it as `digest`, and print it on stderr below the report; a green run removes any stale one. |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
+| `--annotate github` | Write each finding of a red check to stderr as a GitHub Actions annotation, `::error file=…,line=…,col=…,title=…::…`, below the report and above the digest (or set `CHECKRIDE_ANNOTATE`; the flag wins). At most ten, then one `::notice` counting the rest. Never on by default; `github` is the only value, and any other exits 2. Run only. See [CI](./ci.md#annotations-on-the-pull-request). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
 machine output only (the `--json` summary, mirroring `.check/summary.json`). In
@@ -167,6 +170,7 @@ check between two later without shifting the others.
 | `smoke` | Built package imports cleanly | built-in | opt-in |
 | `snippets` | Tagged doc fences type-check | built-in (`tsc`) | opt-in |
 | `unclaimed` | Every toolchain marker sits in a target | built-in | with `targets` |
+| `schema` | Data files satisfy their JSON Schemas | built-in | with `schemas` |
 
 `build`, `publint`, `attw`, `pack`, `smoke` and `snippets` are the
 **publish-ready bundle** — opt-in library slots that check the shipped artifact
@@ -196,9 +200,14 @@ Every run writes here. Treat it as a stable API for agents.
 
 To debug: start beneath each red ✘. A check says why it failed when it says,
 then lists the findings a baseline didn't grandfather, or a `go test` run's
-failing tests, or else names its first finding, with how many more
-(`src/a.ts:3:7 Variable 'x' is declared but never used. (+4 more)`), for a
-check whose tool checkride parses. Then read `summary.json` for the failing
+failing tests and what they printed, or a vitest run's failing tests, each
+with its error, or else up to five of its findings
+(`src/a.ts:3:7  Variable 'x' is declared but never used.  [no-unused-vars]`,
+then `… and N more`) for a check whose tool checkride parses, and the last
+eight lines it printed for any other, a custom `command` among them, from
+both streams under `stderr:` and `stdout:` when both hold any. A
+`full output:` line then names the file that holds the rest, as
+`.check/lint.json`, or both files where it showed both streams. Then read `summary.json` for the failing
 slot, and that slot's raw output for structured diagnostics. On a big repo,
 `--digest` prints a capped excerpt below the report, and keeps it in
 `digest.md`, to start from.
@@ -211,11 +220,13 @@ slot, and that slot's raw output for structured diagnostics. On a big repo,
 | `doctor` says a tool is not installed | `pnpm install`, or `pnpm add -D <pkg>`; `mise install` for a tool `mise.toml` pins; otherwise the command its hint names, such as `uv sync` |
 | A check runs that your config never named | Its status line's tag names why, as `[detected: <file>]`; set `"<slot>": false` to stop it |
 | Checks fail naming `mise trust` | mise won't read a `mise.toml` it hasn't trusted: review the file, then `mise trust` |
+| `schema` fails | Read `.check/schema.json`: each error names its file, the JSON pointer and the keyword. A rule that matches no file fails too. `needs ajv`, `yaml` or `jsonc-parser` means the repo hasn't installed it: run the `add -D` command in the reason |
 | `unclaimed` fails | A toolchain marker sits outside every target: `checkride target add <name> --lang <pack> --root <dir>`, or add a glob for its path to `unclaimed.ignore` |
 | Fixable lint/format/markdown errors | `pnpm exec checkride fix` |
 | A check is irrelevant to this repo | set `"<slot>": false` in `checkride.config.json` |
 | Share one config across repos | set `"extends": "<path-or-pkg>"` in `checkride.config.json` (local keys win) |
 | Want a hard gate for a coding agent | `checkride hooks add` writes the stop gate, its edit marker and the baseline guard for Claude Code and Cursor (`init` and `agent-setup` write only the guard) |
+| A check is red and you want to know why | Read the lines beneath its ✘: an excerpt of what it found, then `full output:` naming the file with the rest |
 | Slow inner loop | `pnpm check --bail --only types,lint` or `--changed` |
 | Red gate, want one root cause instead of the whole `.check/` | `checkride triage`, or `/checkride:check` — the [bundled plugin](./plugin.md) |
 | Wall of "new, not in baseline" right after a merge (or a `hint:` line names a commit) | `checkride recover` lists restorable baseline states; `--pick <sha>` restores additively — not `checkride baseline`, which would grandfather new debt too |

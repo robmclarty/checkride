@@ -5,5 +5,6 @@
  */
 
 export { buildDigest, DIGEST_FILE, digestOf, withinBudget, writeDigest } from './digest.js';
-export type { GoTestCase } from './go-test.js';
+export type { GoTestCase, GoTestReport } from './go-test.js';
 export { caseName, goTestReport } from './go-test.js';
+export { capped, lastLines, rawPointer, streamFiles } from './raw.js';

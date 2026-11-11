@@ -28,7 +28,7 @@ What lands, with the gate opted in (without it, the two opt-in rows are absent):
 | `.cursor/hooks.json` | the hook entries |
 | `.cursor/hooks/checkride-gate.sh` | stop gate (opt-in) — a thin adapter over `checkride gate --harness cursor` |
 | `.cursor/hooks/checkride-dirty.sh` | edit marker (opt-in, with the gate), so conversation-only turns skip the pipeline |
-| `.cursor/hooks/checkride-protect.cjs` | denies edits to the baseline and `.check/` |
+| `.cursor/hooks/checkride-protect.cjs` | denies edits to the baseline and `.check/` (a repo with a package manager; [others get no file](#which-form-of-protect-a-repo-gets)) |
 | `.cursor/skills/checkride-check/SKILL.md` | `/checkride-check` — triage a red gate |
 | `.cursor/skills/checkride-qa/SKILL.md` | `/checkride-qa` — read the quality artifacts |
 
@@ -197,8 +197,63 @@ tree.
 `protect` is the row where the two harnesses stopped being the same shape.
 Claude Code has a declarative file-path deny list, checked below the hook layer,
 so checkride writes rules rather than a script. Cursor's config is hooks and
-nothing else, so it keeps `.cursor/hooks/checkride-protect.cjs` — with the
-best-effort caveat below, which the deny rules do not share.
+nothing else, so it keeps a hook — with the best-effort caveat below, which
+the deny rules do not share.
+
+### Which form of `protect` a repo gets
+
+The hook comes in two forms, and the repo's entry command, the way the repo
+runs checkride, picks one:
+
+| the repo runs checkride through | the hook's `command` | script file |
+| --- | --- | --- |
+| a package-manager script (`pnpm run check` and kin) | `node "${CURSOR_PROJECT_DIR:-.}/.cursor/hooks/checkride-protect.cjs"` | `.cursor/hooks/checkride-protect.cjs` |
+| `mise exec -- checkride` | `mise exec -- checkride protect --harness cursor`, behind a guard | none |
+| `checkride` from `PATH` | `checkride protect --harness cursor`, behind a guard | none |
+
+A repo with a package manager has Node, and starting a package manager ahead
+of every edit would be slow, so it keeps the generated script. A repo with
+neither, the [standalone binary](./distribution.md)'s case, may have no Node
+to run a script with, so its hook calls the checkride it already runs.
+
+The two decide alike. The decision is written twice, as the script's text
+and as the command's own code, and neither is made from the other: one table
+of payloads is tested against both, and each must give the other's exit code
+and output to the byte. So the tables below describe both, and "the script"
+in the rest of this page means either form. They differ in one place. A
+script that crashes and a command that faults both exit non-zero with the
+error on stderr, which Cursor reads as a broken hook, and the command form's
+guard turns that into a message.
+
+**The guard.** The command form's `command` is one shell line: it runs
+`checkride protect`, forwards what it printed when it exits 0, and otherwise
+finds out why. A `checkride` that isn't on the `PATH` Cursor gives its hooks
+(or one mise hasn't installed) and a `checkride` that failed, as one too old
+to have the command does, each get the same treatment:
+
+```json
+{"permission":"allow","user_message":"checkride: the edit guard could not run — checkride is not on PATH, and nothing in this repo pins it. This call was not checked, …","agent_message":"…"}
+```
+
+with the same line on stderr, and exit 0. Cursor's protocol leaves a hook
+three answers there, and this is the only one that isn't silent or
+destructive. A bare non-zero exit, a missing command's 127 included, is a
+broken hook to Cursor: the edit goes through and nothing says the baseline
+was unguarded. A deny would refuse every write in the repo over something no
+edit can fix. An allow that carries the reason keeps `protect` fail-open, as
+the script is, and tells the user and the agent that it didn't run and how to
+fix it. Whether Cursor shows `user_message` on an allow is
+[unverified](#known-gaps-and-unverified-assumptions); the stderr line lands
+in its Hooks output either way.
+
+checkride knows its entry by what it runs. Any hook command that invokes
+`checkride protect`, shortened, wrapped in `mise x --` or respelled as
+`--harness=cursor`, is refreshed in place by the next `agent-setup` and
+removed by `hooks remove protect`.
+
+Re-running `agent-setup` after the entry command changes, a `package.json`
+added or removed, moves the repo to the other form: both entries are rewritten
+in place, and the script is written, or deleted, to match.
 
 Two notes on the right-hand column. `afterFileEdit` is purpose-built for "a file
 changed", so it needs no matcher and cannot drift when Cursor renames a tool.
@@ -215,7 +270,8 @@ shell reachable at all: a file-tool matcher cannot see
 `Write`.
 
 Both entries share their sibling's name and script — one guard, one
-`--remove-hook protect`, one `.cjs` that branches on `hook_event_name`. The gate
+`--remove-hook protect`, one `.cjs` or one `checkride protect`, which branches
+on `hook_event_name`. The gate
 takes no shell entry; it is not per-call.
 
 The two matchers do very different amounts of work:
@@ -253,6 +309,14 @@ assert the keys checkride *chose*, never the keys Cursor sends, so this is
 settled by one live `preToolUse` payload and not by anything in the repo. Until
 then, treat `protect` as best-effort under Cursor and the baseline as guarded by
 convention.
+
+**A `protect` that couldn't run may still be invisible.** The command form's
+guard answers `permission: "allow"` with a `user_message` and an
+`agent_message` when `checkride` isn't there to run. Cursor documents those
+fields beside `deny`; whether it shows them on an allow is not stated, and
+not verified here. If it doesn't, the message reaches only the Hooks output
+panel, through stderr, and a machine without `checkride` on the hooks' `PATH`
+has an unguarded baseline that says so only there.
 
 **The `command` string assumes shell expansion.** checkride writes `sh
 "${CURSOR_PROJECT_DIR:-.}/…"` so a clone that lost its exec bits still gates and

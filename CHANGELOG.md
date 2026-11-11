@@ -4,6 +4,342 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A repo can keep more than one suite of checks (#24).** `--suite <name>`,
+  or `CHECKRIDE_SUITE`, runs a named suite in place of the default one. A
+  suite named `evals` is three paths at the repo root, each fixed by its name:
+  the config `checkride.evals.config.json`, the baseline
+  `checkride.evals.baseline.json`, and the output directory
+  `.check/suites/evals/`. It runs exactly the checks its config declares, so
+  detection fills no slot and no built-in joins on its own, and a full run
+  ratchets its own baseline and never another suite's. Run, `fix`, `doctor`,
+  `baseline` with `--versions` and `diff`, `recover`, `gate`, `triage` and
+  `qa` take the flag, and `doctor` without it lists the suites it finds. A
+  suite with no config is exit 2, naming the path and the suites that exist,
+  and so is `--suite` beside `--config`, `--defaults` or `--discover`. An
+  entry that tunes a slot and names no tool is a config error in a suite,
+  whatever tools the repo holds. The stop-gate hook stays on the default
+  suite: `gate` strips `CHECKRIDE_SUITE` from the check it runs, and only
+  `gate --suite` gates another, passing the suite to the check as a flag, as
+  `triage --suite` does. A name `gate --suite` can't gate blocks with the
+  reason in the harness's protocol and is never a usage error, and
+  `triage --suite` refuses, before it starts a run, a `check` script or an
+  environment that names a config or a defaults layer. Every hint a suite's
+  command prints names a command with `--suite` on it, a suite's config
+  errors name `checkride.<name>.config.json`, and `triage` and `qa` name the
+  suite's files in their reports. The `snippets` and `smoke` built-ins keep a
+  suite's scratch files under `.check/suites/<name>/`, apart from the default
+  suite's. `docs/suites.md` has the guide, with an evals suite as its
+  example and a note on what `gate --suite` needs of the `check` script.
+- **A standalone binary.** `pnpm build:sea` builds checkride as one
+  executable for the machine it runs on: a Node single executable
+  application holding the bundled CLI, with `package.json` and every file
+  under `templates/`, `schema/` and `skills/` embedded, so a Go, Rust,
+  Python, Terraform or Odin repo can run its gate with no Node installed. It
+  runs the npm CLI's code on the Node it embeds, pinned in
+  `build/sea/.node-version`: `--version` prints the same string, and `init`
+  scaffolds the same files, byte for byte. `src/resources.ts` serves the
+  bundled files from the embedded assets there and from the package
+  directory otherwise. In the binary, an `extends` entry that names a
+  package is exit 2, `invalid checkride.config.json: package presets need
+  the npm distribution; use a file path: extends "<entry>" (in <file>)`,
+  where a file path resolves as before. The Node it embeds never stands for
+  the repo's: the gate's Node-pin alignment and `doctor` read the `node` on
+  `PATH`, and `doctor`'s `node` row fails nothing when there is none. Where
+  the entry command is the `checkride` on `PATH`, its `gate` and `triage`
+  run the binary itself, `triage` asks the `doctor` of the checkride its
+  gate ran, and the pin its hints recommend is
+  `mise use github:robmclarty/checkride@<version>`. The programmatic API,
+  `checkride/findings` and the plugin's `dist/` readers stay with the npm
+  package, and `checkride triage` and `checkride qa` are the readers there.
+  The release workflow builds it on a native runner for `darwin-arm64`,
+  `darwin-x64`, `linux-x64` and `linux-arm64` (glibc), tests each where it
+  was built, and attaches `checkride-<version>-<os>-<arch>.tar.gz`,
+  `SHA256SUMS` and a build provenance attestation for each tarball to the
+  GitHub release, failing a target whose tag, `package.json` and printed
+  version differ. Binaries never hold back the npm publish or the release:
+  each target stands alone, and the ones that pass attach a few minutes
+  after the release. No release carries binaries until the next tag.
+  `docs/distribution.md` covers installing one, verifying it and pinning it
+  through mise's `github:` backend.
+- `checkride doctor` names the channel it runs from, `channel: npm` or
+  `channel: binary (embedded Node <version>)`, under the package manager's
+  line.
+- **`checkride protect`, so Cursor's edit guard runs without Node.** The
+  command reads a Cursor hook payload on stdin and denies a write to
+  `checkride.baseline.json`, a named suite's baseline or `.check/`, with the
+  output and exit code the generated `.cursor/hooks/checkride-protect.cjs`
+  gives: a `permission: 'deny'` body and exit 0 for a denied write, no output
+  and exit 0 for anything else, a payload it can't read included. The
+  decision is written twice, as the script's text and as the command's code,
+  and one table of payloads is tested against both, each held to the other's
+  exit code and output. A fault of the command's own is never an allow: one
+  line on stderr and exit 1, as a script that crashed gives. It takes
+  `--harness cursor`, the only harness whose guard is a hook, and refuses any
+  other with exit 2. `--help` lists it as a hook command.
+- The `protect` hook denies an agent's edits to a named suite's baseline,
+  `checkride.<name>.baseline.json`. Under Claude Code that's a third
+  `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
+  next `agent-setup` or `hooks add` appends.
+- **A run can annotate a pull request on GitHub.** `--annotate github`, or
+  `CHECKRIDE_ANNOTATE=github`, writes each finding of a red check to stderr
+  as a GitHub Actions workflow command, below the report and above the
+  digest a `--digest` run prints last, so it shows on the
+  line of the diff it's about and in the job's annotation list:
+  `::error file=src/a.ts,line=3,col=7,title=lint: no-unused-vars::<message>`.
+  The findings are the ones the report lists beneath a red check, all of
+  them where it lists five, and only the new ones where a baseline
+  grandfathers the rest. A key found more often than the baseline
+  grandfathers is one annotation, on its first occurrence, with
+  `(4 found, 3 grandfathered)` after its message. A failing vitest or `go test` run gets one
+  annotation for each failing test, and any other red check, a custom
+  `command`, a timeout or a refusal, gets one with no file that holds its
+  reason or the first line of its excerpt. GitHub shows ten error
+  annotations for a step, so a run writes its first ten, in the order it
+  reports its checks, then one `::notice` counting the rest. Paths are named
+  from the top level of the git work tree, whichever target the check ran in
+  and wherever in the work tree the run started. An annotation names a file
+  only when it is one on disk inside the work tree, and a line or a column
+  only from 1 up, so a finding about a package or a file outside it keeps
+  its annotation without a place. It is never switched on by
+  `GITHUB_ACTIONS`, `github` is its only value and any other is exit 2, and
+  nothing else about the run changes: the exit code, `summary.json`, the
+  digest and the report are the same, `--json` still prints the summary
+  alone on stdout, and a green run writes nothing. The run takes it, with
+  `--suite`, `--changed` or `--only` as without; `fix` and `doctor` refuse
+  the flag, every command but the run ignores the variable without a word,
+  so a CI job can set it for all its steps, and `gate` strips it from the
+  check it runs, since a hook's output goes to an agent. `docs/ci.md` has the workflow snippet.
+- **The `schema` slot validates data files against JSON Schemas.** The
+  `schemas` key a config could already hold now runs: each rule names `files`
+  globs and a `schema`, and the built-in reads every file the repo lists that
+  a glob matches and validates it. A file is read as strict `json`, `jsonc`
+  (comments and trailing commas), `yaml` (YAML 1.2 core, a duplicate key an
+  error) or `frontmatter` (the YAML between a file's opening `---` line and
+  the next), by the rule's `format` or by its extension. A schema is draft
+  2020-12 or draft-07, `format` keywords aren't asserted, and a `$ref`
+  reaches the schema file and sibling files by relative path; one to a URL is
+  a finding, since a check makes no network call. A rule that matches no file
+  fails, as `prose` fails on exemplars that are gone, and so does a file that
+  doesn't parse. Two schemas ship: `checkride:agent-skill`, for a skill's
+  `SKILL.md` frontmatter, which also checks that `name` is the directory's
+  name, and `checkride:checkride-config`, the config schema. The report is
+  `.check/schema.json`, its errors are findings the baseline keys by file,
+  keyword, pointer and the property a keyword names, a red run
+  lists them as `path:line  message  [keyword]`, and `--annotate github`
+  annotates them. `--only`, `--skip`, `order`, `timeout`, `optIn` and a
+  `checks.schema` entry work as for any slot, `--changed` still runs every
+  rule, and a named suite runs it when its own config holds `schemas`.
+  **checkride still has no runtime dependency.** `ajv` (8.x), `yaml` (2.x)
+  and `jsonc-parser` (3.x) are optional peer dependencies, loaded from the
+  repo's own `node_modules` and only when a rule needs them: `ajv` for any
+  rule, `yaml` for `yaml` and `frontmatter`, `jsonc-parser` for `jsonc`. One
+  the repo lacks fails the check before it reads a file, with the package
+  and the install command as the reason, and `doctor` reports the slot as
+  not configured, ready with the versions it would load, or missing a
+  library. A Yarn Plug'n'Play repo, which has no `node_modules` to read them
+  from, is told to use the binary or `nodeLinker: node-modules`. The
+  standalone binary bundles all three, so a repo with no Node installs
+  nothing, and nothing the npm package ships imports any of them. The slot
+  reads no file outside the repository, which is what lets `--static-only`
+  check a stranger's repo: a rule's `schema` that is absolute, in POSIX or
+  Windows spelling, or holds a `..` segment is a config error; a schema, or a
+  `$ref`'s target, whose real path is outside the repo fails the check
+  unread; a matched data file that is a symlink out of the repo is a
+  `symlink` finding, unread; and a schema that isn't JSON is reported with
+  where it stops and none of its text. This repo runs the slot on its own
+  skills and on every checkride config in its tree. `docs/tools.md` has the
+  guide.
+
+### Changed
+
+- **A red check says why, in the terminal.** A red check that checkride
+  parses named one finding beneath its status line, and one it doesn't
+  parse, a custom `command` or a test runner, named nothing, so a CI log
+  said that a check failed and never on what. Beneath its status line and
+  its reason, a red check now prints a bounded excerpt of its cause, then
+  `full output: <file>`, the file under the output directory that holds the
+  rest, under `<target>/` for a target's check and in a named suite's own
+  directory. For a tool with a parser the excerpt is up to five of the
+  findings that can fail the check, in the tool's order, each as
+  `path:line:col  message  [rule]`, then `… and N more`. This replaces the
+  single `path:line:col message (+N more)` line, and a tsc finding now reads
+  as any other, its code as the rule. For any other check it's the last
+  eight lines the check printed that aren't blank, with escape sequences and
+  control characters removed, a carriage return read as a line break, and
+  each line cut at 200 characters. They come from whichever stream holds
+  any. When both do, both are shown, under `stderr:` and `stdout:`, four
+  lines each with either taking what the other leaves unused, and the
+  pointer names both files, since nothing says which stream a tool reports
+  on. A tool its `failOnOutput` verdict failed shows stdout alone. A JSON
+  report is never shown as text: a check that failed with one checkride
+  reads no finding in, oxlint exiting 1 on warnings alone or a tool with no
+  parser, prints `exit N, no findings checkride can read in the JSON
+  report`. A red `go test` run still names its failing tests, and now
+  prints up to eight of the lines they printed beneath them, the first
+  failing test's first. A red vitest run names the tests that failed, up to
+  four, each as vitest names it, `<file> > <suite> > <test>`, with the
+  first line of its error beneath it, then `… and N more`: a tail of its
+  output ended in a code frame and named neither. A file that threw as it
+  was imported and an error thrown outside any test are named the same
+  way. That reading is for display alone, of the text vitest's default
+  reporter prints, so vitest stays outside `checkride/findings` and the
+  baseline, and a run it reads no failure in shows its last lines as any
+  other check does. A check that captured nothing says `no output
+  captured (exit N)`. A check whose cause is already on screen prints the
+  pointer alone: one that lists its new findings, one that reached no
+  verdict (a timeout, a tool that couldn't start), one refused before its
+  tool ran, and a tsc run a baseline couldn't mask because it stopped short.
+  A passing check prints nothing new, and `--json`, `summary.json` and exit
+  codes are as they were.
+
+- **Which `protect` hook a Cursor repo gets follows its entry command.** A
+  repo whose entry is `mise exec -- checkride` or `checkride` from `PATH`,
+  the standalone binary's case, now gets hook entries that call
+  `<entry> protect --harness cursor` and no script file, where every repo
+  used to get a Node script that such a repo might have no Node to run. A
+  repo whose entry is a package-manager script keeps the generated script
+  and the entries that run it, byte for byte. Re-running `agent-setup`, or
+  `hooks add`, after a repo gains or drops its `package.json` moves it to the
+  other form: both entries are rewritten in place, and the script is written
+  or deleted to match. The call sits behind a guard, as the gate's does.
+  Where `checkride` isn't on the `PATH` Cursor gives its hooks, or mise
+  hasn't installed it, or it fails, the hook allows the call with a
+  `user_message` and an `agent_message` saying the edit guard didn't run and
+  how to fix it, writes the same to stderr, and exits 0, since Cursor reads a
+  bare non-zero exit as a broken hook and lets the edit through in silence.
+  An entry is recognised by what it invokes, any command that runs
+  `checkride protect`, so one a person shortened or wrapped is refreshed and
+  removed, and never doubled.
+
+### Fixed
+
+- **The digest points a stderr-parsed tool at the file its findings are
+  in.** A digest section's `Raw:` line named `<slot>.stdout.txt` whenever
+  the check printed anything on stdout. markdownlint-cli2 and the Odin
+  compiler print their findings on stderr, so their sections listed
+  findings from one file and pointed at the other. The line now names the
+  stream the tool's parser reads, `<slot>.stderr.txt` for those two, and
+  the `full output:` line beneath a red check names the same file. Where
+  such a tool printed no finding its parser reads, a config it couldn't
+  load, the section's excerpt is the end of that stderr file too, where it
+  was the end of stdout. Every other tool's section is as it was.
+
+### Security
+
+- **A config can no longer use a path to ask what is outside the
+  repository.** Two checks told a config whether a path of its choosing
+  existed elsewhere on the machine, which matters under `--static-only`,
+  where the config is a stranger's. The `prose` slot's pre-flight listed
+  whatever directory `exemplars` named, with no guard on the path, and
+  failed differently for one that was missing, empty or holding a file. It
+  read no file's contents and printed no file's name. This has been
+  reachable since the key shipped. The `schema` slot, unreleased, refused a
+  schema or a `$ref` that was a symlink out of the repo with one message
+  when its target existed and another when it didn't, because it resolved
+  the link to find out. Both now share one rule, in `src/contain.ts`: a path
+  is walked a segment at a time from the repository's real root, each link
+  is read and resolved as text, and one that lands outside is `outside`
+  there and then. Nothing outside the repository is opened, listed, or
+  asked about, and the answer doesn't depend on what is there. For
+  `exemplars`: a path whose real location is outside the repository fails
+  the check with `` the `prose` slot names `docs/voice` as its voice
+  exemplars, and that path resolves outside the repository ``; an absolute
+  path, in POSIX or Windows spelling, and one that climbs out of the repo as
+  written are exit 2 at load; and inside the directory a symlink that
+  leaves the repository is passed over, never followed. A symlink to a file
+  inside the repository now counts as an exemplar, where a symlink used to
+  count as none, an entry that can't be read is passed over where it used to
+  fail the check as `does not exist`, and a directory that can't be listed
+  says `can't be read (<code>)`. For `schemas`, messages and exit codes are
+  as they were; a schema path that names the repository root now reads
+  `can't be read`, where it read `resolves outside the repository`.
+
+### Contract
+
+- Additive: the run flag `--suite <name>` and the variable `CHECKRIDE_SUITE`;
+  the file names `checkride.<name>.config.json` and
+  `checkride.<name>.baseline.json` and the directory `.check/suites/<name>/`;
+  a top-level `suite` field in `summary.json`, present only on a named
+  suite's run, and in the summary schema; a `suite` field in `doctor --json`
+  under `--suite`, and a `suites` row without it in a repo that holds any. A
+  run of the default suite writes what it wrote before.
+- Additive: the package root exports `suiteNamed` and the `Suite` type, the
+  value `runChecks`, `runFix` and `runDoctor` take as `suite`. With `config`
+  omitted they load the suite's own config file.
+- Additive: `suites` joins the reserved target names, since a target's
+  artifacts would land in `.check/suites/`. A config that names a target
+  `suites` is now a config error, and the config schema refuses the name.
+- Additive: the run flag `--annotate github` and the variable
+  `CHECKRIDE_ANNOTATE`; the three lines a run asked for them writes to
+  stderr, `::error file=…,line=…,col=…,title=…::…`, `::error title=…::…` and
+  `::notice title=checkride::<N> more finding(s) not annotated; see <summary
+  path>`, with the cap of ten errors a run; and `annotate` on the options
+  `runChecks` takes. A run that isn't asked writes what it wrote before.
+- Additive: the command `checkride protect` and its `--harness cursor`, with
+  the verdict `docs/contract.md` gives it: exit 0 with a `permission: 'deny'`
+  body on stdout for a write to the baseline, a named suite's baseline or
+  `.check/`, exit 0 with no output for anything else, exit 1 with a line on
+  stderr for a fault of its own, and exit 2 for another harness. Under
+  Cursor, `agent-setup` writes the `protect` hook as a guarded call to it,
+  with no script, in a repo whose entry command isn't a package-manager
+  script; the guard's `permission: 'allow'` body, for a command that isn't
+  there to run, is part of that.
+- A `prose` entry's `exemplars` that is absolute, or climbs out of the repo
+  as written, is now a config error, exit 2, where it loaded before and the
+  check failed or passed on what the path held.
+- Additive: a `channel` field in `doctor --json`, `"npm"` or `"binary"`,
+  with `embeddedNode` beside it in the standalone binary alone, and a
+  `channel: …` line in `doctor`'s table under the package manager's. The
+  exported `DoctorReport` type gains both. `docs/contract.md` names what
+  differs in the binary: the `extends` refusal above, the `node` on `PATH`
+  standing for the repo's Node in the gate and in `doctor`, `doctor`'s
+  `node` row reading `n/a` and not required when `PATH` holds none, `gate`
+  and `triage` running the binary itself for the `checkride` on `PATH`,
+  the `doctor` that `triage` asks, and the `github:` pin its hints name.
+  From npm, every command behaves as it did.
+- Additive: the `schema` slot, the last entry of `SLOTS`, with its `schema`
+  adapter the last of `ADAPTERS` and of the repo pack, and `schema` on
+  `AdapterOptions`. It is inactive until the config holds a `schemas` rule,
+  as `unclaimed` is without `targets`: a repo that configures none gets the
+  output and the `summary.json` it got before, under every flag. With a rule
+  it writes `schema.json` in the output directory, `{ rules, errors }` as
+  `docs/contract.md` gives it, and exits 0 or 1. `isParseable('schema')` is
+  true, `parseFindings` and `findingsFor` read the report, and its baseline
+  key is `<file>:<keyword>:<instancePath>`, then `:<param>` for an error
+  whose keyword names what is at fault, with no message in it.
+  `package.json` gains `peerDependencies` on `ajv` `^8.0.0`, `yaml` `^2.0.0`
+  and `jsonc-parser` `^3.0.0`, each optional in `peerDependenciesMeta`, and
+  still no `dependencies`. `doctor` gains a `schema` row in every report,
+  `not configured` and required by nothing in a repo with no rule. In a
+  named suite the `schemas` rules declare the check, with no `checks.schema`
+  entry beside them.
+- Additive: in a file with `extends`, the config schema accepts an entry of
+  the top-level `checks`, or of a `packs` block's `checks`, that overrides
+  part of a check a preset declares, such as `{ "description": "…" }` with no
+  `use` or `command`, which the loader has always deep-merged.
+  `examples/shared-preset` holds one, and the schema refused it. A file with
+  no `extends` is held to what it was, and so is a target's `checks` in any
+  file, since a preset declares no targets for one to merge with.
+- A `schemas` rule is now held to what the slot can run, where a load used to
+  check its `schema` reference alone: `files` is an array of globs, `format`
+  is one of the four, a `checkride:<id>` is one of the two that ship, and
+  with no `format` each glob's extension names one. A config that carried a
+  rule outside those, ahead of the slot, is exit 2 until it is fixed.
+- A target's `root` is refused when it is absolute in Windows spelling as
+  well as POSIX (`C:\x`, `C:/x`, `C:x`, a leading backslash, a UNC share),
+  and when a `..` segment sits behind a backslash. It shares the path rule a
+  `schemas` rule's `schema` is held to, and the config schema's patterns for
+  both say the same. No such root named a directory in the repo before, so
+  each was already an error, under another message.
+- A custom check named `schema`, a `command` entry with no `use`, runs as it
+  did in a config with no `schemas` rule: the slot stands aside. A config
+  that holds both that check and a `schemas` rule is exit 2, naming the clash
+  and saying to rename the custom check, so neither replaces the other.
+
 ## [0.20.0] - 2026-11-05
 
 ### Added

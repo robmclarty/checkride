@@ -15,10 +15,12 @@
  */
 
 import type { ArtifactFile, RawOutput, SummaryRead } from '../artifacts/index.js';
-import { artifactStem, listArtifacts, OUT_ENV, outDir, outLabel, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
+import { artifactStem, listArtifacts, OUT_ENV, outLabel, readSummary, resolveRawOutput, runWindowStart, statArtifact } from '../artifacts/index.js';
 import { configuredSlots } from '../config.js';
 import { DIGEST_FILE } from '../digest/index.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
+import type { Suite } from '../suite.js';
+import { DEFAULT_SUITE, suiteFlags, suiteOutDir } from '../suite.js';
 import type { DoctorFold } from './doctor-fold.js';
 import { foldDoctor } from './doctor-fold.js';
 import type { TriageEnv } from './env.js';
@@ -64,6 +66,8 @@ export type TriageReport = {
    * it sits inside it (`.check` by default), absolute otherwise.
    */
   outLabel: string;
+  /** The suite the report is of, whose config and baseline its lines name. */
+  suite: Suite;
   gate: GateOutcome;
   /** Present only on the broken-harness branch, where it is the diagnosis. */
   doctor: DoctorFold | null;
@@ -124,8 +128,8 @@ async function buildRow(checkDir: string, check: SummaryCheck, windowStart: numb
   };
 }
 
-function buildCoverage(cwd: string, rows: readonly SlotRow[], checks: readonly SummaryCheck[]): Coverage {
-  const configured = configuredSlots(cwd);
+function buildCoverage(cwd: string, rows: readonly SlotRow[], checks: readonly SummaryCheck[], suite: Suite): Coverage {
+  const configured = configuredSlots(cwd, suite.configFile);
   // A slot configured at the top level is covered by any target's check of it.
   const present = new Set([...rows.map((r) => r.slot), ...checks.flatMap((c) => (c.slot === undefined ? [] : [c.slot]))]);
   return {
@@ -200,17 +204,22 @@ function isVacuous(summary: SummaryRead): boolean {
  * slot table is not evidence of anything. `out` is the output directory
  * `--out` or `CHECKRIDE_OUT` named, or `null` for `<cwd>/.check`; a named one
  * reaches the gate's run and doctor as `CHECKRIDE_OUT`, so the run writes
- * where this reader reads.
+ * where this reader reads. `suite` is the suite to triage, the default
+ * one when omitted: a named one reaches the run, and doctor, as `--suite <name>`
+ * after the entry command, as `gate --suite` passes it, and this reader reads
+ * the suite's output directory and config.
  */
-export async function triage(cwd: string, env: TriageEnv, out: string | null = null): Promise<TriageReport> {
-  const dir = out ?? outDir(cwd);
+export async function triage(cwd: string, env: TriageEnv, out: string | null = null, suite: Suite = DEFAULT_SUITE): Promise<TriageReport> {
+  const dir = out ?? suiteOutDir(cwd, suite);
   const vars: Record<string, string> = out === null ? {} : { [OUT_ENV]: out };
-  const gate = await runGate(cwd, env, { dir, vars });
-  const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env, vars) : null;
+  const flags = suiteFlags(suite);
+  const gate = await runGate(cwd, env, { dir, vars, flags });
+  const doctor = isHarnessProblem(gate.verdict) ? await foldDoctor(cwd, env, vars, flags) : null;
   const { summary, windowStart, rows, digest, checkDir, checks } = await readArtifacts(dir, gate);
   return {
     cwd,
     outLabel: outLabel(cwd, dir),
+    suite,
     gate,
     doctor,
     summary,
@@ -218,7 +227,7 @@ export async function triage(cwd: string, env: TriageEnv, out: string | null = n
     windowStart,
     rows,
     failing: rows.filter((r) => r.status === 'fail'),
-    coverage: buildCoverage(cwd, rows, checks),
+    coverage: buildCoverage(cwd, rows, checks, suite),
     vacuous: isVacuous(summary),
     digest,
     stale: collectStale(rows, digest),

@@ -22,7 +22,8 @@ four-language repo from `init`'s proposal to the targets it keeps.
 A target's name starts with a lowercase letter and holds only lowercase
 letters, digits and hyphens, 32 characters at most. It can't be a slot's name
 or a custom check's, since `--only <name>` has to mean one thing, nor
-`doc-snippets`, where the `snippets` check keeps its scratch files. Its `root`
+`doc-snippets`, where the `snippets` check keeps its scratch files, nor
+`suites`, where [named suites](./suites.md) write. Its `root`
 is a directory inside the repo, relative to the repo root, and only the repo's
 own config declares targets: a preset that `extends` names can't.
 
@@ -59,7 +60,7 @@ preset's pack block then fills what the repo's own entries leave open.
 
 Each target runs the slots its pack fills, once, from its root: `web:types`,
 `web:lint`, `scripts:lint` and so on. The repo-scope slots (`struct`, `docs`,
-`links`, `spell`, `prose` and `unclaimed`) still run once, for the whole repo,
+`links`, `spell`, `prose`, `unclaimed` and `schema`) still run once, for the whole repo,
 under their bare names, and so do top-level custom checks.
 
 A target's slot takes its tool from the target's own `checks`, then from

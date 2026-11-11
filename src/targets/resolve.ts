@@ -18,6 +18,7 @@ import type { Adapter, Slot } from '../adapters.js';
 import { SLOTS } from '../adapters.js';
 import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
+import { SUITES_DIR } from '../suite.js';
 import { takesFiles } from './files.js';
 
 /** Which config a rule reads: the repo's own, presets folded in, or a defaults file (R13.1). */
@@ -35,6 +36,12 @@ type ValidationContext = {
   slots?: readonly Slot[];
   /** The pack registry's rows: `PACKS` unless a test swaps it. */
   packs?: readonly PackRows[];
+  /**
+   * What holds the `schemas` key to its rules, the first problem with it or
+   * `null`: the `schema` module's, which owns them and which a loader hands
+   * in, since that module reads this one. Omitted, the key goes unread.
+   */
+  schemas?: (schemas: unknown) => string | null;
 };
 
 /** The context with the catalogue read into the sets the rules ask about. */
@@ -68,13 +75,6 @@ export type Target = {
   readonly exclude?: readonly string[];
 };
 
-/**
- * Repo-scope slots R5.1 appends after `snippets` that haven't joined `SLOTS`
- * yet. V2 reserves each name anyway, so a target named after one doesn't break
- * on the upgrade that adds it (R5.1).
- */
-export const RESERVED_SLOTS: readonly string[] = ['schema'];
-
 /** The pack whose slots check the repo as a whole; a target or a `packs` key never names it. */
 const REPO_PACK = 'repo';
 
@@ -83,11 +83,15 @@ const TARGET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 
 /**
  * Names V2 reserves for directories checkride writes under the output
- * directory: the `snippets` built-ins' scratch sits at `.check/doc-snippets/`,
- * which a target named `doc-snippets` would share with its own artifacts, and
- * which the built-in clears on every run.
+ * directory, each with what it keeps there: the `snippets` built-ins' scratch
+ * sits at `.check/doc-snippets/`, which a target named `doc-snippets` would
+ * share with its own artifacts, and which the built-in clears on every run,
+ * and each named suite writes under `.check/suites/`.
  */
-const RESERVED_TARGET_NAMES: readonly string[] = ['doc-snippets'];
+const RESERVED_TARGET_NAMES: Readonly<Record<string, string>> = {
+  'doc-snippets': 'the snippets check keeps its scratch files',
+  [SUITES_DIR]: 'named suites write their artifacts',
+};
 
 const TARGET_KEYS: readonly string[] = ['lang', 'root', 'include', 'exclude', 'checks', 'note'];
 const PACK_KEYS: readonly string[] = ['checks', 'note'];
@@ -98,8 +102,24 @@ const FILE_LIST_KEYS: readonly string[] = ['include', 'exclude'];
 const LIFTABLE_KEYS: readonly string[] = ['optIn', 'timeout', 'order', 'note'];
 
 /** A value as the config spelled it, for a message. */
-function show(value: unknown): string {
+export function show(value: unknown): string {
   return JSON.stringify(value);
+}
+
+/**
+ * True for a path that is absolute in any system's spelling: a POSIX root
+ * (`/etc`), a Windows drive, with or without a slash after it (`C:\x`,
+ * `C:/x`, `C:x`), and a leading backslash, a UNC share (`\\server\share`)
+ * or a rooted path. A repo-relative path is none of them, on any machine a
+ * config travels to.
+ */
+export function isAbsoluteForm(path: string): boolean {
+  return posix.isAbsolute(path) || /^[A-Za-z]:/.test(path) || path.startsWith('\\');
+}
+
+/** True for a path with a `..` segment, under either separator: one that can leave the directory it's relative to. */
+export function hasParentSegment(path: string): boolean {
+  return path.split(/[/\\]/).includes('..');
 }
 
 /** True for an array whose every element is a string. */
@@ -114,9 +134,9 @@ function catalogue(context: ValidationContext): Catalogue {
   return {
     cwd: context.cwd,
     layer: context.layer,
-    slotNames: new Set([...names(() => true), ...RESERVED_SLOTS]),
+    slotNames: new Set(names(() => true)),
     targetSlots: new Set(names((s) => s.scope !== 'repo')),
-    repoSlots: new Set([...names((s) => s.scope === 'repo'), ...RESERVED_SLOTS]),
+    repoSlots: new Set(names((s) => s.scope === 'repo')),
     packs: new Map(packs.map((p) => [p.name, p])),
   };
 }
@@ -271,8 +291,9 @@ function nameProblem(name: string, config: Record<string, unknown>, cat: Catalog
   if (cat.slotNames.has(name)) {
     return `target name '${name}' is reserved: it's a slot's name, and a token like --only ${name} has to mean one thing`;
   }
-  if (RESERVED_TARGET_NAMES.includes(name)) {
-    return `target name '${name}' is reserved: the snippets check keeps its scratch files in .check/${name}/, where this target's artifacts would land`;
+  const keeps = Object.hasOwn(RESERVED_TARGET_NAMES, name) ? RESERVED_TARGET_NAMES[name] : undefined;
+  if (keeps !== undefined) {
+    return `target name '${name}' is reserved: ${keeps} in .check/${name}/, where this target's artifacts would land`;
   }
   const home = customHome(name, config);
   if (home !== null) {
@@ -293,8 +314,8 @@ function rootProblem(root: unknown, where: string, cwd: string): string | null {
   if (typeof root !== 'string' || root === '') {
     return `${where}.root must be a directory relative to the repo root (got ${show(root)})`;
   }
-  if (posix.isAbsolute(root)) return `${where}.root ${show(root)} is absolute: give it relative to the repo root`;
-  if (root.split('/').includes('..')) return `${where}.root ${show(root)} has a '..' segment: give a directory inside the repo`;
+  if (isAbsoluteForm(root)) return `${where}.root ${show(root)} is absolute: give it relative to the repo root`;
+  if (hasParentSegment(root)) return `${where}.root ${show(root)} has a '..' segment: give a directory inside the repo`;
   const abs = join(cwd, root);
   if (!existsSync(abs)) return `${where}.root ${show(root)} doesn't exist in the repo`;
   return statSync(abs).isDirectory() ? null : `${where}.root ${show(root)} is a file, not a directory`;
@@ -497,27 +518,6 @@ function packsProblem(packs: unknown, cat: Catalogue): string | null {
   return null;
 }
 
-/** V8 for one rule: a schema is bundled or in the repo, never fetched. */
-function schemaRefProblem(ref: unknown, where: string): string | null {
-  if (typeof ref !== 'string' || ref === '') {
-    return `${where} must name a bundled checkride:<id> schema or a repo-relative path (got ${show(ref)})`;
-  }
-  if (/^https?:\/\//i.test(ref)) {
-    return `${where} ${show(ref)} is a URL, and a check never fetches: name a bundled checkride:<id> schema or a repo-relative path`;
-  }
-  return posix.isAbsolute(ref) ? `${where} ${show(ref)} is absolute: give it relative to the repo root` : null;
-}
-
-function schemasProblem(schemas: unknown): string | null {
-  if (schemas === undefined) return null;
-  if (!Array.isArray(schemas)) return `schemas must be an array of rules (got ${show(schemas)})`;
-  for (const [i, rule] of schemas.entries()) {
-    const problem = schemaRefProblem(isRecord(rule) ? rule['schema'] : undefined, `schemas[${i}].schema`);
-    if (problem !== null) return problem;
-  }
-  return null;
-}
-
 /** The two top-level keys that aren't blocks of targets or checks. */
 function keysProblem(config: Record<string, unknown>): string | null {
   const pins = config['requirePins'];
@@ -544,7 +544,7 @@ export function configProblem(config: Record<string, unknown>, context: Validati
     targetsProblem(config, cat) ??
     topChecksProblem(config['checks'], declaredTargets(config['targets']), cat) ??
     packsProblem(config['packs'], cat) ??
-    schemasProblem(config['schemas']) ??
+    context.schemas?.(config['schemas']) ??
     gateProblem(config['gate'])
   );
 }

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -1981,11 +1981,12 @@ function placed(findings: [string, string, string, string][]): string {
 }
 
 /**
- * A red check that no baseline masks printed nothing beneath its status line,
- * so the run named no finding to fix and an agent had to open a file to
- * learn what failed (#22). It now names the first one, on one line.
+ * A red check printed only its status line, so the run named nothing to fix
+ * and a reader had to open a file to learn what failed (#22). It now prints
+ * an excerpt of its cause, its first findings or its last lines, then the
+ * file that holds all of its output.
  */
-describe('runChecks (the first finding beneath a red check)', () => {
+describe('runChecks (the excerpt beneath a red check)', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-first-')); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
@@ -2007,62 +2008,144 @@ describe('runChecks (the first finding beneath a red check)', () => {
     return text.slice(text.indexOf('\n', status) + 1, text.indexOf('\n✘ one or more checks failed'));
   }
 
-  test('names its first finding where it sits, and how many more there are', async () => {
+  test('lists its findings where they sit, up to five, then how many more, then the file that holds them', async () => {
     const report = placed([['a.ts', 'no-x', 'bad', 'error'], ['b.ts', 'no-y', 'worse', 'error'], ['c.ts', 'no-z', 'worst', 'error']]);
-    expect(await beneath(oxlintRow, { stdout: report })).toBe('           a.ts:3:7 bad (+2 more)\n');
-    expect(await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', 'bad', 'error']]) })).toBe('           a.ts:3:7 bad\n');
+    expect(await beneath(oxlintRow, { stdout: report })).toBe(
+      '           a.ts:3:7  bad  [no-x]\n           b.ts:3:7  worse  [no-y]\n           c.ts:3:7  worst  [no-z]\n           full output: .check/lint.json\n',
+    );
+    const seven = placed(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((name) => [`${name}.ts`, 'no-x', 'bad', 'error']));
+    expect(await beneath(oxlintRow, { stdout: seven })).toBe(
+      `${['a', 'b', 'c', 'd', 'e'].map((name) => `           ${name}.ts:3:7  bad  [no-x]\n`).join('')}           … and 2 more\n           full output: .check/lint.json\n`,
+    );
   });
 
-  test('a parser with a printed form shows the finding as the tool printed it', async () => {
+  test('a tsc finding reads as any other, its code as the rule', async () => {
     const stdout = "src/a.ts(1,22): error TS2304: Cannot find name 'shippingCents'.\nsrc/b.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.\n";
-    expect(await beneath(tscRow, { stdout })).toBe("           src/a.ts(1,22): error TS2304: Cannot find name 'shippingCents'. (+1 more)\n");
+    expect(await beneath(tscRow, { stdout })).toBe(
+      "           src/a.ts:1:22  Cannot find name 'shippingCents'.  [TS2304]\n           src/b.ts:4:7  Type 'string' is not assignable to type 'number'.  [TS2322]\n           full output: .check/types.stdout.txt\n",
+    );
   });
 
-  test('names the first finding that can fail the check, past ones that only advise', async () => {
+  test('lists the findings that can fail the check, past ones that only advise', async () => {
     const report = placed([['a.ts', 'no-x', 'only a warning', 'warning'], ['b.ts', 'no-y', 'an error', 'error']]);
-    expect(await beneath(oxlintRow, { stdout: report })).toBe('           b.ts:3:7 an error\n');
-    expect(await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', 'only a warning', 'warning']]) })).toBe('');
+    expect(await beneath(oxlintRow, { stdout: report })).toBe('           b.ts:3:7  an error  [no-y]\n           full output: .check/lint.json\n');
+    // With nothing that gates, the parse lists nothing, and a JSON report is never shown as text.
+    const advice = placed([['a.ts', 'no-x', 'only a warning', 'warning']]);
+    expect(await beneath(oxlintRow, { stdout: advice })).toBe('           exit 1, no findings checkride can read in the JSON report\n           full output: .check/lint.json\n');
   });
 
   test("shows a message's first line, cut short, and the rule where the message is empty", async () => {
     const long = `${'x'.repeat(300)}\nsecond line`;
-    const line = await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', long, 'error']]) });
+    const text = await beneath(oxlintRow, { stdout: placed([['a.ts', 'no-x', long, 'error']]) });
     // 200 characters in all, the `…` included.
-    expect(line).toBe(`           a.ts:3:7 ${'x'.repeat(190)}…\n`);
+    expect(text).toBe(`           a.ts:3:7  ${'x'.repeat(189)}…\n           full output: .check/lint.json\n`);
     // fallow names an unused file by its path alone.
     const fallow = fakeAdapter({ name: 'fallow', slot: 'dead', outputFile: 'dead.json' });
     const report = await readFile(new URL('../../__tests__/fixtures/baseline-fallow-dead-code.json', import.meta.url), 'utf8');
-    expect(await beneath(fallow, { stdout: report })).toContain('\n           src/unused.ts unused_files (+1 more)\n');
+    const dead = await beneath(fallow, { stdout: report });
+    expect(dead).toContain('\n           src/unused.ts  unused_files\n');
+    expect(dead.endsWith('\n           full output: .check/dead.json\n')).toBe(true);
   });
 
-  test('a check whose new findings are listed names no first finding', async () => {
+  test('a check a baseline masked lists only its new findings, by key, and no excerpt beneath them', async () => {
     const report = placed([['a.ts', 'no-x', 'bad', 'error'], ['c.ts', 'no-z', 'new', 'error']]);
     const text = await beneath(oxlintRow, { stdout: report }, { schema_version: 1, slots: { lint: ['a.ts:no-x:bad'] } });
-    expect(text).toBe('           1 baselined (grandfathered)\n           1 new, not in baseline:\n             c.ts:no-z:new\n');
+    expect(text).toBe('           1 baselined (grandfathered)\n           1 new, not in baseline:\n             c.ts:no-z:new\n           full output: .check/lint.json\n');
   });
 
-  test('nothing beneath a check with no parser, one that timed out, or one refused before its tool ran', async () => {
+  test('a check with no parser shows the last lines it printed, of both streams when both hold any', async () => {
     const vitest = fakeAdapter({ name: 'vitest', slot: 'test' });
-    expect(await beneath(vitest, { stdout: 'FAIL src/a.test.ts > adds\n' })).toBe('');
+    expect(await beneath(vitest, { stdout: 'FAIL src/a.test.ts > adds\n' })).toBe('           FAIL src/a.test.ts > adds\n           full output: .check/test.stdout.txt\n');
+    expect(await beneath(vitest, { stdout: 'RUN v5\n', stderr: '\u001B[31mAssertionError\u001B[0m: expected 1 to be 2\n\n' })).toBe(
+      '           stderr:\n             AssertionError: expected 1 to be 2\n           stdout:\n             RUN v5\n           full output: .check/test.stdout.txt, .check/test.stderr.txt\n',
+    );
+    expect(await beneath(vitest, {})).toBe('           no output captured (exit 1)\n');
+  });
+
+  test('a tool its failOnOutput verdict failed shows what it printed on stdout, beneath its reason', async () => {
+    const gofmt = fakeAdapter({ name: 'gofmt', slot: 'format', failOnOutput: true });
+    expect(await beneath(gofmt, { ok: true, exit_code: 0, stdout: 'a.go\n', stderr: 'go: downloading x\n' })).toBe(
+      '           gofmt exited 0 but reported findings on stdout\n           a.go\n           full output: .check/format.stdout.txt\n',
+    );
+  });
+
+  test('a red go test run names its failing tests, then what they printed', async () => {
+    const goTest = fakeAdapter({ name: 'go-test', slot: 'test', outputFile: 'test.jsonl' });
+    const events = [
+      { Action: 'run', Package: 'example.com/a', Test: 'TestAdds' },
+      { Action: 'output', Package: 'example.com/a', Test: 'TestAdds', Output: '    a_test.go:9: got 3, want 4\n' },
+      { Action: 'fail', Package: 'example.com/a', Test: 'TestAdds' },
+    ];
+    expect(await beneath(goTest, { stdout: `${events.map((e) => JSON.stringify(e)).join('\n')}\n` })).toBe(
+      '           1 failing test(s):\n             example.com/a TestAdds\n               a_test.go:9: got 3, want 4\n           full output: .check/test.jsonl\n',
+    );
+  });
+
+  test('a check that timed out, or was refused before its tool ran, prints its reason and no excerpt', async () => {
     const report = placed([['a.ts', 'no-x', 'bad', 'error']]);
-    expect(await beneath(oxlintRow, { exit_code: -1, stdout: report, stderr: 'timed out after 60s\n' })).not.toContain('a.ts:3:7');
-    expect(await beneath(oxlintRow, { stdout: report, refusal: 'checkride: oxlint is not installed' })).toBe('           checkride: oxlint is not installed\n');
+    expect(await beneath(oxlintRow, { exit_code: -1, stdout: report, stderr: 'timed out after 60s\n' })).toBe('           timed out after 60s\n           full output: .check/lint.json\n');
+    expect(await beneath(oxlintRow, { stdout: report, refusal: 'checkride: oxlint is not installed' })).toBe(
+      '           checkride: oxlint is not installed\n           full output: .check/lint.json\n',
+    );
+    // A refusal that wrote nothing has no file to name.
+    expect(await beneath(oxlintRow, { refusal: 'checkride: oxlint is not installed' })).toBe('           checkride: oxlint is not installed\n');
   });
 
   /** Its reason line names the diagnostic that stopped tsc, which is the one to fix first. */
-  test('a tsc run that stopped short says why, and names no first finding', async () => {
+  test('a tsc run that stopped short says why, and prints no excerpt', async () => {
     const stdout = "src/a.ts(1,5): error TS1005: ';' expected.\nsrc/b.ts(2,1): error TS2304: Cannot find name 'x'.\n";
     const text = await beneath(tscRow, { stdout }, { schema_version: 1, slots: { types: [] } });
-    expect(text).toBe("           tsc stopped short at `src/a.ts(1,5): error TS1005: ';' expected.`, so the baseline neither masked its findings nor pruned its keys\n");
+    expect(text).toBe(
+      "           tsc stopped short at `src/a.ts(1,5): error TS1005: ';' expected.`, so the baseline neither masked its findings nor pruned its keys\n           full output: .check/types.stdout.txt\n",
+    );
   });
 
-  /** With no baseline there's no reason line to name what stopped tsc, so the first finding does. */
-  test('with no baseline, a tsc run that stopped short names its first finding', async () => {
+  /** With no baseline there's no reason line to name what stopped tsc, so its findings do. */
+  test('with no baseline, a tsc run that stopped short lists its findings', async () => {
     const stdout = "src/a.ts(1,5): error TS1005: ';' expected.\nsrc/b.ts(2,1): error TS2304: Cannot find name 'x'.\n";
-    expect(await beneath(tscRow, { stdout })).toBe("           src/a.ts(1,5): error TS1005: ';' expected. (+1 more)\n");
+    expect(await beneath(tscRow, { stdout })).toBe(
+      "           src/a.ts:1:5  ';' expected.  [TS1005]\n           src/b.ts:2:1  Cannot find name 'x'.  [TS2304]\n           full output: .check/types.stdout.txt\n",
+    );
   });
 
-  test('--json prints no report, so no first finding either', async () => {
+  test('a passing check prints nothing beneath its status line, one a baseline turned green included', async () => {
+    const std = sink();
+    const report = placed([['a.ts', 'no-x', 'bad', 'error']]);
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }, { name: 'types' }], adapters: [oxlintRow, tscRow], config: null, json: false, stdout: sink().out, stderr: std.out,
+      baseline: { schema_version: 1, slots: { lint: ['a.ts:no-x:bad'] } },
+      runner: (r) => Promise.resolve(r.slot === 'lint' ? { ok: false, exit_code: 1, stdout: report, stderr: 'noise\n' } : { ok: true, exit_code: 0, stdout: 'fine\n', stderr: 'warn\n' }),
+    });
+    const text = std.lines.join('');
+    expect(text).not.toContain('full output:');
+    expect(text).not.toContain('noise');
+    expect(text).not.toContain('a.ts');
+    expect(text).toContain('           1 baselined (grandfathered)\n');
+  });
+
+  test('a --bail run prints the excerpt of the check that stopped it', async () => {
+    const std = sink();
+    const ran: string[] = [];
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }, { name: 'types' }], adapters: [oxlintRow, tscRow], config: null, baseline: null, json: false, bail: true, stdout: sink().out, stderr: std.out,
+      runner: (r) => { ran.push(r.slot); return Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: `${r.slot} broke\n` }); },
+    });
+    expect(ran).toHaveLength(1);
+    expect(std.lines.join('')).toContain(`           ${ran[0] ?? ''} broke\n           full output: .check/${ran[0] ?? ''}.stderr.txt\n`);
+  });
+
+  test('every red check of a run gets its own excerpt', async () => {
+    const std = sink();
+    await runChecks({
+      cwd: dir, slots: [{ name: 'lint' }, { name: 'types' }], adapters: [oxlintRow, tscRow], config: null, baseline: null, json: false, stdout: sink().out, stderr: std.out,
+      runner: (r) => Promise.resolve({ ok: false, exit_code: 1, stdout: '', stderr: `${r.slot} broke\n` }),
+    });
+    const text = std.lines.join('');
+    expect(text).toContain('           lint broke\n           full output: .check/lint.stderr.txt\n');
+    expect(text).toContain('           types broke\n           full output: .check/types.stderr.txt\n');
+  });
+
+  test('--json prints no report, so no excerpt either', async () => {
     const std = sink();
     await runChecks({
       cwd: dir, slots: [{ name: 'lint' }], adapters: [oxlintRow], config: null, baseline: null, json: true, stdout: sink().out, stderr: std.out,
@@ -2540,6 +2623,107 @@ describe('missingExemplarsOutcome', () => {
     expect(outcome?.stderr).not.toContain('does not exist');
   });
 
+  /**
+   * Containment: the directory is listed, and a link in it followed, only
+   * where the real path is inside the repository. `dir` is the repo, and
+   * `outside` a directory beside it that a hostile config tries to reach.
+   */
+  describe('paths that leave the repository', () => {
+    let outside: string;
+    beforeEach(async () => {
+      outside = await mkdtemp(join(tmpdir(), 'checkride-exemplars-outside-'));
+      await writeFile(join(outside, 'secret.md'), 'A sentence that is nobody\'s business.\n');
+    });
+    afterEach(async () => { await rm(outside, { recursive: true, force: true }); });
+
+    test('an exemplars directory that is a symlink out of the repo is refused, unlisted', async () => {
+      await mkdir(join(dir, 'docs'), { recursive: true });
+      await symlink(outside, join(dir, 'docs', 'voice'));
+      const outcome = missingExemplarsOutcome(vale, dir);
+      expect(outcome?.ok).toBe(false);
+      expect(outcome?.exit_code).toBe(1);
+      expect(outcome?.refusal).toBe('the `prose` slot names `docs/voice` as its voice exemplars, and that path resolves outside the repository');
+      expect(outcome?.stderr).not.toContain('secret');
+    });
+
+    test('a parent directory that is a symlink out of the repo is refused the same way', async () => {
+      await mkdir(join(outside, 'voice'));
+      await writeFile(join(outside, 'voice', 'sample.md'), 'Prose.\n');
+      await symlink(outside, join(dir, 'docs'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('that path resolves outside the repository');
+    });
+
+    test('an exemplar file that is a symlink out of the repo is no exemplar, and no fault: it is passed over', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await symlink(join(outside, 'secret.md'), join(dir, 'docs', 'voice', 'linked.md'));
+      const alone = missingExemplarsOutcome(vale, dir);
+      expect(alone?.refusal).toBe('the `prose` slot names `docs/voice` as its voice exemplars, and that path has no files in it');
+      expect(alone?.stderr).not.toContain('linked.md');
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to a directory outside is ignored as any directory is, beside a real file or alone', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await symlink(outside, join(dir, 'docs', 'voice', 'elsewhere'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('has no files in it');
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to the repository root is a directory inside the repo, and ignored as one', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(dir, join(dir, 'docs', 'voice', 'root'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplars path that is a link to the repository root is inside it', async () => {
+      await writeFile(join(dir, 'sample.md'), 'A sentence in my own voice.\n');
+      await mkdir(join(dir, 'docs'));
+      await symlink(dir, join(dir, 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplar file that is a symlink to a file inside the repo is an anchor', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await writeFile(join(dir, 'README.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'README.md'), join(dir, 'docs', 'voice', 'readme.md'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplars directory that is a symlink to a directory inside the repo works', async () => {
+      await mkdir(join(dir, 'voice'), { recursive: true });
+      await mkdir(join(dir, 'docs'), { recursive: true });
+      await writeFile(join(dir, 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'voice'), join(dir, 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to nothing and a link to a directory are not anchors', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await mkdir(join(dir, 'drafts'));
+      await symlink(join(dir, 'gone.md'), join(dir, 'docs', 'voice', 'gone.md'));
+      await symlink(join(dir, 'drafts'), join(dir, 'docs', 'voice', 'drafts'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('has no files in it');
+    });
+
+    test('the repository root is a directory inside itself', async () => {
+      await writeFile(join(dir, 'sample.md'), 'A sentence in my own voice.\n');
+      const root = fakeAdapter({ name: 'vale', slot: 'prose', options: { prose: { exemplars: '.' } } });
+      expect(missingExemplarsOutcome(root, dir)).toBeNull();
+    });
+
+    test('a target reads its exemplars from its own root, contained by the repository and not the target', async () => {
+      await mkdir(join(dir, 'pkg', 'docs'), { recursive: true });
+      await mkdir(join(dir, 'voice'));
+      await writeFile(join(dir, 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'voice'), join(dir, 'pkg', 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, join(dir, 'pkg'), dir)).toBeNull();
+      expect(missingExemplarsOutcome(vale, join(dir, 'pkg'))?.stderr).toContain('that path resolves outside the repository');
+    });
+  });
+
   test('the default runner runs the pre-flight, so the tool never spawns', async () => {
     // The wiring, not the helper: no injected runner, so `runChecks` reaches the
     // real `defaultRunner`. If the pre-flight ever stopped gating the spawn, the
@@ -2712,7 +2896,7 @@ describe('the default runner resolves a tool through its pin chain', () => {
   const shellcheck = fakeAdapter({ name: 'shellcheck', slot: 'lint', command: 'pnpm', args: ['exec', 'shellcheck', '-f', 'json1', 'run.sh'] });
   const resolved: ResolvedCheck = { slot: 'lint', optIn: false, adapter: shellcheck, skip: null };
   const context = (requirePins: boolean): Parameters<CheckRunner>[1] => ({
-    cwd: repo, changed: false, pm: 'pnpm', repo, pins: ['mise', 'path'], requirePins,
+    cwd: repo, changed: false, scratch: '.check', pm: 'pnpm', repo, pins: ['mise', 'path'], requirePins,
   });
 
   test('F12: a tool nothing pins runs from PATH, and records argv and pin_source path', async () => {
@@ -2774,7 +2958,7 @@ describe('the default runner fails terraform validate before init (F42)', () => 
 
   const validate = PACKS.terraform.adapters.find((a) => a.name === 'terraform-validate') ?? null;
   const resolved: ResolvedCheck = { slot: 'types', optIn: false, adapter: validate, skip: null };
-  const at = (): Parameters<CheckRunner>[1] => ({ cwd: repo, repo, changed: false, pm: 'pnpm', pins: PACKS.terraform.pins });
+  const at = (): Parameters<CheckRunner>[1] => ({ cwd: repo, repo, changed: false, scratch: '.check', pm: 'pnpm', pins: PACKS.terraform.pins });
 
   test('without .terraform/, it fails naming terraform init -backend=false, and nothing runs', async () => {
     const outcome = await defaultRunner(resolved, at());

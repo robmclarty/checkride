@@ -273,9 +273,11 @@ export type BaselineRead = {
  * masking and every comparison read, and `'as-written'` for the keys as the
  * file holds them: what a writer that leaves a check's entry alone, a
  * narrowed capture or `baseline --versions`, writes back for that check.
+ * `file` is the baseline's name at the repo root, a named suite's when one
+ * is given.
  */
-export function readBaselineStatus(cwd: string, form: 'current' | 'as-written' = 'current'): BaselineRead {
-  const path = join(cwd, BASELINE_FILE);
+export function readBaselineStatus(cwd: string, form: 'current' | 'as-written' = 'current', file: string = BASELINE_FILE): BaselineRead {
+  const path = join(cwd, file);
   if (!existsSync(path)) return { baseline: null, state: 'absent' };
   let raw: string;
   try {
@@ -287,9 +289,9 @@ export function readBaselineStatus(cwd: string, form: 'current' | 'as-written' =
   return baseline === null ? { baseline: null, state: 'unparseable' } : { baseline, state: 'ok' };
 }
 
-/** Read `checkride.baseline.json` from `cwd`; `null` when absent or unusable. */
-export function loadBaseline(cwd: string): Baseline | null {
-  return readBaselineStatus(cwd).baseline;
+/** Read `checkride.baseline.json`, or a named suite's `file`, from `cwd`; `null` when absent or unusable. */
+export function loadBaseline(cwd: string, file: string = BASELINE_FILE): Baseline | null {
+  return readBaselineStatus(cwd, 'current', file).baseline;
 }
 
 /**
@@ -298,11 +300,12 @@ export function loadBaseline(cwd: string): Baseline | null {
  * keys — so the committed file diffs deterministically: two branches that
  * grandfather the same debt produce byte-identical files instead of a spurious
  * merge conflict over insertion order, and a merge that doubled a line is
- * written back as the set it always was. The shape is a promised surface — see
+ * written back as the set it always was. `file` names a suite's baseline in
+ * place of the default one. The shape is a promised surface — see
  * `docs/contract.md` §`checkride.baseline.json`.
  */
-export async function writeBaseline(cwd: string, baseline: Baseline): Promise<void> {
-  await writeFileAtomic(join(cwd, BASELINE_FILE), `${JSON.stringify(canonicalize(baseline), null, 2)}\n`);
+export async function writeBaseline(cwd: string, baseline: Baseline, file: string = BASELINE_FILE): Promise<void> {
+  await writeFileAtomic(join(cwd, file), `${JSON.stringify(canonicalize(baseline), null, 2)}\n`);
 }
 
 /**

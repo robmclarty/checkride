@@ -3,17 +3,18 @@
  * CLI entry — arg parsing and command dispatch (the package `bin`).
  *
  * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`, `recover`,
- * `agent-setup`, `gate`, `triage` and `qa`. The command is the first non-flag
+ * `agent-setup`, `gate`, `protect`, `triage` and `qa`. The command is the first non-flag
  * token; everything after it is parsed against that command's options. The
  * module is import-safe: it only executes when invoked directly, so tests can
  * import {@link runCli} without triggering a process exit.
  *
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.
- * `gate` is the documented exception — it speaks a harness's hook protocol
- * rather than checkride's own split (see `./gate.ts`).
+ * `gate` and `protect` are the documented exceptions — each speaks a harness's
+ * hook protocol rather than checkride's own split (see `./gate.ts` and
+ * `./protect.ts`).
  */
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -21,29 +22,34 @@ import { fileURLToPath } from 'node:url';
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff, runBaselineVersions } from './baseline-command.js';
+import { runtime } from './channel.js';
 import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
+import { PROTECT_HARNESSES, runProtect } from './protect.js';
 import type { NamedBase } from './git.js';
 import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
 import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
-import type { Out, RunFlags } from './orchestrator/index.js';
+import type { AnnotateFormat, Out, RunFlags } from './orchestrator/index.js';
 import { loadPinsFile, PINS_ENV } from './launch/index.js';
-import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
+import { ANNOTATE_ENV, annotateFormat, killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
+import { readResource } from './resources.js';
+import type { Suite } from './suite.js';
+import { flagOrVariable, namedSuite, SUITE_ENV } from './suite.js';
 import { runTargetAdd } from './target-command.js';
 import { declaredNote, discoverRun } from './targets/index.js';
-import { realEnv, renderTriage, triage } from './triage/index.js';
+import { realEnv, renderTriage, suiteRunConflicts, triage } from './triage/index.js';
 
 /**
  * Injected process surface, so {@link runCli} is testable. `env` defaults to
  * `process.env`; a test passes its own so a variable exported in the shell
  * that started the suite can't reach the run.
  */
-export type CliDeps = { cwd: string; stdout: Out; stderr: Out; env?: Record<string, string | undefined> };
+export type CliDeps = { cwd: string; stdout: Out; stderr: Out; env?: Record<string, string | undefined>; stdin?: () => Promise<string> };
 
 const RUN_OPTIONS = {
   bail: { type: 'boolean', default: false },
@@ -63,25 +69,30 @@ const RUN_OPTIONS = {
   out: { type: 'string' },
   defaults: { type: 'string' },
   pins: { type: 'string' },
+  suite: { type: 'string' },
+  annotate: { type: 'string' },
 } as const;
 
-/** `baseline` takes only `--versions`, `--only`, `--skip`, `--config` and `--out`; anything else is a usage error. */
+/** `baseline` takes only `--versions`, `--only`, `--skip`, `--config`, `--out` and `--suite`; anything else is a usage error. */
 const BASELINE_OPTIONS = {
   versions: { type: 'boolean', default: false },
   only: { type: 'string' },
   skip: { type: 'string' },
   config: { type: 'string' },
   out: { type: 'string' },
+  suite: { type: 'string' },
 } as const;
 
-/** `triage` and `qa` take an optional repo path and `--out`. */
+/** `triage` and `qa` take an optional repo path, `--out` and `--suite`. */
 const READER_OPTIONS = {
   out: { type: 'string' },
+  suite: { type: 'string' },
 } as const;
 
-/** `baseline diff` takes an optional ref and `--json`; anything else is a usage error. */
+/** `baseline diff` takes an optional ref, `--json` and `--suite`; anything else is a usage error. */
 const BASELINE_DIFF_OPTIONS = {
   json: { type: 'boolean', default: false },
+  suite: { type: 'string' },
 } as const;
 
 const INIT_OPTIONS = {
@@ -110,6 +121,11 @@ const HOOKS_OPTIONS = {
 const GATE_OPTIONS = {
   'if-dirty': { type: 'boolean', default: false },
   harness: { type: 'string' },
+  suite: { type: 'string' },
+} as const;
+
+const PROTECT_OPTIONS = {
+  harness: { type: 'string' },
 } as const;
 
 /** `target add <name>` takes these; anything else is a usage error. */
@@ -127,6 +143,7 @@ const RECOVER_OPTIONS = {
   'dry-run': { type: 'boolean', default: false },
   depth: { type: 'string' },
   json: { type: 'boolean', default: false },
+  suite: { type: 'string' },
 } as const;
 
 const HELP_TEXT = `checkride — an agent harness for code repositories
@@ -142,9 +159,9 @@ Commands:
                    grandfathers current debt.
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command. Takes --only, --skip,
-                   --include, --all, --concurrency and --config; refuses
-                   --static-only, --discover, --base, --out, --defaults and
-                   --pins (exit 2).
+                   --include, --all, --concurrency, --config and --suite; refuses
+                   --static-only, --discover, --base, --out, --defaults,
+                   --pins and --annotate (exit 2).
   baseline         Record current diagnostics as a committed baseline.
                    --only/--skip <a,b> capture just the checks they select and
                    keep every other check's entry. \`baseline --versions\`
@@ -165,10 +182,14 @@ Commands:
                    bare \`hooks add\` installs every hook, the stop gate too.
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
+  protect          Decide whether an agent's edit touches the baseline or .check/
+                   and answer in a harness's hook protocol. Invoked by the
+                   generated Cursor hook in a repo with no Node; not run by hand.
   triage           Triage a red gate: run it, then read .check/ as a bounded
-                   report. Takes an optional repo path, and --out.
+                   report. Takes an optional repo path, --out and --suite.
   qa               Read the quality artifacts (mutation, dead, dupes, health)
-                   a previous run left. Takes an optional repo path, and --out.
+                   a previous run left. Takes an optional repo path, --out and
+                   --suite.
 
 Run options:
   --only <a,b>     Run only these checks, each named by a slot, a custom check,
@@ -197,6 +218,12 @@ Run options:
                    summary, which carries it as digest, and print it below
                    the report (not under --json)
   --strict         Zero checks actually running is an error (exit 2), not a pass
+  --annotate github  Write each finding of a red check to stderr as a GitHub
+                   Actions annotation (::error file=…,line=…,title=…::…), below
+                   the report and above the digest: at most 10, then a notice
+                   counting the rest (or set CHECKRIDE_ANNOTATE). Never on by
+                   itself in CI; github is the only value, and any other is
+                   exit 2. Run only.
   --config <path>  Read this config file instead of ./checkride.config.json
                    (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).
                    A file outside the repo never ratchets the baseline.
@@ -211,10 +238,19 @@ Run options:
                    through mise, ahead of the repo's own pins (or set
                    CHECKRIDE_PINS; also on doctor). Never installs; never
                    ratchets the baseline.
+  --suite <name>   Run the named suite instead of the default one (or set
+                   CHECKRIDE_SUITE): the config checkride.<name>.config.json,
+                   the baseline checkride.<name>.baseline.json, and the output
+                   directory .check/suites/<name>/, which --out overrides. A
+                   suite runs exactly the checks its config declares. Also on
+                   fix, doctor, baseline, recover, gate, triage and qa; exit 2
+                   with --config, --defaults or --discover, or when the suite
+                   has no config.
   -h, --help       Show this help
   -V, --version    Show the version
 
-Every run writes a report to .check/summary.json, or to <dir> under --out.
+Every run writes a report to .check/summary.json, or to <dir> under --out; a
+named suite's goes to .check/suites/<name>/summary.json.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
@@ -274,6 +310,12 @@ invoke this; you rarely run it by hand.
 Options:
   --harness <h>    Protocol to answer in (${HARNESS_NAMES.join(' | ')}; default claude)
   --if-dirty       Skip the run when .check/.dirty is absent (no edits this turn)
+  --suite <name>   Gate the named suite: run its check with --suite <name>, and
+                   read its config's \`gate\` profile and its output directory.
+                   The generated hooks never pass it, and a green leaves the
+                   edit marker for the default suite's gate to clear. A name
+                   that is no suite's blocks with the reason, in the
+                   harness's protocol, rather than exiting as a usage error.
   -h, --help       Show this help
 
 Config:
@@ -295,6 +337,10 @@ Environment:
                        a consumer's defaults file.
   CHECKRIDE_PINS       Ignored the same way: the gate's run uses the repo's own
                        pins.
+  CHECKRIDE_SUITE      Ignored the same way: a bare gate always gates the default
+                       suite, and only --suite names another.
+  CHECKRIDE_ANNOTATE   Ignored the same way: annotations are for a CI log, and
+                       would be noise in what a hook hands back to an agent.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -360,6 +406,8 @@ Options:
   --dry-run        Show what --pick would change, per slot; write nothing
   --depth <n>      Commits of file history to walk (default 25)
   --json           Emit the listing / apply result as JSON on stdout
+  --suite <name>   Recover the named suite's checkride.<name>.baseline.json,
+                   from that file's own history (or set CHECKRIDE_SUITE)
   -h, --help       Show this help
 
 Exit codes: 0 listed or applied; 2 usage or environment error (git missing,
@@ -371,8 +419,8 @@ Docs: https://github.com/robmclarty/checkride#readme
 const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings, or diff them against git
 
 Usage: checkride baseline [--versions] [--only <a,b>] [--skip <a,b>]
-                          [--config <path>] [--out <dir>]
-       checkride baseline diff [<ref>] [--json]
+                          [--config <path>] [--out <dir>] [--suite <name>]
+       checkride baseline diff [<ref>] [--json] [--suite <name>]
 
 \`baseline\` runs the checks and writes their current findings, per check, to
 checkride.baseline.json at the repo root. Commit the file: a later run fails
@@ -409,6 +457,9 @@ Options:
                    itself is still written at the repo root.
   --json           Print the diff as JSON: ref, sha, added, removed,
                    added_count, removed_count (baseline diff only)
+  --suite <name>   Capture, re-record or diff the named suite's baseline,
+                   checkride.<name>.baseline.json, with the checks its config
+                   declares (or set CHECKRIDE_SUITE). Exit 2 with --config.
   -h, --help       Show this help
 
 Exit codes: \`baseline\` exits 0 once the file is written, or found nothing
@@ -454,11 +505,39 @@ usage error or a config the change would break, having written nothing.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const PROTECT_HELP_TEXT = `checkride protect — the edit guard, as an agent hook
+
+Usage: checkride protect --harness cursor < payload.json
+
+Reads a hook payload as JSON on stdin and denies the call when it writes to
+checkride.baseline.json, a named suite's checkride.<name>.baseline.json, or
+.check/ and anything under it. Reads are never denied. It decides as the
+generated .cursor/hooks/checkride-protect.cjs does, which a repo that runs
+checkride through a package manager keeps; \`agent-setup\` writes a hook
+that calls this command where the entry command is \`mise exec -- checkride\`
+or \`checkride\` from PATH, so the guard needs no Node. A hook invokes this;
+you don't run it by hand.
+
+Options:
+  --harness <h>    Protocol to answer in (${PROTECT_HARNESSES.join(' | ')}; default cursor). Claude
+                   Code guards the same paths with permissions.deny rules and
+                   has no use for a hook; any other value is exit 2.
+
+Exit codes: 0 for an allowed edit (no output) and for a denied one (a
+{"permission":"deny",…} body on stdout), since Cursor reads a non-zero hook as
+a broken one and lets the edit through. A payload that is empty, not JSON or
+of an unknown shape is allowed. 1, with a line on stderr, when the guard
+itself failed and checked nothing. 2 for a usage error.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
 const COMMAND_HELP: Record<string, string> = {
   target: TARGET_HELP_TEXT,
   init: INIT_HELP_TEXT,
   gate: GATE_HELP_TEXT,
+  protect: PROTECT_HELP_TEXT,
   hooks: HOOKS_HELP_TEXT,
   baseline: BASELINE_HELP_TEXT,
   recover: RECOVER_HELP_TEXT,
@@ -486,11 +565,10 @@ function firstSentence(message: string): string {
   return head.endsWith('.') ? head : `${head}.`;
 }
 
-/** Read the package's own version from its shipped package.json (next to dist/). */
+/** Read the package's own version from its shipped package.json (next to dist/), which the binary embeds. */
 function readVersion(): string {
   try {
-    const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url));
-    const pkg: { version?: string } = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    const pkg: { version?: string } = JSON.parse(readResource('package.json'));
     return pkg.version ?? '0.0.0';
   } catch {
     return '0.0.0';
@@ -550,12 +628,12 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 
 /**
  * Parse argv into a command name, the run flags, and the raw `--config`,
- * `--base`, `--out`, `--defaults` and `--pins` values (each absent when not
+ * `--base`, `--out`, `--defaults`, `--pins`, `--suite` and `--annotate` values (each absent when not
  * passed; {@link namedConfig}, {@link namedBase}, `namedOut`,
  * {@link namedDefaults} and {@link namedPins} resolve them against their
  * variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string; suite?: string; annotate?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -583,6 +661,8 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     ...(values.out !== undefined ? { out: values.out } : {}),
     ...(values.defaults !== undefined ? { defaults: values.defaults } : {}),
     ...(values.pins !== undefined ? { pins: values.pins } : {}),
+    ...(values.suite !== undefined ? { suite: values.suite } : {}),
+    ...(values.annotate !== undefined ? { annotate: values.annotate } : {}),
   };
 }
 
@@ -613,12 +693,51 @@ function warnOn(deps: CliDeps): (message: string) => void {
  */
 function namedFile(flag: string, value: string | undefined, variable: string, deps: CliDeps): string | null {
   if (value === '') throw new Error(`${flag} was passed with no path`);
-  const set = (deps.env ?? process.env)[variable];
-  const named = value ?? (set === '' ? undefined : set);
-  if (named === undefined) return null;
-  const path = resolve(deps.cwd, named);
-  if (!existsSync(path)) throw new Error(`${value === undefined ? variable : flag} names a missing file: ${path}`);
+  const named = flagOrVariable(flag, value, variable, deps.env ?? process.env);
+  if (named === null) return null;
+  const path = resolve(deps.cwd, named.value);
+  if (!existsSync(path)) throw new Error(`${named.from} names a missing file: ${path}`);
   return path;
+}
+
+/**
+ * What a command runs, as the options it takes: its suite, the config a flag,
+ * a variable or the suite named, and the path of a config `--config` or
+ * `CHECKRIDE_CONFIG` named, which a run records. With no config here, the
+ * command reads the repo's own.
+ */
+type Picked = { suite: Suite; config?: CheckrideConfig; configPath?: string };
+
+/**
+ * The suite a command was pointed at (`--suite`, else `CHECKRIDE_SUITE`) with
+ * its config loaded, else the default suite and the config `--config` or
+ * `CHECKRIDE_CONFIG` named. A suite beside a named config is a usage error,
+ * and so is one beside `--discover`, or beside a defaults layer for a command
+ * that reads one (`readsDefaults`).
+ */
+function pickConfig(
+  flags: { suite?: string | undefined; config?: string | undefined; defaults?: string | undefined; discover?: boolean },
+  deps: CliDeps,
+  readsDefaults = false,
+): Picked {
+  const env = deps.env ?? process.env;
+  const conflicts = [
+    flagOrVariable('--config', flags.config, CONFIG_ENV, env)?.from,
+    readsDefaults ? flagOrVariable('--defaults', flags.defaults, DEFAULTS_ENV, env)?.from : undefined,
+    flags.discover === true ? '--discover' : undefined,
+  ].filter((source) => source !== undefined);
+  const suite = namedSuite(deps.cwd, flags.suite, { env, conflicts });
+  if (suite.name === undefined) {
+    const named = namedConfig(flags.config, deps);
+    return named === null ? { suite } : { suite, config: named.config, configPath: named.path };
+  }
+  // `namedSuite` has confirmed the file exists; errors about it name the short file, as the repo's own config's do.
+  return { suite, config: loadConfig(deps.cwd, warnOn(deps), suite.configFile) ?? {} };
+}
+
+/** The suite a command that reads no config was pointed at; `cwd` is the repo it reads, and `conflicts` what it can't run beside. */
+function suiteOf(flag: string | undefined, deps: CliDeps, cwd: string = deps.cwd, conflicts: readonly string[] = []): Suite {
+  return namedSuite(cwd, flag, { env: deps.env ?? process.env, conflicts });
 }
 
 /**
@@ -758,19 +877,32 @@ function outOption(flag: string | undefined, deps: CliDeps): { out?: string } {
   return out === null ? {} : { out };
 }
 
+/**
+ * The annotations a run writes, as the option it takes: `--annotate`, else
+ * `CHECKRIDE_ANNOTATE` (an empty variable counts as unset), or nothing when
+ * neither asks. A value it doesn't accept is a usage error. Nothing about the
+ * environment switches it on, `GITHUB_ACTIONS` included.
+ */
+function annotateOption(flag: string | undefined, deps: CliDeps): { annotate?: AnnotateFormat } {
+  const annotate = annotateFormat(flagOrVariable('--annotate', flag, ANNOTATE_ENV, deps.env ?? process.env));
+  return annotate === null ? {} : { annotate };
+}
+
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base, out, defaults, pins } = parseCliArgs(argv);
-  const named = namedConfig(config, deps);
+  const { flags, config, base, out, defaults, pins, suite, annotate } = parseCliArgs(argv);
+  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
   const changedBase = namedBase(base, deps);
   const layer = namedDefaults(defaults, deps);
   const overrides = namedPins(pins, deps);
   const result = await runChecks({
     ...flags,
-    ...(named ? { config: named.config, configPath: named.path } : {}),
+    // A suite's name fixes its config, so only a named config carries a path to record.
+    ...picked,
     ...(changedBase ? { base: changedBase } : {}),
     ...(layer ? { defaults: layer } : {}),
     ...(overrides ? { pins: overrides } : {}),
     ...outOption(out, deps),
+    ...annotateOption(annotate, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
@@ -789,21 +921,25 @@ async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
  * neither applies, so `doctor` reads the repo's own. A config that declares
  * its own targets keeps them, and stderr names them once as the reason (D73).
  */
-async function doctorConfig(discover: boolean, named: NamedConfig | null, deps: CliDeps): Promise<{ config?: CheckrideConfig | null }> {
-  if (!discover) return named ? { config: named.config } : {};
-  const found = await discoverRun(deps.cwd, named?.config ?? loadConfig(deps.cwd, warnOn(deps)), null);
+async function doctorConfig(discover: boolean, named: CheckrideConfig | undefined, deps: CliDeps): Promise<{ config?: CheckrideConfig | null }> {
+  if (!discover) return named ? { config: named } : {};
+  const found = await discoverRun(deps.cwd, named ?? loadConfig(deps.cwd, warnOn(deps)), null);
   if (found.declared.length > 0) deps.stderr.write(`${declaredNote(found.declared)}\n`);
   return { config: found.config };
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, out, defaults, pins } = parseCliArgs(argv);
-  const named = namedConfig(config, deps);
+  const parsed = parseCliArgs(argv);
+  const runOnly = runOnlyRefusal('doctor', parsed);
+  if (runOnly !== null) throw new Error(runOnly);
+  const { flags, config, out, defaults, pins, suite } = parsed;
+  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
   const layer = namedDefaults(defaults, deps);
   const overrides = namedPins(pins, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
-    ...(await doctorConfig(flags.discover === true, named, deps)),
+    suite: picked.suite,
+    ...(await doctorConfig(flags.discover === true, picked.config, deps)),
     ...(layer ? { defaults: layer.config } : {}),
     ...(overrides ? { pins: overrides } : {}),
     ...(flags.staticOnly === true ? { staticOnly: true } : {}),
@@ -816,12 +952,29 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /**
+ * The flags only a run takes, though `fix` and `doctor` parse a run's flags:
+ * each with the value it parsed to and why no other command takes it. The
+ * variable behind one (`CHECKRIDE_ANNOTATE`) is the run's alone too: no other
+ * command reads it, so one a CI job sets for every step is ignored there
+ * without a word.
+ */
+const RUN_ONLY: readonly (readonly [flag: string, given: (parsed: ReturnType<typeof parseCliArgs>) => boolean, why: string])[] = [
+  ['--annotate', (parsed) => parsed.annotate !== undefined, 'only a run has findings to annotate'],
+];
+
+/** Why `command` refuses the run-only flag `parsed` carries, or `null` when it carries none. */
+function runOnlyRefusal(command: string, parsed: ReturnType<typeof parseCliArgs>): string | null {
+  const refused = RUN_ONLY.find(([, given]) => given(parsed));
+  return refused === undefined ? null : `${command} doesn't take ${refused[0]}: ${refused[2]}`;
+}
+
+/**
  * Why `fix` refuses the consumer flag `parsed` carries, or `null` when it
  * carries none. Each would change which files the fixers rewrite or with
  * which tool, and a fixer writes into the repo, so each is a usage error
  * rather than a flag `fix` takes and ignores, as it does the run flags 0.14
  * accepted. The variables behind them (`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`,
- * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`) aren't read here at all.
+ * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`, `CHECKRIDE_ANNOTATE`) aren't read here at all.
  */
 function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
   const given: readonly (readonly [boolean, string, string])[] = [
@@ -838,11 +991,10 @@ function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
 
 async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
   const parsed = parseCliArgs(argv);
-  const refusal = fixRefusal(parsed);
+  const refusal = runOnlyRefusal('fix', parsed) ?? fixRefusal(parsed);
   if (refusal !== null) throw new Error(refusal);
-  const { flags, config } = parsed;
-  const named = namedConfig(config, deps);
-  const result = await runFix({ ...flags, ...(named ? { config: named.config } : {}), cwd: deps.cwd, stderr: deps.stderr });
+  const { flags } = parsed;
+  const result = await runFix({ ...flags, ...pickConfig(parsed, deps), cwd: deps.cwd, stderr: deps.stderr });
   return result.exitCode;
 }
 
@@ -856,11 +1008,10 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
   // write, so it writes the baseline at the repo root wherever the config
   // lives and wherever the artifacts go.
   const { values } = parseArgs({ args: rest, options: BASELINE_OPTIONS });
-  const named = namedConfig(values.config, deps);
   const only = parseList(values.only, 'only');
   const skip = parseList(values.skip, 'skip');
   const options = {
-    ...(named ? { config: named.config } : {}),
+    ...pickConfig(values, deps),
     ...outOption(values.out, deps),
     ...(only !== null ? { only } : {}),
     ...(skip !== null ? { skip } : {}),
@@ -868,7 +1019,7 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
     stdout: deps.stdout,
     stderr: deps.stderr,
   };
-  const result = values.versions ? await runBaselineVersions({ ...options, ...(named ? { configPath: named.path } : {}) }) : await runBaseline(options);
+  const result = values.versions ? await runBaselineVersions(options) : await runBaseline(options);
   return result.exitCode;
 }
 
@@ -881,6 +1032,7 @@ async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<numb
     cwd: deps.cwd,
     stdout: deps.stdout,
     json: values.json,
+    suite: suiteOf(values.suite, deps),
     ...(ref !== undefined ? { ref } : {}),
   });
   return result.exitCode;
@@ -905,6 +1057,7 @@ async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
     ...(values['dry-run'] ? { dryRun: true } : {}),
     ...(depth !== undefined ? { depth } : {}),
     ...(values.json ? { json: true } : {}),
+    suite: suiteOf(values.suite, deps),
   });
   return result.exitCode;
 }
@@ -986,6 +1139,24 @@ async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
     stdout: deps.stdout,
     stderr: deps.stderr,
     ...(harness ? { harness } : {}),
+    // The flag alone, as given: the gate's verdict is the default suite's whatever
+    // CHECKRIDE_SUITE holds, and a name it can't gate is a verdict in the hook's
+    // protocol, which `runGate` gives, not a usage error.
+    ...(values.suite !== undefined ? { suite: values.suite } : {}),
+  });
+  return result.exitCode;
+}
+
+async function dispatchProtect(argv: string[], deps: CliDeps): Promise<number> {
+  const { rest } = detectCommand(argv);
+  const { values } = parseArgs({ args: rest, allowPositionals: true, options: PROTECT_OPTIONS });
+  const result = await runProtect({
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+    ...(values.harness !== undefined ? { harness: values.harness } : {}),
+    ...(deps.env ? { env: deps.env } : {}),
+    ...(deps.stdin ? { stdin: deps.stdin } : {}),
   });
   return result.exitCode;
 }
@@ -993,24 +1164,35 @@ async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
 /**
  * The reader commands' arguments: the optional repo-path positional, and the
  * output directory `--out` or `CHECKRIDE_OUT` named, resolved against the
- * working directory (`null` for the repo's own `.check/`).
+ * working directory (`null` for the repo's own `.check/`), and the suite
+ * `--suite` or `CHECKRIDE_SUITE` named, of the repo being read (`null` for
+ * the default one, which is the default suite). `startsRun` is true for `triage`, which runs the repo's
+ * check: a variable or a `check` script flag a suite can't run beside is then
+ * a usage error here, before anything starts.
  */
-function readerArgs(argv: string[], deps: CliDeps): { cwd: string; out: string | null } {
+function readerArgs(argv: string[], deps: CliDeps, startsRun = false): { cwd: string; out: string | null; suite: Suite } {
   const { rest } = detectCommand(argv);
   const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: READER_OPTIONS });
-  return { cwd: positionals[0] ?? deps.cwd, out: namedOut(deps.cwd, values.out, deps.env ?? process.env) };
+  const cwd = positionals[0] ?? deps.cwd;
+  const repo = resolve(deps.cwd, cwd);
+  const env = deps.env ?? process.env;
+  // A reader that starts a run refuses, itself, what would make that run a usage error beside a suite.
+  // Asked only once a suite is named, since only then is there anything to refuse.
+  const asked = flagOrVariable('--suite', values.suite, SUITE_ENV, env) !== null;
+  const conflicts = startsRun && asked ? suiteRunConflicts(repo, env) : [];
+  return { cwd, out: namedOut(deps.cwd, values.out, env), suite: suiteOf(values.suite, deps, repo, conflicts) };
 }
 
 async function dispatchTriage(argv: string[], deps: CliDeps): Promise<number> {
-  const { cwd, out } = readerArgs(argv, deps);
-  const report = await triage(cwd, realEnv, out);
+  const { cwd, out, suite } = readerArgs(argv, deps, true);
+  const report = await triage(cwd, realEnv, out, suite);
   deps.stdout.write(`${renderTriage(report)}\n`);
   return 0;
 }
 
 async function dispatchQa(argv: string[], deps: CliDeps): Promise<number> {
-  const { cwd, out } = readerArgs(argv, deps);
-  const report = await qaExtract(cwd, Date.now, out);
+  const { cwd, out, suite } = readerArgs(argv, deps);
+  const report = await qaExtract(cwd, Date.now, out, suite);
   deps.stdout.write(`${renderQa(report)}\n`);
   return 0;
 }
@@ -1026,6 +1208,7 @@ const DISPATCH: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
   'agent-setup': dispatchAgentSetup,
   hooks: dispatchHooks,
   gate: dispatchGate,
+  protect: dispatchProtect,
   triage: dispatchTriage,
   qa: dispatchQa,
 };
@@ -1073,6 +1256,8 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
  * `pnpm check` alias — the way every consumer actually runs it.
  */
 function isEntryPoint(): boolean {
+  // The binary is one bundle with this module as its main: there is no other entry point to be.
+  if (runtime().main) return true;
   const invokedPath = process.argv[1];
   if (invokedPath === undefined) return false;
   try {

@@ -3,7 +3,8 @@
 A pack is one language's adapters, together with where its tools are pinned
 and the environment its checks run with. Eight packs ship: `ts`, which
 checks TypeScript code, `repo`, which checks the repo as a whole (`struct`,
-`docs`, `links`, `spell`, `prose` and, with targets, `unclaimed`), `bash`,
+`docs`, `links`, `spell`, `prose`, with targets `unclaimed`, and with
+`schemas` rules `schema`), `bash`,
 which checks shell scripts, `go`, which checks Go modules and workspaces,
 `rust`, which checks Cargo packages and workspaces, `python`, which checks
 Python projects, `terraform`, which checks Terraform and OpenTofu
@@ -293,9 +294,13 @@ It has no root marker.
 | `spell` | `typos` | `typos --format brief`, and `typos --write-changes` under `checkride fix` | `_typos.toml`, `typos.toml`, `.typos.toml` | `spell.stdout.txt` |
 | `prose` (opt-in) | `vale` | `vale --no-global --output=JSON .` | `.vale.ini`, `_vale.ini` | `prose.json` |
 | `unclaimed` | `unclaimed` | built-in: every toolchain marker sits in a target of its pack | `targets` in the config | `unclaimed.json` |
+| `schema` | `schema` | built-in: the files each `schemas` rule names satisfy its JSON Schema | a `schemas` rule in the config | `schema.json` |
 
 `unclaimed` is inactive in a repo without targets, and
-[Targets](./targets.md#code-no-target-checks) covers what it reports.
+[Targets](./targets.md#code-no-target-checks) covers what it reports. `schema`
+is inactive in a repo with no `schemas` rule, and
+[Tools](./tools.md#the-schema-slot-data-files-against-json-schemas) covers
+its rules, its formats and the libraries it validates with.
 
 ### Without Node
 
@@ -828,12 +833,14 @@ plugin skills run checkride in a repo, chosen from the repo root:
    release has run it. `init` writes that script.
 2. Otherwise, a root `mise.toml` or `.mise.toml` whose `[tools]` declares
    `npm:checkride` or `github:robmclarty/checkride`: `mise exec -- checkride`.
-   No standalone binary ships yet, so the second id waits on a later
-   release.
+   The second id installs the
+   [standalone binary](./distribution.md#the-standalone-binary), from the
+   first release that carries one.
 3. Otherwise, a root `package.json` with no `check` script: still
    `<pm> run check`, which fails naming the missing script.
 4. None of those: the `checkride` on `PATH`, which nothing pins, so `doctor`
-   reports the harness unpinned.
+   reports the harness unpinned. A standalone binary installed by hand lands
+   here: the stanza and the hooks run `checkride`.
 
 The gate runs the entry command with `--strict --digest` and the gate
 profile's flags. The hook script tests whether that copy is there to run

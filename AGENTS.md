@@ -54,11 +54,13 @@ src/
   adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
   config.ts         checkride.config.json loading and validation, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
+  channel.ts        the distribution channel this process runs from: npm, or the standalone binary
   claude-md.ts      whether CLAUDE.md loads AGENTS.md, and the `@AGENTS.md` edit that makes it
   doctor.ts         `checkride doctor` — the environment and every check's status
   baseline-command.ts  `checkride baseline` — capture the committed baseline
   recover.ts        `checkride recover` — rebuild the baseline from git history
   gate.ts           `checkride gate` — the stop-gate verdict, harness-neutral
+  protect.ts        `checkride protect` — the edit guard's verdict, the generated script's decision as typed code
   target-command.ts `checkride target add` — declare a target, converting a repo with none
   target-files.ts   write a targets change: the config as written, and the renamed baseline
   git.ts            read-only git plumbing: the --changed base and paths, the run's head
@@ -68,10 +70,13 @@ src/
   smoke.ts          built-in import-liveness check
   snippets.ts       built-in doc-snippet typecheck
   security.ts       built-in dependency-audit check
+  suite.ts          named suites: a name, and the config, baseline and output directory it fixes
   atomic.ts         atomic file writes (temp file + fsync + rename)
+  contain.ts        the containment rule: a path a config names is read only where it really is in the repo
   proc.ts           process-group kill + SIGTERM→SIGKILL escalation
   json.ts           the one `isRecord` narrowing primitive
-  resources.ts      the only reader of the shipped templates/, schema/ and skills/
+  resources.ts      the only reader of the shipped templates/, schema/ and skills/, from the
+                    package directory or the binary's embedded assets
   tool-json.ts      tolerant JSON extraction from a tool's stdout
   agent-setup/      AGENTS.md stanza + Claude Code hooks
   artifacts/        the output directory (`.check/`) and its shared, bounded read
@@ -82,6 +87,7 @@ src/
   orchestrator/     slot selection, spawning, .check/ writing, the summary
   packs/            the language packs' adapter rows, and the tools they run (data-only)
   qa/               bundled-plugin reader: the quality artifacts
+  schema/           built-in data-file validation: the `schemas` rules, their formats, the libraries a repo installs
   targets/          named (pack, root) targets, and the rules their config keeps
   triage/           bundled-plugin reader: preflight a red gate
   __tests__/        unit tests for the root modules
@@ -93,13 +99,14 @@ test/
   e2e/              the slow suite (`pnpm test:e2e`)
   fixtures/         test data
 rules/              ast-grep structural rules (dogfooded here)
+build/              sea/build.mjs: `pnpm build:sea`, the standalone binary for the host platform
 ```
 
 Same principle either way: a single file is a module; a module only becomes a
 folder with a barrel `index.ts` when it grows internals worth hiding, and then
-siblings reach only the index. Eleven modules (`agent-setup/`, `artifacts/`,
+siblings reach only the index. Twelve modules (`agent-setup/`, `artifacts/`,
 `baseline/`, `digest/`, `findings/`, `launch/`, `orchestrator/`, `packs/`,
-`qa/`, `targets/`, `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
+`qa/`, `schema/`, `targets/`, `triage/`) have crossed that line; the rest are single files. That list is checked against the tree by
 `test/integration/conventions.test.ts`, so it cannot go stale silently. The
 same rules ship to consumer projects — see `templates/ts/shared/rules/`.
 

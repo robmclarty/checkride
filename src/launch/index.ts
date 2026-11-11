@@ -18,7 +18,7 @@
  */
 
 export type { EntryCommand, EntryLike } from './entry.js';
-export { asEntry, entryArgv, entryCheckride, entryText, entryTextWith, PIN_CHECKRIDE, resolveEntry } from './entry.js';
+export { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, entryTextWith, resolveEntry } from './entry.js';
 export { failureLine, packEnv, setupHint } from './env.js';
 export type { ModuleImports } from './go-mod.js';
 export { expandGoPackages, goImports, goPackagePatterns, readGoWorkspace, takesGoPackages, usePattern, withDependents } from './go-mod.js';
@@ -30,7 +30,7 @@ export { launchRefusal, SPAWN_FAILED_MARKER } from './refusal.js';
 export type { MiseAnswer } from './mise.js';
 export { loadPinsFile, miseHasInstalled, miseWhereVersion, PINS_ENV } from './mise.js';
 export { nixCopy } from './nix.js';
-export { execTool, execUsesGlobalCache, installCommand, isPnPInstall, jsLockfileDeclares, resolveSlotTool } from './js-lockfile.js';
+export { execTool, execUsesGlobalCache, installCommand, installedVersion, isPnPInstall, jsLockfileDeclares, resolveSlotTool } from './js-lockfile.js';
 export type { Launch, LaunchContext, OverrideCause, Spawn } from './resolve.js';
 export {
   chainCanRun,

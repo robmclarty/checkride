@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -179,7 +180,7 @@ describe('vacuousOptInError (D11 — zero tagged snippets is a hard error)', () 
 describe('generateSnippetTsconfig', () => {
   test('extends the repo config, relaxes the style flags plus the composite-build fields, and embeds the given paths', () => {
     const paths = { pkg: ['../../src/index.ts'] };
-    expect(generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths })).toEqual({
+    expect(generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths, up: '../..' })).toEqual({
       extends: '../../tsconfig.json',
       compilerOptions: {
         paths,
@@ -199,38 +200,46 @@ describe('generateSnippetTsconfig', () => {
   });
 
   test('clears the parent exclude so emitted snippet files are seen (include ./*.ts, exclude [])', () => {
-    const cfg = generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths: {} });
+    const cfg = generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths: {}, up: '../..' });
     expect(cfg.include).toEqual(['./*.ts']);
     expect(cfg.exclude).toEqual([]);
   });
 });
 
 describe('deriveSrcPaths (Q1 — src-mode path mapping)', () => {
+  test('remaps to the depth it is given', () => {
+    const tsconfigPaths = { '@x/core': ['./packages/core/src/index.ts'] };
+    expect(deriveSrcPaths({ manifestName: null, tsconfigPaths, hasSrcIndex: false, up: '../..' })).toEqual({ '@x/core': ['../../packages/core/src/index.ts'] });
+    expect(deriveSrcPaths({ manifestName: null, tsconfigPaths, hasSrcIndex: false, up: '../../../..' })).toEqual({ '@x/core': ['../../../../packages/core/src/index.ts'] });
+    expect(deriveSrcPaths({ manifestName: 'pkg', tsconfigPaths: null, hasSrcIndex: true, up: '../../../..' })).toEqual({ pkg: ['../../../../src/index.ts'] });
+  });
+
   test('prefers the repo tsconfig paths when present, remapped two directories deeper', () => {
     const mapped = deriveSrcPaths({
       manifestName: 'fascicle',
       tsconfigPaths: { fascicle: ['./src/index.ts'], '#core': ['src/core/index.ts'] },
       hasSrcIndex: true,
+      up: '../..',
     });
     expect(mapped).toEqual({ fascicle: ['../../src/index.ts'], '#core': ['../../src/core/index.ts'] });
   });
 
   test('falls back to the src/index.ts convention when tsconfig has no paths', () => {
-    const mapped = deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: null, hasSrcIndex: true });
+    const mapped = deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: null, hasSrcIndex: true, up: '../..' });
     expect(mapped).toEqual({ checkride: ['../../src/index.ts'] });
   });
 
   test('an empty tsconfig paths object also falls back to the convention', () => {
-    const mapped = deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: {}, hasSrcIndex: true });
+    const mapped = deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: {}, hasSrcIndex: true, up: '../..' });
     expect(mapped).toEqual({ checkride: ['../../src/index.ts'] });
   });
 
   test('returns null (recommend snippets-dist) when there is no manifest name', () => {
-    expect(deriveSrcPaths({ manifestName: null, tsconfigPaths: null, hasSrcIndex: true })).toBeNull();
+    expect(deriveSrcPaths({ manifestName: null, tsconfigPaths: null, hasSrcIndex: true, up: '../..' })).toBeNull();
   });
 
   test('returns null when there is no src/index.ts and no tsconfig paths', () => {
-    expect(deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: null, hasSrcIndex: false })).toBeNull();
+    expect(deriveSrcPaths({ manifestName: 'checkride', tsconfigPaths: null, hasSrcIndex: false, up: '../..' })).toBeNull();
   });
 });
 
@@ -291,7 +300,7 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       ].join('\n'),
     );
 
-    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: realSpawn });
+    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: realSpawn, scratch: '.check' });
 
     expect(outcome.ok).toBe(true);
     expect(outcome.exit_code).toBe(0);
@@ -325,7 +334,7 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       ].join('\n'),
     );
 
-    const outcome = await checkSnippets({ cwd: dir, mode: 'dist', pm: 'pnpm', spawn: realSpawn });
+    const outcome = await checkSnippets({ cwd: dir, mode: 'dist', pm: 'pnpm', spawn: realSpawn, scratch: '.check' });
 
     expect(outcome.ok).toBe(true);
     const parsed = JSON.parse(outcome.stdout) as { ok: boolean; mode: string };
@@ -350,7 +359,7 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       ].join('\n'),
     );
 
-    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: realSpawn });
+    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: realSpawn, scratch: '.check' });
 
     expect(outcome.ok).toBe(false);
     expect(outcome.exit_code).toBe(1);
@@ -370,13 +379,54 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       return realSpawn(...args);
     };
     try {
-      const outcome = await checkSnippets({ cwd: dir, mode: 'dist', pm: 'pnpm', spawn: spy });
+      const outcome = await checkSnippets({ cwd: dir, mode: 'dist', pm: 'pnpm', spawn: spy, scratch: '.check' });
       expect(spawned).toBe(false);
       expect(outcome.skip).toBe('needs a writable ./.check for scratch files');
     } finally {
       await chmod(join(dir, '.check'), 0o755);
     }
   });
+
+  /**
+   * Each run clears its `doc-snippets/` before writing, so two suites sharing
+   * one directory would clear each other's. A named suite's scratch sits two
+   * directories deeper, and every path the generated tsconfig holds follows.
+   */
+  test('a named suite’s scratch is its own: the snippets compile from there, and the default suite’s files stay', async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixture-pkg', version: '1.0.0' }));
+    await writeFile(join(dir, 'tsconfig.json'), JSON.stringify(TSCONFIG));
+    await mkdir(join(dir, 'src'), { recursive: true });
+    await writeFile(join(dir, 'src', 'index.ts'), 'export const answer = 42;\n');
+    await writeFile(
+      join(dir, 'README.md'),
+      ['<!-- snippet: check -->', '```ts', "import { answer } from 'fixture-pkg';", 'const x: number = answer;', 'console.log(x);', '```', ''].join('\n'),
+    );
+    // What a default-suite run left behind.
+    await mkdir(join(dir, '.check', 'doc-snippets'), { recursive: true });
+    await writeFile(join(dir, '.check', 'doc-snippets', 'theirs.ts'), 'export {};\n');
+
+    const spawned: string[][] = [];
+    const spy: SnippetSpawn = (command, args, ...rest) => { spawned.push(args); return realSpawn(command, args, ...rest); };
+    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: spy, scratch: '.check/suites/evals' });
+
+    expect(outcome.stderr).toContain('1 snippet(s) compile against src');
+    expect(outcome.ok).toBe(true);
+    const own = join(dir, '.check', 'suites', 'evals', 'doc-snippets');
+    expect(spawned[0]?.at(-1)).toBe(join('.check', 'suites', 'evals', 'doc-snippets', 'tsconfig.json'));
+    const tsconfig = JSON.parse(await readFile(join(own, 'tsconfig.json'), 'utf8')) as { extends: string; compilerOptions: { rootDir: string; paths: Record<string, string[]> } };
+    expect(tsconfig.extends).toBe('../../../../tsconfig.json');
+    expect(tsconfig.compilerOptions.rootDir).toBe('../../../..');
+    expect(tsconfig.compilerOptions.paths).toEqual({ 'fixture-pkg': ['../../../../src/index.ts'] });
+    expect(existsSync(join(dir, '.check', 'doc-snippets', 'theirs.ts'))).toBe(true);
+
+    // And the other way round: a default run clears only its own.
+    const whole = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: realSpawn, scratch: '.check' });
+    expect(whole.ok).toBe(true);
+    expect(existsSync(join(dir, '.check', 'doc-snippets', 'theirs.ts'))).toBe(false);
+    expect(existsSync(join(own, 'tsconfig.json'))).toBe(true);
+    const theirs = JSON.parse(await readFile(join(dir, '.check', 'doc-snippets', 'tsconfig.json'), 'utf8')) as { extends: string };
+    expect(theirs.extends).toBe('../../tsconfig.json');
+  }, 30000);
 
   test('zero tagged snippets is a hard error and never spawns tsc', async () => {
     await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'fixture-pkg', version: '1.0.0' }));
@@ -387,7 +437,7 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       spawned = true;
       return realSpawn(...args);
     };
-    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: spy });
+    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: spy, scratch: '.check' });
 
     expect(spawned).toBe(false);
     expect(outcome.ok).toBe(false);
@@ -406,7 +456,7 @@ describe('checkSnippets (fixture repo, real subprocess)', () => {
       spawned = true;
       return realSpawn(...args);
     };
-    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: spy });
+    const outcome = await checkSnippets({ cwd: dir, mode: 'src', pm: 'pnpm', spawn: spy, scratch: '.check' });
 
     expect(spawned).toBe(false);
     expect(outcome.ok).toBe(false);

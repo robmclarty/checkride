@@ -36,11 +36,18 @@ import { join, posix, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
-import { outDir, outLabel } from './artifacts/index.js';
-import { BASELINE_FILE, countGrandfathered, parseBaseline } from './baseline/index.js';
+import { SCHEMA_SLOT } from './adapters.js';
+import { outLabel } from './artifacts/index.js';
+import { countGrandfathered, parseBaseline } from './baseline/index.js';
+import type { Channel } from './channel.js';
+import { runtime } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
+import type { LibrarySource } from './schema/index.js';
+import { probeSchemaLibraries, schemaLibrarySource } from './schema/index.js';
+import type { Suite } from './suite.js';
+import { listSuites, suiteCommand } from './suite.js';
 import { isRecord } from './json.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
@@ -57,7 +64,6 @@ import {
   nixCopy,
   overrideCause,
   overridePin,
-  PIN_CHECKRIDE,
   pinChain,
   pinResolution,
   resolveEntry,
@@ -67,7 +73,7 @@ import {
 import type { PinEnv } from './node-pin.js';
 import { findPinnedNode, NODE_BIN_VAR, readNodePin, realPinEnv } from './node-pin.js';
 import type { Out } from './orchestrator/index.js';
-import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
+import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag, refusalDetail, resolveCommonOptions, selectChecks, withStaticOnly } from './orchestrator/index.js';
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
@@ -123,6 +129,10 @@ export type DoctorTarget = { name: string; pack: string; root: string };
 export type DoctorReport = {
   ok: boolean;
   platform: { os: string; arch: string };
+  /** How this checkride was installed: the npm package, or the standalone binary. */
+  channel: Channel;
+  /** The Node the standalone binary embeds and runs on; absent on the npm channel, whose Node is the `node` row's. */
+  embeddedNode?: string;
   /** The package manager checkride detected for this repo. */
   packageManager: PackageManager;
   /** `implicit` for a repo checked as one project at its root, `multi-target` once the config declares targets. */
@@ -138,6 +148,8 @@ export type DoctorReport = {
    * unchecked.
    */
   unclaimed?: Unclaimed[];
+  /** The named suite the report is on; absent for the default suite. */
+  suite?: string;
   checks: DoctorCheck[];
 };
 
@@ -206,6 +218,8 @@ export type DoctorEnv = {
    * environment.
    */
   nixCopy?: (found: string, at: { cwd: string; repo: string }) => { version?: string } | null;
+  /** Where the `schema` slot's libraries come from for a run in the repo; the repo's install, or the binary's bundle, when omitted. */
+  schemaLibraries?: (repo: string) => LibrarySource;
 };
 
 export type DoctorOptions = {
@@ -228,6 +242,12 @@ export type DoctorOptions = {
   pins?: { path: string; tools: ReadonlyMap<string, string> };
   /** `--static-only`: report each check a static run skips, with its reason, and fail none for a missing install (R13.4). */
   staticOnly?: boolean;
+  /**
+   * The named suite to report on (`--suite`, `CHECKRIDE_SUITE`), with `config`
+   * holding its config: its checks, its baseline file and its output
+   * directory. Omitted, the default suite, which lists the suites it finds.
+   */
+  suite?: Suite;
 };
 
 type Semver = { major: number; minor: number; patch: number; raw: string };
@@ -388,18 +408,46 @@ function formatExpected(min: Semver): string {
   return `>=${min.major}.${min.minor}.${min.patch}`;
 }
 
-async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+/**
+ * Whether a tool `PATH` doesn't hold fails doctor: it does, or doctor runs
+ * without it and the row says `absent` where a version would be. A tool that
+ * is on `PATH` is held to its minimum either way.
+ */
+type Need = { required: true } | { required: false; absent: string };
+
+const REQUIRED: Need = { required: true };
+
+/** The row for a tool held to a minimum version, and the version `PATH`'s copy answered with, `null` when it gave none. */
+async function versioned(name: string, cmd: string, min: Semver, env: DoctorEnv, need: Need = REQUIRED): Promise<{ row: DoctorCheck; version: string | null }> {
   const expected = formatExpected(min);
-  const asked = await askVersion(name, cmd, expected, env);
-  if ('row' in asked) return asked.row;
+  const asked = await askVersion(name, cmd, expected, env, need);
+  if ('row' in asked) return { row: asked.row, version: null };
   const found = parseSemver(asked.raw);
   if (!found) {
-    return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` };
+    return { row: { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` }, version: null };
   }
   if (compareSemver(found, min) < 0) {
-    return { name, category: 'env', required: true, status: 'outdated', found: found.raw, expected, hint: INSTALL_HINTS[name] ?? `Upgrade \`${cmd}\` to ${expected}.` };
+    const hint = INSTALL_HINTS[name] ?? `Upgrade \`${cmd}\` to ${expected}.`;
+    return { row: { name, category: 'env', required: true, status: 'outdated', found: found.raw, expected, hint }, version: found.raw };
   }
-  return { name, category: 'env', required: true, status: 'ok', found: found.raw, expected, hint: null };
+  return { row: { name, category: 'env', required: true, status: 'ok', found: found.raw, expected, hint: null }, version: found.raw };
+}
+
+async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+  return (await versioned(name, cmd, min, env)).row;
+}
+
+/**
+ * The `node` row, and the version of the `node` on `PATH`, looked up once
+ * for both: the Node on `PATH`, held to the repo's `engines.node`. The
+ * standalone binary runs on the Node it embeds, so there a `PATH` without
+ * `node` fails nothing: the row says so, and a check whose tool needs Node
+ * reports its own tool missing.
+ */
+function checkNode(min: Semver, env: DoctorEnv): Promise<{ row: DoctorCheck; version: string | null }> {
+  const { embeddedNode } = runtime();
+  const need: Need = embeddedNode === null ? REQUIRED : { required: false, absent: `not on PATH (checkride embeds Node ${embeddedNode})` };
+  return versioned('node', 'node', min, env, need);
 }
 
 async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<DoctorCheck> {
@@ -414,9 +462,16 @@ async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<
  * says why there is none: it isn't on `PATH`, or its probe gave no answer
  * ({@link unansweredProbe}).
  */
-async function askVersion(name: string, cmd: string, expected: string, env: DoctorEnv): Promise<{ row: DoctorCheck } | { raw: string | null; path: string }> {
+async function askVersion(
+  name: string,
+  cmd: string,
+  expected: string,
+  env: DoctorEnv,
+  need: Need = REQUIRED,
+): Promise<{ row: DoctorCheck } | { raw: string | null; path: string }> {
   const path = await env.which(cmd);
   if (!path) {
+    if (!need.required) return { row: { name, category: 'env', required: false, status: 'n/a', found: need.absent, expected: null, hint: null } };
     return { row: { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` } };
   }
   const raw = await env.version(cmd, ['--version']);
@@ -750,6 +805,22 @@ async function probeTool(adapter: Adapter, at: ProbeAt, env: DoctorEnv, launch: 
 }
 
 /**
+ * The `schema` built-in's probe, the one built-in that needs something
+ * installed: the libraries its rules need, as a run from `at` would find
+ * them, with the skip a `--static-only` run gives where one is missing, in
+ * that run's own words. `null` for any other adapter.
+ */
+type LibraryProbe = { probe: ToolProbe; skip: string | null };
+
+function libraryProbe(adapter: Adapter, at: ProbeAt, env: DoctorEnv): LibraryProbe | null {
+  if (adapter.builtin !== SCHEMA_SLOT) return null;
+  const source = (env.schemaLibraries ?? schemaLibrarySource)(at.repo);
+  const { refusal, ...row } = probeSchemaLibraries(adapter.options?.schema?.rules ?? [], at, source);
+  if (refusal === null) return { probe: { ...row, hint: null }, skip: null };
+  return { probe: { ...row, hint: `${refusalDetail(refusal)}.` }, skip: installSkip(refusal) };
+}
+
+/**
  * What an unavailable check could be turned on with: its own pack's
  * candidate adapters, or `adapters` for a check with no pack, each with what
  * would turn it on, as the run's vacuous-green warning names them, led by a
@@ -793,11 +864,16 @@ type ToolRowBase = { category: 'tool'; slot: string; adapter: string | null; tar
 const DISABLED_REASON = 'disabled in checkride.config.json';
 
 /**
- * A row for a slot that is off but not simply missing its tool — disabled in
- * config, or its adapter can't run under this PM. `null` when neither applies
+ * A row for a slot that is off but not simply missing its tool — not switched
+ * on by the config, disabled in it, or its adapter can't run under this PM.
+ * `null` when none applies
  * (the caller then handles the no-adapter case and the live probe).
  */
 function offRow(base: ToolRowBase, r: ResolvedCheck, adapter: Adapter | null, pm: PackageManager): DoctorCheck | null {
+  // Not switched on by the config: the reason resolution gave says what would.
+  if (r.inactive === true) {
+    return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: 'not configured', expected: null, hint: `It ${r.skip ?? 'is inactive'}.` };
+  }
   // Explicitly disabled in config, at any layer: off by the user's choice.
   if (adapter === null && r.skip === DISABLED_REASON) {
     return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'disabled', found: DISABLED_REASON, expected: null, hint: null };
@@ -914,10 +990,17 @@ async function classifySlot(r: ResolvedCheck, ctx: SlotContext, staticSkip: stri
   if (!adapter) {
     return { ...base, name: base.slot, required: false, status: 'n/a', enablement: 'unavailable', found: r.skip ?? 'no tool detected', expected: null, hint: await possibilitiesHint(r, at, ctx) };
   }
-  const skip = ctx.staticOnly ? (staticSkip ?? needsInstall(r, adapter, at, ctx)) : null;
+  // Probed once, for the skip and for the row.
+  const libraries = libraryProbe(adapter, at, ctx.env);
+  const skip = ctx.staticOnly ? (staticSkip ?? libraries?.skip ?? needsInstall(r, adapter, at, ctx)) : null;
   if (skip !== null) return skipRow(base, r, adapter, ctx.defaultActive, skip);
-  // Adapter resolved: probe the tool where its pin chain finds it, classify by default-run membership.
-  const probe = await probeTool(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx));
+  return probedRow(base, r, adapter, { ctx, at, libraries });
+}
+
+/** The row of a check whose adapter can run: its tool probed where its pin chain finds it, or its libraries as already probed, classified by default-run membership. */
+async function probedRow(base: ToolRowBase, r: ResolvedCheck, adapter: Adapter, where: { ctx: SlotContext; at: ProbeAt; libraries: LibraryProbe | null }): Promise<DoctorCheck> {
+  const { ctx, at, libraries } = where;
+  const probe = libraries?.probe ?? (await probeTool(adapter, at, ctx.env, () => askLauncher(r, adapter, at, ctx)));
   return toolRow(base, r, adapter, ctx.defaultActive, probe);
 }
 
@@ -958,7 +1041,8 @@ function askLauncher(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotC
  * needs an install, asked of the launcher a run spawns it through, which
  * pre-flights `node_modules/.bin` under every package manager but a PnP
  * install (R13.4), or `null` when its tool resolves as the checkout stands.
- * A built-in launches no tool.
+ * A built-in launches no tool; the one that needs the install all the same,
+ * `schema`, answers through its own probe.
  */
 function needsInstall(r: ResolvedCheck, adapter: Adapter, at: ProbeAt, ctx: SlotContext): string | null {
   if (adapter.builtin !== undefined) return null;
@@ -1044,9 +1128,9 @@ async function checkUnreached(cwd: string, config: CheckrideConfig | null, commo
 }
 
 /** The markers no target claims, the implicit target's included, or why they couldn't be listed. */
-async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string | undefined): Promise<Unclaimed[] | string> {
+async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string): Promise<Unclaimed[] | string> {
   try {
-    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config), ...(out !== undefined ? { out } : {}) });
+    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config), out });
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -1087,7 +1171,7 @@ function checkNodePin(cwd: string, engines: { node?: string }, env: PinEnv): Doc
       expected,
       hint:
         `Agent hooks run in a non-login shell and get this machine's default Node, not this shell's ` +
-        `(${env.running()}). No Node satisfying ${pin.version} is installed in a layout checkride knows ` +
+        `(${env.running() ?? 'which has none on PATH'}). No Node satisfying ${pin.version} is installed in a layout checkride knows ` +
         `(nvm, fnm, nodenv, asdf, volta, n), so it cannot align a hook that arrives on the wrong one — ` +
         `the gate will report "could not run" rather than a misleading red. Install it, or set ` +
         `${NODE_BIN_VAR} to its bin directory.`,
@@ -1127,8 +1211,9 @@ function unpinnedRow(base: { name: string; category: 'env'; required: false }, e
  * unparseable state is worth a row because the run-time warning only prints
  * during a run — doctor is where someone checks the environment *between* runs.
  */
-function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
-  const path = join(cwd, BASELINE_FILE);
+function checkBaseline(cwd: string, env: DoctorEnv, suite: Suite): DoctorCheck | null {
+  const file = suite.baselineFile;
+  const path = join(cwd, file);
   if (!env.exists(path)) return null;
   const raw = env.readText(path);
   const baseline = raw === null ? null : parseBaseline(raw);
@@ -1137,9 +1222,9 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
     return {
       ...base,
       status: 'outdated',
-      found: `${BASELINE_FILE} present but unparseable`,
+      found: `${file} present but unparseable`,
       expected: 'valid baseline JSON',
-      hint: 'A merge likely mangled it; grandfathered findings report red until it is restored. Run `checkride recover` to rebuild it from git history.',
+      hint: `A merge likely mangled it; grandfathered findings report red until it is restored. Run \`${suiteCommand('checkride recover', suite)}\` to rebuild it from git history.`,
     };
   }
   return { ...base, status: 'ok', found: `${countGrandfathered(baseline)} grandfathered finding(s)`, expected: null, hint: null };
@@ -1171,6 +1256,33 @@ function checkAgentInstructions(cwd: string, env: DoctorEnv): DoctorCheck | null
   };
 }
 
+/**
+ * The named suites the repo holds, as one informational row of the default
+ * suite's report, or `null` when it holds none. Never required: a suite is
+ * run by name, and `doctor --suite <name>` reports on one.
+ */
+function checkSuites(cwd: string): DoctorCheck | null {
+  const suites = listSuites(cwd);
+  if (suites.length === 0) return null;
+  return { name: 'suites', category: 'workspace', required: false, status: 'ok', found: suites.join(', '), expected: null, hint: null };
+}
+
+/**
+ * The workspace rows under the output directory's: a named suite's baseline
+ * alone, since the rest describe the repo and belong to the default suite's
+ * report, which also lists the suites it finds.
+ */
+async function workspaceRows(
+  common: { cwd: string; config: CheckrideConfig | null; suite: Suite; slots: readonly Slot[]; adapters: readonly Adapter[] },
+  env: DoctorEnv,
+  markers: DoctorCheck | null,
+): Promise<DoctorCheck[]> {
+  const { cwd, config, suite } = common;
+  if (suite.name !== undefined) return applicable(checkBaseline(cwd, env, suite));
+  const unreached = await checkUnreached(cwd, config, common);
+  return applicable(checkBaseline(cwd, env, suite), checkAgentInstructions(cwd, env), markers, unreached, checkSuites(cwd));
+}
+
 /** The rows that apply, in order: an optional row is `null` when it has nothing to say. */
 function applicable(...rows: readonly (DoctorCheck | null)[]): DoctorCheck[] {
   return rows.filter((row): row is DoctorCheck => row !== null);
@@ -1181,8 +1293,8 @@ function applicable(...rows: readonly (DoctorCheck | null)[]): DoctorCheck[] {
  * `--out` named. The row is named the way a run's `report:` line names the
  * directory, so `.check` by default.
  */
-async function checkWritable(cwd: string, out: string | undefined, env: DoctorEnv): Promise<DoctorCheck> {
-  const dir = out === undefined ? outDir(cwd) : resolve(cwd, out);
+async function checkWritable(cwd: string, out: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const dir = resolve(cwd, out);
   const name = outLabel(cwd, dir);
   const ok = await env.canWrite(dir);
   return ok
@@ -1320,6 +1432,8 @@ function renderMode(report: DoctorReport, out: Out): void {
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
   out.write(`  package manager: ${report.packageManager} (detected)\n`);
+  out.write(`  channel: ${report.channel}${report.embeddedNode === undefined ? '' : ` (embedded Node ${report.embeddedNode})`}\n`);
+  if (report.suite !== undefined) out.write(`  suite: ${report.suite}\n`);
   renderMode(report, out);
   for (const group of GROUPS) renderGroup(group, report, out);
   out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
@@ -1343,7 +1457,7 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
     found: 'unpinned (`checkride` from PATH)',
     hint:
       'harness unpinned: with no package.json, the hooks and the AGENTS.md stanza run whatever `checkride` PATH holds. ' +
-      `Pin it with \`${PIN_CHECKRIDE}\`, and they run \`mise exec -- checkride\` instead.`,
+      `Pin it with \`${runtime().pin}\`, and they run \`mise exec -- checkride\` instead.`,
   };
 }
 
@@ -1352,14 +1466,17 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
  * git, the harness, and the install, which fails nothing under
  * `--static-only`.
  */
-async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv, staticOnly: boolean): Promise<DoctorCheck[]> {
+async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv | undefined, staticOnly: boolean): Promise<DoctorCheck[]> {
   const engines = env.readEngines(cwd);
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
-  const nodePin = checkNodePin(cwd, engines, pinEnv);
+  const node = await checkNode(nodeMin, env);
+  // The `node` row has just asked the `node` on `PATH` for its version, so where the repo's Node is that
+  // one, the pin row's hint names the same answer and nothing is asked twice.
+  const nodePin = checkNodePin(cwd, engines, pinEnv ?? { ...realPinEnv, running: () => runtime().repoNode(() => node.version) });
   const harness = checkHarness(cwd, pm, env);
   return [
-    await checkVersioned('node', 'node', nodeMin, env),
+    node.row,
     ...(nodePin === null ? [] : [nodePin]),
     await checkPackageManager(cwd, pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
@@ -1371,17 +1488,19 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
 /**
  * A row for every check, so off/opt-in/disabled slots stay visible instead of
  * silently dropped, then one for each tool nothing pins. The orchestrator
- * decides what runs by default. A slot the config hasn't activated
- * (`unclaimed` without targets) isn't one this repo runs, so it has no row.
+ * decides what runs by default. A slot the config hasn't activated isn't one
+ * this repo runs: `unclaimed` without targets has no row, since the markers
+ * row speaks for it, and `schema` without rules has one that says so.
  */
 async function checkRows(
-  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; defaults: CheckrideConfig | null },
+  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; suite: Suite; defaults: CheckrideConfig | null },
   run: Pick<DoctorOptions, 'pins' | 'staticOnly'>,
   pm: PackageManager,
   env: DoctorEnv,
 ): Promise<DoctorCheck[]> {
-  const { cwd, slots, adapters, config, defaults } = common;
-  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd }).filter((r) => r.inactive !== true);
+  const { cwd, slots, adapters, config, suite, defaults } = common;
+  // `schema` alone keeps its row while the config leaves it off, so the report says its rules are what it waits for.
+  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd, suite }).filter((r) => r.inactive !== true || r.slot === SCHEMA_SLOT);
   const overrides = run.pins?.tools;
   const ctx: SlotContext = {
     repo: cwd,
@@ -1419,7 +1538,7 @@ function staticSkips(before: readonly ResolvedCheck[], after: readonly ResolvedC
 async function modeOf(
   cwd: string,
   config: CheckrideConfig | null,
-  out: string | undefined,
+  out: string,
 ): Promise<{ fields: Pick<DoctorReport, 'mode' | 'pack' | 'targets' | 'unclaimed'>; row: DoctorCheck | null }> {
   const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
   const implicit = targets === null ? implicitPack(markerAt(cwd)) : null;
@@ -1433,24 +1552,33 @@ async function modeOf(
   return { fields, row: markersRow(unclaimed, implicit) };
 }
 
+/** The channel this checkride runs from, as the report gives it, with the Node a binary embeds. */
+function channelFields(): Pick<DoctorReport, 'channel' | 'embeddedNode'> {
+  const { channel, embeddedNode } = runtime();
+  return embeddedNode === null ? { channel } : { channel, embeddedNode };
+}
+
 /** Run the doctor against `cwd`; render and return the report. */
 export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const common = resolveCommonOptions(options);
-  const { cwd, config, stdout } = common;
+  const { cwd, config, suite, stdout } = common;
   const env = options.env ?? realEnv;
   const pm = env.packageManager(cwd);
 
+  // Resolved once: the directory the workspace row probes is the one the mode's marker listing leaves out.
+  const out = options.out ?? suite.out;
+
   const checks: DoctorCheck[] = [
-    ...(await environmentRows(cwd, pm, env, options.pinEnv ?? realPinEnv, options.staticOnly === true)),
+    ...(await environmentRows(cwd, pm, env, options.pinEnv, options.staticOnly === true)),
     ...(await checkRows({ ...common, defaults: options.defaults ?? null }, options, pm, env)),
-    await checkWritable(cwd, options.out, env),
+    await checkWritable(cwd, out, env),
   ];
-  const mode = await modeOf(cwd, config, options.out);
-  const unreached = await checkUnreached(cwd, config, common);
-  checks.push(...applicable(checkBaseline(cwd, env), checkAgentInstructions(cwd, env), mode.row, unreached));
+  const mode = await modeOf(cwd, config, out);
+  checks.push(...(await workspaceRows(common, env, mode.row)));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
-  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, checks };
+  const named = suite.name === undefined ? {} : { suite: suite.name };
+  const report: DoctorReport = { ok, platform: env.platform(), ...channelFields(), packageManager: pm, ...mode.fields, ...named, checks };
 
   if (options.json === true) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);

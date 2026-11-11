@@ -34,6 +34,7 @@ const PUBLIC_EXPORTS = [
   'runFix',
   'runInit',
   'selectChecks',
+  'suiteNamed',
 ];
 
 /** The catalogue position of the slot an adapter fills. */
@@ -141,6 +142,18 @@ describe('the checkride/findings subpath', () => {
 
   test('the odin pack\'s compiler output is parseable under each row that runs odin check', () => {
     for (const adapter of ['odin-check', 'odin-vet', 'odin-unused']) expect(findings.isParseable(adapter), adapter).toBe(true);
+  });
+
+  test("the schema built-in's report is parseable, each error a finding with its keyword as the rule", () => {
+    expect(findings.isParseable('schema')).toBe(true);
+    const report = JSON.stringify({
+      rules: [{ schema: 'checkride:agent-skill', files: 1 }],
+      errors: [{ file: 'skills/pdf/SKILL.md', rule: 0, instancePath: '/name', keyword: 'pattern', message: 'must match pattern "^[a-z]+$"', line: 2 }],
+    });
+    expect(findings.parseFindings('schema', report)).toEqual([
+      { adapter: 'schema', slot: 'schema', file: 'skills/pdf/SKILL.md', line: 2, rule: 'pattern', message: '/name must match pattern "^[a-z]+$"', gates: true },
+    ]);
+    expect(findings.parseFindings('schema', JSON.stringify({ rules: [], errors: [] }))).toEqual([]);
   });
 
   test('an adapter with no parser returns null (F45)', () => {

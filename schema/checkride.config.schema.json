@@ -46,7 +46,7 @@
     },
     "schemas": {
       "type": "array",
-      "description": "Rules for the schema slot, which validates data files against JSON Schemas. That slot ships in a later release: until then a run checks each rule's schema reference and acts on nothing else here.",
+      "description": "Rules for the schema slot, which validates data files against JSON Schemas. The slot runs once this holds a rule: each rule in order, over the files the repo lists (tracked, or untracked and not ignored) that one of its globs matches. A rule that matches no file fails the check. It validates with the ajv, yaml and jsonc-parser the repo installs; the standalone binary bundles them.",
       "items": {
         "type": "object",
         "required": ["files", "schema"],
@@ -60,12 +60,12 @@
           "schema": {
             "type": "string",
             "minLength": 1,
-            "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?!/)",
-            "description": "A bundled checkride:<id> schema or a path relative to the repo root. Never a URL or an absolute path, because a check never fetches."
+            "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))",
+            "description": "A bundled schema (checkride:agent-skill or checkride:checkride-config) or a path relative to the repo root, to a draft 2020-12 or draft-07 JSON Schema. Never a URL, because a check never fetches, and never an absolute path or one with a .. segment, because a check reads a schema only from inside the repository."
           },
           "format": {
             "enum": ["json", "jsonc", "yaml", "frontmatter"],
-            "description": "How each file is read. Unset, it follows the extension: .json, .jsonc, .yml or .yaml, and .md (frontmatter)."
+            "description": "How each file is read: json is strict, jsonc allows comments and trailing commas, yaml is the YAML 1.2 core schema with duplicate keys an error, and frontmatter is the YAML between a file's opening --- line and the next. Unset, it follows each file's extension: .json, .jsonc, .yml or .yaml, and .md or .mdx (frontmatter); a glob whose extension names none of them is then a config error."
           },
           "note": { "$ref": "#/definitions/note" }
         }
@@ -112,9 +112,26 @@
     },
     "checks": {
       "type": "object",
-      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, prose, mutation, security, build, publint, attw, pack, smoke, snippets, unclaimed) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, prose, mutation, security, build, publint, attw, pack, smoke, snippets) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
+      "description": "Per-slot configuration. A key that matches a catalogue slot (types, format, lint, struct, dead, dupes, health, test, docs, links, spell, prose, mutation, security, build, publint, attw, pack, smoke, snippets, unclaimed, schema) configures that slot; any other key is a custom check that runs alongside the catalogue. Naming an opt-in slot (format, dupes, health, prose, mutation, security, build, publint, attw, pack, smoke, snippets) here also opts it into the default run — set optIn:true on the entry to configure it without opting in (run it only with --all/--include).",
       "additionalProperties": {
-        "$ref": "#/definitions/slotConfig"
+        "anyOf": [{ "$ref": "#/definitions/slotConfig" }, { "$ref": "#/definitions/inheritedOverride" }]
+      }
+    }
+  },
+  "if": { "not": { "required": ["extends"] } },
+  "then": {
+    "properties": {
+      "checks": {
+        "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+      },
+      "packs": {
+        "additionalProperties": {
+          "properties": {
+            "checks": {
+              "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+            }
+          }
+        }
       }
     }
   },
@@ -125,13 +142,13 @@
     },
     "targetName": {
       "type": "string",
-      "description": "A target's name: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. Slot names, schema and unclaimed included, are reserved, and so is every custom check's name, so a selection token means one thing.",
+      "description": "A target's name: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. Slot names, schema and unclaimed included, are reserved, and so is every custom check's name, so a selection token means one thing. So are doc-snippets and suites, directories checkride keeps under the output directory.",
       "pattern": "^[a-z][a-z0-9-]{0,31}$",
       "not": {
         "enum": [
           "types", "format", "lint", "struct", "dead", "dupes", "health", "test", "docs", "links", "spell",
           "prose", "mutation", "security", "build", "publint", "attw", "pack", "smoke", "snippets",
-          "unclaimed", "schema", "doc-snippets"
+          "unclaimed", "schema", "doc-snippets", "suites"
         ]
       }
     },
@@ -145,7 +162,7 @@
         "root": {
           "type": "string",
           "minLength": 1,
-          "pattern": "^(?!/)(?!(.*/)?\\.\\.(/|$))",
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))",
           "description": "The target's directory, relative to the repo root (. for the root itself). It must exist, can't be absolute or pass through .., and two targets of one pack can't share or nest their roots."
         },
         "include": {
@@ -174,7 +191,9 @@
         "checks": {
           "type": "object",
           "description": "Slot config and custom checks for every target of this pack. An adapter named here must belong to the pack, and repo-scope slots belong in the top-level checks.",
-          "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+          "additionalProperties": {
+            "anyOf": [{ "$ref": "#/definitions/slotConfig" }, { "$ref": "#/definitions/inheritedOverride" }]
+          }
         },
         "note": { "$ref": "#/definitions/note" }
       }
@@ -198,6 +217,45 @@
         { "$ref": "#/definitions/customCheck" },
         { "$ref": "#/definitions/slotTuning" }
       ]
+    },
+    "inheritedOverride": {
+      "type": "object",
+      "description": "Part of a check that a preset this file extends already declares, which an entry of the top-level checks, or of a packs block's checks, may be in a file with extends. Objects deep-merge, so the fields set here replace the preset's and the rest are inherited, its use or command among them. A file with no extends has nothing to inherit, so there an entry needs its own use or command, and so does an entry of a target's checks in any file, since a preset declares no targets to merge it with.",
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["description"] },
+        { "required": ["args"] },
+        { "required": ["changedArgs"] },
+        { "required": ["fixArgs"] },
+        { "required": ["outputFile"] },
+        { "required": ["name"] },
+        { "required": ["detect"] },
+        { "required": ["static"] },
+        { "required": ["skipExitCode"] },
+        { "required": ["exclude"] },
+        { "required": ["allowlist"] },
+        { "required": ["profile"] },
+        { "required": ["exemplars"] }
+      ],
+      "properties": {
+        "description": { "type": "string" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "changedArgs": { "type": "array", "items": { "type": "string" } },
+        "fixArgs": { "type": "array", "items": { "type": "string" } },
+        "outputFile": { "type": ["string", "null"] },
+        "name": { "type": "string" },
+        "detect": { "type": "array", "items": { "type": "string" } },
+        "static": { "type": "boolean" },
+        "skipExitCode": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "exclude": { "type": "array", "items": { "type": "string" } },
+        "allowlist": { "type": "array", "items": { "type": "string" } },
+        "profile": { "type": "string" },
+        "exemplars": { "type": "string" },
+        "optIn": { "type": "boolean" },
+        "timeout": { "type": "number", "minimum": 0 },
+        "order": { "$ref": "#/definitions/order" },
+        "note": { "$ref": "#/definitions/note" }
+      }
     },
     "slotTuning": {
       "type": "object",
@@ -263,7 +321,7 @@
         },
         "exemplars": {
           "type": "string",
-          "description": "prose slot only: repo-relative directory of hand-written voice exemplars. The check fails when the directory is missing or empty, and agent-setup adds an AGENTS.md stanza section telling writing sessions to read and imitate the exemplars (never edit them)."
+          "description": "prose slot only: directory of hand-written voice exemplars, relative to the repo root, never absolute or climbing out of it. The check fails when the directory is missing or empty, or resolves outside the repository, and agent-setup adds an AGENTS.md stanza section telling writing sessions to read and imitate the exemplars (never edit them)."
         }
       }
     },

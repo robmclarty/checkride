@@ -84,6 +84,59 @@ Conventions (enforced mechanically — see [AGENTS.md](./AGENTS.md)): deep
 modules with barrel `index.ts` surfaces, named exports only, no classes, `.js`
 extensions on relative imports, tests colocated or under `test/`.
 
+### The standalone binary
+
+`pnpm build:sea` builds the [standalone
+binary](./docs/distribution.md#the-standalone-binary) for the machine it runs
+on, into the gitignored `.sea/`, and prints its path on stdout:
+
+```bash
+pnpm build:sea          # tsc --build, then build/sea/build.mjs
+.sea/checkride doctor   # channel: binary (embedded Node <version>)
+```
+
+[`build/sea/build.mjs`](./build/sea/build.mjs) bundles `dist/cli.js` into one
+ES module with esbuild, embeds `package.json` and every file under
+`templates/`, `schema/` and `skills/` as assets under the path
+`src/resources.ts` reads each by, and runs `node --build-sea`, which injects
+both into a copy of Node. On macOS it then signs the result ad hoc. It isn't
+part of `pnpm check`, and nothing it writes reaches the npm tarball.
+
+The Node it embeds is pinned in
+[`build/sea/.node-version`](./build/sea/.node-version), the Active LTS line,
+and that Node also does the embedding. Under any other Node the script
+reaches the pinned one through `mise exec node@<version>`, which installs it
+on first use, so the build needs mise or that exact Node, and
+`CHECKRIDE_SEA_NODE` names a Node binary to use instead. Bump the file on
+purpose, then run the binary's tests.
+
+The binary's differences from the npm CLI all ask `src/channel.ts`, and the
+unit tests cover them by faking `node:sea` (`test/helpers/sea.ts`, used by
+`src/__tests__/binary-channel.test.ts`). The e2e case builds a real one and
+runs it beside the npm CLI, on a `PATH` with no `node`:
+
+```bash
+pnpm exec tsc --build
+pnpm exec vitest run --config vitest.e2e.config.ts test/e2e/binary.e2e.test.ts
+
+# or against a binary that's already built
+CHECKRIDE_BIN="$PWD/.sea/checkride" pnpm exec vitest run --config vitest.e2e.config.ts test/e2e/binary.e2e.test.ts
+```
+
+It's part of `pnpm test:e2e`, and it never skips: the build runs in the
+file's `beforeAll`, and a build that fails, for want of mise or the pinned
+Node, fails every case, so a green e2e run always ran a binary. One run
+leaves it out on purpose, and says so: `publish.yaml` passes
+`--exclude test/e2e/binary.e2e.test.ts`, since a failed download of the
+build's Node mustn't block the npm publish. `ci.yml` runs it on every push,
+and `release.yaml` runs it against each platform's binary.
+
+A pull request that touches the build (`build/sea/`, `release.yaml`,
+`src/channel.ts`, `src/resources.ts`, the binary's e2e test, `package.json`
+or the lockfile) also runs `release.yaml`'s `binaries` job as a dry run: all
+four platforms build, test and pack a tarball, and nothing is released,
+attested or attached. The attestation and the upload first run on a real tag.
+
 ## The contract
 
 [docs/contract.md](./docs/contract.md) names the surfaces consumers may rely
@@ -129,7 +182,17 @@ and 5; step 4 is still by hand.
      tab) to release.
    - [.github/workflows/release.yaml](./.github/workflows/release.yaml):
      creates the GitHub Release for the tag, with notes pulled from the
-     matching `CHANGELOG.md` section.
+     matching `CHANGELOG.md` section. It also builds the standalone binary
+     on a native runner for each of `darwin-arm64`, `darwin-x64`,
+     `linux-x64` and `linux-arm64`, runs the binary e2e and a smoke test of
+     the packed tarball there, and fails unless the tag, `package.json` and
+     the version the binary prints are equal. Separate jobs then attest each
+     `checkride-<version>-<os>-<arch>.tar.gz` and attach them, with
+     `SHA256SUMS`, to the release. Binaries never hold the npm publish or
+     the release back, and each target stands alone: the tarballs that
+     passed attach, `SHA256SUMS` lists exactly the ones the release holds,
+     and a target that failed leaves the run red. A manual run with a `tag`
+     input rebuilds and re-attaches them for a tag released earlier.
 
    One-time setup, both required for the first run: **npmjs.com** — package
    settings → Trusted Publisher → GitHub Actions, repository
@@ -137,7 +200,11 @@ and 5; step 4 is still by hand.
    `npm-publish`; **GitHub** — repo Settings → Environments → `npm-publish`
    with a required reviewer (yourself).
 7. Approve the paused `publish` run, then smoke-test the published package
-   (`npx checkride@latest --version`).
+   (`npx checkride@latest --version`). A few minutes later, check the
+   `release.yaml` run is green and the release page holds four tarballs and
+   `SHA256SUMS`
+   (`gh attestation verify <tarball> --repo robmclarty/checkride` checks one).
+   A red run names the target that failed; re-run it for the tag.
 
 ## Succession
 

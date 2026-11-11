@@ -537,3 +537,96 @@ describe('runCli --config and CHECKRIDE_CONFIG', () => {
     expect(await runCli(['doctor', '--config', join(outside, 'nope.json')], deps())).toBe(2);
   }, 30_000);
 });
+
+describe('runCli --annotate / CHECKRIDE_ANNOTATE', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-cli-annotate-'));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({
+      checks: { links: false, probe: { command: process.execPath, args: ['-e', 'console.error("boom"); process.exit(1)'] } },
+    }));
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  async function cli(argv: string[], env: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
+    const stdout = sink();
+    const stderr = sink();
+    const code = await runCli(argv, { cwd: dir, stdout, stderr, env });
+    return { code, stdout: stdout.text(), stderr: stderr.text() };
+  }
+
+  const LINE = '::error title=probe::boom\n';
+
+  test('--annotate <value> parses to its raw value, and is absent when not passed', () => {
+    expect(parseCliArgs(['--annotate', 'github']).annotate).toBe('github');
+    expect(parseCliArgs([])).not.toHaveProperty('annotate');
+  });
+
+  test('the flag switches annotations on, and so does the variable', async () => {
+    expect((await cli(['--annotate', 'github'])).stderr.endsWith(LINE)).toBe(true);
+    expect((await cli(['--annotate=github'])).stderr.endsWith(LINE)).toBe(true);
+    expect((await cli([], { CHECKRIDE_ANNOTATE: 'github' })).stderr.endsWith(LINE)).toBe(true);
+  });
+
+  test('neither one given writes none, an empty variable counts as unset, and GITHUB_ACTIONS never switches it on', async () => {
+    expect((await cli([])).stderr).not.toContain('::error');
+    expect((await cli([], { CHECKRIDE_ANNOTATE: '' })).stderr).not.toContain('::error');
+    const inActions = await cli([], { GITHUB_ACTIONS: 'true', CI: 'true' });
+    expect(inActions.code).toBe(1);
+    expect(inActions.stderr).not.toContain('::error');
+  });
+
+  test('a value other than github is a usage error naming what gave it and the accepted value', async () => {
+    expect(await cli(['--annotate', 'gitlab'])).toEqual({ code: 2, stdout: '', stderr: "checkride: invalid --annotate 'gitlab' (expected github)\n" });
+    expect(await cli([], { CHECKRIDE_ANNOTATE: 'sarif' })).toEqual({ code: 2, stdout: '', stderr: "checkride: invalid CHECKRIDE_ANNOTATE 'sarif' (expected github)\n" });
+    expect((await cli(['--annotate', ''])).stderr).toBe("checkride: invalid --annotate '' (expected github)\n");
+    expect((await cli(['--annotate'])).code).toBe(2);
+    // Nothing ran before the error.
+    expect(existsSync(join(dir, '.check'))).toBe(false);
+  });
+
+  test('the flag wins over the variable, a bad variable included', async () => {
+    const both = await cli(['--annotate', 'github'], { CHECKRIDE_ANNOTATE: 'sarif' });
+    expect(both.code).toBe(1);
+    expect(both.stderr.endsWith(LINE)).toBe(true);
+    expect((await cli(['--annotate', 'sarif'], { CHECKRIDE_ANNOTATE: 'github' })).stderr).toBe("checkride: invalid --annotate 'sarif' (expected github)\n");
+  });
+
+  test('it rides beside the other run flags, and under --json stdout still parses', async () => {
+    const run = await cli(['--annotate', 'github', '--json', '--only', 'probe', '--strict', '--digest', '--bail']);
+    expect(run.code).toBe(1);
+    expect((JSON.parse(run.stdout) as { ok: boolean }).ok).toBe(false);
+    expect(run.stderr).toBe(LINE);
+  });
+
+  test('fix, doctor, baseline and the readers don’t take the flag, and never read the variable', async () => {
+    expect(await cli(['fix', '--annotate', 'github'])).toEqual({ code: 2, stdout: '', stderr: "checkride: fix doesn't take --annotate: only a run has findings to annotate\n" });
+    expect(await cli(['doctor', '--annotate', 'github'])).toEqual({ code: 2, stdout: '', stderr: "checkride: doctor doesn't take --annotate: only a run has findings to annotate\n" });
+    // The run-only refusal comes first, whatever else the command would refuse.
+    expect((await cli(['fix', '--annotate', 'github', '--out', 'o'])).stderr).toBe("checkride: fix doesn't take --annotate: only a run has findings to annotate\n");
+    for (const command of ['baseline', 'recover', 'triage', 'qa', 'gate']) {
+      // oxlint-disable-next-line no-await-in-loop -- each command is one short run, asserted in turn.
+      expect(await cli([command, '--annotate', 'github']), command).toMatchObject({ code: 2, stderr: expect.stringContaining("Unknown option '--annotate'") as unknown });
+    }
+  }, 30_000);
+
+  test('a stray CHECKRIDE_ANNOTATE is ignored without a word by fix, doctor and baseline, whatever it holds', async () => {
+    for (const value of ['github', 'sarif']) {
+      const env = { CHECKRIDE_ANNOTATE: value };
+      // oxlint-disable-next-line no-await-in-loop -- each command is one short run, asserted in turn.
+      const fix = await cli(['fix'], env);
+      expect(fix.code).toBe(0);
+      // oxlint-disable-next-line no-await-in-loop -- as above.
+      const doctor = await cli(['doctor', '--json'], env);
+      expect(() => JSON.parse(doctor.stdout) as unknown).not.toThrow();
+      // The capture runs the failing probe, and writes no annotation for it.
+      // oxlint-disable-next-line no-await-in-loop -- as above.
+      const baseline = await cli(['baseline'], env);
+      expect(baseline.code).toBe(0);
+      for (const { stdout, stderr } of [fix, doctor, baseline]) {
+        expect(`${stdout}${stderr}`).not.toContain('CHECKRIDE_ANNOTATE');
+        expect(`${stdout}${stderr}`).not.toContain('::error');
+      }
+    }
+  }, 30_000);
+});

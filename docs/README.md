@@ -11,8 +11,9 @@ Start here:
 - **[Getting started](./getting-started.md)** — prerequisites, adding checkride
   to a project (new or existing), your first run, and the daily loop. Read this
   if you are new or coming back after a break.
-- **[Installing checkride](./distribution.md)** — the two channels, npm and
-  the mise route, and how a repo without Node pins checkride in `mise.toml`.
+- **[Installing checkride](./distribution.md)** — the channels, npm, the mise
+  route and the standalone binary, and how a repo without Node pins checkride
+  in `mise.toml`.
   Read this before adding checkride to a Go, Rust or other repo with no
   `package.json`.
 - **[Cheat sheet](./cheatsheet.md)** — one-screen reference for commands, flags,
@@ -24,6 +25,10 @@ Start here:
 - **[Targets](./targets.md)** — checking a repo with more than one language,
   or one language in more than one place: declaring targets, what each runs,
   the bash pack's file lists, and `unclaimed`.
+- **[Suites](./suites.md)** — keeping a second suite of checks beside the
+  code gate, such as checks over saved eval records: `--suite <name>`, the
+  three files a name fixes, what a suite runs, and why the stop gate stays on
+  the default suite.
 - **[Packs and pins](./packs.md)** — each pack's slots and tools, and how a
   check's tool resolves to the copy that runs: each pack's pin chain, its pin
   sources (`override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`,

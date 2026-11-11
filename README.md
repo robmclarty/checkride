@@ -15,7 +15,9 @@ It checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code through
 [language packs](./docs/packs.md), each running its own tools from the copy
 the repo pins, and a mixed-language monorepo's parts as named
 [targets](./docs/targets.md), each from its own root. A repo with no Node
-installs and pins checkride through [mise](./docs/distribution.md); built-in
+installs and pins checkride through [mise](./docs/distribution.md), or runs
+the [standalone binary](./docs/distribution.md#the-standalone-binary) once a
+release carries one; built-in
 checks stand down when their tool isn't in the repo, and custom checks run
 any other command. [A worked example](./docs/polyglot.md) takes a repo with a
 TypeScript app, a Go API, OpenTofu and shell scripts from install to a green
@@ -98,6 +100,13 @@ tools its root configures through that language's pack.
 [Installing checkride](./docs/distribution.md) shows the pin, and the
 `allow_low_downloads = true` opt-in mise needs before it installs checkride.
 
+A **standalone binary** takes Node out of that picture: one executable with
+the CLI and its templates embedded, for macOS and Linux on arm64 and x64. It
+ships from the first release that attaches binaries to its GitHub release,
+which none has yet.
+[Installing checkride](./docs/distribution.md#the-standalone-binary) covers
+what it carries and leaves out, and how to verify a download.
+
 Every path ends in the same place — `init` auto-detects which case it is in.
 Where the repo has a `package.json`, it writes a `"check": "checkride"` script
 alias, so daily usage is `pnpm check` (`npm run check`, `yarn run check`, or
@@ -148,14 +157,16 @@ Task-focused guides live in [docs/](./docs/README.md):
   common objections.
 - [Getting started](./docs/getting-started.md) — prerequisites, adding
   checkride to a project (new or existing), your first run, and the daily loop.
-- [Installing checkride](./docs/distribution.md) — the two channels, npm and
-  the mise route, and how a repo without Node pins checkride.
+- [Installing checkride](./docs/distribution.md) — the channels (npm, the mise
+  route and the standalone binary), and how a repo without Node pins checkride.
 - [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
   flags, npm-script aliases, and the `.check/` output files.
 - [Tools and installation](./docs/tools.md) — what each check of the ts and
   repo packs runs, and how to install a missing tool when `doctor` reports one.
 - [Targets](./docs/targets.md) — checking a repo with more than one language,
   or one language in more than one place, as named targets.
+- [Suites](./docs/suites.md) — more than one suite of checks in a repo, each
+  with its own config, baseline and output directory, run with `--suite`.
 - [Packs and pins](./docs/packs.md) — each language pack's slots and tools,
   where each tool is pinned, and the environment its checks run with.
 - [A polyglot repo, end to end](./docs/polyglot.md) — a worked example: one
@@ -207,6 +218,8 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
   --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
   --base <ref>  --concurrency <n>  --config <path>  --out <dir>
+  --suite <name> (a named suite: its own config, baseline and .check/suites/<name>/)
+  --annotate github (each finding as a GitHub Actions annotation, on stderr)
   --defaults <path>  --discover  --pins <mise.toml>  --static-only (consumer runs)
 checkride init         Set up a project (new or existing — auto-detected).
   --lang ts|go|rust  --shape flat|monorepo|hybrid (ts), module|workspace (go),
@@ -255,6 +268,10 @@ checkride hooks add [a,b] | remove <a,b>
                        `hooks add` installs every hook, the stop gate included.
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
+checkride protect      Decide whether an agent's edit touches the baseline or
+                       .check/, answering a harness's hook protocol (--harness
+                       cursor). Cursor's hook invokes this in a repo with no
+                       package manager; you don't run it by hand.
 checkride triage [<repo>]  Triage a red gate: run it, then read .check/ as a
                        bounded report (--out <dir> for another output directory).
 checkride qa [<repo>]  Read the quality artifacts a previous run left (--out <dir>).
@@ -303,6 +320,7 @@ odin packs fill the target slots with their own (see
 | `smoke`    | target | Built package imports cleanly (opt-in) | built-in            | —                |
 | `snippets` | target | Tagged doc fences type-check (opt-in)  | built-in (`tsc`)    | —                |
 | `unclaimed` | repo   | Every toolchain marker sits in a target (with `targets`) | built-in | — |
+| `schema`   | repo   | Data files satisfy their JSON Schemas (with `schemas`) | built-in | — |
 
 Most of these tools you already know. The one unfamiliar name, `fallow`, is a
 Rust-native codebase-analysis tool covering dead code, duplication, and
@@ -333,6 +351,13 @@ then it fails when a toolchain marker, such as a `package.json` or a
 check reads. Without `targets` it stays out of
 every run, `--all` included, and naming it with `--only unclaimed` records it
 as skipped with the reason.
+
+`schema` is inactive the same way, until the config holds a `schemas` rule.
+Then it validates the files each rule names (JSON, JSONC, YAML, or a Markdown
+file's YAML frontmatter) against a JSON Schema: one the repo keeps, or one of
+the two that ship, `checkride:agent-skill` and `checkride:checkride-config`.
+A rule that matches no file fails, and so does a file that doesn't parse.
+[Validate data files](#validate-data-files) shows the config.
 
 To **configure a slot without opting it in** — say, give `attw` a `--profile` but keep it
 in the full sweep only — add `"optIn": true` to its entry: it stays out of the default run
@@ -475,13 +500,46 @@ it carries.
 
 To debug a failure: start from the run's own lines. Beneath each red check's
 status line, the run says why it failed when the check says, then what it
-found: the findings a baseline didn't grandfather, a `go test` run's failing
-tests, or, where neither lists anything, the first finding its parser read
-that can fail it, with how many more, as `src/a.ts:3:7 Variable 'x' is
-declared but never used. (+4 more)`, or as tsc printed it. Then read
-`summary.json` to find the failing slot, and that slot's raw output for
-structured diagnostics. On a large repo, run with `--digest` for a capped
-starting point, printed below the report and kept in `digest.md`.
+found, then the file that holds all of its output:
+
+```text
+  ✘ lint         40ms  Oxlint, type-aware with oxlint-tsgolint  [config]
+           src/a.ts:3:7  Variable 'x' is declared but never used.  [eslint(no-unused-vars)]
+           src/b.ts:12:9  Expected === and instead saw ==  [eslint(eqeqeq)]
+           full output: .check/lint.json
+  ✘ deploy        8ms  Custom deploy check  [custom]
+           stderr:
+             error: service "api" has no healthcheck
+               at manifests/api.yaml:14
+           stdout:
+             loaded 3 services
+           full output: .check/deploy.stdout.txt, .check/deploy.stderr.txt
+```
+
+What it found is the first of these that applies: the findings a baseline
+didn't grandfather, by key; a `go test` run's failing tests, then up to eight
+of the lines they printed; a vitest run's failing tests, up to four, each
+with the first line of its error beneath it, as
+`src/sum.test.ts > sum > adds` then `AssertionError: expected 3 to be 4`,
+then `… and N more`; for a tool checkride parses, up to five of the
+findings that can fail the check, each as `path:line:col`, its message and
+its rule, then `… and N more`; and for any other check, a custom `command`
+among them, the last eight lines it printed that aren't blank. Those come
+from whichever stream holds any. When both do, the run shows both, each
+under its name, four lines each, and either takes what the other leaves
+unused, since nothing says which stream a tool reports on. Each line is
+printed without its colour codes and cut at 200 characters, and a carriage
+return counts as a line break. A JSON report is never shown as text: a check
+that failed with a report checkride reads no finding in says so in one line.
+A check whose reason line is the whole cause, one that timed out or was
+refused before its tool ran, prints no excerpt beneath it. The `full output:`
+line names the file to open for the rest, both files where it showed both
+streams, under `<target>/` for a target's check and in a named suite's own
+directory. A `--json` run prints none of this, and the summary doesn't carry
+it. Then read `summary.json` to find the
+failing slot, and that slot's raw output for structured diagnostics. On a
+large repo, run with `--digest` for a capped starting point, printed below
+the report and kept in `digest.md`.
 
 ## The Claude Code plugin
 
@@ -595,6 +653,33 @@ root. Once targets exist, a top-level entry for a target slot may only turn it
 off or tune it (`optIn`, `timeout`, `order`), since the tool depends on the
 pack. `checkride target add` writes a target for you, and
 [Targets](./docs/targets.md) holds the rules.
+
+### Validate data files
+
+`schemas` is a list of rules for the `schema` slot, each a set of globs and
+the JSON Schema their files must satisfy:
+
+```jsonc
+{
+  "schemas": [
+    { "files": ["skills/*/SKILL.md"],       "schema": "checkride:agent-skill" },      // bundled; reads the frontmatter
+    { "files": ["config/*.json"],           "schema": "schemas/service.schema.json" },
+    { "files": [".github/workflows/*.yml"], "schema": "schemas/workflow.schema.json" }
+  ]
+}
+```
+
+A file is read by its extension, or by the rule's `format`: `json`, `jsonc`,
+`yaml` or `frontmatter`. Schemas are draft 2020-12 or draft-07, and a `$ref`
+may reach a sibling file but never a URL, since a check makes no network
+call.
+
+The package still has no runtime dependency. The slot validates with the
+`ajv` (8.x), `yaml` (2.x) and `jsonc-parser` (3.x) the repo installs, each
+only when a rule needs it, and a missing one fails the check with the install
+command. The standalone binary bundles all three.
+[The `schema` slot](./docs/tools.md#the-schema-slot-data-files-against-json-schemas)
+covers the formats, the bundled schemas and the report.
 
 ### Custom checks
 

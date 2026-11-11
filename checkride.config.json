@@ -54,5 +54,17 @@
     "snippets": { "use": "snippets-dist", "order": 5 },
 
     "test": { "use": "vitest", "order": "single" }
-  }
+  },
+  "schemas": [
+    {
+      "files": ["skills/*/SKILL.md"],
+      "schema": "checkride:agent-skill",
+      "note": "The bundled plugin's skills: each named for its directory, with a description a harness can load."
+    },
+    {
+      "files": ["checkride.config.json", "examples/*/checkride.config.json", "examples/shared-preset/preset/{preset,strict}.json", "test/fixtures/invariance/examples/*/checkride.config.json"],
+      "schema": "checkride:checkride-config",
+      "note": "Every config in the tree that is meant to load: this one, each example's, and the frozen invariance subject's. A config that is deliberately invalid lives in a test as a literal, never as a file these globs reach."
+    }
+  ]
 }

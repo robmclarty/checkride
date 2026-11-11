@@ -34,9 +34,12 @@
  * `off` to disable alignment entirely.
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+
+import { runtime } from './channel.js';
 
 /** The environment variable that overrides, or disables, alignment. */
 export const NODE_BIN_VAR = 'CHECKRIDE_NODE_BIN';
@@ -86,8 +89,8 @@ export type NodeInstall = { bin: string; version: string };
  */
 export type NodeAlignment = {
   pin: NodePin | null;
-  /** The Node running this process, without the leading `v`. */
-  running: string;
+  /** The Node a child would run on unaligned, without the leading `v`: {@link PinEnv.running}. `null` when `PATH` holds none. */
+  running: string | null;
   /** The `bin` directory to prepend, or `null` when nothing satisfying the pin is installed. */
   bin: string | null;
   /** The version behind `bin`, when checkride resolved it rather than being handed it. */
@@ -100,8 +103,13 @@ export type PinEnv = {
   read: (path: string) => string | null;
   list: (dir: string) => string[];
   home: () => string;
-  /** The running Node's version, without the leading `v`. */
-  running: () => string;
+  /**
+   * The repo's Node as a child started now would find it, without the leading
+   * `v`: the one running this process, or for the standalone binary the
+   * `node` on `PATH`, since the Node it embeds is never the repo's. `null`
+   * when that `PATH` holds no `node`.
+   */
+  running: () => string | null;
   variable: (name: string) => string | undefined;
 };
 
@@ -123,20 +131,42 @@ function listReal(dir: string): string[] {
   }
 }
 
-export const realPinEnv: PinEnv = {
-  exists: existsSync,
-  read: readReal,
-  list: listReal,
-  home: homedir,
-  running: () => process.version.replace(/^v/, ''),
-  variable: (name) => process.env[name],
-};
-
 /** `v22.22.3` / `22.22.3 ` → `22.22.3`; anything not starting with a digit → `null`. */
 function normalize(raw: string): string | null {
   const trimmed = raw.trim().replace(/^v/, '');
   return /^\d/.test(trimmed) ? trimmed : null;
 }
+
+/** What the `node` on `PATH` answers to `--version`, or `null` when there is none or it gives no version. */
+function askPathNode(): string | null {
+  try {
+    return normalize(execFileSync('node', ['--version'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The repo's Node for this process (`runtime().repoNode`), asked once: a
+ * `PATH` doesn't change under a running command. Only the standalone binary
+ * asks `PATH` at all, and nothing asks until a caller needs the answer.
+ */
+function realRunning(): () => string | null {
+  let answer: { version: string | null } | undefined;
+  return () => {
+    answer ??= { version: runtime().repoNode(askPathNode) };
+    return answer.version;
+  };
+}
+
+export const realPinEnv: PinEnv = {
+  exists: existsSync,
+  read: readReal,
+  list: listReal,
+  home: homedir,
+  running: realRunning(),
+  variable: (name) => process.env[name],
+};
 
 /**
  * The pin `cwd` declares, or `null`.
@@ -221,7 +251,10 @@ export function findPinnedNode(pin: NodePin, env: PinEnv = realPinEnv): NodeInst
  * to what.
  *
  * `null` means "nothing to do, change nothing" — alignment is off, the repo
- * pins nothing resolvable, or the running Node already satisfies the pin. A
+ * pins nothing resolvable, or the running Node already satisfies the pin. No
+ * running Node at all, the standalone binary on a `PATH` without `node`,
+ * satisfies no pin, so a repo that pins one is searched for it, and a repo
+ * that pins none is left alone. A
  * returned alignment always describes a real divergence, whether or not an
  * interpreter was found for it, because the caller has something to report
  * either way.
@@ -234,12 +267,15 @@ export function findPinnedNode(pin: NodePin, env: PinEnv = realPinEnv): NodeInst
 export function alignNode(cwd: string, env: PinEnv = realPinEnv): NodeAlignment | null {
   const override = env.variable(NODE_BIN_VAR);
   if (override === OFF) return null;
-  const running = env.running();
-  if (override !== undefined && override.length > 0) {
-    return { pin: readNodePin(cwd, env), running, bin: override, version: null };
-  }
+  // The pin first: the running Node is asked only when there is something to hold it to, since for the
+  // standalone binary asking is a `node --version`, and most repos it gates pin no Node at all.
   const pin = readNodePin(cwd, env);
-  if (pin === null || satisfiesPin(pin.version, running)) return null;
+  if (override !== undefined && override.length > 0) {
+    return { pin, running: env.running(), bin: override, version: null };
+  }
+  if (pin === null) return null;
+  const running = env.running();
+  if (running !== null && satisfiesPin(pin.version, running)) return null;
   const install = findPinnedNode(pin, env);
   return { pin, running, bin: install?.bin ?? null, version: install?.version ?? null };
 }

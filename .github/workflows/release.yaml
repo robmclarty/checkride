@@ -5,6 +5,24 @@ name: Release
 # so its `contents: write` never shares a job with `id-token: write` - the npm
 # credential surface (there is none: OIDC) and the release-authoring surface stay
 # in different jobs with least privilege each.
+#
+# The same tag also builds the standalone binary (docs/distribution.md) on a
+# native runner for each platform, and attaches the tarballs to the release
+# with SHA256SUMS and a build provenance attestation each. Four jobs keep that
+# least-privilege split:
+#   - `release` creates the release (contents: write), as it always has.
+#   - `binaries` installs the repo's dependencies, builds, tests and packs each
+#     tarball, with a read-only token and no way to mint an identity.
+#   - `attest` holds id-token and attestations: write, installs nothing from
+#     the repo, and signs the tarball `binaries` uploaded as it is.
+#   - `upload` holds contents: write, runs nothing from the repo, and attaches
+#     the tarballs and their checksums.
+# A tarball reaches the release only if its binary passed the binary e2e and a
+# run from the packed tarball on its own runner, and printed the version the
+# tag and package.json name. npm is the primary channel, and nothing here
+# holds it or the release back: each target stands alone, the ones that
+# passed are attached with a SHA256SUMS over exactly those, and a target that
+# failed leaves the run red.
 
 on:
   push:
@@ -15,13 +33,31 @@ on:
         description: Existing tag to create a release for (e.g. v0.5.1)
         required: true
         type: string
+  # A dry run of the binary jobs, on a pull request that touches what they
+  # build from: `binaries` builds, tests and packs each platform's tarball as
+  # it would for a tag, and nothing else runs. No release is created, nothing
+  # is attested and nothing is attached. The version the binary must print is
+  # package.json's, since a pull request has no tag.
+  pull_request:
+    paths:
+      - .github/workflows/release.yaml
+      - build/sea/**
+      - src/channel.ts
+      - src/resources.ts
+      - test/e2e/binary.e2e.test.ts
+      - test/helpers/sea.ts
+      - package.json
+      - pnpm-lock.yaml
 
 permissions:
   # Only the scope needed to create a GitHub Release; no id-token, no npm token.
+  # The `release` job runs under this; each binary job names its own below.
   contents: write
 
 jobs:
   release:
+    # Never on a pull request's dry run: only a tag, or a manual run, releases.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,4 +103,294 @@ jobs:
             # Fall back to auto-generated notes if the tag isn't in CHANGELOG.md.
             gh release create "$TAG" --title "$TAG" \
               --generate-notes --verify-tag
+          fi
+
+  binaries:
+    name: binary (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read # checkout only
+    strategy:
+      fail-fast: false
+      matrix:
+        # Native runners: a Node single executable application is a copy of the
+        # Node binary the build runs on, so each platform builds its own. The
+        # Linux binaries are glibc builds, the ones nodejs.org ships.
+        include:
+          - target: darwin-arm64
+            runner: macos-15
+          - target: darwin-x64
+            runner: macos-15-intel
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+      REF_NAME: ${{ github.ref_name }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      # The tag's own commit, on a manual run too: a binary is built from what
+      # the tag froze, never from the default branch.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      # A pull request's dry run has no tag, so the steps below measure the
+      # binary against package.json's own version. A workflow's `env` outranks
+      # a value written to GITHUB_ENV, hence a name of its own, read only
+      # where neither a manual run's tag nor a pushed tag is there.
+      - name: Take the dry run's version from package.json
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          version="$(grep -m1 '"version"' package.json | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+          test -n "$version"
+          echo "DRY_TAG=v$version" >> "$GITHUB_ENV"
+
+      # A runner label that drifted to another architecture would otherwise
+      # ship one platform's binary under another's name.
+      - name: Verify the runner is the target
+        run: |
+          set -euo pipefail
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          case "$(uname -m)" in
+            x86_64) arch=x64 ;;
+            arm64 | aarch64) arch=arm64 ;;
+            *) arch="$(uname -m)" ;;
+          esac
+          if [ "$os-$arch" != "$TARGET" ]; then
+            echo "::error::this runner is $os-$arch, not $TARGET"
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.17.0
+
+      # The Node the binary embeds, which build/sea/build.mjs reads from the
+      # same file and refuses to differ from. No pnpm cache, as in publish.yaml:
+      # what this job builds is what gets released.
+      - name: Install Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: build/sea/.node-version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Builds dist/, bundles it, embeds the assets and, on macOS, signs ad hoc.
+      - name: Build the binary
+        run: pnpm build:sea
+
+      # The tag, package.json (the version npm publishes from this commit) and
+      # the version the binary prints must be one string.
+      - name: Verify the tag, package.json and the binary agree on the version
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
+          package="$(node -p "require('./package.json').version")"
+          binary="$(./.sea/checkride --version)"
+          echo "tag=$tag package.json=$package binary=$binary"
+          if [ "$tag" != "v$package" ] || [ "$binary" != "$package" ]; then
+            echo "::error::version mismatch: tag $tag, package.json $package, binary $binary"
+            exit 1
+          fi
+
+      # The binary e2e against the binary just built: --version, doctor's
+      # channel, init byte for byte against the npm CLI, green and red runs,
+      # --suite, --annotate and the extends refusal, on a PATH with no node.
+      - name: Binary e2e
+        run: pnpm exec vitest run --config vitest.e2e.config.ts test/e2e/binary.e2e.test.ts
+        env:
+          CHECKRIDE_BIN: ${{ github.workspace }}/.sea/checkride
+          CHECKRIDE_REQUIRE_TOOLCHAINS: '1'
+
+      # COPYFILE_DISABLE keeps macOS tar from adding AppleDouble `._` entries.
+      - name: Pack the tarball
+        id: pack
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
+          tarball="checkride-${tag#v}-$TARGET.tar.gz"
+          stage="$RUNNER_TEMP/stage"
+          mkdir -p "$stage"
+          cp .sea/checkride LICENSE "$stage/"
+          COPYFILE_DISABLE=1 tar -czf "$RUNNER_TEMP/$tarball" -C "$stage" checkride LICENSE
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+
+      # What a user downloads, unpacked somewhere else and run from there: the
+      # tarball holds the two files, the binary kept its mode and, on macOS,
+      # its signature, and it scaffolds and checks a project.
+      - name: Smoke-test the packed tarball
+        env:
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
+          unpacked="$RUNNER_TEMP/unpacked"
+          mkdir -p "$unpacked"
+          tar -xzf "$RUNNER_TEMP/$TARBALL" -C "$unpacked"
+          # LC_ALL=C: a locale's collation may put `checkride` ahead of `LICENSE`.
+          test "$(tar -tzf "$RUNNER_TEMP/$TARBALL" | LC_ALL=C sort | tr '\n' ' ')" = "LICENSE checkride "
+          bin="$unpacked/checkride"
+
+          test "$("$bin" --version)" = "${tag#v}"
+
+          project="$RUNNER_TEMP/smoke/demo"
+          mkdir -p "$project"
+          cd "$project"
+          "$bin" init --lang go --name demo
+          test -f AGENTS.md
+          test -f checkride.config.json
+          "$bin" --only links
+
+          bare="$RUNNER_TEMP/smoke/bare"
+          mkdir -p "$bare"
+          cd "$bare"
+          printf '%s\n' '{"checks":{"hello":{"command":"sh","args":["-c","echo hi"]}}}' > checkride.config.json
+          "$bin" doctor | tee doctor.txt
+          grep -q "channel: binary (embedded Node $(cat "$GITHUB_WORKSPACE/build/sea/.node-version"))" doctor.txt
+          "$bin"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binary-${{ matrix.target }}
+          path: ${{ runner.temp }}/${{ steps.pack.outputs.tarball }}
+          retention-days: 7
+          if-no-files-found: error
+
+  attest:
+    name: attest (${{ matrix.target }})
+    needs: binaries
+    # Each target stands alone: one that failed to build has no tarball, and
+    # must not keep the others from being attested. Never on a pull request's
+    # dry run, which signs nothing.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write # the OIDC identity the attestation is signed with
+      attestations: write # store the attestation with the repository
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [darwin-arm64, darwin-x64, linux-x64, linux-arm64]
+    steps:
+      # No checkout and no install: this job runs nothing from the repo, so
+      # nothing a dependency does can sign with this workflow's identity.
+      # A pattern, and allowed to fail, so a target with no tarball is told
+      # apart below from one whose attestation broke.
+      - name: Download the tarball
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: binary-${{ matrix.target }}
+          path: tarball
+          merge-multiple: true
+
+      - name: Look for the tarball
+        id: have
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          found=false
+          for file in tarball/checkride-*-"$TARGET".tar.gz; do
+            if [ -f "$file" ]; then found=true; fi
+          done
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+          if [ "$found" = false ]; then
+            echo "::warning::no $TARGET tarball to attest: its build failed"
+          fi
+
+      # One attestation per tarball, over its sha256: `gh attestation verify
+      # <tarball> --repo robmclarty/checkride` checks a download against it.
+      - name: Attest build provenance
+        if: steps.have.outputs.found == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: tarball/*.tar.gz
+
+  upload:
+    name: attach binaries to the release
+    # npm is the primary channel and binaries never hold it back, so this runs
+    # whatever the other jobs did: every tarball that passed its own tests is
+    # attached, and SHA256SUMS covers exactly the tarballs the release then
+    # holds. It runs even if `release` failed because the release already
+    # exists (a manual re-run for a tag released earlier): the first step
+    # requires the release itself, whichever run created it. A target that
+    # failed has already failed its own job, and the last step fails this one
+    # too, so a run with a platform missing ends red for a human to see.
+    needs: [release, binaries, attest]
+    # Never on a pull request's dry run, which has no release to attach to.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write # attach assets to the release; no id-token here
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      INPUT_TAG: ${{ inputs.tag }}
+      REF_NAME: ${{ github.ref_name }}
+    steps:
+      - name: Require the release
+        run: |
+          set -euo pipefail
+          gh release view "${INPUT_TAG:-$REF_NAME}" > /dev/null
+
+      - name: Download the tarballs
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: binary-*
+          path: assets
+          merge-multiple: true
+
+      - name: Attach the tarballs that were built
+        id: attach
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$REF_NAME}"
+          mkdir -p assets
+          missing=""
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            tarball="assets/checkride-${tag#v}-$target.tar.gz"
+            if [ -f "$tarball" ]; then
+              gh release upload "$tag" "$tarball" --clobber
+            else
+              missing="$missing $target"
+            fi
+          done
+          echo "missing=$missing" >> "$GITHUB_OUTPUT"
+
+      # Over what the release holds, downloaded back: on a re-run that rebuilt
+      # only some targets, the others' tarballs are still there and still
+      # listed, and a release with no tarball gets no SHA256SUMS.
+      - name: Write and attach SHA256SUMS
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-$REF_NAME}"
+          mkdir held
+          gh release download "$tag" --pattern 'checkride-*.tar.gz' --dir held || true
+          cd held
+          set -- checkride-*.tar.gz
+          if [ ! -f "$1" ]; then
+            echo "::warning::the release holds no tarball, so no SHA256SUMS was written"
+            exit 0
+          fi
+          LC_ALL=C sha256sum "$@" > SHA256SUMS
+          cat SHA256SUMS
+          gh release upload "$tag" SHA256SUMS --clobber
+
+      - name: Fail if a target is missing
+        env:
+          MISSING: ${{ steps.attach.outputs.missing }}
+        run: |
+          set -euo pipefail
+          if [ -n "$MISSING" ]; then
+            echo "::error::no binary was attached for:$MISSING (see that target's job); the others are on the release"
+            exit 1
           fi

@@ -42,7 +42,11 @@ A repo with no Node, say one holding only the API, the infrastructure and the
 scripts, pins checkride in a root `mise.toml` instead, beside a `node` for it
 to run on, and runs `mise exec -- checkride` wherever this page runs
 `pnpm exec checkride` or `pnpm check`; [Installing
-checkride](./distribution.md) shows the pin. Its root holds no `go.mod` or
+checkride](./distribution.md) shows the pin. From the first release that
+carries one, the [standalone binary](./distribution.md#the-standalone-binary)
+does the same job with no Node at all: put it on `PATH`, or pin it through
+mise's `github:` backend, and run `checkride` or `mise exec -- checkride`.
+Its root holds no `go.mod` or
 `.tf` file of its own, and `init` still reads it as an existing repo, from the
 projects discovery finds below the root, so every step below works the same
 there.

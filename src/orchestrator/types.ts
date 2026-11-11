@@ -11,6 +11,8 @@ import type { NamedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { PinSourceName } from '../packs/index.js';
+import type { Suite } from '../suite.js';
+import type { AnnotateFormat } from './annotate.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -229,6 +231,11 @@ export type Summary = {
    */
   checks_run: number;
   total_duration_ms: number;
+  /**
+   * The named suite the run was of (`--suite`, `CHECKRIDE_SUITE`); absent on
+   * a run of the default suite. Additive field; `schema_version` holds.
+   */
+  suite?: string;
   /** What the run selected, and whether it saw the whole pipeline. Additive field; `schema_version` holds. */
   run: SummaryRun;
   /**
@@ -291,6 +298,13 @@ export type CheckRunner = (
     changed: boolean;
     base?: string;
     out?: string;
+    /**
+     * Where a built-in keeps its scratch files, relative to `cwd`: the
+     * suite's own directory, `.check` for the default suite and
+     * `.check/suites/<name>` for a named one, so their runs never clear each
+     * other's.
+     */
+    scratch: string;
     pm: PackageManager;
     timeout?: number;
     repo?: string;
@@ -316,6 +330,15 @@ export type RunOptions = RunFlags & {
    * makes this a consumer run, which never ratchets the baseline.
    */
   configPath?: string;
+  /**
+   * The named suite the run is of (`--suite`, `CHECKRIDE_SUITE`), as
+   * `suiteNamed` gives it. With `config` omitted, its own
+   * `checkride.<name>.config.json` is loaded. It runs exactly the checks that
+   * config declares, masks and ratchets with its own baseline file, and
+   * writes under `.check/suites/<name>/` unless `out` names a directory.
+   * Omitted, the run is of the default suite.
+   */
+  suite?: Suite;
   /**
    * The base a `--changed` run measures from, when one is named (`--base`,
    * `CHECKRIDE_BASE`): `ref` as given, `from` what named it, for the exit-2
@@ -357,6 +380,15 @@ export type RunOptions = RunFlags & {
    * and it never ratchets.
    */
   fingerprintableOnly?: boolean;
+  /**
+   * Write the run's findings as annotations (`--annotate`,
+   * `CHECKRIDE_ANNOTATE`): `github` writes GitHub Actions workflow commands
+   * to stderr once the report is out, an `::error` for each finding of a red
+   * check up to the cap and a `::notice` counting the rest (see
+   * `./annotate.ts`). It changes nothing else about the run, and a green run
+   * writes none. Omitted, a run writes none.
+   */
+  annotate?: AnnotateFormat;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

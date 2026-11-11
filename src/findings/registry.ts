@@ -25,6 +25,7 @@ import { odinCheckParser } from './parsers/odin.js';
 import { oxlintParser } from './parsers/oxlint.js';
 import { ruffParser } from './parsers/ruff.js';
 import { rumdlParser } from './parsers/rumdl.js';
+import { schemaParser } from './parsers/schema.js';
 import { shellcheckParser } from './parsers/shellcheck.js';
 import { staticcheckParser } from './parsers/staticcheck.js';
 import { terraformValidateParser } from './parsers/terraform-validate.js';
@@ -68,6 +69,7 @@ const PARSERS: Readonly<Record<string, Parser>> = {
   'odin-check': odinCheckParser,
   'odin-vet': odinCheckParser,
   'odin-unused': odinCheckParser,
+  schema: schemaParser,
 };
 
 /** The parser registered for `adapter`, or `undefined` when its output has none. */

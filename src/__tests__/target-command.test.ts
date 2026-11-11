@@ -232,6 +232,8 @@ describe('runTargetAdd', () => {
     expect(await run(['target', 'add', 'scripts', '--lang', 'bash'])).toBe(2);
     expect(await run(['target', 'add', '--lang', 'bash', '--root', 'scripts'])).toBe(2);
     expect(await run(['target', 'add', 'doc-snippets', '--lang', 'bash', '--root', 'scripts'])).toBe(2);
+    // `.check/suites/` is where named suites write, so no target takes the name.
+    expect(await run(['target', 'add', 'suites', '--lang', 'bash', '--root', 'scripts'])).toBe(2);
     expect(existsSync(join(dir, 'checkride.config.json'))).toBe(false);
     // A markerless root that checks nothing becomes no target, so --root-name names nothing.
     expect(await run(['target', 'add', 'scripts', '--lang', 'bash', '--root', 'scripts', '--root-name', 'web'])).toBe(0);

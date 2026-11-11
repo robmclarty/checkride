@@ -145,6 +145,16 @@ export async function changedPaths(git: GitRunner, base: ChangedBase): Promise<C
   return { ok: true, paths: [...new Set([...entries(diff.stdout), ...entries(untracked.stdout)])].toSorted() };
 }
 
+/**
+ * The top level of the work tree `git` runs in, as an absolute path, or
+ * `null` when git can't say (no repository, a bare one, git missing).
+ */
+export async function repoTopLevel(git: GitRunner): Promise<string | null> {
+  const result = await git(['rev-parse', '--show-toplevel']);
+  const top = result.ok ? result.stdout.replace(/\r?\n$/, '') : '';
+  return top === '' ? null : top;
+}
+
 /** Why `HEAD` names no commit, in a clause: a repository with no commits yet fails with nothing on stderr. */
 function headFailure(result: { error: GitFailure; detail: string }): string {
   if (result.error === 'missing') return 'git is not on PATH';

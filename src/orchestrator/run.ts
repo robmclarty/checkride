@@ -13,14 +13,18 @@ import { performance } from 'node:perf_hooks';
 import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
 import type { Tally } from '../baseline/index.js';
-import { BASELINE_FILE, baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
+import { baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
 import { digestOf, writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
-import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
+import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
+import type { Suite } from '../suite.js';
+import { suiteCommand } from '../suite.js';
 import type { Target } from '../targets/index.js';
 import { declaredNote, discoverRun, findUnreached, unreachedLine } from '../targets/index.js';
+import type { RedCheck } from './annotate.js';
+import { annotateScope, annotationLines } from './annotate.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -130,14 +134,14 @@ function consumerCause(options: RunOptions, cwd: string): string | null {
  * reads it, since that would grandfather new debt along with the churn
  * ({@link driftRemedy}).
  */
-function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: boolean; consumer: string | null }): void {
+function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: boolean; consumer: string | null }, suite: Suite): void {
   const ratchets = !run.partial && run.consumer === null;
   for (const d of drifts) {
     const churn = driftChurn(d, ratchets);
     if (churn === null) continue;
     writeLine(
       stderr,
-      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured, d.toolchain)}; this run used ${d.tool} ${copyNamed(d.ran, d.toolchain)}: ${churn}. ${driftRemedy(d)}`,
+      `baseline: ${d.name} was captured with ${d.tool} ${copyNamed(d.captured, d.toolchain)}; this run used ${d.tool} ${copyNamed(d.ran, d.toolchain)}: ${churn}. ${driftRemedy(d, suite)}`,
     );
   }
 }
@@ -149,12 +153,13 @@ function reportDrift(stderr: Out, drifts: readonly Drift[], run: { partial: bool
  * a pin of the repo's chose it ({@link unpinnedPart} says what has to be
  * pinned first).
  */
-function driftRemedy(d: Drift): string {
+function driftRemedy(d: Drift, suite: Suite): string {
+  const versions = suiteCommand('checkride baseline --versions', suite);
   const capturedCopy = 'Run under the copy the baseline was captured with';
   if (d.newKeys > 0) return `${capturedCopy}, or have a human review the new keys and re-capture.`;
   const unpinned = unpinnedPart(d);
-  if (unpinned !== null) return `${capturedCopy}, or pin ${unpinned}, so \`checkride baseline --versions\` can record it.`;
-  return `${capturedCopy}, or, if this is the copy the repo means to run, record it with \`checkride baseline --versions\`, which adds no key.`;
+  if (unpinned !== null) return `${capturedCopy}, or pin ${unpinned}, so \`${versions}\` can record it.`;
+  return `${capturedCopy}, or, if this is the copy the repo means to run, record it with \`${versions}\`, which adds no key.`;
 }
 
 /**
@@ -189,12 +194,12 @@ async function maybeRatchet(
   const pruned = ratchet(baseline, observed);
   if (baselinesEqual(baseline, pruned)) return;
   if (consumer !== null) {
-    if (!ctx.json) writeLine(ctx.stderr, `\nbaseline: not ratcheted, because a run with ${consumer} never writes ${BASELINE_FILE}`);
+    if (!ctx.json) writeLine(ctx.stderr, `\nbaseline: not ratcheted, because a run with ${consumer} never writes ${ctx.suite.baselineFile}`);
     return;
   }
-  await writeBaseline(ctx.cwd, pruned);
+  await writeBaseline(ctx.cwd, pruned, ctx.suite.baselineFile);
   if (!ctx.json) {
-    writeLine(ctx.stderr, `\nbaseline: ratcheted ${BASELINE_FILE} to ${countGrandfathered(pruned)} grandfathered finding(s)`);
+    writeLine(ctx.stderr, `\nbaseline: ratcheted ${ctx.suite.baselineFile} to ${countGrandfathered(pruned)} grandfathered finding(s)`);
   }
 }
 
@@ -229,6 +234,16 @@ async function reportUnreached(ctx: RunContext, selected: readonly ResolvedCheck
   for (const u of found) writeLine(ctx.stderr, `warning: ${unreachedLine(u)}`);
 }
 
+/** The named suite a run is of, as its summary records it, or `null` for the default suite. */
+function suiteName(ctx: RunContext): string | null {
+  return ctx.suite.name ?? null;
+}
+
+/** What the `Running` line adds for a named suite's run, and nothing for the default suite's. */
+function suiteWords(ctx: RunContext): string {
+  return ctx.suite.name === undefined ? '' : ` of suite ${ctx.suite.name}`;
+}
+
 /**
  * On a red run, the best-effort recover hint: when the run's new-not-in-baseline
  * findings were grandfathered in a recent committed baseline, one stderr line
@@ -239,11 +254,11 @@ async function reportUnreached(ctx: RunContext, selected: readonly ResolvedCheck
  */
 async function maybeRecoverHint(ctx: RunContext, ok: boolean, newKeys: readonly string[]): Promise<void> {
   if (ok || newKeys.length === 0) return;
-  const hint = await historicalHint(ctx.cwd, newKeys);
+  const hint = await historicalHint(ctx.cwd, newKeys, { file: ctx.suite.baselineFile });
   if (hint === null) return;
   writeLine(
     ctx.stderr,
-    `hint: ${hint.matched} of ${hint.total} new finding(s) were grandfathered until ${hint.shortSha} — a merge may have dropped baseline entries; see \`checkride recover\`\n`,
+    `hint: ${hint.matched} of ${hint.total} new finding(s) were grandfathered until ${hint.shortSha} — a merge may have dropped baseline entries; see \`${suiteCommand('checkride recover', ctx.suite)}\`\n`,
   );
 }
 
@@ -308,7 +323,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // A new run starts with the interrupt latch clear — see `resetInterrupt`.
   resetInterrupt();
   const base = await withDiscovery(resolveRunContext(options), options);
-  const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, defaults: base.defaults, cwd: base.cwd });
+  const resolved = resolveChecks({ slots: base.slots, adapters: base.adapters, config: base.config, defaults: base.defaults, cwd: base.cwd, suite: base.suite });
   // A usage error before any side effect: no output dir, no run, exit 2.
   validateSelection(resolved, options);
   const changedBase = await changedBaseFor(options, base);
@@ -329,7 +344,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // The status-line column is sized once the selection is known, so a long
   // custom-check name widens the column instead of overflowing it.
   const ctx: RunContext = { ...base, nameWidth: nameWidth(selected), changedBase };
-  if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)...\n`);
+  if (!ctx.json) writeLine(ctx.stderr, `\nRunning ${selected.length} check(s)${suiteWords(ctx)}...\n`);
 
   // `--bail` is fail-fast sequential; a `--concurrency > 1` passed alongside
   // is safe but moot, so say so once — not a usage error, the run just goes slow.
@@ -342,7 +357,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
-  const { checks, runs, observed, narrowed, newKeys, drifts, brokeEarly } = await executeChecks(selected, ctx);
+  const { checks, runs, observed, narrowed, newKeys, drifts, reds, brokeEarly } = await executeChecks(selected, ctx);
   // A run that beats git waits for it inside the clock, so the run's start
   // stays `timestamp - total_duration_ms`, which the artifact readers judge
   // freshness by.
@@ -375,19 +390,40 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
     gitRecord(gitState, changedBase),
     targetsRecord(ctx.targets, ctx.discovered),
     digest,
+    suiteName(ctx),
   );
   await writeFileAtomic(join(ctx.out, SUMMARY_FILE), `${JSON.stringify(summary, null, 2)}\n`);
   // On green there's none, and a stale digest is cleared with it.
   if (options.digest ?? false) await writeDigest(ctx.out, digest);
 
+  const annotations = await annotationsOf(ctx, reds);
   if (ctx.json) {
-    ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    reportMachine(ctx, summary, annotations);
   } else {
-    await reportHuman({ ...ctx, stderr: blankAware(ctx.stderr) }, { summary, reported, digest, drifts, selected, newKeys, run: { partial, consumer } });
+    await reportHuman({ ...ctx, stderr: blankAware(ctx.stderr) }, { summary, reported, digest, drifts, selected, newKeys, annotations, run: { partial, consumer } });
   }
 
   const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);
   return { ok: summary.ok, summary, exitCode, runs };
+}
+
+/** A `--json` run's output: the summary alone on stdout, and its annotations, when it writes any, all of stderr. */
+function reportMachine(ctx: RunContext, summary: Summary, annotations: readonly string[]): void {
+  ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  for (const line of annotations) writeLine(ctx.stderr, line);
+}
+
+/**
+ * The run's annotation lines, none for a run with no red check to annotate.
+ * Each path is named from the top level of the git work tree, asked of git
+ * from the root the findings' own paths are named from, and only by a run
+ * with something to annotate.
+ */
+async function annotationsOf(ctx: RunContext, reds: readonly RedCheck[]): Promise<string[]> {
+  const root = reds[0]?.failure.repoRoot;
+  if (root === undefined) return [];
+  const top = await repoTopLevel(realGit(root, GIT_STATE_TIMEOUT_MS));
+  return annotationLines(reds, annotateScope(top, root, `${ctx.outLabel}/${SUMMARY_FILE}`));
 }
 
 /** What the human report of a finished run prints, beyond its context. */
@@ -398,6 +434,8 @@ type Finished = {
   drifts: readonly Drift[];
   selected: readonly ResolvedCheck[];
   newKeys: readonly string[];
+  /** The run's annotation lines, none for a run that writes none. */
+  annotations: readonly string[];
   run: { partial: boolean; consumer: string | null };
 };
 
@@ -406,7 +444,10 @@ type Finished = {
  * beneath them, and the digest last. Each notice changes how the red above it
  * reads, a baseline that masked nothing or findings a merge dropped, so it
  * sits right under the summary rather than past up to 8 KB of digest, and the
- * digest starts after exactly one blank line however the notices end.
+ * digest starts after exactly one blank line however the notices end. The
+ * run's annotations follow the notices and come before the digest, which
+ * stays the last thing a `--digest` run prints, and they never sit among the
+ * status lines.
  */
 async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Finished): Promise<void> {
   reportSummary(ctx.stderr, run.summary, run.reported, ctx.adapters, { label: ctx.outLabel, digest: run.digest !== null });
@@ -414,10 +455,11 @@ async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Fin
   // every grandfathered finding above reported red — say so where the person
   // reading the wall of red will actually look, right under the summary.
   if (ctx.baselineState === 'unparseable') {
-    writeLine(ctx.stderr, `baseline: ${BASELINE_FILE} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`checkride recover\`.\n`);
+    writeLine(ctx.stderr, `baseline: ${ctx.suite.baselineFile} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`${suiteCommand('checkride recover', ctx.suite)}\`.\n`);
   }
-  reportDrift(ctx.stderr, run.drifts, run.run);
+  reportDrift(ctx.stderr, run.drifts, run.run, ctx.suite);
   await reportUnreached(ctx, run.selected);
   await maybeRecoverHint(ctx, run.summary.ok, run.newKeys);
+  for (const line of run.annotations) writeLine(ctx.stderr, line);
   if (run.digest !== null) writeLine(ctx.stderr, `${ctx.stderr.endsBlank() ? '' : '\n'}${run.digest}`);
 }

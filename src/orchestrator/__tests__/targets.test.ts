@@ -129,6 +129,13 @@ describe('runChecks with targets', () => {
     expect(result.summary.checks.find((c) => c.name === 'web:lint')).toMatchObject({ output_file: 'web/lint.json' });
     expect(JSON.parse(await readFile(join(dir, '.check', 'web', 'lint.json'), 'utf8'))).toEqual({ diagnostics: [] });
   });
+
+  test("a red target check's excerpt names its findings from the repo root, and its file under <target>/", async () => {
+    const err = sink();
+    await runChecks({ cwd: dir, config, runner: lintRunner({ api: [['src/a.ts', 'no-x', 'bad']] }), baseline: null, stderr: err.out });
+    expect(err.text()).toContain('           apps/api/src/a.ts  bad  [no-x]\n           full output: .check/api/lint.json\n');
+    expect(err.text()).not.toContain('.check/web/');
+  });
 });
 
 describe('runFix with targets', () => {

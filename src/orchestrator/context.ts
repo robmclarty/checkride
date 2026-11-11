@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
-import { CHECK_DIR, outDir, outLabel } from '../artifacts/index.js';
+import { outLabel } from '../artifacts/index.js';
 import type { Baseline, BaselineRead } from '../baseline/index.js';
 import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
@@ -16,6 +16,8 @@ import { loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
 import { detectPackageManager, nearestPackageManager } from '../launch/index.js';
+import type { Suite } from '../suite.js';
+import { DEFAULT_SUITE, suiteOutDir } from '../suite.js';
 import type { Target } from '../targets/index.js';
 import { configuredTargets } from '../targets/index.js';
 import { defaultConcurrency, defaultRunner } from './spawn.js';
@@ -27,6 +29,8 @@ type CommonOptions = {
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
   config?: CheckrideConfig | null;
+  /** The named suite the command is of: with `config` omitted, its `checkride.<name>.config.json` is the one loaded. */
+  suite?: Suite;
   stdout?: Out;
   stderr?: Out;
 };
@@ -37,24 +41,29 @@ type CommonContext = {
   slots: readonly Slot[];
   adapters: readonly Adapter[];
   config: CheckrideConfig | null;
+  /** The suite the command is of: the one its options named, else the default suite. */
+  suite: Suite;
   stdout: Out;
   stderr: Out;
 };
 
 /**
  * Apply the defaults every command shares: cwd, the slot/adapter catalogues, the
- * config (loaded from `cwd` unless injected), and the two streams, so
+ * config (loaded from `cwd` unless injected, a named suite's own for one), and the two streams, so
  * `runChecks`/`runFix`/`runDoctor` resolve this identical block one way.
  */
 export function resolveCommonOptions(options: CommonOptions): CommonContext {
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
+  const warn = (message: string): void => { stderr.write(`${message}\n`); };
+  const suite = options.suite ?? DEFAULT_SUITE;
   return {
     cwd,
     slots: options.slots ?? SLOTS,
     adapters: options.adapters ?? ADAPTERS,
     // A key the config holds that nothing reads warns on stderr as it loads.
-    config: options.config !== undefined ? options.config : loadConfig(cwd, (message) => stderr.write(`${message}\n`)),
+    config: options.config !== undefined ? options.config : loadConfig(cwd, warn, suite.configFile),
+    suite,
     stdout: options.stdout ?? process.stdout,
     stderr,
   };
@@ -84,6 +93,8 @@ export type RunContext = CommonContext & {
   /** `--static-only`: a kept check whose tool would need an install skips instead of failing (R13.4). */
   staticOnly: boolean;
   runner: CheckRunner;
+  /** Whether the run writes annotations, and so keeps what each red check's are drawn from. */
+  annotate: boolean;
   json: boolean;
   bail: boolean;
   changed: boolean;
@@ -124,11 +135,11 @@ export type RunContext = CommonContext & {
  * An injected baseline bypasses the file, so its state carries no file
  * diagnosis — it is classified by presence alone.
  */
-function resolveBaselineRead(options: RunOptions, cwd: string): BaselineRead {
+function resolveBaselineRead(options: RunOptions, { cwd, suite }: CommonContext): BaselineRead {
   if (options.baseline !== undefined) {
     return { baseline: options.baseline, state: options.baseline === null ? 'absent' : 'ok' };
   }
-  return readBaselineStatus(cwd);
+  return readBaselineStatus(cwd, 'current', suite.baselineFile);
 }
 
 /**
@@ -148,11 +159,15 @@ export function packageManagerAt(named: PackageManager | undefined, repo: string
   };
 }
 
-/** Where a run writes its artifacts, how its lines name that directory, and what `{out}` expands to. */
-function outputOf(options: RunOptions, cwd: string): Pick<RunContext, 'out' | 'outLabel' | 'outArg'> {
+/**
+ * Where a run writes its artifacts, how its lines name that directory, and
+ * what `{out}` expands to: the suite's own directory, relative, so `.check`
+ * for the default suite, unless a flag or variable named one.
+ */
+function outputOf(options: RunOptions, { cwd, suite }: CommonContext): Pick<RunContext, 'out' | 'outLabel' | 'outArg'> {
   const named = options.out === undefined ? null : resolve(cwd, options.out);
-  const out = named ?? outDir(cwd);
-  return { out, outLabel: outLabel(cwd, out), outArg: named ?? CHECK_DIR };
+  const out = named ?? suiteOutDir(cwd, suite);
+  return { out, outLabel: outLabel(cwd, out), outArg: named ?? suite.out };
 }
 
 /**
@@ -169,9 +184,10 @@ function layeredKeys(config: CheckrideConfig | null, options: RunOptions): Pick<
 }
 
 /** The run's flags, each with its default applied. */
-function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bail' | 'changed' | 'staticOnly' | 'concurrency'> {
+function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'annotate' | 'json' | 'bail' | 'changed' | 'staticOnly' | 'concurrency'> {
   return {
     runner: options.runner ?? defaultRunner,
+    annotate: options.annotate !== undefined,
     json: options.json ?? false,
     bail: options.bail ?? false,
     changed: options.changed ?? false,
@@ -189,10 +205,10 @@ function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bai
  */
 export function resolveRunContext(options: RunOptions): RunContext {
   const common = resolveCommonOptions(options);
-  const read = resolveBaselineRead(options, common.cwd);
+  const read = resolveBaselineRead(options, common);
   return {
     ...common,
-    ...outputOf(options, common.cwd),
+    ...outputOf(options, common),
     ...layeredKeys(common.config, options),
     ...flagsOf(options),
     targets: configuredTargets(common.config),

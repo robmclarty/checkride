@@ -371,6 +371,7 @@
             <span>agent-setup</span>
             <span>hooks</span>
             <span>gate</span>
+            <span>protect</span>
             <span>triage</span>
             <span>qa</span>
           </div>
@@ -427,7 +428,8 @@ class Component extends DCLogic {
 
     // slot catalogue: [name, role, tool, adapter, output_file, mode, note], where
     // adapter and output_file are what summary.json records for the blessed tool
-    // and mode is 'default', 'opt-in' or 'targets' (runs once targets exist).
+    // and mode is 'default', 'opt-in', 'targets' (runs once targets exist) or
+    // 'schemas' (runs once the config holds a schemas rule).
     const SLOTS = [
       ['types',    'Type checking',                          'tsc --build',       'tsc',               null,             'default', 'The cheapest check runs first. Uses your tsconfig project references.'],
       ['format',   'Formatting',                             'prettier',          'prettier',          null,             'opt-in',  'Opt-in. Runs before lint so the tree is tidy first. Alternate: biome-format.'],
@@ -450,11 +452,12 @@ class Component extends DCLogic {
       ['smoke',    'Built package imports cleanly',          'built-in',          'smoke',             'smoke.json',     'opt-in',  'Loads every exports entry through real resolution; asserts exports are live.'],
       ['snippets', 'Tagged doc fences type-check',           'built-in (tsc)',    'snippets',          'snippets.json',  'opt-in',  'Type-checks fences tagged <!-- snippet: check --> against your source; snippets-dist checks the built .d.ts.'],
       ['unclaimed', 'Every toolchain marker sits in a target', 'built-in',        'unclaimed',         'unclaimed.json', 'targets', 'Fails on a toolchain marker, such as a package.json or a go.mod, that no target claims.'],
+      ['schema',   'Data files satisfy their JSON Schemas',  'built-in',          'schema',            'schema.json',    'schemas', 'Validates JSON, JSONC, YAML and Markdown frontmatter against the JSON Schemas the schemas rules name.'],
     ];
 
     // The slots checkride runs itself. Their summary entries record no pin_source,
     // since no tool resolved through a pin chain.
-    const BUILTINS = ['links', 'security', 'pack', 'smoke', 'snippets', 'unclaimed'];
+    const BUILTINS = ['links', 'security', 'pack', 'smoke', 'snippets', 'unclaimed', 'schema'];
 
     // packs: [name, what it checks, blessed tools, where its tools are pinned]
     const PACKS = [
@@ -464,7 +467,7 @@ class Component extends DCLogic {
       ['python',    'Python projects',             'ruff · mypy · pytest',                                           'uv.lock → mise.toml → PATH'],
       ['terraform', 'Terraform and OpenTofu',      'terraform validate · tflint · trivy',                            '.terraform-version → mise.toml → PATH'],
       ['bash',      'Shell scripts',               'shellcheck · shfmt',                                             'mise.toml → PATH'],
-      ['repo',      'The repo as a whole',         'ast-grep · markdownlint-cli2 · cspell · vale · links · unclaimed', 'the lockfile → mise.toml → PATH'],
+      ['repo',      'The repo as a whole',         'ast-grep · markdownlint-cli2 · cspell · vale · links · unclaimed · schema', 'the lockfile → mise.toml → PATH'],
     ];
 
     const sel = this.state.slot;
@@ -501,11 +504,12 @@ class Component extends DCLogic {
         'default': ['✅ runs in the default gate', GRN],
         'opt-in': ['○ opt-in — name it in the config, or --include ' + name, AMB],
         'targets': ['◇ runs once checkride.config.json declares targets', AMB],
+        'schemas': ['◇ runs once checkride.config.json holds a schemas rule', AMB],
       }[mode];
       // Why the check ran, and which copy of its tool ran: a slot the config
       // names records origin "config"; unclaimed, which no entry names, records
       // "built-in". A tool the package manager runs records pin_source.
-      const origin = mode === 'targets' ? 'built-in' : 'config';
+      const origin = mode === 'targets' || mode === 'schemas' ? 'built-in' : 'config';
       const pinned = !BUILTINS.includes(name);
       termLines = [
         line([['// ', DIM], [role, DIM]]),
@@ -539,7 +543,7 @@ class Component extends DCLogic {
     const accents = ['#1E7A4A', '#2456A6', '#C0392B', '#52675B'];
     const pipelineRows = SLOTS.map(([name, role, tool, , , mode], i) => ({
       name, role, tool,
-      def: { 'default': '✅', 'opt-in': '○', 'targets': 'with targets' }[mode],
+      def: { 'default': '✅', 'opt-in': '○', 'targets': 'with targets', 'schemas': 'with schemas' }[mode],
       accent: accents[i % 4],
       bg: i % 2 ? '#DBE6DD' : '#E9F0EA',
     }));

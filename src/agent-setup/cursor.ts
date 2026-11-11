@@ -23,6 +23,12 @@
  * share a name because they are one guard — `--remove-hook protect` takes out
  * both — and share a script, since the script branches on `hook_event_name`.
  *
+ * `protect` has two forms, picked by the repo's entry command. A repo that
+ * runs checkride through a package-manager script has Node, and keeps the
+ * generated Node script. A repo whose entry is `mise exec -- checkride` or the
+ * `checkride` on `PATH` may have no Node at all, the standalone binary's case,
+ * so its entries call `checkride protect` and no script is written.
+ *
  * The gate entry carries three fields the Claude writer has no equivalent for —
  * `timeout`, `loop_limit` and `failClosed` — because Cursor's defaults for all
  * three end a turn that checkride would keep blocking. See {@link hookSpecs}.
@@ -30,9 +36,13 @@
 
 import type { HarnessName } from '../gate.js';
 import { CURSOR_HOOKS_FILE } from '../gate.js';
+import type { EntryCommand, EntryLike } from '../launch/index.js';
+import { asEntry } from '../launch/index.js';
 import type { HarnessSpec, HookName, WriteOptions } from './harness.js';
 import { GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
+import { protectHookCommand } from './scripts.js';
+import { SUITE_NAME_SOURCE } from '../suite.js';
 
 /**
  * Project-shared Cursor hook config (committed), relative to the repo root.
@@ -46,6 +56,36 @@ const DIRTY_SCRIPT_FILE = '.cursor/hooks/checkride-dirty.sh';
 const PROTECT_SCRIPT_FILE = '.cursor/hooks/checkride-protect.cjs';
 
 const HARNESS: HarnessName = 'cursor';
+
+/**
+ * What marks a hook entry as the command form of `protect`, whoever spelled
+ * it: any command that invokes `checkride protect`, behind whatever wrapper
+ * (`mise x --`, a path, the guard this module writes) and with whatever
+ * flags on either side. So an entry a person shortened to `checkride protect`
+ * or respelled as `--harness=cursor` is still found, refreshed in place and
+ * removed, and never joined by a second one.
+ */
+const PROTECT_COMMAND = /(?:^|[\s/"'=;&|(])checkride\s+(?:-\S+\s+)*protect(?=$|[\s"';&|)])/;
+
+/**
+ * Whether `entry` gets the command form of `protect`: every entry that isn't
+ * a package-manager script. That one has Node by construction, and a package
+ * manager started ahead of every edit would be slow, so it keeps the script.
+ */
+function protectIsCommand(entry: EntryCommand): boolean {
+  return entry.kind !== 'script';
+}
+
+/**
+ * What a `protect` entry runs: the generated script on Node, or `checkride
+ * protect` through the repo's entry command, which needs no Node, behind a
+ * guard for a checkride that isn't there (`protectHookCommand`). The command
+ * form is not anchored on `CURSOR_PROJECT_DIR`: the command reads that
+ * variable itself, and mise finds the `mise.toml` above a subdirectory.
+ */
+function protectCommand(entry: EntryCommand): string {
+  return protectIsCommand(entry) ? protectHookCommand(entry, HARNESS) : run('node', PROTECT_SCRIPT_FILE);
+}
 
 /** The schema version Cursor's loader expects at the top of the file. */
 const SCHEMA_VERSION = 1;
@@ -80,7 +120,8 @@ type HookSpec = {
   timeout?: number;
   loopLimit?: number | null;
   failClosed?: boolean;
-  sentinels: readonly string[];
+  /** What marks an entry as this hook's: a string its command holds, or a pattern it matches. */
+  sentinels: readonly (string | RegExp)[];
   command: string;
 };
 
@@ -116,11 +157,12 @@ const EDIT_TOOLS = 'Write|Delete';
  * checkride's standing objection to matching a shell tool is that a guard firing
  * on a wrong parse is worse than a known hole. Filtering first turns the blast
  * radius from "every command the agent runs" into "commands that already mention
- * `checkride.baseline.json` or `.check`" — and inside that set the script still
+ * `checkride.baseline.json`, a named suite's `checkride.<name>.baseline.json`,
+ * or `.check`" — and inside that set the script still
  * denies only on demonstrated write intent. Reads land here too and are allowed;
  * they have to be, because triage reads these files.
  */
-const ACCOUNTING_PATHS = 'checkride\\.baseline\\.json|\\.check\\b';
+const ACCOUNTING_PATHS = `checkride\\.(?:${SUITE_NAME_SOURCE}\\.)?baseline\\.json|\\.check\\b`;
 
 /**
  * Commands `dirty` reads as having written a file: a `>`/`>>` redirect, or one of
@@ -153,8 +195,13 @@ const SHELL_WRITES =
  *
  * The two guards keep Cursor's fail-open default on purpose — see `dirty` and
  * `protect` in `./scripts.ts` for why each must never block an edit.
+ *
+ * `protect` carries both of its forms' sentinels, so an entry written in one
+ * form is found, and rewritten in place, when the repo's entry command has
+ * moved it to the other.
  */
-function hookSpecs(): HookSpec[] {
+function hookSpecs(entry: EntryLike = 'pnpm'): HookSpec[] {
+  const protect = { sentinels: [PROTECT_SCRIPT_FILE, PROTECT_COMMAND], command: protectCommand(asEntry(entry)) };
   return [
     {
       name: 'gate',
@@ -189,20 +236,18 @@ function hookSpecs(): HookSpec[] {
       name: 'protect',
       event: 'preToolUse',
       matcher: EDIT_TOOLS,
-      sentinels: [PROTECT_SCRIPT_FILE],
-      command: run('node', PROTECT_SCRIPT_FILE),
+      ...protect,
     },
     {
       // The shell half of the same guard. A tool-name matcher cannot see
       // `echo … > checkride.baseline.json`, because that is a shell call and not
       // a `Write`; `beforeShellExecution` is where it becomes visible. Same
-      // script, same fail-open default — see `protectScript` in `./scripts.ts`
+      // script or command, same fail-open default — see `protectScript` in `./scripts.ts`
       // for why the parse behind it refuses to guess.
       name: 'protect',
       event: 'beforeShellExecution',
       matcher: ACCOUNTING_PATHS,
-      sentinels: [PROTECT_SCRIPT_FILE],
-      command: run('node', PROTECT_SCRIPT_FILE),
+      ...protect,
     },
   ];
 }
@@ -210,7 +255,7 @@ function hookSpecs(): HookSpec[] {
 /** True when an entry belongs to `spec` (matched by any of its sentinels). */
 function isSpecHook(spec: HookSpec, hook: CursorHook): boolean {
   const command = hook.command;
-  return typeof command === 'string' && spec.sentinels.some((s) => command.includes(s));
+  return typeof command === 'string' && spec.sentinels.some((s) => (typeof s === 'string' ? command.includes(s) : s.test(command)));
 }
 
 /** The event's entry list, tolerating a malformed (non-array) config value. */
@@ -254,11 +299,13 @@ function applyHook(config: CursorHooks, spec: HookSpec): CursorHooks {
 /**
  * Merge the selected hooks into a parsed config, seeding `version` when absent.
  * An existing `version` is never overwritten: if a future Cursor bumps it, the
- * repo's value is the one that matches the rest of the file.
+ * repo's value is the one that matches the rest of the file. `entry` picks the
+ * form `protect` takes, and defaults to a package-manager script, the form
+ * with a script file, for callers that have no repo to resolve one from.
  */
-export function applyCursorHooks(config: CursorHooks = {}, names: readonly string[] = HOOK_NAMES): CursorHooks {
+export function applyCursorHooks(config: CursorHooks = {}, names: readonly string[] = HOOK_NAMES, entry: EntryLike = 'pnpm'): CursorHooks {
   const seeded = config.version === undefined ? { version: SCHEMA_VERSION, ...config } : config;
-  return hookSpecs()
+  return hookSpecs(entry)
     .filter((spec) => names.includes(spec.name))
     .reduce((acc, spec) => applyHook(acc, spec), seeded);
 }
@@ -304,6 +351,7 @@ const SPEC: HarnessSpec<CursorHooks> = {
   // the package manager reaches its hooks only through the generated script.
   apply: applyCursorHooks,
   scripts: { gate: GATE_SCRIPT_FILE, dirty: DIRTY_SCRIPT_FILE, protect: PROTECT_SCRIPT_FILE },
+  inConfig: (entry) => (protectIsCommand(entry) ? ['protect'] : []),
   remove: removeCursorHooks,
   installed: installedCursorHooks,
 };

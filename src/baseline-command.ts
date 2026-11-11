@@ -39,7 +39,6 @@ import type { Adapter, Slot } from './adapters.js';
 import { isInside } from './artifacts/index.js';
 import type { Baseline, Captured, Observation, RanWith, Recount, Rerecord, Tally } from './baseline/index.js';
 import {
-  BASELINE_FILE,
   BASELINE_SCHEMA_VERSION,
   baselinesEqual,
   capturedRecord,
@@ -64,6 +63,8 @@ import type { CheckRun, CheckRunner, Out, RunnerOutcome, RunOptions, RunResult, 
 import { narrowedAway, runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 import { packToolchain } from './launch/index.js';
+import type { Suite } from './suite.js';
+import { DEFAULT_SUITE, suiteCommand } from './suite.js';
 
 export type BaselineOptions = {
   cwd?: string;
@@ -86,7 +87,14 @@ export type BaselineOptions = {
    */
   only?: string[] | null;
   skip?: string[] | null;
+  /**
+   * The named suite to capture (`--suite`, `CHECKRIDE_SUITE`), with `config`
+   * holding its config: the capture runs its checks and writes its own
+   * baseline file. Omitted, the default suite's.
+   */
+  suite?: Suite;
 };
+
 
 export type BaselineResult = { ok: boolean; exitCode: number; baseline: Baseline };
 
@@ -239,6 +247,7 @@ function captureRun(options: BaselineOptions, cwd: string, stderr: Out): RunOpti
     ...(options.runner !== undefined ? { runner: options.runner } : {}),
     ...(options.pm !== undefined ? { pm: options.pm } : {}),
     ...(options.out !== undefined ? { out: options.out } : {}),
+    ...(options.suite !== undefined ? { suite: options.suite } : {}),
     ...(options.stdout !== undefined ? { stdout: options.stdout } : {}),
   };
 }
@@ -256,11 +265,12 @@ function narrowingFlags(options: BaselineOptions): string | null {
  * leaves out could keep none of their keys, where a capture of every check
  * replaces the file whole.
  */
-function baselineToNarrow(cwd: string, flags: string): Baseline | null {
-  const read = readBaselineStatus(cwd, 'as-written');
+function baselineToNarrow(cwd: string, flags: string, suite: Suite): Baseline | null {
+  const file = suite.baselineFile;
+  const read = readBaselineStatus(cwd, 'as-written', file);
   if (read.state === 'unparseable') {
     throw new Error(
-      `baseline ${flags}: ${BASELINE_FILE} can't be parsed, or comes from a newer checkride, so the checks ${flags} leaves out couldn't keep their keys; restore it with \`checkride recover\`, or capture every check with \`checkride baseline\``,
+      `baseline ${flags}: ${file} can't be parsed, or comes from a newer checkride, so the checks ${flags} leaves out couldn't keep their keys; restore it with \`${suiteCommand('checkride recover', suite)}\`, or capture every check with \`${suiteCommand('checkride baseline', suite)}\``,
     );
   }
   return read.baseline;
@@ -293,18 +303,18 @@ function withEntriesOf(base: Baseline | null, from: Baseline, checks: ReadonlySe
  * written, holds for it. It writes nothing when it recorded no check, and
  * says so; stderr has already said why for each check it ran.
  */
-async function writeNarrowed(cwd: string, flags: string, previous: Baseline | null, captured: { captures: Captures; baseline: Baseline }, stderr: Out): Promise<Baseline> {
+async function writeNarrowed(at: { cwd: string; file: string }, flags: string, previous: Baseline | null, captured: { captures: Captures; baseline: Baseline }, stderr: Out): Promise<Baseline> {
   const recorded = new Set(Object.keys(captured.captures.slots).filter((name) => !captured.captures.kept.has(name)));
   if (recorded.size === 0) {
-    stderr.write(`\nbaseline: ${flags} recorded no check, so ${BASELINE_FILE} is unchanged\n`);
+    stderr.write(`\nbaseline: ${flags} recorded no check, so ${at.file} is unchanged\n`);
     return previous ?? EMPTY_BASELINE;
   }
   const baseline = withEntriesOf(previous, captured.baseline, recorded);
-  await writeBaseline(cwd, baseline);
+  await writeBaseline(at.cwd, baseline, at.file);
   const findings = countGrandfathered(withEntriesOf(null, captured.baseline, recorded));
   const others = Object.keys(baseline.slots).length - recorded.size;
   const kept = others > 0 ? `; ${others} other check(s) kept as they were` : '';
-  stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${findings} finding(s) across ${[...recorded].join(', ')}${kept}\n`);
+  stderr.write(`\nbaseline: wrote ${at.file} — ${findings} finding(s) across ${[...recorded].join(', ')}${kept}\n`);
   return baseline;
 }
 
@@ -318,17 +328,19 @@ export async function runBaseline(options: BaselineOptions): Promise<BaselineRes
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
   const flags = narrowingFlags(options);
-  const narrowedFrom = flags === null ? null : baselineToNarrow(cwd, flags);
+  const suite = options.suite ?? DEFAULT_SUITE;
+  const file = suite.baselineFile;
+  const narrowedFrom = flags === null ? null : baselineToNarrow(cwd, flags, suite);
   const result = await runChecks(captureRun(options, cwd, stderr));
-  const previous = flags === null ? loadBaseline(cwd) : narrowedFrom;
+  const previous = flags === null ? loadBaseline(cwd, file) : narrowedFrom;
   const captures = capturedSlots(result.runs, previous, cwd, stderr);
   const baseline = capturedBaseline(captures, capturedWith(captures.slots, captures.kept, result.summary.checks, previous));
-  if (flags !== null) return { ok: true, exitCode: 0, baseline: await writeNarrowed(cwd, flags, previous, { captures, baseline }, stderr) };
-  await writeBaseline(cwd, baseline);
+  if (flags !== null) return { ok: true, exitCode: 0, baseline: await writeNarrowed({ cwd, file }, flags, previous, { captures, baseline }, stderr) };
+  await writeBaseline(cwd, baseline, file);
 
   const slotNames = Object.keys(captures.slots);
   const where = slotNames.length > 0 ? slotNames.join(', ') : '(no fingerprintable slots)';
-  stderr.write(`\nbaseline: wrote ${BASELINE_FILE} — ${countGrandfathered(baseline)} finding(s) across ${where}\n`);
+  stderr.write(`\nbaseline: wrote ${file} — ${countGrandfathered(baseline)} finding(s) across ${where}\n`);
 
   return { ok: true, exitCode: 0, baseline };
 }
@@ -355,15 +367,16 @@ export type BaselineVersionsResult = BaselineResult & {
  * or the usage error that stops it: a `--config` outside the repo, no file to
  * re-record, or one that can't be parsed.
  */
-function committedForVersions(cwd: string, configPath: string | undefined): Baseline {
+function committedForVersions(cwd: string, configPath: string | undefined, suite: Suite): Baseline {
+  const file = suite.baselineFile;
   if (configPath !== undefined && !isInside(cwd, configPath)) {
     throw new Error(
       `baseline --versions: --config names ${configPath}, outside the repo, which can run fewer checks or other arguments than the repo's own config and prune keys its run still reports`,
     );
   }
-  const read = readBaselineStatus(cwd);
-  if (read.state === 'absent') throw new Error(`baseline --versions: there's no ${BASELINE_FILE} to re-record; capture one with \`checkride baseline\``);
-  if (read.baseline === null) throw new Error(`baseline --versions: ${BASELINE_FILE} can't be parsed, or comes from a newer checkride; restore it with \`checkride recover\``);
+  const read = readBaselineStatus(cwd, 'current', file);
+  if (read.state === 'absent') throw new Error(`baseline --versions: there's no ${file} to re-record; capture one with \`${suiteCommand('checkride baseline', suite)}\``);
+  if (read.baseline === null) throw new Error(`baseline --versions: ${file} can't be parsed, or comes from a newer checkride; restore it with \`${suiteCommand('checkride recover', suite)}\``);
   return read.baseline;
 }
 
@@ -411,29 +424,30 @@ function unpinnedLine(r: Extract<Rerecord, { outcome: 'unpinned' }>, toolchain: 
 }
 
 /** The line one result prints, or `null` for a check with nothing to change. */
-function rerecordLine(r: Rerecord, names: ToolNames): string | null {
+function rerecordLine(r: Rerecord, names: ToolNames, suite: Suite): string | null {
   const { tool, toolchain } = names.get(r.check) ?? { tool: r.check, toolchain: undefined };
   if (r.outcome === 'rerecorded') return rerecordedLine(r, tool, toolchain);
   if (r.outcome === 'unpinned') return unpinnedLine(r, toolchain);
   if (r.outcome === 'new-keys') {
-    return `${r.check} left: ${r.newKeys} key(s) new or found past their count under ${tool} ${copyNamed(r.ran, toolchain)}; fix them, or have a human review them and run \`checkride baseline\``;
+    return `${r.check} left: ${r.newKeys} key(s) new or found past their count under ${tool} ${copyNamed(r.ran, toolchain)}; fix them, or have a human review them and run \`${suiteCommand('checkride baseline', suite)}\``;
   }
   const left = LEFT_LINES[r.outcome];
   return left === null ? null : `${r.check} ${left}`;
 }
 
 /** Print a line for each check re-recorded or left, then what was written and the counts. */
-function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolNames, written: boolean): void {
+function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolNames, wrote: { written: boolean; suite: Suite }): void {
+  const file = wrote.suite.baselineFile;
   for (const r of results) {
-    const line = rerecordLine(r, names);
+    const line = rerecordLine(r, names, wrote.suite);
     if (line !== null) stderr.write(`baseline --versions: ${line}\n`);
   }
   const count = (outcomes: readonly Rerecord['outcome'][]): number => results.filter((r) => outcomes.includes(r.outcome)).length;
   const tally = `${count(['rerecorded'])} re-recorded, ${count(['not-run', 'no-verdict', 'new-keys', 'unpinned'])} left, ${count(['unchanged'])} unchanged`;
   stderr.write(
-    written
-      ? `baseline --versions: wrote ${BASELINE_FILE}: ${tally}; review it with \`git diff ${BASELINE_FILE}\`\n`
-      : `baseline --versions: ${BASELINE_FILE} is unchanged: ${tally}\n`,
+    wrote.written
+      ? `baseline --versions: wrote ${file}: ${tally}; review it with \`git diff ${file}\`\n`
+      : `baseline --versions: ${file} is unchanged: ${tally}\n`,
   );
 }
 
@@ -452,23 +466,25 @@ function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolN
 export async function runBaselineVersions(options: BaselineVersionsOptions): Promise<BaselineVersionsResult> {
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
-  const committed = committedForVersions(cwd, options.configPath);
+  const suite = options.suite ?? DEFAULT_SUITE;
+  const file = suite.baselineFile;
+  const committed = committedForVersions(cwd, options.configPath, suite);
   const result = await runChecks(captureRun(options, cwd, stderr));
   const rerecorded = rerecordCopies(committed, observations(result, cwd));
   const { results } = rerecorded;
   // Every check it didn't re-record is written back as the file holds it, an
   // earlier release's key forms included, byte for byte.
-  const asWritten = readBaselineStatus(cwd, 'as-written').baseline ?? committed;
+  const asWritten = readBaselineStatus(cwd, 'as-written', file).baseline ?? committed;
   const moved = new Set(results.flatMap((r) => (r.outcome === 'rerecorded' ? [r.check] : [])));
   const baseline = withEntriesOf(asWritten, rerecorded.baseline, moved);
   const written = !baselinesEqual(asWritten, baseline);
-  if (written) await writeBaseline(cwd, baseline);
+  if (written) await writeBaseline(cwd, baseline, file);
   const names: ToolNames = new Map(result.summary.checks.map((c) => [c.name, { tool: c.adapter ?? c.name, toolchain: packToolchain(c.pack) }]));
   // A check `--only` or `--skip` left out keeps its entry, as one that didn't
   // run does, and goes unnamed, since the selection says why.
   const away = new Set(result.summary.checks.filter(narrowedAway).map((c) => c.name));
   stderr.write('\n');
-  reportRerecords(stderr, results.filter((r) => !away.has(r.check)), names, written);
+  reportRerecords(stderr, results.filter((r) => !away.has(r.check)), names, { written, suite });
   return { ok: true, exitCode: 0, baseline, results, written };
 }
 
@@ -479,6 +495,8 @@ export type BaselineDiffOptions = {
   /** Print {@link BaselineDiff} as JSON instead of the Markdown report. */
   json?: boolean;
   stdout?: Out;
+  /** The named suite whose baseline is diffed; the default suite's when omitted. */
+  suite?: Suite;
   /** Injectable for tests. */
   git?: GitRunner;
 };
@@ -519,11 +537,12 @@ export async function runBaselineDiff(options: BaselineDiffOptions): Promise<Bas
   const cwd = options.cwd ?? process.cwd();
   const stdout = options.stdout ?? process.stdout;
   const ref = options.ref ?? 'HEAD';
-  const current = readBaselineStatus(cwd);
+  const file = (options.suite ?? DEFAULT_SUITE).baselineFile;
+  const current = readBaselineStatus(cwd, 'current', file);
   if (current.state === 'unparseable') {
-    throw new Error(`baseline diff: ${BASELINE_FILE} in the working tree can't be parsed, or comes from a newer checkride`);
+    throw new Error(`baseline diff: ${file} in the working tree can't be parsed, or comes from a newer checkride`);
   }
-  const committed = await readBaselineAt(options.git ?? realGit(cwd), ref);
+  const committed = await readBaselineAt(options.git ?? realGit(cwd), ref, file);
   const delta = diffBaselines(committed.baseline, current.baseline ?? EMPTY_BASELINE);
   const diff: BaselineDiff = {
     ref,

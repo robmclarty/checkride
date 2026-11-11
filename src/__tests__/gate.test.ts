@@ -19,6 +19,7 @@ import type { GateProfile } from '../config.js';
 import { checkArgs, DIRTY_MARKER, type GateSpawn, gatePreflight, gateProfile, runGate } from '../gate.js';
 import type { PinEnv } from '../node-pin.js';
 import type { Out } from '../orchestrator/index.js';
+import { suiteNamed } from '../suite.js';
 
 /** A collecting `Out`, so the two streams can be asserted apart. */
 function capture(): Out & { text: () => string } {
@@ -1225,5 +1226,215 @@ describe('runGate — the gate profile', () => {
 
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { preflight: '' } }));
     expect(gatePreflight(dir)).toBeNull();
+  });
+});
+
+/**
+ * `gate --suite <name>` gates a named suite; the hook, which passes no flag,
+ * always gates the default one. The suite reaches the check as a flag and
+ * never through the environment, where the gate strips it.
+ */
+describe('runGate — named suites', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-gate-suite-'));
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { check: 'checkride' } }));
+    await writeFile(join(dir, 'checkride.evals.config.json'), '{}');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const EVALS = suiteNamed('evals');
+  type Seen = { args: readonly string[]; env: Record<string, string | undefined> };
+
+  /** A spawn that records what it was given and writes a summary of one failed check into `out`. */
+  function redInto(out: string, seen: Seen[] = []): GateSpawn {
+    return async (_command, args, opts) => {
+      seen.push({ args, env: opts.env });
+      await mkdir(join(dir, out), { recursive: true });
+      await writeFile(join(dir, out, 'summary.json'), JSON.stringify({
+        schema_version: 1,
+        timestamp: new Date().toISOString(),
+        ok: false,
+        checks_run: 1,
+        total_duration_ms: 10,
+        checks: [{ adapter: 'oxlint', name: 'lint', description: 'lint', ok: false, exit_code: 1, duration_ms: 10, output_file: null }],
+      }));
+      return 1;
+    };
+  }
+
+  test('a bare gate strips a stray CHECKRIDE_SUITE and passes no --suite, so it gates the default suite', async () => {
+    const seen: Seen[] = [];
+    const stdout = capture();
+    const result = await runGate({
+      cwd: dir, pm: 'pnpm', spawn: redInto('.check', seen), stdout, stderr: capture(),
+      env: { PATH: '/usr/bin', CHECKRIDE_SUITE: 'evals' }, pinEnv: pinEnv(),
+    });
+    expect(seen).toEqual([{ args: ['run', 'check', '--strict', '--digest'], env: { PATH: '/usr/bin' } }]);
+    expect(result.exitCode).toBe(2);
+    // The verdict reads the default suite's directory and names its files.
+    expect(stdout.text()).toContain('1 of 1 failed: lint');
+    expect(stdout.text()).toContain('read .check/summary.json');
+    expect(stdout.text()).not.toContain('suites');
+  });
+
+  test('the gate strips CHECKRIDE_ANNOTATE, so the check it spawns writes no annotation into the hook’s output', async () => {
+    const seen: Seen[] = [];
+    const stdout = capture();
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir, pm: 'pnpm', spawn: redInto('.check', seen), stdout, stderr,
+      env: { PATH: '/usr/bin', CHECKRIDE_ANNOTATE: 'github', GITHUB_ACTIONS: 'true' }, pinEnv: pinEnv(),
+    });
+    // The variable is gone and no --annotate flag stands in for it; one the gate has no use for passes through.
+    expect(seen).toEqual([{ args: ['run', 'check', '--strict', '--digest'], env: { PATH: '/usr/bin', GITHUB_ACTIONS: 'true' } }]);
+    expect(result.exitCode).toBe(2);
+    expect(`${stdout.text()}${stderr.text()}`).not.toContain('::error');
+  });
+
+  test('gate --suite passes the suite as a flag, still strips the variable, and reads the suite’s directory', async () => {
+    const seen: Seen[] = [];
+    const stdout = capture();
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir, pm: 'pnpm', suite: 'evals', spawn: redInto(EVALS.out, seen), stdout, stderr,
+      env: { PATH: '/usr/bin', CHECKRIDE_SUITE: 'perf' }, pinEnv: pinEnv(),
+    });
+    expect(seen).toEqual([{ args: ['run', 'check', '--strict', '--digest', '--suite', 'evals'], env: { PATH: '/usr/bin' } }]);
+    expect(result).toMatchObject({ exitCode: 2, green: false, refusal: null });
+    expect(stdout.text()).toContain('1 of 1 failed: lint');
+    expect(stderr.text()).toContain('read .check/suites/evals/summary.json, fix the failing slot');
+    expect(stderr.text()).toContain('Run `pnpm exec checkride triage --suite evals` for full triage.');
+  });
+
+  test('npm reaches the script’s flags after its --, the suite among them', async () => {
+    const seen: Seen[] = [];
+    await runGate({ cwd: dir, pm: 'npm', suite: 'evals', spawn: redInto(EVALS.out, seen), stdout: capture(), stderr: capture(), env: {}, pinEnv: pinEnv() });
+    expect(seen[0]?.args).toEqual(['run', 'check', '--', '--strict', '--digest', '--suite', 'evals']);
+  });
+
+  test('gate --suite never reads the default suite’s summary as its own verdict', async () => {
+    const stderr = capture();
+    // The check wrote the default suite's directory, as a script that drops its flags would.
+    await runGate({ cwd: dir, pm: 'pnpm', suite: 'evals', spawn: redInto('.check'), stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+    expect(stderr.text()).toContain('this run wrote no .check/suites/evals/summary.json, so nothing in .check/suites/evals/ describes it — run `pnpm check --suite evals` to see why');
+  });
+
+  test('a green suite gate leaves the edit marker for the default suite’s gate, which clears it', async () => {
+    await mkdir(join(dir, '.check'), { recursive: true });
+    await writeFile(join(dir, DIRTY_MARKER), '');
+    const green = { cwd: dir, pm: 'pnpm' as const, spawn: exits(0), stdout: capture(), stderr: capture(), env: {}, pinEnv: pinEnv() };
+    expect((await runGate({ ...green, suite: 'evals', ifDirty: true })).green).toBe(true);
+    expect(existsSync(join(dir, DIRTY_MARKER))).toBe(true);
+    expect((await runGate({ ...green, ifDirty: true })).green).toBe(true);
+    expect(existsSync(join(dir, DIRTY_MARKER))).toBe(false);
+  });
+
+  test('gate --suite reads the gate profile of the suite’s config, not the repo’s', async () => {
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ gate: { skip: ['test'] } }));
+    await writeFile(join(dir, 'checkride.evals.config.json'), JSON.stringify({ checks: { evals: { command: 'node' } }, gate: { only: ['evals'] } }));
+    const seen: Seen[] = [];
+    await runGate({ cwd: dir, pm: 'pnpm', suite: 'evals', spawn: redInto(EVALS.out, seen), stdout: capture(), stderr: capture(), env: {}, pinEnv: pinEnv() });
+    expect(seen[0]?.args).toEqual(['run', 'check', '--strict', '--digest', '--only', 'evals', '--suite', 'evals']);
+  });
+
+  test('a suite profile naming a check the suite doesn’t declare blocks, naming the suite’s config', async () => {
+    // `lint` is a slot of the default suite, and no check of this one.
+    await writeFile(join(dir, 'checkride.evals.config.json'), JSON.stringify({ checks: { evals: { command: 'node' } }, gate: { only: ['lint'] } }));
+    const stderr = capture();
+    const result = await runGate({ cwd: dir, pm: 'pnpm', suite: 'evals', spawn: never, stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+    expect(result.green).toBe(false);
+    expect(stderr.text()).toContain('Fix `gate` in checkride.evals.config.json.');
+  });
+
+  /** npm hands a script's flags to npm itself unless `--` comes first, so a follow-up without it would run the default suite. */
+  test('each command a suite verdict names reaches the suite under npm, behind its --', async () => {
+    await writeFile(join(dir, 'checkride.evals.config.json'), JSON.stringify({ checks: { evals: { command: 'node' }, judge: { command: 'node' } }, gate: { only: ['evals'] } }));
+    const stderr = capture();
+    // The check wrote nothing into the suite's directory, so the verdict names the command to run.
+    await runGate({ cwd: dir, pm: 'npm', suite: 'evals', spawn: exits(1), stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+    expect(stderr.text()).toContain('run `npm run check -- --suite evals` to see why');
+    expect(stderr.text()).toContain('Run `npx --no-install checkride triage --suite evals` for full triage.');
+    expect(stderr.text()).toContain('This gate ran a profile, not the full check — run `npm run check -- --suite evals` for the rest.');
+    expect(stderr.text()).not.toContain('npm run check --suite');
+  });
+
+  test('a launch refusal under a suite names the suite’s check to run by hand, behind npm’s --', async () => {
+    const stderr = capture();
+    await runGate({ cwd: dir, pm: 'npm', suite: 'evals', spawn: printing(PNPM_ENGINE_REFUSAL), stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+    expect(stderr.text()).toContain('Run `npm run check -- --suite evals` in a terminal to see the same failure directly.');
+    expect(stderr.text()).toContain('`.check/suites/evals/` holds nothing from this turn');
+  });
+
+  test('the default suite’s verdict spells its commands as it always has, under every package manager', async () => {
+    for (const [pm, check, triage] of [['npm', 'npm run check', 'npm exec checkride triage'], ['pnpm', 'pnpm check', 'pnpm exec checkride triage']] as const) {
+      const stderr = capture();
+      await runGate({ cwd: dir, pm, spawn: exits(1), stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+      expect(stderr.text()).toContain(`run \`${check}\` to see why`);
+      expect(stderr.text()).toContain(`Run \`${triage}\` for full triage.`);
+    }
+  });
+
+  /**
+   * `gate --suite <name>` hands the name through as typed. A name that is no
+   * suite's is the repo's to fix, so it blocks in the harness's protocol: a
+   * usage error's bare exit 2 is a broken hook to Cursor, which then lets the
+   * turn end.
+   */
+  describe('a name --suite can’t gate', () => {
+    const cases = [
+      ['perf', "--suite names 'perf', which has no config"],
+      ['Evals', 'invalid suite name "Evals"'],
+      ['', '--suite was passed with no name'],
+    ] as const;
+
+    for (const [name, problem] of cases) {
+      test(`${JSON.stringify(name)} blocks under Claude Code with a decision body and the reason, and nothing spawns`, async () => {
+        const stdout = capture();
+        const stderr = capture();
+        const result = await runGate({ cwd: dir, pm: 'pnpm', suite: name, spawn: never, stdout, stderr, env: {}, pinEnv: pinEnv() });
+        expect(result).toMatchObject({ exitCode: 2, ran: true, green: false, refusal: "the suite --suite names can't be gated" });
+        const body = JSON.parse(stdout.text()) as { decision: string; reason: string; systemMessage: string };
+        expect(body.decision).toBe('block');
+        expect(body.reason).toContain('checkride: the gate could not run');
+        expect(body.reason).toContain(problem);
+        expect(body.reason).toContain('Nothing ran: no check executed and no artifact was written.');
+        expect(body.systemMessage).toContain("checkride could not run in");
+        expect(stderr.text()).toContain(problem);
+      });
+
+      test(`${JSON.stringify(name)} answers Cursor with a followup_message and exit 0`, async () => {
+        const stdout = capture();
+        const stderr = capture();
+        const result = await runGate({ cwd: dir, pm: 'pnpm', harness: 'cursor', suite: name, spawn: never, stdout, stderr, env: {}, pinEnv: pinEnv() });
+        expect(result).toMatchObject({ exitCode: 0, green: false });
+        const body = JSON.parse(stdout.text()) as Record<string, string>;
+        expect(Object.keys(body)).toEqual(['followup_message']);
+        expect(body['followup_message']).toContain(problem);
+        expect(stderr.text()).toBe('');
+      });
+    }
+
+    test('the listing of suites that do exist rides in the verdict', async () => {
+      const stdout = capture();
+      await runGate({ cwd: dir, pm: 'pnpm', suite: 'perf', spawn: never, stdout, stderr: capture(), env: {}, pinEnv: pinEnv() });
+      expect((JSON.parse(stdout.text()) as { reason: string }).reason).toContain('the suites here are evals');
+    });
+
+    test('a name that is a suite’s gates it, as the resolved suite does', async () => {
+      const seen: Seen[] = [];
+      await runGate({ cwd: dir, pm: 'pnpm', suite: 'evals', spawn: redInto(EVALS.out, seen), stdout: capture(), stderr: capture(), env: { CHECKRIDE_SUITE: 'perf' }, pinEnv: pinEnv() });
+      expect(seen[0]?.args).toEqual(['run', 'check', '--strict', '--digest', '--suite', 'evals']);
+    });
+  });
+
+  test('a suite config the gate can’t read blocks, naming the file by its short name', async () => {
+    await writeFile(join(dir, 'checkride.evals.config.json'), '{ not json');
+    const stderr = capture();
+    const result = await runGate({ cwd: dir, pm: 'pnpm', suite: 'evals', spawn: never, stdout: capture(), stderr, env: {}, pinEnv: pinEnv() });
+    expect(result.refusal).toBe("checkride.evals.config.json can't be read");
+    expect(stderr.text()).toContain('invalid checkride.evals.config.json:');
+    expect(stderr.text()).not.toContain(join(dir, 'checkride.evals.config.json'));
+    expect(stderr.text()).toContain('Fix checkride.evals.config.json.');
   });
 });

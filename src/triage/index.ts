@@ -16,7 +16,7 @@
 export type { SpawnOutcome, TriageEnv } from './env.js';
 export { realEnv } from './env.js';
 
-export { isHarnessProblem } from './gate.js';
+export { isHarnessProblem, suiteRunConflicts } from './gate.js';
 
 export { resolveCheckrideCli } from './doctor-fold.js';
 

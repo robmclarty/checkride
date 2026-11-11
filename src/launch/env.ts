@@ -94,9 +94,9 @@ export function setupHint(outcome: { stdout: string; stderr: string }): string |
 
 /**
  * The one line a failed outcome owes the terminal, when it owes one. A red
- * slot otherwise prints only its status line — the tool's output is in
- * `.check/` — but -1 (could not verify) means the tool never reached a
- * verdict, and the reader's next move (fix the network, raise the timeout)
+ * slot otherwise prints an excerpt of its output beneath its status line —
+ * the whole of it is in `.check/` — but -1 (could not verify) means the tool
+ * never reached a verdict, and the reader's next move (fix the network, raise the timeout)
  * depends on why. A built-in states its cause on a `check-<slot>:` line;
  * `spawnCheck` appends its `timed out after Ns` / `Failed to spawn` note
  * *last*, after whatever the tool managed to print. A tool that exited on its

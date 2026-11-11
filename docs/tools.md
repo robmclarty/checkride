@@ -103,6 +103,12 @@ the tool is absent, and "install it" would be the wrong advice.
 Detection is gated on yarn, so a `.pnp.cjs` left behind by a migration *off*
 Yarn will not reroute an npm or pnpm repo.
 
+One slot can't run from a PnP install. The
+[`schema` slot](#the-schema-slot-data-files-against-json-schemas) reads its
+three libraries from `node_modules`, which PnP doesn't write, so there the
+check and its `doctor` row say so, and name the two ways out: the standalone
+binary, which bundles them, or `nodeLinker: node-modules` in `.yarnrc.yml`.
+
 Two slots are manager-specific. `security` runs `pnpm audit`, whose flags
 and JSON shape don't port across managers, so on npm/yarn/bun the slot is
 reported **unavailable** until a per-manager audit adapter lands (`pack` is
@@ -441,6 +447,190 @@ preview what each would report:
 cspell --report all   --words-only --unique .
 cspell --report typos --words-only --unique .
 ```
+
+## The `schema` slot: data files against JSON Schemas
+
+The `schema` slot validates data files against JSON Schemas: a skill's
+frontmatter, a service's config, a workflow file, a directory of labels. It's
+a built-in, it checks the repo as a whole, and it runs once the config holds a
+`schemas` rule. A repo with no `schemas`, or an empty list, has no `schema`
+check in any run, `--all` included.
+
+```jsonc
+"schemas": [
+  { "files": ["skills/*/SKILL.md"],       "schema": "checkride:agent-skill" },
+  { "files": ["config/*.json"],           "schema": "schemas/service.schema.json" },
+  { "files": [".github/workflows/*.yml"], "schema": "schemas/workflow.schema.json" },
+  { "files": ["fixtures/**"],             "schema": "schemas/case.schema.json", "format": "jsonc" }
+]
+```
+
+Each rule runs in order. Its files are the ones git lists at the repo root,
+tracked or untracked but not ignored, that one of its `files` globs matches;
+outside a git repo they're every file but those under `.git`, `node_modules`,
+`target` and `vendor`. Globs take `**`, `*`, `?` and `{a,b}`. `schema` is a
+bundled schema or a path from the repo root, never a URL.
+
+The slot reads nothing outside the repository. That matters most under
+`--static-only`, which checks a repo whose author you don't know, and whose
+config could otherwise point the slot at any file on the machine and have its
+contents printed in a finding. One rule covers every file it opens: the
+file's real path, symlinks followed, is inside the repository root.
+
+- A rule's `schema` that is absolute, in POSIX or Windows spelling (`/etc/x`,
+  `C:\x`, `C:/x`, `\\server\share`), or that holds a `..` segment, stops
+  the config from loading (exit 2).
+- A schema file, or a file a `$ref` names, whose real path is outside the
+  repository fails the check with a reason that names the reference. The
+  file isn't opened.
+- A matched data file whose real path is outside, a symlink that leaves the
+  repo, is a finding on that file under the keyword `symlink`, and isn't
+  read. A symlink to a file inside the repo is read as that file.
+
+Otherwise it's a slot like the rest. `--only schema` and `--skip schema`
+select it, and a `checks.schema` entry tunes its `timeout`, `order` and
+`optIn`, or turns it off with `false`. Under `--changed` it still runs every
+rule over every file: one changed schema can fail a file nobody touched.
+
+A repo may already have a custom check named `schema`, a `command` of its
+own. With no `schemas` rule it stays exactly that: a custom check, gated by
+its `detect`, run after the catalogue. A config that holds both that check
+and a `schemas` rule doesn't load (exit 2), since one would stand in for the
+other unseen. Rename the custom check.
+
+### Formats
+
+`format` says how a rule's files are read:
+
+| `format` | Reads | Extensions |
+| --- | --- | --- |
+| `json` | strict JSON, so a comment or a trailing comma is an error | `.json` |
+| `jsonc` | JSON with comments and trailing commas | `.jsonc` |
+| `yaml` | the YAML 1.2 core schema, with a duplicate key an error | `.yaml`, `.yml` |
+| `frontmatter` | the YAML between a file's first line, which must be `---`, and the next line that is exactly `---` | `.md`, `.mdx` |
+
+With no `format`, each file is read by its own extension, so one rule can
+cover `*.{yml,yaml}`. A glob whose extension names none of them, `config/*`
+or `*.toml`, stops the config from loading (exit 2) until the rule sets
+`format`. A file that doesn't parse is a finding on that file, with its line
+where the parser gives one, and so is a `frontmatter` file with no block. A
+byte order mark at the head of a file, or of a schema, is dropped before
+either is read.
+
+### Validation
+
+A schema is read as draft 2020-12 or draft-07, by its `$schema`, and as
+2020-12 when it names none. Any other draft fails the check with the reason.
+`format` keywords (`email`, `uri`, `date-time`) aren't asserted.
+
+A `$ref` within the schema file works, by JSON pointer or to an `$id` the
+file itself declares, and so does one to another file by relative path, read
+from beside the file that names it. A `$ref` to the draft's own meta-schema
+works too, since `ajv` carries it. A `$ref` to any other URL is a finding on
+the schema file, because a check makes no network call: keep the schema it
+names in the repo. Only a `$ref` where a schema can sit counts. One inside an
+`enum`, a `default`, an `examples` entry or an `x-` annotation is data.
+
+A schema that's missing, isn't JSON, or isn't a valid schema fails the check
+before any file is read, with a reason that names it. For one that isn't
+JSON the reason gives the line and column where it stops, and none of the
+file's text. A rule that matches no
+file is a finding too, on the config file, as a `prose` slot whose exemplars
+are gone is: a config that points at nothing mustn't stay green.
+
+### Bundled schemas
+
+Two schemas ship with checkride, each named `checkride:<id>`. Any other id
+stops the config from loading, with the two it could have been.
+
+- **`checkride:agent-skill`** is for an Agent Skill's `SKILL.md`. The
+  frontmatter needs a `name` of lowercase letters and digits in
+  hyphen-separated words, at most 64 characters, and a `description` of 1 to
+  1024 characters, and may hold anything else. One rule no JSON Schema can
+  state is checked beside it: `name` equals the directory's name, so
+  `skills/pdf/SKILL.md` is named `pdf`. That finding's keyword is
+  `directory-name`.
+- **`checkride:checkride-config`** is checkride's own config schema, for a
+  repo that keeps more configs than the one it runs: a preset, an example, a
+  named suite's.
+
+### The libraries it needs
+
+checkride depends on nothing at run time, so the slot validates with three
+libraries the repo installs. They're optional peer dependencies of the
+package, loaded from `node_modules` at the repo root, and only when a rule
+needs them:
+
+| Library | Supported | Needed for |
+| --- | --- | --- |
+| `ajv` | 8.x (`^8.0.0`) | any rule |
+| `yaml` | 2.x (`^2.0.0`) | a `yaml` or `frontmatter` rule |
+| `jsonc-parser` | 3.x (`^3.0.0`) | a `jsonc` rule |
+
+A config of `json` rules needs `ajv` alone. A library a rule needs and the
+repo lacks, or holds at another major, fails the check before it reads a
+file, exit 1, with the fix as its reason:
+
+```text
+✘ schema   the `schema` slot needs `yaml`, which is not installed in this project: run `pnpm add -D yaml@^2`
+```
+
+A copy another dependency happened to bring in doesn't count. Only a library
+the repo itself declares is there on every machine. A Yarn Plug'n'Play
+install has no `node_modules` for them to be read from, so its reason names
+no install command: it says to run the standalone binary or to set
+`nodeLinker: node-modules`. `checkride doctor` gives
+the slot a row: the versions a run would load, or the library that's missing
+and the command that installs it. The [standalone
+binary](./distribution.md#the-standalone-binary) bundles all three, so a repo
+with no Node needs nothing installed, and there a copy in the repo is never
+consulted.
+
+### What it writes
+
+`.check/schema.json`, or the named suite's own directory, holds each rule
+with how many files it matched, and every error:
+
+```json
+{
+  "rules": [{ "schema": "checkride:agent-skill", "files": 3 }],
+  "errors": [
+    {
+      "file": "skills/pdf/SKILL.md",
+      "rule": 0,
+      "instancePath": "/name",
+      "keyword": "pattern",
+      "message": "must match pattern \"^[a-z0-9]+(-[a-z0-9]+)*$\"",
+      "line": 2
+    },
+    {
+      "file": "skills/docx/SKILL.md",
+      "rule": 0,
+      "instancePath": "",
+      "keyword": "required",
+      "message": "must have required property 'description'",
+      "param": "description",
+      "line": 2
+    }
+  ]
+}
+```
+
+`rule` is the rule's index in `schemas`, `instancePath` a JSON pointer into
+the file, and `keyword` the JSON Schema keyword the value broke, or one of the
+slot's own: `parse`, `frontmatter`, `files` for a rule that matched nothing,
+`$ref` for a URL, `symlink` for a file that resolves outside the repo,
+`directory-name`. `param` is there when the keyword names
+what is at fault: the property a `required` error misses, the one an
+`additionalProperties` error found, the name `propertyNames` refused. `line`
+is there when the parser kept positions, which strict `json` doesn't.
+
+The errors are findings like a linter's. A red run lists them beneath the
+slot's line as `path:line  message  [keyword]`, `--annotate github` annotates
+them, and a [baseline](./reliability.md) keys each by its file, keyword and
+pointer, with its `param` where it has one, and never by its message. A
+reworded pattern doesn't turn a grandfathered finding new, and a
+grandfathered missing `name` doesn't cover a missing `description`.
 
 ## The publish-ready bundle
 
@@ -822,6 +1012,32 @@ imitate them — and never to edit or add to them, because a generated
 model's own register. And the `prose` check goes red when the directory is
 missing or empty: the exemplars are load-bearing anchor texts, and a config
 that points at nothing should fail rather than quietly gate nothing.
+
+The directory is one inside the repository, and its path is relative to the
+repo root: `prose` runs once for the whole repo, so no target sets it. A path
+that is absolute, in POSIX or Windows spelling, or that climbs out of the repo
+as written is a config error, exit 2: `'prose' exemplars "../voice" leaves the
+repository: it is read from the repo root, so name a directory inside the
+repo`. A `..` that stays inside, `docs/../voice`, loads.
+
+That is a courtesy. The guard is at the read: the check goes red when the
+directory's real path is outside the repository, through a symlink at any
+segment, with `` the `prose` slot names `docs/voice` as its voice exemplars,
+and that path resolves outside the repository ``. It says that and nothing
+else, and it says it without touching anything outside: the path is walked a
+segment at a time inside the repo, a link is read and never followed out, and
+the answer is the same whether or not anything is where the link leads. So a
+config can't use the check to ask what is on the machine.
+
+Inside the directory, an exemplar is a file, or a symlink to a file inside
+the repository. Everything else is passed over, as a subdirectory always was:
+a link to a directory, a link to nothing, a link that leaves the repository,
+which is never followed or named, and an entry that can't be read. If that
+leaves none, the directory `has no files in it`. A directory that can't be
+listed says why, `can't be read (EACCES)`. A config is as untrusted as the
+code beside it under `--static-only`, and this is the rule the
+[`schema` slot](#the-schema-slot-data-files-against-json-schemas) holds its
+files to.
 
 Write the exemplars by hand — a few short passages in your own voice, in the
 register you want the repo's prose to hold. What checkride never does is score

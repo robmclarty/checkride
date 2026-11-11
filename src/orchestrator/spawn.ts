@@ -7,12 +7,16 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import type { Dirent } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { join, resolve as resolvePath } from 'node:path';
 
 import type { Adapter } from '../adapters.js';
+import { SCHEMA_SLOT } from '../adapters.js';
 import { CHECK_DIR } from '../artifacts/index.js';
+import type { Root } from '../contain.js';
+import { locatedSync, repoRoot } from '../contain.js';
 import type { ResolvedCheck } from '../config.js';
 import { DEFAULT_BASE } from '../git.js';
 import type { LaunchContext, Spawn } from '../launch/index.js';
@@ -21,6 +25,7 @@ import type { CheckOutcome } from '../links.js';
 import { checkLinks } from '../links.js';
 import { checkPack } from '../pack.js';
 import { KILL_GRACE_SECONDS, killGroup } from '../proc.js';
+import { runSchemaCheck, schemaLibrarySource } from '../schema/index.js';
 import { checkSecurity } from '../security.js';
 import { checkSmoke } from '../smoke.js';
 import { checkSnippets } from '../snippets.js';
@@ -299,6 +304,21 @@ function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome>
 }
 
 /**
+ * `schema` runs its rules in-process, with the libraries the repo installed.
+ * A library it needs and the repo lacks refuses it as a tool the project
+ * never installed refuses its check, and a schema it can't use fails it with
+ * the reason, whatever the run's mode.
+ */
+async function runSchema({ adapter, ctx }: BuiltinCall): Promise<CheckOutcome> {
+  const options = adapter.options?.schema ?? { rules: [], configFile: '' };
+  const repo = ctx.repo ?? ctx.cwd;
+  const run = await runSchemaCheck(options, { repo, pm: ctx.pm, source: schemaLibrarySource(repo) });
+  if ('install' in run) return refusedOutcome(run.install, ctx);
+  if ('refusal' in run) return failedWith(run.refusal);
+  return run.outcome;
+}
+
+/**
  * Every built-in that spawns or reads in-process, by its `builtin` id, apart
  * from `links`, which the runner calls first. The snippets pair shares one
  * execution path, differing only in mode, and `unclaimed` checks against the
@@ -306,10 +326,11 @@ function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome>
  */
 const BUILTINS: ReadonlyMap<string, (call: BuiltinCall) => Promise<CheckOutcome>> = new Map([
   ['pack', ({ ctx, base }) => checkPack({ ...base, pm: ctx.pm })],
-  ['smoke', ({ base }) => checkSmoke(base)],
+  ['smoke', ({ ctx, base }) => checkSmoke({ ...base, scratch: ctx.scratch })],
   ['security', runSecurity],
-  ['snippets', ({ ctx, base }) => checkSnippets({ ...base, mode: 'src', pm: ctx.pm })],
-  ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, mode: 'dist', pm: ctx.pm })],
+  [SCHEMA_SLOT, runSchema],
+  ['snippets', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'src', pm: ctx.pm })],
+  ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'dist', pm: ctx.pm })],
   [
     'unclaimed',
     ({ adapter, ctx }) => checkUnclaimed(ctx.cwd, { targets: [], ...adapter.options?.unclaimed, ...(ctx.out !== undefined ? { out: ctx.out } : {}) }),
@@ -328,9 +349,18 @@ function runBuiltin(adapter: Adapter, ctx: Parameters<CheckRunner>[1], timeout: 
 }
 
 /** A refusal's first line, its `checkride: ` prefix and closing period dropped, as a skip reason quotes it. */
-function refusalDetail(refusal: string): string {
+export function refusalDetail(refusal: string): string {
   const first = refusal.split('\n').find((line) => line.trim() !== '') ?? refusal;
   return first.replace(/^checkride:\s*/, '').replace(/\.$/, '');
+}
+
+/**
+ * The outcome of a check that failed before its tool ran, or with no tool to
+ * run: the whole message on stderr, its first line as `refusal`, and exit 1,
+ * for the reason {@link refusedOutcome} gives.
+ */
+function failedWith(stderr: string): CheckOutcome {
+  return { ok: false, exit_code: 1, stdout: '', stderr, refusal: refusalDetail(stderr) };
 }
 
 /**
@@ -356,49 +386,114 @@ export function installSkip(refusal: string): string {
 function refusedOutcome(refusal: string, ctx: Parameters<CheckRunner>[1]): CheckOutcome {
   // Under --static-only, a tool that needs an install is a skip, not a failure (R6.2).
   if (ctx.staticOnly === true) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: installSkip(refusal) };
-  return { ok: false, exit_code: 1, stdout: '', stderr: refusal, refusal: refusalDetail(refusal) };
+  return failedWith(refusal);
+}
+
+/** How an exemplars path that leaves the repository is named, whether or not anything is where it leads. */
+const OUTSIDE_REPO = 'resolves outside the repository';
+
+/**
+ * Whether one entry of the exemplars directory `real` is an exemplar: a file
+ * that isn't a dotfile, or a link that resolves to a file inside the
+ * repository. Nothing else is, and nothing else is a fault: a subdirectory, a
+ * link to one, a link to nothing, a link that leaves the repository, which is
+ * never followed (`../contain.ts`), and an entry that can't be read are each
+ * passed over, as a subdirectory always was.
+ */
+function isExemplar(root: Root, real: string, entry: Dirent): boolean {
+  if (entry.name.startsWith('.')) return false;
+  if (entry.isFile()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  const where = locatedSync(root, join(real, entry.name));
+  if (typeof where === 'string') return false;
+  try {
+    return statSync(where.inside).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/** What stopped the exemplars directory itself being listed: that it is a file, or the error's own code. */
+function unlisted(error: unknown): string {
+  const code = error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : null;
+  // A file sitting at the path is named for what it is — "does not exist"
+  // would send the reader hunting a typo that isn't there.
+  if (code === 'ENOTDIR') return 'is a file, not a directory';
+  return `can't be read (${code ?? (error instanceof Error ? error.message : String(error))})`;
+}
+
+/**
+ * What is wrong with the exemplars path `dir`, read from `cwd` in the
+ * repository `repo`, or `null` for a directory inside the repository that
+ * holds an exemplar. The directory is listed only once its real path is known
+ * to be inside the repository, and that is learned without touching anything
+ * outside it (`../contain.ts`): a path that leaves, by a symlink at any
+ * segment, says so and nothing of what is, or isn't, where it leads.
+ */
+function exemplarsFault(cwd: string, repo: string, dir: string): string | null {
+  const root = repoRoot(repo);
+  const where = locatedSync(root, join(cwd, dir));
+  if (where === 'outside') return OUTSIDE_REPO;
+  if (where === 'missing') return 'does not exist';
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(where.inside, { withFileTypes: true });
+  } catch (error) {
+    return unlisted(error);
+  }
+  return entries.some((entry) => isExemplar(root, where.inside, entry)) ? null : 'has no files in it';
+}
+
+/** What the refusal tells the reader to do: keep the samples in the repo, for a path that leaves it, else write some. */
+function exemplarsAdvice(fault: string): string[] {
+  const lead = [
+    'Exemplars are hand-written prose the agent contract points writing sessions at',
+  ];
+  if (fault !== OUTSIDE_REPO) {
+    return [
+      ...lead,
+      'as the voice to imitate, so a config naming an empty directory aims that',
+      'instruction at nothing. Write a few short samples of prose in your own voice',
+      'there (or fix the `exemplars` path in checkride.config.json), then re-run.',
+    ];
+  }
+  return [
+    ...lead,
+    'as the voice to imitate, and checkride reads nothing outside the repository.',
+    'Keep the samples in a directory of the repo itself, not behind a link out of',
+    'it (or fix the `exemplars` path in checkride.config.json), then re-run.',
+  ];
 }
 
 /**
  * Fail the `prose` check when its configured `exemplars` directory is missing
  * or holds no files, rather than letting the tool pass while the anchor texts
- * rot away.
+ * rot away, and when the directory resolves outside the repository `repo`.
  *
  * The exemplars are the repo's hand-written voice reference: the AGENTS.md
  * stanza tells writing sessions to imitate them, so a config that names a
  * directory that no longer exists (renamed, deleted, never created) would leave
  * that instruction aimed at nothing while the check stayed green. Presence is
  * the whole assertion — checkride never scores prose against the exemplars;
- * that read belongs to a human. `null` means the check may spawn.
+ * that read belongs to a human. A path outside the repository is refused
+ * untouched, since a config checked under `--static-only` is a stranger's and
+ * a refusal that differed by what is there would tell them what is on the
+ * machine. `null` means the check may spawn.
  */
-export function missingExemplarsOutcome(adapter: Adapter, cwd: string): CheckOutcome | null {
+export function missingExemplarsOutcome(adapter: Adapter, cwd: string, repo: string = cwd): CheckOutcome | null {
   const dir = adapter.options?.prose?.exemplars;
   if (dir === undefined) return null;
-  let state: string | null = 'does not exist';
-  try {
-    const files = readdirSync(join(cwd, dir), { withFileTypes: true }).filter(
-      (e) => e.isFile() && !e.name.startsWith('.'),
-    );
-    state = files.length > 0 ? null : 'has no files in it';
-  } catch (error) {
-    // Unreadable reads as missing. A file sitting at the path is named for what
-    // it is — "does not exist" would send the reader hunting a typo that isn't
-    // there.
-    if (error instanceof Error && 'code' in error && error.code === 'ENOTDIR') state = 'is a file, not a directory';
-  }
-  if (state === null) return null;
+  const fault = exemplarsFault(cwd, repo, dir);
+  if (fault === null) return null;
   const stderr = [
-    `checkride: the \`prose\` slot names \`${dir}\` as its voice exemplars, and that path ${state}.`,
+    `checkride: the \`prose\` slot names \`${dir}\` as its voice exemplars, and that path ${fault}.`,
     '',
-    'Exemplars are hand-written prose the agent contract points writing sessions at',
-    'as the voice to imitate, so a config naming an empty directory aims that',
-    'instruction at nothing. Write a few short samples of prose in your own voice',
-    'there (or fix the `exemplars` path in checkride.config.json), then re-run.',
+    ...exemplarsAdvice(fault),
     '',
   ].join('\n');
   // Exit 1 for the same reason as refusedOutcome above: nothing spawned, but
   // this is the finding the run exists to surface, not a harness problem.
-  return { ok: false, exit_code: 1, stdout: '', stderr, refusal: refusalDetail(stderr) };
+  return failedWith(stderr);
 }
 
 /**
@@ -438,7 +533,7 @@ export const defaultRunner: CheckRunner = (resolved, ctx) => {
   const timeout = adapter.timeout ?? ctx.timeout ?? DEFAULT_TIMEOUT_SECONDS;
   const builtin = runBuiltin(adapter, ctx, timeout);
   if (builtin) return builtin;
-  const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd);
+  const missingExemplars = missingExemplarsOutcome(adapter, ctx.cwd, ctx.repo ?? ctx.cwd);
   if (missingExemplars) return Promise.resolve(missingExemplars);
   const launch = launchOnToolchain(resolved.slot, adapter.command, runtimeArgs(adapter, changedRef(ctx), ctx.out), toolLaunchContext(resolved, ctx));
   if ('refusal' in launch) return Promise.resolve(refusedOutcome(launch.refusal, ctx));

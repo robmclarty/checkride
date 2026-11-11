@@ -6,6 +6,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['test/e2e/**/*.e2e.test.ts'],
+    // No case reads a CHECKRIDE_* variable the shell or CI exported.
+    setupFiles: ['test/helpers/clean-env.ts'],
     testTimeout: 180_000,
     hookTimeout: 180_000,
     reporters: ['default'],

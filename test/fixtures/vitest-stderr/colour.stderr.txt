@@ -1,0 +1,22 @@
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m one/sum.test.js[2m > [22msum[2m > [22madds two numbers
+[31m[1mAssertionError[22m: expected 3 to be 4 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 4[39m
+[31m+ 3[39m
+
+[36m [2m❯[22m one/sum.test.js:[2m4:19[22m[39m
+    [90m  2|[39m describe('sum', () => {
+    [90m  3|[39m   test('adds two numbers', () => {
+    [90m  4|[39m     expect(1 + 2).toBe(4);
+    [90m   |[39m                   [31m^[39m
+    [90m  5|[39m   });
+    [90m  6|[39m });
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
