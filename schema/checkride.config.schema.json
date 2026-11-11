@@ -125,13 +125,13 @@
     },
     "targetName": {
       "type": "string",
-      "description": "A target's name: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. Slot names, schema and unclaimed included, are reserved, and so is every custom check's name, so a selection token means one thing.",
+      "description": "A target's name: a lowercase letter, then up to 31 lowercase letters, digits and hyphens. Slot names, schema and unclaimed included, are reserved, and so is every custom check's name, so a selection token means one thing. So are doc-snippets and suites, directories checkride keeps under the output directory.",
       "pattern": "^[a-z][a-z0-9-]{0,31}$",
       "not": {
         "enum": [
           "types", "format", "lint", "struct", "dead", "dupes", "health", "test", "docs", "links", "spell",
           "prose", "mutation", "security", "build", "publint", "attw", "pack", "smoke", "snippets",
-          "unclaimed", "schema", "doc-snippets"
+          "unclaimed", "schema", "doc-snippets", "suites"
         ]
       }
     },

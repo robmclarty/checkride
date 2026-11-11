@@ -29,6 +29,11 @@
       "minimum": 0,
       "description": "Wall-clock duration of the whole execution phase, in milliseconds — not the sum of the per-check durations, which is larger whenever checks ran concurrently. The two are equal only when execution was sequential (including any --bail run). A run whose checks finish before git answers for the git field waits for it, at most 5 seconds from the run's start, and counts the wait here. The run STARTED at timestamp - total_duration_ms; readers use that to judge whether an artifact belongs to this run."
     },
+    "suite": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "The named suite the run was of (--suite, CHECKRIDE_SUITE): it read checkride.<suite>.config.json and checkride.<suite>.baseline.json, and wrote .check/suites/<suite>/ unless --out named a directory. Absent on a run of the default suite."
+    },
     "run": {
       "$ref": "#/definitions/run",
       "description": "What the run selected, and whether it saw the whole pipeline."

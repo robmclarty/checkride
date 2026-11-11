@@ -351,8 +351,10 @@ export async function checkSmoke(opts: {
   cwd: string;
   spawn: SmokeSpawn;
   timeoutSec?: number;
+  /** The scratch directory, relative to `cwd`: the suite's own, `.check` for the default suite. */
+  scratch: string;
 }): Promise<CheckOutcome> {
-  const { cwd, spawn, timeoutSec } = opts;
+  const { cwd, spawn, timeoutSec, scratch } = opts;
 
   const read = await readManifest(cwd);
   if (!read.ok) return errorOutcome(read.error);
@@ -382,9 +384,9 @@ export async function checkSmoke(opts: {
 
   // The probe imports the package by its own name, so it has to sit inside
   // the repo whatever `--out` says; a read-only checkout skips the check.
-  const unwritable = await prepareScratch(cwd);
+  const unwritable = await prepareScratch(cwd, scratch);
   if (unwritable !== null) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: unwritable };
-  const probePath = join(scratchDir(cwd), 'smoke-probe.mjs');
+  const probePath = join(scratchDir(cwd, scratch), 'smoke-probe.mjs');
   await writeFile(probePath, `const TARGETS = ${JSON.stringify(plan)};\n${PROBE_BODY}`);
 
   const outcome = await spawn('node', [probePath], cwd, timeoutSec);

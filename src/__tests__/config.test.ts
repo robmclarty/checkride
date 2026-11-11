@@ -1008,6 +1008,14 @@ describe('targets and packs (the R2.3 rules, S3)', () => {
     );
   });
 
+  test('V2 reserves suites, the directory named suites write under', () => {
+    expect(problem({ targets: { suites: web } })).toMatch(
+      /target name 'suites' is reserved: named suites write their artifacts in \.check\/suites\/, where this target's artifacts would land/,
+    );
+    // Only the one name: a target may still be named for what it holds.
+    expect(problem({ targets: { 'test-suites': web } })).toBeNull();
+  });
+
   test("V2 holds a target's name apart from every custom check, a target's or a pack's included", () => {
     const api = { lang: 'ts', root: 'apps/api' };
     expect(problem({ targets: { web, api: { ...api, checks: { web: { command: 'node' } } } } })).toMatch(
@@ -1405,8 +1413,8 @@ describe('published JSON Schema', () => {
     expect(definitionEnum(['packName'])).toEqual(languagePacks);
   });
 
-  test('the target names it reserves are every slot name, unclaimed included, plus schema and doc-snippets', () => {
-    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'doc-snippets']);
+  test('the target names it reserves are every slot name, unclaimed included, plus schema, doc-snippets and suites', () => {
+    expect(definitionEnum(['targetName', 'not'])).toEqual([...SLOTS.map((s) => s.name), 'schema', 'doc-snippets', 'suites']);
   });
 });
 

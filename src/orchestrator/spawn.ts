@@ -306,10 +306,10 @@ function runSecurity({ adapter, ctx, base }: BuiltinCall): Promise<CheckOutcome>
  */
 const BUILTINS: ReadonlyMap<string, (call: BuiltinCall) => Promise<CheckOutcome>> = new Map([
   ['pack', ({ ctx, base }) => checkPack({ ...base, pm: ctx.pm })],
-  ['smoke', ({ base }) => checkSmoke(base)],
+  ['smoke', ({ ctx, base }) => checkSmoke({ ...base, scratch: ctx.scratch })],
   ['security', runSecurity],
-  ['snippets', ({ ctx, base }) => checkSnippets({ ...base, mode: 'src', pm: ctx.pm })],
-  ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, mode: 'dist', pm: ctx.pm })],
+  ['snippets', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'src', pm: ctx.pm })],
+  ['snippets-dist', ({ ctx, base }) => checkSnippets({ ...base, scratch: ctx.scratch, mode: 'dist', pm: ctx.pm })],
   [
     'unclaimed',
     ({ adapter, ctx }) => checkUnclaimed(ctx.cwd, { targets: [], ...adapter.options?.unclaimed, ...(ctx.out !== undefined ? { out: ctx.out } : {}) }),

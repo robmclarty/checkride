@@ -36,11 +36,13 @@ import { join, posix, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import type { Adapter, Slot } from './adapters.js';
-import { outDir, outLabel } from './artifacts/index.js';
-import { BASELINE_FILE, countGrandfathered, parseBaseline } from './baseline/index.js';
+import { outLabel } from './artifacts/index.js';
+import { countGrandfathered, parseBaseline } from './baseline/index.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
+import type { Suite } from './suite.js';
+import { listSuites, suiteCommand } from './suite.js';
 import { isRecord } from './json.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
@@ -138,6 +140,8 @@ export type DoctorReport = {
    * unchecked.
    */
   unclaimed?: Unclaimed[];
+  /** The named suite the report is on; absent for the default suite. */
+  suite?: string;
   checks: DoctorCheck[];
 };
 
@@ -228,6 +232,12 @@ export type DoctorOptions = {
   pins?: { path: string; tools: ReadonlyMap<string, string> };
   /** `--static-only`: report each check a static run skips, with its reason, and fail none for a missing install (R13.4). */
   staticOnly?: boolean;
+  /**
+   * The named suite to report on (`--suite`, `CHECKRIDE_SUITE`), with `config`
+   * holding its config: its checks, its baseline file and its output
+   * directory. Omitted, the default suite, which lists the suites it finds.
+   */
+  suite?: Suite;
 };
 
 type Semver = { major: number; minor: number; patch: number; raw: string };
@@ -1044,9 +1054,9 @@ async function checkUnreached(cwd: string, config: CheckrideConfig | null, commo
 }
 
 /** The markers no target claims, the implicit target's included, or why they couldn't be listed. */
-async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string | undefined): Promise<Unclaimed[] | string> {
+async function unclaimedMarkers(repo: string, config: CheckrideConfig | null, claims: readonly DoctorTarget[], out: string): Promise<Unclaimed[] | string> {
   try {
-    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config), ...(out !== undefined ? { out } : {}) });
+    return await findUnclaimed(repo, { targets: claims, ignore: config?.unclaimed?.ignore ?? [], taken: checkKeys(config), out });
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -1127,8 +1137,9 @@ function unpinnedRow(base: { name: string; category: 'env'; required: false }, e
  * unparseable state is worth a row because the run-time warning only prints
  * during a run — doctor is where someone checks the environment *between* runs.
  */
-function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
-  const path = join(cwd, BASELINE_FILE);
+function checkBaseline(cwd: string, env: DoctorEnv, suite: Suite): DoctorCheck | null {
+  const file = suite.baselineFile;
+  const path = join(cwd, file);
   if (!env.exists(path)) return null;
   const raw = env.readText(path);
   const baseline = raw === null ? null : parseBaseline(raw);
@@ -1137,9 +1148,9 @@ function checkBaseline(cwd: string, env: DoctorEnv): DoctorCheck | null {
     return {
       ...base,
       status: 'outdated',
-      found: `${BASELINE_FILE} present but unparseable`,
+      found: `${file} present but unparseable`,
       expected: 'valid baseline JSON',
-      hint: 'A merge likely mangled it; grandfathered findings report red until it is restored. Run `checkride recover` to rebuild it from git history.',
+      hint: `A merge likely mangled it; grandfathered findings report red until it is restored. Run \`${suiteCommand('checkride recover', suite)}\` to rebuild it from git history.`,
     };
   }
   return { ...base, status: 'ok', found: `${countGrandfathered(baseline)} grandfathered finding(s)`, expected: null, hint: null };
@@ -1171,6 +1182,33 @@ function checkAgentInstructions(cwd: string, env: DoctorEnv): DoctorCheck | null
   };
 }
 
+/**
+ * The named suites the repo holds, as one informational row of the default
+ * suite's report, or `null` when it holds none. Never required: a suite is
+ * run by name, and `doctor --suite <name>` reports on one.
+ */
+function checkSuites(cwd: string): DoctorCheck | null {
+  const suites = listSuites(cwd);
+  if (suites.length === 0) return null;
+  return { name: 'suites', category: 'workspace', required: false, status: 'ok', found: suites.join(', '), expected: null, hint: null };
+}
+
+/**
+ * The workspace rows under the output directory's: a named suite's baseline
+ * alone, since the rest describe the repo and belong to the default suite's
+ * report, which also lists the suites it finds.
+ */
+async function workspaceRows(
+  common: { cwd: string; config: CheckrideConfig | null; suite: Suite; slots: readonly Slot[]; adapters: readonly Adapter[] },
+  env: DoctorEnv,
+  markers: DoctorCheck | null,
+): Promise<DoctorCheck[]> {
+  const { cwd, config, suite } = common;
+  if (suite.name !== undefined) return applicable(checkBaseline(cwd, env, suite));
+  const unreached = await checkUnreached(cwd, config, common);
+  return applicable(checkBaseline(cwd, env, suite), checkAgentInstructions(cwd, env), markers, unreached, checkSuites(cwd));
+}
+
 /** The rows that apply, in order: an optional row is `null` when it has nothing to say. */
 function applicable(...rows: readonly (DoctorCheck | null)[]): DoctorCheck[] {
   return rows.filter((row): row is DoctorCheck => row !== null);
@@ -1181,8 +1219,8 @@ function applicable(...rows: readonly (DoctorCheck | null)[]): DoctorCheck[] {
  * `--out` named. The row is named the way a run's `report:` line names the
  * directory, so `.check` by default.
  */
-async function checkWritable(cwd: string, out: string | undefined, env: DoctorEnv): Promise<DoctorCheck> {
-  const dir = out === undefined ? outDir(cwd) : resolve(cwd, out);
+async function checkWritable(cwd: string, out: string, env: DoctorEnv): Promise<DoctorCheck> {
+  const dir = resolve(cwd, out);
   const name = outLabel(cwd, dir);
   const ok = await env.canWrite(dir);
   return ok
@@ -1320,6 +1358,7 @@ function renderMode(report: DoctorReport, out: Out): void {
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
   out.write(`  package manager: ${report.packageManager} (detected)\n`);
+  if (report.suite !== undefined) out.write(`  suite: ${report.suite}\n`);
   renderMode(report, out);
   for (const group of GROUPS) renderGroup(group, report, out);
   out.write(report.ok ? '\n✔ environment ok\n\n' : '\n✘ environment has problems (see above)\n\n');
@@ -1375,13 +1414,13 @@ async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, 
  * (`unclaimed` without targets) isn't one this repo runs, so it has no row.
  */
 async function checkRows(
-  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; defaults: CheckrideConfig | null },
+  common: { cwd: string; slots: readonly Slot[]; adapters: readonly Adapter[]; config: CheckrideConfig | null; suite: Suite; defaults: CheckrideConfig | null },
   run: Pick<DoctorOptions, 'pins' | 'staticOnly'>,
   pm: PackageManager,
   env: DoctorEnv,
 ): Promise<DoctorCheck[]> {
-  const { cwd, slots, adapters, config, defaults } = common;
-  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd }).filter((r) => r.inactive !== true);
+  const { cwd, slots, adapters, config, suite, defaults } = common;
+  const resolved = resolveChecks({ slots, adapters, config, defaults, cwd, suite }).filter((r) => r.inactive !== true);
   const overrides = run.pins?.tools;
   const ctx: SlotContext = {
     repo: cwd,
@@ -1419,7 +1458,7 @@ function staticSkips(before: readonly ResolvedCheck[], after: readonly ResolvedC
 async function modeOf(
   cwd: string,
   config: CheckrideConfig | null,
-  out: string | undefined,
+  out: string,
 ): Promise<{ fields: Pick<DoctorReport, 'mode' | 'pack' | 'targets' | 'unclaimed'>; row: DoctorCheck | null }> {
   const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
   const implicit = targets === null ? implicitPack(markerAt(cwd)) : null;
@@ -1436,21 +1475,24 @@ async function modeOf(
 /** Run the doctor against `cwd`; render and return the report. */
 export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const common = resolveCommonOptions(options);
-  const { cwd, config, stdout } = common;
+  const { cwd, config, suite, stdout } = common;
   const env = options.env ?? realEnv;
   const pm = env.packageManager(cwd);
+
+  // Resolved once: the directory the workspace row probes is the one the mode's marker listing leaves out.
+  const out = options.out ?? suite.out;
 
   const checks: DoctorCheck[] = [
     ...(await environmentRows(cwd, pm, env, options.pinEnv ?? realPinEnv, options.staticOnly === true)),
     ...(await checkRows({ ...common, defaults: options.defaults ?? null }, options, pm, env)),
-    await checkWritable(cwd, options.out, env),
+    await checkWritable(cwd, out, env),
   ];
-  const mode = await modeOf(cwd, config, options.out);
-  const unreached = await checkUnreached(cwd, config, common);
-  checks.push(...applicable(checkBaseline(cwd, env), checkAgentInstructions(cwd, env), mode.row, unreached));
+  const mode = await modeOf(cwd, config, out);
+  checks.push(...(await workspaceRows(common, env, mode.row)));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
-  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, checks };
+  const named = suite.name === undefined ? {} : { suite: suite.name };
+  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, ...named, checks };
 
   if (options.json === true) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);

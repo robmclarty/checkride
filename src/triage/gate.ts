@@ -24,8 +24,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { outDir, readSummary } from '../artifacts/index.js';
+import { CONFIG_ENV, DEFAULTS_ENV } from '../config.js';
 import type { PackageManager } from '../launch/index.js';
-import { detectPackageManager, entryArgv, entryText, launchRefusal, resolveEntry } from '../launch/index.js';
+import { detectPackageManager, entryArgv, launchRefusal, resolveEntry } from '../launch/index.js';
 import type { SpawnOutcome, TriageEnv } from './env.js';
 
 /** How the gate ended, in the reader's vocabulary. */
@@ -75,6 +76,32 @@ function readCheckScript(cwd: string): string | null {
   }
 }
 
+/** The flags of a `check` script, and the variables, that a named suite can't run beside, each with the variable that means the same. */
+const SUITE_CONFLICTS: readonly (readonly [flag: string, variable: string | null])[] = [
+  ['--config', CONFIG_ENV],
+  ['--defaults', DEFAULTS_ENV],
+  ['--discover', null],
+];
+
+/** True when `script` passes `flag` as an argument of its own, and not as part of a longer one. */
+function passesFlag(script: string, flag: string): boolean {
+  return script.split(/\s+/).some((word) => word === flag || word.startsWith(`${flag}=`));
+}
+
+/**
+ * What would make the run a triage of a named suite starts exit 2, each in
+ * the words a usage error names it with: a variable in `env`, which the run
+ * inherits, or a flag the repo's `check` script passes. Asked before the run
+ * starts, so the failure is triage's own usage error and not a dead child.
+ */
+export function suiteRunConflicts(cwd: string, env: Readonly<Record<string, string | undefined>>): string[] {
+  const script = readCheckScript(cwd);
+  return SUITE_CONFLICTS.flatMap(([flag, variable]) => [
+    ...(variable !== null && (env[variable] ?? '') !== '' ? [variable] : []),
+    ...(script !== null && passesFlag(script, flag) ? [`${flag} in the check script`] : []),
+  ]);
+}
+
 /**
  * Tolerance for a summary written moments before the gate's own clock reading —
  * mirrors `MTIME_TOLERANCE_MS` in `./triage.ts`, where the same comparison
@@ -117,19 +144,23 @@ function verdictFor(outcome: SpawnOutcome, refusal: string | null): GateVerdict 
  * are set in the run's environment, where a triage given `--out` puts
  * `CHECKRIDE_OUT`, since a variable reaches checkride whatever the package
  * manager does with arguments; `out.dir` is where the run writes its summary.
+ * `out.flags` go after the entry command, behind npm's `--`: a triage of a
+ * named suite passes `--suite <name>` there, as `gate --suite` does, so the
+ * suite it names wins over one the script or the environment names.
  */
 export async function runGate(
   cwd: string,
   env: TriageEnv,
-  out: { dir: string; vars: Readonly<Record<string, string>> } = { dir: outDir(cwd), vars: {} },
+  out: { dir: string; vars: Readonly<Record<string, string>>; flags?: readonly string[] } = { dir: outDir(cwd), vars: {} },
 ): Promise<GateOutcome> {
+  const flags = out.flags ?? [];
   const pm = detectPackageManager({ cwd });
   const entry = resolveEntry(cwd, pm);
   const script = readCheckScript(cwd);
   const base = {
     script,
     // The argv as run, quoted the way the report always has for a check script.
-    command: entry.kind === 'script' ? `${pm} run ${CHECK_SCRIPT}` : entryText(entry),
+    command: entryArgv(entry, flags).join(' '),
     pm,
     startedMs: env.now(),
     narrowingFlags: NARROWING_FLAGS.filter((flag) => script?.includes(flag) ?? false),
@@ -137,7 +168,7 @@ export async function runGate(
   if (entry.kind === 'script' && script === null) {
     return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null, refusal: null };
   }
-  const [command, ...args] = entryArgv(entry, []);
+  const [command, ...args] = entryArgv(entry, flags);
   const outcome = await env.spawn(command, args, { cwd, timeoutMs: env.timeoutMs, env: out.vars });
   const refusal = await refusalFor(outcome, out.dir, base.startedMs);
   return {

@@ -68,6 +68,7 @@ src/
   smoke.ts          built-in import-liveness check
   snippets.ts       built-in doc-snippet typecheck
   security.ts       built-in dependency-audit check
+  suite.ts          named suites: a name, and the config, baseline and output directory it fixes
   atomic.ts         atomic file writes (temp file + fsync + rename)
   proc.ts           process-group kill + SIGTERM→SIGKILL escalation
   json.ts           the one `isRecord` narrowing primitive

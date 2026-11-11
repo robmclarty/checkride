@@ -21,6 +21,7 @@
 
 import { formatBytes, formatDuration } from '../artifacts/index.js';
 import type { SummaryRead } from '../artifacts/index.js';
+import { suiteCommand } from '../suite.js';
 import type { DeadExtract } from './dead.js';
 import type { DupesExtract } from './dupes.js';
 import type { HealthExtract } from './health.js';
@@ -131,9 +132,9 @@ function ledgerRow(report: QaReport, entry: LedgerEntry): string {
 }
 
 /** Where this artifact came from, when that is not "the run described above". */
-function provenanceReason(entry: LedgerEntry): string | null {
+function provenanceReason(entry: LedgerEntry, report: QaReport): string | null {
   if (entry.optedIn === false) {
-    return `\`${entry.name}\` is not named in \`checkride.config.json\`, so no \`checkride\` run produces it`;
+    return `\`${entry.name}\` is not named in \`${report.suite.configFile}\`, so no \`${suiteCommand('checkride', report.suite)}\` run produces it`;
   }
   if (!entry.ranThisRun) {
     return `\`${entry.name}\` has no entry in the summary on disk, so nothing here is from that run`;
@@ -164,8 +165,8 @@ function problemReason(entry: LedgerEntry): string | null {
  * age, then why nothing was folded, then the remedy. A row with nothing to say
  * produces no note at all, so a clean ledger is a bare table.
  */
-function ledgerNote(entry: LedgerEntry): string | null {
-  const why = [provenanceReason(entry), stalenessReason(entry), problemReason(entry)].filter(
+function ledgerNote(entry: LedgerEntry, report: QaReport): string | null {
+  const why = [provenanceReason(entry, report), stalenessReason(entry), problemReason(entry)].filter(
     (reason): reason is string => reason !== null,
   );
   return why.length === 0 ? null : `**${entry.name}** — ${why.join('; ')}. ${entry.remedy}`;
@@ -173,7 +174,7 @@ function ledgerNote(entry: LedgerEntry): string | null {
 
 function renderLedger(report: QaReport): string {
   const rows = report.ledger.map((entry) => ledgerRow(report, entry));
-  const notes = report.ledger.map(ledgerNote).filter((note): note is string => note !== null);
+  const notes = report.ledger.map((entry) => ledgerNote(entry, report)).filter((note): note is string => note !== null);
   const body = table(['artifact', 'state', 'size', 'age', 'headline'], rows);
   return notes.length === 0 ? body : `${body}\n\n${bullets(notes)}`;
 }

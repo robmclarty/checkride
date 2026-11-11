@@ -156,6 +156,8 @@ Task-focused guides live in [docs/](./docs/README.md):
   repo packs runs, and how to install a missing tool when `doctor` reports one.
 - [Targets](./docs/targets.md) — checking a repo with more than one language,
   or one language in more than one place, as named targets.
+- [Suites](./docs/suites.md) — more than one suite of checks in a repo, each
+  with its own config, baseline and output directory, run with `--suite`.
 - [Packs and pins](./docs/packs.md) — each language pack's slots and tools,
   where each tool is pinned, and the environment its checks run with.
 - [A polyglot repo, end to end](./docs/polyglot.md) — a worked example: one
@@ -207,6 +209,7 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --only <a,b>  --skip <a,b>  --bail  --json  --changed  --all  --include <a,b>
   --digest  --strict (zero checks running = exit 2 — use wherever checkride gates)
   --base <ref>  --concurrency <n>  --config <path>  --out <dir>
+  --suite <name> (a named suite: its own config, baseline and .check/suites/<name>/)
   --defaults <path>  --discover  --pins <mise.toml>  --static-only (consumer runs)
 checkride init         Set up a project (new or existing — auto-detected).
   --lang ts|go|rust  --shape flat|monorepo|hybrid (ts), module|workspace (go),

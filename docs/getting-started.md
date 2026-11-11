@@ -505,7 +505,11 @@ nothing per tool call instead of spawning Node on every edit:
 
 ```json
 "permissions": {
-  "deny": ["Edit(**/checkride.baseline.json)", "Edit(**/.check/**)"]
+  "deny": [
+    "Edit(**/checkride.baseline.json)",
+    "Edit(**/.check/**)",
+    "Edit(**/checkride.*.baseline.json)"
+  ]
 }
 ```
 

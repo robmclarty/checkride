@@ -432,6 +432,7 @@ function runnerContext(r: ResolvedCheck, ctx: RunContext, place: Place): Paramet
     changed: ctx.changed,
     ...(ctx.changedBase !== null ? { base: ctx.changedBase.ref } : {}),
     out: place.outArg,
+    scratch: ctx.suite.out,
     pm: place.pm,
     ...(ctx.timeout !== undefined ? { timeout: ctx.timeout } : {}),
     repo: ctx.cwd,

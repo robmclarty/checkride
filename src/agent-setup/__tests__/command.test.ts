@@ -135,7 +135,7 @@ describe('hooks command', () => {
     expect(again.skipped.some((s) => s.includes('(unchanged)'))).toBe(true);
 
     await runHooks({ cwd: dir, action: 'add', hooks: ['protect'] });
-    expect(await deny()).toHaveLength(2);
+    expect(await deny()).toHaveLength(3);
     const secondAdd = await runHooks({ cwd: dir, action: 'add', hooks: ['protect'] });
     expect(secondAdd.written).toEqual([]);
     expect(secondAdd.skipped.some((s) => s.includes('(unchanged)'))).toBe(true);
@@ -157,7 +157,7 @@ describe('hooks command', () => {
     await runHooks({ cwd: dir, action: 'remove', hooks: ['gate', 'dirty', 'protect'] });
     const result = await runHooks({ cwd: dir, action: 'add' });
     expect(result.written).toContain(GATE_SCRIPT_FILE);
-    expect(await deny()).toHaveLength(2);
+    expect(await deny()).toHaveLength(3);
     expect((await settings()).hooks?.['PostToolUse']).toHaveLength(1);
   });
 

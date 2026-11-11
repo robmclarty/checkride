@@ -34,6 +34,7 @@ const PUBLIC_EXPORTS = [
   'runFix',
   'runInit',
   'selectChecks',
+  'suiteNamed',
 ];
 
 /** The catalogue position of the slot an adapter fills. */

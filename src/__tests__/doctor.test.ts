@@ -12,6 +12,7 @@ import type { CheckrideConfig } from '../config.js';
 import type { DoctorCheck, DoctorEnv } from '../doctor.js';
 import { isProbeTimeout, probeFailure, runDoctor, PROBE_TIMED_OUT } from '../doctor.js';
 import type { PinEnv } from '../node-pin.js';
+import { suiteNamed } from '../suite.js';
 import type { PackageManager } from '../launch/index.js';
 import { launchCheck } from '../launch/index.js';
 
@@ -741,6 +742,18 @@ describe('output directory workspace row', () => {
       category: 'workspace', required: true, status: 'missing', hint: 'Ensure /agent/out is writable.',
     });
     expect(result.exitCode).toBe(1);
+  });
+
+  test('a named suite’s own directory is the one probed, and --out still wins over it', async () => {
+    const suite = suiteNamed('evals');
+    const own = probing(true);
+    const result = await runDoctor({ ...baseOpts, config: {}, suite, env: own.env, stdout: sink() });
+    expect(own.probed).toEqual(['/repo/.check/suites/evals']);
+    expect(result.report.checks.some((c) => c.category === 'workspace' && c.name === '.check/suites/evals')).toBe(true);
+
+    const named = probing(true);
+    await runDoctor({ ...baseOpts, config: {}, suite, out: '/agent/out', env: named.env, stdout: sink() });
+    expect(named.probed).toEqual(['/agent/out']);
   });
 
   test('a relative --out resolves against cwd and keeps its relative name', async () => {

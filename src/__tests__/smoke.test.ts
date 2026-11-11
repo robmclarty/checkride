@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -173,7 +174,7 @@ describe('checkSmoke (real subprocess)', () => {
           'export declare const foo: number;\nexport declare function bar(): void;\nexport declare class Baz {}\nexport interface Ignored { x: number }\n',
       },
     );
-    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn });
+    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn, scratch: '.check' });
     expect(outcome.ok).toBe(true);
     expect(outcome.exit_code).toBe(0);
     const parsed = JSON.parse(outcome.stdout) as { ok: boolean; results: { subpath: string; ok: boolean }[] };
@@ -181,12 +182,25 @@ describe('checkSmoke (real subprocess)', () => {
     expect(parsed.results).toEqual([{ subpath: '.', ok: true, errors: [] }]);
   });
 
+  test('a named suite’s probe sits in its own scratch directory, beside nothing of the default suite’s', async () => {
+    await fixture(
+      { name: 'smoke-suite', exports: healthyExports },
+      { 'dist/index.js': 'export const foo = 1;\n', 'dist/index.d.ts': 'export declare const foo: number;\n' },
+    );
+    const probes: string[] = [];
+    const spy: SmokeSpawn = (command, args, ...rest) => { probes.push(args[0] ?? ''); return realSpawn(command, args, ...rest); };
+    expect((await checkSmoke({ cwd: dir, spawn: spy, scratch: '.check/suites/evals' })).ok).toBe(true);
+    expect((await checkSmoke({ cwd: dir, spawn: spy, scratch: '.check' })).ok).toBe(true);
+    expect(probes).toEqual([join(dir, '.check', 'suites', 'evals', 'smoke-probe.mjs'), join(dir, '.check', 'smoke-probe.mjs')]);
+    expect(probes.every((probe) => existsSync(probe))).toBe(true);
+  });
+
   test('fails when a module throws on import', async () => {
     await fixture(
       { name: 'smoke-throw', exports: healthyExports },
       { 'dist/index.js': "throw new Error('boom on load');\nexport const foo = 1;\n", 'dist/index.d.ts': 'export declare const foo: number;\n' },
     );
-    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn });
+    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn, scratch: '.check' });
     expect(outcome.ok).toBe(false);
     expect(outcome.exit_code).toBe(1);
     expect(outcome.stderr).toContain('import failed');
@@ -201,7 +215,7 @@ describe('checkSmoke (real subprocess)', () => {
         'dist/index.d.ts': 'export declare const foo: number;\nexport declare function gone(): void;\n',
       },
     );
-    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn });
+    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn, scratch: '.check' });
     expect(outcome.ok).toBe(false);
     expect(outcome.stderr).toContain('missing value export(s): gone');
   });
@@ -214,7 +228,7 @@ describe('checkSmoke (real subprocess)', () => {
         'dist/index.d.ts': 'export declare const foo: number;\nexport interface Shape { x: number }\nexport type Alias = string;\n',
       },
     );
-    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn });
+    const outcome = await checkSmoke({ cwd: dir, spawn: realSpawn, scratch: '.check' });
     expect(outcome.ok).toBe(true);
   });
 
@@ -230,7 +244,7 @@ describe('checkSmoke (real subprocess)', () => {
       return realSpawn(...args);
     };
     try {
-      const outcome = await checkSmoke({ cwd: dir, spawn: spy });
+      const outcome = await checkSmoke({ cwd: dir, spawn: spy, scratch: '.check' });
       expect(spawned).toBe(false);
       expect(outcome.skip).toBe('needs a writable ./.check for scratch files');
     } finally {
@@ -245,7 +259,7 @@ describe('checkSmoke (real subprocess)', () => {
       spawned = true;
       return realSpawn(...args);
     };
-    const outcome = await checkSmoke({ cwd: dir, spawn: spy });
+    const outcome = await checkSmoke({ cwd: dir, spawn: spy, scratch: '.check' });
     expect(spawned).toBe(false);
     expect(outcome.ok).toBe(false);
     expect(outcome.stderr).toContain('dist/index.js');

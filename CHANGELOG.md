@@ -4,6 +4,57 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **A repo can keep more than one suite of checks (#24).** `--suite <name>`,
+  or `CHECKRIDE_SUITE`, runs a named suite in place of the default one. A
+  suite named `evals` is three paths at the repo root, each fixed by its name:
+  the config `checkride.evals.config.json`, the baseline
+  `checkride.evals.baseline.json`, and the output directory
+  `.check/suites/evals/`. It runs exactly the checks its config declares, so
+  detection fills no slot and no built-in joins on its own, and a full run
+  ratchets its own baseline and never another suite's. Run, `fix`, `doctor`,
+  `baseline` with `--versions` and `diff`, `recover`, `gate`, `triage` and
+  `qa` take the flag, and `doctor` without it lists the suites it finds. A
+  suite with no config is exit 2, naming the path and the suites that exist,
+  and so is `--suite` beside `--config`, `--defaults` or `--discover`. An
+  entry that tunes a slot and names no tool is a config error in a suite,
+  whatever tools the repo holds. The stop-gate hook stays on the default
+  suite: `gate` strips `CHECKRIDE_SUITE` from the check it runs, and only
+  `gate --suite` gates another, passing the suite to the check as a flag, as
+  `triage --suite` does. A name `gate --suite` can't gate blocks with the
+  reason in the harness's protocol and is never a usage error, and
+  `triage --suite` refuses, before it starts a run, a `check` script or an
+  environment that names a config or a defaults layer. Every hint a suite's
+  command prints names a command with `--suite` on it, a suite's config
+  errors name `checkride.<name>.config.json`, and `triage` and `qa` name the
+  suite's files in their reports. The `snippets` and `smoke` built-ins keep a
+  suite's scratch files under `.check/suites/<name>/`, apart from the default
+  suite's. `docs/suites.md` has the guide, with an evals suite as its
+  example and a note on what `gate --suite` needs of the `check` script.
+- The `protect` hook denies an agent's edits to a named suite's baseline,
+  `checkride.<name>.baseline.json`. Under Claude Code that's a third
+  `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
+  next `agent-setup` or `hooks add` appends.
+
+### Contract
+
+- Additive: the run flag `--suite <name>` and the variable `CHECKRIDE_SUITE`;
+  the file names `checkride.<name>.config.json` and
+  `checkride.<name>.baseline.json` and the directory `.check/suites/<name>/`;
+  a top-level `suite` field in `summary.json`, present only on a named
+  suite's run, and in the summary schema; a `suite` field in `doctor --json`
+  under `--suite`, and a `suites` row without it in a repo that holds any. A
+  run of the default suite writes what it wrote before.
+- Additive: the package root exports `suiteNamed` and the `Suite` type, the
+  value `runChecks`, `runFix` and `runDoctor` take as `suite`. With `config`
+  omitted they load the suite's own config file.
+- Additive: `suites` joins the reserved target names, since a target's
+  artifacts would land in `.check/suites/`. A config that names a target
+  `suites` is now a config error, and the config schema refuses the name.
+
 ## [0.20.0] - 2026-11-05
 
 ### Added

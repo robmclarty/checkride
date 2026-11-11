@@ -12,6 +12,7 @@ import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { resolveChecks } from '../config.js';
 import type { Launch, LaunchContext, PackageManager } from '../launch/index.js';
 import { launchCheck, packEnv, pinChain } from '../launch/index.js';
+import type { Suite } from '../suite.js';
 import { checkName, configuredTargets } from '../targets/index.js';
 import { packageManagerAt, resolveCommonOptions } from './context.js';
 import { checkCwd } from './place.js';
@@ -37,6 +38,8 @@ export type FixOptions = RunFlags & {
   slots?: readonly Slot[];
   adapters?: readonly Adapter[];
   config?: CheckrideConfig | null;
+  /** The named suite whose fixers run, with `config` holding its config; the default suite's when omitted. */
+  suite?: Suite;
   stderr?: Out;
   fixRunner?: FixRunner;
   pm?: PackageManager;
@@ -92,12 +95,12 @@ function reportFix(stderr: Out, r: ResolvedCheck, outcome: FixOutcome): 'ok' | '
  * root under the package manager declared nearest it.
  */
 export async function runFix(options: FixOptions): Promise<FixResult> {
-  const { cwd, slots, adapters, config, stderr } = resolveCommonOptions(options);
+  const { cwd, slots, adapters, config, suite, stderr } = resolveCommonOptions(options);
   const fixRunner = options.fixRunner ?? defaultFixRunner;
   const pmAt = packageManagerAt(options.pm, cwd);
   const requirePins = config?.requirePins === true;
 
-  const resolved = resolveChecks({ slots, adapters, config, cwd });
+  const resolved = resolveChecks({ slots, adapters, config, cwd, suite });
   validateSelection(resolved, options);
   const selected = withOdinPackage(withGoPackages(await withFileLists(selectChecks(resolved, options), cwd, configuredTargets(config)), cwd), cwd);
   const fixable = selected.filter((r) => r.adapter?.fixArgs);

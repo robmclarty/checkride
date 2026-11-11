@@ -25,10 +25,12 @@
  */
 
 import type { ArtifactFile, SummaryRead } from '../artifacts/index.js';
-import { outDir, outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
+import { outLabel, readSummary, runWindowStart } from '../artifacts/index.js';
 import { configuredSlots } from '../config.js';
 import type { SummaryCheck } from '../orchestrator/index.js';
 import { enableCandidates, enableEntry } from '../orchestrator/index.js';
+import type { Suite } from '../suite.js';
+import { DEFAULT_SUITE, suiteCommand, suiteOutDir } from '../suite.js';
 import type { DeadExtract } from './dead.js';
 import { extractDead } from './dead.js';
 import type { DupesExtract } from './dupes.js';
@@ -74,6 +76,8 @@ export type QaReport = {
    * it sits inside it (`.check` by default), absolute otherwise.
    */
   outLabel: string;
+  /** The suite the report is of, whose config its lines name. */
+  suite: Suite;
   summary: SummaryRead;
   windowStart: number | null;
   /** Age of the run that wrote the summary, measured from its end. */
@@ -94,7 +98,7 @@ export type QaFold =
   | { name: string; slot: 'dupes'; extract: DupesExtract }
   | { name: string; slot: 'health'; extract: HealthExtract };
 
-type ArtifactSpec = { slot: QaFold['slot']; artifact: string; remedy: string };
+type ArtifactSpec = { slot: QaFold['slot']; artifact: string; remedy: string; /** The adapter a config names to fill the slot, for a suite's remedy. */ use: string };
 
 /**
  * The four artifacts, in the order the skill reasons about them: surviving
@@ -109,6 +113,7 @@ const ARTIFACTS: readonly ArtifactSpec[] = [
   {
     slot: 'mutation',
     artifact: 'mutation.json',
+    use: 'stryker',
     remedy:
       'Opt-in slot. Run `checkride --include mutation` (or add `"mutation": { "use": "stryker" }` to ' +
       '`checkride.config.json`). It detects on a stryker config — `stryker.config.mjs` — which `checkride init` ' +
@@ -117,6 +122,7 @@ const ARTIFACTS: readonly ArtifactSpec[] = [
   {
     slot: 'dead',
     artifact: 'dead.json',
+    use: 'fallow',
     remedy:
       'Default-catalogue slot, so `checkride` already runs it — unless no dead-code tool is detected. Add ' +
       '`fallow.toml` (`checkride init --add dead` scaffolds one) or a knip config, then `checkride --only dead`.',
@@ -124,6 +130,7 @@ const ARTIFACTS: readonly ArtifactSpec[] = [
   {
     slot: 'dupes',
     artifact: 'dupes.json',
+    use: 'fallow',
     remedy:
       'Opt-in slot. Run `checkride --include dupes` (or add `"dupes": { "use": "fallow" }` to ' +
       '`checkride.config.json`). Needs `fallow.toml` — `checkride init --add dupes` scaffolds one.',
@@ -131,6 +138,7 @@ const ARTIFACTS: readonly ArtifactSpec[] = [
   {
     slot: 'health',
     artifact: 'health.json',
+    use: 'fallow',
     remedy:
       'Opt-in slot. Run `checkride --include health` (or add `"health": { "use": "fallow" }` to ' +
       '`checkride.config.json`). Needs `fallow.toml` — `checkride init --add health` scaffolds one.',
@@ -147,7 +155,7 @@ function detailOf(read: ArtifactRead): string | null {
   return read.state === 'unreadable' ? read.detail : null;
 }
 
-type SlotContext = { configured: string[] | null; ran: Set<string> };
+type SlotContext = { configured: string[] | null; ran: Set<string>; suite: Suite };
 
 /**
  * One artifact a check wrote: its spec, the check's name, its path in the
@@ -175,13 +183,25 @@ function instancesOf(spec: ArtifactSpec, summary: SummaryRead): Instance[] {
 /** The opening every `dead` remedy for a check fallow doesn't fill shares: why there's no fold. */
 const FALLOW_ONLY = "qa reads only fallow's report";
 
-/** The remedy for a `dead` check that sat out: its pack's own tool, or for a ts check, the spec's fallow remedy. */
-function satOutRemedy(spec: ArtifactSpec, check: SummaryCheck): string {
+/** The remedy for a `dead` check that sat out: its pack's own tool, or for a ts check, `fallow`, the remedy that names fallow. */
+function satOutRemedy(spec: ArtifactSpec, check: SummaryCheck, fallow: string): string {
   const pack = check.pack ?? 'ts';
   const own = pack === 'ts' ? [] : enableCandidates(spec.slot, pack, []);
-  if (own.length === 0) return spec.remedy;
+  if (own.length === 0) return fallow;
   const add = own.map((a) => enableEntry(a, false)).join(', or ');
   return `${FALLOW_ONLY}, which no ${pack} tool writes. ${check.name} found no tool; add ${add}, then read its raw output in the output directory.`;
+}
+
+/**
+ * The remedy in a named suite, which runs only what its config declares, so
+ * nothing there is opt-in or detected: name the slot's tool in the suite's
+ * own config, then run the suite.
+ */
+function suiteRemedy(spec: ArtifactSpec, suite: Suite): string {
+  return (
+    `A suite runs only the checks its config declares. Add \`"${spec.slot}": { "use": "${spec.use}" }\` to ` +
+    `\`${suite.configFile}\`, then run \`${suiteCommand('checkride', suite)}\`.`
+  );
 }
 
 /**
@@ -189,12 +209,15 @@ function satOutRemedy(spec: ArtifactSpec, check: SummaryCheck): string {
  * (deadcode, cargo-machete, knip) writes no fallow report, the only one qa
  * folds, so its remedy points at the check's raw output instead; one of
  * another pack that sat out names that pack's own tool, since fallow and knip
- * check only TypeScript. Every other artifact's remedy is its spec's.
+ * check only TypeScript. Every other artifact's remedy is its spec's, or in
+ * a named suite the one that names the suite's config ({@link suiteRemedy}).
  */
-function remedyFor(instance: Instance): string {
+function remedyFor(instance: Instance, suite: Suite): string {
   const { spec, check } = instance;
-  if (spec.slot !== 'dead' || check === undefined || check.adapter === 'fallow') return spec.remedy;
-  if (check.adapter === null || check.skipped === true) return satOutRemedy(spec, check);
+  // The spec's remedy speaks of the default suite's opt-in slots and detection, which a named suite has none of.
+  const own = suite.name === undefined ? spec.remedy : suiteRemedy(spec, suite);
+  if (spec.slot !== 'dead' || check === undefined || check.adapter === 'fallow') return own;
+  if (check.adapter === null || check.skipped === true) return satOutRemedy(spec, check, own);
   const raw = check.output_file ?? `${instance.artifact.replace(/\.json$/, '')}.stdout.txt`;
   return `${FALLOW_ONLY}, and ${check.name} ran ${check.adapter}, which writes none: read its raw output, \`${raw}\` in the output directory.`;
 }
@@ -239,7 +262,7 @@ function entryFor(instance: Instance, read: ArtifactRead, context: SlotContext, 
     file: read.file,
     problem: problem === null && !recognized ? 'unrecognized' : problem,
     detail: detailOf(read),
-    remedy: remedyFor(instance),
+    remedy: remedyFor(instance, context.suite),
   };
 }
 
@@ -264,14 +287,15 @@ function summaryAge(summary: SummaryRead, now: number): number | null {
  * Read the output directory's four quality artifacts and fold each to a short
  * list. `out` is the directory `--out` or `CHECKRIDE_OUT` named, or `null`
  * for `<cwd>/.check`. Never throws and never runs anything: every failure is a
- * ledger state.
+ * ledger state. `suite` is the suite to read, the default one when omitted:
+ * its output directory and its config.
  */
-export async function qaExtract(cwd: string, now: () => number = Date.now, out: string | null = null): Promise<QaReport> {
-  const checkDir = out ?? outDir(cwd);
+export async function qaExtract(cwd: string, now: () => number = Date.now, out: string | null = null, suite: Suite = DEFAULT_SUITE): Promise<QaReport> {
+  const checkDir = out ?? suiteOutDir(cwd, suite);
   const summary = await readSummary(checkDir);
   const windowStart = summary.state === 'ok' ? runWindowStart(summary.summary) : null;
   const { covered, skipped } = coverage(summary);
-  const context: SlotContext = { configured: configuredSlots(cwd), ran: new Set(covered) };
+  const context: SlotContext = { configured: configuredSlots(cwd, suite.configFile), ran: new Set(covered), suite };
 
   const instances = ARTIFACTS.flatMap((spec) => instancesOf(spec, summary));
   const read = await Promise.all(
@@ -285,6 +309,7 @@ export async function qaExtract(cwd: string, now: () => number = Date.now, out: 
   return {
     cwd,
     outLabel: outLabel(cwd, checkDir),
+    suite,
     summary,
     windowStart,
     summaryAgeMs: summaryAge(summary, now()),

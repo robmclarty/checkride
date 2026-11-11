@@ -10,7 +10,8 @@
  * Scratch is not output. `snippets` and `smoke` generate files that have to
  * resolve the repo's own modules from where they sit, so they write under
  * `<cwd>/.check/` whatever the output directory is ({@link prepareScratch}),
- * and so does the gate's dirty marker.
+ * a named suite's under its own `<cwd>/.check/suites/<name>/`, and the gate's
+ * dirty marker sits at `<cwd>/.check/.dirty`.
  *
  * The `../artifacts` barrel is this module's only public surface.
  */
@@ -87,24 +88,30 @@ export function outLabel(cwd: string, dir: string): string {
   return rel === '' ? '.' : rel;
 }
 
-/** Where a built-in run from `root` writes its generated files, whatever the output directory is. */
-export function scratchDir(root: string): string {
-  return join(root, CHECK_DIR);
+/**
+ * Where a built-in run from `root` writes its generated files, whatever the
+ * output directory is: `<root>/.check`, or `<root>/<under>` for a run that
+ * keeps its scratch apart, as a named suite's does under
+ * `.check/suites/<name>`, so two suites' runs never clear each other's.
+ */
+export function scratchDir(root: string, under: string = CHECK_DIR): string {
+  return join(root, under);
 }
 
 /**
  * Make the scratch directory under `root` ready to write, or say why it can't
  * be: the `reason` a built-in that needs scratch records when it skips, as it
  * does in a read-only checkout that a run pointed `--out` away from. `null`
- * when the directory exists and is writable.
+ * when the directory exists and is writable. `under` is the scratch directory
+ * relative to `root`, as {@link scratchDir} takes it.
  */
-export async function prepareScratch(root: string): Promise<string | null> {
-  const dir = scratchDir(root);
+export async function prepareScratch(root: string, under: string = CHECK_DIR): Promise<string | null> {
+  const dir = scratchDir(root, under);
   try {
     await mkdir(dir, { recursive: true });
     await access(dir, constants.W_OK);
     return null;
   } catch {
-    return `needs a writable ./${CHECK_DIR} for scratch files`;
+    return `needs a writable ./${under} for scratch files`;
   }
 }

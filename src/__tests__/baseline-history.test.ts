@@ -236,31 +236,31 @@ describe('historicalHint', () => {
         { sha: 'm'.padEnd(40, '0'), blob: blob({ lint: [K1], spell: [K2] }) },
       ],
     });
-    const hint = await historicalHint('/repo', [K1, K2, 'c.ts:r:three'], git);
+    const hint = await historicalHint('/repo', [K1, K2, 'c.ts:r:three'], { git: git });
     expect(hint).toEqual({ matched: 2, total: 3, shortSha: 'm000000' });
   });
 
   test('null when history never grandfathered them, and for an empty key set', async () => {
     const git = fakeGit({ log: [{ sha: 'n'.padEnd(40, '0'), blob: blob({ lint: ['other'] }) }] });
-    expect(await historicalHint('/repo', [K1], git)).toBeNull();
-    expect(await historicalHint('/repo', [], git)).toBeNull();
+    expect(await historicalHint('/repo', [K1], { git: git })).toBeNull();
+    expect(await historicalHint('/repo', [], { git: git })).toBeNull();
   });
 
   test('null on any git failure — the probe never throws', async () => {
     const notRepo = fakeGit({ fail: { 'rev-parse': { ok: false, error: 'not-a-repo', detail: 'fatal' } } });
-    expect(await historicalHint('/repo', [K1], notRepo)).toBeNull();
+    expect(await historicalHint('/repo', [K1], { git: notRepo })).toBeNull();
     const noLog = fakeGit({ fail: { log: { ok: false, error: 'failed', detail: 'boom' } } });
-    expect(await historicalHint('/repo', [K1], noLog)).toBeNull();
+    expect(await historicalHint('/repo', [K1], { git: noLog })).toBeNull();
   });
 
   test('null once the budget expires — a hung git never slows a red run', async () => {
-    expect(await historicalHint('/repo', [K1], hungGit, 25)).toBeNull();
+    expect(await historicalHint('/repo', [K1], { git: hungGit, budgetMs: 25 })).toBeNull();
   });
 
   test('probes a short log and at most three snapshots', async () => {
     const log = Array.from({ length: 5 }, (_, i) => ({ sha: `${i}`.padEnd(40, 'b'), blob: blob({ lint: ['other'] }) }));
     const git = fakeGit({ log });
-    await historicalHint('/repo', [K1], git);
+    await historicalHint('/repo', [K1], { git: git });
     expect(git.calls.find((c) => c[0] === 'log')?.slice(1, 3)).toEqual(['-n', '5']);
     expect(git.calls.filter((c) => c[0] === 'show')).toHaveLength(3);
   });

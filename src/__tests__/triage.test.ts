@@ -19,8 +19,9 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, test } from 'vitest';
 
+import { suiteNamed } from '../suite.js';
 import type { SpawnOutcome, TriageEnv, TriageReport } from '../triage/index.js';
-import { isHarnessProblem, renderTriage, resolveCheckrideCli, triage } from '../triage/index.js';
+import { isHarnessProblem, renderTriage, resolveCheckrideCli, suiteRunConflicts, triage } from '../triage/index.js';
 
 const RUN_END_ISO = '2026-07-24T02:15:16.214Z';
 const RUN_DURATION_MS = 90_000;
@@ -875,5 +876,144 @@ describe('an output directory named by --out', () => {
     expect(report.outLabel).toBe('.check');
     expect(seen).toEqual([{ args: ['run', 'check'], env: {} }]);
     expect(renderTriage(report)).toContain('`.check/summary.json`');
+  });
+});
+
+describe('a named suite', () => {
+  const EVALS = suiteNamed('evals');
+
+  /** A repo whose default `.check/` holds a green run and whose evals suite holds a red one. */
+  async function suiteFixture(): Promise<string> {
+    const dir = await makeRepo({ summary: summaryOf([check('lint')]), installCheckride: true });
+    const out = join(dir, EVALS.out);
+    await mkdir(out, { recursive: true });
+    const files: Record<string, string> = {
+      'summary.json': JSON.stringify(summaryOf([check('evals', { ok: false, exit_code: 1 })])),
+      'evals.stdout.txt': 'case 3 regressed\n',
+    };
+    await Promise.all(
+      Object.entries(files).map(async ([file, text]) => {
+        await writeFile(join(out, file), text);
+        await stamp(join(out, file), FRESH_MTIME);
+      }),
+    );
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { lint: 'oxlint', spell: 'cspell' } }));
+    await writeFile(join(dir, EVALS.configFile), JSON.stringify({ checks: { evals: { command: 'node' }, judge: { command: 'node' } } }));
+    return dir;
+  }
+
+  type Seen = { args: readonly string[]; env: Readonly<Record<string, string>> | undefined };
+  function recordingEnv(seen: Seen[]): TriageEnv {
+    return {
+      now: () => GATE_STARTED,
+      timeoutMs: 1000,
+      spawn: (_command, args, opts) => {
+        seen.push({ args, env: opts.env });
+        return Promise.resolve({ ...CLEAN_SPAWN, code: 1 });
+      },
+    };
+  }
+
+  test('hands the gate run --suite as a flag, as gate --suite does, and reads the suite’s directory and config', async () => {
+    const dir = await suiteFixture();
+    const seen: Seen[] = [];
+    const report = await triage(dir, recordingEnv(seen), null, EVALS);
+    // A flag after the script's own, so it wins over a suite the script or the environment names.
+    expect(seen).toEqual([{ args: ['run', 'check', '--suite', 'evals'], env: {} }]);
+    expect(report.gate.command).toBe('pnpm run check --suite evals');
+    expect(report.outLabel).toBe('.check/suites/evals');
+    expect(report.failing.map((r) => r.slot)).toEqual(['evals']);
+    // Coverage is judged against the suite's own config, never the repo's.
+    expect(report.coverage.configured).toEqual(['evals', 'judge']);
+    expect(report.coverage.uncovered).toEqual(['judge']);
+    expect(renderTriage(report)).toContain('`.check/suites/evals/summary.json`');
+  });
+
+  test('--out still wins for the directory: it reaches the run as its variable, and the suite as its flag', async () => {
+    const { dir, out } = await outFixture();
+    await writeFile(join(dir, EVALS.configFile), '{}');
+    const seen: Seen[] = [];
+    const report = await triage(dir, recordingEnv(seen), out, EVALS);
+    expect(seen).toEqual([{ args: ['run', 'check', '--suite', 'evals'], env: { CHECKRIDE_OUT: out } }]);
+    expect(report.outLabel).toBe(out);
+  });
+
+  test('on a broken harness, doctor is asked about the suite too', async () => {
+    const dir = await suiteFixture();
+    const seen: Seen[] = [];
+    const env: TriageEnv = {
+      now: () => GATE_STARTED,
+      timeoutMs: 1000,
+      spawn: (_command, args, opts) => {
+        seen.push({ args, env: opts.env });
+        const doctor = args.includes('doctor');
+        return Promise.resolve({ ...CLEAN_SPAWN, code: doctor ? 0 : 2, stdout: doctor ? '{"ok":true,"checks":[]}' : '' });
+      },
+    };
+    const report = await triage(dir, env, null, EVALS);
+    expect(report.doctor?.state).toBe('ran');
+    expect(seen[1]?.args.slice(-4)).toEqual(['doctor', '--json', '--suite', 'evals']);
+  });
+
+  test('the report names the suite’s config and baseline, never the default suite’s', async () => {
+    const dir = await suiteFixture();
+    await writeFile(
+      join(dir, EVALS.out, 'summary.json'),
+      JSON.stringify(summaryOf([check('evals', { ok: false, exit_code: 1 }), check('labels', { baselined: 3 })])),
+    );
+    await stamp(join(dir, EVALS.out, 'summary.json'), FRESH_MTIME);
+    const text = renderTriage(await triage(dir, recordingEnv([]), null, EVALS));
+    expect(text).toContain('`checkride.evals.config.json` names 2 slot(s); 1 had no entry in this run: judge.');
+    expect(text).toContain('grandfathered by `checkride.evals.baseline.json`');
+    expect(text).not.toContain('checkride.config.json');
+    expect(text).not.toContain('checkride.baseline.json');
+  });
+
+  test('the default suite’s report names the default suite’s files, as before', async () => {
+    const dir = await makeRepo({ summary: summaryOf([check('lint', { baselined: 2 })]), installCheckride: true });
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ checks: { lint: 'oxlint', spell: 'cspell' } }));
+    const text = renderTriage(await triage(dir, recordingEnv([])));
+    expect(text).toContain('`checkride.config.json` names 2 slot(s)');
+    expect(text).toContain('grandfathered by `checkride.baseline.json`');
+  });
+
+  test('without a suite, the default suite’s directory and config are read, as before', async () => {
+    const dir = await suiteFixture();
+    const seen: Seen[] = [];
+    const report = await triage(dir, recordingEnv(seen));
+    expect(seen[0]?.env).toEqual({});
+    expect(report.outLabel).toBe('.check');
+    expect(report.failing).toEqual([]);
+    expect(report.coverage.configured).toEqual(['lint', 'spell']);
+  });
+});
+
+/** A repo whose `check` script is `script`. */
+const withScript = (script: string): Promise<string> => makeRepo({ script });
+
+describe('suiteRunConflicts', () => {
+  test('names nothing for a plain check script and a clean environment', async () => {
+    expect(suiteRunConflicts(await withScript('checkride'), {})).toEqual([]);
+    expect(suiteRunConflicts(await withScript('tsc --build && checkride --strict'), { CHECKRIDE_CONFIG: '', CHECKRIDE_OUT: '/x' })).toEqual([]);
+  });
+
+  test('names each variable the run would inherit that a suite can’t run beside', async () => {
+    const dir = await withScript('checkride');
+    expect(suiteRunConflicts(dir, { CHECKRIDE_CONFIG: 'ci.json', CHECKRIDE_DEFAULTS: 'd.json' })).toEqual(['CHECKRIDE_CONFIG', 'CHECKRIDE_DEFAULTS']);
+  });
+
+  test('names each flag the check script passes that a suite can’t run beside', async () => {
+    expect(suiteRunConflicts(await withScript('checkride --config ci.json'), {})).toEqual(['--config in the check script']);
+    expect(suiteRunConflicts(await withScript('checkride --defaults=d.json --discover'), {})).toEqual(['--defaults in the check script', '--discover in the check script']);
+  });
+
+  test('a longer flag that starts the same way is not one of them', async () => {
+    expect(suiteRunConflicts(await withScript('pnpm --config.verify-deps-before-run=false exec checkride'), {})).toEqual([]);
+  });
+
+  test('a repo with no check script names only what the environment holds', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'checkride-triage-noscript-'));
+    dirs.push(dir);
+    expect(suiteRunConflicts(dir, { CHECKRIDE_CONFIG: 'ci.json' })).toEqual(['CHECKRIDE_CONFIG']);
   });
 });

@@ -24,7 +24,6 @@
 
 import type { Baseline, BaselineDelta, BaselineRead, Candidate, HistoryScan } from './baseline/index.js';
 import {
-  BASELINE_FILE,
   baselineDirty,
   baselinesEqual,
   collectCandidates,
@@ -38,6 +37,8 @@ import {
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { Out } from './orchestrator/index.js';
+import type { Suite } from './suite.js';
+import { DEFAULT_SUITE, suiteCommand } from './suite.js';
 
 export type RecoverOptions = {
   cwd?: string;
@@ -53,6 +54,8 @@ export type RecoverOptions = {
   json?: boolean;
   stdout?: Out;
   stderr?: Out;
+  /** The named suite whose baseline is recovered, from the history of its own file; the default suite's when omitted. */
+  suite?: Suite;
   /** Injectable for tests. */
   git?: GitRunner;
 };
@@ -62,6 +65,8 @@ export type RecoverResult = { ok: boolean; exitCode: number };
 /** Everything a listing or an apply needs, resolved once. */
 type RecoverContext = {
   cwd: string;
+  /** The suite whose baseline file is being recovered, which every command this one names carries. */
+  suite: Suite;
   read: BaselineRead;
   scan: HistoryScan;
   dirty: boolean;
@@ -83,10 +88,12 @@ export async function runRecover(options: RecoverOptions): Promise<RecoverResult
     throw new Error('recover: --exact requires --pick (it says how to write the picked candidate)');
   }
   const git = options.git ?? realGit(cwd);
-  const read = readBaselineStatus(cwd);
-  const scan = await collectCandidates(git, read.baseline, options.depth ?? DEFAULT_DEPTH);
-  const dirty = await baselineDirty(git);
-  const ctx: RecoverContext = { cwd, read, scan, dirty, json: options.json ?? false, stdout, stderr };
+  const suite = options.suite ?? DEFAULT_SUITE;
+  const file = suite.baselineFile;
+  const read = readBaselineStatus(cwd, 'current', file);
+  const scan = await collectCandidates(git, read.baseline, options.depth ?? DEFAULT_DEPTH, file);
+  const dirty = await baselineDirty(git, file);
+  const ctx: RecoverContext = { cwd, suite, read, scan, dirty, json: options.json ?? false, stdout, stderr };
 
   if (options.pick === undefined) {
     ctx.stdout.write(ctx.json ? `${JSON.stringify(listingJson(ctx), null, 2)}\n` : renderListing(ctx));
@@ -96,7 +103,7 @@ export async function runRecover(options: RecoverOptions): Promise<RecoverResult
 }
 
 /** Resolve a sha-prefix `--pick` against the listed snapshots. */
-function resolveShaPick(scan: HistoryScan, pick: string): Candidate {
+function resolveShaPick(scan: HistoryScan, pick: string, suite: Suite): Candidate {
   if (!/^[0-9a-f]{4,40}$/i.test(pick)) {
     throw new Error(`recover: --pick expects \`union\`, a listing number, or a sha prefix of at least 4 hex characters, got '${pick}'`);
   }
@@ -104,13 +111,13 @@ function resolveShaPick(scan: HistoryScan, pick: string): Candidate {
   const first = matches[0];
   if (first && matches.length === 1) return first;
   if (matches.length > 1) throw new Error(`recover: --pick ${pick} is ambiguous (${matches.length} listed candidates match)`);
-  throw new Error(`recover: --pick ${pick} matches none of the listed candidates (run \`checkride recover\` to list them)`);
+  throw new Error(`recover: --pick ${pick} matches none of the listed candidates (run \`${suiteCommand('checkride recover', suite)}\` to list them)`);
 }
 
 /** Resolve `--pick` against the scan: `union`, a 1-based index, or a sha prefix. */
-function resolvePick(scan: HistoryScan, pick: string): Candidate {
+function resolvePick(scan: HistoryScan, pick: string, suite: Suite): Candidate {
   if (scan.candidates.length === 0) {
-    throw new Error(`recover: no committed history of ${BASELINE_FILE} differs from the current file — nothing to pick`);
+    throw new Error(`recover: no committed history of ${suite.baselineFile} differs from the current file — nothing to pick`);
   }
   if (pick === 'union') {
     const union = scan.candidates.find((c) => c.kind === 'union');
@@ -122,7 +129,7 @@ function resolvePick(scan: HistoryScan, pick: string): Candidate {
     if (!candidate) throw new Error(`recover: --pick ${pick} is out of range (1..${scan.candidates.length})`);
     return candidate;
   }
-  return resolveShaPick(scan, pick);
+  return resolveShaPick(scan, pick, suite);
 }
 
 /** The human name of a pick, for confirmations: `union of N snapshot(s)` or `snapshot <sha>`. */
@@ -139,11 +146,11 @@ type Apply = { candidate: Candidate; exact: boolean; target: Baseline; delta: Ba
  * keys, unrecoverable once overwritten — is gated on a clean file.
  */
 function resolveApply(ctx: RecoverContext, pick: string, exact: boolean, dryRun: boolean): Apply {
-  const candidate = resolvePick(ctx.scan, pick);
+  const candidate = resolvePick(ctx.scan, pick, ctx.suite);
   const current = ctx.read.baseline;
   if (exact && ctx.dirty && !dryRun) {
     throw new Error(
-      `recover: ${BASELINE_FILE} has uncommitted changes and --exact would discard them — commit or stash first, or drop --exact (the default union keeps them)`,
+      `recover: ${ctx.suite.baselineFile} has uncommitted changes and --exact would discard them — commit or stash first, or drop --exact (the default union keeps them)`,
     );
   }
   const target = exact ? candidate.baseline : unionBaselines(current === null ? [candidate.baseline] : [current, candidate.baseline]);
@@ -152,25 +159,25 @@ function resolveApply(ctx: RecoverContext, pick: string, exact: boolean, dryRun:
 
 /** Emit an apply outcome: the machine shape on stdout when `--json`, else nothing. */
 function emitApply(ctx: RecoverContext, action: 'written' | 'dry-run' | 'noop', a: Apply): RecoverResult {
-  if (ctx.json) ctx.stdout.write(`${JSON.stringify(applyJson(action, a), null, 2)}\n`);
+  if (ctx.json) ctx.stdout.write(`${JSON.stringify(applyJson(action, a, ctx.suite.baselineFile), null, 2)}\n`);
   return { ok: true, exitCode: 0 };
 }
 
 async function apply(ctx: RecoverContext, pick: string, exact: boolean, dryRun: boolean): Promise<RecoverResult> {
   const a = resolveApply(ctx, pick, exact, dryRun);
   if (dryRun) {
-    if (!ctx.json) ctx.stdout.write(renderPreview(a));
+    if (!ctx.json) ctx.stdout.write(renderPreview(a, ctx.suite.baselineFile));
     return emitApply(ctx, 'dry-run', a);
   }
   if (baselinesEqual(a.target, ctx.read.baseline ?? EMPTY_BASELINE)) {
     writeLine(ctx.stderr, `recover: nothing to write — ${describe(a.candidate)} changes nothing against the current file`);
     return emitApply(ctx, 'noop', a);
   }
-  await writeBaseline(ctx.cwd, a.target);
+  await writeBaseline(ctx.cwd, a.target, ctx.suite.baselineFile);
   const dropped = a.delta.absentCount > 0 ? `, −${a.delta.absentCount} dropped (--exact)` : '';
   writeLine(
     ctx.stderr,
-    `recover: wrote ${BASELINE_FILE} — +${a.delta.restoredCount} key(s) restored${dropped} (${a.exact ? 'exact copy of' : 'union with'} ${describe(a.candidate)}); review with \`git diff\` and commit`,
+    `recover: wrote ${ctx.suite.baselineFile} — +${a.delta.restoredCount} key(s) restored${dropped} (${a.exact ? 'exact copy of' : 'union with'} ${describe(a.candidate)}); review with \`git diff\` and commit`,
   );
   return emitApply(ctx, 'written', a);
 }
@@ -180,13 +187,13 @@ function writeLine(out: Out, line: string): void {
 }
 
 /** The `- file:` line — the reader's first question is what state the file is in. */
-function fileLine(read: BaselineRead, dirty: boolean): string {
-  if (read.state === 'absent') return `- file: \`${BASELINE_FILE}\` — ABSENT`;
-  if (read.state === 'unparseable') return `- file: \`${BASELINE_FILE}\` — present but unparseable (treated as no baseline)`;
+function fileLine(file: string, read: BaselineRead, dirty: boolean): string {
+  if (read.state === 'absent') return `- file: \`${file}\` — ABSENT`;
+  if (read.state === 'unparseable') return `- file: \`${file}\` — present but unparseable (treated as no baseline)`;
   const baseline = read.baseline ?? EMPTY_BASELINE;
   const keys = countBaselineKeys(baseline);
   const slots = Object.keys(baseline.slots).length;
-  return `- file: \`${BASELINE_FILE}\` — present, ${keys} key(s) across ${slots} slot(s)${dirty ? ', with uncommitted changes' : ''}`;
+  return `- file: \`${file}\` — present, ${keys} key(s) across ${slots} slot(s)${dirty ? ', with uncommitted changes' : ''}`;
 }
 
 function candidateRow(candidate: Candidate, index: number, current: Baseline | null): string {
@@ -201,15 +208,16 @@ function candidateRow(candidate: Candidate, index: number, current: Baseline | n
 }
 
 function renderListing(ctx: RecoverContext): string {
-  const { read, scan, dirty } = ctx;
+  const { suite, read, scan, dirty } = ctx;
+  const file = suite.baselineFile;
   const lines: string[] = ['# checkride recover — baseline candidates from git history', ''];
-  lines.push(fileLine(read, dirty));
+  lines.push(fileLine(file, read, dirty));
   const skipped = scan.skipped.length > 0 ? `; skipped ${scan.skipped.length} unreadable snapshot(s): ${scan.skipped.join(', ')}` : '';
   lines.push(`- walked: ${scan.walked} commit(s)${skipped}`);
   if (scan.shallow) lines.push('- note: history is shallow (truncated); `git fetch --unshallow` reveals more');
   lines.push('');
   if (scan.walked === 0) {
-    lines.push(`No committed history of ${BASELINE_FILE} — nothing to recover.`, '');
+    lines.push(`No committed history of ${file} — nothing to recover.`, '');
     return lines.join('\n');
   }
   if (scan.candidates.length === 0) {
@@ -224,7 +232,7 @@ function renderListing(ctx: RecoverContext): string {
     '`vs current` is +keys an apply restores / −keys only `--exact` would drop,',
     'and ~keys whose count `--exact` would change, when there are any.',
     '',
-    'Apply: `checkride recover --pick <#>` by number, or `--pick <sha>` by commit',
+    `Apply: \`${suiteCommand('checkride recover', suite)} --pick <#>\` by number, or \`--pick <sha>\` by commit`,
     '(stable across invocations — prefer it in scripts). Preview with `--dry-run`.',
     '',
     'The default write is the union of the candidate and the current file: nothing',
@@ -244,9 +252,9 @@ function pushKeySection(lines: string[], slot: string, keys: readonly string[], 
 }
 
 /** The `--dry-run` preview: the per-slot keys an apply would restore (and drop, under `--exact`). */
-function renderPreview(a: Apply): string {
+function renderPreview(a: Apply, file: string): string {
   const lines: string[] = [`# checkride recover — dry run: ${describe(a.candidate)}${a.exact ? ' (--exact)' : ''}`, ''];
-  lines.push(`Would write ${BASELINE_FILE} with ${countBaselineKeys(a.target)} key(s): +${a.delta.restoredCount} restored, −${a.delta.absentCount} dropped.`, '');
+  lines.push(`Would write ${file} with ${countBaselineKeys(a.target)} key(s): +${a.delta.restoredCount} restored, −${a.delta.absentCount} dropped.`, '');
   for (const [slot, keys] of Object.entries(a.delta.restored)) pushKeySection(lines, slot, keys, 'restored');
   for (const [slot, keys] of Object.entries(a.delta.absent)) pushKeySection(lines, slot, keys, 'dropped under --exact');
   for (const [slot, recounts] of Object.entries(a.delta.recounted)) pushKeySection(lines, slot, Object.entries(recounts).map(([key, r]) => `${key} (${r.from ?? 'any'} → ${r.to ?? 'any'})`), 'recounted');
@@ -277,11 +285,11 @@ function listingJson(ctx: RecoverContext): unknown {
   };
 }
 
-function applyJson(action: 'written' | 'dry-run' | 'noop', a: Apply): unknown {
+function applyJson(action: 'written' | 'dry-run' | 'noop', a: Apply, file: string): unknown {
   return {
     schema_version: 1,
     action,
-    file: BASELINE_FILE,
+    file,
     pick: a.candidate.kind === 'union' ? 'union' : a.candidate.rev.sha,
     mode: a.exact ? 'exact' : 'union',
     keys: countBaselineKeys(a.target),

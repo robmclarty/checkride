@@ -43,7 +43,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { ADAPTERS, SLOTS } from './adapters.js';
-import { formatDuration, OUT_ENV, outDir, readSummary, type SummaryRead } from './artifacts/index.js';
+import { formatDuration, OUT_ENV, readSummary, type SummaryRead } from './artifacts/index.js';
 import type { CheckrideConfig, GateProfile } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, resolveChecks } from './config.js';
 import { DIGEST_FILE, withinBudget } from './digest/index.js';
@@ -58,6 +58,7 @@ import {
   entryArgv,
   entryCheckride,
   entryText,
+  entryTextWith,
   installCommand,
   jsLockfileDeclares,
   type LaunchRefusal,
@@ -67,6 +68,8 @@ import {
   resolveEntry,
   SPAWN_FAILED_MARKER,
 } from './launch/index.js';
+import type { Suite } from './suite.js';
+import { DEFAULT_SUITE, namedSuite, SUITE_ENV, suiteFlags, suiteOutDir } from './suite.js';
 import { tokenProblem } from './targets/index.js';
 
 /**
@@ -101,11 +104,26 @@ export const DIRTY_MARKER = '.check/.dirty';
  */
 export const GATE_RETRY_ENV = 'CHECKRIDE_GATE_RETRY';
 
+/**
+ * The check as someone would type it for `suite`: the entry
+ * command alone for the default suite, as every verdict has spelled it, and
+ * with the suite's flags after it for a named one, behind the `--` npm needs
+ * to hand a script its flags.
+ */
+function checkText(entry: EntryCommand, suite: Suite): string {
+  const flags = suiteFlags(suite);
+  return flags.length === 0 ? entryText(entry) : entryTextWith(entry, flags);
+}
+
 /** Where the gate points a red agent when this run wrote a summary and no digest. */
-const SUMMARY_PATH = '.check/summary.json';
+function summaryPath(suite: Suite): string {
+  return `${suite.out}/summary.json`;
+}
 
 /** The digest's file, which a red verdict carrying the digest names as its copy. */
-const DIGEST_PATH = `.check/${DIGEST_FILE}`;
+function digestPath(suite: Suite): string {
+  return `${suite.out}/${DIGEST_FILE}`;
+}
 
 /**
  * Cursor's own hook config. It lives here rather than in `agent-setup/cursor.ts`
@@ -211,6 +229,16 @@ export type GateOptions = {
   profile?: GateProfile | null;
   /** Wall-clock source for the elapsed time the gate reports; injectable for tests. */
   now?: () => number;
+  /**
+   * The name of the suite to gate, as `gate --suite` gave it: its check
+   * runs with `--suite`, and the verdict reads its
+   * config's `gate` profile and its output directory. A name that isn't a
+   * suite's, or whose suite has no config, blocks with the reason in the
+   * harness's protocol, as a config the gate can't read does. Omitted, the
+   * default suite, whatever `CHECKRIDE_SUITE` holds: the hook's verdict is
+   * the default suite's.
+   */
+  suite?: string;
 };
 
 export type GateResult = {
@@ -316,9 +344,9 @@ export function gateProfile(cwd: string, config: CheckrideConfig | null = loadCo
  * `gate.only` or `gate.skip` and every valid token. An empty list is no
  * narrowing at all (see {@link gateProfile}), so only a non-empty one is read.
  */
-function profileProblem(cwd: string, profile: GateProfile | null): string | null {
+function profileProblem(cwd: string, profile: GateProfile | null, config: CheckrideConfig | null, suite: Suite): string | null {
   if (profile === null) return null;
-  const resolved = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config: loadConfig(cwd), cwd });
+  const resolved = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd, suite });
   for (const key of ['only', 'skip'] as const) {
     const tokens = profile[key];
     const problem = tokens && tokens.length > 0 ? tokenProblem(resolved, `gate.${key}`, tokens) : null;
@@ -330,8 +358,13 @@ function profileProblem(cwd: string, profile: GateProfile | null): string | null
 /** The cause a profile with an unknown token reports, in the words a refusal uses. */
 const PROFILE_REFUSAL = 'the gate profile names a token no check answers to';
 
-/** The cause a gate reports when the repo's config can't be read at all. */
-const CONFIG_REFUSAL = "checkride.config.json can't be read";
+/** The cause a gate reports when the config it reads, the repo's or a named suite's, can't be read at all. */
+function configRefusal(suite: Suite): string {
+  return `${suite.configFile} can't be read`;
+}
+
+/** The cause a gate reports when `--suite` names no suite it can gate. */
+const SUITE_REFUSAL = "the suite --suite names can't be gated";
 
 /** Why the gate can't run as the repo configures it: the cause it reports, the mistake, and where to fix it. */
 type ProfileBlock = { refusal: string; problem: string; fix: string };
@@ -360,15 +393,39 @@ function profileVerdict(block: ProfileBlock, elapsedMs: number): Verdict {
  * blocks with a message rather than exiting 2, which Cursor reads as a broken
  * hook.
  */
-function readProfile(cwd: string, given: GateProfile | null | undefined): { profile: GateProfile | null; block: ProfileBlock | null } {
+function readProfile(cwd: string, given: GateProfile | null | undefined, suite: Suite): { profile: GateProfile | null; block: ProfileBlock | null } {
   try {
-    const profile = given !== undefined ? given : gateProfile(cwd);
-    const problem = profileProblem(cwd, profile);
-    return { profile, block: problem === null ? null : { refusal: PROFILE_REFUSAL, problem, fix: 'Fix `gate` in checkride.config.json.' } };
+    // Read once, and only where something reads it: a caller that hands `null` asks for the full check whatever the config says.
+    const config = given === null ? null : loadConfig(cwd, undefined, suite.configFile);
+    const profile = given !== undefined ? given : gateProfile(cwd, config);
+    const problem = profileProblem(cwd, profile, config, suite);
+    return { profile, block: problem === null ? null : { refusal: PROFILE_REFUSAL, problem, fix: `Fix \`gate\` in ${suite.configFile}.` } };
   } catch (error) {
     const problem = error instanceof Error ? error.message : String(error);
-    return { profile: null, block: { refusal: CONFIG_REFUSAL, problem: `${problem}.`, fix: 'Fix checkride.config.json.' } };
+    return { profile: null, block: { refusal: configRefusal(suite), problem: `${problem}.`, fix: `Fix ${suite.configFile}.` } };
   }
+}
+
+/** What the gate runs, as its options and the repo's config give it: the suite, the profile, and why it can't run, or `null`. */
+type GatePlan = { suite: Suite; profile: GateProfile | null; block: ProfileBlock | null };
+
+/**
+ * The suite and profile the gate runs with. A suite given by name is resolved
+ * here, from the flag alone: a name outside the grammar, or a suite with no
+ * config, blocks as a config the gate can't read does, since a usage error's
+ * exit 2 and bare stderr are a broken hook to Cursor and no verdict to
+ * anyone.
+ */
+function readPlan(cwd: string, options: Pick<GateOptions, 'suite' | 'profile'>): GatePlan {
+  let suite: Suite;
+  try {
+    suite = namedSuite(cwd, options.suite, { env: {} });
+  } catch (error) {
+    const problem = error instanceof Error ? error.message : String(error);
+    const fix = 'Name a suite this repo holds, one with a checkride.<name>.config.json at its root.';
+    return { suite: DEFAULT_SUITE, profile: null, block: { refusal: SUITE_REFUSAL, problem: `${problem}.`, fix } };
+  }
+  return { suite, ...readProfile(cwd, options.profile, suite) };
 }
 
 /**
@@ -537,18 +594,25 @@ function headline(verdict: string, glyph: string, elapsedMs: number, detail: str
  * gate has always spelled it in a package-manager repo, else the entry
  * command's own.
  */
-function triageCommand(entry: EntryCommand): string {
+function triageCommand(entry: EntryCommand, suite: Suite): string {
+  // A named suite's goes through the package manager's own exec form, which keeps the flag from the manager itself.
+  const flags = suiteFlags(suite);
+  if (flags.length > 0) return entryCheckride(entry, ['triage', ...flags]);
   return entry.kind === 'script' ? `${entry.pm} exec checkride triage` : entryCheckride(entry, ['triage']);
 }
 
 /**
  * The argv the gate runs: the repo's entry command (R6.6) as a hard gate,
  * `--strict` and `--digest`, then the profile's flags. A package-manager repo
- * runs its `check` script as {@link checkArgs} spells it.
+ * runs its `check` script as {@link checkArgs} spells it. A named suite's
+ * gate adds `--suite <name>`, the one way the suite reaches the check, since
+ * the gate strips `CHECKRIDE_SUITE` from its environment.
  */
-function gateArgv(entry: EntryCommand, profile: GateProfile | null): [string, ...string[]] {
-  if (entry.kind === 'script') return [entry.pm, ...checkArgs(entry.pm, profile)];
-  return entryArgv(entry, ['--strict', '--digest', ...profileArgs(profile)]);
+function gateArgv(entry: EntryCommand, profile: GateProfile | null, suite: Suite): [string, ...string[]] {
+  // Last, so it reaches the check however the repo's script spells its own flags.
+  const named = suiteFlags(suite);
+  if (entry.kind === 'script') return [entry.pm, ...checkArgs(entry.pm, profile), ...named];
+  return entryArgv(entry, ['--strict', '--digest', ...profileArgs(profile), ...named]);
 }
 
 /**
@@ -561,23 +625,23 @@ function gateArgv(entry: EntryCommand, profile: GateProfile | null): [string, ..
 type RedEvidence = 'digest' | 'summary' | 'none';
 
 /** The first thing a red verdict asks of the agent, by what this run wrote. */
-function redStep(evidence: RedEvidence, entry: EntryCommand): string {
+function redStep(evidence: RedEvidence, entry: EntryCommand, suite: Suite): string {
   if (evidence === 'digest') return "fix what this run's digest names";
-  if (evidence === 'summary') return `read ${SUMMARY_PATH}, fix the failing slot`;
-  return `this run wrote no ${SUMMARY_PATH}, so nothing in .check/ describes it — run \`${entryText(entry)}\` to see why, fix that`;
+  if (evidence === 'summary') return `read ${summaryPath(suite)}, fix the failing slot`;
+  return `this run wrote no ${summaryPath(suite)}, so nothing in ${suite.out}/ describes it — run \`${checkText(entry, suite)}\` to see why, fix that`;
 }
 
 /** The sentence a red gate hands the agent, naming what to open first, if anything. */
-function redMessage(entry: EntryCommand, profile: GateProfile | null, evidence: RedEvidence): string {
+function redMessage(entry: EntryCommand, profile: GateProfile | null, evidence: RedEvidence, suite: Suite): string {
   // A narrowed red is still a red, but it is not the whole story: the slots the
   // profile skipped were never asked, so fixing what it names may not be enough.
   const narrowed =
     profile === null
       ? ''
-      : ` This gate ran a profile, not the full check — run \`${entryText(entry)}\` for the rest.`;
+      : ` This gate ran a profile, not the full check — run \`${checkText(entry, suite)}\` for the rest.`;
   return (
-    `checkride: the gate is red — ${redStep(evidence, entry)}, then finish ` +
-    `(do not stop while checkride is red). Run \`${triageCommand(entry)}\` for full triage.${narrowed}`
+    `checkride: the gate is red — ${redStep(evidence, entry, suite)}, then finish ` +
+    `(do not stop while checkride is red). Run \`${triageCommand(entry, suite)}\` for full triage.${narrowed}`
   );
 }
 
@@ -585,7 +649,9 @@ function redMessage(entry: EntryCommand, profile: GateProfile | null, evidence: 
  * Said above the digest a red verdict carries to the agent: that this is it,
  * so there's nothing to open first, and that the file is a copy.
  */
-const DIGEST_FOLLOWS = `This run's digest follows; ${DIGEST_PATH} is a copy of it, and each section names the raw file that holds the rest.`;
+function digestFollows(suite: Suite): string {
+  return `This run's digest follows; ${digestPath(suite)} is a copy of it, and each section names the raw file that holds the rest.`;
+}
 
 /**
  * Said on the stderr line instead. The check's own output, which the gate
@@ -593,7 +659,9 @@ const DIGEST_FOLLOWS = `This run's digest follows; ${DIGEST_PATH} is a copy of i
  * that whole stream is what an exit-2 hook with no body shows the agent, so a
  * second copy would only double it.
  */
-const DIGEST_ABOVE = `This run's digest is above, in the check's own output; ${DIGEST_PATH} is a copy of it.`;
+function digestAbove(suite: Suite): string {
+  return `This run's digest is above, in the check's own output; ${digestPath(suite)} is a copy of it.`;
+}
 
 /**
  * The Node half of a refusal message: what this process is running, what the
@@ -650,8 +718,8 @@ const STOOD_DOWN_FOR_INSTALL =
  * `check` script's shell prints the line an `install` refusal is read from,
  * so the other entries are worded as the generated hook words them.
  */
-function installStep(cwd: string, entry: EntryCommand): string {
-  const check = entryText(entry);
+function installStep(cwd: string, entry: EntryCommand, suite: Suite): string {
+  const check = checkText(entry, suite);
   if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
   if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${PIN_CHECKRIDE}\`, then run \`${check}\`.`;
   if (jsLockfileDeclares(cwd, cwd, 'checkride')) return `Run \`${entry.pm} install\`, since this repo declares checkride and it isn't installed, then run \`${check}\`.`;
@@ -676,19 +744,19 @@ function installStep(cwd: string, entry: EntryCommand): string {
 function refusalMessage(refusal: LaunchRefusal, context: RefusalContext): string {
   return [
     `checkride: the gate could not run — ${refusal.cause}.`,
-    'Nothing ran: no check executed and no artifact was written, so `.check/` holds nothing from ' +
+    `Nothing ran: no check executed and no artifact was written, so \`${context.suite.out}/\` holds nothing from ` +
       'this turn and the code is not what to look at.',
     ...refusalRemedy(refusal.fixable, context),
   ].join(' ');
 }
 
 /** What {@link refusalMessage} reads beside the refusal: the Node this process got, the repo, and its entry command. */
-type RefusalContext = { alignment: NodeAlignment | null; running: string; cwd: string; entry: EntryCommand };
+type RefusalContext = { alignment: NodeAlignment | null; running: string; cwd: string; entry: EntryCommand; suite: Suite };
 
 /** The sentences after "Nothing ran", by who can clear the refusal. */
 function refusalRemedy(fixable: LaunchRefusal['fixable'], context: RefusalContext): string[] {
-  if (fixable === 'install') return [installStep(context.cwd, context.entry), STOOD_DOWN_FOR_INSTALL];
-  const seeIt = `Run \`${entryText(context.entry)}\` in a terminal to see the same failure directly.`;
+  if (fixable === 'install') return [installStep(context.cwd, context.entry, context.suite), STOOD_DOWN_FOR_INSTALL];
+  const seeIt = `Run \`${checkText(context.entry, context.suite)}\` in a terminal to see the same failure directly.`;
   return fixable === 'environment' ? [nodeClause(context.alignment, context.running), STOOD_DOWN, seeIt] : [seeIt];
 }
 
@@ -721,9 +789,11 @@ function announceAlignment(
 /**
  * The variables a consumer uses to shape a run from outside the repo. The gate
  * is the repo's own verdict, so the check it spawns must read the repo's config
- * whatever a consumer left exported in the hook's environment.
+ * whatever a consumer left exported in the hook's environment. `CHECKRIDE_SUITE`
+ * is one of them: a bare `gate` gates the default suite whatever the variable
+ * holds, and `gate --suite` passes the suite on as a flag ({@link gateArgv}).
  */
-const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV]);
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV, SUITE_ENV]);
 
 /** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
 function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {
@@ -744,6 +814,7 @@ type Failure = {
   alignment: NodeAlignment | null;
   running: string;
   profile: GateProfile | null;
+  suite: Suite;
 };
 
 /** What this run wrote for its red verdict to point at ({@link RedEvidence}). */
@@ -765,7 +836,7 @@ function failedVerdict(f: Failure): Verdict {
   if (refusal === null) {
     return {
       status: headline('red', '✘', f.elapsedMs, gateDetail(f.summary, f.fresh, false, f.profile)),
-      instruction: redMessage(f.entry, f.profile, evidenceOf(f)),
+      instruction: redMessage(f.entry, f.profile, evidenceOf(f), f.suite),
       refusal: null,
       standDown: false,
       digest: f.digest,
@@ -775,7 +846,7 @@ function failedVerdict(f: Failure): Verdict {
   // is beside the point.
   return {
     status: headline('could not run', '⚠', f.elapsedMs, refusal.cause),
-    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, cwd: f.cwd, entry: f.entry }),
+    instruction: refusalMessage(refusal, { alignment: f.alignment, running: f.running, cwd: f.cwd, entry: f.entry, suite: f.suite }),
     refusal: refusal.cause,
     standDown: refusal.fixable !== 'repo',
     digest: null,
@@ -928,13 +999,14 @@ function reportRed(
   out: { stdout: Out; stderr: Out },
   verdict: Verdict,
   env: Record<string, string | undefined>,
+  suite: Suite = DEFAULT_SUITE,
 ): number {
   // The agent is told what to open and what not to do; the user is told what
   // happened and how long it took. Handing the user the agent's marching orders
   // would bury the one line they are actually reading.
   const full = `${verdict.status}\n${verdict.instruction}`;
   if (verdict.standDown) return reportStandDown(harness, out, full, env);
-  const agent = verdict.digest === null ? full : `${full}\n${DIGEST_FOLLOWS}\n\n${verdict.digest.trimEnd()}`;
+  const agent = verdict.digest === null ? full : `${full}\n${digestFollows(suite)}\n\n${verdict.digest.trimEnd()}`;
   if (harness === 'cursor') {
     out.stdout.write(`${JSON.stringify({ followup_message: agent })}\n`);
     return 0;
@@ -942,7 +1014,7 @@ function reportRed(
   out.stdout.write(
     `${JSON.stringify({ decision: 'block', reason: agent, systemMessage: noticePad(verdict.status, env) })}\n`,
   );
-  out.stderr.write(`${verdict.digest === null ? full : `${full}\n${DIGEST_ABOVE}`}\n`);
+  out.stderr.write(`${verdict.digest === null ? full : `${full}\n${digestAbove(suite)}`}\n`);
   return 2;
 }
 
@@ -1006,7 +1078,7 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   // The gate runs the check the way the repo runs it (R6.6).
   const entry = resolveEntry(cwd, pm);
   const startedAt = now();
-  const { profile, block } = readProfile(cwd, options.profile);
+  const { suite, profile, block } = readPlan(cwd, options);
   if (block !== null) {
     const exitCode = reportRed(harness, { stdout, stderr }, profileVerdict(block, now() - startedAt), env);
     return { exitCode, ran: true, green: false, refusal: block.refusal };
@@ -1014,15 +1086,17 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
   const alignment = alignNode(cwd, pinEnv);
   const childEnv = announceAlignment(alignment, withoutConsumerVars(env), stderr);
   const output = recording(stderr);
-  const [command, ...args] = gateArgv(entry, profile);
+  const [command, ...args] = gateArgv(entry, profile, suite);
   const code = await run(command, args, { cwd, stderr: output, env: childEnv });
   const green = code === 0;
-  // The run wrote `<cwd>/.check`, since CHECKRIDE_OUT was stripped above.
-  const summary = await readSummary(outDir(cwd));
+  // The run wrote `<cwd>/.check`, or the suite's directory under it, since CHECKRIDE_OUT was stripped above.
+  const out = suiteOutDir(cwd, suite);
+  const summary = await readSummary(out);
   const fresh = isFresh(summary, startedAt);
 
   if (green) {
-    rmSync(marker, { force: true });
+    // The marker is the default suite's: a named suite's green says nothing about the check the hook owes.
+    if (suite.name === undefined) rmSync(marker, { force: true });
     reportGreen(harness, stdout, headline('green', '✔', now() - startedAt, gateDetail(summary, fresh, true, profile)), env);
     return { exitCode: 0, ran: true, green: true, refusal: null };
   }
@@ -1033,12 +1107,13 @@ export async function runGate(options: GateOptions = {}): Promise<GateResult> {
     elapsedMs: now() - startedAt,
     summary,
     fresh,
-    digest: fresh ? await freshDigest(outDir(cwd), startedAt) : null,
+    digest: fresh ? await freshDigest(out, startedAt) : null,
     output: output.text(),
     alignment,
     running: pinEnv.running(),
     profile,
+    suite,
   });
-  const exitCode = reportRed(harness, { stdout, stderr }, verdict, env);
+  const exitCode = reportRed(harness, { stdout, stderr }, verdict, env, suite);
   return { exitCode, ran: true, green: false, refusal: verdict.refusal };
 }

@@ -91,12 +91,12 @@ function readFindings(stdout: string): DoctorFinding[] | null {
  * `vars` are set in doctor's environment, so a triage given `--out` has doctor
  * probe that directory.
  */
-export async function foldDoctor(cwd: string, env: TriageEnv, vars: Readonly<Record<string, string>> = {}): Promise<DoctorFold> {
+export async function foldDoctor(cwd: string, env: TriageEnv, vars: Readonly<Record<string, string>> = {}, flags: readonly string[] = []): Promise<DoctorFold> {
   const cli = resolveCheckrideCli(cwd);
   if (cli === null) {
     return { state: 'unavailable', reason: 'checkride is not installed in this repo (no node_modules/checkride)' };
   }
-  const outcome = await env.spawn(process.execPath, [cli, 'doctor', '--json'], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS, env: vars });
+  const outcome = await env.spawn(process.execPath, [cli, 'doctor', '--json', ...flags], { cwd, timeoutMs: DOCTOR_TIMEOUT_MS, env: vars });
   if (outcome.error !== null) return { state: 'unreadable', reason: `could not run doctor: ${outcome.error}` };
   const findings = readFindings(outcome.stdout);
   if (findings === null) return { state: 'unreadable', reason: 'doctor --json did not produce a readable report' };

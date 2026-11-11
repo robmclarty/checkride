@@ -44,9 +44,9 @@
 
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
-import { prepareScratch } from './artifacts/index.js';
+import { prepareScratch, scratchDir } from './artifacts/index.js';
 import type { CheckOutcome } from './links.js';
 import type { PackageManager } from './launch/index.js';
 import { translateExec } from './launch/index.js';
@@ -112,7 +112,7 @@ export type SnippetTsconfig = {
     verbatimModuleSyntax: false;
     isolatedModules: false;
     noPropertyAccessFromIndexSignature: false;
-    rootDir: '../..';
+    rootDir: string;
     composite: false;
     declaration: false;
     declarationMap: false;
@@ -248,6 +248,8 @@ export function vacuousOptInError(plan: SnippetsPlan): string | null {
 export function generateSnippetTsconfig(opts: {
   extendsPath: string;
   paths: Record<string, string[]>;
+  /** The way from the generated tsconfig's directory up to `cwd`: `../..` from `.check/doc-snippets/`. */
+  up: string;
 }): SnippetTsconfig {
   return {
     extends: opts.extendsPath,
@@ -257,7 +259,7 @@ export function generateSnippetTsconfig(opts: {
       verbatimModuleSyntax: false,
       isolatedModules: false,
       noPropertyAccessFromIndexSignature: false,
-      rootDir: '../..',
+      rootDir: opts.up,
       composite: false,
       declaration: false,
       declarationMap: false,
@@ -281,8 +283,14 @@ export type SnippetSpawn = (
   timeoutSec?: number,
 ) => Promise<CheckOutcome>;
 
-/** Where the generated snippet files + tsconfig land, relative to `cwd`. */
-const OUT_DIR_REL = join('.check', 'doc-snippets');
+/** The directory the generated snippet files + tsconfig land in, under the scratch directory. */
+const SNIPPETS_DIR = 'doc-snippets';
+
+/** The way up to `cwd` from `<scratch>/doc-snippets/`, the generated tsconfig's directory. */
+function upFrom(scratch: string): string {
+  const depth = join(scratch, SNIPPETS_DIR).split(sep).filter((part) => part !== '' && part !== '.').length;
+  return Array.from({ length: depth }, () => '..').join('/');
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -345,10 +353,10 @@ async function readOwnTsconfigPaths(cwd: string): Promise<Record<string, string[
   }
 }
 
-/** Rewrite a tsconfig-root-relative target (`./src/x.ts` or `src/x.ts`) to resolve from `.check/doc-snippets/`. */
-function remapRootRelative(target: string): string {
+/** Rewrite a tsconfig-root-relative target (`./src/x.ts` or `src/x.ts`) to resolve from the generated tsconfig's directory, `up` below `cwd`. */
+function remapRootRelative(target: string, up: string): string {
   const stripped = target.startsWith('./') ? target.slice(2) : target;
-  return `../../${stripped}`;
+  return `${up}/${stripped}`;
 }
 
 /**
@@ -365,16 +373,19 @@ export function deriveSrcPaths(opts: {
   manifestName: string | null;
   tsconfigPaths: Record<string, readonly string[]> | null;
   hasSrcIndex: boolean;
+  /** The way from the generated tsconfig's directory up to `cwd`. */
+  up: string;
 }): Record<string, string[]> | null {
+  const { up } = opts;
   if (opts.tsconfigPaths && Object.keys(opts.tsconfigPaths).length > 0) {
     const remapped: Record<string, string[]> = {};
     for (const [key, targets] of Object.entries(opts.tsconfigPaths)) {
-      remapped[key] = targets.map(remapRootRelative);
+      remapped[key] = targets.map((target) => remapRootRelative(target, up));
     }
     return remapped;
   }
   if (opts.manifestName !== null && opts.hasSrcIndex) {
-    return { [opts.manifestName]: ['../../src/index.ts'] };
+    return { [opts.manifestName]: [`${up}/src/index.ts`] };
   }
   return null;
 }
@@ -418,8 +429,11 @@ export async function checkSnippets(opts: {
   pm: PackageManager;
   spawn: SnippetSpawn;
   timeoutSec?: number;
+  /** The scratch directory, relative to `cwd`: the suite's own, `.check` for the default suite. */
+  scratch: string;
 }): Promise<CheckOutcome> {
-  const { cwd, mode, pm, spawn, timeoutSec } = opts;
+  const { cwd, mode, pm, spawn, timeoutSec, scratch } = opts;
+  const up = upFrom(scratch);
 
   const plan = planSnippets(await discoverDocs(cwd));
   const vacuous = vacuousOptInError(plan);
@@ -432,6 +446,7 @@ export async function checkSnippets(opts: {
       manifestName,
       tsconfigPaths,
       hasSrcIndex: existsSync(join(cwd, 'src', 'index.ts')),
+      up,
     });
     if (derived === null) {
       return failOutcome(
@@ -445,18 +460,20 @@ export async function checkSnippets(opts: {
 
   // Scratch stays under the repo whatever `--out` says, so a read-only
   // checkout skips the check rather than failing the run on a write.
-  const unwritable = await prepareScratch(cwd);
+  const unwritable = await prepareScratch(cwd, scratch);
   if (unwritable !== null) return { ok: true, exit_code: 0, stdout: '', stderr: '', skip: unwritable };
 
-  const outDir = join(cwd, OUT_DIR_REL);
+  // Its own directory under the run's scratch, so a named suite's run and the
+  // default suite's never clear each other's files.
+  const outDir = join(scratchDir(cwd, scratch), SNIPPETS_DIR);
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
   await Promise.all(plan.entries.map((e) => writeFile(join(outDir, e.name), `${e.code}\n`, 'utf8')));
 
-  const tsconfig = generateSnippetTsconfig({ extendsPath: '../../tsconfig.json', paths });
+  const tsconfig = generateSnippetTsconfig({ extendsPath: `${up}/tsconfig.json`, paths, up });
   await writeFile(join(outDir, 'tsconfig.json'), `${JSON.stringify(tsconfig, null, 2)}\n`, 'utf8');
 
-  const outcome = await runTsc(cwd, join(OUT_DIR_REL, 'tsconfig.json'), pm, spawn, timeoutSec);
+  const outcome = await runTsc(cwd, join(scratch, SNIPPETS_DIR, 'tsconfig.json'), pm, spawn, timeoutSec);
   const status = { checked: plan.checked, skipped: plan.skipped, mode };
 
   if (outcome.ok) {

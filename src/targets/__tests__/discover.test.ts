@@ -96,6 +96,11 @@ describe('discoverTargets', () => {
     expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['apps-web', 'libs-web', 'pkg-doc-snippets', 'test-ts', 'my-lib']);
   });
 
+  test('a root named suites takes a longer name, since .check/suites/ is where named suites write', async () => {
+    await put('suites/package.json');
+    expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['suites-ts']);
+  });
+
   test('two roots of one name take the shortest trailing path that tells them apart, and a custom check’s name is taken', async () => {
     await put('services/api/infra/main.tf', 'services/api/infra/.terraform.lock.hcl', 'services/web/infra/main.tf', 'services/web/infra/.terraform.lock.hcl', 'tools/lint-all/package.json');
     expect((await discoverTargets(repo)).map((t) => t.name)).toEqual(['lint-all', 'api-infra', 'web-infra']);

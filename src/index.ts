@@ -25,6 +25,9 @@ export type {
   SummaryCheck,
 } from './orchestrator/index.js';
 
+export { suiteNamed } from './suite.js';
+export type { Suite } from './suite.js';
+
 export { runDoctor } from './doctor.js';
 export type { DoctorCheck, DoctorReport, DoctorResult } from './doctor.js';
 

@@ -92,6 +92,7 @@ required ones, so a field can't reach the schema without a row here.
 | `ok` | boolean | always: true when every check passed after baseline masking; a skipped check counts as passed, so read it with `checks_run` |
 | `checks_run` | integer, 0 or more | always: the checks that executed, skipped entries left out |
 | `total_duration_ms` | number, 0 or more | always: the run's wall-clock span |
+| `suite` | string, a suite's name | `--suite` or `CHECKRIDE_SUITE` named a suite: the [named suite](#cli) the run was of. A run of the default suite carries no such field |
 | `run` | object, below | always: what the run selected, and whether it saw the whole pipeline |
 | `git` | object, below | the working directory is in a git work tree whose `HEAD` names a commit, and git answered within 5 seconds |
 | `targets` | array of target entries, below | multi-target mode, when `checkride.config.json` declares `targets` or `--discover` proposes them: each target the run checked, in config or discovery order |
@@ -658,6 +659,10 @@ the repo's pins chose, its toolchain included. A release before
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
 
+A [named suite](#cli) keeps its own baseline beside it,
+`checkride.<name>.baseline.json`, of the same shape and under the same rules.
+`protect` denies edits to those files too.
+
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
@@ -668,6 +673,7 @@ run flags:
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
 --out <dir>  --defaults <path>  --discover  --pins <mise.toml>  --static-only
+--suite <name>
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -691,8 +697,8 @@ path. A `--shape` its `--lang` doesn't take is a usage error, and so is a
 of for itself.
 
 **`fix` runs the selected fixers over the repo as it stands.** It takes
-`--only`, `--skip`, `--include`, `--all`, `--concurrency` and `--config` as
-a run does, and `CHECKRIDE_CONFIG` too. It refuses, with exit 2 before
+`--only`, `--skip`, `--include`, `--all`, `--concurrency`, `--config` and
+`--suite` as a run does, and `CHECKRIDE_CONFIG` and `CHECKRIDE_SUITE` too. It refuses, with exit 2 before
 anything runs, the flags that would change which files its fixers rewrite
 or with which tool: `--static-only`, `--discover`, `--base`, `--out`,
 `--defaults` and `--pins`, each named with why, as in `fix doesn't take
@@ -1086,6 +1092,74 @@ runs' artifacts apart; they don't keep the tools apart, since build info, test
 caches and `.fallow/` are shared, so concurrent runs that write those belong in
 separate worktrees.
 
+**`--suite <name>` and `CHECKRIDE_SUITE` name a suite.** A repo may keep more
+than one suite of checks. The default suite is the one every release has run:
+`checkride.config.json`, `checkride.baseline.json` and `.check/`. A named
+suite is three paths at the repo root, each fixed by its name:
+
+| Suite | Config | Baseline | Output directory |
+| --- | --- | --- | --- |
+| default | `checkride.config.json` | `checkride.baseline.json` | `.check/` |
+| `evals` | `checkride.evals.config.json` | `checkride.evals.baseline.json` | `.check/suites/evals/` |
+
+The flag beats the variable, and an empty variable counts as unset. A name is
+a lowercase letter and then lowercase letters, digits and hyphens; any other
+name is exit 2, and so are `config` and `baseline`, whose files would read as
+the default suite's. A suite with no config file is exit 2, never a fall back
+to the default suite: the message names the path it looked for and the suites
+the repo does hold, or says it holds none. `--suite` beside `--config`,
+`--defaults` or `--discover` is exit 2, on the run and on `doctor`, whether a
+flag or a variable names the config or the defaults. `--out` is allowed, and
+it wins for the directory. A config error in a suite's config names the file
+by its short name, `checkride.<name>.config.json`.
+
+A named suite runs exactly the checks its config declares: each entry that
+names an adapter, and each custom check. Detection fills no slot, no built-in
+joins on its own, and `unclaimed` never runs. An entry that tunes a slot and
+names no tool is a config error, whatever tools the repo holds, unless
+another layer of a target's check names the tool. `extends`, `order`,
+`timeout`, `optIn` and `targets` work as they do in the default suite.
+
+A suite's run is the repo's own, so a full one ratchets
+`checkride.<name>.baseline.json` under the rules a default run follows, and
+never reads or writes another suite's file. A run whose `--out` sits outside
+the repo still never ratchets. Its summary carries `suite`, its `Running`
+line names the suite, and every line that names an artifact names
+`.check/suites/<name>/`. A default run never clears, lists or reads
+`.check/suites/`. The built-ins' scratch follows: a suite's `snippets` and
+`smoke` write under `.check/suites/<name>/` of the directory they run from,
+where the default suite's write under its `.check/`, so neither clears the
+other's. Every hint a suite's command prints names a command with
+`--suite <name>`, so it never sends its reader to the default suite's files.
+
+Run, `fix`, `doctor`, `baseline`, `baseline --versions`, `baseline diff`,
+`recover`, `gate`, `triage` and `qa` take `--suite`, and each reads the
+suite's config, baseline and output directory where it reads the default
+suite's without it; `recover` and `baseline diff` read the git history of the
+suite's own baseline file. `doctor` without it lists the suites it finds on
+one `suites` row. `init`, `agent-setup`, `hooks` and `target add` don't take
+the flag, which is an unknown option there.
+
+`triage --suite <name>` passes `--suite <name>` to the check it starts, after
+the entry command and behind npm's `--`, as `gate --suite` does, so its suite
+wins over one the script or the environment names. It exits 2 before starting
+anything when that run couldn't be the suite's: `CHECKRIDE_CONFIG` or
+`CHECKRIDE_DEFAULTS` is set, or the repo's `check` script passes `--config`,
+`--defaults` or `--discover`. Its report, and `qa`'s, name the suite's config
+and baseline.
+
+`gate` reads the flag alone. It strips `CHECKRIDE_SUITE` from the check it
+spawns, so a bare `gate`, the form every generated hook runs, always gates
+the default suite. `gate --suite <name>` passes `--suite <name>` to the
+check, reads the `gate` profile of the suite's config and the suite's output
+directory, and leaves the edit marker for the default suite's gate to clear.
+A name it can't gate, one outside the grammar or one whose suite has no
+config, is never a usage error there: the gate blocks with the reason in the
+harness's protocol, a `decision: "block"` body and exit 2 under Claude Code
+and a `followup_message` and exit 0 under Cursor, as it does for a config it
+can't read. Each command a suite's verdict names carries `--suite <name>`,
+behind `--` where the package manager is npm.
+
 **A capture runs only the checks whose findings it can key.** `checkride
 baseline` skips each check whose adapter no parser the baseline keys with
 reads, a test runner's, a built-in's, and a type checker's other than tsc's
@@ -1389,7 +1463,8 @@ written:
   digits and hyphens. It's never a slot's name, `schema` and `unclaimed`
   included, nor any custom check's, at the top level or in a target's or a
   pack's `checks`, so a selection token means one thing. Nor is it
-  `doc-snippets`, the directory the `snippets` check keeps its scratch in.
+  `doc-snippets`, the directory the `snippets` check keeps its scratch in,
+  nor `suites`, the directory named suites write under.
 - A root is an existing directory, given relative to the repo root, never
   absolute or through `..`. Two targets of one pack never share their roots,
   and never nest them, apart from terraform's, whose root modules nest;
@@ -1502,12 +1577,19 @@ Everything exported from the package root (`import ... from 'checkride'`) is
 public and semver-bound:
 
 `runChecks`, `runFix`, `selectChecks`, `runDoctor`, `runInit`, `loadConfig`,
-`resolveChecks`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`, `SCHEMA_VERSION`,
-`DEFAULT_TIMEOUT_SECONDS` — plus the exported types (`Summary`,
+`resolveChecks`, `suiteNamed`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`,
+`SCHEMA_VERSION`, `DEFAULT_TIMEOUT_SECONDS` — plus the exported types (`Summary`,
 `SummaryCheck`, `RunFlags`, `RunOptions`, `RunResult`, `CheckrideConfig`,
 `CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`,
 `CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
-`InitResult`, `ProbeFailure`, `Shape`).
+`InitResult`, `ProbeFailure`, `Shape`, `Suite`).
+
+`suiteNamed(name)` returns the `Suite` a [named suite](#cli)'s name fixes,
+its `name`, `configFile`, `baselineFile` and `out`, each path relative to the
+repo root, and throws for a name outside the grammar. `runChecks`, `runFix`
+and `runDoctor` take it as their `suite` option, and with `config` omitted
+they load the suite's own config file, as they load `checkride.config.json`
+without one.
 
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,

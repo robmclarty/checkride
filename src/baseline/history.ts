@@ -9,7 +9,7 @@
  * through the same plumbing ({@link readBaselineAt}).
  *
  * `git log --follow` is deliberately not used: the baseline's name and location
- * are constants ({@link BASELINE_FILE}), so history beyond a rename boundary
+ * are fixed ({@link BASELINE_FILE}, or a named suite's file), so history beyond a rename boundary
  * would describe a different file — and a repo that renamed the baseline is not
  * running stock checkride anyway.
  */
@@ -66,16 +66,16 @@ function parseLog(stdout: string): BaselineRevision[] {
  * checkride root is often a subdirectory, and `git show <sha>:<path>` resolves
  * `<path>` from the repository root, not from cwd.
  */
-async function locate(git: GitRunner, command?: string): Promise<{ path: string; shallow: boolean }> {
+async function locate(git: GitRunner, file: string, command?: string): Promise<{ path: string; shallow: boolean }> {
   const result = await git(['rev-parse', '--show-toplevel', '--show-prefix', '--is-shallow-repository']);
   if (!result.ok) throw gitFailureError(result, command);
   const [, prefix = '', shallowWord = ''] = result.stdout.split('\n');
-  return { path: `${prefix}${BASELINE_FILE}`, shallow: shallowWord.trim() === 'true' };
+  return { path: `${prefix}${file}`, shallow: shallowWord.trim() === 'true' };
 }
 
 /** Whether the working-tree baseline carries uncommitted changes. */
-export async function baselineDirty(git: GitRunner): Promise<boolean> {
-  const result = await git(['status', '--porcelain', '--', BASELINE_FILE]);
+export async function baselineDirty(git: GitRunner, file: string = BASELINE_FILE): Promise<boolean> {
+  const result = await git(['status', '--porcelain', '--', file]);
   if (!result.ok) throw gitFailureError(result);
   return result.stdout.trim().length > 0;
 }
@@ -93,10 +93,10 @@ const DIFF_COMMAND = 'baseline diff';
  * doesn't parse is an error too: diffing against it as empty would report
  * every current key as added and pass a mangled file off as a clean history.
  */
-export async function readBaselineAt(git: GitRunner, ref: string): Promise<BaselineAtRef> {
+export async function readBaselineAt(git: GitRunner, ref: string, file: string = BASELINE_FILE): Promise<BaselineAtRef> {
   // A leading dash would reach git as an option, never as a ref.
   if (ref.startsWith('-')) throw new Error(`${DIFF_COMMAND}: '${ref}' is not a ref`);
-  const located = await locate(git, DIFF_COMMAND);
+  const located = await locate(git, file, DIFF_COMMAND);
   const resolved = await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
   if (!resolved.ok && resolved.error !== 'failed') throw gitFailureError(resolved, DIFF_COMMAND);
   if (!resolved.ok) throw new Error(`${DIFF_COMMAND}: '${ref}' does not name a commit`);
@@ -107,7 +107,7 @@ export async function readBaselineAt(git: GitRunner, ref: string): Promise<Basel
   const show = await git(['show', `${sha}:${located.path}`]);
   if (!show.ok) throw gitFailureError(show, DIFF_COMMAND);
   const baseline = parseBaseline(show.stdout);
-  if (baseline === null) throw new Error(`${DIFF_COMMAND}: ${BASELINE_FILE} at ${ref} can't be parsed, or comes from a newer checkride`);
+  if (baseline === null) throw new Error(`${DIFF_COMMAND}: ${file} at ${ref} can't be parsed, or comes from a newer checkride`);
   return { sha, baseline };
 }
 
@@ -170,8 +170,8 @@ async function walkSnapshots(git: GitRunner, path: string, revisions: readonly B
   return walk;
 }
 
-export async function collectCandidates(git: GitRunner, current: Baseline | null, depth: number): Promise<HistoryScan> {
-  const located = await locate(git);
+export async function collectCandidates(git: GitRunner, current: Baseline | null, depth: number, file: string = BASELINE_FILE): Promise<HistoryScan> {
+  const located = await locate(git, file);
   const log = await git(['log', '-n', String(depth), `--format=${LOG_FORMAT}`, '--', located.path]);
   if (!log.ok) throw gitFailureError(log);
   const walk = await walkSnapshots(git, located.path, parseLog(log.stdout), current);
@@ -263,8 +263,8 @@ function budget(ms: number): Promise<null> {
   });
 }
 
-async function probeHistory(git: GitRunner, newKeys: readonly string[]): Promise<HistoricalHint | null> {
-  const located = await locate(git);
+async function probeHistory(git: GitRunner, newKeys: readonly string[], file: string): Promise<HistoricalHint | null> {
+  const located = await locate(git, file);
   const log = await git(['log', '-n', String(HINT_LOG_DEPTH), `--format=${LOG_FORMAT}`, '--', located.path]);
   if (!log.ok) return null;
   const keys = new Set(newKeys);
@@ -280,6 +280,9 @@ async function probeHistory(git: GitRunner, newKeys: readonly string[]): Promise
   return null;
 }
 
+/** What {@link historicalHint} takes beyond the keys: an injected `git`, its time budget, and the baseline file whose history it reads. */
+type HintOptions = { git?: GitRunner; budgetMs?: number; file?: string };
+
 /**
  * The red-run detection probe: were these "new" findings grandfathered in a
  * recent committed baseline? The difference between "a wall of new debt" and
@@ -292,12 +295,11 @@ async function probeHistory(git: GitRunner, newKeys: readonly string[]): Promise
 export async function historicalHint(
   cwd: string,
   newKeys: readonly string[],
-  git?: GitRunner,
-  budgetMs = HINT_BUDGET_MS,
+  { git, budgetMs = HINT_BUDGET_MS, file = BASELINE_FILE }: HintOptions = {},
 ): Promise<HistoricalHint | null> {
   if (newKeys.length === 0) return null;
   try {
-    return await Promise.race([probeHistory(git ?? realGit(cwd, budgetMs), newKeys), budget(budgetMs)]);
+    return await Promise.race([probeHistory(git ?? realGit(cwd, budgetMs), newKeys, file), budget(budgetMs)]);
   } catch {
     return null;
   }

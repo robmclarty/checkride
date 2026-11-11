@@ -18,6 +18,7 @@ import type { Adapter, Slot } from '../adapters.js';
 import { SLOTS } from '../adapters.js';
 import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
+import { SUITES_DIR } from '../suite.js';
 import { takesFiles } from './files.js';
 
 /** Which config a rule reads: the repo's own, presets folded in, or a defaults file (R13.1). */
@@ -83,11 +84,15 @@ const TARGET_NAME = /^[a-z][a-z0-9-]{0,31}$/;
 
 /**
  * Names V2 reserves for directories checkride writes under the output
- * directory: the `snippets` built-ins' scratch sits at `.check/doc-snippets/`,
- * which a target named `doc-snippets` would share with its own artifacts, and
- * which the built-in clears on every run.
+ * directory, each with what it keeps there: the `snippets` built-ins' scratch
+ * sits at `.check/doc-snippets/`, which a target named `doc-snippets` would
+ * share with its own artifacts, and which the built-in clears on every run,
+ * and each named suite writes under `.check/suites/`.
  */
-const RESERVED_TARGET_NAMES: readonly string[] = ['doc-snippets'];
+const RESERVED_TARGET_NAMES: Readonly<Record<string, string>> = {
+  'doc-snippets': 'the snippets check keeps its scratch files',
+  [SUITES_DIR]: 'named suites write their artifacts',
+};
 
 const TARGET_KEYS: readonly string[] = ['lang', 'root', 'include', 'exclude', 'checks', 'note'];
 const PACK_KEYS: readonly string[] = ['checks', 'note'];
@@ -271,8 +276,9 @@ function nameProblem(name: string, config: Record<string, unknown>, cat: Catalog
   if (cat.slotNames.has(name)) {
     return `target name '${name}' is reserved: it's a slot's name, and a token like --only ${name} has to mean one thing`;
   }
-  if (RESERVED_TARGET_NAMES.includes(name)) {
-    return `target name '${name}' is reserved: the snippets check keeps its scratch files in .check/${name}/, where this target's artifacts would land`;
+  const keeps = Object.hasOwn(RESERVED_TARGET_NAMES, name) ? RESERVED_TARGET_NAMES[name] : undefined;
+  if (keeps !== undefined) {
+    return `target name '${name}' is reserved: ${keeps} in .check/${name}/, where this target's artifacts would land`;
   }
   const home = customHome(name, config);
   if (home !== null) {

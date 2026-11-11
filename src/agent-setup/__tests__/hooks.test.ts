@@ -483,9 +483,18 @@ describe('claude merge (applyHooks)', () => {
    * regardless of what a PreToolUse hook returns, so this is the same protection
    * enforced a level lower, with no process spawned per edit.
    */
+  test('protect’s deny rules cover a named suite’s baseline, after the two every release wrote', () => {
+    const deny = applyHooks({}, ['protect']).permissions?.deny ?? [];
+    expect(deny.slice(0, 2)).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)']);
+    expect(deny).toContain('Edit(**/checkride.*.baseline.json)');
+    // A repo that holds the earlier two gains the third on a refresh, and keeps its own.
+    const refreshed = applyHooks({ permissions: { deny: ['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)', 'Edit(secrets/**)'] } }, ['protect']);
+    expect(refreshed.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)', 'Edit(secrets/**)', 'Edit(**/checkride.*.baseline.json)']);
+  });
+
   test('protect is a permissions deny rule, not a hook at all', () => {
     const next = applyHooks({}, ['protect']);
-    expect(next.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)']);
+    expect(next.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)', 'Edit(**/checkride.*.baseline.json)']);
     expect(next.hooks?.PreToolUse).toBeUndefined();
   });
 
@@ -506,7 +515,7 @@ describe('claude merge (applyHooks)', () => {
     const mine = 'Edit(**/fallow.baseline.json)';
     const next = applyHooks({ permissions: { deny: [mine] } }, ['protect']);
     expect(next.permissions?.deny?.[0]).toBe(mine);
-    expect(next.permissions?.deny).toHaveLength(3);
+    expect(next.permissions?.deny).toHaveLength(4);
     // A second run adds nothing: the rules are keyed by their exact text.
     expect(applyHooks(next, ['protect'])).toEqual(next);
   });
@@ -540,7 +549,7 @@ describe('claude merge (applyHooks)', () => {
     };
     const next = applyHooks(legacy, ['protect']);
     expect(next.hooks?.PreToolUse).toBeUndefined();
-    expect(next.permissions?.deny).toHaveLength(2);
+    expect(next.permissions?.deny).toHaveLength(3);
   });
 
   test('removing protect works whichever form the repo had', () => {
@@ -722,6 +731,14 @@ describe('cursor merge (applyCursorHooks)', () => {
     // `pnpm check` is the script, not the directory.
     expect(re.test('pnpm check')).toBe(false);
     expect(re.test('echo hi > src/index.ts')).toBe(false);
+  });
+
+  test('protect’s shell matcher selects a named suite’s baseline too, and not its config', () => {
+    const matcher = applyCursorHooks({}, ['protect']).hooks?.beforeShellExecution?.[0]?.matcher;
+    const re = new RegExp(String(matcher));
+    expect(re.test('echo x > checkride.evals.baseline.json')).toBe(true);
+    expect(re.test('rm checkride.perf-nightly.baseline.json')).toBe(true);
+    expect(re.test('echo x > checkride.evals.config.json')).toBe(false);
   });
 
   /**
@@ -967,7 +984,7 @@ describe('writeHooks — removal', () => {
     await writeHooks(dir, { remove: ['gate'], harnesses: ['claude'] });
     // `protect` and `dirty` are configuration here, so "still installed" is a
     // deny rule and a PostToolUse entry rather than two files on disk.
-    expect((await settings()).permissions?.deny).toHaveLength(2);
+    expect((await settings()).permissions?.deny).toHaveLength(3);
     expect((await settings()).hooks?.['PostToolUse']).toHaveLength(1);
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
   });
@@ -1052,7 +1069,7 @@ describe('writeHooks — the default selection', () => {
     expect(result.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE]);
     expect(existsSync(join(dir, GATE_SCRIPT_FILE))).toBe(false);
     const settings = await parsed(CLAUDE_SETTINGS_FILE);
-    expect(settings.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)']);
+    expect(settings.permissions?.deny).toEqual(['Edit(**/checkride.baseline.json)', 'Edit(**/.check/**)', 'Edit(**/checkride.*.baseline.json)']);
     expect(settings.hooks).toBeUndefined();
   });
 
@@ -1092,7 +1109,7 @@ describe('writeHooks — the default selection', () => {
     const settings = await parsed(CLAUDE_SETTINGS_FILE);
     expect(settings.hooks?.['Stop']).toHaveLength(1);
     expect(settings.hooks?.['PostToolUse']).toBeUndefined();
-    expect(settings.permissions?.deny).toHaveLength(2);
+    expect(settings.permissions?.deny).toHaveLength(3);
     expect(await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8')).not.toContain('--if-dirty');
   });
 
@@ -1221,6 +1238,26 @@ describe('protect script behavior (live)', () => {
         call({ file_path: join(dir, 'fixtures', 'checkride.baseline.json') }),
       ]),
     ).toEqual([true, true, true, false, false]);
+  }, 30000);
+
+  test('denies a named suite’s baseline and its output, and allows its config', async () => {
+    expect(
+      await verdicts([
+        call({ file_path: join(dir, 'checkride.evals.baseline.json') }),
+        call({ file_path: 'checkride.perf-nightly.baseline.json' }),
+        call({ file_path: join(dir, '.check', 'suites', 'evals', 'summary.json') }),
+        shellCall('echo "{}" > checkride.evals.baseline.json', dir),
+        shellCall('rm checkride.evals.baseline.json', dir),
+        // A suite's config is the repo's to edit, as the default suite's is.
+        call({ file_path: join(dir, 'checkride.evals.config.json') }),
+        // Not a suite's name, so not a baseline checkride reads.
+        call({ file_path: join(dir, 'checkride.Evals.baseline.json') }),
+        call({ file_path: join(dir, 'checkride.a.b.baseline.json') }),
+        // Named like one, elsewhere in the tree.
+        call({ file_path: join(dir, 'fixtures', 'checkride.evals.baseline.json') }),
+        shellCall('cat checkride.evals.baseline.json', dir),
+      ]),
+    ).toEqual([true, true, true, true, true, false, false, false, false, false]);
   }, 30000);
 
   test('fails open on input it cannot read', async () => {

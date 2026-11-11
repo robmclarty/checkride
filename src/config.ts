@@ -30,6 +30,8 @@ import { join, posix, relative, resolve } from 'node:path';
 import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
 import { SLOTS } from './adapters.js';
 import { isRecord } from './json.js';
+import type { Suite } from './suite.js';
+import { declaresItsChecks, DEFAULT_SUITE } from './suite.js';
 import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
@@ -375,7 +377,7 @@ export type ResolvedCheck = {
   narrowed?: { units: string[]; total: number };
 };
 
-const CONFIG_FILE = 'checkride.config.json';
+const CONFIG_FILE = DEFAULT_SUITE.configFile;
 
 /**
  * The variable that names a config file in place of `<cwd>/checkride.config.json`,
@@ -827,12 +829,14 @@ function validated(config: Record<string, unknown>, cwd: string, file: string): 
  * when absent. Any `extends` presets (file paths or package specifiers) are
  * resolved and merged in — local keys win, arrays replace — with `extends`
  * folded away. `warn`, when given, hears about each top-level key a file
- * holds that nothing reads.
+ * holds that nothing reads. `file` names another config at the root of `cwd`
+ * to read in its place, a named suite's `checkride.<name>.config.json`, and
+ * every error then names that file, by its short name.
  */
-export function loadConfig(cwd: string, warn?: ConfigWarning): CheckrideConfig | null {
-  const path = join(cwd, CONFIG_FILE);
+export function loadConfig(cwd: string, warn?: ConfigWarning, file: string = CONFIG_FILE): CheckrideConfig | null {
+  const path = join(cwd, file);
   if (!existsSync(path)) return null;
-  return validated(resolveConfigFile(path, rootChain(CONFIG_FILE, warn, cwd)), cwd, CONFIG_FILE);
+  return validated(resolveConfigFile(path, rootChain(file, warn, cwd)), cwd, file);
 }
 
 /**
@@ -940,10 +944,13 @@ export function loadDefaultsFile(path: string, cwd: string): CheckrideConfig {
  * unresolved, `dist/<reader>/cli.js .` would land in the catch below and report
  * the repo's slots as *unknowable* — a silently degraded answer, which is the
  * failure mode these readers exist to prevent.
+ *
+ * `file` is a named suite's config, read in place of the repo's own.
  */
-export function configuredSlots(cwd: string): string[] | null {
+export function configuredSlots(cwd: string, file: string = CONFIG_FILE): string[] | null {
   try {
-    const checks = loadConfig(resolve(cwd))?.checks;
+    const root = resolve(cwd);
+    const checks = loadConfig(root, undefined, file)?.checks;
     if (!checks) return null;
     return Object.entries(checks)
       .filter(([, value]) => value !== false)
@@ -1021,6 +1028,12 @@ type Detection = {
   pinned: (bin: string) => string | null;
   admits: (adapter: Adapter) => boolean;
   declared: () => ReadonlySet<string> | null;
+  /**
+   * True while resolving a named suite, which runs exactly the checks its
+   * config declares: an entry that tunes a slot and names no tool is a config
+   * error there, whatever the machine would detect.
+   */
+  declaredOnly?: boolean;
 };
 
 /** Detection that finds nothing, so a dry resolution runs only the entry's own rules. */
@@ -1471,6 +1484,9 @@ function resolveOne(
   if (entry === false) {
     return skipped(slot, 'disabled in checkride.config.json');
   }
+  if (detection.declaredOnly === true && isEntryObject(entry) && !decides(entry)) {
+    invalidConfig(`checks.${slot.name} names no tool: a suite runs exactly the checks its config declares, so give it a "use" or a "command"`);
+  }
   const resolved = resolveConfigOrDetect(slot, entry, withDeclaredFlags(adapters, detection), detection, explicit);
   // Config may override the slot's opt-in default (configure-without-opting-in).
   const overridden = applyOptIn(resolved, entry, slot.name);
@@ -1590,6 +1606,12 @@ type ResolveInput = {
    * declare. Omitted or `null`, there's none.
    */
   defaults?: CheckrideConfig | null;
+  /**
+   * The suite the config is of; the default suite when omitted. A named
+   * suite runs exactly the checks its config declares: detection fills no
+   * slot, and no built-in joins on its own ({@link declaredChecks}).
+   */
+  suite?: Suite;
   cwd?: string;
   /** Answers for a path relative to the repo root, a target's files included. */
   fileExists?: (file: string) => boolean;
@@ -1623,7 +1645,7 @@ function detectionAt(input: ResolveInput, root: string, pack?: string): Detectio
     : () => null;
   const tableIn = repo !== undefined ? (signal: TableSignal) => tableAt(join(repo, root), signal) : () => null;
   const declared = repo !== undefined ? once(() => declaredUpTo(join(repo, root), repo)) : () => null;
-  return { fileExists, tableIn, manifest, pinned, admits: (adapter) => chainCanRun(pack, adapter), declared };
+  return { fileExists, tableIn, manifest, pinned, admits: (adapter) => chainCanRun(pack, adapter), declared, declaredOnly: declaredOnlyOf(input) };
 }
 
 /**
@@ -1942,6 +1964,25 @@ function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
     .map(({ check }) => check);
 }
 
+/** True when `input` resolves a named suite, which runs exactly the checks its config declares. */
+function declaredOnlyOf(input: ResolveInput): boolean {
+  return declaresItsChecks(input.suite ?? DEFAULT_SUITE);
+}
+
+/**
+ * The checks of a named suite, out of everything resolution found: each one
+ * an entry of its config picks a tool for, a custom check or a `use` of an
+ * adapter, and nothing detection or a built-in's default added. A declared
+ * check that can't run, as one naming an adapter the registry lacks, stays as
+ * a skipped row, so the mistake shows.
+ */
+function declaredChecks(checks: readonly ResolvedCheck[], catalogueNames: ReadonlySet<string>): ResolvedCheck[] {
+  return checks.filter((check) => {
+    if (check.origin === 'config' || !catalogueNames.has(check.slot)) return true;
+    return check.adapter === null && check.explicit === true;
+  });
+}
+
 /**
  * Resolve every catalogue slot (in SLOTS order) to an adapter or a skip reason,
  * fold in the config-only custom checks (config key order), then sort into the
@@ -1965,12 +2006,16 @@ function sortByGroup(checks: readonly ResolvedCheck[]): ResolvedCheck[] {
  * their top level, with `origin: 'defaults'`, and the defaults' custom checks
  * follow the repo's wherever the repo declares no check of that name. A config
  * error found here names the file the config came from.
+ *
+ * A named `suite`'s run keeps only the checks the config
+ * declares ({@link declaredChecks}), and an entry that tunes a slot without
+ * naming a tool is a config error, whatever detection would find.
  */
 export function resolveChecks(input: ResolveInput): ResolvedCheck[] {
   return relabeled(labelOf(input.config), () => {
     const catalogueNames = new Set(input.slots.map((s) => s.name));
     const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
-      sortByGroup(checks.map((check) => withClaims(check, targets, input.config)));
+      sortByGroup((declaredOnlyOf(input) ? declaredChecks(checks, catalogueNames) : checks).map((check) => withClaims(check, targets, input.config)));
     const declared = configuredTargets(input.config);
     if (declared !== null) return claimed(targetChecks(input, declared, catalogueNames), declared);
     const pack = implicitPackOf(input);

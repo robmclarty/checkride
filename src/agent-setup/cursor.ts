@@ -33,6 +33,7 @@ import { CURSOR_HOOKS_FILE } from '../gate.js';
 import type { HarnessSpec, HookName, WriteOptions } from './harness.js';
 import { GATE_TIMEOUT_SECONDS, HOOK_NAMES, writeHarnessHooks } from './harness.js';
 import type { HookFile } from './files.js';
+import { SUITE_NAME_SOURCE } from '../suite.js';
 
 /**
  * Project-shared Cursor hook config (committed), relative to the repo root.
@@ -116,11 +117,12 @@ const EDIT_TOOLS = 'Write|Delete';
  * checkride's standing objection to matching a shell tool is that a guard firing
  * on a wrong parse is worse than a known hole. Filtering first turns the blast
  * radius from "every command the agent runs" into "commands that already mention
- * `checkride.baseline.json` or `.check`" — and inside that set the script still
+ * `checkride.baseline.json`, a named suite's `checkride.<name>.baseline.json`,
+ * or `.check`" — and inside that set the script still
  * denies only on demonstrated write intent. Reads land here too and are allowed;
  * they have to be, because triage reads these files.
  */
-const ACCOUNTING_PATHS = 'checkride\\.baseline\\.json|\\.check\\b';
+const ACCOUNTING_PATHS = `checkride\\.(?:${SUITE_NAME_SOURCE}\\.)?baseline\\.json|\\.check\\b`;
 
 /**
  * Commands `dirty` reads as having written a file: a `>`/`>>` redirect, or one of

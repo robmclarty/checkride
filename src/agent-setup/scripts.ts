@@ -19,6 +19,7 @@
 import { DIRTY_MARKER, GATE_RETRY_ENV, type HarnessName } from '../gate.js';
 import type { EntryCommand, EntryLike } from '../launch/index.js';
 import { asEntry, entryCheckride, entryText, PIN_CHECKRIDE } from '../launch/index.js';
+import { SUITE_NAME_SOURCE } from '../suite.js';
 
 /**
  * The repo root, however the calling harness spells it. Cursor sets
@@ -730,7 +731,9 @@ export function protectScript(): string {
     'function accounting(target, root, base) {',
     '  const abs = canon(isAbsolute(target) ? target : resolve(base, target));',
     "  const rel = relative(root, abs).split(sep).join('/');",
-    "  if (rel === 'checkride.baseline.json' || rel === '.check' || rel.startsWith('.check/')) return rel;",
+    "  // The default suite's baseline, or a named suite's: checkride.<name>.baseline.json.",
+    `  if (rel === 'checkride.baseline.json' || /^checkride\\.${SUITE_NAME_SOURCE}\\.baseline\\.json$/.test(rel)) return rel;`,
+    "  if (rel === '.check' || rel.startsWith('.check/')) return rel;",
     '  return undefined;',
     '}',
     '',

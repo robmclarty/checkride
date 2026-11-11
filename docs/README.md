@@ -24,6 +24,10 @@ Start here:
 - **[Targets](./targets.md)** — checking a repo with more than one language,
   or one language in more than one place: declaring targets, what each runs,
   the bash pack's file lists, and `unclaimed`.
+- **[Suites](./suites.md)** — keeping a second suite of checks beside the
+  code gate, such as checks over saved eval records: `--suite <name>`, the
+  three files a name fixes, what a suite runs, and why the stop gate stays on
+  the default suite.
 - **[Packs and pins](./packs.md)** — each pack's slots and tools, and how a
   check's tool resolves to the copy that runs: each pack's pin chain, its pin
   sources (`override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`,

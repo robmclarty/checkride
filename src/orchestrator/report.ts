@@ -161,7 +161,8 @@ export function narrowedEntries(
  * run had to wait for git's answer after its last check. `run`, `git` and
  * `targets` come before `checks`, so the head of the file says what the run
  * covered, and `digest`, the run's digest when it wrote one, comes after
- * them, below the checks it excerpts.
+ * them, below the checks it excerpts. `suite` names the suite of a named
+ * suite's run, and a run of the default suite carries none.
  */
 export function buildSummary(
   checks: SummaryCheck[],
@@ -170,6 +171,7 @@ export function buildSummary(
   git: SummaryGit | null,
   targets: SummaryTarget[] | null,
   digest: string | null = null,
+  suite: string | null = null,
 ): Summary {
   return {
     schema_version: SCHEMA_VERSION,
@@ -177,6 +179,7 @@ export function buildSummary(
     ok: checks.every((c) => c.ok),
     checks_run: checks.filter((c) => !c.skipped).length,
     total_duration_ms: totalDurationMs,
+    ...(suite !== null ? { suite } : {}),
     run,
     ...(git !== null ? { git } : {}),
     ...(targets !== null ? { targets } : {}),

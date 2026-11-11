@@ -2712,7 +2712,7 @@ describe('the default runner resolves a tool through its pin chain', () => {
   const shellcheck = fakeAdapter({ name: 'shellcheck', slot: 'lint', command: 'pnpm', args: ['exec', 'shellcheck', '-f', 'json1', 'run.sh'] });
   const resolved: ResolvedCheck = { slot: 'lint', optIn: false, adapter: shellcheck, skip: null };
   const context = (requirePins: boolean): Parameters<CheckRunner>[1] => ({
-    cwd: repo, changed: false, pm: 'pnpm', repo, pins: ['mise', 'path'], requirePins,
+    cwd: repo, changed: false, scratch: '.check', pm: 'pnpm', repo, pins: ['mise', 'path'], requirePins,
   });
 
   test('F12: a tool nothing pins runs from PATH, and records argv and pin_source path', async () => {
@@ -2774,7 +2774,7 @@ describe('the default runner fails terraform validate before init (F42)', () => 
 
   const validate = PACKS.terraform.adapters.find((a) => a.name === 'terraform-validate') ?? null;
   const resolved: ResolvedCheck = { slot: 'types', optIn: false, adapter: validate, skip: null };
-  const at = (): Parameters<CheckRunner>[1] => ({ cwd: repo, repo, changed: false, pm: 'pnpm', pins: PACKS.terraform.pins });
+  const at = (): Parameters<CheckRunner>[1] => ({ cwd: repo, repo, changed: false, scratch: '.check', pm: 'pnpm', pins: PACKS.terraform.pins });
 
   test('without .terraform/, it fails naming terraform init -backend=false, and nothing runs', async () => {
     const outcome = await defaultRunner(resolved, at());
