@@ -97,6 +97,15 @@ describe('miseDeclaration finds the config that declares a tool', () => {
       expect(miseDeclaration(repo, repo, ['shellcheck'])).toEqual({ file: 'mise.toml', id: 'shellcheck' });
       expect(miseDeclaration(repo, repo, ['shfmt'])).toBeNull();
     }));
+
+  test('a cargo plugin pinned through the deprecated `ubi:` backend still counts beside `github:`', () =>
+    inTemp(async (repo) => {
+      const ids = ['github:bnjbvr/cargo-machete', 'ubi:bnjbvr/cargo-machete', 'cargo:cargo-machete'];
+      await writeFile(join(repo, 'mise.toml'), '[tools]\n"ubi:bnjbvr/cargo-machete" = "0.9.2"\n');
+      expect(miseDeclaration(repo, repo, ids)).toEqual({ file: 'mise.toml', id: 'ubi:bnjbvr/cargo-machete' });
+      await writeFile(join(repo, 'mise.toml'), '[tools]\n"github:bnjbvr/cargo-machete" = "0.9.2"\n');
+      expect(miseDeclaration(repo, repo, ids)).toEqual({ file: 'mise.toml', id: 'github:bnjbvr/cargo-machete' });
+    }));
 });
 
 describe('the version mise says it resolved a pin to (R6.3)', () => {

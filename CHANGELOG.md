@@ -28,6 +28,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `docs/ci.md` shows `GITHUB_TOKEN` for a job that runs `mise install`
   itself. A scaffold written by 0.21.0 or earlier keeps its npm pin until
   someone swaps the entry.
+- **A Rust scaffold pins cargo-machete through mise's `github:` backend.**
+  `init --lang rust` writes `"github:bnjbvr/cargo-machete"` where it wrote
+  `"ubi:bnjbvr/cargo-machete"`: mise deprecated the `ubi:` backend and
+  removes it in mise 2027.1.0. A `ubi:` pin still counts for the `dead`
+  check, so a repo that has one keeps working until its mise moves. The
+  install hint for cargo-machete names the `github:` pin, and the one for
+  cargo-mutants names the `cargo:` backend, since cargo-mutants publishes
+  x86_64 builds alone, which `github:` won't install on an arm64 machine.
 
 ### Contract
 

@@ -1673,7 +1673,7 @@ describe('new-project generation for another language (--lang)', () => {
     expect(rustMise.split('\n').slice(0, 2)).toEqual(['[tools]', `"github:robmclarty/checkride" = "${await version()}"`]);
     // Nothing a scaffold pins installs through Node or runs on it, and no entry sets a tool option, which mise would want trusted.
     expect(rustMise).not.toMatch(/^node =|npm:|\{/m);
-    expect(rustMise).toContain('"ubi:bnjbvr/cargo-machete" = "0.9.2"');
+    expect(rustMise).toContain('"github:bnjbvr/cargo-machete" = "0.9.2"');
     expect(rustMise).toContain('"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.148"');
     // rust-toolchain.toml pins the toolchain, so mise.toml leaves it alone.
     expect(rustMise).not.toMatch(/^rust =/m);

@@ -531,7 +531,10 @@ pins it, else a `mise.toml` pin of `rust`, else `PATH`. rustfmt and clippy
 resolve through the toolchain file first, as rustup components, and
 cargo-machete, cargo-nextest, cargo-deny and
 cargo-mutants are cargo plugins, each its own binary that a `mise.toml` pins,
-such as `"ubi:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. Clippy's
+such as `"github:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. A
+`ubi:` pin, which mise deprecated and removes in its 2027.1.0 release, still
+counts. cargo-mutants publishes x86_64 builds only, so on an arm64 machine
+pin it through the `cargo:` backend, which builds it. Clippy's
 `-D warnings` fails the check on a warning, rustc's `dead_code` lint among
 them, which is why `dead` looks for unused dependencies instead. nextest
 doesn't run doctests, so a Rust repo names `snippets` to opt the doctests in.
