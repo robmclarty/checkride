@@ -33,6 +33,21 @@ on:
         description: Existing tag to create a release for (e.g. v0.5.1)
         required: true
         type: string
+  # A dry run of the binary jobs, on a pull request that touches what they
+  # build from: `binaries` builds, tests and packs each platform's tarball as
+  # it would for a tag, and nothing else runs. No release is created, nothing
+  # is attested and nothing is attached. The version the binary must print is
+  # package.json's, since a pull request has no tag.
+  pull_request:
+    paths:
+      - .github/workflows/release.yaml
+      - build/sea/**
+      - src/channel.ts
+      - src/resources.ts
+      - test/e2e/binary.e2e.test.ts
+      - test/helpers/sea.ts
+      - package.json
+      - pnpm-lock.yaml
 
 permissions:
   # Only the scope needed to create a GitHub Release; no id-token, no npm token.
@@ -41,6 +56,8 @@ permissions:
 
 jobs:
   release:
+    # Never on a pull request's dry run: only a tag, or a manual run, releases.
+    if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,6 +137,18 @@ jobs:
           ref: ${{ inputs.tag || github.ref }}
           persist-credentials: false
 
+      # A pull request's dry run has no tag, so the steps below measure the
+      # binary against package.json's own version. A workflow's `env` outranks
+      # a value written to GITHUB_ENV, hence a name of its own, read only
+      # where neither a manual run's tag nor a pushed tag is there.
+      - name: Take the dry run's version from package.json
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          version="$(grep -m1 '"version"' package.json | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+          test -n "$version"
+          echo "DRY_TAG=v$version" >> "$GITHUB_ENV"
+
       # A runner label that drifted to another architecture would otherwise
       # ship one platform's binary under another's name.
       - name: Verify the runner is the target
@@ -161,7 +190,7 @@ jobs:
       - name: Verify the tag, package.json and the binary agree on the version
         run: |
           set -euo pipefail
-          tag="${INPUT_TAG:-$REF_NAME}"
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
           package="$(node -p "require('./package.json').version")"
           binary="$(./.sea/checkride --version)"
           echo "tag=$tag package.json=$package binary=$binary"
@@ -184,7 +213,7 @@ jobs:
         id: pack
         run: |
           set -euo pipefail
-          tag="${INPUT_TAG:-$REF_NAME}"
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
           tarball="checkride-${tag#v}-$TARGET.tar.gz"
           stage="$RUNNER_TEMP/stage"
           mkdir -p "$stage"
@@ -200,7 +229,7 @@ jobs:
           TARBALL: ${{ steps.pack.outputs.tarball }}
         run: |
           set -euo pipefail
-          tag="${INPUT_TAG:-$REF_NAME}"
+          tag="${INPUT_TAG:-${DRY_TAG:-$REF_NAME}}"
           unpacked="$RUNNER_TEMP/unpacked"
           mkdir -p "$unpacked"
           tar -xzf "$RUNNER_TEMP/$TARBALL" -C "$unpacked"
@@ -238,8 +267,9 @@ jobs:
     name: attest (${{ matrix.target }})
     needs: binaries
     # Each target stands alone: one that failed to build has no tarball, and
-    # must not keep the others from being attested.
-    if: ${{ !cancelled() }}
+    # must not keep the others from being attested. Never on a pull request's
+    # dry run, which signs nothing.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     permissions:
       id-token: write # the OIDC identity the attestation is signed with
@@ -295,7 +325,8 @@ jobs:
     # failed has already failed its own job, and the last step fails this one
     # too, so a run with a platform missing ends red for a human to see.
     needs: [release, binaries, attest]
-    if: ${{ !cancelled() }}
+    # Never on a pull request's dry run, which has no release to attach to.
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write # attach assets to the release; no id-token here

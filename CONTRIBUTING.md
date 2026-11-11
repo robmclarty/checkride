@@ -131,6 +131,12 @@ leaves it out on purpose, and says so: `publish.yaml` passes
 build's Node mustn't block the npm publish. `ci.yml` runs it on every push,
 and `release.yaml` runs it against each platform's binary.
 
+A pull request that touches the build (`build/sea/`, `release.yaml`,
+`src/channel.ts`, `src/resources.ts`, the binary's e2e test, `package.json`
+or the lockfile) also runs `release.yaml`'s `binaries` job as a dry run: all
+four platforms build, test and pack a tarball, and nothing is released,
+attested or attached. The attestation and the upload first run on a real tag.
+
 ## The contract
 
 [docs/contract.md](./docs/contract.md) names the surfaces consumers may rely
