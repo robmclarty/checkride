@@ -27,7 +27,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import type { Finding } from '../../src/findings/api.js';
 import { findingsFor, isParseable } from '../../src/findings/api.js';
 import type { Summary, SummaryCheck } from '../../src/orchestrator/index.js';
-import { CI_MARKERS } from '../helpers/mise.js';
+import { CI_MARKERS, withNpmPin } from '../helpers/mise.js';
 import { toolchainGate } from '../helpers/toolchains.js';
 
 const execFileP = promisify(execFile);
@@ -239,10 +239,10 @@ const scaffoldMissing = [...(goGate.run ? [] : [goGate.reason]), ...(hasMise ? [
 if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold case: ${scaffoldMissing.join('; ')}`);
 
 /**
- * A `--pins` run over an `init --lang go` scaffold before `mise trust` (D83).
- * checkride's entry sets a tool option, so mise won't read the scaffold's
- * `mise.toml` until someone trusts it, as a review agent finds in a fresh
- * clone. The override asks mise with the repo root ignored, so the check runs
+ * A `--pins` run over a repo before `mise trust` (D83): an `init --lang go`
+ * scaffold with checkride pinned the npm route's way, whose entry sets a tool
+ * option, so mise won't read the `mise.toml` until someone trusts it, as a
+ * review agent finds in a fresh clone. A scaffold's own file needs no trust. The override asks mise with the repo root ignored, so the check runs
  * the agent's go and the file stays untrusted. mise keeps what it trusts in a
  * state directory of the case's own, and the run carries `MISE_YES`, under
  * which mise trusts a config it reads, so only the ignore keeps it untrusted.
@@ -261,6 +261,7 @@ if (scaffoldMissing.length > 0) console.warn(`skipping the untrusted scaffold ca
     await mkdir(repo);
     await execFileP(process.execPath, [CLI, 'init', '--lang', 'go', '--name', 't-demo'], { cwd: repo, ...BIG });
     await git(repo, 'init', '-q');
+    await writeFile(join(repo, 'mise.toml'), withNpmPin(await readFile(join(repo, 'mise.toml'), 'utf8')));
     // Beside the repo, not above it, where mise would read it as a config of the repo's.
     await mkdir(join(dir, 'agent'));
     pins = join(dir, 'agent', 'mise.toml');

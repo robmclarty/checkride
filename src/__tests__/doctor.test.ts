@@ -829,7 +829,7 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(hintOf(report, 'svc:dead')).toBe(
       'Enable by adding one of: deadcode (declare it in go.mod with `go get -tool golang.org/x/tools/cmd/deadcode`, or name it in checkride.config.json).',
     );
-    expect(hintOf(report, 'rs:dead')).toContain('cargo-machete (pin it with `mise use ubi:bnjbvr/cargo-machete@<version>`');
+    expect(hintOf(report, 'rs:dead')).toContain('cargo-machete (pin it with `mise use github:bnjbvr/cargo-machete@<version>`');
     expect(hintOf(report, 'rs:dead')).not.toContain('fallow');
     expect(hintOf(report, 'scripts:lint')).toBe(
       'Enable by adding one of: shellcheck (.shellcheckrc, or pin it with `mise use shellcheck@<version>`, or install shellcheck (https://www.shellcheck.net), or name it in checkride.config.json).',

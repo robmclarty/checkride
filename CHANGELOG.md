@@ -4,6 +4,47 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **A language scaffold pins the standalone binary, and needs no Node.**
+  `init --lang go|rust` writes `"github:robmclarty/checkride" = "<version>"`
+  at the head of its `mise.toml`, where it wrote `npm:checkride` with a
+  `node` beside it, when the machine it runs on is one a release carries a
+  binary for: macOS or glibc Linux, on arm64 or x64. mise's `github:` backend
+  installs that release's binary, and nothing else the scaffold pins installs
+  through Node or runs on it, so the project carries none. The entry sets no
+  tool option, so mise reads the file without a `mise trust`, and the setup
+  `init` prints there opens with `mise install`. Anywhere else, such as
+  Alpine, whose musl can't run the glibc build, or Windows, the scaffold is
+  what it was: the npm pin with `node` beside it and `mise trust` first, with
+  a line saying no binary ships for the platform. The `npm:checkride` pin
+  works as it did in any repo that wants it, and `docs/distribution.md` has
+  both, with what a platform without a binary sees and the few minutes after
+  a release before its binaries attach. mise finds the binary through
+  GitHub's API, whose anonymous limit a hosted CI runner shares, so an
+  install there wants a token: `jdx/mise-action` passes one by default, and
+  `docs/ci.md` shows `GITHUB_TOKEN` for a job that runs `mise install`
+  itself. A scaffold written by 0.21.0 or earlier keeps its npm pin until
+  someone swaps the entry.
+- **A Rust scaffold pins cargo-machete through mise's `github:` backend.**
+  `init --lang rust` writes `"github:bnjbvr/cargo-machete"` where it wrote
+  `"ubi:bnjbvr/cargo-machete"`: mise deprecated the `ubi:` backend and
+  removes it in mise 2027.1.0. A `ubi:` pin still counts for the `dead`
+  check, so a repo that has one keeps working until its mise moves. The
+  install hint for cargo-machete names the `github:` pin, and the one for
+  cargo-mutants names the `cargo:` backend, since cargo-mutants publishes
+  x86_64 builds alone, which `github:` won't install on an arm64 machine.
+
+### Contract
+
+- **The pin policy names both of checkride's mise entries.** Pinning exactly
+  in a `mise.toml` means an exact version on `github:robmclarty/checkride` or
+  on `npm:checkride`, where the policy named the npm entry alone, and it says
+  which one `init --lang go|rust` writes on which platform. The policy itself
+  is unchanged, and so is every other surface.
+
 ## [0.21.0] - 2026-11-11
 
 ### Added

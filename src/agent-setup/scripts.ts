@@ -117,11 +117,13 @@ const notInstalled = (entry: EntryCommand): string =>
   ].join(' ');
 
 /**
- * mise won't read the `mise.toml` that pins checkride until someone trusts it,
- * and checkride's entry sets a tool option, so every language scaffold and
- * every fresh clone of one starts there. Like a missing install, this is not
- * something the turn broke: the remedy is a person choosing to trust a file,
- * not an edit, so the gate stands down and names `mise trust` (D82).
+ * mise won't read the `mise.toml` that pins checkride until someone trusts it.
+ * A file that sets a tool option or an env var needs that, as the npm pin's
+ * `allow_low_downloads` does, so a fresh clone of such a repo starts there; a
+ * language scaffold's own `mise.toml` sets neither. Like a missing install,
+ * this is not something the turn broke: the remedy is a person choosing to
+ * trust a file, not an edit, so the gate stands down and names `mise trust`
+ * (D82).
  */
 const untrusted = (entry: EntryCommand): string =>
   [

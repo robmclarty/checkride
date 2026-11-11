@@ -39,13 +39,13 @@ pnpm add -D -E -w checkride   # -w puts it in the workspace root
 ```
 
 A repo with no Node, say one holding only the API, the infrastructure and the
-scripts, pins checkride in a root `mise.toml` instead, beside a `node` for it
-to run on, and runs `mise exec -- checkride` wherever this page runs
-`pnpm exec checkride` or `pnpm check`; [Installing
-checkride](./distribution.md) shows the pin. From the first release that
-carries one, the [standalone binary](./distribution.md#the-standalone-binary)
-does the same job with no Node at all: put it on `PATH`, or pin it through
-mise's `github:` backend, and run `checkride` or `mise exec -- checkride`.
+scripts, pins checkride's
+[standalone binary](./distribution.md#the-standalone-binary) in a root
+`mise.toml` instead, through mise's `github:` backend, and runs
+`mise exec -- checkride` wherever this page runs `pnpm exec checkride` or
+`pnpm check`; [Installing checkride](./distribution.md) shows the pin, and
+the `npm:checkride` one, with a `node` beside it, for a repo that would
+rather run the npm package.
 Its root holds no `go.mod` or
 `.tf` file of its own, and `init` still reads it as an existing repo, from the
 projects discovery finds below the root, so every step below works the same
@@ -271,7 +271,7 @@ tflint = "0.64.0"
 shellcheck = "0.11.0"
 ```
 
-After `mise trust` and `mise install`, those checks run as
+After `mise install`, those checks run as
 `mise exec -- golangci-lint …` and record `pin_source: "mise"`, with the
 version mise resolved each pin to, such as `2.14.0`, as `tool_version`. Add
 `"requirePins": true` to `checkride.config.json`, and a tool nothing pins

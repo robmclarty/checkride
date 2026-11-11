@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
 import { runBaseline } from '../baseline-command.js';
+import { currentHost, hasBinary } from '../channel.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
 import { configSchemaUrl, loadConfig, resolveChecks } from '../config.js';
 import type { ProbeFailure, Probed } from '../init.js';
@@ -1645,12 +1646,19 @@ describe('new-project generation for another language (--lang)', () => {
     expect(config.targets.app.checks).toEqual({ types: 'cargo-check', lint: 'clippy', dead: 'cargo-machete', test: 'nextest', snippets: 'cargo-doctest' });
   });
 
-  test('mise.toml pins npm:checkride at this release, opted in to mise’s low-download refusal, with node beside it, then each binary tool at its tested version (D46, D80)', async () => {
-    await runInit({ cwd: dir, lang: 'go', name: 'demo' });
+  /** A machine a release carries a binary for, and three it carries none for. */
+  const GLIBC_LINUX = { platform: 'linux', arch: 'x64', glibc: true };
+  const NO_BINARY = [
+    [{ platform: 'linux', arch: 'x64', glibc: false }, 'linux-x64 (musl)'],
+    [{ platform: 'win32', arch: 'x64', glibc: false }, 'win32-x64'],
+    [{ platform: 'linux', arch: 'riscv64', glibc: true }, 'linux-riscv64'],
+  ] as const;
+
+  test('mise.toml pins this release’s checkride binary and no node, then each binary tool at its tested version (D46)', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', host: GLIBC_LINUX });
     expect(await readFile(join(dir, 'mise.toml'), 'utf8')).toBe([
       '[tools]',
-      'node = "22.18.0"',
-      `"npm:checkride" = { version = "${await version()}", allow_low_downloads = true }`,
+      `"github:robmclarty/checkride" = "${await version()}"`,
       'go = "1.27.2"',
       'golangci-lint = "2.14.0"',
       'ast-grep = "0.45.3"',
@@ -1660,12 +1668,35 @@ describe('new-project generation for another language (--lang)', () => {
     ].join('\n'));
     await rm(dir, { recursive: true, force: true });
     await mkdir(dir);
-    await runInit({ cwd: dir, lang: 'rust', name: 'demo' });
+    await runInit({ cwd: dir, lang: 'rust', name: 'demo', host: { platform: 'darwin', arch: 'arm64', glibc: false } });
     const rustMise = await readFile(join(dir, 'mise.toml'), 'utf8');
-    expect(rustMise).toContain('"ubi:bnjbvr/cargo-machete" = "0.9.2"');
+    expect(rustMise.split('\n').slice(0, 2)).toEqual(['[tools]', `"github:robmclarty/checkride" = "${await version()}"`]);
+    // Nothing a scaffold pins installs through Node or runs on it, and no entry sets a tool option, which mise would want trusted.
+    expect(rustMise).not.toMatch(/^node =|npm:|\{/m);
+    expect(rustMise).toContain('"github:bnjbvr/cargo-machete" = "0.9.2"');
     expect(rustMise).toContain('"aqua:nextest-rs/nextest/cargo-nextest" = "0.9.148"');
     // rust-toolchain.toml pins the toolchain, so mise.toml leaves it alone.
     expect(rustMise).not.toMatch(/^rust =/m);
+  });
+
+  test.each(NO_BINARY)('on %o, which no release has a binary for, mise.toml pins npm:checkride with node beside it, and init says why and prints mise trust (D80)', async (host, named) => {
+    const out = sink();
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', host, stdout: out });
+    expect((await readFile(join(dir, 'mise.toml'), 'utf8')).split('\n').slice(0, 4)).toEqual([
+      '[tools]',
+      'node = "22.18.0"',
+      `"npm:checkride" = { version = "${await version()}", allow_low_downloads = true }`,
+      'go = "1.27.2"',
+    ]);
+    expect(out.text()).toContain(
+      `  no standalone binary ships for ${named}, so mise.toml pins checkride from npm, with node beside it.\n  next, with the network:\n    mise trust\n    mise install\n    go get -tool`,
+    );
+  });
+
+  test('without a host given, the scaffold is for this machine', async () => {
+    await runInit({ cwd: dir, lang: 'go', name: 'demo' });
+    const pin = hasBinary(currentHost()) ? `"github:robmclarty/checkride" = "${await version()}"` : 'node = "22.18.0"';
+    expect((await readFile(join(dir, 'mise.toml'), 'utf8')).split('\n')[1]).toBe(pin);
   });
 
   test('ships the dialect rules, verbatim from the templates', async () => {
@@ -1685,11 +1716,13 @@ describe('new-project generation for another language (--lang)', () => {
 
   test("runs the gate through mise's checkride, and prints the setup that needs the network", async () => {
     const out = sink();
-    await runInit({ cwd: dir, lang: 'go', shape: 'workspace', name: 'demo', stdout: out });
+    await runInit({ cwd: dir, lang: 'go', shape: 'workspace', name: 'demo', stdout: out, host: GLIBC_LINUX });
     expect(await readFile(join(dir, 'AGENTS.md'), 'utf8')).toContain('`mise exec -- checkride` is the single source of truth for "done"');
     expect(out.text()).toContain('go get -C core -tool golang.org/x/tools/cmd/deadcode@v0.52.0');
-    // mise loads a mise.toml that sets a tool option, as checkride's entry does, only once it's trusted (D80).
-    expect(out.text()).toContain('    mise trust\n    mise install\n');
+    // No `mise trust` first: the scaffold's mise.toml sets no tool option, so mise reads it untrusted.
+    expect(out.text()).toContain('  next, with the network:\n    mise install\n');
+    expect(out.text()).not.toContain('mise trust');
+    expect(out.text()).not.toContain('no standalone binary');
   });
 
   test.each([

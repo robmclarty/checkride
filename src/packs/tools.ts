@@ -118,14 +118,17 @@ export const TOOLS: readonly Tool[] = [
   {
     bin: 'cargo-machete',
     run: ['cargo', 'machete'],
-    mise: ['ubi:bnjbvr/cargo-machete', 'cargo:cargo-machete'],
-    install: 'pin it with `mise use ubi:bnjbvr/cargo-machete@<version>`, or `cargo install cargo-machete`',
+    // `ubi:` stays recognised for a repo that pinned it before mise deprecated the backend (it goes in mise 2027.1.0).
+    mise: ['github:bnjbvr/cargo-machete', 'ubi:bnjbvr/cargo-machete', 'cargo:cargo-machete'],
+    install: 'pin it with `mise use github:bnjbvr/cargo-machete@<version>`, or `cargo install cargo-machete`',
   },
   {
     bin: 'cargo-mutants',
     run: ['cargo', 'mutants'],
-    mise: ['ubi:sourcefrog/cargo-mutants', 'cargo:cargo-mutants'],
-    install: 'pin it with `mise use ubi:sourcefrog/cargo-mutants@<version>`, or `cargo install cargo-mutants`',
+    // Its releases ship x86_64 builds alone, so the hint names the `cargo:` backend, which builds it for any machine;
+    // `github:` and the deprecated `ubi:` stay recognised for a repo that pins one.
+    mise: ['github:sourcefrog/cargo-mutants', 'ubi:sourcefrog/cargo-mutants', 'cargo:cargo-mutants'],
+    install: 'pin it with `mise use cargo:cargo-mutants@<version>`, or `cargo install cargo-mutants`',
   },
   {
     bin: 'cargo-nextest',

@@ -52,7 +52,7 @@ const MAIN = 'fn main() {\n    println!("{}", kit::add_one(1));\n}\n';
 const FILES: Record<string, string> = {
   'rust/Cargo.toml': '[workspace]\nmembers = ["crates/*"]\nresolver = "2"\n',
   'rust/rust-toolchain.toml': `[toolchain]\nchannel = "${CHANNEL}"\ncomponents = ["clippy", "rustfmt"]\n`,
-  'rust/mise.toml': '[tools]\n"ubi:bnjbvr/cargo-machete" = "0.9.2"\n',
+  'rust/mise.toml': '[tools]\n"github:bnjbvr/cargo-machete" = "0.9.2"\n',
   'rust/crates/kit/Cargo.toml': '[package]\nname = "kit"\nversion = "0.1.0"\nedition = "2021"\n',
   'rust/crates/kit/src/lib.rs': LIB,
   'rust/crates/cli/Cargo.toml': '[package]\nname = "cli"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\nkit = { path = "../kit" }\n',
@@ -110,7 +110,7 @@ const hasRustup = spawnSync('rustup', ['--version'], { stdio: 'ignore' }).status
     expect(checks.get('app:dead')).toMatchObject({
       ok: true,
       adapter: 'cargo-machete',
-      detected_by: 'rust/mise.toml: ubi:bnjbvr/cargo-machete',
+      detected_by: 'rust/mise.toml: github:bnjbvr/cargo-machete',
       pin_source: 'mise',
       argv: ['mise', 'exec', '--', 'cargo', 'machete'],
     });

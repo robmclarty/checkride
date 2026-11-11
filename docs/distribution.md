@@ -1,16 +1,17 @@
 # Installing checkride
 
-checkride ships through three channels:
+checkride ships through two channels, and a repo runs it one of three ways:
 
 - **npm**, for a repo with a `package.json`, where checkride is a
   devDependency.
-- **The mise route**, for a repo without one: [mise](https://mise.jdx.dev)
-  installs Node and the npm package side by side and runs checkride through
-  `mise exec`.
 - **The standalone binary**, one executable file that needs no Node on the
-  machine. It ships from the first release that attaches binaries to its
-  GitHub release. No release has yet, so until one does the mise route is the
-  supported way to run checkride in a repo without Node.
+  machine. Every release from 0.21.0 attaches one per platform to its GitHub
+  release.
+- **The mise route**, for a repo without a `package.json`:
+  [mise](https://mise.jdx.dev) pins checkride in the repo's `mise.toml` and
+  runs it through `mise exec`. The pin is the binary, which is what
+  `init --lang go|rust` writes on a platform a release has one for, or the
+  npm package with Node beside it, which it writes anywhere else.
 
 `checkride doctor` names the channel a copy came through, `channel: npm` or
 `channel: binary`.
@@ -33,7 +34,111 @@ gate, where a repo opts in to it, run that script. [Getting started](./getting-s
 ## The mise route
 
 A Go, Rust or other repo with no `package.json` pins checkride in its root
-`mise.toml`, with `node` beside it:
+`mise.toml`:
+
+```toml
+[tools]
+"github:robmclarty/checkride" = "<version>"
+```
+
+`<version>` is a checkride release that carries binaries, `0.21.0` or later.
+mise's `github:` backend installs that release's binary for the platform, so
+the repo needs no Node. `init --lang go|rust` writes that pin at the checkride
+you ran it with, on a machine [a release has a binary for](#the-binary-has-to-be-there),
+and a repo that already exists can add it in one command:
+
+```bash
+mise use github:robmclarty/checkride@<version>
+```
+
+Then:
+
+```bash
+mise install                 # every pin, checkride among them
+mise exec -- checkride init  # once: adopt the repo's tools, write the stanza and hooks
+mise exec -- checkride       # the gate
+```
+
+No `mise trust` comes first. mise asks for one only where a `mise.toml` sets
+a tool option or an env var, and this entry sets neither, so a fresh clone
+installs and runs as it is. A repo whose `mise.toml` does set one, as
+[the npm pin](#pin-the-npm-package-instead) does, needs `mise trust` once per
+clone, and until then each check mise pins fails naming it. If mise reports
+the file as untrusted all the same, run `mise trust`: an older or stricter
+mise may ask for it, and so will this one once the file gains `[env]`, tasks
+or a template. The stop gate stands down naming `mise trust` in that state
+rather than blocking.
+
+Where a root `mise.toml` pins checkride, the AGENTS.md stanza, the plugin
+skills and an opted-in stop gate run `mise exec -- checkride`, and `doctor`
+reports that harness as pinned. A repo with no `package.json` that pins
+nothing runs the `checkride` on `PATH`, which `doctor` reports as the harness
+unpinned, naming the `mise use` above.
+
+An end-to-end test installs a scaffold's `mise.toml` this way, through a mise
+that shares nothing with the machine's and finds no Node on `PATH`, and runs
+`mise exec -- checkride --version` and `doctor`.
+
+### The binary has to be there
+
+A release carries a binary for four platforms: macOS and glibc Linux, each on
+arm64 and x86-64. Two things follow for the pin.
+
+**A platform with no binary.** On Windows, or an architecture outside those
+two, mise finds no asset to install and `mise install` fails. Alpine is
+worse: mise picks an asset by operating system and architecture, and the
+tarballs' names say nothing of the C library, so on a musl Linux the install
+is likely to succeed, with the glibc build, and `mise exec -- checkride` then
+fails to start, typically with a `not found` for a binary that is plainly
+there. Either way the answer is
+[the npm pin](#pin-the-npm-package-instead).
+
+`init --lang go|rust` makes that choice for the machine it runs on. On one of
+the four platforms it writes the `github:` pin and no `node`. Anywhere else,
+a musl Linux included, it writes the npm pin with `node` beside it, prints
+`mise trust` ahead of `mise install`, and says why:
+
+```text
+  no standalone binary ships for linux-x64 (musl), so mise.toml pins checkride from npm, with node beside it.
+```
+
+The `mise.toml` is committed, so the pin is the scaffolding machine's choice
+for everyone who clones the repo. A team that develops on macOS and runs CI
+on Alpine swaps the entry for the npm pin by hand.
+
+**A release moments old.** npm is the primary channel, so a tag publishes to
+npm and creates its GitHub release without waiting for the binaries, which
+attach a few minutes later, each platform on its own. A scaffold written by
+a checkride installed from npm in that window pins a version whose binary
+isn't there yet, and `mise install` fails until it attaches. A platform whose
+build failed for that release stays missing until the release workflow is
+re-run. [The standalone binary](#the-standalone-binary) has the command that
+lists what a release holds.
+
+### GitHub's rate limit
+
+mise's `github:` backend finds the binary by listing the release's assets
+through GitHub's API. Asked anonymously, that API allows 60 requests an hour
+per IP address, and a hosted CI runner shares its address with other jobs, so
+`mise install` there can fail with a 403 that has nothing to do with the
+repo. A token lifts the limit. `jdx/mise-action` passes the job's own token
+by default. Anywhere else, set `GITHUB_TOKEN` on the step that runs
+`mise install`:
+
+```yaml
+      - run: mise install
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+```
+
+A read-only token is enough: the release is public, and the token only says
+who is asking. On a laptop the anonymous limit is rarely reached, and
+`GITHUB_TOKEN` in the shell lifts it there too.
+
+### Pin the npm package instead
+
+A repo that would rather run the npm package, or sits on a platform with no
+binary, pins `npm:checkride` with `node` beside it:
 
 ```toml
 [tools]
@@ -41,39 +146,18 @@ node = "22.18.0"
 "npm:checkride" = { version = "<version>", allow_low_downloads = true }
 ```
 
-`<version>` is a checkride release, such as `0.15.0`. `init --lang go|rust`
-writes that pin at the checkride you ran it with, and a repo that already
-exists can add it in one command:
-
 ```bash
 mise use node@22.18.0 'npm:checkride[allow_low_downloads=true]@<version>'
+mise trust                   # once per clone
+mise install                 # every pin, node and checkride among them
+mise exec -- checkride
 ```
 
 Keep the quotes: zsh reads unquoted brackets as a glob and refuses the
-command. Then:
-
-```bash
-mise trust                   # once per clone
-mise install                 # every pin, node and checkride among them
-mise exec -- checkride init  # once: adopt the repo's tools, write the stanza and hooks
-mise exec -- checkride       # the gate
-```
-
-mise loads a `mise.toml` that sets a tool option only once it's trusted, and
-`allow_low_downloads` is a tool option, so until `mise trust` runs, mise
-refuses the whole file and no check it pins can run: each fails naming
-`mise trust`. `init --lang go|rust` prints `mise trust` first among its setup
-steps for that reason.
-
-checkride still runs on Node, so `node` is a pin like any other tool's: mise
-installs it, and nothing on the machine's `PATH` has to provide it. Where a
-root `mise.toml` pins `npm:checkride`, the AGENTS.md stanza, the plugin skills
-and an opted-in stop gate run `mise exec -- checkride`, and `doctor` reports that harness
-as pinned. A repo with no `package.json` that pins nothing runs the
-`checkride` on `PATH`, which `doctor` reports as the harness unpinned, naming
-the `mise use` above.
-
-### Why the entry sets `allow_low_downloads`
+command. The npm package runs on Node, so `node` is a pin like any other
+tool's: mise installs it, and nothing on the machine's `PATH` has to provide
+it. The [entry command](./packs.md#the-entry-command) reads this pin the way
+it reads the `github:` one.
 
 mise's npm backend refuses a package with fewer than 1000 weekly downloads
 until the entry that names it opts in, and checkride is under that line. The
@@ -86,9 +170,8 @@ help: after verifying the package, set `allow_low_downloads = true` on `npm:chec
 
 `allow_low_downloads = true` is that opt-in, given once, in the repo's own
 `mise.toml`. It approves checkride alone, and every other `npm:` entry keeps
-the check. An end-to-end test installs a scaffold's `mise.toml` this way,
-through a mise that shares nothing with the machine's and finds no Node on
-`PATH`, and runs `mise exec -- checkride --version`.
+the check. It is also a tool option, which is why this pin needs
+`mise trust`: mise refuses the whole file until then.
 
 ## The standalone binary
 
@@ -102,8 +185,8 @@ carries, so a Go, Rust, Python, Terraform or Odin repo needs no Node and no
 package manager to run its gate. `checkride --version` prints the same
 version in both channels, and `init` scaffolds the same files, byte for byte.
 
-**It ships from the first release that attaches binaries.** Each such release
-carries up to four tarballs, `SHA256SUMS`, and a build provenance attestation
+**It ships from 0.21.0, the first release to attach binaries.** Each release
+since carries up to four tarballs, `SHA256SUMS`, and a build provenance attestation
 for each tarball:
 
 | Tarball | Platform |
@@ -168,24 +251,20 @@ quarantine.
 ### Pin it with mise
 
 A binary on `PATH` is a copy nothing pins, and `doctor` reports that harness
-as unpinned. mise's `github:` backend installs a release's asset for the
-platform and records the version in the repo's `mise.toml`:
+as unpinned. [The mise route](#the-mise-route) pins it: mise's `github:`
+backend installs a release's asset for the platform and records the version
+in the repo's `mise.toml`:
 
 ```bash
 mise use github:robmclarty/checkride@<version>
 mise exec -- checkride
 ```
 
-The [entry command](./packs.md#the-entry-command) reads a
-`github:robmclarty/checkride` pin the way it reads an `npm:checkride` one, so
-the AGENTS.md stanza, the plugin skills and an opted-in stop gate run
-`mise exec -- checkride`. It needs no `node` pin beside it and no
-`allow_low_downloads`, which is the npm backend's rule. This route works from
-the first release that carries binaries too. The binary's own hints name
-this pin: `doctor`'s `harness` row, a gate that couldn't run, and the gate
-hook it generates. `init --lang go|rust` writes the same files from either
-channel, so its `mise.toml` still pins `npm:checkride` with `node` beside
-it. Swap that entry for the `github:` one to drop Node from the repo.
+It needs no `node` pin beside it, no `allow_low_downloads`, which is the npm
+backend's rule, and no `mise trust`. The binary's own hints name this pin:
+`doctor`'s `harness` row, a gate that couldn't run, and the gate hook it
+generates. `init --lang go|rust` writes the same files from either channel,
+this pin among them.
 
 ### How the binary runs itself
 

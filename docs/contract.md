@@ -2021,8 +2021,12 @@ change, never a quiet test edit.
 
 checkride follows semver. Pre-1.0, minor versions may break (the semver 0.x
 rule) — **consumers should pin exactly** (`"checkride": "0.15.0"`, no caret,
-or the same exact version on a `mise.toml`'s `npm:checkride` entry) and
-upgrade deliberately. Post-1.0, a caret range is the intended usage.
+or the same exact version on a `mise.toml`'s checkride entry) and upgrade
+deliberately. That entry is `github:robmclarty/checkride`, the release's
+standalone binary, or `npm:checkride`, the npm package. `init --lang go|rust`
+writes the first, at the exact version that ran it, on a platform a release
+carries a binary for (macOS and glibc Linux, on arm64 and x64), and the
+second, with a `node` beside it, anywhere else. Post-1.0, a caret range is the intended usage.
 
 Any change touching a surface in this document must name itself in
 `CHANGELOG.md` under a **Contract** heading in that release's notes — a reader

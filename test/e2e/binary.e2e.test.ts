@@ -23,6 +23,9 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
+import { MISE_IDS } from '../../src/channel.js';
+import { BINARY_PIN, binaryPin, describeWithMise, findMise } from '../helpers/mise.js';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = join(ROOT, 'dist', 'cli.js');
 const VERSION = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string }).version;
@@ -209,6 +212,18 @@ describe('the standalone binary', () => {
     const scaffold = tree(fromBinary);
     expect(Object.keys(scaffold).length).toBeGreaterThan(10);
     expect(scaffold).toEqual(tree(fromNpm));
+  });
+
+  test('init --lang go pins the binary through mise and no node, and prints no mise trust', () => {
+    const repo = freshDir('demo');
+    const run = binary(['init', '--lang', 'go', '--name', 'demo'], repo);
+    expect(run.code).toBe(0);
+    const toml = readFileSync(join(repo, 'mise.toml'), 'utf8');
+    expect(toml.split('\n').slice(0, 2)).toEqual(['[tools]', binaryPin(VERSION)]);
+    // The scaffold is for a repo with no Node: nothing in it installs through npm, and no entry sets a tool option mise would want trusted.
+    expect(toml).not.toMatch(/^node =|npm:|\{/m);
+    expect(run.stdout).toContain('  next, with the network:\n    mise install\n');
+    expect(run.stdout).not.toContain('mise trust');
   });
 
   test('a run goes green, and leaves the summary the npm CLI leaves', () => {
@@ -558,4 +573,93 @@ describe('the standalone binary', () => {
     expect(qa.stdout).toContain('# checkride qa');
     expect(qa.stdout).toContain('hello');
   });
+});
+
+/**
+ * A release the mise route can install: one with the standalone binaries
+ * attached, which 0.21.0 was the first to have. The scaffold pins this
+ * package's own version, which can't stand in: until that version is
+ * released, GitHub has no release of that name for mise to find.
+ */
+const RELEASED = '0.21.0';
+
+/**
+ * What lets the isolated mise ask GitHub's API as someone, by each name mise
+ * reads a token from: without one the `github:` backend lists a release's
+ * assets anonymously, and that limit (60 requests an hour per IP) is shared
+ * on a hosted CI runner.
+ */
+function githubTokens(): Record<string, string> {
+  const names = ['MISE_GITHUB_TOKEN', 'GITHUB_API_TOKEN', 'GITHUB_TOKEN'];
+  return Object.fromEntries(names.flatMap((name) => {
+    const value = process.env[name];
+    return value !== undefined && value !== '' ? [[name, value]] : [];
+  }));
+}
+
+/**
+ * A run that names its binary with `CHECKRIDE_BIN` is `release.yaml`'s,
+ * testing the binary it is about to attach, on a runner with no mise. This
+ * case is about a release GitHub already holds, so there it would only make
+ * a new binary wait on an old one's download.
+ */
+const describeRoute = (process.env['CHECKRIDE_BIN'] ?? '') !== '' ? describe.skip : describeWithMise(findMise());
+
+/**
+ * The mise route, the supported way to run checkride in a repo without Node
+ * (D46): the pin a scaffold writes, installed by a real mise that shares
+ * nothing with this machine's (its own home, data, cache, config and state)
+ * and finds no Node on `PATH`, with no `mise trust` first.
+ *
+ * What it proves: this commit's scaffold names the `github:` entry at this
+ * version, and that entry's form, at a version GitHub holds, is one mise
+ * installs and runs. What it can't: anything about this commit's binary.
+ * The checkride it runs is {@link RELEASED}'s, frozen, so nothing is asserted
+ * of what that one prints beyond its version; the cases above test the
+ * binary built here. It is the one case that needs GitHub's API, which is
+ * why it lives in this file: `publish.yaml` leaves the file out, so GitHub
+ * can't hold up an npm publish.
+ *
+ * It installs checkride's entry alone, the pack's tools being the shape
+ * cases' to prove, with mise's auto-install off so `exec` fetches nothing
+ * else.
+ */
+describeRoute('the mise route', () => {
+  test('the scaffold’s github: pin, at a released version, installs with no Node on PATH and no mise trust, and mise exec -- checkride runs it', () => {
+    const repo = freshDir('t-demo');
+    expect(npm(['init', '--lang', 'go', '--name', 't-demo'], repo).code).toBe(0);
+    const tomlPath = join(repo, 'mise.toml');
+    const toml = readFileSync(tomlPath, 'utf8');
+    expect(toml.split('\n').slice(0, 2)).toEqual(['[tools]', binaryPin(VERSION)]);
+    writeFileSync(tomlPath, toml.replace(BINARY_PIN, binaryPin(RELEASED)));
+
+    const home = join(dirname(repo), 'mise');
+    const bin = pathDir(`mise-route-${serial}`);
+    symlinkSync(findMise() ?? 'mise', join(bin, 'mise'));
+    const env = {
+      HOME: join(home, 'home'),
+      PATH: [bin, '/usr/bin', '/bin'].join(':'),
+      MISE_DATA_DIR: join(home, 'data'),
+      MISE_CONFIG_DIR: join(home, 'config'),
+      MISE_CACHE_DIR: join(home, 'cache'),
+      MISE_STATE_DIR: join(home, 'state'),
+      MISE_EXEC_AUTO_INSTALL: 'false',
+      ...githubTokens(),
+    };
+    const mise = (args: readonly string[]): Run => {
+      const done = spawnSync(join(bin, 'mise'), [...args], { cwd: repo, env, encoding: 'utf8', timeout: 240_000 });
+      if (done.error) throw done.error;
+      return { code: done.status, stdout: done.stdout, stderr: done.stderr };
+    };
+    expect(spawn('/bin/sh', ['-c', 'command -v node'], repo, env).code, 'node is on the stripped PATH').not.toBe(0);
+
+    // The setup init prints, minus the pack's tools: the install, with no trust before it.
+    const install = mise(['install', MISE_IDS.binary]);
+    expect(install.code, install.stderr).toBe(0);
+    // The gate hook's test for an installed checkride.
+    const which = mise(['which', 'checkride']);
+    expect(which.stdout, which.stderr).toContain(join(home, 'data'));
+    const version = mise(['exec', '--', 'checkride', '--version']);
+    expect(version.stdout.trim(), version.stderr).toBe(RELEASED);
+  }, 300_000);
 });

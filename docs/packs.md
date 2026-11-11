@@ -531,7 +531,10 @@ pins it, else a `mise.toml` pin of `rust`, else `PATH`. rustfmt and clippy
 resolve through the toolchain file first, as rustup components, and
 cargo-machete, cargo-nextest, cargo-deny and
 cargo-mutants are cargo plugins, each its own binary that a `mise.toml` pins,
-such as `"ubi:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. Clippy's
+such as `"github:bnjbvr/cargo-machete" = "0.9.2"`, or that `PATH` holds. A
+`ubi:` pin, which mise deprecated and removes in its 2027.1.0 release, still
+counts. cargo-mutants publishes x86_64 builds only, so on an arm64 machine
+pin it through the `cargo:` backend, which builds it. Clippy's
 `-D warnings` fails the check on a warning, rustc's `dead_code` lint among
 them, which is why `dead` looks for unused dependencies instead. nextest
 doesn't run doctests, so a Rust repo names `snippets` to opt the doctests in.
@@ -832,10 +835,11 @@ plugin skills run checkride in a repo, chosen from the repo root:
 1. A root `package.json` with a `check` script: `<pm> run check`, as every
    release has run it. `init` writes that script.
 2. Otherwise, a root `mise.toml` or `.mise.toml` whose `[tools]` declares
-   `npm:checkride` or `github:robmclarty/checkride`: `mise exec -- checkride`.
-   The second id installs the
-   [standalone binary](./distribution.md#the-standalone-binary), from the
-   first release that carries one.
+   `github:robmclarty/checkride` or `npm:checkride`: `mise exec -- checkride`.
+   The first id installs the
+   [standalone binary](./distribution.md#the-standalone-binary), and is the
+   one `init --lang go|rust` writes. The second installs the npm package, and
+   wants a `node` pinned beside it.
 3. Otherwise, a root `package.json` with no `check` script: still
    `<pm> run check`, which fails naming the missing script.
 4. None of those: the `checkride` on `PATH`, which nothing pins, so `doctor`

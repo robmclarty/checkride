@@ -16,8 +16,62 @@
  * the npm package, and a runtime without it is by definition not the binary.
  */
 
+import { isRecord } from './json.js';
+
 /** How checkride was installed: from npm, or as the standalone binary. */
 export type Channel = 'npm' | 'binary';
+
+/**
+ * The `[tools]` key that pins each channel's checkride in a `mise.toml` (D46).
+ * The binary's names the GitHub repository whose releases carry it, the one
+ * `package.json`'s `repository` names.
+ */
+export const MISE_IDS: Readonly<Record<Channel, string>> = { npm: 'npm:checkride', binary: 'github:robmclarty/checkride' };
+
+/**
+ * The platforms a release carries a standalone binary for, as its tarballs
+ * name them: `<os>-<arch>`. `.github/workflows/release.yaml` builds one per
+ * entry of its matrix, and a test holds this list equal to that matrix. The
+ * Linux builds are glibc ones.
+ */
+export const BINARY_TARGETS: readonly string[] = ['darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64'];
+
+/** The machine a command runs on, as far as which binary it could run goes. */
+export type Host = {
+  /** `process.platform`. */
+  platform: string;
+  /** `process.arch`. */
+  arch: string;
+  /** Whether the C library is glibc: `false` on a musl Linux such as Alpine, and wherever the platform isn't Linux. */
+  glibc: boolean;
+};
+
+/**
+ * Whether this process runs on glibc. Node's diagnostic report names the
+ * glibc it runs on in its header, and a musl build's names none, which is how
+ * the two are told apart without spawning anything.
+ */
+function onGlibc(): boolean {
+  const report: unknown = process.report.getReport();
+  const header = isRecord(report) ? report['header'] : undefined;
+  return isRecord(header) && typeof header['glibcVersionRuntime'] === 'string';
+}
+
+/** The machine this process runs on. */
+export function currentHost(): Host {
+  const { platform, arch } = process;
+  return { platform, arch, glibc: platform === 'linux' && onGlibc() };
+}
+
+/** `host` as a release target would name it, with the C library where that is what rules it out. */
+export function hostName(host: Host): string {
+  return `${host.platform}-${host.arch}${host.platform === 'linux' && !host.glibc ? ' (musl)' : ''}`;
+}
+
+/** Whether a release carries a binary `host` can run. */
+export function hasBinary(host: Host): boolean {
+  return BINARY_TARGETS.includes(`${host.platform}-${host.arch}`) && (host.platform !== 'linux' || host.glibc);
+}
 
 /** What this checkride does its own way, by how it runs. */
 export type Runtime = {
@@ -77,7 +131,7 @@ export function npmRuntime(): Runtime {
     repoNode: () => own,
     // `allow_low_downloads`: mise's npm backend refuses a package under 1000 weekly downloads without it (D46, D80).
     // The quotes keep a shell from reading the brackets as a glob, which zsh refuses to run.
-    pin: "mise use 'npm:checkride[allow_low_downloads=true]@<version>'",
+    pin: `mise use '${MISE_IDS.npm}[allow_low_downloads=true]@<version>'`,
     libraries: 'repo',
   };
 }
@@ -95,7 +149,7 @@ export function binaryRuntime(asset: (key: string) => string): Runtime {
     node: 'node',
     repoNode: (onPath) => onPath(),
     // The `github:` pin installs a release's binary and needs no Node, where the npm pin would install the package.
-    pin: 'mise use github:robmclarty/checkride@<version>',
+    pin: `mise use ${MISE_IDS.binary}@<version>`,
     libraries: 'bundled',
   };
 }
