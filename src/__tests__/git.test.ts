@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { GitResult, GitRunner } from '../git.js';
-import { changedPaths, DEFAULT_BASE, gitFailureError, readGitState, realGit, resolveChangedBase } from '../git.js';
+import { changedPaths, DEFAULT_BASE, gitFailureError, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
 
 const SHA = 'a'.repeat(40);
 const HEAD_SHA = 'b'.repeat(40);
@@ -188,6 +188,22 @@ describe('changedPaths', () => {
     expect(await changedPaths(listingGit({ 'merge-base': outside }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'fatal: not a git repository' });
     expect(await changedPaths(listingGit({ diff: slow }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'git diff timed out (>10s)' });
     expect(await changedPaths(listingGit({ 'ls-files': broken }), { ref: 'main', sha: SHA })).toEqual({ ok: false, why: 'fatal: bad object' });
+  });
+});
+
+describe('repoTopLevel', () => {
+  test('is the path git gives for the top of the work tree, without its line break', async () => {
+    const git = listingGit({ 'rev-parse': '/work/repo\n' });
+    expect(await repoTopLevel(git)).toBe('/work/repo');
+    expect(git.calls).toEqual([['rev-parse', '--show-toplevel']]);
+    // Only the line break git adds is dropped, so a directory whose name ends in a space keeps it.
+    expect(await repoTopLevel(listingGit({ 'rev-parse': '/work/odd dir \r\n' }))).toBe('/work/odd dir ');
+  });
+
+  test('is null when git can’t say: no repository, no git, or a bare repository’s empty answer', async () => {
+    expect(await repoTopLevel(listingGit({ 'rev-parse': { ok: false, error: 'not-a-repo', detail: 'fatal: not a git repository' } }))).toBeNull();
+    expect(await repoTopLevel(listingGit({ 'rev-parse': { ok: false, error: 'missing', detail: 'git not found on PATH' } }))).toBeNull();
+    expect(await repoTopLevel(listingGit({ 'rev-parse': '\n' }))).toBeNull();
   });
 });
 

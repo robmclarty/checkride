@@ -673,7 +673,7 @@ run flags:
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
 --out <dir>  --defaults <path>  --discover  --pins <mise.toml>  --static-only
---suite <name>
+--suite <name>  --annotate github
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -701,12 +701,12 @@ of for itself.
 `--suite` as a run does, and `CHECKRIDE_CONFIG` and `CHECKRIDE_SUITE` too. It refuses, with exit 2 before
 anything runs, the flags that would change which files its fixers rewrite
 or with which tool: `--static-only`, `--discover`, `--base`, `--out`,
-`--defaults` and `--pins`, each named with why, as in `fix doesn't take
+`--defaults`, `--pins` and `--annotate`, each named with why, as in `fix doesn't take
 --static-only: fixers rewrite files and can load the repo's code`. It
 accepts the other run flags 0.14 accepted, `--changed`, `--bail`, `--json`,
 `--digest` and `--strict`, without acting on any of them, and it never reads
-`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT` or
-`CHECKRIDE_BASE`. Each fixer is the copy of its tool the repo pins, over the
+`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT`,
+`CHECKRIDE_BASE` or `CHECKRIDE_ANNOTATE`. Each fixer is the copy of its tool the repo pins, over the
 targets its config declares.
 
 **`--config <path>` and `CHECKRIDE_CONFIG` name the config file.** Run,
@@ -1160,6 +1160,80 @@ and a `followup_message` and exit 0 under Cursor, as it does for a config it
 can't read. Each command a suite's verdict names carries `--suite <name>`,
 behind `--` where the package manager is npm.
 
+**`--annotate github` and `CHECKRIDE_ANNOTATE` write a run's findings as
+GitHub Actions annotations.** The flag, else the variable (an empty variable
+counts as unset; the flag wins), and `github` is the only value: any other is
+exit 2, as `invalid --annotate 'gitlab' (expected github)`, naming the flag or
+the variable that gave it. Nothing else switches it on, `GITHUB_ACTIONS`
+included. The run takes it, beside any other run flag. `fix` and `doctor`
+refuse the flag with exit 2, as `fix doesn't take --annotate: only a run has
+findings to annotate`, and it is an unknown option to every other command.
+None of them reads the variable: one set for a whole CI job is ignored there
+without a word, whatever it holds. `gate` strips `CHECKRIDE_ANNOTATE` from
+the check it spawns, as it does the consumer variables.
+
+A run asked for them writes these lines to stderr, below the `report:` and
+`digest:` lines and every notice beneath them, and above the digest a red
+`--digest` run prints, which stays last. Under `--json` they are all of
+stderr and stdout is the summary alone. A run with no red check writes none.
+Each line is one of three shapes:
+
+```text
+::error file=<path>,line=<n>,col=<n>,title=<title>::<message>
+::error title=<title>::<message>
+::notice title=checkride::<N> more finding(s) not annotated; see <summary path>
+```
+
+A red check's lines are drawn from what the report lists beneath its status
+line, and never from something the report leaves out:
+
+- **A finding** of a red check whose tool has a parser: each one that can
+  fail the check, in the tool's order, where the report lists the first
+  five. Where a baseline masked some, the report lists the new findings by
+  key, and the lines are those: each finding under a key the baseline
+  doesn't hold, and, for a key found more often than it grandfathers, one
+  line, on the first finding under it, its message followed by a space and
+  `(<M> found, <N> grandfathered)`. `title` is `<check name>: <rule>`, or
+  the check's name alone for a finding with no rule, the name as the
+  summary's `name` gives it, so `web:lint` for a target's check. The message
+  is the first line of the finding's message, or its rule where it has none.
+- **A failing test** of a vitest or `go test` run: `title` is
+  `<check name>: <test name>`, the name as the tool gives it, a vitest
+  project's `|<project>|` prefix included, and the message is the first
+  line of its error, or `failed`. It carries `file`, with no `line`, only
+  where the test's name gives a path, which a `go test` name never does.
+- **Any other red check** is one line with no `file`, titled with the
+  check's name: one with no parser or no finding its parser reads, and one
+  whose reason is the whole of why it failed, a timeout, a tool that
+  couldn't start, a refusal, or a run a baseline couldn't mask because it
+  stopped short, whatever its partial output holds. A `go test` run alone
+  lists its failing tests beneath such a reason, and is annotated with
+  them. The message is the reason the run prints beneath its status line
+  when it has one, else the first line of the excerpt it prints there, else
+  `failed; see <file>`.
+- **`file`** is present only for a regular file on disk whose real path
+  sits inside the git work tree, and is relative to the work tree's top
+  level, with forward slashes, whichever target the check ran in and
+  whichever directory of the work tree, or symlink to one, the run started
+  from. Outside a git repository the run's directory stands in for the top
+  level. A finding about anything else, a package name, a directory, a file
+  outside the work tree, is written without `file`, `line` or `col`.
+- **`line`** is present beside `file` when the finding's line is 1 or more,
+  and **`col`** beside `line` when its column is 1 or more.
+- **At most ten `::error` lines** a run, taken in the order `summary.json`
+  lists its checks, then the one `::notice` when there were more, counting
+  them and naming the run's summary file as its report does.
+- **Escaping** is GitHub's: `%`, carriage return and line feed become `%25`,
+  `%0D` and `%0A` in a message, and in a `file` or `title` value `:` and `,`
+  become `%3A` and `%2C` as well. Escape sequences and control characters
+  are removed first, each value is one line, and a title or a message is cut
+  at 200 characters, ending in `…`.
+
+Nothing else about the run changes: its exit code, `summary.json`,
+`digest.md` and every other line it prints are those of a run without it.
+More formats would be more values, which is additive; changing a line's shape
+is a breaking change.
+
 **A capture runs only the checks whose findings it can key.** `checkride
 baseline` skips each check whose adapter no parser the baseline keys with
 reads, a test runner's, a built-in's, and a type checker's other than tsc's
@@ -1590,6 +1664,10 @@ repo root, and throws for a name outside the grammar. `runChecks`, `runFix`
 and `runDoctor` take it as their `suite` option, and with `config` omitted
 they load the suite's own config file, as they load `checkride.config.json`
 without one.
+
+`runChecks` takes `annotate: 'github'` as the CLI takes
+[`--annotate github`](#cli), and writes the same lines to its `stderr`. It
+reads no variable: `CHECKRIDE_ANNOTATE` is the CLI's.
 
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,

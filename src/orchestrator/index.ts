@@ -7,12 +7,15 @@
  * `select.ts`, process spawning and the fatal-signal registry in `spawn.ts`,
  * option and baseline resolution in `context.ts`, terminal output and the
  * summary shape in `report.ts`, the excerpt beneath a red check in
- * `excerpt.ts` and its reading of a vitest run in `vitest-failures.ts`, the
+ * `excerpt.ts` and its reading of a vitest run in `vitest-failures.ts`, a
+ * run's GitHub annotations in `annotate.ts`, the
  * per-check pipeline and wave scheduler in `execute.ts`, `runChecks` in
  * `run.ts`, and `checkride fix` in `fix.ts`;
  * siblings import only from here.
  */
 
+export type { AnnotateFormat } from './annotate.js';
+export { ANNOTATE_ENV, annotateFormat } from './annotate.js';
 export { resolveCommonOptions } from './context.js';
 export { runFix } from './fix.js';
 export { enableCandidates, enableEntry, installHint, narrowedAway, provenanceTag } from './report.js';

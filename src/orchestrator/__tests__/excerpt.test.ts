@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../../adapters.js';
 import type { Failure } from '../excerpt.js';
-import { EXCERPT_FINDINGS, EXCERPT_LINE_CHARS, EXCERPT_TAIL_LINES, failureExcerpt, findingLine } from '../excerpt.js';
+import { EXCERPT_FINDINGS, EXCERPT_LINE_CHARS, EXCERPT_TAIL_LINES, failureExcerpt, findingLine, plain, shownOf, visibleKey } from '../excerpt.js';
 import type { SummaryCheck } from '../index.js';
 
 const INDENT = '           ';
@@ -282,6 +282,111 @@ describe('failureExcerpt (a go test run)', () => {
   test('a run that names no test falls back to the line for a JSON report', () => {
     const passed = [event('run', 'TestAdds'), event('pass', 'TestAdds'), event('pass', null), ''].join('\n');
     expect(lines(failed(goTest, { stdout: passed }))).toEqual(['exit 1, no findings checkride can read in the JSON report', 'full output: .check/test.jsonl']);
+  });
+});
+
+describe('failureExcerpt (what a tool printed is never trusted to be printable)', () => {
+  const ESC = '\u001B';
+
+  test('a finding’s path and rule lose their escape sequences and control characters, and stay on one line', () => {
+    const stdout = JSON.stringify({
+      diagnostics: [{
+        filename: `src/${ESC}[31ma${ESC}[0m\n${ESC}[2Kb.ts\u0007`, code: `no-${ESC}[1mx${ESC}[0m\r\ny\u0000`, message: `${ESC}[1mbad${ESC}[0m\nsecond`,
+        severity: 'error', labels: [{ span: { line: 1, column: 2 } }],
+      }],
+    });
+    const printed = failureExcerpt(failed(oxlint, { stdout }));
+    expect(printed).toEqual([`${INDENT}src/a b.ts:1:2  bad  [no-x y]`, `${INDENT}full output: .check/lint.json`]);
+    // No line the excerpt prints holds an escape, a control character, or a break of its own.
+    for (const line of printed) expect(line).not.toMatch(/[\p{Cc}]/u);
+  });
+
+  test('findingLine cleans every field it prints, the path and the rule as well as the message', () => {
+    const dirty = { file: `${ESC}]0;title\u0007a.ts\nb`, line: 3, column: 7, rule: `${ESC}[31mno-x${ESC}[0m\nmore\t`, message: `${ESC}[1mbad${ESC}[0m\rnext`, key: 'k' };
+    expect(findingLine(dirty)).toBe('a.ts b:3:7  bad  [no-x more]');
+    // A message that is only escapes is no message, so the rule stands bare.
+    expect(findingLine({ ...dirty, message: `${ESC}[0m` })).toBe('a.ts b:3:7  no-x more');
+  });
+
+  test('a vitest name and its error lose theirs', () => {
+    const vitest = fakeAdapter({ name: 'vitest', slot: 'test' });
+    const stderr = ` FAIL  src/a.test.ts > ${ESC}[31mred${ESC}[0m\u0007 name\t>\u0000 case\n${ESC}[1mError: boom${ESC}[0m\u0007\n`;
+    const printed = failureExcerpt(failed(vitest, { stderr }));
+    expect(printed).toEqual([`${INDENT}src/a.test.ts > red name  > case`, `${INDENT}  Error: boom`, `${INDENT}full output: .check/test.stderr.txt`]);
+    for (const line of printed) expect(line).not.toMatch(/[\p{Cc}]/u);
+  });
+
+  test('a go test’s name loses its escape sequences and its line breaks, where it is named and where it still ran', () => {
+    const goTest = fakeAdapter({ name: 'go-test', slot: 'test', outputFile: 'test.jsonl' });
+    const bad = `Test${ESC}[31mBad${ESC}[0m\nName\u0007`;
+    const hung = `Test${ESC}[2JHangs\r\nStill`;
+    const stdout = [event('run', bad), event('output', bad, `    ${ESC}[31mgot 3${ESC}[0m\n`), event('fail', bad), event('run', hung), event('fail', null), ''].join('\n');
+    const printed = failureExcerpt(failed(goTest, { stdout }));
+    expect(printed).toEqual([
+      `${INDENT}1 failing test(s):`,
+      `${INDENT}  example.com/a TestBad Name`,
+      `${INDENT}    got 3`,
+      `${INDENT}1 still running when it stopped:`,
+      `${INDENT}  example.com/a TestHangs Still`,
+      `${INDENT}full output: .check/test.jsonl`,
+    ]);
+    for (const line of printed) expect(line).not.toMatch(/[\p{Cc}]/u);
+  });
+
+  test('the pointer is one printable line, whatever the output directory or the check is named', () => {
+    const printed = failureExcerpt(failed(custom, { stderr: 'boom\n' }, { label: `/tmp/${ESC}[31mout${ESC}[0m\ndir`, entry: { name: `deploy${ESC}[0m` } }));
+    expect(printed.at(-1)).toBe(`${INDENT}full output: /tmp/out dir/deploy.stderr.txt`);
+  });
+});
+
+describe('plain and visibleKey (the lines the report printed before any excerpt)', () => {
+  test('plain drops escape sequences and control characters, and nothing else', () => {
+    expect(plain('\u001B[31m  a\tb  \u001B[0m\u0007 c \n d\u0000')).toBe('  a\tb   c \n d');
+    expect(plain(' untouched  spacing ')).toBe(' untouched  spacing ');
+  });
+
+  test('visibleKey leaves a printable key exactly as it is', () => {
+    for (const key of ['src/a.ts:no-x:bad', ' src/b  c.ts : rule :  spaced  ', 'ünïcode/文件.ts:règle:message 😀', String.raw`back\slash:"quoted":x`]) {
+      expect(visibleKey(key)).toBe(key);
+    }
+  });
+
+  test('visibleKey writes each control character as JSON does, so nothing is acted on or lost', () => {
+    expect(visibleKey('a\u001B[31mb\nc\td\u0007e\u007Ff\u0085g')).toBe(String.raw`a\u001b[31mb\nc\td\u0007e\u007ff\u0085g`);
+    expect(visibleKey('a\u001B[31mb\nc')).not.toMatch(/\p{Cc}/u);
+  });
+});
+
+describe('shownOf (the one decision the excerpt and the annotations share)', () => {
+  const vitest = fakeAdapter({ name: 'vitest', slot: 'test' });
+
+  test('names what a failure shows, first that applies', () => {
+    expect(shownOf(failed(custom, {})).kind).toBe('uncaptured');
+    expect(shownOf(failed(custom, {}, { stated: true })).kind).toBe('stated');
+    expect(shownOf(failed(oxlint, { stdout: report(2) }, { stated: true })).kind).toBe('stated');
+    expect(shownOf(failed(vitest, { stderr: ' FAIL  a.test.ts > one\nError: boom\n' })).kind).toBe('vitest');
+    expect(shownOf(failed(oxlint, { stdout: report(2) })).kind).toBe('findings');
+    expect(shownOf(failed(custom, { stderr: 'boom\n' })).kind).toBe('output');
+  });
+
+  test('the excerpt formats what it is handed, so a check is read once', () => {
+    const failure = failed(oxlint, { stdout: report(2) });
+    const shown = shownOf(failure);
+    expect(failureExcerpt(failure, shown)).toEqual(failureExcerpt(failure));
+    // Handed another failure's reading, it prints that one's findings: nothing is read again.
+    expect(failureExcerpt(failed(oxlint, { stdout: report(1) }), shown)).toEqual(failureExcerpt(failure));
+  });
+
+  test('a vitest run of projects gives each test its file after the project, and keeps the whole name', () => {
+    const shown = shownOf(failed(vitest, { stderr: ' FAIL  |unit| src/a.test.ts > one\nError: boom\n\n FAIL  |web app| src/b.test.ts [ src/b.test.ts ]\nError: bang\n\n FAIL  src/c.test.ts > |not a project| > x\nError: pow\n' }));
+    expect(shown).toEqual({
+      kind: 'vitest',
+      tests: [
+        { name: '|unit| src/a.test.ts > one', error: 'Error: boom', file: 'src/a.test.ts' },
+        { name: '|web app| src/b.test.ts [ src/b.test.ts ]', error: 'Error: bang', file: 'src/b.test.ts' },
+        { name: 'src/c.test.ts > |not a project| > x', error: 'Error: pow', file: 'src/c.test.ts' },
+      ],
+    });
   });
 });
 

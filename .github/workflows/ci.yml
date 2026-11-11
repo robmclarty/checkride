@@ -49,8 +49,13 @@ jobs:
       # docs, links, spell, publint, attw, typecheck-tests) — checkride running on
       # itself. Mutation is opt-in (`pnpm mutation`), not in the default gate: a
       # cold run has no warm stryker.incremental.json cache and would time out.
+      #
+      # CHECKRIDE_ANNOTATE: each finding of a red check also lands on the pull
+      # request's diff and in the job's annotation list (docs/ci.md).
       - name: pnpm check
         run: pnpm check
+        env:
+          CHECKRIDE_ANNOTATE: github
 
       # A failing slot prints a bounded excerpt beneath its status line: five
       # findings, or its last eight lines. That names what broke, but a test

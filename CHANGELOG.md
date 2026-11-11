@@ -38,6 +38,35 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checkride.<name>.baseline.json`. Under Claude Code that's a third
   `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
   next `agent-setup` or `hooks add` appends.
+- **A run can annotate a pull request on GitHub.** `--annotate github`, or
+  `CHECKRIDE_ANNOTATE=github`, writes each finding of a red check to stderr
+  as a GitHub Actions workflow command, below the report and above the
+  digest a `--digest` run prints last, so it shows on the
+  line of the diff it's about and in the job's annotation list:
+  `::error file=src/a.ts,line=3,col=7,title=lint: no-unused-vars::<message>`.
+  The findings are the ones the report lists beneath a red check, all of
+  them where it lists five, and only the new ones where a baseline
+  grandfathers the rest. A key found more often than the baseline
+  grandfathers is one annotation, on its first occurrence, with
+  `(4 found, 3 grandfathered)` after its message. A failing vitest or `go test` run gets one
+  annotation for each failing test, and any other red check, a custom
+  `command`, a timeout or a refusal, gets one with no file that holds its
+  reason or the first line of its excerpt. GitHub shows ten error
+  annotations for a step, so a run writes its first ten, in the order it
+  reports its checks, then one `::notice` counting the rest. Paths are named
+  from the top level of the git work tree, whichever target the check ran in
+  and wherever in the work tree the run started. An annotation names a file
+  only when it is one on disk inside the work tree, and a line or a column
+  only from 1 up, so a finding about a package or a file outside it keeps
+  its annotation without a place. It is never switched on by
+  `GITHUB_ACTIONS`, `github` is its only value and any other is exit 2, and
+  nothing else about the run changes: the exit code, `summary.json`, the
+  digest and the report are the same, `--json` still prints the summary
+  alone on stdout, and a green run writes nothing. The run takes it, with
+  `--suite`, `--changed` or `--only` as without; `fix` and `doctor` refuse
+  the flag, every command but the run ignores the variable without a word,
+  so a CI job can set it for all its steps, and `gate` strips it from the
+  check it runs, since a hook's output goes to an agent. `docs/ci.md` has the workflow snippet.
 
 ### Changed
 
@@ -109,6 +138,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Additive: `suites` joins the reserved target names, since a target's
   artifacts would land in `.check/suites/`. A config that names a target
   `suites` is now a config error, and the config schema refuses the name.
+- Additive: the run flag `--annotate github` and the variable
+  `CHECKRIDE_ANNOTATE`; the three lines a run asked for them writes to
+  stderr, `::error file=…,line=…,col=…,title=…::…`, `::error title=…::…` and
+  `::notice title=checkride::<N> more finding(s) not annotated; see <summary
+  path>`, with the cap of ten errors a run; and `annotate` on the options
+  `runChecks` takes. A run that isn't asked writes what it wrote before.
 
 ## [0.20.0] - 2026-11-05
 

@@ -12,6 +12,7 @@ import type { PackageManager } from '../launch/index.js';
 import type { CheckOutcome } from '../links.js';
 import type { PinSourceName } from '../packs/index.js';
 import type { Suite } from '../suite.js';
+import type { AnnotateFormat } from './annotate.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -379,6 +380,15 @@ export type RunOptions = RunFlags & {
    * and it never ratchets.
    */
   fingerprintableOnly?: boolean;
+  /**
+   * Write the run's findings as annotations (`--annotate`,
+   * `CHECKRIDE_ANNOTATE`): `github` writes GitHub Actions workflow commands
+   * to stderr once the report is out, an `::error` for each finding of a red
+   * check up to the cap and a `::notice` counting the rest (see
+   * `./annotate.ts`). It changes nothing else about the run, and a green run
+   * writes none. Omitted, a run writes none.
+   */
+  annotate?: AnnotateFormat;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

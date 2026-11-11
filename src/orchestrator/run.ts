@@ -18,11 +18,13 @@ import type { ResolvedCheck } from '../config.js';
 import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
 import { digestOf, writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
-import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, resolveChangedBase } from '../git.js';
+import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
 import type { Suite } from '../suite.js';
 import { suiteCommand } from '../suite.js';
 import type { Target } from '../targets/index.js';
 import { declaredNote, discoverRun, findUnreached, unreachedLine } from '../targets/index.js';
+import type { RedCheck } from './annotate.js';
+import { annotateScope, annotationLines } from './annotate.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
@@ -355,7 +357,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // concurrency). The report array is assembled in `selected` order, not
   // completion order, so it stays byte-reproducible regardless of interleaving.
   const startedAt = performance.now();
-  const { checks, runs, observed, narrowed, newKeys, drifts, brokeEarly } = await executeChecks(selected, ctx);
+  const { checks, runs, observed, narrowed, newKeys, drifts, reds, brokeEarly } = await executeChecks(selected, ctx);
   // A run that beats git waits for it inside the clock, so the run's start
   // stays `timestamp - total_duration_ms`, which the artifact readers judge
   // freshness by.
@@ -394,14 +396,34 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // On green there's none, and a stale digest is cleared with it.
   if (options.digest ?? false) await writeDigest(ctx.out, digest);
 
+  const annotations = await annotationsOf(ctx, reds);
   if (ctx.json) {
-    ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+    reportMachine(ctx, summary, annotations);
   } else {
-    await reportHuman({ ...ctx, stderr: blankAware(ctx.stderr) }, { summary, reported, digest, drifts, selected, newKeys, run: { partial, consumer } });
+    await reportHuman({ ...ctx, stderr: blankAware(ctx.stderr) }, { summary, reported, digest, drifts, selected, newKeys, annotations, run: { partial, consumer } });
   }
 
   const exitCode = computeExitCode(summary, options.strict ?? false, ctx.json, ctx.stderr);
   return { ok: summary.ok, summary, exitCode, runs };
+}
+
+/** A `--json` run's output: the summary alone on stdout, and its annotations, when it writes any, all of stderr. */
+function reportMachine(ctx: RunContext, summary: Summary, annotations: readonly string[]): void {
+  ctx.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+  for (const line of annotations) writeLine(ctx.stderr, line);
+}
+
+/**
+ * The run's annotation lines, none for a run with no red check to annotate.
+ * Each path is named from the top level of the git work tree, asked of git
+ * from the root the findings' own paths are named from, and only by a run
+ * with something to annotate.
+ */
+async function annotationsOf(ctx: RunContext, reds: readonly RedCheck[]): Promise<string[]> {
+  const root = reds[0]?.failure.repoRoot;
+  if (root === undefined) return [];
+  const top = await repoTopLevel(realGit(root, GIT_STATE_TIMEOUT_MS));
+  return annotationLines(reds, annotateScope(top, root, `${ctx.outLabel}/${SUMMARY_FILE}`));
 }
 
 /** What the human report of a finished run prints, beyond its context. */
@@ -412,6 +434,8 @@ type Finished = {
   drifts: readonly Drift[];
   selected: readonly ResolvedCheck[];
   newKeys: readonly string[];
+  /** The run's annotation lines, none for a run that writes none. */
+  annotations: readonly string[];
   run: { partial: boolean; consumer: string | null };
 };
 
@@ -420,7 +444,10 @@ type Finished = {
  * beneath them, and the digest last. Each notice changes how the red above it
  * reads, a baseline that masked nothing or findings a merge dropped, so it
  * sits right under the summary rather than past up to 8 KB of digest, and the
- * digest starts after exactly one blank line however the notices end.
+ * digest starts after exactly one blank line however the notices end. The
+ * run's annotations follow the notices and come before the digest, which
+ * stays the last thing a `--digest` run prints, and they never sit among the
+ * status lines.
  */
 async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Finished): Promise<void> {
   reportSummary(ctx.stderr, run.summary, run.reported, ctx.adapters, { label: ctx.outLabel, digest: run.digest !== null });
@@ -433,5 +460,6 @@ async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Fin
   reportDrift(ctx.stderr, run.drifts, run.run, ctx.suite);
   await reportUnreached(ctx, run.selected);
   await maybeRecoverHint(ctx, run.summary.ok, run.newKeys);
+  for (const line of run.annotations) writeLine(ctx.stderr, line);
   if (run.digest !== null) writeLine(ctx.stderr, `${ctx.stderr.endsBlank() ? '' : '\n'}${run.digest}`);
 }

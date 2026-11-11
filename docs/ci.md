@@ -61,6 +61,69 @@ Notes:
   CI, which collapsed a 2-core runner's pool to 1 and silently serialized
   every wave.)
 
+## Annotations on the pull request
+
+`--annotate github` (or `CHECKRIDE_ANNOTATE=github`; the flag wins) writes
+each finding of a red check as a GitHub Actions workflow command, so it shows
+on the line of the pull request's diff it's about and in the job's annotation
+list:
+
+```yaml
+      - run: pnpm exec checkride --strict --annotate github
+```
+
+Where the job runs a package script, set the variable on the step instead,
+and the script stays as it is:
+
+```yaml
+      - run: pnpm check
+        env:
+          CHECKRIDE_ANNOTATE: github
+```
+
+The lines go to stderr, below the report's `report:` line and any notice
+under it, and above the digest when the run prints one with `--digest`, which
+stays last. Each finding gets one line:
+
+```text
+::error file=src/cart.ts,line=12,col=7,title=lint: no-unused-vars::'total' is declared but never used.
+::error title=deploy::error: service "api" has no healthcheck
+```
+
+- **What is annotated** is what the report lists beneath the check's status
+  line. For a check whose tool checkride parses, each finding that can fail
+  it, and only the new ones where a [baseline](../README.md#baseline)
+  grandfathers the rest. For a failing vitest or `go test` run, each failing
+  test, with the first line of its error. Any other red check, a custom
+  `command` or one that timed out, gets one annotation with no file: its
+  reason, else the first line of the excerpt the terminal shows.
+- **A finding the baseline holds, found more often than it grandfathers**,
+  is one annotation, on the first place the tool reported it, with both
+  counts after its message, as in `(4 found, 3 grandfathered)`. A baseline
+  key names a finding by what it is, not where it sits, so nothing says
+  which of the four is the new one.
+- **Ten at most.** GitHub shows ten error annotations for a step, so a run
+  writes its first ten, in the order it reports its checks, then one
+  `::notice` that counts the rest and names `summary.json`.
+- **Paths are from the repository root**, wherever in the repository the run
+  starts and whichever target the check belongs to. An annotation names a
+  file only when it is a file on disk inside the repository, so a finding
+  about a package, a directory or a file outside the repository keeps its
+  annotation and loses its place, and it carries a line or a column only
+  from 1 up.
+- **It is never on by default**, in GitHub Actions or anywhere else, and
+  `github` is its only value. Any other is exit 2.
+- **Nothing else changes.** The exit code, `summary.json`, the digest and the
+  report are those of a run without it, `--json` still prints the summary
+  alone on stdout, and a green run writes no annotation. It works beside
+  `--suite`, `--changed` and `--only`.
+
+The run takes it and no other command does. A variable set for the whole job
+is safe: `fix`, `doctor`, `baseline` and the rest never read it, and say
+nothing about it. The [stop gate](../README.md#agent-integration) drops the
+variable from the check it starts, since a hook hands that output to an
+agent, not to GitHub.
+
 ## Writing artifacts somewhere else
 
 `--out <dir>` (or `CHECKRIDE_OUT`) writes the summary, the raw output and the

@@ -47,6 +47,7 @@ without Node whose `mise.toml` pins checkride, run `mise exec -- checkride
 | `--json` | Write machine-readable output to stdout. |
 | `--digest` | Write a token-bounded excerpt of the failing slots to `digest.md` beside the summary, which carries it as `digest`, and print it on stderr below the report; a green run removes any stale one. |
 | `--strict` | Zero checks actually running is an error (exit 2), not a vacuous pass. Use it wherever checkride gates (CI, hooks). |
+| `--annotate github` | Write each finding of a red check to stderr as a GitHub Actions annotation, `::error file=…,line=…,col=…,title=…::…`, below the report and above the digest (or set `CHECKRIDE_ANNOTATE`; the flag wins). At most ten, then one `::notice` counting the rest. Never on by default; `github` is the only value, and any other exits 2. Run only. See [CI](./ci.md#annotations-on-the-pull-request). |
 
 Output streams: human-readable progress goes to **stderr**; **stdout** carries
 machine output only (the `--json` summary, mirroring `.check/summary.json`). In

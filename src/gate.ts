@@ -52,6 +52,7 @@ import { PINS_ENV } from './launch/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
 import type { Out, SummaryCheck } from './orchestrator/index.js';
+import { ANNOTATE_ENV } from './orchestrator/index.js';
 import {
   detectPackageManager,
   type EntryCommand,
@@ -792,8 +793,10 @@ function announceAlignment(
  * whatever a consumer left exported in the hook's environment. `CHECKRIDE_SUITE`
  * is one of them: a bare `gate` gates the default suite whatever the variable
  * holds, and `gate --suite` passes the suite on as a flag ({@link gateArgv}).
+ * `CHECKRIDE_ANNOTATE` is stripped too: the gate hands a red run's output back
+ * to an agent, where a block of `::error` lines made for a CI log is noise.
  */
-const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV, SUITE_ENV]);
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV, SUITE_ENV, ANNOTATE_ENV]);
 
 /** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
 function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {

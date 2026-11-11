@@ -12,7 +12,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Adapter } from '../../adapters.js';
 import type { Failure } from '../excerpt.js';
-import { failureExcerpt } from '../excerpt.js';
+import { failureExcerpt, shownOf } from '../excerpt.js';
 import { vitestFailures } from '../vitest-failures.js';
 
 const INDENT = '           ';
@@ -167,5 +167,29 @@ describe('failureExcerpt (a vitest run)', () => {
 
   test('a check whose reason line states its cause prints the pointer alone', () => {
     expect(lines({ ...failed(vitest, captured('one')), stated: true })).toEqual(['full output: .check/test.stdout.txt']);
+  });
+});
+
+describe('a run of projects (a real capture of vitest 5.0.3 with two named projects)', () => {
+  const stderr = captured('projects');
+
+  test('vitest names each failure after its project, between bars, and a project’s name may hold a space', () => {
+    expect(vitestFailures(stderr)).toEqual([
+      { name: '|unit| src/broken.test.js [ src/broken.test.js ]', error: "Error: Cannot find module './missing.js' imported from /repo/src/broken.test.js" },
+      { name: '|web app| src/sum.test.js > sum > adds two numbers', error: 'AssertionError: expected 3 to be 4 // Object.is equality' },
+      { name: '|unit| src/sum.test.js > sum > adds two numbers', error: 'AssertionError: expected 3 to be 4 // Object.is equality' },
+    ]);
+  });
+
+  test('each test’s file is the path after the project, and its name stays whole', () => {
+    expect(shownOf(failed(vitest, stderr))).toEqual({
+      kind: 'vitest',
+      tests: [
+        { name: '|unit| src/broken.test.js [ src/broken.test.js ]', error: "Error: Cannot find module './missing.js' imported from /repo/src/broken.test.js", file: 'src/broken.test.js' },
+        { name: '|web app| src/sum.test.js > sum > adds two numbers', error: 'AssertionError: expected 3 to be 4 // Object.is equality', file: 'src/sum.test.js' },
+        { name: '|unit| src/sum.test.js > sum > adds two numbers', error: 'AssertionError: expected 3 to be 4 // Object.is equality', file: 'src/sum.test.js' },
+      ],
+    });
+    expect(lines(failed(vitest, stderr))[0]).toBe('|unit| src/broken.test.js [ src/broken.test.js ]');
   });
 });

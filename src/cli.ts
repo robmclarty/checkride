@@ -29,9 +29,9 @@ import type { NamedBase } from './git.js';
 import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
 import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
-import type { Out, RunFlags } from './orchestrator/index.js';
+import type { AnnotateFormat, Out, RunFlags } from './orchestrator/index.js';
 import { loadPinsFile, PINS_ENV } from './launch/index.js';
-import { killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
+import { ANNOTATE_ENV, annotateFormat, killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import type { Suite } from './suite.js';
@@ -66,6 +66,7 @@ const RUN_OPTIONS = {
   defaults: { type: 'string' },
   pins: { type: 'string' },
   suite: { type: 'string' },
+  annotate: { type: 'string' },
 } as const;
 
 /** `baseline` takes only `--versions`, `--only`, `--skip`, `--config`, `--out` and `--suite`; anything else is a usage error. */
@@ -151,8 +152,8 @@ Commands:
   doctor           Verify the environment and every slot's status (read-only).
   fix              Run every active adapter's fix command. Takes --only, --skip,
                    --include, --all, --concurrency, --config and --suite; refuses
-                   --static-only, --discover, --base, --out, --defaults and
-                   --pins (exit 2).
+                   --static-only, --discover, --base, --out, --defaults,
+                   --pins and --annotate (exit 2).
   baseline         Record current diagnostics as a committed baseline.
                    --only/--skip <a,b> capture just the checks they select and
                    keep every other check's entry. \`baseline --versions\`
@@ -206,6 +207,12 @@ Run options:
                    summary, which carries it as digest, and print it below
                    the report (not under --json)
   --strict         Zero checks actually running is an error (exit 2), not a pass
+  --annotate github  Write each finding of a red check to stderr as a GitHub
+                   Actions annotation (::error file=…,line=…,title=…::…), below
+                   the report and above the digest: at most 10, then a notice
+                   counting the rest (or set CHECKRIDE_ANNOTATE). Never on by
+                   itself in CI; github is the only value, and any other is
+                   exit 2. Run only.
   --config <path>  Read this config file instead of ./checkride.config.json
                    (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).
                    A file outside the repo never ratchets the baseline.
@@ -321,6 +328,8 @@ Environment:
                        pins.
   CHECKRIDE_SUITE      Ignored the same way: a bare gate always gates the default
                        suite, and only --suite names another.
+  CHECKRIDE_ANNOTATE   Ignored the same way: annotations are for a CI log, and
+                       would be noise in what a hook hands back to an agent.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -581,12 +590,12 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 
 /**
  * Parse argv into a command name, the run flags, and the raw `--config`,
- * `--base`, `--out`, `--defaults`, `--pins` and `--suite` values (each absent when not
+ * `--base`, `--out`, `--defaults`, `--pins`, `--suite` and `--annotate` values (each absent when not
  * passed; {@link namedConfig}, {@link namedBase}, `namedOut`,
  * {@link namedDefaults} and {@link namedPins} resolve them against their
  * variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string; suite?: string } {
+export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string; suite?: string; annotate?: string } {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -615,6 +624,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     ...(values.defaults !== undefined ? { defaults: values.defaults } : {}),
     ...(values.pins !== undefined ? { pins: values.pins } : {}),
     ...(values.suite !== undefined ? { suite: values.suite } : {}),
+    ...(values.annotate !== undefined ? { annotate: values.annotate } : {}),
   };
 }
 
@@ -829,8 +839,19 @@ function outOption(flag: string | undefined, deps: CliDeps): { out?: string } {
   return out === null ? {} : { out };
 }
 
+/**
+ * The annotations a run writes, as the option it takes: `--annotate`, else
+ * `CHECKRIDE_ANNOTATE` (an empty variable counts as unset), or nothing when
+ * neither asks. A value it doesn't accept is a usage error. Nothing about the
+ * environment switches it on, `GITHUB_ACTIONS` included.
+ */
+function annotateOption(flag: string | undefined, deps: CliDeps): { annotate?: AnnotateFormat } {
+  const annotate = annotateFormat(flagOrVariable('--annotate', flag, ANNOTATE_ENV, deps.env ?? process.env));
+  return annotate === null ? {} : { annotate };
+}
+
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base, out, defaults, pins, suite } = parseCliArgs(argv);
+  const { flags, config, base, out, defaults, pins, suite, annotate } = parseCliArgs(argv);
   const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
   const changedBase = namedBase(base, deps);
   const layer = namedDefaults(defaults, deps);
@@ -843,6 +864,7 @@ async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
     ...(layer ? { defaults: layer } : {}),
     ...(overrides ? { pins: overrides } : {}),
     ...outOption(out, deps),
+    ...annotateOption(annotate, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
@@ -869,7 +891,10 @@ async function doctorConfig(discover: boolean, named: CheckrideConfig | undefine
 }
 
 async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, out, defaults, pins, suite } = parseCliArgs(argv);
+  const parsed = parseCliArgs(argv);
+  const runOnly = runOnlyRefusal('doctor', parsed);
+  if (runOnly !== null) throw new Error(runOnly);
+  const { flags, config, out, defaults, pins, suite } = parsed;
   const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
   const layer = namedDefaults(defaults, deps);
   const overrides = namedPins(pins, deps);
@@ -889,12 +914,29 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
 }
 
 /**
+ * The flags only a run takes, though `fix` and `doctor` parse a run's flags:
+ * each with the value it parsed to and why no other command takes it. The
+ * variable behind one (`CHECKRIDE_ANNOTATE`) is the run's alone too: no other
+ * command reads it, so one a CI job sets for every step is ignored there
+ * without a word.
+ */
+const RUN_ONLY: readonly (readonly [flag: string, given: (parsed: ReturnType<typeof parseCliArgs>) => boolean, why: string])[] = [
+  ['--annotate', (parsed) => parsed.annotate !== undefined, 'only a run has findings to annotate'],
+];
+
+/** Why `command` refuses the run-only flag `parsed` carries, or `null` when it carries none. */
+function runOnlyRefusal(command: string, parsed: ReturnType<typeof parseCliArgs>): string | null {
+  const refused = RUN_ONLY.find(([, given]) => given(parsed));
+  return refused === undefined ? null : `${command} doesn't take ${refused[0]}: ${refused[2]}`;
+}
+
+/**
  * Why `fix` refuses the consumer flag `parsed` carries, or `null` when it
  * carries none. Each would change which files the fixers rewrite or with
  * which tool, and a fixer writes into the repo, so each is a usage error
  * rather than a flag `fix` takes and ignores, as it does the run flags 0.14
  * accepted. The variables behind them (`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`,
- * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`) aren't read here at all.
+ * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`, `CHECKRIDE_ANNOTATE`) aren't read here at all.
  */
 function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
   const given: readonly (readonly [boolean, string, string])[] = [
@@ -911,7 +953,7 @@ function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
 
 async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
   const parsed = parseCliArgs(argv);
-  const refusal = fixRefusal(parsed);
+  const refusal = runOnlyRefusal('fix', parsed) ?? fixRefusal(parsed);
   if (refusal !== null) throw new Error(refusal);
   const { flags } = parsed;
   const result = await runFix({ ...flags, ...pickConfig(parsed, deps), cwd: deps.cwd, stderr: deps.stderr });

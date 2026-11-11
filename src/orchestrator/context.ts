@@ -93,6 +93,8 @@ export type RunContext = CommonContext & {
   /** `--static-only`: a kept check whose tool would need an install skips instead of failing (R13.4). */
   staticOnly: boolean;
   runner: CheckRunner;
+  /** Whether the run writes annotations, and so keeps what each red check's are drawn from. */
+  annotate: boolean;
   json: boolean;
   bail: boolean;
   changed: boolean;
@@ -182,9 +184,10 @@ function layeredKeys(config: CheckrideConfig | null, options: RunOptions): Pick<
 }
 
 /** The run's flags, each with its default applied. */
-function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'json' | 'bail' | 'changed' | 'staticOnly' | 'concurrency'> {
+function flagsOf(options: RunOptions): Pick<RunContext, 'runner' | 'annotate' | 'json' | 'bail' | 'changed' | 'staticOnly' | 'concurrency'> {
   return {
     runner: options.runner ?? defaultRunner,
+    annotate: options.annotate !== undefined,
     json: options.json ?? false,
     bail: options.bail ?? false,
     changed: options.changed ?? false,

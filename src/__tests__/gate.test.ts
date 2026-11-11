@@ -1278,6 +1278,20 @@ describe('runGate — named suites', () => {
     expect(stdout.text()).not.toContain('suites');
   });
 
+  test('the gate strips CHECKRIDE_ANNOTATE, so the check it spawns writes no annotation into the hook’s output', async () => {
+    const seen: Seen[] = [];
+    const stdout = capture();
+    const stderr = capture();
+    const result = await runGate({
+      cwd: dir, pm: 'pnpm', spawn: redInto('.check', seen), stdout, stderr,
+      env: { PATH: '/usr/bin', CHECKRIDE_ANNOTATE: 'github', GITHUB_ACTIONS: 'true' }, pinEnv: pinEnv(),
+    });
+    // The variable is gone and no --annotate flag stands in for it; one the gate has no use for passes through.
+    expect(seen).toEqual([{ args: ['run', 'check', '--strict', '--digest'], env: { PATH: '/usr/bin', GITHUB_ACTIONS: 'true' } }]);
+    expect(result.exitCode).toBe(2);
+    expect(`${stdout.text()}${stderr.text()}`).not.toContain('::error');
+  });
+
   test('gate --suite passes the suite as a flag, still strips the variable, and reads the suite’s directory', async () => {
     const seen: Seen[] = [];
     const stdout = capture();

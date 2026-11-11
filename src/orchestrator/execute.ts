@@ -20,8 +20,10 @@ import { failureLine, isAvailableUnder, packEnv, packToolchain, pinChain } from 
 import type { CheckOutcome } from '../links.js';
 import { checkName } from '../targets/index.js';
 import { parseToolJson, parseToolJsonLines } from '../tool-json.js';
+import type { Fresh, RedCheck } from './annotate.js';
 import type { RunContext } from './context.js';
-import { failureExcerpt } from './excerpt.js';
+import type { Failure } from './excerpt.js';
+import { failureExcerpt, plain, shownOf, visibleKey } from './excerpt.js';
 import type { Place } from './place.js';
 import { placeOf } from './place.js';
 import { checkIdentity, formatStatusLine, provenanceFields, REPORT_INDENT, skippedEntry, writeLine } from './report.js';
@@ -288,19 +290,41 @@ function handleSkip(r: ResolvedCheck, unavailable: string | null, ctx: RunContex
  * says, and what it found: its new (non-grandfathered) findings, or, where it
  * lists none and its reason line isn't the whole cause, an excerpt of its
  * failing tests, its findings or its output ({@link failureExcerpt}). Last,
- * the file that holds all of its output.
+ * the file that holds all of its output. A reason and a finding as its tool
+ * printed it are a tool's own text, so each loses its escape sequences and
+ * control characters (`plain`) and is otherwise as it was. A key keeps every
+ * printable character, and shows a control character as the baseline file
+ * writes it (`visibleKey`).
  */
-function reportCheckResult(ctx: Pick<RunContext, 'stderr' | 'nameWidth' | 'outLabel'>, entry: SummaryCheck, mask: MaskResult, run: CheckRun, read: Reading): void {
+function reportCheckResult(ctx: Pick<RunContext, 'stderr' | 'nameWidth'>, entry: SummaryCheck, mask: MaskResult, red: RedCheck | null): void {
   const { stderr } = ctx;
   writeLine(stderr, formatStatusLine(entry, ctx.nameWidth));
   if (mask.baselined > 0) writeLine(stderr, `${REPORT_INDENT}${mask.baselined} baselined (grandfathered)`);
-  if (entry.ok) return;
-  const reason = entry.reason ?? mask.reason;
-  if (reason) writeLine(stderr, `${REPORT_INDENT}${reason}`);
-  const found = newFindingsList(mask);
-  const stated = found.length > 0 || reasonIsCause(run, mask);
-  const excerpt = failureExcerpt({ run, check: entry, label: ctx.outLabel, argv: read.argv, repoRoot: read.repoRoot, stated });
-  for (const line of [...found, ...excerpt]) writeLine(stderr, line);
+  if (red === null) return;
+  if (red.reason !== null) writeLine(stderr, `${REPORT_INDENT}${plain(red.reason)}`);
+  for (const line of [...newFindingsList(mask), ...failureExcerpt(red.failure, red.shown)]) writeLine(stderr, line);
+}
+
+/**
+ * A failed check as its report and its annotations read it, or `null` for
+ * one that passed, or whose run writes neither: its failure, `stated` when the lines beneath its status
+ * line already say what failed it (its new findings, or a reason that is the
+ * whole cause), what it shows beneath them, decided and read once here
+ * (`shownOf`), the reason line it prints when it has one, and its new
+ * findings when the report lists those.
+ */
+function redCheck(ctx: Pick<RunContext, 'json' | 'annotate' | 'outLabel'>, entry: SummaryCheck, mask: MaskResult, { run, read }: { run: CheckRun; read: Reading }): RedCheck | null {
+  // Read once for the report and the annotations, and not at all by a run that writes neither.
+  if (entry.ok || (ctx.json && !ctx.annotate)) return null;
+  const failure: Failure = { run, check: entry, label: ctx.outLabel, argv: read.argv, repoRoot: read.repoRoot, stated: mask.newFindings > 0 || reasonIsCause(run, mask) };
+  const reason = entry.reason ?? mask.reason ?? '';
+  return { failure, shown: shownOf(failure), reason: reason === '' ? null : reason, fresh: freshOf(mask) };
+}
+
+/** The findings a check failed on that its baseline doesn't grandfather, by key, or `null` for a check with none. */
+function freshOf(mask: MaskResult): Fresh | null {
+  if (mask.newFindings === 0) return null;
+  return { keys: new Set(mask.newKeys), excess: new Map(mask.excess.map(({ key, found, allowed }) => [key, { found, allowed }])) };
 }
 
 /** The findings a baseline didn't grandfather, under a line counting them, or nothing for a check with none. */
@@ -347,9 +371,9 @@ const NEW_KEYS_PRINTED = 10;
 function newFindingLines(mask: MaskResult): string[] {
   const lines = mask.newKeys.map((key) => {
     const found = mask.observed?.get(key) ?? 1;
-    return { key, line: found > 1 ? `${key} (${found} found)` : key };
+    return { key, line: found > 1 ? `${visibleKey(key)} (${found} found)` : visibleKey(key) };
   });
-  for (const { key, found, allowed } of mask.excess) lines.push({ key, line: `${key} (${found} found, ${allowed} grandfathered)` });
+  for (const { key, found, allowed } of mask.excess) lines.push({ key, line: `${visibleKey(key)} (${found} found, ${allowed} grandfathered)` });
   const sorted = lines.toSorted((a, b) => (a.key < b.key ? -1 : 1));
   const listed = sorted.slice(0, NEW_KEYS_PRINTED).flatMap(({ key, line }) => [line, ...printedUnder(mask.printed?.get(key))]);
   const more = sorted.length - NEW_KEYS_PRINTED;
@@ -365,7 +389,7 @@ function newFindingLines(mask: MaskResult): string[] {
 function printedUnder(printed: readonly string[] | undefined): string[] {
   if (printed === undefined) return [];
   const more = printed.length > PRINTED_PER_KEY ? [`  … and ${printed.length - PRINTED_PER_KEY} more`] : [];
-  return [...printed.slice(0, PRINTED_PER_KEY).map((line) => `  ${line}`), ...more];
+  return [...printed.slice(0, PRINTED_PER_KEY).map((line) => `  ${plain(line)}`), ...more];
 }
 
 /**
@@ -394,6 +418,8 @@ type CheckResult = {
   newKeys: string[];
   /** Present when the check ran another copy of its tool than its baseline keys were captured with. */
   drift?: Drift;
+  /** For a failed check of a run that writes annotations, what they're drawn from. */
+  red?: RedCheck;
 };
 
 /**
@@ -515,9 +541,10 @@ async function runOneCheck(r: ResolvedCheck, adapter: Adapter, place: Place, ctx
   const run = checkRun(r, adapter, settledOutcome(adapter, outcome, mask));
   const drift = driftOf(ctx.baseline, { name, tool: adapter.name, ran, ...toolchainOf(r) }, mask);
   const entry = { ...executedEntry(r, run, mask, { file, place, durationMs, reason }, ctx.targets !== null), ...driftField(drift) };
-  if (!ctx.json) reportCheckResult(ctx, entry, mask, run, readingOf(adapter, scope));
+  const red = redCheck(ctx, entry, mask, { run, read: readingOf(adapter, scope) });
+  if (!ctx.json) reportCheckResult(ctx, entry, mask, red);
   const observed = ratchetFeed(name, mask, drift, sawWhole(r, adapter, scope.base));
-  return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}) };
+  return { entry, run, observed, newKeys: mask.newKeys, ...(drift !== null ? { drift } : {}), ...redField(red, ctx.annotate) };
 }
 
 /**
@@ -550,6 +577,11 @@ function driftOf(baseline: Baseline | null, check: Pick<Drift, 'name' | 'tool' |
 /** How many of `keys` the run's findings `seen` doesn't hold: the grandfathered keys a ratchet would prune. */
 function unseen(keys: readonly string[], seen: Tally): number {
   return keys.filter((k) => !seen.has(k)).length;
+}
+
+/** What a failed check's result keeps for the run's annotations, and nothing for a run that writes none. */
+function redField(red: RedCheck | null, annotate: boolean): Pick<CheckResult, 'red'> {
+  return red !== null && annotate ? { red } : {};
 }
 
 /** The summary field a drifted check carries: how the baseline captured its keys. */
@@ -594,6 +626,8 @@ type Execution = {
   newKeys: string[];
   /** The checks that ran another copy of their tool than their baseline keys were captured with. */
   drifts: Drift[];
+  /** The failed checks of a run that writes annotations, in the order it reports them. */
+  reds: RedCheck[];
   brokeEarly: boolean;
 };
 
@@ -605,11 +639,12 @@ function collect(res: CheckResult, acc: Execution): void {
   if (res.observed?.whole === false) acc.narrowed.add(res.observed.key);
   acc.newKeys.push(...res.newKeys);
   if (res.drift) acc.drifts.push(res.drift);
+  if (res.red) acc.reds.push(res.red);
 }
 
 /** A fresh, empty {@link Execution}. */
 function emptyExecution(brokeEarly = false): Execution {
-  return { checks: [], runs: [], observed: new Map(), narrowed: new Set(), newKeys: [], drifts: [], brokeEarly };
+  return { checks: [], runs: [], observed: new Map(), narrowed: new Set(), newKeys: [], drifts: [], reds: [], brokeEarly };
 }
 
 /**
