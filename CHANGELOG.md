@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.21.0] - 2026-11-11
 
 ### Added
 
@@ -62,7 +62,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   GitHub release, failing a target whose tag, `package.json` and printed
   version differ. Binaries never hold back the npm publish or the release:
   each target stands alone, and the ones that pass attach a few minutes
-  after the release. No release carries binaries until the next tag.
+  after the release. This is the first release to carry them.
   `docs/distribution.md` covers installing one, verifying it and pinning it
   through mise's `github:` backend.
 - `checkride doctor` names the channel it runs from, `channel: npm` or
@@ -339,6 +339,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   did in a config with no `schemas` rule: the slot stands aside. A config
   that holds both that check and a `schemas` rule is exit 2, naming the clash
   and saying to rename the custom check, so neither replaces the other.
+
+### Internal
+
+- A pull request that touches the binary's build runs the release workflow's
+  `binaries` job on all four platforms as a dry run: each builds, tests and
+  packs its tarball, and nothing is released, attested or attached.
+- The test process clears `CHECKRIDE_*` variables, bar the two the suites
+  read themselves, so a setting in CI or a shell can't change a test, and
+  this repo's CI sets `CHECKRIDE_ANNOTATE: github` on its own check.
+- `src/channel.ts` holds one `runtime()` value for how this checkride runs,
+  which call sites read where they branched on the channel, and the e2e suite
+  builds the binary and runs it for real with `node` off `PATH`.
 
 ## [0.20.0] - 2026-11-05
 
@@ -4839,6 +4851,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.21.0]: https://www.npmjs.com/package/checkride/v/0.21.0
 [0.20.0]: https://www.npmjs.com/package/checkride/v/0.20.0
 [0.19.3]: https://www.npmjs.com/package/checkride/v/0.19.3
 [0.19.2]: https://www.npmjs.com/package/checkride/v/0.19.2
