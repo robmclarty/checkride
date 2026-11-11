@@ -38,7 +38,7 @@ import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target, TsTarget } from './targets/index.js';
-import { checkKeys, configProblem, configuredTargets, implicitPack, markerAt, presetProblem, skipExitCodeProblem } from './targets/index.js';
+import { checkKeys, configProblem, configuredTargets, implicitPack, isAbsoluteForm, markerAt, presetProblem, show, skipExitCodeProblem } from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -1310,16 +1310,34 @@ function applyProfile(adapter: Adapter, profile: unknown, context: string): Adap
 }
 
 /**
+ * True for a relative path that, read from the repo root, names a directory
+ * outside it: one whose `..` segments climb past where it starts, under
+ * either separator. `docs/../voice` stays inside and is none.
+ */
+function leavesRepo(path: string): boolean {
+  const normal = posix.normalize(path.replaceAll('\\', '/'));
+  return normal === '..' || normal.startsWith('../');
+}
+
+/**
  * Carry the `prose` slot's `exemplars` directory onto its adapter as
  * `options.prose`. A no-op on any other slot (the field is documented as
- * prose-only). `exemplars` must be a string; `context` names the check in the
- * error. Presence on disk is asserted at run time by the orchestrator, never
- * here — see `missingExemplarsOutcome`.
+ * prose-only). `exemplars` must be a string, and on the `prose` slot a path
+ * relative to the repo root: `prose` is a repo-scope slot, which a target
+ * can't configure, so that root is the one directory the path is ever
+ * resolved against. An absolute one, in any system's spelling, and one that
+ * climbs out of the repo as written are refused here. That is a courtesy to
+ * the reader: the guard is the containment the pre-flight keeps on real paths
+ * (`missingExemplarsOutcome`), which a symlink can't get round. `context`
+ * names the check in the error. Presence on disk is asserted at run time by
+ * the orchestrator, never here.
  */
 function applyExemplars(adapter: Adapter, exemplars: unknown, context: string): Adapter {
   if (exemplars === undefined) return adapter;
   if (typeof exemplars !== 'string') invalidConfig(`'${context}' exemplars must be a string`);
   if (adapter.slot !== 'prose') return adapter;
+  if (isAbsoluteForm(exemplars)) invalidConfig(`'${context}' exemplars ${show(exemplars)} is absolute: give it relative to the repo root`);
+  if (leavesRepo(exemplars)) invalidConfig(`'${context}' exemplars ${show(exemplars)} leaves the repository: it is read from the repo root, so name a directory inside the repo`);
   return withOptions(adapter, { prose: { exemplars } });
 }
 

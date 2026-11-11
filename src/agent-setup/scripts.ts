@@ -209,6 +209,59 @@ function untrustedBranch(entry: EntryCommand): string[] {
   ];
 }
 
+/** What every message of the `protect` hook's guard opens with, and what a guard that didn't run leaves open. */
+const GUARD_DID_NOT_RUN = 'checkride: the edit guard could not run —';
+const NOT_GUARDED = 'This call was not checked, so nothing stopped it if it edits the baseline or `.check/`.';
+
+/** The entry command's checkride is not there for the `protect` hook to call. */
+function guardMissing(entry: EntryCommand): string {
+  const cause = notInstalledCause(entry).replace('checkride: the gate could not run —', GUARD_DID_NOT_RUN);
+  const fix = entry.kind === 'mise' ? 'Run `mise install`, and `mise trust` if mise has not trusted this mise.toml.' : installFix(entry);
+  return [cause, NOT_GUARDED, fix].join(' ');
+}
+
+/** The entry command's checkride is there, and `protect` still failed: a fault of its own, or a checkride too old to have the command. */
+function guardFailed(entry: EntryCommand, args: readonly string[]): string {
+  return [
+    `${GUARD_DID_NOT_RUN} checkride is here but \`checkride protect\` failed.`,
+    NOT_GUARDED,
+    `Run \`${entryCheckride(entry, [...args, '--help'])}\` in a terminal to see why: a checkride that has no such command needs upgrading.`,
+  ].join(' ');
+}
+
+/**
+ * The command form of Cursor's `protect` hook, for a repo whose entry command
+ * is mise's checkride or the one on `PATH`: `checkride protect`, behind the
+ * guard the gate script has for a checkride that isn't there.
+ *
+ * It is one shell line, since this form's point is that no file is written.
+ * The command's stdout is captured and forwarded only when it exits 0, which
+ * is the one case where checkride wrote it. On any other status, a missing
+ * command's 127 first among them, the guard did not run, and under Cursor's
+ * protocol there are three things a hook can then do. Exit non-zero, which
+ * Cursor reads as a broken hook: it lets the call through and says nothing,
+ * so the baseline is unguarded and nobody knows. Deny, which would refuse
+ * every write in the repo over something no edit can fix. Or allow in the
+ * body and say so, which is what this does: `permission: 'allow'` with the
+ * reason as `user_message` and `agent_message`, and on stderr for Cursor's
+ * Hooks output. It fails open, as the script does, and it is the only one of
+ * the three that isn't silent.
+ *
+ * The messages keep to the rule above: no double quote and no backslash,
+ * since `printf` builds the JSON body around them.
+ */
+export function protectHookCommand(entryLike: EntryLike, harness: HarnessName): string {
+  const entry = asEntry(entryLike);
+  const args = ['protect', '--harness', harness];
+  return [
+    `out=$(${entryCheckride(entry, args)}) && { printf %s "$out"; exit 0; }`,
+    `if ${installedTest(entry)}; then m=${shellWord(guardFailed(entry, args))}; else m=${shellWord(guardMissing(entry))}; fi`,
+    String.raw`printf '%s\n' "$m" >&2`,
+    String.raw`printf '{"permission":"allow","user_message":"%s","agent_message":"%s"}\n' "$m" "$m"`,
+    'exit 0',
+  ].join('; ');
+}
+
 /** The harness pointed the hook at a directory that is not there. */
 const noRepo =
   'checkride: the gate could not run — the project directory the harness named does not exist or ' +
@@ -548,7 +601,7 @@ export function dirtyScript(): string {
  * matches its shell tool, so a redirect writes the baseline under both; that gap
  * is older and accepted.)
  */
-const PATH_KEYS = ['file_path', 'notebook_path', 'path', 'target_file', 'filePath', 'relative_workspace_path'];
+export const PROTECT_PATH_KEYS: readonly string[] = ['file_path', 'notebook_path', 'path', 'target_file', 'filePath', 'relative_workspace_path'];
 
 /**
  * Shell verbs that can destroy *any* path they are handed, so every positional
@@ -556,14 +609,14 @@ const PATH_KEYS = ['file_path', 'notebook_path', 'path', 'target_file', 'filePat
  * destination-only verbs because moving an accounting file away removes it just
  * as effectively as overwriting it.
  */
-const ALL_ARGS_VERBS = ['rm', 'unlink', 'shred', 'mv', 'truncate', 'tee', 'rmdir'];
+export const PROTECT_ALL_ARGS_VERBS: readonly string[] = ['rm', 'unlink', 'shred', 'mv', 'truncate', 'tee', 'rmdir'];
 
 /**
  * Shell verbs whose sources are *read* and whose last positional argument is the
  * only thing written. `cp .check/summary.json /tmp/x` has to stay allowed — it
  * is a backup, not an edit — and treating its source as a target would deny it.
  */
-const DEST_ONLY_VERBS = ['cp', 'install', 'ln', 'rsync'];
+export const PROTECT_DEST_ONLY_VERBS: readonly string[] = ['cp', 'install', 'ln', 'rsync'];
 
 /** The deny message, shared by both harnesses. */
 const DENY_MESSAGE =
@@ -596,7 +649,7 @@ function denyTail(): string[] {
  * artifacts.
  *
  * Two Cursor events land here. `preToolUse` carries a file-tool call, whose
- * target is read from {@link PATH_KEYS}. `beforeShellExecution` carries a
+ * target is read from {@link PROTECT_PATH_KEYS}. `beforeShellExecution` carries a
  * command line, which is scanned for a write *to* an accounting path — the gap
  * a tool-name matcher cannot close, since `echo … > checkride.baseline.json` is
  * a shell call and not a `Write`.
@@ -608,6 +661,15 @@ function denyTail(): string[] {
  * and `cp … /tmp/x` over `.check/` all pass, which they must: triage reads those
  * artifacts. The hook's own `matcher` narrows the input further, so a command
  * that never names an accounting path is not parsed at all.
+ *
+ * **The decision has a second implementation, and a table binds the two.**
+ * `checkride protect` (`../protect.ts`) is the same decision as typed
+ * functions, for a repo with no Node to run this script on. Neither is made
+ * from the other: this text stays what it has been, byte for byte, and the
+ * command calls its own code. What holds them together is the case table in
+ * `src/__tests__/protect.test.ts`, which puts every payload to both and
+ * requires the same exit code and the same bytes on stdout. A change to the
+ * decision here is a change there, and a new case in that table.
  *
  * **Cursor only.** Claude Code enforces the same paths through
  * `permissions.deny`, which is checked below the hook layer and costs nothing
@@ -631,9 +693,9 @@ export function protectScript(): string {
     "const { realpathSync } = require('node:fs');",
     "const { basename, dirname, isAbsolute, relative, resolve, sep } = require('node:path');",
     '',
-    `const PATH_KEYS = ${JSON.stringify(PATH_KEYS)};`,
-    `const ALL_ARGS_VERBS = ${JSON.stringify(ALL_ARGS_VERBS)};`,
-    `const DEST_ONLY_VERBS = ${JSON.stringify(DEST_ONLY_VERBS)};`,
+    `const PATH_KEYS = ${JSON.stringify(PROTECT_PATH_KEYS)};`,
+    `const ALL_ARGS_VERBS = ${JSON.stringify(PROTECT_ALL_ARGS_VERBS)};`,
+    `const DEST_ONLY_VERBS = ${JSON.stringify(PROTECT_DEST_ONLY_VERBS)};`,
     '',
     '// Resolve symlinks in `p`, so a symlinked prefix cannot make an in-repo path',
     '// look external. On macOS the repo root routinely arrives in two spellings —',

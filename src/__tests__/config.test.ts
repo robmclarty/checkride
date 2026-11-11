@@ -416,6 +416,27 @@ describe('config resolution', () => {
     ).toThrow(/'prose' exemplars must be a string/);
   });
 
+  test.each(['/etc', 'C:\\Users\\voice', 'C:/Users/voice', 'C:voice', '\\\\server\\share\\voice', '\\voice'])('an absolute prose exemplars path is a config error: %s', (exemplars) => {
+    expect(() => resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars } } }, never)).toThrow(
+      `invalid checkride.config.json: 'prose' exemplars ${JSON.stringify(exemplars)} is absolute: give it relative to the repo root`,
+    );
+  });
+
+  test.each(['..', '../voice', 'docs/../../voice', 'docs\\..\\..\\voice', './../voice', 'a/b/../../../voice'])('a prose exemplars path that climbs out of the repo is a config error: %s', (exemplars) => {
+    expect(() => resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars } } }, never)).toThrow(
+      `invalid checkride.config.json: 'prose' exemplars ${JSON.stringify(exemplars)} leaves the repository: it is read from the repo root, so name a directory inside the repo`,
+    );
+  });
+
+  test.each(['docs/../voice', 'docs/voice/../voice', './docs/./voice', 'a/b/../../docs'])('a .. that stays inside the repo loads, and the read holds it to its real path: %s', (exemplars) => {
+    expect(resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars } } }, never).adapter?.options?.prose?.exemplars).toBe(exemplars);
+  });
+
+  test('a name with dots in it is no .. segment', () => {
+    const r = resolveSlot('prose', { checks: { prose: { use: 'vale', exemplars: 'docs/voice..v2' } } }, never);
+    expect(r.adapter?.options?.prose?.exemplars).toBe('docs/voice..v2');
+  });
+
   test('links exclude and allowlist are carried onto the adapter', () => {
     const r = resolveSlot(
       'links',

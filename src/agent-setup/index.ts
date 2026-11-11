@@ -20,6 +20,6 @@ export type { HookFile } from './files.js';
 
 export { detectHarnesses, HOOK_NAMES, type HookName, writeHooks } from './hook.js';
 
-export { dirtyScript, gateScript, protectScript } from './scripts.js';
+export { dirtyScript, gateScript, PROTECT_ALL_ARGS_VERBS, PROTECT_DEST_ONLY_VERBS, PROTECT_PATH_KEYS, protectScript } from './scripts.js';
 
 export { CURSOR_SKILLS_DIR, renameSkill, writeCursorSkills } from './skills.js';

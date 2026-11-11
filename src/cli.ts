@@ -3,14 +3,15 @@
  * CLI entry — arg parsing and command dispatch (the package `bin`).
  *
  * Commands: default `run`, plus `init`, `doctor`, `fix`, `baseline`, `recover`,
- * `agent-setup`, `gate`, `triage` and `qa`. The command is the first non-flag
+ * `agent-setup`, `gate`, `protect`, `triage` and `qa`. The command is the first non-flag
  * token; everything after it is parsed against that command's options. The
  * module is import-safe: it only executes when invoked directly, so tests can
  * import {@link runCli} without triggering a process exit.
  *
  * Exit codes: 0 pass, 1 check/verification failure, 2 orchestrator/usage error.
- * `gate` is the documented exception — it speaks a harness's hook protocol
- * rather than checkride's own split (see `./gate.ts`).
+ * `gate` and `protect` are the documented exceptions — each speaks a harness's
+ * hook protocol rather than checkride's own split (see `./gate.ts` and
+ * `./protect.ts`).
  */
 
 import { existsSync, realpathSync } from 'node:fs';
@@ -26,6 +27,7 @@ import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
+import { PROTECT_HARNESSES, runProtect } from './protect.js';
 import type { NamedBase } from './git.js';
 import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
@@ -47,7 +49,7 @@ import { realEnv, renderTriage, suiteRunConflicts, triage } from './triage/index
  * `process.env`; a test passes its own so a variable exported in the shell
  * that started the suite can't reach the run.
  */
-export type CliDeps = { cwd: string; stdout: Out; stderr: Out; env?: Record<string, string | undefined> };
+export type CliDeps = { cwd: string; stdout: Out; stderr: Out; env?: Record<string, string | undefined>; stdin?: () => Promise<string> };
 
 const RUN_OPTIONS = {
   bail: { type: 'boolean', default: false },
@@ -122,6 +124,10 @@ const GATE_OPTIONS = {
   suite: { type: 'string' },
 } as const;
 
+const PROTECT_OPTIONS = {
+  harness: { type: 'string' },
+} as const;
+
 /** `target add <name>` takes these; anything else is a usage error. */
 const TARGET_ADD_OPTIONS = {
   lang: { type: 'string' },
@@ -176,6 +182,9 @@ Commands:
                    bare \`hooks add\` installs every hook, the stop gate too.
   gate             Run the check script as a stop gate and answer in a harness's
                    hook protocol. Invoked by the generated hook scripts.
+  protect          Decide whether an agent's edit touches the baseline or .check/
+                   and answer in a harness's hook protocol. Invoked by the
+                   generated Cursor hook in a repo with no Node; not run by hand.
   triage           Triage a red gate: run it, then read .check/ as a bounded
                    report. Takes an optional repo path, --out and --suite.
   qa               Read the quality artifacts (mutation, dead, dupes, health)
@@ -496,11 +505,39 @@ usage error or a config the change would break, having written nothing.
 Docs: https://github.com/robmclarty/checkride#readme
 `;
 
+const PROTECT_HELP_TEXT = `checkride protect — the edit guard, as an agent hook
+
+Usage: checkride protect --harness cursor < payload.json
+
+Reads a hook payload as JSON on stdin and denies the call when it writes to
+checkride.baseline.json, a named suite's checkride.<name>.baseline.json, or
+.check/ and anything under it. Reads are never denied. It decides as the
+generated .cursor/hooks/checkride-protect.cjs does, which a repo that runs
+checkride through a package manager keeps; \`agent-setup\` writes a hook
+that calls this command where the entry command is \`mise exec -- checkride\`
+or \`checkride\` from PATH, so the guard needs no Node. A hook invokes this;
+you don't run it by hand.
+
+Options:
+  --harness <h>    Protocol to answer in (${PROTECT_HARNESSES.join(' | ')}; default cursor). Claude
+                   Code guards the same paths with permissions.deny rules and
+                   has no use for a hook; any other value is exit 2.
+
+Exit codes: 0 for an allowed edit (no output) and for a denied one (a
+{"permission":"deny",…} body on stdout), since Cursor reads a non-zero hook as
+a broken one and lets the edit through. A payload that is empty, not JSON or
+of an unknown shape is allowed. 1, with a line on stderr, when the guard
+itself failed and checked nothing. 2 for a usage error.
+
+Docs: https://github.com/robmclarty/checkride#readme
+`;
+
 /** Per-command `--help` text, falling back to the global help. */
 const COMMAND_HELP: Record<string, string> = {
   target: TARGET_HELP_TEXT,
   init: INIT_HELP_TEXT,
   gate: GATE_HELP_TEXT,
+  protect: PROTECT_HELP_TEXT,
   hooks: HOOKS_HELP_TEXT,
   baseline: BASELINE_HELP_TEXT,
   recover: RECOVER_HELP_TEXT,
@@ -1110,6 +1147,20 @@ async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
   return result.exitCode;
 }
 
+async function dispatchProtect(argv: string[], deps: CliDeps): Promise<number> {
+  const { rest } = detectCommand(argv);
+  const { values } = parseArgs({ args: rest, allowPositionals: true, options: PROTECT_OPTIONS });
+  const result = await runProtect({
+    cwd: deps.cwd,
+    stdout: deps.stdout,
+    stderr: deps.stderr,
+    ...(values.harness !== undefined ? { harness: values.harness } : {}),
+    ...(deps.env ? { env: deps.env } : {}),
+    ...(deps.stdin ? { stdin: deps.stdin } : {}),
+  });
+  return result.exitCode;
+}
+
 /**
  * The reader commands' arguments: the optional repo-path positional, and the
  * output directory `--out` or `CHECKRIDE_OUT` named, resolved against the
@@ -1157,6 +1208,7 @@ const DISPATCH: Record<string, (a: string[], d: CliDeps) => Promise<number>> = {
   'agent-setup': dispatchAgentSetup,
   hooks: dispatchHooks,
   gate: dispatchGate,
+  protect: dispatchProtect,
   triage: dispatchTriage,
   qa: dispatchQa,
 };

@@ -7,7 +7,7 @@
  * whose extensions say how to read what they match.
  *
  * The path rules are the first half of the slot's containment
- * (`./contain.ts` is the second): a config can't so much as name a schema
+ * (`../contain.ts` is the second): a config can't so much as name a schema
  * outside the repository. A symlink can still lead out, which only the real
  * path shows, at run time.
  */

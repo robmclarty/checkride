@@ -223,9 +223,11 @@ the pinned install in front of one that doesn't, or that holds no `node`.
   still needs that tool installed, and the TypeScript pack's `smoke`
   built-in still runs the repo's own `node`. The repo pack's
   [single-binary alternates](./packs.md#without-node) cover the slots that
-  default to an npm tool. Cursor's generated `protect` hook is a Node script
-  as well, so on a machine with no `node` Cursor can't run it. Claude Code's
-  `protect` is a permission rule and needs none.
+  default to an npm tool. The agent hooks need no Node: Claude Code's
+  `protect` is a permission rule, and in a repo whose entry command is
+  `mise exec -- checkride` or `checkride` from `PATH`, Cursor's `protect`
+  hook calls [`checkride protect`](./cursor.md#which-form-of-protect-a-repo-gets)
+  where a repo with a package manager gets a generated Node script.
 
 One thing the binary carries that the npm package doesn't: the `schema`
 slot's libraries. From npm they're optional peers the repo installs. A repo

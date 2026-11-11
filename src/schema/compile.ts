@@ -20,7 +20,7 @@
  *   it holds: the parser's own message quotes the text.
  *
  * Nothing here reads the network, and nothing reads a file but through the
- * `read` it is handed, which holds the containment rule (`./contain.ts`).
+ * `read` it is handed, which holds the containment rule (`../contain.ts`).
  */
 
 import { dirname, resolve } from 'node:path';

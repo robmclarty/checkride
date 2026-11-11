@@ -14,7 +14,7 @@
  * schema share one compile.
  *
  * A file is read only when its real path is inside the repository
- * (`./contain.ts`). A schema outside it refuses the check, and a matched data
+ * (`../contain.ts`). A schema outside it refuses the check, and a matched data
  * file outside it, a symlink that leaves the repo, is an error on that file
  * and is never opened.
  *
@@ -40,6 +40,8 @@ import { readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, join, relative, sep } from 'node:path';
 
+import type { Located, Root } from '../contain.js';
+import { located, locatedSync, repoRoot } from '../contain.js';
 import type { GitRunner } from '../git.js';
 import { realGit } from '../git.js';
 import type { CheckOutcome } from '../links.js';
@@ -48,8 +50,6 @@ import type { ExtraCheck, ExtraError } from './bundled.js';
 import { bundledSchema } from './bundled.js';
 import type { Compiled, RemoteRef, SchemaRead, SchemaSource } from './compile.js';
 import { compileSchema } from './compile.js';
-import type { Located } from './contain.js';
-import { located, locatedSync, realRoot } from './contain.js';
 import type { Parsed } from './formats.js';
 import { formatOfPath, parseAs } from './formats.js';
 import type { AjvError, AjvValidate, SchemaLibraries } from './library-types.js';
@@ -98,10 +98,10 @@ function withoutMark(text: string): string {
 
 /**
  * A schema file's text, by the containment rule: read only when its real
- * path is inside the repository at the real root `root`. `missing` covers a
+ * path is inside the repository `root`. `missing` covers a
  * directory, a file gone and one this user may not open.
  */
-function readSchema(root: string, path: string): SchemaRead {
+function readSchema(root: Root, path: string): SchemaRead {
   const where = locatedSync(root, path);
   if (typeof where === 'string') return where;
   try {
@@ -116,8 +116,8 @@ function nameIn(cwd: string, path: string): string {
   return relative(cwd, path).split(sep).join('/');
 }
 
-/** Where a run reads from: the repo as a finding names paths from it, and its real path, which containment is tested against. */
-type Repo = { cwd: string; root: string };
+/** Where a run reads from: the repo as a finding names paths from it, and its root, which containment is tested against. */
+type Repo = { cwd: string; root: Root };
 
 /** The schema a rule names: a bundled one, or the file at its repo-relative path; or why that file isn't read. */
 function sourceOf(rule: SchemaRule, repo: Repo): { source: SchemaSource; extra?: ExtraCheck } | 'outside' | 'missing' {
@@ -230,7 +230,7 @@ async function entryOf(where: Located): Promise<Entry> {
 /**
  * Where each listed path really is, asked once for each path a rule's globs
  * match and never for the rest: a repo lists far more files than its rules
- * name, and each answer is a `realpath` and a `stat`.
+ * name, and each answer is a walk of the path and a `stat`.
  */
 function entryLookup(repo: Repo): (file: string) => Promise<Entry> {
   const known = new Map<string, Promise<Entry>>();
@@ -342,7 +342,7 @@ async function listedFiles(cwd: string, git: GitRunner): Promise<string[] | stri
  * parsed is an error of the report, never a throw.
  */
 export async function checkSchemas(cwd: string, options: SchemaCheckOptions): Promise<SchemaChecked> {
-  const repo: Repo = { cwd, root: realRoot(cwd) };
+  const repo: Repo = { cwd, root: repoRoot(cwd) };
   const items = readyRules(options.rules, repo, options.libraries);
   if ('refusal' in items) return items;
   const listed = await listedFiles(cwd, options.git ?? realGit(cwd));

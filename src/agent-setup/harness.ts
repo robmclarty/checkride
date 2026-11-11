@@ -10,7 +10,7 @@
  */
 
 import { gatePreflight, type HarnessName } from '../gate.js';
-import type { EntryLike, PackageManager } from '../launch/index.js';
+import type { EntryCommand, EntryLike, PackageManager } from '../launch/index.js';
 import { detectPackageManager, entryText, resolveEntry } from '../launch/index.js';
 import type { HookFile } from './files.js';
 import { dropFile, putFile, putJson, readJson } from './files.js';
@@ -92,6 +92,15 @@ export type HarnessSpec<T> = {
    * the config-only form does not keep a dead file it will never run again.
    */
   retired?: Partial<Record<HookName, string>>;
+  /**
+   * The hooks that, for a repo with this entry command, are configuration
+   * alone, though `scripts` names a file for them: Cursor's `protect`, which
+   * calls `checkride protect` where the entry is not a package-manager
+   * script. Such a hook's script is not written, and one a run under another
+   * entry command left is deleted, as a retired script is, so a repo whose
+   * entry command changes moves from one form to the other in one run.
+   */
+  inConfig?: (entry: EntryCommand) => readonly HookName[];
   /**
    * Merge the named hooks into a parsed config. Must be idempotent. `pm` is the
    * repo's package manager, which a harness that renders the gate's command in
@@ -186,26 +195,31 @@ export async function writeHarnessHooks<T extends object>(
   // a retired one to clear away. `touched` is both directions at once, because a
   // dead file is worth deleting whether the hook is arriving or leaving.
   const touched = HOOK_NAMES.filter((name) => names.includes(name) || gone.includes(name));
+  const inConfig = spec.inConfig?.(entry) ?? [];
+  /** The script `name` runs under this entry command, `undefined` for a hook that is configuration here. */
+  const scriptOf = (name: HookName): string | undefined => (inConfig.includes(name) ? undefined : spec.scripts[name]);
+  /** The scripts `name` has no use for here: a retired one, and the one another entry command would run. */
+  const unused = (name: HookName): (string | undefined)[] => [spec.retired?.[name], inConfig.includes(name) ? spec.scripts[name] : undefined];
   const [written, removed, swept] = await Promise.all([
     Promise.all(
-      HOOK_NAMES.filter((name) => names.includes(name) && spec.scripts[name] !== undefined).map((name) =>
-        putFile(cwd, spec.scripts[name] ?? '', bodies[name](), { dryRun, executable: true }),
+      HOOK_NAMES.filter((name) => names.includes(name) && scriptOf(name) !== undefined).map((name) =>
+        putFile(cwd, scriptOf(name) ?? '', bodies[name](), { dryRun, executable: true }),
       ),
     ),
     Promise.all(
-      HOOK_NAMES.filter((name) => gone.includes(name) && spec.scripts[name] !== undefined).map((name) =>
-        dropFile(cwd, spec.scripts[name] ?? '', { dryRun }),
+      HOOK_NAMES.filter((name) => gone.includes(name) && scriptOf(name) !== undefined).map((name) =>
+        dropFile(cwd, scriptOf(name) ?? '', { dryRun }),
       ),
     ),
     Promise.all(
       touched
-        .map((name) => spec.retired?.[name])
+        .flatMap(unused)
         .filter((path): path is string => path !== undefined)
         .map((path) => dropFile(cwd, path, { dryRun })),
     ),
   ]);
-  // Only report a retired script that was actually there. Every repo set up
-  // after these became configuration has none, and listing files that never
-  // existed as "absent" would make the common run read like a cleanup.
+  // Only report a retired or unused script that was actually there. Every repo
+  // set up after these became configuration has none, and listing files that
+  // never existed as "absent" would make the common run read like a cleanup.
   return [config, ...written, ...removed, ...swept.filter((f) => f.changed)];
 }

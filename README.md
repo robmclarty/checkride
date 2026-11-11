@@ -268,6 +268,10 @@ checkride hooks add [a,b] | remove <a,b>
                        `hooks add` installs every hook, the stop gate included.
 checkride gate         Run the check script as a stop gate, answering a harness's
                        hook protocol. The generated hook scripts invoke this.
+checkride protect      Decide whether an agent's edit touches the baseline or
+                       .check/, answering a harness's hook protocol (--harness
+                       cursor). Cursor's hook invokes this in a repo with no
+                       package manager; you don't run it by hand.
 checkride triage [<repo>]  Triage a red gate: run it, then read .check/ as a
                        bounded report (--out <dir> for another output directory).
 checkride qa [<repo>]  Read the quality artifacts a previous run left (--out <dir>).

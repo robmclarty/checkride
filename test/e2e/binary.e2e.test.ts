@@ -153,6 +153,11 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
+/** A Cursor `preToolUse` payload for a file tool writing `path`. */
+function edit(path: string): string {
+  return JSON.stringify({ hook_event_name: 'preToolUse', tool_name: 'Write', tool_input: { file_path: path } });
+}
+
 describe('the standalone binary', () => {
   let dir: string;
 
@@ -305,6 +310,53 @@ describe('the standalone binary', () => {
     // The pin a binary's hook recommends installs a binary: the npm pin would need the Node this repo has none of.
     expect(hook).toContain('mise use github:robmclarty/checkride@<version>');
     expect(hook).not.toContain('npm:checkride');
+  });
+
+  /**
+   * Cursor's edit guard, in the repo this binary is for: `agent-setup` writes
+   * a hook that calls `checkride protect` and no Node script, and the hook's
+   * own command line, run by `sh` as Cursor runs it, answers each payload
+   * with no `node` on `PATH`.
+   */
+  test('Cursor’s protect hook is `checkride protect`, and it denies a baseline edit and allows an ordinary one with no node', () => {
+    mkdirSync(join(dir, '.cursor'));
+    expect(binary(['agent-setup', '--harness', 'cursor'], dir).code).toBe(0);
+    expect(existsSync(join(dir, '.cursor', 'hooks', 'checkride-protect.cjs'))).toBe(false);
+    const hooks = (JSON.parse(readFileSync(join(dir, '.cursor', 'hooks.json'), 'utf8')) as { hooks: Record<string, { command: string }[]> }).hooks;
+    const command = hooks['preToolUse']?.[0]?.command ?? '';
+    expect(command).toContain('out=$(checkride protect --harness cursor)');
+    expect(command).not.toMatch(/\bnode\b/);
+    expect(hooks['beforeShellExecution']?.[0]?.command).toBe(command);
+
+    const hook = (payload: string, path = BARE_PATH): Run => {
+      const done = spawnSync('/bin/sh', ['-c', command], { cwd: dir, env: { ...BARE_ENV, PATH: path, CURSOR_PROJECT_DIR: dir }, input: payload, encoding: 'utf8', timeout: 120_000 });
+      if (done.error) throw done.error;
+      return { code: done.status, stdout: done.stdout, stderr: done.stderr };
+    };
+
+    const denied = hook(edit(join(dir, 'checkride.baseline.json')));
+    expect(denied.code).toBe(0);
+    expect(denied.stderr).toBe('');
+    expect(JSON.parse(denied.stdout)).toMatchObject({ permission: 'deny', agent_message: expect.stringContaining('checkride.baseline.json is checkride-owned accounting') });
+
+    const shell = hook(JSON.stringify({ hook_event_name: 'beforeShellExecution', command: 'echo "{}" > checkride.evals.baseline.json', cwd: dir }));
+    expect(shell.code).toBe(0);
+    expect(JSON.parse(shell.stdout)).toMatchObject({ permission: 'deny' });
+
+    for (const allowed of [edit(join(dir, 'src', 'main.go')), JSON.stringify({ hook_event_name: 'beforeShellExecution', command: 'cat .check/summary.json', cwd: dir }), 'not json', '']) {
+      expect(hook(allowed)).toEqual({ code: 0, stdout: '', stderr: '' });
+    }
+
+    // On a PATH with no checkride, the hook says the guard did not run and allows the call: exit 0, never a bare 127.
+    const unguarded = hook(edit(join(dir, 'checkride.baseline.json')), EMPTY_PATH);
+    expect(unguarded.code).toBe(0);
+    expect(JSON.parse(unguarded.stdout)).toMatchObject({ permission: 'allow', agent_message: expect.stringContaining('the edit guard could not run — checkride is not on PATH') });
+    expect(unguarded.stdout).toContain('mise use github:robmclarty/checkride@<version>');
+    expect(unguarded.stderr).toContain('the edit guard could not run');
+
+    const refused = binary(['protect', '--harness', 'claude'], dir);
+    expect(refused.code).toBe(2);
+    expect(refused.stderr).toContain("invalid --harness 'claude' (protect answers cursor)");
   });
 
   test('doctor’s harness row recommends the github: pin, never the npm one', () => {

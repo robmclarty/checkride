@@ -16,6 +16,7 @@ checkride target add   Declare a target (<name> --lang <pack> --root <dir>); a r
 checkride recover      Restore checkride.baseline.json from git history (--pick applies).
 checkride agent-setup  Add the "check" alias, AGENTS.md stanza + agent hooks to a repo.
 checkride hooks        Install/remove agent hooks only — never touches AGENTS.md.
+checkride protect      The edit guard as a hook command (Cursor, in a repo with no package manager); not run by hand.
 checkride triage       Triage a red gate into one root cause (what /checkride:check runs).
 checkride qa           Read the quality artifacts a previous run left.
 ```

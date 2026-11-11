@@ -677,8 +677,8 @@ A [named suite](#cli) keeps its own baseline beside it,
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
-`recover`, `target`, `agent-setup`, `hooks`, `gate`, `triage`, `qa` — and the
-run flags:
+`recover`, `target`, `agent-setup`, `hooks`, `gate`, `protect`, `triage`,
+`qa` — and the run flags:
 
 ```text
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
@@ -1446,11 +1446,40 @@ the gate included, which makes a bare `hooks add` the one-command opt-in;
 `remove` requires an explicit list, because a bare command that tore out the gate
 would be the silent un-gating this tool exists to prevent. Both are idempotent.
 
+**`protect` answers a harness's edit-guard hook, and never fails one.**
+`checkride protect --harness cursor` reads a hook payload as JSON on stdin and
+decides whether the call writes to `checkride.baseline.json`, a named suite's
+`checkride.<name>.baseline.json`, or `.check/` and anything under it. A write
+there is denied in Cursor's protocol: one JSON object on stdout,
+`{"permission":"deny","user_message":"…","agent_message":"…"}`, and exit 0,
+since Cursor reads a non-zero hook as a broken one. Anything else is allowed:
+no output, exit 0. So is a payload that is empty, not JSON, or of a shape it
+doesn't know, because a guard that can't read its input must not become a repo
+where nothing can be edited. Reads are never denied. `cursor` is the only
+harness it answers, and the default; any other `--harness` is exit 2, naming
+that one. A fault of the command's own, one that isn't about the payload, is
+never an allow: it is one line on stderr, nothing on stdout, and exit 1, as a
+script that crashed gives. It decides as the generated
+`.cursor/hooks/checkride-protect.cjs` does: the decision is written twice,
+and one table of payloads, tested against both, holds each to the other's
+exit code and output. A hook invokes it; it isn't a command a person runs.
+
 **What a hook *is* belongs to the harness, not to checkride.** The three hook
 names are promised; whether one lands as a config entry, a permission rule, or a
 generated script is checkride's to choose per harness, and may change. Under
 Claude Code, `protect` is `permissions.deny` rules and `dirty` is an inline
-command, so the gate script is the only file generated there. What is promised
+command, so the gate script is the only file generated there. Under Cursor,
+`protect` is the generated script in a repo whose entry command is a
+package-manager script, and a hook that calls `checkride protect`, with no
+script, where the entry is `mise exec -- checkride` or `checkride` from
+`PATH`; a re-run moves a repo whose entry command changed from one to the
+other, deleting the script it no longer runs. That hook never fails bare:
+where the command isn't there to run, or exits non-zero, it allows the call
+with `{"permission":"allow","user_message":"…","agent_message":"…"}` saying
+the guard didn't run, repeats that on stderr, and exits 0. An entry is
+checkride's by what it invokes: any hook command that runs `checkride
+protect`, under any wrapper and with any flags, is refreshed in place and
+removed with the hook. What is promised
 about the deny rules is the part a consumer builds on: checkride **appends** its
 own and removes only those, so rules you add beside them survive every refresh.
 

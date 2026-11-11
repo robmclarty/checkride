@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -2621,6 +2621,107 @@ describe('missingExemplarsOutcome', () => {
     expect(outcome?.ok).toBe(false);
     expect(outcome?.stderr).toContain('is a file, not a directory');
     expect(outcome?.stderr).not.toContain('does not exist');
+  });
+
+  /**
+   * Containment: the directory is listed, and a link in it followed, only
+   * where the real path is inside the repository. `dir` is the repo, and
+   * `outside` a directory beside it that a hostile config tries to reach.
+   */
+  describe('paths that leave the repository', () => {
+    let outside: string;
+    beforeEach(async () => {
+      outside = await mkdtemp(join(tmpdir(), 'checkride-exemplars-outside-'));
+      await writeFile(join(outside, 'secret.md'), 'A sentence that is nobody\'s business.\n');
+    });
+    afterEach(async () => { await rm(outside, { recursive: true, force: true }); });
+
+    test('an exemplars directory that is a symlink out of the repo is refused, unlisted', async () => {
+      await mkdir(join(dir, 'docs'), { recursive: true });
+      await symlink(outside, join(dir, 'docs', 'voice'));
+      const outcome = missingExemplarsOutcome(vale, dir);
+      expect(outcome?.ok).toBe(false);
+      expect(outcome?.exit_code).toBe(1);
+      expect(outcome?.refusal).toBe('the `prose` slot names `docs/voice` as its voice exemplars, and that path resolves outside the repository');
+      expect(outcome?.stderr).not.toContain('secret');
+    });
+
+    test('a parent directory that is a symlink out of the repo is refused the same way', async () => {
+      await mkdir(join(outside, 'voice'));
+      await writeFile(join(outside, 'voice', 'sample.md'), 'Prose.\n');
+      await symlink(outside, join(dir, 'docs'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('that path resolves outside the repository');
+    });
+
+    test('an exemplar file that is a symlink out of the repo is no exemplar, and no fault: it is passed over', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await symlink(join(outside, 'secret.md'), join(dir, 'docs', 'voice', 'linked.md'));
+      const alone = missingExemplarsOutcome(vale, dir);
+      expect(alone?.refusal).toBe('the `prose` slot names `docs/voice` as its voice exemplars, and that path has no files in it');
+      expect(alone?.stderr).not.toContain('linked.md');
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to a directory outside is ignored as any directory is, beside a real file or alone', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await symlink(outside, join(dir, 'docs', 'voice', 'elsewhere'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('has no files in it');
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to the repository root is a directory inside the repo, and ignored as one', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await writeFile(join(dir, 'docs', 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(dir, join(dir, 'docs', 'voice', 'root'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplars path that is a link to the repository root is inside it', async () => {
+      await writeFile(join(dir, 'sample.md'), 'A sentence in my own voice.\n');
+      await mkdir(join(dir, 'docs'));
+      await symlink(dir, join(dir, 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplar file that is a symlink to a file inside the repo is an anchor', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await writeFile(join(dir, 'README.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'README.md'), join(dir, 'docs', 'voice', 'readme.md'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('an exemplars directory that is a symlink to a directory inside the repo works', async () => {
+      await mkdir(join(dir, 'voice'), { recursive: true });
+      await mkdir(join(dir, 'docs'), { recursive: true });
+      await writeFile(join(dir, 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'voice'), join(dir, 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, dir)).toBeNull();
+    });
+
+    test('a link to nothing and a link to a directory are not anchors', async () => {
+      await mkdir(join(dir, 'docs', 'voice'), { recursive: true });
+      await mkdir(join(dir, 'drafts'));
+      await symlink(join(dir, 'gone.md'), join(dir, 'docs', 'voice', 'gone.md'));
+      await symlink(join(dir, 'drafts'), join(dir, 'docs', 'voice', 'drafts'));
+      expect(missingExemplarsOutcome(vale, dir)?.stderr).toContain('has no files in it');
+    });
+
+    test('the repository root is a directory inside itself', async () => {
+      await writeFile(join(dir, 'sample.md'), 'A sentence in my own voice.\n');
+      const root = fakeAdapter({ name: 'vale', slot: 'prose', options: { prose: { exemplars: '.' } } });
+      expect(missingExemplarsOutcome(root, dir)).toBeNull();
+    });
+
+    test('a target reads its exemplars from its own root, contained by the repository and not the target', async () => {
+      await mkdir(join(dir, 'pkg', 'docs'), { recursive: true });
+      await mkdir(join(dir, 'voice'));
+      await writeFile(join(dir, 'voice', 'sample.md'), 'A sentence in my own voice.\n');
+      await symlink(join(dir, 'voice'), join(dir, 'pkg', 'docs', 'voice'));
+      expect(missingExemplarsOutcome(vale, join(dir, 'pkg'), dir)).toBeNull();
+      expect(missingExemplarsOutcome(vale, join(dir, 'pkg'))?.stderr).toContain('that path resolves outside the repository');
+    });
   });
 
   test('the default runner runs the pre-flight, so the tool never spawns', async () => {

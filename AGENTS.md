@@ -60,6 +60,7 @@ src/
   baseline-command.ts  `checkride baseline` — capture the committed baseline
   recover.ts        `checkride recover` — rebuild the baseline from git history
   gate.ts           `checkride gate` — the stop-gate verdict, harness-neutral
+  protect.ts        `checkride protect` — the edit guard's verdict, the generated script's decision as typed code
   target-command.ts `checkride target add` — declare a target, converting a repo with none
   target-files.ts   write a targets change: the config as written, and the renamed baseline
   git.ts            read-only git plumbing: the --changed base and paths, the run's head
@@ -71,6 +72,7 @@ src/
   security.ts       built-in dependency-audit check
   suite.ts          named suites: a name, and the config, baseline and output directory it fixes
   atomic.ts         atomic file writes (temp file + fsync + rename)
+  contain.ts        the containment rule: a path a config names is read only where it really is in the repo
   proc.ts           process-group kill + SIGTERM→SIGKILL escalation
   json.ts           the one `isRecord` narrowing primitive
   resources.ts      the only reader of the shipped templates/, schema/ and skills/, from the

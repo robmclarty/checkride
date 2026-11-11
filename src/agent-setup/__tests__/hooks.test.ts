@@ -18,6 +18,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { protectHookCommand } from '../scripts.js';
 import {
   applyCursorHooks,
   applyHooks,
@@ -819,6 +820,130 @@ describe('cursor merge (applyCursorHooks)', () => {
   });
 });
 
+/**
+ * `protect` has two forms under Cursor, picked by the repo's entry command: the
+ * generated Node script where a package manager runs checkride, and `checkride
+ * protect` where mise or `PATH` does, which is the repo that may have no Node.
+ */
+const SCRIPT_FORM = 'node "${CURSOR_PROJECT_DIR:-.}/.cursor/hooks/checkride-protect.cjs"';
+
+/** What a Cursor config's two `protect` entries run. */
+function protectCommands(config: ReturnType<typeof applyCursorHooks>): (string | undefined)[] {
+  return [config.hooks?.preToolUse, config.hooks?.beforeShellExecution].flatMap((entries) => (entries ?? []).map((h) => h.command));
+}
+
+/** `entries` with each one's command replaced by one marker. */
+function marked(entries: { command?: string }[] | undefined): unknown {
+  return entries?.map((h) => ({ ...h, command: '<protect>' }));
+}
+
+/** A Cursor config with the command of each `protect` entry replaced by one marker, so two forms compare on everything else. */
+function formless(config: ReturnType<typeof applyCursorHooks>): unknown {
+  return { ...config, hooks: { ...config.hooks, preToolUse: marked(config.hooks?.preToolUse), beforeShellExecution: marked(config.hooks?.beforeShellExecution) } };
+}
+
+/** The command form's first step, which every spelling of it for an entry command opens with. */
+const PATH_FORM = 'out=$(checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; if command -v checkride >/dev/null 2>&1; then ';
+const MISE_FORM = 'out=$(mise exec -- checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; if mise which checkride >/dev/null 2>&1; then ';
+
+describe('cursor merge: the two forms of protect', () => {
+
+  test.each(['pnpm', 'npm', 'yarn', 'bun'] as const)('a %s script entry keeps the generated script, as before entry commands', (pm) => {
+    expect(protectCommands(applyCursorHooks({}, ['protect'], { kind: 'script', pm }))).toEqual([SCRIPT_FORM, SCRIPT_FORM]);
+    expect(applyCursorHooks({}, HOOK_NAMES, { kind: 'script', pm })).toEqual(applyCursorHooks({}, HOOK_NAMES));
+  });
+
+  test('a PATH entry calls `checkride protect` on both events, behind the guard for a checkride that is not there', () => {
+    const [pre, shell] = protectCommands(applyCursorHooks({}, ['protect'], { kind: 'path' }));
+    expect(pre).toBe(protectHookCommand({ kind: 'path' }, 'cursor'));
+    expect(pre?.startsWith(PATH_FORM)).toBe(true);
+    expect(shell).toBe(pre);
+  });
+
+  test('a mise entry calls it through mise, and asks mise whether it is there', () => {
+    const [pre, shell] = protectCommands(applyCursorHooks({}, ['protect'], { kind: 'mise' }));
+    expect(pre).toBe(protectHookCommand({ kind: 'mise' }, 'cursor'));
+    expect(pre?.startsWith(MISE_FORM)).toBe(true);
+    expect(shell).toBe(pre);
+  });
+
+  test('the guard’s messages hold no double quote and no backslash, which would break the JSON body printf builds', () => {
+    for (const entry of [{ kind: 'path' }, { kind: 'mise' }] as const) {
+      const messages = [...protectHookCommand(entry, 'cursor').matchAll(/m='((?:[^']|'\\'')*)'; (?:else|fi)/g)].map((m) => m[1] ?? '');
+      expect(messages).toHaveLength(2);
+      for (const message of messages) {
+        expect(message).toMatch(/^checkride: the edit guard could not run — /);
+        expect(message.replaceAll(String.raw`'\''`, "'")).not.toMatch(/["\\]/);
+      }
+    }
+  });
+
+  /**
+   * An entry is checkride's by what it invokes, not by how it is spelled: a
+   * person who shortened the command, or wrapped it, still has one entry
+   * after a refresh, and none after a removal.
+   */
+  test.each([
+    'checkride protect',
+    'checkride protect --harness cursor',
+    'checkride protect --harness=cursor',
+    'mise x -- checkride protect --harness=cursor',
+    'mise exec -- checkride protect',
+    'npx --no-install checkride protect --harness cursor',
+    '/usr/local/bin/checkride protect',
+    'checkride --quiet protect',
+    'cd "$CURSOR_PROJECT_DIR" && checkride protect --harness cursor',
+    'out=$(checkride protect) && printf %s "$out"',
+    'node "${CURSOR_PROJECT_DIR:-.}/.cursor/hooks/checkride-protect.cjs"',
+  ])('a hand-spelled entry is recognised, refreshed in place and removed: %s', (command) => {
+    const edited = { version: 1, hooks: { preToolUse: [{ command, matcher: 'Write' }], beforeShellExecution: [{ command }] } };
+    for (const entry of ['pnpm', { kind: 'path' }, { kind: 'mise' }] as const) {
+      expect(applyCursorHooks(edited, ['protect'], entry)).toEqual(applyCursorHooks({}, ['protect'], entry));
+    }
+    expect(removeCursorHooks(edited, ['protect'])).toEqual({ version: 1, hooks: {} });
+  });
+
+  test.each([
+    'checkride gate --harness cursor',
+    'echo checkride-protect',
+    'mycheckride protect',
+    'checkride protector',
+    'echo "checkride will protect this"',
+    'sh ./protect.sh',
+  ])('a command that does not invoke `checkride protect` is someone else’s, and is left alone: %s', (command) => {
+    const theirs = { version: 1, hooks: { preToolUse: [{ command }] } };
+    const next = applyCursorHooks(theirs, ['protect'], { kind: 'path' });
+    expect(next.hooks?.preToolUse).toHaveLength(2);
+    expect(next.hooks?.preToolUse?.[0]).toEqual({ command });
+    expect(removeCursorHooks(next, ['protect']).hooks?.preToolUse).toEqual([{ command }]);
+  });
+
+  test('the form changes nothing else about the entries, and nothing about gate or dirty', () => {
+    const script = applyCursorHooks({}, HOOK_NAMES, 'pnpm');
+    const command = applyCursorHooks({}, HOOK_NAMES, { kind: 'path' });
+    expect(formless(command)).toEqual(formless(script));
+  });
+
+  test.each([
+    ['script to command', 'pnpm', { kind: 'path' }],
+    ['command to script', { kind: 'path' }, 'pnpm'],
+    ['mise to PATH', { kind: 'mise' }, { kind: 'path' }],
+  ] as const)('an entry moves in place from %s, never doubling', (_name, from, to) => {
+    const moved = applyCursorHooks(applyCursorHooks({}, HOOK_NAMES, from), HOOK_NAMES, to);
+    expect(moved).toEqual(applyCursorHooks({}, HOOK_NAMES, to));
+    expect(moved.hooks?.preToolUse).toHaveLength(1);
+    expect(moved.hooks?.beforeShellExecution).toHaveLength(1);
+  });
+
+  test('removal takes out either form', () => {
+    for (const entry of ['pnpm', { kind: 'path' }, { kind: 'mise' }] as const) {
+      const next = removeCursorHooks(applyCursorHooks({}, ['protect'], entry), ['protect']);
+      expect(next.hooks?.preToolUse).toBeUndefined();
+      expect(next.hooks?.beforeShellExecution).toBeUndefined();
+    }
+  });
+});
+
 describe('harness detection', () => {
   let dir: string;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-harness-')); });
@@ -833,7 +958,11 @@ describe('harness detection', () => {
 
 describe('writeHooks', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-hook-')); });
+  // A package.json makes the entry command a package-manager script, the repo these tests are about.
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-hook-'));
+    await writeFile(join(dir, 'package.json'), '{"name":"x"}\n');
+  });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   test('writes one harness’s files, then a second run is a no-op', async () => {
@@ -857,6 +986,7 @@ describe('writeHooks', () => {
   });
 
   test('with no package.json, the gate runs the checkride mise pins, or the one on PATH (R6.6)', async () => {
+    await rm(join(dir, 'package.json'));
     await writeFile(join(dir, 'mise.toml'), '[tools]\n"npm:checkride" = "0.14.0"\n');
     await writeHooks(dir, { ...EVERY, harnesses: ['claude'] });
     const pinned = await readFile(join(dir, GATE_SCRIPT_FILE), 'utf8');
@@ -942,6 +1072,152 @@ describe('writeHooks', () => {
     await mkdir(join(dir, file, '..'), { recursive: true });
     await writeFile(join(dir, file), '{ not valid json');
     await expect(writeHooks(dir, { harnesses: [harness] })).rejects.toThrow(`invalid ${file}`);
+  });
+});
+
+/**
+ * Which form of Cursor's `protect` a repo gets, on disk: the script for a
+ * package-manager entry, the command and no script for mise or `PATH`, and a
+ * clean move between them when the entry command changes.
+ */
+describe('writeHooks — the form of protect under Cursor', () => {
+  const PROTECT_SCRIPT = '.cursor/hooks/checkride-protect.cjs';
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-protect-form-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const cursor = (opts: Parameters<typeof writeHooks>[1] = {}): ReturnType<typeof writeHooks> => writeHooks(dir, { ...opts, harnesses: ['cursor'] });
+  const hooksJson = (): Promise<string> => readFile(join(dir, CURSOR_HOOKS_FILE), 'utf8');
+  const withPackageJson = (): Promise<void> => writeFile(join(dir, 'package.json'), '{"name":"x"}\n');
+  const withMise = (): Promise<void> => writeFile(join(dir, 'mise.toml'), '[tools]\n"github:robmclarty/checkride" = "0.21.0"\n');
+
+  /** What a package-manager repo's hook runs, as `.cursor/hooks.json` spells it. */
+  const NODE_COMMAND = String.raw`node \"${'${CURSOR_PROJECT_DIR:-.}'}/.cursor/hooks/checkride-protect.cjs\"`;
+
+  /** `.cursor/hooks.json` as the commit before `checkride protect` wrote it for a package-manager repo, to the byte. */
+  const SCRIPT_FORM_JSON = [
+    '{',
+    '  "version": 1,',
+    '  "hooks": {',
+    '    "preToolUse": [',
+    '      {',
+    `        "command": "${NODE_COMMAND}",`,
+    '        "matcher": "Write|Delete"',
+    '      }',
+    '    ],',
+    '    "beforeShellExecution": [',
+    '      {',
+    `        "command": "${NODE_COMMAND}",`,
+    String.raw`        "matcher": "checkride\\.(?:[a-z][a-z0-9-]*\\.)?baseline\\.json|\\.check\\b"`,
+    '      }',
+    '    ]',
+    '  }',
+    '}',
+    '',
+  ].join('\n');
+
+  test('a package-manager entry gets the script and the entry that runs it on Node, byte for byte', async () => {
+    await withPackageJson();
+    const result = await cursor();
+    expect(result.files).toEqual([{ path: CURSOR_HOOKS_FILE, changed: true }, { path: PROTECT_SCRIPT, changed: true }]);
+    expect(await hooksJson()).toBe(SCRIPT_FORM_JSON);
+    expect(await readFile(join(dir, PROTECT_SCRIPT), 'utf8')).toBe(protectScript());
+  });
+
+  test('a PATH entry gets a hook that calls `checkride protect`, and no script', async () => {
+    const result = await cursor();
+    expect(result.files).toEqual([{ path: CURSOR_HOOKS_FILE, changed: true }]);
+    expect(existsSync(join(dir, PROTECT_SCRIPT))).toBe(false);
+    const guarded = protectHookCommand({ kind: 'path' }, 'cursor');
+    expect(JSON.parse(await hooksJson())).toEqual(JSON.parse(SCRIPT_FORM_JSON.replaceAll(NODE_COMMAND, JSON.stringify(guarded).slice(1, -1))));
+    expect(guarded.startsWith(PATH_FORM)).toBe(true);
+    expect(await hooksJson()).not.toContain('node');
+  });
+
+  test('a mise entry gets the same hook through mise, and no script', async () => {
+    await withMise();
+    await cursor();
+    expect(existsSync(join(dir, PROTECT_SCRIPT))).toBe(false);
+    expect(await hooksJson()).toContain(`"command": ${JSON.stringify(protectHookCommand({ kind: 'mise' }, 'cursor'))}`);
+    expect(await hooksJson()).not.toContain('node');
+  });
+
+  test('either form is a no-op the second time', async () => {
+    expect((await cursor(), await cursor()).files.every((f) => !f.changed)).toBe(true);
+    await withPackageJson();
+    expect((await cursor(), await cursor()).files.every((f) => !f.changed)).toBe(true);
+  });
+
+  test('a repo that drops its package manager moves to the command, and its script is removed', async () => {
+    await withPackageJson();
+    await cursor(EVERY);
+    await rm(join(dir, 'package.json'));
+    const result = await cursor();
+    expect(result.files).toContainEqual({ path: PROTECT_SCRIPT, changed: true, removed: true });
+    expect(existsSync(join(dir, PROTECT_SCRIPT))).toBe(false);
+    const hooks = JSON.parse(await hooksJson()) as { hooks: Record<string, { command: string }[]> };
+    const guarded = protectHookCommand({ kind: 'path' }, 'cursor');
+    expect(hooks.hooks['preToolUse']).toEqual([{ command: guarded, matcher: 'Write|Delete' }]);
+    expect(hooks.hooks['beforeShellExecution']).toHaveLength(1);
+    expect(hooks.hooks['beforeShellExecution']?.[0]?.command).toBe(guarded);
+    // The gate and the edit marker were installed, so they are refreshed, and they keep their scripts.
+    expect(existsSync(join(dir, '.cursor/hooks/checkride-gate.sh'))).toBe(true);
+    expect(existsSync(join(dir, '.cursor/hooks/checkride-dirty.sh'))).toBe(true);
+  });
+
+  test('a repo that gains a package manager moves to the script, and ends as a fresh one would', async () => {
+    await cursor();
+    await withPackageJson();
+    const result = await cursor();
+    expect(result.files).toEqual([{ path: CURSOR_HOOKS_FILE, changed: true }, { path: PROTECT_SCRIPT, changed: true }]);
+    expect(await hooksJson()).toBe(SCRIPT_FORM_JSON);
+    expect(await readFile(join(dir, PROTECT_SCRIPT), 'utf8')).toBe(protectScript());
+  });
+
+  test('a dry run of the move reports it and changes nothing', async () => {
+    await withPackageJson();
+    await cursor();
+    await rm(join(dir, 'package.json'));
+    const result = await cursor({ dryRun: true });
+    expect(result.files).toEqual([{ path: CURSOR_HOOKS_FILE, changed: true }, { path: PROTECT_SCRIPT, changed: true, removed: true }]);
+    expect(existsSync(join(dir, PROTECT_SCRIPT))).toBe(true);
+    expect(await hooksJson()).toBe(SCRIPT_FORM_JSON);
+  });
+
+  test('removing protect takes out the command form, and a script an earlier entry command left', async () => {
+    await withPackageJson();
+    await cursor();
+    await rm(join(dir, 'package.json'));
+    await cursor({ hooks: [], remove: ['protect'] });
+    expect(existsSync(join(dir, PROTECT_SCRIPT))).toBe(false);
+    expect(JSON.parse(await hooksJson())).toEqual({ version: 1, hooks: {} });
+
+    await cursor();
+    await cursor({ hooks: [], remove: ['protect'] });
+    expect(JSON.parse(await hooksJson())).toEqual({ version: 1, hooks: {} });
+  });
+
+  test('an entry a person respelled is refreshed, not doubled, and `remove` finds it', async () => {
+    await cursor();
+    const config = JSON.parse(await hooksJson()) as { hooks: Record<string, { command: string }[]> };
+    for (const event of ['preToolUse', 'beforeShellExecution']) config.hooks[event] = [{ ...config.hooks[event]?.[0], command: 'mise x -- checkride protect --harness=cursor' }];
+    await writeFile(join(dir, CURSOR_HOOKS_FILE), JSON.stringify(config));
+
+    await cursor();
+    const refreshed = JSON.parse(await hooksJson()) as { hooks: Record<string, { command: string }[]> };
+    expect(refreshed.hooks['preToolUse']).toHaveLength(1);
+    expect(refreshed.hooks['beforeShellExecution']).toHaveLength(1);
+    expect(refreshed.hooks['preToolUse']?.[0]?.command).toBe(protectHookCommand({ kind: 'path' }, 'cursor'));
+
+    await writeFile(join(dir, CURSOR_HOOKS_FILE), JSON.stringify(config));
+    await cursor({ hooks: [], remove: ['protect'] });
+    expect(JSON.parse(await hooksJson())).toEqual({ version: 1, hooks: {} });
+  });
+
+  test('Claude Code is one form whatever the entry command: deny rules, no hook, no script', async () => {
+    const result = await writeHooks(dir, { harnesses: ['claude'] });
+    expect(result.files.map((f) => f.path)).toEqual([CLAUDE_SETTINGS_FILE]);
+    expect(await readFile(join(dir, CLAUDE_SETTINGS_FILE), 'utf8')).not.toContain('checkride protect');
   });
 });
 
@@ -1050,7 +1326,11 @@ describe('writeHooks — removal', () => {
  */
 describe('writeHooks — the default selection', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-default-hook-')); });
+  // A package.json makes the entry command a package-manager script, the repo these tests are about.
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-default-hook-'));
+    await writeFile(join(dir, 'package.json'), '{"name":"x"}\n');
+  });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   /** The parsed config at `rel`. */
@@ -1199,7 +1479,11 @@ describe('mise gate script behavior (live)', () => {
 
 describe('protect script behavior (live)', () => {
   let dir: string;
-  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-protect-')); });
+  // A package.json makes the entry command a package-manager script, so the hook is the generated script.
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-protect-'));
+    await writeFile(join(dir, 'package.json'), '{"name":"x"}\n');
+  });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
   /**
@@ -1363,6 +1647,94 @@ describe('protect script behavior (live)', () => {
     // Cursor's denial rides in the body, not the exit code.
     expect(stdout).toContain('deny');
   }, 30000);
+});
+
+/** The body of a guard that did not run: an allow, with the reason for the user and for the agent. */
+function allowed(stdout: string): string {
+  const body = JSON.parse(stdout) as { permission: string; user_message: string; agent_message: string };
+  expect(body.permission).toBe('allow');
+  expect(body.agent_message).toBe(body.user_message);
+  return body.user_message;
+}
+
+/**
+ * The command form's guard, run as Cursor runs a hook: by `sh`, with the
+ * payload on stdin. A stand-in `checkride` (or `mise`) on `PATH` answers as
+ * each case says, or is not there at all.
+ */
+describe('protect hook command behavior (live)', () => {
+  const PAYLOAD = JSON.stringify({ tool_name: 'Write', tool_input: { file_path: 'checkride.baseline.json' } });
+  const DENY = '{"permission":"deny","user_message":"no","agent_message":"no"}';
+  let dir: string;
+  let bin: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-protect-guard-'));
+    bin = join(dir, 'bin');
+    await mkdir(bin);
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Put an executable `name` on the stand-in `PATH`, running `body` under `sh`. */
+  async function tool(name: string, body: string): Promise<void> {
+    await writeFile(join(bin, name), `#!/bin/sh\n${body}\n`);
+    await chmod(join(bin, name), 0o755);
+  }
+
+  /** Run the hook's command for `entry` as a hook runner would, on a `PATH` of the stand-ins and the system's own tools. */
+  function hook(entry: { kind: 'path' } | { kind: 'mise' }): { status: number | null; stdout: string; stderr: string } {
+    const done = spawnSync('/bin/sh', ['-c', protectHookCommand(entry, 'cursor')], { cwd: dir, input: PAYLOAD, encoding: 'utf8', env: { PATH: `${bin}:/usr/bin:/bin` } });
+    return { status: done.status, stdout: done.stdout, stderr: done.stderr };
+  }
+
+  test('a checkride that denies: its body is forwarded as it wrote it, and the payload reached it', async () => {
+    await tool('checkride', `cat > "${join(dir, 'seen.json')}"; printf %s '${DENY}'`);
+    expect(hook({ kind: 'path' })).toEqual({ status: 0, stdout: DENY, stderr: '' });
+    expect(await readFile(join(dir, 'seen.json'), 'utf8')).toBe(PAYLOAD);
+  });
+
+  test('a checkride that allows: nothing is written', async () => {
+    await tool('checkride', 'cat >/dev/null');
+    expect(hook({ kind: 'path' })).toEqual({ status: 0, stdout: '', stderr: '' });
+  });
+
+  test('no checkride on PATH: the call is allowed, loudly, and never with a bare non-zero status', () => {
+    const { status, stdout, stderr } = hook({ kind: 'path' });
+    expect(status).toBe(0);
+    const message = allowed(stdout);
+    expect(message).toContain('checkride: the edit guard could not run — checkride is not on PATH, and nothing in this repo pins it.');
+    expect(message).toContain('This call was not checked');
+    expect(message).toContain('Install checkride, or pin it in mise.toml with `mise use ');
+    expect(stderr).toContain(message);
+  });
+
+  test('a checkride that fails, as one too old to have the command does: allowed, loudly, and its partial output withheld', async () => {
+    await tool('checkride', `printf %s '${DENY}'; echo "checkride: unknown command 'protect'." >&2; exit 2`);
+    const { status, stdout, stderr } = hook({ kind: 'path' });
+    expect(status).toBe(0);
+    const message = allowed(stdout);
+    expect(message).toContain('checkride is here but `checkride protect` failed.');
+    expect(message).toContain('Run `checkride protect --harness cursor --help` in a terminal to see why');
+    expect(stdout).not.toContain('deny');
+    expect(stderr).toContain("unknown command 'protect'");
+  });
+
+  test('mise with no checkride installed: allowed, loudly, naming `mise install`', async () => {
+    await tool('mise', 'echo "mise ERROR checkride is not installed" >&2; exit 1');
+    const { status, stdout } = hook({ kind: 'mise' });
+    expect(status).toBe(0);
+    const message = allowed(stdout);
+    expect(message).toContain('the checkride mise.toml pins is not installed.');
+    expect(message).toContain('Run `mise install`, and `mise trust` if mise has not trusted this mise.toml.');
+  });
+
+  test('no mise at all reads the same way', () => {
+    expect(allowed(hook({ kind: 'mise' }).stdout)).toContain('the checkride mise.toml pins is not installed.');
+  });
+
+  test('mise’s checkride answering: its body is forwarded', async () => {
+    await tool('mise', `[ "$1" = exec ] && { cat >/dev/null; printf %s '${DENY}'; }; exit 0`);
+    expect(hook({ kind: 'mise' })).toEqual({ status: 0, stdout: DENY, stderr: '' });
+  });
 });
 
 describe('cursor skills', () => {

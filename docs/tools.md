@@ -1013,6 +1013,32 @@ model's own register. And the `prose` check goes red when the directory is
 missing or empty: the exemplars are load-bearing anchor texts, and a config
 that points at nothing should fail rather than quietly gate nothing.
 
+The directory is one inside the repository, and its path is relative to the
+repo root: `prose` runs once for the whole repo, so no target sets it. A path
+that is absolute, in POSIX or Windows spelling, or that climbs out of the repo
+as written is a config error, exit 2: `'prose' exemplars "../voice" leaves the
+repository: it is read from the repo root, so name a directory inside the
+repo`. A `..` that stays inside, `docs/../voice`, loads.
+
+That is a courtesy. The guard is at the read: the check goes red when the
+directory's real path is outside the repository, through a symlink at any
+segment, with `` the `prose` slot names `docs/voice` as its voice exemplars,
+and that path resolves outside the repository ``. It says that and nothing
+else, and it says it without touching anything outside: the path is walked a
+segment at a time inside the repo, a link is read and never followed out, and
+the answer is the same whether or not anything is where the link leads. So a
+config can't use the check to ask what is on the machine.
+
+Inside the directory, an exemplar is a file, or a symlink to a file inside
+the repository. Everything else is passed over, as a subdirectory always was:
+a link to a directory, a link to nothing, a link that leaves the repository,
+which is never followed or named, and an entry that can't be read. If that
+leaves none, the directory `has no files in it`. A directory that can't be
+listed says why, `can't be read (EACCES)`. A config is as untrusted as the
+code beside it under `--static-only`, and this is the rule the
+[`schema` slot](#the-schema-slot-data-files-against-json-schemas) holds its
+files to.
+
 Write the exemplars by hand — a few short passages in your own voice, in the
 register you want the repo's prose to hold. What checkride never does is score
 prose against them: no model judges voice at the gate, deliberately. A model

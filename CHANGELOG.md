@@ -68,6 +68,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `checkride doctor` names the channel it runs from, `channel: npm` or
   `channel: binary (embedded Node <version>)`, under the package manager's
   line.
+- **`checkride protect`, so Cursor's edit guard runs without Node.** The
+  command reads a Cursor hook payload on stdin and denies a write to
+  `checkride.baseline.json`, a named suite's baseline or `.check/`, with the
+  output and exit code the generated `.cursor/hooks/checkride-protect.cjs`
+  gives: a `permission: 'deny'` body and exit 0 for a denied write, no output
+  and exit 0 for anything else, a payload it can't read included. The
+  decision is written twice, as the script's text and as the command's code,
+  and one table of payloads is tested against both, each held to the other's
+  exit code and output. A fault of the command's own is never an allow: one
+  line on stderr and exit 1, as a script that crashed gives. It takes
+  `--harness cursor`, the only harness whose guard is a hook, and refuses any
+  other with exit 2. `--help` lists it as a hook command.
 - The `protect` hook denies an agent's edits to a named suite's baseline,
   `checkride.<name>.baseline.json`. Under Claude Code that's a third
   `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
@@ -184,6 +196,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   A passing check prints nothing new, and `--json`, `summary.json` and exit
   codes are as they were.
 
+- **Which `protect` hook a Cursor repo gets follows its entry command.** A
+  repo whose entry is `mise exec -- checkride` or `checkride` from `PATH`,
+  the standalone binary's case, now gets hook entries that call
+  `<entry> protect --harness cursor` and no script file, where every repo
+  used to get a Node script that such a repo might have no Node to run. A
+  repo whose entry is a package-manager script keeps the generated script
+  and the entries that run it, byte for byte. Re-running `agent-setup`, or
+  `hooks add`, after a repo gains or drops its `package.json` moves it to the
+  other form: both entries are rewritten in place, and the script is written
+  or deleted to match. The call sits behind a guard, as the gate's does.
+  Where `checkride` isn't on the `PATH` Cursor gives its hooks, or mise
+  hasn't installed it, or it fails, the hook allows the call with a
+  `user_message` and an `agent_message` saying the edit guard didn't run and
+  how to fix it, writes the same to stderr, and exits 0, since Cursor reads a
+  bare non-zero exit as a broken hook and lets the edit through in silence.
+  An entry is recognised by what it invokes, any command that runs
+  `checkride protect`, so one a person shortened or wrapped is refreshed and
+  removed, and never doubled.
+
 ### Fixed
 
 - **The digest points a stderr-parsed tool at the file its findings are
@@ -196,6 +227,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   such a tool printed no finding its parser reads, a config it couldn't
   load, the section's excerpt is the end of that stderr file too, where it
   was the end of stdout. Every other tool's section is as it was.
+
+### Security
+
+- **A config can no longer use a path to ask what is outside the
+  repository.** Two checks told a config whether a path of its choosing
+  existed elsewhere on the machine, which matters under `--static-only`,
+  where the config is a stranger's. The `prose` slot's pre-flight listed
+  whatever directory `exemplars` named, with no guard on the path, and
+  failed differently for one that was missing, empty or holding a file. It
+  read no file's contents and printed no file's name. This has been
+  reachable since the key shipped. The `schema` slot, unreleased, refused a
+  schema or a `$ref` that was a symlink out of the repo with one message
+  when its target existed and another when it didn't, because it resolved
+  the link to find out. Both now share one rule, in `src/contain.ts`: a path
+  is walked a segment at a time from the repository's real root, each link
+  is read and resolved as text, and one that lands outside is `outside`
+  there and then. Nothing outside the repository is opened, listed, or
+  asked about, and the answer doesn't depend on what is there. For
+  `exemplars`: a path whose real location is outside the repository fails
+  the check with `` the `prose` slot names `docs/voice` as its voice
+  exemplars, and that path resolves outside the repository ``; an absolute
+  path, in POSIX or Windows spelling, and one that climbs out of the repo as
+  written are exit 2 at load; and inside the directory a symlink that
+  leaves the repository is passed over, never followed. A symlink to a file
+  inside the repository now counts as an exemplar, where a symlink used to
+  count as none, an entry that can't be read is passed over where it used to
+  fail the check as `does not exist`, and a directory that can't be listed
+  says `can't be read (<code>)`. For `schemas`, messages and exit codes are
+  as they were; a schema path that names the repository root now reads
+  `can't be read`, where it read `resolves outside the repository`.
 
 ### Contract
 
@@ -218,6 +279,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `::notice title=checkride::<N> more finding(s) not annotated; see <summary
   path>`, with the cap of ten errors a run; and `annotate` on the options
   `runChecks` takes. A run that isn't asked writes what it wrote before.
+- Additive: the command `checkride protect` and its `--harness cursor`, with
+  the verdict `docs/contract.md` gives it: exit 0 with a `permission: 'deny'`
+  body on stdout for a write to the baseline, a named suite's baseline or
+  `.check/`, exit 0 with no output for anything else, exit 1 with a line on
+  stderr for a fault of its own, and exit 2 for another harness. Under
+  Cursor, `agent-setup` writes the `protect` hook as a guarded call to it,
+  with no script, in a repo whose entry command isn't a package-manager
+  script; the guard's `permission: 'allow'` body, for a command that isn't
+  there to run, is part of that.
+- A `prose` entry's `exemplars` that is absolute, or climbs out of the repo
+  as written, is now a config error, exit 2, where it loaded before and the
+  check failed or passed on what the path held.
 - Additive: a `channel` field in `doctor --json`, `"npm"` or `"binary"`,
   with `embeddedNode` beside it in the standalone binary alone, and a
   `channel: …` line in `doctor`'s table under the package manager's. The
