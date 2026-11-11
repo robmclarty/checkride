@@ -73,6 +73,7 @@
     "mutation": "stryker run",
     "build": "tsc --build",
     "build:clean": "tsc --build --clean",
+    "build:sea": "tsc --build && node build/sea/build.mjs",
     "types": "tsc --build",
     "prepublishOnly": "tsc --build && vitest run"
   },
@@ -86,6 +87,7 @@
     "@vvago/vale": "3.24.0",
     "ajv": "8.20.0",
     "cspell": "10.3.6",
+    "esbuild": "0.28.2",
     "fallow": "3.31.0",
     "markdownlint-cli2": "0.23.3",
     "oxlint": "1.87.0",

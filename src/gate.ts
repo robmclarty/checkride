@@ -56,7 +56,7 @@ import { ANNOTATE_ENV } from './orchestrator/index.js';
 import {
   detectPackageManager,
   type EntryCommand,
-  entryArgv,
+  entrySpawn,
   entryCheckride,
   entryText,
   entryTextWith,
@@ -65,7 +65,7 @@ import {
   type LaunchRefusal,
   launchRefusal,
   type PackageManager,
-  PIN_CHECKRIDE,
+  pinCheckride,
   resolveEntry,
   SPAWN_FAILED_MARKER,
 } from './launch/index.js';
@@ -607,13 +607,15 @@ function triageCommand(entry: EntryCommand, suite: Suite): string {
  * `--strict` and `--digest`, then the profile's flags. A package-manager repo
  * runs its `check` script as {@link checkArgs} spells it. A named suite's
  * gate adds `--suite <name>`, the one way the suite reaches the check, since
- * the gate strips `CHECKRIDE_SUITE` from its environment.
+ * the gate strips `CHECKRIDE_SUITE` from its environment. Where the entry is
+ * the `checkride` on `PATH`, the standalone binary runs itself
+ * ({@link entrySpawn}).
  */
 function gateArgv(entry: EntryCommand, profile: GateProfile | null, suite: Suite): [string, ...string[]] {
   // Last, so it reaches the check however the repo's script spells its own flags.
   const named = suiteFlags(suite);
   if (entry.kind === 'script') return [entry.pm, ...checkArgs(entry.pm, profile), ...named];
-  return entryArgv(entry, ['--strict', '--digest', ...profileArgs(profile), ...named]);
+  return entrySpawn(entry, ['--strict', '--digest', ...profileArgs(profile), ...named]);
 }
 
 /**
@@ -673,20 +675,22 @@ function digestAbove(suite: Suite): string {
  * hook got the machine's default interpreter rather than the contributor's —
  * a fact no amount of reading `.check/` would ever reveal.
  */
-function nodeClause(alignment: NodeAlignment | null, running: string): string {
+function nodeClause(alignment: NodeAlignment | null, running: string | null): string {
   const context =
     'Agent harnesses run hooks in a non-login shell, so a hook gets the machine’s default ' +
     'Node rather than the one your terminal has.';
   const pin = alignment?.pin ?? null;
+  // No Node to name: the standalone binary on a PATH that holds none.
+  const here = running === null ? 'no `node` on its PATH' : `Node ${running}`;
   if (pin === null) {
     return (
-      `${context} This process is on Node ${running} and the repo pins no ` +
+      `${context} This process ${running === null ? 'has' : 'is on'} ${here} and the repo pins no ` +
       `\`.nvmrc\`/\`.node-version\` for checkride to align to; add one, or set ${NODE_BIN_VAR} to the ` +
       'bin directory of a Node the repo accepts.'
     );
   }
   return (
-    `${context} This one is on Node ${running}, the repo pins ${pin.version} ` +
+    `${context} This one ${running === null ? 'has' : 'is on'} ${here}, the repo pins ${pin.version} ` +
     `(${pin.file}), and no matching install was found in a known version-manager layout — ` +
     `so checkride could not align to it. Install that Node, or set ${NODE_BIN_VAR} to its bin directory.`
   );
@@ -722,7 +726,7 @@ const STOOD_DOWN_FOR_INSTALL =
 function installStep(cwd: string, entry: EntryCommand, suite: Suite): string {
   const check = checkText(entry, suite);
   if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
-  if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${PIN_CHECKRIDE}\`, then run \`${check}\`.`;
+  if (entry.kind === 'path') return `Install checkride, or pin it in mise.toml with \`${pinCheckride()}\`, then run \`${check}\`.`;
   if (jsLockfileDeclares(cwd, cwd, 'checkride')) return `Run \`${entry.pm} install\`, since this repo declares checkride and it isn't installed, then run \`${check}\`.`;
   return `Declare it with \`${installCommand(entry.pm, 'checkride')}\`, since no dependency of this repo's names checkride, then run \`${check}\`.`;
 }
@@ -752,7 +756,7 @@ function refusalMessage(refusal: LaunchRefusal, context: RefusalContext): string
 }
 
 /** What {@link refusalMessage} reads beside the refusal: the Node this process got, the repo, and its entry command. */
-type RefusalContext = { alignment: NodeAlignment | null; running: string; cwd: string; entry: EntryCommand; suite: Suite };
+type RefusalContext = { alignment: NodeAlignment | null; running: string | null; cwd: string; entry: EntryCommand; suite: Suite };
 
 /** The sentences after "Nothing ran", by who can clear the refusal. */
 function refusalRemedy(fixable: LaunchRefusal['fixable'], context: RefusalContext): string[] {
@@ -783,7 +787,8 @@ function announceAlignment(
   if (bin === null) return env;
   const target = alignment.version ?? alignment.pin?.version ?? 'the pinned version';
   const why = alignment.pin === null ? NODE_BIN_VAR : `${alignment.pin.file} pins ${alignment.pin.version}`;
-  stderr.write(`checkride: running the check on Node ${target} from ${bin} (${why}; this hook started on ${alignment.running}).\n`);
+  const started = alignment.running === null ? 'this hook’s PATH holds no node' : `this hook started on ${alignment.running}`;
+  stderr.write(`checkride: running the check on Node ${target} from ${bin} (${why}; ${started}).\n`);
   return withNodeBin(env, bin);
 }
 
@@ -815,7 +820,7 @@ type Failure = {
   digest: string | null;
   output: string;
   alignment: NodeAlignment | null;
-  running: string;
+  running: string | null;
   profile: GateProfile | null;
   suite: Suite;
 };

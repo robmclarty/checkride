@@ -8,6 +8,8 @@
 # `checkride/findings` subpath's entry, src/findings/api.ts, is declared for
 # the same reason: nothing in the package imports it. stryker.config.mjs names
 # vitest.stryker.config.ts as a string, which fallow can't follow.
+# build/sea/build.mjs is `pnpm build:sea`, which builds the standalone binary:
+# a script package.json runs and nothing imports, and the one user of esbuild.
 entry = [
   "src/index.ts",
   "src/findings/api.ts",
@@ -18,6 +20,7 @@ entry = [
   "test/**/*.test.ts",
   "stryker.config.mjs",
   "vitest.stryker.config.ts",
+  "build/sea/build.mjs",
 ]
 
 # The static site (GitHub Pages): support.js is a generated runtime bundle and

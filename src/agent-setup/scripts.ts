@@ -18,7 +18,7 @@
 
 import { DIRTY_MARKER, GATE_RETRY_ENV, type HarnessName } from '../gate.js';
 import type { EntryCommand, EntryLike } from '../launch/index.js';
-import { asEntry, entryCheckride, entryText, PIN_CHECKRIDE } from '../launch/index.js';
+import { asEntry, entryCheckride, entryText, pinCheckride } from '../launch/index.js';
 import { SUITE_NAME_SOURCE } from '../suite.js';
 
 /**
@@ -68,7 +68,7 @@ const SHELLCHECK_DIRECTIVE = '# shellcheck disable=SC2016';
 /**
  * `message` as one single-quoted shell word, each `'` in it closed, escaped and
  * reopened as `'\''`, so a message can quote a command the way a person types
- * it, as {@link PIN_CHECKRIDE} does, without ending the word early.
+ * it, as {@link pinCheckride} does, without ending the word early.
  */
 function shellWord(message: string): string {
   return `'${message.replaceAll("'", String.raw`'\''`)}'`;
@@ -83,7 +83,7 @@ function installFix(entry: EntryCommand): string {
   const check = entryText(entry);
   if (entry.kind === 'script') return `Run \`${entry.pm} install\` (checkride is a devDependency of this repo), then run \`${check}\`.`;
   if (entry.kind === 'mise') return `Run \`mise install\` (mise.toml pins checkride here), then run \`${check}\`.`;
-  return `Install checkride, or pin it in mise.toml with \`${PIN_CHECKRIDE}\`, then run \`checkride\`.`;
+  return `Install checkride, or pin it in mise.toml with \`${pinCheckride()}\`, then run \`checkride\`.`;
 }
 
 /** Why checkride could not be found, by where the entry command looks for it. */

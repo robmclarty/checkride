@@ -18,6 +18,7 @@ import {
   NODE_BIN_VAR,
   type PinEnv,
   readNodePin,
+  runningNode,
   satisfiesPin,
   withNodeBin,
 } from '../node-pin.js';
@@ -209,5 +210,47 @@ describe('withNodeBin', () => {
 
   test('leaves everything else in the environment alone', () => {
     expect(withNodeBin({ PATH: '/bin', HOME: '/home/dev' }, '/opt/node/bin')['HOME']).toBe('/home/dev');
+  });
+});
+
+/** A `PATH` lookup that fails the test if anything makes it. */
+function neverAsked(): string | null {
+  throw new Error('asked PATH');
+}
+
+describe('the running Node, by channel', () => {
+  test('from npm it is the Node running this process, and PATH is never asked', () => {
+    expect(runningNode('npm', neverAsked)).toBe(process.version.replace(/^v/, ''));
+  });
+
+  test('in the binary it is the node on PATH, never the embedded one', () => {
+    expect(runningNode('binary', () => '24.15.0')).toBe('24.15.0');
+  });
+
+  test('in the binary with no node on PATH there is none', () => {
+    expect(runningNode('binary', () => null)).toBeNull();
+  });
+});
+
+describe('alignNode with no running Node', () => {
+  const nvm = join(HOME, '.nvm', 'versions', 'node');
+
+  test('a pinned repo is searched for the pin, as for a Node that diverged', () => {
+    const env = pinEnv({
+      running: () => null,
+      read: (path) => (path.endsWith('.nvmrc') ? '24\n' : null),
+      list: (dir) => (dir === nvm ? ['v24.1.0'] : []),
+      exists: (path) => path.startsWith(join(nvm, 'v24.1.0')),
+    });
+    expect(alignNode('/repo', env)).toEqual({ pin: { file: '.nvmrc', version: '24' }, running: null, bin: join(nvm, 'v24.1.0', 'bin'), version: '24.1.0' });
+  });
+
+  test('a pinned repo with no install reports the pin and no bin', () => {
+    const env = pinEnv({ running: () => null, read: (path) => (path.endsWith('.nvmrc') ? '24\n' : null) });
+    expect(alignNode('/repo', env)).toEqual({ pin: { file: '.nvmrc', version: '24' }, running: null, bin: null, version: null });
+  });
+
+  test('a repo with no pin is untouched', () => {
+    expect(alignNode('/repo', pinEnv({ running: () => null }))).toBeNull();
   });
 });

@@ -11,8 +11,9 @@ Start here:
 - **[Getting started](./getting-started.md)** — prerequisites, adding checkride
   to a project (new or existing), your first run, and the daily loop. Read this
   if you are new or coming back after a break.
-- **[Installing checkride](./distribution.md)** — the two channels, npm and
-  the mise route, and how a repo without Node pins checkride in `mise.toml`.
+- **[Installing checkride](./distribution.md)** — the channels, npm, the mise
+  route and the standalone binary, and how a repo without Node pins checkride
+  in `mise.toml`.
   Read this before adding checkride to a Go, Rust or other repo with no
   `package.json`.
 - **[Cheat sheet](./cheatsheet.md)** — one-screen reference for commands, flags,

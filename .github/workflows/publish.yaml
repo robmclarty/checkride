@@ -101,8 +101,13 @@ jobs:
         with:
           add_shims_to_path: false
 
+      # Without the standalone binary's e2e file, the one case that downloads
+      # a second Node to build with: npm is the primary channel, and a failed
+      # download of something npm doesn't ship must not block its publish.
+      # release.yaml builds each binary and runs that file against it, and
+      # ci.yml runs it on every push.
       - name: pnpm test:e2e
-        run: pnpm test:e2e
+        run: pnpm test:e2e --exclude test/e2e/binary.e2e.test.ts
         env:
           CHECKRIDE_REQUIRE_TOOLCHAINS: '1'
 

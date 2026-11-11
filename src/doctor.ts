@@ -38,6 +38,8 @@ import { promisify } from 'node:util';
 import type { Adapter, Slot } from './adapters.js';
 import { outLabel } from './artifacts/index.js';
 import { countGrandfathered, parseBaseline } from './baseline/index.js';
+import type { Channel } from './channel.js';
+import { channel, nodeVersion } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
 import { resolveChecks, tsTargets } from './config.js';
@@ -59,7 +61,7 @@ import {
   nixCopy,
   overrideCause,
   overridePin,
-  PIN_CHECKRIDE,
+  pinCheckride,
   pinChain,
   pinResolution,
   resolveEntry,
@@ -125,6 +127,10 @@ export type DoctorTarget = { name: string; pack: string; root: string };
 export type DoctorReport = {
   ok: boolean;
   platform: { os: string; arch: string };
+  /** How this checkride was installed: the npm package, or the standalone binary. */
+  channel: Channel;
+  /** The Node the standalone binary embeds and runs on; absent on the npm channel, whose Node is the `node` row's. */
+  embeddedNode?: string;
   /** The package manager checkride detected for this repo. */
   packageManager: PackageManager;
   /** `implicit` for a repo checked as one project at its root, `multi-target` once the config declares targets. */
@@ -398,18 +404,57 @@ function formatExpected(min: Semver): string {
   return `>=${min.major}.${min.minor}.${min.patch}`;
 }
 
-async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+/**
+ * Whether a tool `PATH` doesn't hold fails doctor: it does, or doctor runs
+ * without it and the row says `absent` where a version would be. A tool that
+ * is on `PATH` is held to its minimum either way.
+ */
+type Need = { required: true } | { required: false; absent: string };
+
+const REQUIRED: Need = { required: true };
+
+/** The row for a tool held to a minimum version, and the version `PATH`'s copy answered with, `null` when it gave none. */
+async function versioned(name: string, cmd: string, min: Semver, env: DoctorEnv, need: Need = REQUIRED): Promise<{ row: DoctorCheck; version: string | null }> {
   const expected = formatExpected(min);
-  const asked = await askVersion(name, cmd, expected, env);
-  if ('row' in asked) return asked.row;
+  const asked = await askVersion(name, cmd, expected, env, need);
+  if ('row' in asked) return { row: asked.row, version: null };
   const found = parseSemver(asked.raw);
   if (!found) {
-    return { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` };
+    return { row: { name, category: 'env', required: true, status: 'unknown', found: null, expected, hint: `Could not parse \`${cmd} --version\` output.` }, version: null };
   }
   if (compareSemver(found, min) < 0) {
-    return { name, category: 'env', required: true, status: 'outdated', found: found.raw, expected, hint: INSTALL_HINTS[name] ?? `Upgrade \`${cmd}\` to ${expected}.` };
+    const hint = INSTALL_HINTS[name] ?? `Upgrade \`${cmd}\` to ${expected}.`;
+    return { row: { name, category: 'env', required: true, status: 'outdated', found: found.raw, expected, hint }, version: found.raw };
   }
-  return { name, category: 'env', required: true, status: 'ok', found: found.raw, expected, hint: null };
+  return { row: { name, category: 'env', required: true, status: 'ok', found: found.raw, expected, hint: null }, version: found.raw };
+}
+
+async function checkVersioned(name: string, cmd: string, min: Semver, env: DoctorEnv): Promise<DoctorCheck> {
+  return (await versioned(name, cmd, min, env)).row;
+}
+
+/**
+ * The `node` row, and the version of the `node` on `PATH`, looked up once
+ * for both: the Node on `PATH`, held to the repo's `engines.node`. The
+ * standalone binary runs on the Node it embeds, so there a `PATH` without
+ * `node` fails nothing: the row says so, and a check whose tool needs Node
+ * reports its own tool missing.
+ */
+function checkNode(min: Semver, env: DoctorEnv): Promise<{ row: DoctorCheck; version: string | null }> {
+  const need: Need = channel() === 'binary' ? { required: false, absent: `not on PATH (checkride embeds Node ${nodeVersion()})` } : REQUIRED;
+  return versioned('node', 'node', min, env, need);
+}
+
+/**
+ * The environment the `node pin` row reads. The standalone binary's Node is
+ * the `node` on `PATH`, never the one it embeds, and the `node` row has just
+ * asked that one for its version, so the pin row's hint names the same
+ * answer and nothing is asked twice. A caller's own environment is used as
+ * given.
+ */
+function pinEnvFor(given: PinEnv | undefined, pathNode: string | null): PinEnv {
+  if (given !== undefined) return given;
+  return channel() === 'binary' ? { ...realPinEnv, running: () => pathNode } : realPinEnv;
 }
 
 async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<DoctorCheck> {
@@ -424,9 +469,16 @@ async function checkPresent(name: string, cmd: string, env: DoctorEnv): Promise<
  * says why there is none: it isn't on `PATH`, or its probe gave no answer
  * ({@link unansweredProbe}).
  */
-async function askVersion(name: string, cmd: string, expected: string, env: DoctorEnv): Promise<{ row: DoctorCheck } | { raw: string | null; path: string }> {
+async function askVersion(
+  name: string,
+  cmd: string,
+  expected: string,
+  env: DoctorEnv,
+  need: Need = REQUIRED,
+): Promise<{ row: DoctorCheck } | { raw: string | null; path: string }> {
   const path = await env.which(cmd);
   if (!path) {
+    if (!need.required) return { row: { name, category: 'env', required: false, status: 'n/a', found: need.absent, expected: null, hint: null } };
     return { row: { name, category: 'env', required: true, status: 'missing', found: null, expected, hint: INSTALL_HINTS[name] ?? `Install \`${cmd}\`.` } };
   }
   const raw = await env.version(cmd, ['--version']);
@@ -1097,7 +1149,7 @@ function checkNodePin(cwd: string, engines: { node?: string }, env: PinEnv): Doc
       expected,
       hint:
         `Agent hooks run in a non-login shell and get this machine's default Node, not this shell's ` +
-        `(${env.running()}). No Node satisfying ${pin.version} is installed in a layout checkride knows ` +
+        `(${env.running() ?? 'which has none on PATH'}). No Node satisfying ${pin.version} is installed in a layout checkride knows ` +
         `(nvm, fnm, nodenv, asdf, volta, n), so it cannot align a hook that arrives on the wrong one — ` +
         `the gate will report "could not run" rather than a misleading red. Install it, or set ` +
         `${NODE_BIN_VAR} to its bin directory.`,
@@ -1358,6 +1410,7 @@ function renderMode(report: DoctorReport, out: Out): void {
 function renderTable(report: DoctorReport, out: Out): void {
   out.write('\ncheckride doctor\n\n');
   out.write(`  package manager: ${report.packageManager} (detected)\n`);
+  out.write(`  channel: ${report.channel}${report.embeddedNode === undefined ? '' : ` (embedded Node ${report.embeddedNode})`}\n`);
   if (report.suite !== undefined) out.write(`  suite: ${report.suite}\n`);
   renderMode(report, out);
   for (const group of GROUPS) renderGroup(group, report, out);
@@ -1382,7 +1435,7 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
     found: 'unpinned (`checkride` from PATH)',
     hint:
       'harness unpinned: with no package.json, the hooks and the AGENTS.md stanza run whatever `checkride` PATH holds. ' +
-      `Pin it with \`${PIN_CHECKRIDE}\`, and they run \`mise exec -- checkride\` instead.`,
+      `Pin it with \`${pinCheckride()}\`, and they run \`mise exec -- checkride\` instead.`,
   };
 }
 
@@ -1391,14 +1444,15 @@ function checkHarness(cwd: string, pm: PackageManager, env: DoctorEnv): DoctorCh
  * git, the harness, and the install, which fails nothing under
  * `--static-only`.
  */
-async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv, staticOnly: boolean): Promise<DoctorCheck[]> {
+async function environmentRows(cwd: string, pm: PackageManager, env: DoctorEnv, pinEnv: PinEnv | undefined, staticOnly: boolean): Promise<DoctorCheck[]> {
   const engines = env.readEngines(cwd);
   const nodeMin = parseSemver(engines.node) ?? { major: 22, minor: 18, patch: 0, raw: '22.18.0' };
   const pnpmMin = parseSemver(engines.pnpm) ?? { major: 9, minor: 0, patch: 0, raw: '9.0.0' };
-  const nodePin = checkNodePin(cwd, engines, pinEnv);
+  const node = await checkNode(nodeMin, env);
+  const nodePin = checkNodePin(cwd, engines, pinEnvFor(pinEnv, node.version));
   const harness = checkHarness(cwd, pm, env);
   return [
-    await checkVersioned('node', 'node', nodeMin, env),
+    node.row,
     ...(nodePin === null ? [] : [nodePin]),
     await checkPackageManager(cwd, pm, pnpmMin, env),
     await checkPresent('git', 'git', env),
@@ -1472,6 +1526,12 @@ async function modeOf(
   return { fields, row: markersRow(unclaimed, implicit) };
 }
 
+/** The channel this checkride runs from, as the report gives it, with the Node a binary embeds. */
+function channelFields(): Pick<DoctorReport, 'channel' | 'embeddedNode'> {
+  const from = channel();
+  return from === 'binary' ? { channel: from, embeddedNode: nodeVersion() } : { channel: from };
+}
+
 /** Run the doctor against `cwd`; render and return the report. */
 export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const common = resolveCommonOptions(options);
@@ -1483,7 +1543,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
   const out = options.out ?? suite.out;
 
   const checks: DoctorCheck[] = [
-    ...(await environmentRows(cwd, pm, env, options.pinEnv ?? realPinEnv, options.staticOnly === true)),
+    ...(await environmentRows(cwd, pm, env, options.pinEnv, options.staticOnly === true)),
     ...(await checkRows({ ...common, defaults: options.defaults ?? null }, options, pm, env)),
     await checkWritable(cwd, out, env),
   ];
@@ -1492,7 +1552,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');
   const named = suite.name === undefined ? {} : { suite: suite.name };
-  const report: DoctorReport = { ok, platform: env.platform(), packageManager: pm, ...mode.fields, ...named, checks };
+  const report: DoctorReport = { ok, platform: env.platform(), ...channelFields(), packageManager: pm, ...mode.fields, ...named, checks };
 
   if (options.json === true) {
     stdout.write(`${JSON.stringify(report, null, 2)}\n`);

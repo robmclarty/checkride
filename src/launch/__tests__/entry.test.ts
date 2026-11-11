@@ -9,10 +9,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+
+import { fakeSea } from '../../../test/helpers/sea.js';
 
 import type { EntryCommand } from '../index.js';
-import { asEntry, entryArgv, entryCheckride, entryText, resolveEntry } from '../index.js';
+import { asEntry, entryArgv, entryCheckride, entrySpawn, entryText, pinCheckride, resolveEntry } from '../index.js';
 
 const mise: EntryCommand = { kind: 'mise' };
 const path: EntryCommand = { kind: 'path' };
@@ -78,5 +80,36 @@ describe('rendering an entry command', () => {
   test('a bare package manager reads as its check script', () => {
     expect(asEntry('bun')).toEqual({ kind: 'script', pm: 'bun' });
     expect(asEntry(mise)).toBe(mise);
+  });
+});
+
+describe('by channel', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  test('from npm, what is spawned is what is shown, for every entry', () => {
+    fakeSea(false);
+    for (const entry of [path, mise, asEntry('npm')]) expect(entrySpawn(entry, ['--bail'])).toEqual(entryArgv(entry, ['--bail']));
+    expect(entrySpawn(path, ['--bail'])).toEqual(['checkride', '--bail']);
+  });
+
+  test('the binary runs itself for the checkride on PATH, and still shows `checkride`', () => {
+    fakeSea();
+    expect(entrySpawn(path, ['--bail'])).toEqual([process.execPath, '--bail']);
+    expect(entryArgv(path, ['--bail'])).toEqual(['checkride', '--bail']);
+    expect(entryText(path)).toBe('checkride');
+    expect(entryCheckride(path, ['triage'])).toBe('checkride triage');
+  });
+
+  test('the binary leaves a mise entry and a package-manager entry as they are', () => {
+    fakeSea();
+    expect(entrySpawn(mise, ['--bail'])).toEqual(['mise', 'exec', '--', 'checkride', '--bail']);
+    expect(entrySpawn('npm', ['--bail'])).toEqual(['npm', 'run', 'check', '--', '--bail']);
+  });
+
+  test('the pin each channel recommends installs that channel', () => {
+    fakeSea(false);
+    expect(pinCheckride()).toBe("mise use 'npm:checkride[allow_low_downloads=true]@<version>'");
+    fakeSea();
+    expect(pinCheckride()).toBe('mise use github:robmclarty/checkride@<version>');
   });
 });

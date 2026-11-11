@@ -54,6 +54,7 @@ src/
   adapters.ts       the slot catalogue, and ADAPTERS drawn from the packs (data-only)
   config.ts         checkride.config.json loading and validation, resolution, detection
   init.ts           shape presets, existing-repo adoption, AGENTS stanza
+  channel.ts        the distribution channel this process runs from: npm, or the standalone binary
   claude-md.ts      whether CLAUDE.md loads AGENTS.md, and the `@AGENTS.md` edit that makes it
   doctor.ts         `checkride doctor` — the environment and every check's status
   baseline-command.ts  `checkride baseline` — capture the committed baseline
@@ -72,7 +73,8 @@ src/
   atomic.ts         atomic file writes (temp file + fsync + rename)
   proc.ts           process-group kill + SIGTERM→SIGKILL escalation
   json.ts           the one `isRecord` narrowing primitive
-  resources.ts      the only reader of the shipped templates/, schema/ and skills/
+  resources.ts      the only reader of the shipped templates/, schema/ and skills/, from the
+                    package directory or the binary's embedded assets
   tool-json.ts      tolerant JSON extraction from a tool's stdout
   agent-setup/      AGENTS.md stanza + Claude Code hooks
   artifacts/        the output directory (`.check/`) and its shared, bounded read
@@ -94,6 +96,7 @@ test/
   e2e/              the slow suite (`pnpm test:e2e`)
   fixtures/         test data
 rules/              ast-grep structural rules (dogfooded here)
+build/              sea/build.mjs: `pnpm build:sea`, the standalone binary for the host platform
 ```
 
 Same principle either way: a single file is a module; a module only becomes a

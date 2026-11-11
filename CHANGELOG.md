@@ -34,6 +34,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   suite's scratch files under `.check/suites/<name>/`, apart from the default
   suite's. `docs/suites.md` has the guide, with an evals suite as its
   example and a note on what `gate --suite` needs of the `check` script.
+- **A standalone binary.** `pnpm build:sea` builds checkride as one
+  executable for the machine it runs on: a Node single executable
+  application holding the bundled CLI, with `package.json` and every file
+  under `templates/`, `schema/` and `skills/` embedded, so a Go, Rust,
+  Python, Terraform or Odin repo can run its gate with no Node installed. It
+  runs the npm CLI's code on the Node it embeds, pinned in
+  `build/sea/.node-version`: `--version` prints the same string, and `init`
+  scaffolds the same files, byte for byte. `src/resources.ts` serves the
+  bundled files from the embedded assets there and from the package
+  directory otherwise. In the binary, an `extends` entry that names a
+  package is exit 2, `invalid checkride.config.json: package presets need
+  the npm distribution; use a file path: extends "<entry>" (in <file>)`,
+  where a file path resolves as before. The Node it embeds never stands for
+  the repo's: the gate's Node-pin alignment and `doctor` read the `node` on
+  `PATH`, and `doctor`'s `node` row fails nothing when there is none. Where
+  the entry command is the `checkride` on `PATH`, its `gate` and `triage`
+  run the binary itself, `triage` asks the `doctor` of the checkride its
+  gate ran, and the pin its hints recommend is
+  `mise use github:robmclarty/checkride@<version>`. The programmatic API,
+  `checkride/findings` and the plugin's `dist/` readers stay with the npm
+  package, and `checkride triage` and `checkride qa` are the readers there.
+  The release workflow builds it on a native runner for `darwin-arm64`,
+  `darwin-x64`, `linux-x64` and `linux-arm64` (glibc), tests each where it
+  was built, and attaches `checkride-<version>-<os>-<arch>.tar.gz`,
+  `SHA256SUMS` and a build provenance attestation for each tarball to the
+  GitHub release, failing a target whose tag, `package.json` and printed
+  version differ. Binaries never hold back the npm publish or the release:
+  each target stands alone, and the ones that pass attach a few minutes
+  after the release. No release carries binaries until the next tag.
+  `docs/distribution.md` covers installing one, verifying it and pinning it
+  through mise's `github:` backend.
+- `checkride doctor` names the channel it runs from, `channel: npm` or
+  `channel: binary (embedded Node <version>)`, under the package manager's
+  line.
 - The `protect` hook denies an agent's edits to a named suite's baseline,
   `checkride.<name>.baseline.json`. Under Claude Code that's a third
   `permissions.deny` rule, `Edit(**/checkride.*.baseline.json)`, which the
@@ -144,6 +178,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `::notice title=checkride::<N> more finding(s) not annotated; see <summary
   path>`, with the cap of ten errors a run; and `annotate` on the options
   `runChecks` takes. A run that isn't asked writes what it wrote before.
+- Additive: a `channel` field in `doctor --json`, `"npm"` or `"binary"`,
+  with `embeddedNode` beside it in the standalone binary alone, and a
+  `channel: …` line in `doctor`'s table under the package manager's. The
+  exported `DoctorReport` type gains both. `docs/contract.md` names what
+  differs in the binary: the `extends` refusal above, the `node` on `PATH`
+  standing for the repo's Node in the gate and in `doctor`, `doctor`'s
+  `node` row reading `n/a` and not required when `PATH` holds none, `gate`
+  and `triage` running the binary itself for the `checkride` on `PATH`,
+  the `doctor` that `triage` asks, and the `github:` pin its hints name.
+  From npm, every command behaves as it did.
 
 ## [0.20.0] - 2026-11-05
 

@@ -15,7 +15,9 @@ It checks TypeScript, Go, Rust, Python, Terraform, Odin and shell code through
 [language packs](./docs/packs.md), each running its own tools from the copy
 the repo pins, and a mixed-language monorepo's parts as named
 [targets](./docs/targets.md), each from its own root. A repo with no Node
-installs and pins checkride through [mise](./docs/distribution.md); built-in
+installs and pins checkride through [mise](./docs/distribution.md), or runs
+the [standalone binary](./docs/distribution.md#the-standalone-binary) once a
+release carries one; built-in
 checks stand down when their tool isn't in the repo, and custom checks run
 any other command. [A worked example](./docs/polyglot.md) takes a repo with a
 TypeScript app, a Go API, OpenTofu and shell scripts from install to a green
@@ -98,6 +100,13 @@ tools its root configures through that language's pack.
 [Installing checkride](./docs/distribution.md) shows the pin, and the
 `allow_low_downloads = true` opt-in mise needs before it installs checkride.
 
+A **standalone binary** takes Node out of that picture: one executable with
+the CLI and its templates embedded, for macOS and Linux on arm64 and x64. It
+ships from the first release that attaches binaries to its GitHub release,
+which none has yet.
+[Installing checkride](./docs/distribution.md#the-standalone-binary) covers
+what it carries and leaves out, and how to verify a download.
+
 Every path ends in the same place — `init` auto-detects which case it is in.
 Where the repo has a `package.json`, it writes a `"check": "checkride"` script
 alias, so daily usage is `pnpm check` (`npm run check`, `yarn run check`, or
@@ -148,8 +157,8 @@ Task-focused guides live in [docs/](./docs/README.md):
   common objections.
 - [Getting started](./docs/getting-started.md) — prerequisites, adding
   checkride to a project (new or existing), your first run, and the daily loop.
-- [Installing checkride](./docs/distribution.md) — the two channels, npm and
-  the mise route, and how a repo without Node pins checkride.
+- [Installing checkride](./docs/distribution.md) — the channels (npm, the mise
+  route and the standalone binary), and how a repo without Node pins checkride.
 - [Cheat sheet](./docs/cheatsheet.md) — one-screen reference for commands,
   flags, npm-script aliases, and the `.check/` output files.
 - [Tools and installation](./docs/tools.md) — what each check of the ts and

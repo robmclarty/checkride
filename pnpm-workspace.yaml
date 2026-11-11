@@ -4,6 +4,10 @@
 allowBuilds:
   '@ast-grep/cli': true
   '@vvago/vale': true
+  # Declined, not approved: esbuild's postinstall only swaps its JS launcher for
+  # the native binary, and the API `build/sea/build.mjs` calls finds that binary
+  # in the platform package without it.
+  esbuild: false
   fallow: true
 
 # Force patched versions of transitive dev dependencies flagged by `pnpm audit`.

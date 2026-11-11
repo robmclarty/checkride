@@ -26,7 +26,7 @@ import { join } from 'node:path';
 import { outDir, readSummary } from '../artifacts/index.js';
 import { CONFIG_ENV, DEFAULTS_ENV } from '../config.js';
 import type { PackageManager } from '../launch/index.js';
-import { detectPackageManager, entryArgv, launchRefusal, resolveEntry } from '../launch/index.js';
+import { detectPackageManager, entryArgv, entrySpawn, launchRefusal, resolveEntry } from '../launch/index.js';
 import type { SpawnOutcome, TriageEnv } from './env.js';
 
 /** How the gate ended, in the reader's vocabulary. */
@@ -168,7 +168,8 @@ export async function runGate(
   if (entry.kind === 'script' && script === null) {
     return { ...base, verdict: 'not-run', exitCode: null, signal: null, durationMs: 0, stdout: '', stderr: '', spawnError: null, refusal: null };
   }
-  const [command, ...args] = entryArgv(entry, flags);
+  // What's run, where `command` above is what's shown: the standalone binary runs itself for the `checkride` on `PATH`.
+  const [command, ...args] = entrySpawn(entry, flags);
   const outcome = await env.spawn(command, args, { cwd, timeoutMs: env.timeoutMs, env: out.vars });
   const refusal = await refusalFor(outcome, out.dir, base.startedMs);
   return {

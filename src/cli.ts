@@ -13,7 +13,7 @@
  * rather than checkride's own split (see `./gate.ts`).
  */
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-setup/index.js';
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff, runBaselineVersions } from './baseline-command.js';
+import { channel } from './channel.js';
 import type { CheckrideConfig } from './config.js';
 import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
 import { runDoctor } from './doctor.js';
@@ -34,6 +35,7 @@ import { loadPinsFile, PINS_ENV } from './launch/index.js';
 import { ANNOTATE_ENV, annotateFormat, killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
+import { readResource } from './resources.js';
 import type { Suite } from './suite.js';
 import { flagOrVariable, namedSuite, SUITE_ENV } from './suite.js';
 import { runTargetAdd } from './target-command.js';
@@ -526,11 +528,10 @@ function firstSentence(message: string): string {
   return head.endsWith('.') ? head : `${head}.`;
 }
 
-/** Read the package's own version from its shipped package.json (next to dist/). */
+/** Read the package's own version from its shipped package.json (next to dist/), which the binary embeds. */
 function readVersion(): string {
   try {
-    const pkgPath = fileURLToPath(new URL('../package.json', import.meta.url));
-    const pkg: { version?: string } = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    const pkg: { version?: string } = JSON.parse(readResource('package.json'));
     return pkg.version ?? '0.0.0';
   } catch {
     return '0.0.0';
@@ -1203,6 +1204,8 @@ export async function runCli(argv: string[], deps: CliDeps): Promise<number> {
  * `pnpm check` alias — the way every consumer actually runs it.
  */
 function isEntryPoint(): boolean {
+  // The binary is one bundle with this module as its main: there is no other entry point to be.
+  if (channel() === 'binary') return true;
   const invokedPath = process.argv[1];
   if (invokedPath === undefined) return false;
   try {

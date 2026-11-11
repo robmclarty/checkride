@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { channel } from '../channel.js';
 import { isRecord } from '../json.js';
 import { miseDeclaration } from './mise.js';
 import type { PackageManager } from './package-manager.js';
@@ -29,13 +30,20 @@ export type EntryLike = EntryCommand | PackageManager;
 const CHECKRIDE_MISE_IDS: readonly string[] = ['npm:checkride', 'github:robmclarty/checkride'];
 
 /**
- * The command that pins checkride in a repo's `mise.toml`, as `doctor` and
- * the gate hook name it: `npm:checkride` until a binary ships (D46), with
- * `allow_low_downloads`, without which mise's npm backend refuses a package
- * under 1000 weekly downloads (D80). The quotes keep a shell from reading the
- * brackets as a glob, which zsh refuses to run.
+ * The command that pins checkride in a repo's `mise.toml`, as `doctor`, the
+ * gate and the gate hook name it, by the channel this checkride came through.
+ * From npm it is `npm:checkride` (D46), with `allow_low_downloads`, without
+ * which mise's npm backend refuses a package under 1000 weekly downloads
+ * (D80); the quotes keep a shell from reading the brackets as a glob, which
+ * zsh refuses to run. The standalone binary names the `github:` pin, which
+ * installs a release's binary and needs no Node: the npm pin would install
+ * the package a binary user chose not to need Node for.
  */
-export const PIN_CHECKRIDE = "mise use 'npm:checkride[allow_low_downloads=true]@<version>'";
+export function pinCheckride(): string {
+  return channel() === 'binary'
+    ? 'mise use github:robmclarty/checkride@<version>'
+    : "mise use 'npm:checkride[allow_low_downloads=true]@<version>'";
+}
 
 /** The script a repo's `package.json` defines done with. */
 const CHECK_SCRIPT = 'check';
@@ -118,4 +126,18 @@ export function entryArgv(entry: EntryLike, flags: readonly string[]): [string, 
   const e = asEntry(entry);
   if (e.kind === 'script') return [e.pm, 'run', CHECK_SCRIPT, ...(e.pm === 'npm' && flags.length > 0 ? ['--'] : []), ...flags];
   return e.kind === 'mise' ? ['mise', 'exec', '--', 'checkride', ...flags] : ['checkride', ...flags];
+}
+
+/**
+ * The argv to spawn for the full check with `flags` appended: {@link
+ * entryArgv}, except that the standalone binary, where the entry is the
+ * `checkride` on `PATH`, runs itself. It is that `checkride`, whether or not
+ * a `PATH` holds it under that name, and a second copy there could be another
+ * version. What a person reads, and what the hooks and the stanza hold, stays
+ * `checkride` ({@link entryText}).
+ */
+export function entrySpawn(entry: EntryLike, flags: readonly string[]): [string, ...string[]] {
+  const e = asEntry(entry);
+  if (e.kind === 'path' && channel() === 'binary') return [process.execPath, ...flags];
+  return entryArgv(e, flags);
 }

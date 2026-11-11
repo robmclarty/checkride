@@ -1597,6 +1597,54 @@ each rule, its message and its exit code.
 under `--json`; otherwise nothing). Human-readable progress and warnings go to
 stderr. `checkride --json | jq .` is safe.
 
+**The channel.** checkride ships as the npm package and as a
+[standalone binary](./distribution.md#the-standalone-binary), and the CLI is
+the same in both: every command, flag, exit code and artifact on this page.
+`checkride --version` prints the same version string in each, the one
+`package.json` holds. `doctor` names the channel it runs from: its table
+carries a `channel: npm` or `channel: binary (embedded Node <version>)` line
+under the package manager's, and `doctor --json` carries `channel`, `"npm"`
+or `"binary"`, and for the binary alone `embeddedNode`, the version of the
+Node it carries. These differ in the binary, and nothing else:
+
+- An `extends` entry that names a package, anything but a path that starts
+  with `./` or `../` or is absolute, is exit 2 with `invalid
+  checkride.config.json: package presets need the npm distribution; use a
+  file path: extends "<entry>" (in <file>)`. It opens with the file a config
+  error names for a suite, `--config` or `--defaults`, and closes with the
+  entry and the file that holds it, which may be a preset down a chain. File
+  paths resolve as they do from npm.
+- The Node the binary embeds runs checkride and is never the repo's Node.
+  Where the npm CLI reads the Node it runs on, the binary reads the `node`
+  on `PATH`: the gate leaves a `PATH` whose `node` satisfies the repo's
+  `.nvmrc` or `.node-version` alone, and aligns one that doesn't, naming
+  that `node` as the one the hook started on. With no `node` on `PATH`, a
+  repo that pins one is searched for the pinned install, and the line reads
+  `this hook’s PATH holds no node`. A repo with no pin is untouched.
+- `doctor`'s `node` row isn't required when `PATH` holds no `node`: its
+  status is `n/a` and its `found` reads `not on PATH (checkride embeds Node
+  <version>)`. A `node` on `PATH` is held to `engines.node` as before, and
+  the `node pin` row's hint names that `node`, or none.
+- Where the [entry command](./packs.md#the-entry-command) is the `checkride`
+  on `PATH`, `gate` and `triage` run the binary itself, whatever `PATH`
+  holds under that name. The command they print, and the one the hooks and
+  the AGENTS.md stanza hold, is still `checkride`. A `mise` entry and a
+  package manager's `check` script run as they do from npm.
+- `triage` asks the `doctor` of the checkride its gate ran: the copy
+  installed in the repo, on the `node` on `PATH`, where the gate went
+  through the `check` script, as the npm CLI does, the binary's own where
+  the gate ran the binary, and mise's pinned copy for a `mise` entry.
+- The pin `doctor`'s `harness` row, a gate refusal and the generated gate
+  hook recommend is `mise use github:robmclarty/checkride@<version>`, which
+  installs a binary, where the npm CLI's is the `npm:checkride` one.
+
+The [programmatic surface](#programmatic-surface) and `checkride/findings`
+belong to the npm package alone.
+[`binary-channel.test.ts`](../src/__tests__/binary-channel.test.ts) and
+[`gate-binary.test.ts`](../src/__tests__/gate-binary.test.ts) hold these, and
+[`binary.e2e.test.ts`](../test/e2e/binary.e2e.test.ts) runs a built binary
+against the npm CLI.
+
 ## Check ordering and concurrency
 
 Every check has an effective `order` that fixes when it runs relative to the
@@ -1657,6 +1705,10 @@ public and semver-bound:
 `CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`,
 `CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
 `InitResult`, `ProbeFailure`, `Shape`, `Suite`).
+
+`DoctorReport` carries `channel`, `'npm'` for anything that imports the
+package, and `embeddedNode` only in the [standalone binary](#cli), which
+exports nothing to import.
 
 `suiteNamed(name)` returns the `Suite` a [named suite](#cli)'s name fixes,
 its `name`, `configFile`, `baselineFile` and `out`, each path relative to the

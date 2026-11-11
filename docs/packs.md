@@ -828,12 +828,14 @@ plugin skills run checkride in a repo, chosen from the repo root:
    release has run it. `init` writes that script.
 2. Otherwise, a root `mise.toml` or `.mise.toml` whose `[tools]` declares
    `npm:checkride` or `github:robmclarty/checkride`: `mise exec -- checkride`.
-   No standalone binary ships yet, so the second id waits on a later
-   release.
+   The second id installs the
+   [standalone binary](./distribution.md#the-standalone-binary), from the
+   first release that carries one.
 3. Otherwise, a root `package.json` with no `check` script: still
    `<pm> run check`, which fails naming the missing script.
 4. None of those: the `checkride` on `PATH`, which nothing pins, so `doctor`
-   reports the harness unpinned.
+   reports the harness unpinned. A standalone binary installed by hand lands
+   here: the stanza and the hooks run `checkride`.
 
 The gate runs the entry command with `--strict --digest` and the gate
 profile's flags. The hook script tests whether that copy is there to run

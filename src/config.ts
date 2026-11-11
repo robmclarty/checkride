@@ -25,10 +25,11 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, posix, relative, resolve } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, Slot, TableSignal } from './adapters.js';
 import { SLOTS } from './adapters.js';
+import { channel } from './channel.js';
 import { isRecord } from './json.js';
 import type { Suite } from './suite.js';
 import { declaresItsChecks, DEFAULT_SUITE } from './suite.js';
@@ -761,13 +762,32 @@ function normalizeExtends(ext: unknown): unknown[] {
   return ext === undefined ? [] : Array.isArray(ext) ? ext : [ext];
 }
 
+/** True when an `extends` entry is a file path, relative or absolute, and not a package's name. */
+function isFilePath(spec: string): boolean {
+  return spec === '.' || spec === '..' || spec.startsWith('./') || spec.startsWith('../') || isAbsolute(spec);
+}
+
+/**
+ * Refuse what an `extends` entry can't be: anything but a string, and in the
+ * standalone binary a package's name (R14.1). The binary carries no
+ * `node_modules` resolution of its own and a repo it checks may have no Node
+ * at all, so a preset there is a file the repo holds. The error names the
+ * entry and the file that holds it, which may sit files down a chain.
+ */
+function assertExtendsEntry(spec: unknown, chain: Chain): asserts spec is string {
+  if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${chain.label})`, undefined, chain.root);
+  if (channel() === 'binary' && !isFilePath(spec)) {
+    invalidConfig(`package presets need the npm distribution; use a file path: extends "${spec}" (in ${chain.label})`, undefined, chain.root);
+  }
+}
+
 /** Resolve and left-to-right merge every base config named in `specs`, which the file at `absPath` extends. */
 function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain): Record<string, unknown> {
   const { label, root } = chain;
   const require = createRequire(absPath);
   let merged: Record<string, unknown> = {};
   for (const spec of specs) {
-    if (typeof spec !== 'string') invalidConfig(`extends entries must be strings (in ${label})`, undefined, root);
+    assertExtendsEntry(spec, chain);
     let baseAbs: string;
     try {
       baseAbs = require.resolve(spec);
