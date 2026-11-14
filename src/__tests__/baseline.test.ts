@@ -1039,6 +1039,9 @@ function diffGit(repo: FakeRefs): GitRunner & { calls: string[][] } {
 }
 
 const HEAD_SHA = 'a'.repeat(40);
+
+/** A baseline's `counts` for `lint`, or none for a check captured before counts. */
+const lintCounts = (c: Record<string, number> | undefined): Record<string, unknown> => (c === undefined ? {} : { counts: { lint: c } });
 const OLD_SHA = 'b'.repeat(40);
 
 describe('runBaselineDiff (unit, injected git)', () => {
@@ -1157,6 +1160,53 @@ describe('runBaselineDiff (unit, injected git)', () => {
     expect(out.text()).toBe('');
   });
 
+  const diffWith = async (current: Record<string, unknown>, before: Record<string, unknown> | null, failOnAdded = true): Promise<{ exitCode: number; err: string; out: string }> => {
+    await writeFile(join(dir, 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, ...current }));
+    const git = diffGit({ refs: { HEAD: HEAD_SHA }, ...(before === null ? {} : { files: { [HEAD_SHA]: JSON.stringify({ schema_version: 1, ...before }) } }) });
+    const out = capture();
+    const err = capture();
+    const result = await runBaselineDiff({ cwd: dir, git, stdout: out.out, stderr: err.out, failOnAdded });
+    return { exitCode: result.exitCode, err: err.text(), out: out.text() };
+  };
+
+  describe('--fail-on-added', () => {
+
+    test('an added key is exit 1, and says so on stderr beside the full report', async () => {
+      const run = await diffWith({ slots: { lint: ['a', 'b'] } }, { slots: { lint: ['a'] } });
+      expect(run.exitCode).toBe(1);
+      expect(run.err).toBe('baseline diff --fail-on-added: the working tree grandfathers more than HEAD: 1 key(s) added, 0 counted more often\n');
+      expect(run.out).toContain('+ b');
+    });
+
+    test.each<{ label: string; from: Record<string, number> | undefined; to: Record<string, number> | undefined; code: number }>([
+      { label: 'a count that rises', from: { a: 2 }, to: { a: 3 }, code: 1 },
+      { label: 'a count that falls', from: { a: 3 }, to: { a: 2 }, code: 0 },
+      { label: 'an unchanged count', from: { a: 2 }, to: { a: 2 }, code: 0 },
+      { label: 'a fixed count that becomes any number', from: { a: 2 }, to: undefined, code: 1 },
+      { label: 'any number that becomes a fixed count', from: undefined, to: { a: 5 }, code: 0 },
+    ])('$label is exit $code', async ({ from, to, code }) => {
+      const run = await diffWith({ slots: { lint: ['a'] }, ...lintCounts(to) }, { slots: { lint: ['a'] }, ...lintCounts(from) });
+      expect(run.exitCode).toBe(code);
+      expect(run.err === '').toBe(code === 0);
+    });
+
+    test('removals alone are exit 0 and print nothing on stderr', async () => {
+      const run = await diffWith({ slots: { lint: ['a'] } }, { slots: { lint: ['a', 'b'], spell: ['s'] } });
+      expect(run).toMatchObject({ exitCode: 0, err: '' });
+    });
+
+    test('a ref with no baseline file is exit 1 on any key', async () => {
+      const run = await diffWith({ slots: { lint: ['a'] } }, null);
+      expect(run.exitCode).toBe(1);
+      expect(run.err).toContain('1 key(s) added');
+    });
+
+    test('without the flag, added keys and grown counts stay exit 0', async () => {
+      const run = await diffWith({ slots: { lint: ['a', 'b'] }, counts: { lint: { a: 4 } } }, { slots: { lint: ['a'] }, counts: { lint: { a: 1 } } }, false);
+      expect(run).toMatchObject({ exitCode: 0, err: '' });
+    });
+  });
+
   test('a working-tree file that does not parse throws before git is asked anything', async () => {
     await writeFile(join(dir, 'checkride.baseline.json'), '<<<<<<< HEAD\n{');
     const git = diffGit({ refs: { HEAD: HEAD_SHA } });
@@ -1229,6 +1279,15 @@ describe.skipIf(!gitAvailable)('checkride baseline diff (CLI, real git)', () => 
     expect(await runCli(['baseline', '--config', 'x.json', 'diff'], deps(capture().out, err.out))).toBe(2);
     expect(err.text()).toMatch(/Unexpected argument 'diff'/);
     expect(await readFile(join(dir, 'checkride.baseline.json'), 'utf8')).toBe(before);
+  });
+
+  test('--fail-on-added exits 1 on an added key and 0 on an unchanged file', async () => {
+    const err = capture();
+    expect(await runCli(['baseline', 'diff', '--fail-on-added'], deps(capture().out, err.out))).toBe(0);
+    expect(err.text()).toBe('');
+    await writeBaseline(dir, { schema_version: 1, slots: { lint: ['a', 'b', 'c'] } });
+    expect(await runCli(['baseline', 'diff', 'HEAD', '--fail-on-added', '--json'], deps(capture().out, err.out))).toBe(1);
+    expect(err.text()).toMatch(/--fail-on-added: .*1 key\(s\) added/);
   });
 
   test('baseline --help prints its own text, naming diff', async () => {

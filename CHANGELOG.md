@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`checkride baseline diff <ref> --fail-on-added` guards the baseline.** It
+  exits 1 when the working tree grandfathers more than `<ref>`: a key the
+  ref's copy lacks, or a key both hold counted more often, where a count that
+  becomes "any number" counts as grown and one already "any number" never
+  grows. Removals alone exit 0, and a ref with no baseline file reads as
+  empty, so every key there fails it. The report and the `--json` object are
+  the ones `baseline diff` prints without the flag, and stderr says why it
+  failed. `docs/ci.md` runs it as a job of its own, against the merge base
+  so a key `main` pruned since the branch left doesn't read as added, and
+  outside the required checks, since adopting checkride, a new target over
+  old code or a tool upgrade grows the baseline honestly and the flag has no
+  override.
+
+### Contract
+
+- **`baseline diff` gains `--fail-on-added`, and exit 1.** Without the flag
+  the command exits 0 whenever it ran, as before. With it, a key added or a
+  count grown since `<ref>` is exit 1, never 2, and the `--json` object keeps
+  its eight fields.
+
 ## [0.22.0] - 2026-11-11
 
 ### Changed

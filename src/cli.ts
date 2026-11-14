@@ -89,9 +89,10 @@ const READER_OPTIONS = {
   suite: { type: 'string' },
 } as const;
 
-/** `baseline diff` takes an optional ref, `--json` and `--suite`; anything else is a usage error. */
+/** `baseline diff` takes an optional ref, `--json`, `--fail-on-added` and `--suite`; anything else is a usage error. */
 const BASELINE_DIFF_OPTIONS = {
   json: { type: 'boolean', default: false },
+  'fail-on-added': { type: 'boolean', default: false },
   suite: { type: 'string' },
 } as const;
 
@@ -167,7 +168,8 @@ Commands:
                    keep every other check's entry. \`baseline --versions\`
                    re-records the copy each check's tool ran, adding no key.
                    \`baseline diff [<ref>]\` lists the keys added and removed
-                   since <ref> (default HEAD).
+                   since <ref> (default HEAD); --fail-on-added exits 1 on
+                   a key added or a count grown.
   recover          Rebuild checkride.baseline.json candidates from git history
                    and restore one (a merge that dropped entries fails closed).
   target           Declare a target: \`target add <name> --lang <pack> --root
@@ -420,7 +422,8 @@ const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings,
 
 Usage: checkride baseline [--versions] [--only <a,b>] [--skip <a,b>]
                           [--config <path>] [--out <dir>] [--suite <name>]
-       checkride baseline diff [<ref>] [--json] [--suite <name>]
+       checkride baseline diff [<ref>] [--json] [--fail-on-added]
+                               [--suite <name>]
 
 \`baseline\` runs the checks and writes their current findings, per check, to
 checkride.baseline.json at the repo root. Commit the file: a later run fails
@@ -442,6 +445,11 @@ human's \`checkride baseline\`.
 through git (default HEAD), compares it with the working-tree file, and prints
 the keys added and removed per check. A file missing on either side reads as
 empty, so a ref from before the baseline existed lists every key as added.
+With --fail-on-added it exits 1 when the working tree grandfathers more than
+<ref>: a key <ref>'s copy lacks, or a key counted more often. In CI, diff
+against the merge base, so a key main pruned since the branch left it doesn't
+read as added: \`checkride baseline diff "$(git merge-base origin/main HEAD)"
+--fail-on-added\`.
 
 Options:
   --versions       Re-record the copy of each check's tool, adding no key
@@ -457,6 +465,8 @@ Options:
                    itself is still written at the repo root.
   --json           Print the diff as JSON: ref, sha, added, removed,
                    added_count, removed_count (baseline diff only)
+  --fail-on-added  Exit 1 on a key added or a count grown since <ref>
+                   (baseline diff only); removals alone still exit 0
   --suite <name>   Capture, re-record or diff the named suite's baseline,
                    checkride.<name>.baseline.json, with the checks its config
                    declares (or set CHECKRIDE_SUITE). Exit 2 with --config.
@@ -467,8 +477,9 @@ to write, and with --versions whenever it ran, a check left or not; 2 for an
 unknown or empty --only or --skip, with --only or --skip when the file can't
 be parsed, and with --versions when there's no file, it can't be parsed, or
 --config names a file outside the repo. \`baseline diff\` exits 0 whenever
-it ran, keys added or not, and 2 when the ref names no commit, git is
-missing, or either copy can't be parsed.
+it ran, keys added or not, and with --fail-on-added 1 when a key was added or
+a count grew; 2 when the ref names no commit, git is missing, or either copy
+can't be parsed.
 
 Docs: https://github.com/robmclarty/checkride#readme
 `;
@@ -1023,7 +1034,7 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
   return result.exitCode;
 }
 
-/** `baseline diff [<ref>] [--json]`: at most one positional, the ref. */
+/** `baseline diff [<ref>] [--json] [--fail-on-added]`: at most one positional, the ref. */
 async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<number> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: BASELINE_DIFF_OPTIONS });
   if (positionals.length > 1) throw new Error(`baseline diff takes one ref, got ${positionals.length}: ${positionals.join(' ')}`);
@@ -1031,7 +1042,9 @@ async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<numb
   const result = await runBaselineDiff({
     cwd: deps.cwd,
     stdout: deps.stdout,
+    stderr: deps.stderr,
     json: values.json,
+    failOnAdded: values['fail-on-added'],
     suite: suiteOf(values.suite, deps),
     ...(ref !== undefined ? { ref } : {}),
   });

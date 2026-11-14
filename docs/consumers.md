@@ -140,6 +140,9 @@ changed: the keys added and removed, and each key whose count changed under
 checkride baseline diff "$BASE_SHA" --json
 ```
 
+Add `--fail-on-added` to turn the diff into a verdict: exit 1 when a key was
+added or a count grew, with the same JSON on stdout.
+
 ## Reading the findings
 
 `summary.json` says which checks failed. `checkride/findings` turns each

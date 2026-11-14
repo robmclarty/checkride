@@ -494,7 +494,14 @@ export type BaselineDiffOptions = {
   ref?: string;
   /** Print {@link BaselineDiff} as JSON instead of the Markdown report. */
   json?: boolean;
+  /**
+   * Exit 1 when the working tree grandfathers more than `ref` does: a key
+   * `ref`'s copy lacks, or a key both hold counted more often.
+   */
+  failOnAdded?: boolean;
   stdout?: Out;
+  /** Where `--fail-on-added` says why it failed; never the report itself. */
+  stderr?: Out;
   /** The named suite whose baseline is diffed; the default suite's when omitted. */
   suite?: Suite;
   /** Injectable for tests. */
@@ -528,10 +535,12 @@ const EMPTY_BASELINE: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slot
 /**
  * Diff the working-tree baseline against the copy committed at `ref`. A file
  * missing on either side reads as empty, so a ref from before the baseline
- * existed reports every current key as added. It exits 0 whenever it ran,
- * keys added or not: the diff is evidence for a reviewer, not a verdict. A ref
- * that names no commit, a missing git, or a file that can't be parsed on
- * either side throws, which `runCli` renders as exit 2.
+ * existed reports every current key as added. Without `failOnAdded` it exits
+ * 0 whenever it ran, keys added or not: the diff is evidence for a reviewer.
+ * With it, a key added or a count grown is exit 1, a verification failure,
+ * and removals alone stay 0. A ref that names no commit, a missing git, or a
+ * file that can't be parsed on either side throws, which `runCli` renders as
+ * exit 2.
  */
 export async function runBaselineDiff(options: BaselineDiffOptions): Promise<BaselineDiffResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -555,7 +564,33 @@ export async function runBaselineDiff(options: BaselineDiffOptions): Promise<Bas
     recounted_count: delta.recountedCount,
   };
   stdout.write(options.json ? `${JSON.stringify(diff, null, 2)}\n` : renderDiff(diff));
-  return { ok: true, exitCode: 0, diff };
+  if (options.failOnAdded !== true) return { ok: true, exitCode: 0, diff };
+  const grown = grownCount(diff.recounted);
+  if (diff.added_count === 0 && grown === 0) return { ok: true, exitCode: 0, diff };
+  (options.stderr ?? process.stderr).write(
+    `baseline diff --fail-on-added: the working tree grandfathers more than ${ref}: ${diff.added_count} key(s) added, ${grown} counted more often\n`,
+  );
+  return { ok: false, exitCode: 1, diff };
+}
+
+/**
+ * How many recounted keys grandfather more findings than they did at `ref`.
+ * A `from` of `null` already grandfathered any number, so nothing grows from
+ * it; a `to` of `null` grandfathers any number, so anything counted grows
+ * into it; a drop is never growth.
+ */
+function grownCount(recounted: BaselineDiff['recounted']): number {
+  let grown = 0;
+  for (const keys of Object.values(recounted)) {
+    for (const { from, to } of Object.values(keys)) if (grew(from, to)) grown += 1;
+  }
+  return grown;
+}
+
+/** Whether a key counted `from` at `ref` and `to` in the working tree grandfathers more now. */
+function grew(from: number | null, to: number | null): boolean {
+  if (from === null) return false;
+  return to === null || to > from;
 }
 
 /**

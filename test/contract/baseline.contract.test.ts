@@ -625,6 +625,66 @@ describe('checkride baseline diff --json', () => {
     expect(json).toMatchObject({ ref: 'HEAD', added: {}, removed: {}, added_count: 0, removed_count: 0, recounted: {}, recounted_count: 0 });
   });
 
+  async function guard(argv: string[]): Promise<number> {
+    return runCli(['baseline', 'diff', ...argv], { cwd: dir, stdout: sink().out, stderr: sink().out });
+  }
+  const recommit = async (baseline: Baseline): Promise<void> => {
+    await writeBaseline(dir, baseline);
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'recount');
+  };
+
+  /**
+   * `--fail-on-added` (docs/contract.md §CLI) is the guard a CI job runs: a
+   * grown baseline is a verification failure, exit 1 and never 2. A `from` of
+   * null grandfathered any number, so nothing grows from it.
+   */
+  describe('--fail-on-added', () => {
+
+    test('an added key is exit 1', async () => {
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept', 'src/a.ts:rule:fixed', 'src/a.ts:rule:new'], struct: ['src/b.ts:no-class:no classes'] } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(1);
+    });
+
+    test('a grown count is exit 1, a fallen one exit 0', async () => {
+      const slots = { lint: ['src/a.ts:rule:kept'] };
+      await recommit({ schema_version: 1, slots, counts: { lint: { 'src/a.ts:rule:kept': 2 } } });
+      await writeBaseline(dir, { schema_version: 1, slots, counts: { lint: { 'src/a.ts:rule:kept': 3 } } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(1);
+      await writeBaseline(dir, { schema_version: 1, slots, counts: { lint: { 'src/a.ts:rule:kept': 1 } } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(0);
+    });
+
+    test('a count from a check captured before counts never grows', async () => {
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept', 'src/a.ts:rule:fixed'], struct: ['src/b.ts:no-class:no classes'] }, counts: { lint: { 'src/a.ts:rule:kept': 9 } } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(0);
+    });
+
+    test('removals alone are exit 0', async () => {
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept'] } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(0);
+    });
+
+    test('without the flag an added key is exit 0', async () => {
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:new'] } });
+      expect(await guard(['HEAD'])).toBe(0);
+    });
+
+    test('a ref that holds no baseline file is exit 1 on any key', async () => {
+      git(dir, 'rm', '-q', 'checkride.baseline.json');
+      git(dir, 'commit', '-q', '-m', 'drop the baseline');
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:kept'] } });
+      expect(await guard(['HEAD', '--fail-on-added'])).toBe(1);
+    });
+
+    test('the --json object is the same shape, and the exit carries the verdict', async () => {
+      await writeBaseline(dir, { schema_version: 1, slots: { lint: ['src/a.ts:rule:new'] } });
+      const { code, json } = await diffJson(['HEAD', '--fail-on-added']);
+      expect(code).toBe(1);
+      expect(Object.keys(json)).toEqual(['ref', 'sha', 'added', 'removed', 'added_count', 'removed_count', 'recounted', 'recounted_count']);
+    });
+  });
+
   test('a ref that names no commit is exit 2 with nothing on stdout', async () => {
     const out = sink();
     expect(await runCli(['baseline', 'diff', 'no-such-ref', '--json'], { cwd: dir, stdout: out.out, stderr: sink().out })).toBe(2);

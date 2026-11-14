@@ -243,6 +243,7 @@ checkride baseline     Record current diagnostics as a committed baseline.
   --skip <a,b> capture every check but these
 checkride baseline diff [<ref>]  List the keys the working tree's baseline adds
                        or drops against <ref>'s (default HEAD); --json for JSON.
+  --fail-on-added exit 1 on a key added or a count grown (the CI guard)
 checkride recover      Rebuild checkride.baseline.json candidates from git history
                        and restore one (bare `recover` lists them with deltas).
   --pick <n|sha|union> apply a candidate — additive union with the current file
@@ -833,7 +834,10 @@ it was, so adopting one check per commit touches only that check in the diff.
 `checkride baseline diff [<ref>]` lists the keys the
 working tree adds and drops against `<ref>`'s copy (default `HEAD`), per check,
 and each key whose count changed, or as JSON under `--json`, so a reviewer sees
-exactly what a change grandfathers.
+exactly what a change grandfathers. `--fail-on-added` makes it a guard: exit 1
+when a key was added or a count grew, which
+[`docs/ci.md`](./docs/ci.md#guard-the-baseline) runs as a job of its own
+against the merge base.
 
 Only slots whose tool has a parser the baseline keys with participate, and a
 capture doesn't run the others: tsc for `types`, oxlint, eslint, biome,

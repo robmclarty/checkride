@@ -163,6 +163,43 @@ need that history to exist in the clone — `actions/checkout` defaults to
 `fetch-depth: 1`, which sees only the merged state — so run the recovery
 locally (where full history lives), or give the checkout more depth.
 
+## Guard the baseline
+
+A pull request that adds keys to `checkride.baseline.json`, or raises a key's
+count, grandfathers its own findings, and the check stays green.
+`baseline diff --fail-on-added` catches it: exit 1 when the working tree
+grandfathers more than the ref, exit 0 when it holds the same keys or fewer.
+Run it as a job of its own:
+
+```yaml
+  baseline-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the merge base needs main's history
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec checkride baseline diff "$(git merge-base origin/main HEAD)" --fail-on-added
+```
+
+It diffs against the merge base, not the tip of `main`, because a key `main`
+pruned after the branch left it would otherwise read as added by the branch.
+
+Leave this job out of the required checks. Some changes grow the baseline on
+purpose: the pull request that adopts checkride, one that adds a target over
+old code, or a tool upgrade that reports more. The flag has no override, so a
+code owner of the baseline file reads the red job's report and merges over it
+on purpose. A `CODEOWNERS` line for `checkride*.json` names who that is.
+
 ## Other package managers
 
 Replace the pnpm steps; the checkride invocation is identical.

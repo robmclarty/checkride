@@ -1392,7 +1392,19 @@ at `ref` and in the working tree, `null` for a check captured before counts,
 and `recounted_count` counts them. Fields are added, never renamed or removed. It exits 0 whenever
 it ran, keys added or not, because the diff is evidence rather than a verdict,
 and 2 when the ref names no commit, git is missing, or either copy can't be
-parsed (a file from a newer checkride included). `--config` belongs to the
+parsed (a file from a newer checkride included).
+
+`--fail-on-added` makes the diff a guard. It exits 1, never 2, when the
+working tree grandfathers more than `<ref>`: a key `<ref>`'s copy lacks, or a
+key both hold whose count grew. A count grows when it rises, or when a number
+becomes `null`; a `from` of `null` already grandfathered any number, so nothing
+grows from it, and a count that falls is no growth. Removals alone exit 0, and
+a `<ref>` that holds no baseline file reads as empty, so any key fails the
+guard. The flag has no override. It prints the same report or `--json` object, and
+says on stderr why it failed. A grown baseline is sometimes honest (adopting
+checkride, a new target over old code, a tool that reports more), so the
+recipe in [`ci.md`](./ci.md#guard-the-baseline) runs it as its own job outside
+the required set, where a code owner of the baseline file can merge over it. `--config` belongs to the
 capture: `baseline diff` rejects it, and `baseline` rejects a stray argument,
 so a misplaced `diff` never rewrites the file.
 
