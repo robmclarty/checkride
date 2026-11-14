@@ -73,13 +73,6 @@ async function locate(git: GitRunner, file: string, command?: string): Promise<{
   return { path: `${prefix}${file}`, shallow: shallowWord.trim() === 'true' };
 }
 
-/** Whether the working-tree baseline carries uncommitted changes. */
-export async function baselineDirty(git: GitRunner, file: string = BASELINE_FILE): Promise<boolean> {
-  const result = await git(['status', '--porcelain', '--', file]);
-  if (!result.ok) throw gitFailureError(result);
-  return result.stdout.trim().length > 0;
-}
-
 const DIFF_COMMAND = 'baseline diff';
 
 /** The tree committed at a ref: the commit it named, and `read`, the text of a file in it, relative to the checkride root, or `null` when the commit has none. */
@@ -161,14 +154,16 @@ function isNewState(baseline: Baseline, current: Baseline | null, kept: Walk['sn
   return !kept.some((s) => sameKeys(s.baseline, baseline));
 }
 
-async function walkSnapshots(git: GitRunner, path: string, revisions: readonly BaselineRevision[], current: Baseline | null): Promise<Walk> {
+/** One commit's baseline, or `null` for a commit whose copy is missing or can't be parsed. */
+type SnapshotAt = (sha: string) => Promise<Baseline | null>;
+
+async function walkSnapshots(snapshot: SnapshotAt, revisions: readonly BaselineRevision[], current: Baseline | null): Promise<Walk> {
   const walk: Walk = { snapshots: [], parsed: [], skipped: [], walked: 0 };
   for (const rev of revisions) {
     if (walk.snapshots.length >= MAX_SNAPSHOTS) break;
     walk.walked += 1;
     // oxlint-disable-next-line no-await-in-loop -- sequential on purpose: the early-stop above only saves `git show` calls if they run one at a time.
-    const show = await git(['show', `${rev.sha}:${path}`]);
-    const baseline = show.ok ? parseBaseline(show.stdout) : null;
+    const baseline = await snapshot(rev.sha);
     if (baseline === null) {
       walk.skipped.push(rev.shortSha);
       continue;
@@ -179,11 +174,25 @@ async function walkSnapshots(git: GitRunner, path: string, revisions: readonly B
   return walk;
 }
 
-export async function collectCandidates(git: GitRunner, current: Baseline | null, depth: number, file: string = BASELINE_FILE): Promise<HistoryScan> {
+/**
+ * A baseline spread over more than one file, as {@link collectCandidates}
+ * walks it: the other `files` whose commits count, each relative to the
+ * checkride root, and `snapshot`, which reads every file a commit holds as
+ * one baseline. This module reads one file; the caller knows the rest.
+ */
+export type SpreadHistory = { files: readonly string[]; snapshot: SnapshotAt };
+
+export async function collectCandidates(git: GitRunner, current: Baseline | null, depth: number, file: string = BASELINE_FILE, spread?: SpreadHistory): Promise<HistoryScan> {
   const located = await locate(git, file);
-  const log = await git(['log', '-n', String(depth), `--format=${LOG_FORMAT}`, '--', located.path]);
+  const prefix = located.path.slice(0, located.path.length - file.length);
+  const paths = [located.path, ...(spread?.files ?? []).map((other) => `${prefix}${other}`)];
+  const log = await git(['log', '-n', String(depth), `--format=${LOG_FORMAT}`, '--', ...paths]);
   if (!log.ok) throw gitFailureError(log);
-  const walk = await walkSnapshots(git, located.path, parseLog(log.stdout), current);
+  const one: SnapshotAt = async (sha) => {
+    const show = await git(['show', `${sha}:${located.path}`]);
+    return show.ok ? parseBaseline(show.stdout) : null;
+  };
+  const walk = await walkSnapshots(spread?.snapshot ?? one, parseLog(log.stdout), current);
 
   const union = unionBaselines(current === null ? walk.parsed : [current, ...walk.parsed]);
   const unionAddsAnything = current === null ? walk.parsed.length > 0 : !sameKeys(union, current);
@@ -192,6 +201,13 @@ export async function collectCandidates(git: GitRunner, current: Baseline | null
     ...walk.snapshots,
   ];
   return { candidates, walked: walk.walked, skipped: walk.skipped, shallow: located.shallow };
+}
+
+/** Whether any of `files`, a baseline's in the working tree, carries uncommitted changes. */
+export async function baselinesDirty(git: GitRunner, files: readonly string[]): Promise<boolean> {
+  const result = await git(['status', '--porcelain', '--', ...files]);
+  if (!result.ok) throw gitFailureError(result);
+  return result.stdout.trim().length > 0;
 }
 
 /**

@@ -109,6 +109,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CHECKRIDE_CONFIG` now, and a config that can't be read is a warning: the
   root file is compared alone. `--summary github` counts the same files.
 
+- **`recover` rebuilds every baseline file from their joint history.** A
+  commit to any of the files is a candidate, read as the one baseline a run
+  would have masked with, and `--pick` writes each restored key to the file
+  that owns its check, and only the files that change: a clobbered
+  `web/checkride.baseline.json` comes back and every other file stays
+  byte-identical. It is the one command that writes over a file that can't
+  be parsed. It takes `--config` and `CHECKRIDE_CONFIG`, and a config that
+  can't be read is a warning: the root file is recovered alone.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -158,6 +167,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   comparison across them, and the two warnings for a config that can't be
   read are promised. A repo with one baseline file gets the diff it got
   before.
+- **`recover` reads a config, takes `--config`, and may write more than one
+  file.** Which commits it walks, how each is read, the files an apply
+  writes, and the warning for a config that can't be read are promised. The
+  `--json` listing and apply result gain `files` when the baseline is more
+  than one file. A repo with one baseline file recovers exactly as before.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

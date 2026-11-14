@@ -1597,6 +1597,30 @@ writes, nothing committed on your behalf. Exit codes are 0 (listed or applied)
 and 2 (usage or environment error — git missing, not a repository, unknown
 pick); never 1, because nothing here is a check failure.
 
+`recover` rebuilds every file the baseline is spread over, together.
+
+- It loads the config as `baseline diff` does: the config above the
+  directory it's typed in, a suite's with `--suite`, and the file `--config`
+  or `CHECKRIDE_CONFIG` names, missing or beside `--suite` being exit 2.
+- A commit that touched any of the baseline's files is walked, and read as
+  the one baseline a run would have masked with: the root file and the file
+  at each target's root that the commit's own config or the working tree's
+  declares. A commit with a file that can't be parsed is skipped, and
+  counted, as it always was.
+- The candidates, their numbers and `--pick` are one list for the whole
+  baseline. An apply writes each key to the file that owns its check, and
+  only the files that change, so restoring `web`'s keys leaves every other
+  file byte-identical. It writes over a file that can't be parsed, which no
+  other writer does, since that is the damage it repairs.
+- The listing has a `- file:` line for each file, and the `--json` listing
+  and apply result gain `files` when the baseline is more than one file: the
+  files with their state and keys, and the files written. stderr's `recover:
+  wrote` line names the files written.
+- A config that can't be read is no error, since the merge that dropped
+  baseline entries may have mangled it too: stderr says `recover: can't read
+  the config (<why>), so it recovers checkride.baseline.json alone`, and the
+  root file is recovered as in a repo with no target below its root.
+
 **`hooks` manages hooks and touches nothing else.** `checkride hooks add [a,b]`
 and `checkride hooks remove <a,b>` write or tear out the harness config entries
 and generated scripts for the named hooks, taking `--harness <a,b>` and

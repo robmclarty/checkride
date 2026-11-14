@@ -1363,22 +1363,28 @@ export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning):
   return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path, { file: CONFIG_FILE, named: true, ...(warn === undefined ? {} : { warn }) });
 }
 
+/** What says which config a command that reads only the baseline's files runs with: one already loaded, or a file `--config` or `CHECKRIDE_CONFIG` named. */
+export type BaselineConfig = { config?: CheckrideConfig | null | undefined; configPath?: string | undefined };
+
 /**
  * The `targets` a command that reads only the baseline's files needs: the
  * ones the config it was pointed at declares, composed as a run composes
- * them, or `problem`, why that config can't be read. `baseline diff` and
- * `recover` map the baseline's files from these, and fall back to the root
- * file alone on a config they can't read, since `recover` has to work after
- * the merge that mangled it. `config` is one already loaded, and
- * `configPath` a file `--config` or `CHECKRIDE_CONFIG` named; with neither,
- * the repo's own is read, a named suite's for one.
+ * them. `baseline diff` and `recover` map the baseline's files from these.
+ * A config that can't be read gives no targets and `problem`, why, so the
+ * command falls back to the root file alone, since `recover` has to work
+ * after the merge that mangled it. With neither a loaded config nor a named
+ * file, the repo's own is read, a named suite's for one. `oneConfig` says
+ * the config stands for every state of the tree the command reads, a ref's
+ * too: one handed in or named, and none at all once the repo's own can't
+ * be read.
  */
-export function targetsForBaseline(at: { cwd: string; suite: Suite; config?: CheckrideConfig | null; configPath?: string }): { targets: unknown } | { problem: string } {
+export function targetsForBaseline(cwd: string, suite: Suite, named: BaselineConfig): { targets: unknown; problem: string | null; oneConfig: boolean } {
+  const given = named.config !== undefined || named.configPath !== undefined;
   try {
-    const loaded = at.config !== undefined ? at.config : at.configPath !== undefined ? loadConfigFile(at.configPath, at.cwd) : loadConfig(at.cwd, undefined, at.suite.configFile);
-    return { targets: composedConfig(loaded, at.cwd, at.suite)?.targets };
+    const loaded = named.config !== undefined ? named.config : named.configPath !== undefined ? loadConfigFile(named.configPath, cwd) : loadConfig(cwd, undefined, suite.configFile);
+    return { targets: composedConfig(loaded, cwd, suite)?.targets, problem: null, oneConfig: given };
   } catch (error) {
-    return { problem: (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '' };
+    return { targets: undefined, problem: (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '', oneConfig: true };
   }
 }
 

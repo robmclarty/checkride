@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Baseline } from '../baseline/index.js';
+import { readShards, recoverShards, shardMap } from '../baseline/index.js';
 import type { GitResult, GitRunner } from '../git.js';
 import type { Out } from '../orchestrator/index.js';
 import { runRecover } from '../recover.js';
@@ -289,6 +290,52 @@ describe.skipIf(!gitAvailable)('runRecover (integration, real git)', () => {
       expect(out.text()).toContain('history is shallow');
     } finally {
       await rm(clone, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('recoverShards', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-recover-shards-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const FILE = 'checkride.baseline.json';
+  const WEB = 'web/checkride.baseline.json';
+  const API = 'api/checkride.baseline.json';
+  const map = shardMap(FILE, { web: { root: 'web', local: true }, api: { root: 'api', local: true } });
+  const target = base({ spell: ['s'], 'web:lint': ['w1', 'w2'], 'api:lint': ['a'] });
+
+  async function put(file: string, content: Baseline | string): Promise<void> {
+    await mkdir(join(dir, file, '..'), { recursive: true });
+    await writeFile(join(dir, file), typeof content === 'string' ? content : JSON.stringify(content));
+  }
+
+  const changed = (): [string, Record<string, string[]> | undefined][] => recoverShards(readShards(dir, map), target).map((c) => [c.file, c.baseline?.slots]);
+
+  test('writes each key to the file that owns its check, and leaves out a file that already holds its own', async () => {
+    await put(FILE, base({ spell: ['s'] }));
+    await put(WEB, base({ 'web:lint': ['w1'] }));
+    await put(API, base({ 'api:lint': ['a'] }));
+    expect(changed()).toEqual([[WEB, { 'web:lint': ['w1', 'w2'] }]]);
+  });
+
+  test("writes over a file that can't be parsed, and makes one that is missing", async () => {
+    await put(FILE, base({ spell: ['s'] }));
+    await put(WEB, '<<<<<<< HEAD\n{ mangled\n');
+    expect(changed()).toEqual([[WEB, { 'web:lint': ['w1', 'w2'] }], [API, { 'api:lint': ['a'] }]]);
+  });
+
+  test('never writes a file that resolves outside the repository, and leaves its keys where they are', async () => {
+    const elsewhere = await mkdtemp(join(tmpdir(), 'checkride-recover-outside-'));
+    try {
+      await writeFile(join(elsewhere, 'b.json'), '{}');
+      await mkdir(join(dir, 'web'));
+      await symlink(join(elsewhere, 'b.json'), join(dir, WEB));
+      await put(FILE, base({ spell: ['s'], 'web:lint': ['w1'] }));
+      await put(API, base({ 'api:lint': ['a'] }));
+      expect(changed()).toEqual([]);
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
     }
   });
 });

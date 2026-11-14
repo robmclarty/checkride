@@ -8,6 +8,14 @@
  * walks the file's recent commits, dedupes the distinct states, and presents a
  * small candidate set with deltas; `--pick` applies one.
  *
+ * A baseline spread over more than one file, a local target's own beside the
+ * root one, is recovered whole: the commits that touched any of its files
+ * are walked, each read as the one baseline a run would have masked with,
+ * and an apply writes each restored key to the file that owns its check, and
+ * only the files that change. The files come from the config, and a config
+ * that can't be read, which the same bad merge may have mangled, is a
+ * warning: the root file is recovered alone.
+ *
  * Applying writes the file through `writeBaseline` — never `git checkout` — so
  * a restore lands as an ordinary working-tree edit the author reviews and
  * commits. The default write is the UNION of the candidate and the current
@@ -22,18 +30,25 @@
  * prose on stderr.
  */
 
-import type { Baseline, BaselineDelta, BaselineRead, Candidate, HistoryScan } from './baseline/index.js';
+import type { Baseline, BaselineDelta, Candidate, HistoryScan, ShardChange, ShardsRead } from './baseline/index.js';
 import {
-  baselineDirty,
+  baselinesDirty,
   baselinesEqual,
   collectCandidates,
   countBaselineKeys,
   DEFAULT_DEPTH,
   diffBaselines,
-  readBaselineStatus,
+  readShards,
+  readShardsAt,
+  recoverShards,
+  shardMap,
+  treeAt,
   unionBaselines,
   writeBaseline,
+  writeShards,
 } from './baseline/index.js';
+import type { CheckrideConfig } from './config.js';
+import { targetsDeclaredAt, targetsForBaseline } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { Out } from './orchestrator/index.js';
@@ -56,6 +71,14 @@ export type RecoverOptions = {
   stderr?: Out;
   /** The named suite whose baseline is recovered, from the history of its own file; the default suite's when omitted. */
   suite?: Suite;
+  /**
+   * The config whose targets say which files the baseline is spread over,
+   * already loaded, or `configPath`, the file `--config` or
+   * `CHECKRIDE_CONFIG` named, which stands for every commit walked. With
+   * neither, the repo's own config is read, and each commit's own.
+   */
+  config?: CheckrideConfig | null;
+  configPath?: string;
   /** Injectable for tests. */
   git?: GitRunner;
 };
@@ -67,7 +90,8 @@ type RecoverContext = {
   cwd: string;
   /** The suite whose baseline file is being recovered, which every command this one names carries. */
   suite: Suite;
-  read: BaselineRead;
+  /** Every file of the baseline as the working tree holds it, read as one: `state` is the root file's. */
+  read: ShardsRead;
   scan: HistoryScan;
   dirty: boolean;
   json: boolean;
@@ -90,9 +114,15 @@ export async function runRecover(options: RecoverOptions): Promise<RecoverResult
   const git = options.git ?? realGit(cwd);
   const suite = options.suite ?? DEFAULT_SUITE;
   const file = suite.baselineFile;
-  const read = readBaselineStatus(cwd, 'current', file);
-  const scan = await collectCandidates(git, read.baseline, options.depth ?? DEFAULT_DEPTH, file);
-  const dirty = await baselineDirty(git, file);
+  const { read, oneConfig } = workingBaseline(options, cwd, suite, stderr);
+  const others = read.map.shards.map((shard) => shard.file);
+  // A commit's files are read as one baseline, by its own config's map and the working tree's; one it can't read whole is skipped.
+  const snapshot = async (sha: string): Promise<Baseline | null> => {
+    const declared = oneConfig ? null : (at: (path: string) => Promise<string | null>) => targetsDeclaredAt(at, suite.configFile);
+    return readShardsAt(await treeAt(git, sha), sha, read.map, declared).then((at) => at.baseline, () => null);
+  };
+  const scan = await collectCandidates(git, read.baseline, options.depth ?? DEFAULT_DEPTH, file, others.length === 0 ? undefined : { files: others, snapshot });
+  const dirty = await baselinesDirty(git, [file, ...others]);
   const ctx: RecoverContext = { cwd, suite, read, scan, dirty, json: options.json ?? false, stdout, stderr };
 
   if (options.pick === undefined) {
@@ -100,6 +130,22 @@ export async function runRecover(options: RecoverOptions): Promise<RecoverResult
     return { ok: true, exitCode: 0 };
   }
   return apply(ctx, options.pick, options.exact ?? false, options.dryRun ?? false);
+}
+
+/**
+ * The working tree's baseline, every file of it, with whether one config
+ * stands for every commit walked. A config that can't be read is said on
+ * stderr, since the root file is then recovered alone.
+ */
+function workingBaseline(options: RecoverOptions, cwd: string, suite: Suite, stderr: Out): { read: ShardsRead; oneConfig: boolean } {
+  const declared = targetsForBaseline(cwd, suite, options);
+  if (declared.problem !== null) writeLine(stderr, `recover: can't read the config (${declared.problem}), so it recovers ${suite.baselineFile} alone`);
+  return { read: readShards(cwd, shardMap(suite.baselineFile, declared.targets)), oneConfig: declared.oneConfig };
+}
+
+/** True when the baseline is spread over more than the root file. */
+function spread(ctx: RecoverContext): boolean {
+  return ctx.read.map.shards.length > 0;
 }
 
 /** Resolve a sha-prefix `--pick` against the listed snapshots. */
@@ -137,8 +183,12 @@ function describe(candidate: Candidate): string {
   return candidate.kind === 'union' ? `union of ${candidate.folded} snapshot(s)` : `snapshot ${candidate.rev.shortSha}`;
 }
 
-/** Everything an apply decided, threaded to the branch that acts on it. */
-type Apply = { candidate: Candidate; exact: boolean; target: Baseline; delta: BaselineDelta };
+/**
+ * Everything an apply decided, threaded to the branch that acts on it:
+ * `changes` is each file it writes, the root file alone for a baseline that
+ * isn't spread, and none when the target changes nothing.
+ */
+type Apply = { candidate: Candidate; exact: boolean; target: Baseline; delta: BaselineDelta; changes: readonly ShardChange[] };
 
 /**
  * Turn `--pick` into an {@link Apply}. The union write is dirty-safe by
@@ -154,30 +204,48 @@ function resolveApply(ctx: RecoverContext, pick: string, exact: boolean, dryRun:
     );
   }
   const target = exact ? candidate.baseline : unionBaselines(current === null ? [candidate.baseline] : [current, candidate.baseline]);
-  return { candidate, exact, target, delta: diffBaselines(current, target) };
+  return { candidate, exact, target, delta: diffBaselines(current, target), changes: changesFor(ctx, target) };
+}
+
+/**
+ * The files an apply writes for `target`. A baseline that is the root file
+ * alone is written whole when the target differs from it, as it always was;
+ * one spread over more files has each key written to the file that owns its
+ * check, and only the files that change (`recoverShards`).
+ */
+function changesFor(ctx: RecoverContext, target: Baseline): ShardChange[] {
+  if (spread(ctx)) return recoverShards(ctx.read, target);
+  return baselinesEqual(target, ctx.read.baseline ?? EMPTY_BASELINE) ? [] : [{ file: ctx.suite.baselineFile, baseline: target }];
+}
+
+/** The files an apply writes, as a message names them: the root file for a baseline that isn't spread, even one it leaves as it is. */
+function filesNamed(ctx: RecoverContext, a: Apply): string {
+  return spread(ctx) && a.changes.length > 0 ? a.changes.map((c) => c.file).join(', ') : ctx.suite.baselineFile;
 }
 
 /** Emit an apply outcome: the machine shape on stdout when `--json`, else nothing. */
 function emitApply(ctx: RecoverContext, action: 'written' | 'dry-run' | 'noop', a: Apply): RecoverResult {
-  if (ctx.json) ctx.stdout.write(`${JSON.stringify(applyJson(action, a, ctx.suite.baselineFile), null, 2)}\n`);
+  if (ctx.json) ctx.stdout.write(`${JSON.stringify(applyJson(action, a, ctx), null, 2)}\n`);
   return { ok: true, exitCode: 0 };
 }
 
 async function apply(ctx: RecoverContext, pick: string, exact: boolean, dryRun: boolean): Promise<RecoverResult> {
   const a = resolveApply(ctx, pick, exact, dryRun);
   if (dryRun) {
-    if (!ctx.json) ctx.stdout.write(renderPreview(a, ctx.suite.baselineFile));
+    if (!ctx.json) ctx.stdout.write(renderPreview(a, filesNamed(ctx, a)));
     return emitApply(ctx, 'dry-run', a);
   }
-  if (baselinesEqual(a.target, ctx.read.baseline ?? EMPTY_BASELINE)) {
+  if (a.changes.length === 0) {
     writeLine(ctx.stderr, `recover: nothing to write — ${describe(a.candidate)} changes nothing against the current file`);
     return emitApply(ctx, 'noop', a);
   }
-  await writeBaseline(ctx.cwd, a.target, ctx.suite.baselineFile);
+  // The one file of a baseline that isn't spread is written whole, as it always was.
+  if (spread(ctx)) await writeShards(ctx.cwd, a.changes);
+  else await writeBaseline(ctx.cwd, a.target, ctx.suite.baselineFile);
   const dropped = a.delta.absentCount > 0 ? `, −${a.delta.absentCount} dropped (--exact)` : '';
   writeLine(
     ctx.stderr,
-    `recover: wrote ${ctx.suite.baselineFile} — +${a.delta.restoredCount} key(s) restored${dropped} (${a.exact ? 'exact copy of' : 'union with'} ${describe(a.candidate)}); review with \`git diff\` and commit`,
+    `recover: wrote ${filesNamed(ctx, a)} — +${a.delta.restoredCount} key(s) restored${dropped} (${a.exact ? 'exact copy of' : 'union with'} ${describe(a.candidate)}); review with \`git diff\` and commit`,
   );
   return emitApply(ctx, 'written', a);
 }
@@ -186,14 +254,29 @@ function writeLine(out: Out, line: string): void {
   out.write(`${line}\n`);
 }
 
+/** One file's state as a listing reads it: how it read, and the baseline it gave. */
+type FileState = Pick<ShardsRead['files'][number], 'state' | 'baseline'>;
+
 /** The `- file:` line — the reader's first question is what state the file is in. */
-function fileLine(file: string, read: BaselineRead, dirty: boolean): string {
+function fileLine(file: string, read: FileState, dirty: boolean): string {
   if (read.state === 'absent') return `- file: \`${file}\` — ABSENT`;
   if (read.state === 'unparseable') return `- file: \`${file}\` — present but unparseable (treated as no baseline)`;
+  if (read.state === 'outside') return `- file: \`${file}\` — resolves outside the repository (never read or written)`;
   const baseline = read.baseline ?? EMPTY_BASELINE;
   const keys = countBaselineKeys(baseline);
   const slots = Object.keys(baseline.slots).length;
   return `- file: \`${file}\` — present, ${keys} key(s) across ${slots} slot(s)${dirty ? ', with uncommitted changes' : ''}`;
+}
+
+/**
+ * The `- file:` lines: one for the root file, as it always read, and one
+ * for each file at a target's root when the baseline is spread, where
+ * `with uncommitted changes` is said once, of them together.
+ */
+function fileLines(ctx: RecoverContext): string[] {
+  const { read, dirty } = ctx;
+  if (!spread(ctx)) return [fileLine(ctx.suite.baselineFile, read, dirty)];
+  return [...read.files.map((file) => fileLine(file.file, file, false)), ...(dirty ? ['- note: the baseline has uncommitted changes'] : [])];
 }
 
 function candidateRow(candidate: Candidate, index: number, current: Baseline | null): string {
@@ -208,10 +291,10 @@ function candidateRow(candidate: Candidate, index: number, current: Baseline | n
 }
 
 function renderListing(ctx: RecoverContext): string {
-  const { suite, read, scan, dirty } = ctx;
+  const { suite, read, scan } = ctx;
   const file = suite.baselineFile;
   const lines: string[] = ['# checkride recover — baseline candidates from git history', ''];
-  lines.push(fileLine(file, read, dirty));
+  lines.push(...fileLines(ctx));
   const skipped = scan.skipped.length > 0 ? `; skipped ${scan.skipped.length} unreadable snapshot(s): ${scan.skipped.join(', ')}` : '';
   lines.push(`- walked: ${scan.walked} commit(s)${skipped}`);
   if (scan.shallow) lines.push('- note: history is shallow (truncated); `git fetch --unshallow` reveals more');
@@ -272,6 +355,8 @@ function listingJson(ctx: RecoverContext): unknown {
       keys: read.baseline === null ? 0 : countBaselineKeys(read.baseline),
       dirty,
     },
+    // Each file of a baseline spread over more than one, the root file first; `file` above then counts them together.
+    ...(spread(ctx) ? { files: read.files.map((f) => ({ file: f.file, state: f.state, keys: f.baseline === null ? 0 : countBaselineKeys(f.baseline) })) } : {}),
     walked: scan.walked,
     shallow: scan.shallow,
     skipped: scan.skipped,
@@ -285,11 +370,13 @@ function listingJson(ctx: RecoverContext): unknown {
   };
 }
 
-function applyJson(action: 'written' | 'dry-run' | 'noop', a: Apply, file: string): unknown {
+function applyJson(action: 'written' | 'dry-run' | 'noop', a: Apply, ctx: RecoverContext): unknown {
   return {
     schema_version: 1,
     action,
-    file,
+    file: ctx.suite.baselineFile,
+    // The files written, or that a dry run would write, for a baseline spread over more than one.
+    ...(spread(ctx) ? { files: a.changes.map((c) => c.file) } : {}),
     pick: a.candidate.kind === 'union' ? 'union' : a.candidate.rev.sha,
     mode: a.exact ? 'exact' : 'union',
     keys: countBaselineKeys(a.target),

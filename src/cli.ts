@@ -148,6 +148,7 @@ const RECOVER_OPTIONS = {
   depth: { type: 'string' },
   json: { type: 'boolean', default: false },
   suite: { type: 'string' },
+  config: { type: 'string' },
 } as const;
 
 const HELP_TEXT = `checkride — an agent harness for code repositories
@@ -410,6 +411,13 @@ is removed, and a stale resurrected key is pruned by the ratchet on the next
 full green run. This is also why \`checkride baseline\` is the wrong remedy for
 a clobbered file: a re-capture would grandfather genuinely-new findings too.
 
+Where a local target keeps its keys in a file at its own root, the baseline
+is every such file with the root one. They are recovered together: a commit
+to any of them is a candidate, and --pick writes each restored key to the
+file that owns its check, and only the files that change. The files come
+from the config; when it can't be read, stderr says so and the root file is
+recovered alone.
+
 Options:
   --pick <p>       Apply a candidate: its listing number, its commit sha (the
                    stable handle — prefer it in scripts), or \`union\` (every
@@ -422,6 +430,9 @@ Options:
   --json           Emit the listing / apply result as JSON on stdout
   --suite <name>   Recover the named suite's checkride.<name>.baseline.json,
                    from that file's own history (or set CHECKRIDE_SUITE)
+  --config <path>  Read this config file for the targets whose files the
+                   baseline is spread over (or set CHECKRIDE_CONFIG). Exit 2
+                   with --suite.
   -h, --help       Show this help
 
 Exit codes: 0 listed or applied; 2 usage or environment error (git missing,
@@ -1234,7 +1245,7 @@ async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
     ...(values['dry-run'] ? { dryRun: true } : {}),
     ...(depth !== undefined ? { depth } : {}),
     ...(values.json ? { json: true } : {}),
-    suite: suiteOf(values.suite, home.deps),
+    ...baselineFilesOf(values, home.deps),
   });
   return result.exitCode;
 }

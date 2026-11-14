@@ -286,9 +286,21 @@ function changeTo(map: ShardMap, read: ShardRead, spread: Baseline): ShardChange
  * for a check it owns, which stays where it is until the file is repaired.
  * An entry the read doesn't admit is nobody's to move, and stays too.
  */
-function spreadOver(read: ShardsRead, next: Baseline): ShardChange[] {
-  const frozen = new Set(read.files.filter(unwritable).map((file) => file.file));
+function spreadOver(read: ShardsRead, next: Baseline, left: (file: ShardRead) => boolean = unwritable): ShardChange[] {
+  const frozen = new Set(read.files.filter(left).map((file) => file.file));
   return read.files.flatMap((file) => (frozen.has(file.file) ? [] : changeTo(read.map, file, spreadTo(read.map, file, next, frozen))));
+}
+
+/**
+ * The files `recover` writes for `target`, the whole baseline as it should
+ * read once restored: each check's keys in the file that owns it, and a file
+ * that already says so left out, so restoring `web`'s keys leaves every
+ * other file byte-identical. Unlike every other writer it writes over a file
+ * that couldn't be parsed, which is the damage it exists to repair; a file
+ * outside the repository is still left alone.
+ */
+export function recoverShards(read: ShardsRead, target: Baseline): ShardChange[] {
+  return spreadOver(read, target, (file) => file.state === 'outside');
 }
 
 /**

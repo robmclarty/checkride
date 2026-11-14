@@ -1092,3 +1092,109 @@ describe("checkride baseline diff over a local target's files", () => {
     expect(err.text()).toContain(says);
   });
 });
+
+/**
+ * Contract: `recover` rebuilds every file a baseline is spread over from
+ * their joint history (§CLI, `recover`), and writes only the files that
+ * change.
+ */
+describe("checkride recover over a local target's files", () => {
+  let dir: string;
+
+  async function put(file: string, content: object | string): Promise<void> {
+    await mkdir(dirname(join(dir, file)), { recursive: true });
+    await writeFile(join(dir, file), typeof content === 'string' ? content : `${JSON.stringify(content, null, 2)}\n`);
+  }
+
+  const CONFIG = { targets: { web: { root: 'web', local: true }, api: { root: 'services/api', local: true } } };
+  const WEB_FILE = 'web/checkride.baseline.json';
+  const API_FILE = 'services/api/checkride.baseline.json';
+  const text = (file: string): Promise<string> => readFile(join(dir, file), 'utf8');
+  const held = async (file: string): Promise<Record<string, string[]>> => (JSON.parse(await text(file)) as Baseline).slots;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-shard-recover-contract-'));
+    git(dir, 'init', '-q');
+    await put('checkride.config.json', CONFIG);
+    await put('web/checkride.config.json', { lang: 'ts' });
+    await put('services/api/checkride.config.json', { lang: 'ts' });
+    await put(BASELINE_FILE, slots({ spell: ['s1'] }));
+    await put(WEB_FILE, slots({ 'web:lint': ['w1', 'w2', 'w3'] }));
+    await put(API_FILE, slots({ 'api:lint': ['a1'] }));
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'adopt a baseline, a file to each target');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  async function recover(argv: string[] = []): Promise<{ code: number; out: string; err: string }> {
+    const out = sink();
+    const err = sink();
+    const code = await runCli(['recover', ...argv], { cwd: dir, stdout: out.out, stderr: err.out, env: {} });
+    return { code, out: out.text(), err: err.text() };
+  }
+
+  /** A merge that dropped two of web's keys, committed. */
+  async function clobberWeb(): Promise<void> {
+    await put(WEB_FILE, slots({ 'web:lint': ['w1'] }));
+    git(dir, 'commit', '-q', '-am', 'a merge that dropped web keys');
+  }
+
+  test("rebuilds a clobbered web file from git history, and leaves api's and the root file byte-identical", async () => {
+    await clobberWeb();
+    const [root, api] = [await text(BASELINE_FILE), await text(API_FILE)];
+    const listed = await recover(['--json']);
+    expect(listed.code).toBe(0);
+    expect(JSON.parse(listed.out)).toMatchObject({
+      file: { state: 'ok', keys: 3 },
+      files: [{ file: BASELINE_FILE, state: 'ok', keys: 1 }, { file: WEB_FILE, state: 'ok', keys: 1 }, { file: API_FILE, state: 'ok', keys: 1 }],
+      candidates: [{ kind: 'union', restored: 2 }, { kind: 'snapshot', restored: 2 }],
+    });
+    const applied = await recover(['--pick', 'union']);
+    expect(applied.code).toBe(0);
+    expect(await held(WEB_FILE)).toEqual({ 'web:lint': ['w1', 'w2', 'w3'] });
+    expect(await text(API_FILE)).toBe(api);
+    expect(await text(BASELINE_FILE)).toBe(root);
+    expect(applied.err).toContain('recover: wrote web/checkride.baseline.json — +2 key(s) restored (union with union of 2 snapshot(s)); review with `git diff` and commit\n');
+  });
+
+  test("rebuilds a web file a merge left unparseable, which no other writer goes over", async () => {
+    await put(WEB_FILE, '<<<<<<< HEAD\n{\n');
+    const api = await text(API_FILE);
+    const listed = await recover();
+    expect(listed.out).toContain('- file: `web/checkride.baseline.json` — present but unparseable (treated as no baseline)');
+    expect((await recover(['--pick', 'union'])).code).toBe(0);
+    expect(await held(WEB_FILE)).toEqual({ 'web:lint': ['w1', 'w2', 'w3'] });
+    expect(await text(API_FILE)).toBe(api);
+  });
+
+  test('a dry run names the file it would write and writes nothing, and --json lists it under files', async () => {
+    await clobberWeb();
+    const before = await text(WEB_FILE);
+    expect((await recover(['--pick', 'union', '--dry-run'])).out).toContain('Would write web/checkride.baseline.json with 5 key(s): +2 restored, −0 dropped.');
+    expect(JSON.parse((await recover(['--pick', 'union', '--dry-run', '--json'])).out)).toMatchObject({ action: 'dry-run', file: BASELINE_FILE, files: [WEB_FILE], restored: 2 });
+    expect(await text(WEB_FILE)).toBe(before);
+  });
+
+  test("with a config that can't be read it warns and recovers the root file alone", async () => {
+    await put(BASELINE_FILE, slots({ spell: [] }));
+    await put(WEB_FILE, slots({ 'web:lint': [] }));
+    git(dir, 'commit', '-q', '-am', 'a merge that dropped keys from two files');
+    await put('checkride.config.json', '{ "targets": ');
+    const web = await text(WEB_FILE);
+    const applied = await recover(['--pick', 'union']);
+    expect(applied.code).toBe(0);
+    expect(applied.err).toMatch(/^recover: can't read the config \(.+\), so it recovers checkride\.baseline\.json alone\n/);
+    expect(await held(BASELINE_FILE)).toEqual({ spell: ['s1'] });
+    expect(await text(WEB_FILE)).toBe(web);
+    expect(applied.err).toContain('recover: wrote checkride.baseline.json — +1 key(s) restored');
+  });
+
+  test('--config names the config whose targets say which files are recovered, and is exit 2 beside --suite or when missing', async () => {
+    await clobberWeb();
+    await put('only-api.json', { targets: { api: CONFIG.targets.api } });
+    // web's file is none of this config's, so its history offers nothing.
+    expect((await recover(['--config', 'only-api.json'])).out).toContain('The current file matches every recent committed state — nothing to recover.');
+    expect((await recover(['--config', 'nope.json'])).code).toBe(2);
+    expect((await recover(['--config', 'only-api.json', '--suite', 'evals'])).code).toBe(2);
+  });
+});

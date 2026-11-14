@@ -12,7 +12,7 @@ export type { FallowVerdict } from './fallow.js';
 export { fallowVerdict } from './fallow.js';
 export type { BaselineDelta, Candidate, HistoryScan, Recount } from './history.js';
 export {
-  baselineDirty,
+  baselinesDirty,
   collectCandidates,
   DEFAULT_DEPTH,
   diffBaselines,
@@ -21,8 +21,8 @@ export {
   unionBaselines,
 } from './history.js';
 export type { DeclaredAt, ShardChange, ShardMap, ShardsRead } from './shards.js';
-export { captureShards, ratchetShards, readShards, readShardsAt, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, unwritableShard, writeShards } from './shards.js';
-export type { Baseline, BaselineEntry, BaselineRead, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
+export { captureShards, ratchetShards, readShards, readShardsAt, recoverShards, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, unwritableShard, writeShards } from './shards.js';
+export type { Baseline, BaselineEntry, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,
   BASELINE_FILE,

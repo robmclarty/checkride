@@ -603,24 +603,18 @@ const EMPTY_BASELINE: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slot
 
 /**
  * The working tree's baseline for a diff, every file of it, with whether
- * one config stands for both sides: a config handed in or named, and no
- * config at all once the repo's own can't be read, which stderr says, since
- * the diff then compares the root file alone. A file that can't be read is
- * an error, as the root file's always was.
+ * one config stands for both sides. A config that can't be read is said on
+ * stderr, since the diff then compares the root file alone. A file that
+ * can't be read is an error, as the root file's always was.
  */
 function workingForDiff(options: BaselineDiffOptions, cwd: string, suite: Suite): { read: ShardsRead; oneConfig: boolean } {
-  const file = suite.baselineFile;
-  const declared = targetsForBaseline({
-    cwd,
-    suite,
-    ...(options.config !== undefined ? { config: options.config } : {}),
-    ...(options.configPath !== undefined ? { configPath: options.configPath } : {}),
-  });
-  const unread = 'problem' in declared;
-  if (unread) (options.stderr ?? process.stderr).write(`baseline diff: can't read the config (${declared.problem}), so it compares ${file} alone\n`);
-  const read = readShards(cwd, shardMap(file, unread ? undefined : declared.targets));
+  const declared = targetsForBaseline(cwd, suite, options);
+  if (declared.problem !== null) {
+    (options.stderr ?? process.stderr).write(`baseline diff: can't read the config (${declared.problem}), so it compares ${suite.baselineFile} alone\n`);
+  }
+  const read = readShards(cwd, shardMap(suite.baselineFile, declared.targets));
   for (const f of read.files) refuseUnread(f);
-  return { read, oneConfig: unread || options.config !== undefined || options.configPath !== undefined };
+  return { read, oneConfig: declared.oneConfig };
 }
 
 /** Stop a diff on a working-tree file it can't read: one that can't be parsed, or that sits outside the repository. */
