@@ -1,0 +1,14 @@
+{
+  "name": "checkride-example-local-targets",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A web app and an API as local targets: the root config names their roots, and each team's own checkride.config.json holds its checks.",
+  "type": "module",
+  "scripts": {
+    "check": "checkride"
+  },
+  "devDependencies": {
+    "checkride": "link:../..",
+    "typescript": "6.0.3"
+  }
+}

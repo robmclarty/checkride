@@ -65,6 +65,11 @@
       "files": ["checkride.config.json", "examples/*/checkride.config.json", "examples/shared-preset/preset/{preset,strict}.json", "test/fixtures/invariance/examples/*/checkride.config.json"],
       "schema": "checkride:checkride-config",
       "note": "Every config in the tree that is meant to load: this one, each example's, and the frozen invariance subject's. A config that is deliberately invalid lives in a test as a literal, never as a file these globs reach."
+    },
+    {
+      "files": ["examples/local-targets/{web,services/api}/checkride.config.json"],
+      "schema": "checkride:checkride-local",
+      "note": "The local targets' own files, which hold less than a repo's config does and so have a schema of their own."
     }
   ]
 }

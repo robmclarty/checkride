@@ -1,0 +1,7 @@
+{
+  "targets": {
+    "web": { "root": "web", "local": true },
+    "api": { "root": "services/api", "local": true }
+  },
+  "unclaimed": { "ignore": ["package.json"] }
+}

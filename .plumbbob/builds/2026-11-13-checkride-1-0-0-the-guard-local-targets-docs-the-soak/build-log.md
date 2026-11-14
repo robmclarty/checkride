@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 4 — feat(config): read a local target's config
+**Current step:** 5 — feat(examples): add a web and api example with local targets
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -27,7 +27,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 2. feat(cli): add --summary github for the step summary
 - ☑ 3. feat(api)!: trim the barrel to the names consumers use
 - ☑ 21. fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing
-- ☐ 4. feat(config): read a local target's config
+- ☑ 4. feat(config): read a local target's config
 - ☐ 5. feat(examples): add a web and api example with local targets
 - ☐ 6. feat(config): read included config files with flat target names
 - ☐ 7. feat(cli): find the repo's config from inside a target
@@ -328,3 +328,5 @@ folder, so it rides the branch into the PR.)*
   **4.** The contract lost its promises about the registries' data
 
   The paragraphs on the four registries, the optional fields of an adapter row and of a `TOOLS` row, and `suiteNamed` left the contract, because what they described is no longer public. The Timeouts section now says "the built-in default of 600 seconds", and the pin-source paragraph no longer names `TOOLS`. `docs/packs.md` still names `TOOLS` six times in prose, which is parked for the docs range.
+
+- 2026-11-14 — step 4 checkpointed · f74492d89 — feat(config): read a local target's config (2 red, 1 drift, 44m)

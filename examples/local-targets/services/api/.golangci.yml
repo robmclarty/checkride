@@ -1,0 +1,4 @@
+# golangci-lint v2: the standard set.
+version: "2"
+linters:
+  default: standard

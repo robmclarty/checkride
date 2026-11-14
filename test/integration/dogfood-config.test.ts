@@ -136,9 +136,10 @@ describe("this repo's checkride.config.json", () => {
   });
 
   /**
-   * The `schema` slot dogfoods both bundled schemas: the plugin's skills
+   * The `schema` slot dogfoods the bundled schemas: the plugin's skills
    * against `checkride:agent-skill`, and every config file in the tree against
-   * `checkride:checkride-config`. A new example's config, or a new skill, has
+   * `checkride:checkride-config`, or, for a local target's own file,
+   * `checkride:checkride-local`. A new example's config, or a new skill, has
    * to land inside these globs, or it ships unvalidated while the slot stays
    * green.
    */
@@ -151,6 +152,10 @@ describe("this repo's checkride.config.json", () => {
 
     const configs = tracked.filter((file) => /(^|\/)checkride(\.[a-z][a-z0-9-]*)?\.config\.json$/.test(file));
     expect(configs).toContain('checkride.config.json');
-    expect(unreached(configs, 'checkride:checkride-config')).toEqual([]);
+    // A local target's file is the one config the config schema doesn't fit; it has its own, and takes no other.
+    const local = configs.filter((file) => !unreached([file], 'checkride:checkride-local').includes(file));
+    expect(local).toEqual(['examples/local-targets/services/api/checkride.config.json', 'examples/local-targets/web/checkride.config.json']);
+    expect(unreached(configs.filter((file) => !local.includes(file)), 'checkride:checkride-config')).toEqual([]);
+    expect(local.filter((file) => !unreached([file], 'checkride:checkride-config').includes(file))).toEqual([]);
   });
 });

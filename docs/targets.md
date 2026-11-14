@@ -175,7 +175,9 @@ team changes its own checks without touching it.
   files are read under the repo being checked.
 
 The bundled schema `checkride:checkride-local` validates these files with the
-[`schema` check](./tools.md#bundled-schemas).
+[`schema` check](./tools.md#bundled-schemas), and
+[`examples/local-targets`](../examples/local-targets/) runs a web app and an
+API this way, end to end.
 
 ## Declaring targets
 

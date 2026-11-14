@@ -1,0 +1,13 @@
+{
+  "lang": "ts",
+  "note": "The web team's file. Nothing here touches the API's checks, or the repo's.",
+  "timeout": 120,
+  "checks": {
+    "types": "tsc",
+    "greeting": {
+      "command": "node",
+      "args": ["--no-warnings", "checks/greeting.mjs"],
+      "description": "The greeting names who it greets"
+    }
+  }
+}

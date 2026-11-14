@@ -1,0 +1,12 @@
+{
+  "lang": "go",
+  "note": "The API team's file: the go pack's checks, and a vet of their own.",
+  "checks": {
+    "lint": "golangci-lint",
+    "vet": {
+      "command": "go",
+      "args": ["vet", "./..."],
+      "description": "go vet"
+    }
+  }
+}

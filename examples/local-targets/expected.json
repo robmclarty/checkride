@@ -1,0 +1,112 @@
+{
+  "description": "Two local targets, a ts app and a go service, whose checks live in the config file at each root, with each plant failing the check its own file declares.",
+  "args": [],
+  "requires": [
+    "go",
+    "golangci-lint"
+  ],
+  "exitCode": 0,
+  "checks": {
+    "web:types": {
+      "ok": true,
+      "skipped": false
+    },
+    "web:greeting": {
+      "ok": true,
+      "skipped": false
+    },
+    "api:types": {
+      "ok": true,
+      "skipped": false
+    },
+    "api:lint": {
+      "ok": true,
+      "skipped": false
+    },
+    "api:test": {
+      "ok": true,
+      "skipped": false
+    },
+    "api:vet": {
+      "ok": true,
+      "skipped": false
+    },
+    "links": {
+      "ok": true,
+      "skipped": false
+    },
+    "unclaimed": {
+      "ok": true,
+      "skipped": false
+    }
+  },
+  "violations": [
+    {
+      "name": "a TypeScript type error in web",
+      "edits": [
+        {
+          "file": "web/src/app.ts",
+          "find": "greeting('world').length",
+          "replace": "greeting('world')"
+        }
+      ],
+      "exitCode": 1,
+      "failing": [
+        "web:types"
+      ]
+    },
+    {
+      "name": "a greeting that drops the name, caught by web's own check",
+      "edits": [
+        {
+          "file": "web/src/greeting.ts",
+          "find": "`hello, ${name}`",
+          "replace": "`hello`"
+        }
+      ],
+      "exitCode": 1,
+      "failing": [
+        "web:greeting"
+      ]
+    },
+    {
+      "name": "a failing Go test in the API",
+      "edits": [
+        {
+          "file": "services/api/internal/greet/greet_test.go",
+          "find": "got != \"Hello, gopher!\"",
+          "replace": "got == \"Hello, gopher!\""
+        }
+      ],
+      "exitCode": 1,
+      "failing": [
+        "api:test"
+      ]
+    },
+    {
+      "name": "a Printf verb go vet refuses, caught by the API's own check",
+      "edits": [
+        {
+          "file": "services/api/cmd/api/main.go",
+          "find": "fmt.Println(greet.Hello(\"gopher\"))",
+          "replace": "fmt.Printf(\"%d\\n\", greet.Hello(\"gopher\"))"
+        }
+      ],
+      "exitCode": 1,
+      "failing": [
+        "api:vet"
+      ]
+    },
+    {
+      "name": "a key in web's file that belongs to the whole repo",
+      "edits": [
+        {
+          "file": "web/checkride.config.json",
+          "find": "\"lang\": \"ts\",",
+          "replace": "\"lang\": \"ts\", \"requirePins\": true,"
+        }
+      ],
+      "exitCode": 2
+    }
+  ]
+}
