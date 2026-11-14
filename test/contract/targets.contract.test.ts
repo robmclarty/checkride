@@ -13,6 +13,11 @@
  * entry may hold, how each refusal names the file, and that a `--config`
  * file and a config handed to `runChecks` compose as the repo's own does.
  *
+ * A config may also `include` the files that declare more targets (D9;
+ * docs/contract.md §Included config files). The third suite locks the flat
+ * names, each refusal and the file it names, and the file `doctor` lists
+ * beside each target.
+ *
  * The real CLI runs in-process with `spawn` faked, as the invariance golden
  * does, so the real adapter rows resolve and launch while nothing is
  * installed. The fake answers every spawn with `{}` on stdout and a stderr line
@@ -464,5 +469,131 @@ describe('local targets', () => {
       expect(code, stderr).toBe(0);
       expect(argvOf(summary, 'web:probe')).toEqual(['node', '-e', 'inside']);
     });
+  });
+});
+
+describe('included config files', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-included-')));
+    vi.stubEnv('CHECKRIDE_OUT', undefined);
+    vi.stubEnv('CHECKRIDE_CONFIG', undefined);
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** Write `files` under the repo, each a JSON value, or text as it is, at a path relative to it. */
+  async function lay(files: Record<string, unknown>): Promise<void> {
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  }
+
+  /** Run the CLI with `argv` in the repo: its exit code, both streams, and the summary when it wrote one. */
+  async function cli(argv: string[] = []): Promise<{ code: number; stdout: string; stderr: string; summary: Summary | null }> {
+    const out = buffer();
+    const err = buffer();
+    const code = await runCli(argv, { cwd: dir, stdout: out.out, stderr: err.out, env: {} });
+    const file = join(dir, '.check', 'summary.json');
+    return { code, stdout: out.text(), stderr: err.text(), summary: existsSync(file) ? (JSON.parse(await readFile(file, 'utf8')) as Summary) : null };
+  }
+
+  /** Run the CLI, expecting the config error `reason`, and nothing run. */
+  async function refused(reason: string, argv: string[] = []): Promise<void> {
+    const { code, stderr, summary } = await cli(argv);
+    expect(code, stderr).toBe(2);
+    expect(stderr).toContain(reason);
+    expect(summary).toBeNull();
+  }
+
+  const off = { links: false, unclaimed: false } as const;
+
+  /** A root config that includes `services`, whose file declares a go target and a local one. */
+  const repo = {
+    'checkride.config.json': { include: ['services'], targets: { web: { lang: 'ts', root: 'web' } }, checks: off, packs: { go: { checks: { probe: say('pack') } } } },
+    'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api' }, billing: { root: 'billing', local: true } } },
+    'services/billing/checkride.config.json': { lang: 'go', checks: { probe: say('local') } },
+    'services/api/.keep': '',
+    'web/.keep': '',
+  };
+
+  test("an included file's targets run under flat names, from roots relative to the file", async () => {
+    await lay(repo);
+    const { code, stderr, summary } = await cli(['--only', 'probe']);
+    expect(code, stderr).toBe(0);
+    expect(summary?.targets).toEqual([
+      { name: 'web', pack: 'ts', root: 'web' },
+      { name: 'api', pack: 'go', root: 'services/api' },
+      { name: 'billing', pack: 'go', root: 'services/billing' },
+    ]);
+    expect(ran(summary)).toEqual(['api:probe', 'billing:probe']);
+    expect(summary?.checks.find((c) => c.name === 'api:probe')).toMatchObject({ target: 'api', cwd: 'services/api', output_file: null });
+    expect(argvOf(summary, 'api:probe')).toEqual(['node', '-e', 'pack']);
+    expect(argvOf(summary, 'billing:probe')).toEqual(['node', '-e', 'local']);
+    // The artifacts sit under the flat name, never a path-shaped one.
+    expect(existsSync(join(dir, '.check', 'api', 'probe.stdout.txt'))).toBe(true);
+    // And --only takes the flat name.
+    expect(ran((await cli(['--only', 'billing'])).summary)).toEqual(['billing:probe']);
+  });
+
+  test('a name declared in two files is exit 2 naming both', async () => {
+    await lay({ ...repo, 'checkride.config.json': { include: ['services'], targets: { api: { lang: 'ts', root: 'web' } } } });
+    await refused("invalid checkride.config.json: target 'api' is declared twice, in checkride.config.json and in services/checkride.config.json: target names are one flat set across every included file");
+  });
+
+  test('a cycle is exit 2 naming the chain', async () => {
+    await lay({ 'checkride.config.json': { include: ['services'] }, 'services/checkride.config.json': { include: ['api'] }, 'services/api/checkride.config.json': { include: ['.'] } });
+    await refused('invalid checkride.config.json: circular include: checkride.config.json -> services/checkride.config.json -> services/api/checkride.config.json -> services/api/checkride.config.json');
+  });
+
+  test.each(['checks', 'packs', 'schemas', 'unclaimed', 'gate', 'changedBase', 'requirePins', 'timeout', 'extends'])('%s in an included file is exit 2 naming the file', async (key) => {
+    await lay({ ...repo, 'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api' } }, [key]: {} } });
+    await refused(`invalid checkride.config.json: services/checkride.config.json sets ${key}, which an included file can't hold: it holds targets, include, note and $schema, and ${key} belongs to the repo's own config`);
+  });
+
+  test('a missing included file, and one that links out of the repo, are exit 2', async () => {
+    await lay({ 'checkride.config.json': { include: ['services'] }, 'web/.keep': '' });
+    await refused('invalid checkride.config.json: checkride.config.json includes services/checkride.config.json, which is missing');
+    const outside = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-included-outside-')));
+    try {
+      await writeFile(join(outside, 'checkride.config.json'), JSON.stringify({ targets: { stolen: { lang: 'ts', root: '.' } } }));
+      await symlink(outside, join(dir, 'services'));
+      await refused('invalid checkride.config.json: checkride.config.json includes services/checkride.config.json, which resolves outside the repository, where checkride reads no config');
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('include in a --config file is exit 2', async () => {
+    await lay(repo);
+    const outside = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-included-named-')));
+    try {
+      await writeFile(join(outside, 'named.json'), JSON.stringify({ include: ['services'] }));
+      await refused(
+        `invalid ${join(outside, 'named.json')}: a config named by --config or CHECKRIDE_CONFIG can't include: an included file's roots are relative to a file inside the repo, and this one can sit outside it`,
+        ['--config', join(outside, 'named.json')],
+      );
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('doctor lists each target with the file that declares it, and a repo with no include keeps its three columns', async () => {
+    await lay(repo);
+    const report = JSON.parse((await cli(['doctor', '--json'])).stdout) as { targets: unknown };
+    expect(report.targets).toEqual([
+      { name: 'web', pack: 'ts', root: 'web', file: 'checkride.config.json' },
+      { name: 'api', pack: 'go', root: 'services/api', file: 'services/checkride.config.json' },
+      { name: 'billing', pack: 'go', root: 'services/billing', file: 'services/checkride.config.json' },
+    ]);
+    expect((await cli(['doctor'])).stdout).toContain(
+      ['  TARGETS', '    web      ts  web               checkride.config.json', '    api      go  services/api      services/checkride.config.json', '    billing  go  services/billing  services/checkride.config.json', ''].join('\n'),
+    );
+    await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web' } }, checks: off } });
+    const plain = JSON.parse((await cli(['doctor', '--json'])).stdout) as { targets: unknown };
+    expect(plain.targets).toEqual([{ name: 'web', pack: 'ts', root: 'web' }]);
   });
 });

@@ -78,6 +78,15 @@
       "propertyNames": { "$ref": "#/definitions/targetName" },
       "additionalProperties": { "$ref": "#/definitions/target" }
     },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))"
+      },
+      "description": "Directories, relative to this file, whose checkride.config.json each declares more targets, with roots relative to itself. An included file holds only targets, include, note and $schema, and may include others; any other key in one is a config error naming the file. Target names are one flat set across every file, so a name two files declare is a config error naming both, and so is a cycle. A preset, a defaults file and a config named by --config can't include. Under a named suite the included file is <dir>/checkride.<suite>.config.json."
+    },
     "packs": {
       "type": "object",
       "description": "Slot config for every target of a pack, keyed by the pack's name. A target's own checks beat it, and it beats the top-level checks.",

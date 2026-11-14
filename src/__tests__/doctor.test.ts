@@ -893,6 +893,33 @@ describe('runDoctor names the mode, the targets, each tool’s pin source and th
     expect(text).toContain('checkride checks this repo as one go project, so no check reads that code.');
   });
 
+  test('with included files: each target with the file that declares it, in the report and as a fourth column', async () => {
+    await put('checkride.config.json', JSON.stringify({ include: ['services'], targets: { web: { lang: 'ts', root: 'apps/web' } }, checks: { links: false } }));
+    await put('services/checkride.config.json', JSON.stringify({ targets: { api: { lang: 'go', root: 'api' }, billing: { root: 'billing', local: true } } }));
+    await put('services/billing/checkride.config.json', JSON.stringify({ lang: 'go' }));
+    await put('services/api/go.mod', 'module example.com/api\n');
+    await put('apps/web/.oxlintrc.json');
+    const std = sink();
+    // No config handed in: doctor loads the repo's own, and reads what it includes.
+    const { report } = await runDoctor({ cwd: dir, env: fakeEnv(), stdout: std, json: false });
+    expect(report.targets).toEqual([
+      { name: 'web', pack: 'ts', root: 'apps/web', file: 'checkride.config.json' },
+      { name: 'api', pack: 'go', root: 'services/api', file: 'services/checkride.config.json' },
+      { name: 'billing', pack: 'go', root: 'services/billing', file: 'services/checkride.config.json' },
+    ]);
+    expect(std.text()).toContain('mode: multi-target (3 targets)');
+    expect(std.text()).toContain(
+      [
+        '  TARGETS',
+        '    web      ts  apps/web          checkride.config.json',
+        '    api      go  services/api      services/checkride.config.json',
+        '    billing  go  services/billing  services/checkride.config.json',
+        '',
+      ].join('\n'),
+    );
+    expect(report.checks.find((c) => c.slot === 'api:types')).toMatchObject({ target: 'api' });
+  });
+
   test('with targets: the mode, a targets table, and each check named and probed from its own target', async () => {
     await put('apps/web/.oxlintrc.json');
     await put('scripts/a.sh', '#!/bin/sh\n');

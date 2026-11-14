@@ -43,7 +43,7 @@ import type { Channel } from './channel.js';
 import { runtime } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
 import type { CheckOrigin, CheckrideConfig, ResolvedCheck } from './config.js';
-import { resolveChecks, tsTargets } from './config.js';
+import { declaringFiles, resolveChecks, tsTargets } from './config.js';
 import type { LibrarySource } from './schema/index.js';
 import { probeSchemaLibraries, schemaLibrarySource } from './schema/index.js';
 import type { Suite } from './suite.js';
@@ -124,7 +124,17 @@ export type DoctorCheck = {
 };
 
 /** A target as `doctor` lists it: its name, pack and root, relative to the repo root. */
-export type DoctorTarget = { name: string; pack: string; root: string };
+export type DoctorTarget = {
+  name: string;
+  pack: string;
+  root: string;
+  /**
+   * The config file that declares the target, relative to the repo root.
+   * Present on every target once the config includes a file, and absent
+   * otherwise, where every target is the config's own.
+   */
+  file?: string;
+};
 
 export type DoctorReport = {
   ok: boolean;
@@ -1425,7 +1435,9 @@ function renderMode(report: DoctorReport, out: Out): void {
   out.write(`  mode: multi-target (${targets.length} target${targets.length === 1 ? '' : 's'})\n\n  TARGETS\n`);
   const name = targets.reduce((n, t) => Math.max(n, t.name.length), 0);
   const pack = targets.reduce((n, t) => Math.max(n, t.pack.length), 0);
-  for (const t of targets) out.write(`    ${t.name.padEnd(name)}  ${t.pack.padEnd(pack)}  ${t.root}\n`);
+  const root = targets.reduce((n, t) => Math.max(n, t.root.length), 0);
+  // The declaring file is a fourth column only where the config includes one; without, the table is as it always was.
+  for (const t of targets) out.write(`    ${t.name.padEnd(name)}  ${t.pack.padEnd(pack)}  ${t.file === undefined ? t.root : `${t.root.padEnd(root)}  ${t.file}`}\n`);
   out.write('\n');
 }
 
@@ -1530,23 +1542,31 @@ function staticSkips(before: readonly ResolvedCheck[], after: readonly ResolvedC
   });
 }
 
+/** `targets` with the file that declares each, where `config` includes files: `configFile` for the config's own. A config that includes none leaves them as they are. */
+function withDeclaringFiles(targets: readonly DoctorTarget[], config: CheckrideConfig | null, configFile: string): DoctorTarget[] {
+  const declaredIn = declaringFiles(config);
+  return declaredIn === null ? [...targets] : targets.map((t) => ({ ...t, file: declaredIn.get(t.name) ?? configFile }));
+}
+
 /**
  * The repo's mode as the report gives it (its targets, or the implicit pack
  * its root marks, and the markers no target claims) and the row that names
- * those markers, when there is one.
+ * those markers, when there is one. Where the config includes files, each
+ * target carries the file that declares it, `configFile` for the config's own.
  */
 async function modeOf(
   cwd: string,
   config: CheckrideConfig | null,
   out: string,
+  configFile: string,
 ): Promise<{ fields: Pick<DoctorReport, 'mode' | 'pack' | 'targets' | 'unclaimed'>; row: DoctorCheck | null }> {
-  const targets = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
-  const implicit = targets === null ? implicitPack(markerAt(cwd)) : null;
-  const unclaimed = await unclaimedMarkers(cwd, config, targets ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], out);
+  const claims = configuredTargets(config)?.map(({ name, pack, root }) => ({ name, pack, root })) ?? null;
+  const implicit = claims === null ? implicitPack(markerAt(cwd)) : null;
+  const unclaimed = await unclaimedMarkers(cwd, config, claims ?? [{ name: '', pack: implicit ?? PACKS.ts.name, root: '.' }], out);
   const fields = {
-    mode: targets === null ? 'implicit' : 'multi-target',
+    mode: claims === null ? 'implicit' : 'multi-target',
     ...(implicit !== null ? { pack: implicit } : {}),
-    ...(targets !== null ? { targets } : {}),
+    ...(claims !== null ? { targets: withDeclaringFiles(claims, config, configFile) } : {}),
     ...(typeof unclaimed === 'string' ? {} : { unclaimed }),
   } as const;
   return { fields, row: markersRow(unclaimed, implicit) };
@@ -1573,7 +1593,7 @@ export async function runDoctor(options: DoctorOptions): Promise<DoctorResult> {
     ...(await checkRows({ ...common, defaults: options.defaults ?? null }, options, pm, env)),
     await checkWritable(cwd, out, env),
   ];
-  const mode = await modeOf(cwd, config, out);
+  const mode = await modeOf(cwd, config, out, suite.configFile);
   checks.push(...(await workspaceRows(common, env, mode.row)));
 
   const ok = checks.every((c) => !c.required || c.status === 'ok');

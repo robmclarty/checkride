@@ -1811,6 +1811,42 @@ read at `<cwd>/<root>/checkride.config.json`, and so may a config handed to
 [`targets.contract.test.ts`](../test/contract/targets.contract.test.ts) holds
 each of these.
 
+**A config includes the files that declare more targets.** `include` is an
+array of directories, each relative to the file that lists it, and
+`<dir>/checkride.config.json` then declares targets whose roots are relative
+to itself. An included file holds `targets`, `include`, `note` and `$schema`,
+and may include others. Under a named suite it is
+`<dir>/checkride.<suite>.config.json`. Every file's targets join one flat
+set, in file order, the config's own first: a target's name, its
+`<target>:<slot>` checks, its summary entry and its `.check/<target>/`
+directory are what they would be had the root config declared it with the
+joined root, and it is held to every rule above. Each of these exits 2 with
+`invalid checkride.config.json: <reason>`, before any check runs:
+
+- A name two files declare:
+  `target 'api' is declared twice, in checkride.config.json and in services/checkride.config.json: …`.
+- A file that includes one already on the way to it:
+  `circular include: checkride.config.json -> services/checkride.config.json -> …`.
+  A file two lists reach declares its targets twice, and is refused as the
+  first of these.
+- A key an included file can't hold, the reason opening with the file:
+  `services/checkride.config.json sets checks, which an included file can't hold: …`.
+- An included file that is missing, isn't a JSON object, declares no targets
+  and includes nothing, or resolves outside the repository, links followed.
+  Files that declare no target between them are refused too.
+- An `include` that isn't an array of directories, or an entry or a root
+  that is absolute or passes through `..`.
+- `include` in a config named by `--config` or `CHECKRIDE_CONFIG`, and in a
+  preset that `extends` names. A defaults file can't hold the key either.
+- A rule above that an included target breaks, with the reason ending in
+  `(in services/checkride.config.json)`. A local target at the directory of
+  the included file that declares it is one of them.
+
+Once a config includes a file, each entry of `doctor --json`'s `targets`
+carries `file`, the config file that declares the target, relative to the
+repo root, and the table gains it as a fourth column. A config that includes
+nothing reports its targets as before.
+
 A top-level key the config schema doesn't declare is no error, since nothing
 reads it, but a run, `fix` and `doctor` each print a warning on stderr naming
 the file that holds it, the repo's config, a preset it extends, or a

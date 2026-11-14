@@ -1502,7 +1502,7 @@ describe('loadConfig', () => {
     expect(loadConfig(dir, (message) => warned.push(message))).toMatchObject({ timeout: 60 });
     expect(warned).toHaveLength(2);
     expect(warned[0]).toBe(
-      'checkride: checkride.config.json has an unknown top-level key "check", which nothing reads (the keys are $schema, note, extends, timeout, changedBase, requirePins, unclaimed, schemas, targets, packs, gate, checks)',
+      'checkride: checkride.config.json has an unknown top-level key "check", which nothing reads (the keys are $schema, note, extends, timeout, changedBase, requirePins, unclaimed, schemas, targets, include, packs, gate, checks)',
     );
     expect(warned[1]).toMatch(/^checkride: \S*base\.json has an unknown top-level key "gaet", which nothing reads/);
     // Without a hook it stays silent, as every caller but a run, fix and doctor wants.

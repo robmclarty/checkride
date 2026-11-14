@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
-import { composedConfig, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
+import { composedConfig, declaringFiles, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
 import { suiteNamed } from '../suite.js';
 import { chainCanRun } from '../launch/index.js';
 import { checkName, implicitPack } from '../targets/index.js';
@@ -835,6 +835,201 @@ describe('a local target keeps the rest of itself in the file at its root (D8)',
       await symlink(join(outside, 'preset.json'), join(repo, 'web', 'team.json'));
       await lay({ 'web/checkride.config.json': { extends: './team.json', lang: 'ts' } });
       expect(load).toThrow('extends "./team.json" (in web/checkride.config.json) resolves outside the repository');
+    });
+  });
+});
+
+describe('a config includes the files that declare more targets (D9)', () => {
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'checkride-include-'));
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  /** Write `files` under the repo, each a JSON value, or text as it is, at a path relative to it. */
+  async function lay(files: Record<string, unknown>): Promise<void> {
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(dirname(join(repo, path)), { recursive: true });
+      await writeFile(join(repo, path), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  }
+
+  const load = (): CheckrideConfig | null => loadConfig(repo);
+  const probe = { command: 'node', args: ['-e', ''] };
+
+  /** A repo whose root config includes `services`, which declares a go target and a local one. */
+  const services = {
+    'checkride.config.json': { include: ['services'], targets: { web: { lang: 'ts', root: 'web' } }, packs: { go: { checks: { probe } } } },
+    'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api' }, billing: { root: 'billing', local: true } } },
+    'services/billing/checkride.config.json': { lang: 'go', checks: { own: probe } },
+    'services/api/.keep': '',
+    'web/.keep': '',
+  };
+
+  test("an included file's targets join the repo's, roots relative to the file, names flat", async () => {
+    await lay(services);
+    const config = load();
+    // As written, the config still says what it includes.
+    expect(config).toMatchObject({ include: ['services'], targets: { web: { lang: 'ts', root: 'web' } } });
+    const whole = composedConfig(config, repo);
+    expect(whole).not.toHaveProperty('include');
+    expect(whole?.targets).toEqual({
+      web: { lang: 'ts', root: 'web' },
+      api: { lang: 'go', root: 'services/api' },
+      billing: { lang: 'go', checks: { own: probe }, root: 'services/billing', local: true },
+    });
+    expect([...(declaringFiles(whole) ?? [])]).toEqual([['api', 'services/checkride.config.json'], ['billing', 'services/checkride.config.json']]);
+    expect(declaringFiles(config)).toBeNull();
+    expect(composedConfig(whole, repo)).toBe(whole);
+
+    const checks = new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo }).map((c) => [checkName(c), c]));
+    // The repo's packs block reaches an included target, and a local one keeps its own file's checks.
+    expect(check(checks, 'api:probe')).toMatchObject({ target: 'api', root: 'services/api', pack: 'go' });
+    expect(check(checks, 'billing:own')).toMatchObject({ target: 'billing', root: 'services/billing' });
+    expect(checks.has('web:types')).toBe(true);
+  });
+
+  test('an included file may include others, and a config may include with no targets of its own', async () => {
+    await lay({
+      'checkride.config.json': { include: ['services'] },
+      'services/checkride.config.json': { include: ['billing', 'api'] },
+      'services/billing/checkride.config.json': { targets: { billing: { lang: 'go', root: '.' } } },
+      'services/api/checkride.config.json': { targets: { api: { lang: 'go', root: 'v2' } } },
+      'services/api/v2/.keep': '',
+    });
+    const whole = composedConfig(load(), repo);
+    expect(whole?.targets).toEqual({ billing: { lang: 'go', root: 'services/billing' }, api: { lang: 'go', root: 'services/api/v2' } });
+    expect(declaringFiles(whole)?.get('api')).toBe('services/api/checkride.config.json');
+  });
+
+  test('a config with no include has no declaring files, and composes as before', async () => {
+    await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web' } } }, 'web/.keep': '' });
+    const config = load();
+    expect(composedConfig(config, repo)).toBe(config);
+    expect(declaringFiles(config)).toBeNull();
+  });
+
+  test("a named suite includes its own files, <dir>/checkride.<suite>.config.json (D34)", async () => {
+    await lay({
+      'checkride.evals.config.json': { include: ['services'] },
+      'services/checkride.config.json': { targets: { nope: { lang: 'go', root: 'api' } } },
+      'services/checkride.evals.config.json': { targets: { api: { lang: 'go', root: 'api', checks: { evals: probe } } } },
+      'services/api/.keep': '',
+    });
+    const suite = suiteNamed('evals');
+    const config = loadConfig(repo, undefined, suite.configFile);
+    expect(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo, suite }).map(checkName)).toEqual(['api:evals']);
+    expect(declaringFiles(composedConfig(config, repo, suite))?.get('api')).toBe('services/checkride.evals.config.json');
+  });
+
+  describe('what it refuses, each naming the file', () => {
+    test('a name declared in two files names both', async () => {
+      await lay({ ...services, 'checkride.config.json': { include: ['services'], targets: { api: { lang: 'ts', root: 'web' } } } });
+      expect(load).toThrow(invalid("target 'api' is declared twice, in checkride.config.json and in services/checkride.config.json: target names are one flat set across every included file"));
+    });
+
+    test('a cycle names the chain, and so does a file that includes itself', async () => {
+      await lay({
+        'checkride.config.json': { include: ['a'] },
+        'a/checkride.config.json': { include: ['b'] },
+        'a/b/checkride.config.json': { include: ['.'] },
+      });
+      expect(load).toThrow(invalid('circular include: checkride.config.json -> a/checkride.config.json -> a/b/checkride.config.json -> a/b/checkride.config.json'));
+      await lay({ 'checkride.config.json': { include: ['.'] } });
+      expect(load).toThrow(invalid('circular include: checkride.config.json -> checkride.config.json'));
+    });
+
+    test('a file two lists reach declares its targets twice', async () => {
+      await lay({
+        'checkride.config.json': { include: ['services', 'services/api'] },
+        'services/checkride.config.json': { include: ['api'] },
+        'services/api/checkride.config.json': { targets: { api: { lang: 'go', root: '.' } } },
+      });
+      expect(load).toThrow(invalid("target 'api' is declared twice, in services/api/checkride.config.json and in services/api/checkride.config.json"));
+    });
+
+    test.each(['checks', 'packs', 'schemas', 'extends', 'timeout', 'lang'])('%s in an included file', async (key) => {
+      await lay({ ...services, 'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api' } }, [key]: {} } });
+      expect(load).toThrow(invalid(`services/checkride.config.json sets ${key}, which an included file can't hold: it holds targets, include, note and $schema, and ${key} belongs to the repo's own config`));
+    });
+
+    test('a missing included file names its path and the file that includes it', async () => {
+      await lay({ 'checkride.config.json': { include: ['services'] }, 'services/.keep': '' });
+      expect(load).toThrow(invalid('checkride.config.json includes services/checkride.config.json, which is missing'));
+    });
+
+    test('an included file that is not JSON names itself', async () => {
+      await lay({ 'checkride.config.json': { include: ['services'] }, 'services/checkride.config.json': '{ nope' });
+      expect(load).toThrow(/^invalid checkride\.config\.json: .* \(in services\/checkride\.config\.json\)$/);
+    });
+
+    test('an include list that is no list of directories below the file', async () => {
+      await lay({ 'checkride.config.json': { include: 'services' } });
+      expect(load).toThrow(invalid('include (in checkride.config.json) must be an array of directories'));
+      await lay({ 'checkride.config.json': { include: ['services'] }, 'services/checkride.config.json': { include: ['../web'] } });
+      expect(load).toThrow(invalid('include (in services/checkride.config.json) holds "../web", which leaves the directory of the file that lists it'));
+    });
+
+    test('files that declare no target between them', async () => {
+      await lay({ 'checkride.config.json': { include: ['services'] }, 'services/checkride.config.json': { targets: {} } });
+      expect(load).toThrow(invalid('include names services/checkride.config.json, and no file declares a target: declare one, or drop include'));
+    });
+
+    test('a rule an included target breaks names its file', async () => {
+      await lay({ ...services, 'services/checkride.config.json': { targets: { api: { lang: 'nope', root: 'api' } } } });
+      expect(load).toThrow(invalid('targets.api.lang "nope" isn\'t a pack (packs: ts, bash, go, rust, python, terraform, odin) (in services/checkride.config.json)'));
+      await lay({ ...services, 'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'gone' } } } });
+      expect(load).toThrow(invalid('targets.api.root "services/gone" doesn\'t exist in the repo (in services/checkride.config.json)'));
+      await lay({ ...services, 'services/checkride.config.json': { targets: { api: { lang: 'go', root: '../web' } } } });
+      expect(load).toThrow(invalid('targets.api.root "../web" leaves the directory of the file that declares it: give a directory relative to services/checkride.config.json (in services/checkride.config.json)'));
+    });
+
+    test("a local target at an included file's own directory names that file (D44)", async () => {
+      await lay({ 'checkride.config.json': { include: ['services'] }, 'services/checkride.config.json': { targets: { all: { root: '.', local: true } } } });
+      expect(load).toThrow(invalid("targets.all is local at 'services', where its file would be services/checkride.config.json, the file that declares it"));
+    });
+
+    test('two targets of one pack still cannot nest across files', async () => {
+      await lay({
+        'checkride.config.json': { include: ['services'], targets: { all: { lang: 'go', root: 'services' } } },
+        'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api' } } },
+        'services/api/.keep': '',
+      });
+      expect(load).toThrow(invalid("go target 'api' sits inside 'all' ('services/api' is under 'services'), and two targets of one pack can't nest"));
+    });
+
+    test('a preset that sets include, as one that declares targets', async () => {
+      await lay({ 'checkride.config.json': { extends: './preset.json' }, 'preset.json': { include: ['services'] } });
+      expect(load).toThrow(invalid('extends "./preset.json" sets include (in checkride.config.json): a preset can\'t know a repo\'s files, so only the repo\'s own config may include them'));
+    });
+
+    test("include in a --config file (D36), which may still declare local targets", async () => {
+      const outside = await mkdtemp(join(tmpdir(), 'checkride-include-named-'));
+      try {
+        await lay(services);
+        await writeFile(join(outside, 'named.json'), JSON.stringify({ include: ['services'] }));
+        expect(() => loadConfigFile(join(outside, 'named.json'), repo)).toThrow(
+          `invalid ${join(outside, 'named.json')}: a config named by --config or CHECKRIDE_CONFIG can't include: an included file's roots are relative to a file inside the repo, and this one can sit outside it`,
+        );
+        await writeFile(join(outside, 'named.json'), JSON.stringify({ targets: { billing: { root: 'services/billing', local: true } } }));
+        expect(composedConfig(loadConfigFile(join(outside, 'named.json'), repo), repo)?.targets?.['billing']).toMatchObject({ lang: 'go' });
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+
+    test('an included file that links out of the repo is never read', async () => {
+      const outside = await mkdtemp(join(tmpdir(), 'checkride-include-outside-'));
+      try {
+        await writeFile(join(outside, 'checkride.config.json'), JSON.stringify({ targets: { stolen: { lang: 'ts', root: '.' } } }));
+        await lay({ 'checkride.config.json': { include: ['services'] } });
+        await symlink(outside, join(repo, 'services'));
+        expect(load).toThrow(invalid('checkride.config.json includes services/checkride.config.json, which resolves outside the repository, where checkride reads no config'));
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
   });
 });

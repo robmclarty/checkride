@@ -49,6 +49,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `checkride:checkride-local`. [Targets](docs/targets.md#local-targets) has
   the rules.
 
+- **A config can include the files that declare more targets.** A root config
+  lists `"include": ["services"]`, and `services/checkride.config.json` then
+  declares targets with roots relative to itself. An included file holds
+  `targets`, `include`, `note` and `$schema`, and may include others. Target
+  names stay one flat set across every file, so `--only api`, `api:lint` and
+  `.check/api/` don't change with where a target is declared. A name two
+  files declare is exit 2 naming both, and so are a cycle, a key an included
+  file can't hold, a missing file, and `include` in a `--config` file or a
+  preset. `checkride doctor` lists each target with the file that declares
+  it. [Targets](docs/targets.md#included-config-files) has the rules.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -77,6 +88,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their exit 2, the preset warning and the containment rule on the file and
   its preset paths are promised, and locked by `targets.contract.test.ts`.
   A config with no local target reads as before.
+- **`include` joins the config's top-level keys.** The targets of the files
+  it names join the config's own under flat names, the refusals above are
+  exit 2, and each names the file at fault. `doctor --json`'s `targets`
+  entries gain `file` once a config includes one, and the table a fourth
+  column; a config that includes nothing reports as before.
 - **A third bundled schema, `checkride:checkride-local`.** The error for an
   unknown bundled id now lists three, as `a, b and c`.
 - **The programmatic surface shrinks to two functions and five types.** The

@@ -2,8 +2,8 @@
  * Targets module — named (pack, root) pairs, the rules a config's `targets`
  * and `packs` blocks keep, the token grammar that selects checks by slot,
  * custom name or target, which targets a `--changed` run leaves out, the
- * files a file-list target's checks run over, and the keys a local target
- * and its file each hold. This
+ * files a file-list target's checks run over, the keys a local target and
+ * its file each hold, and how an included file's targets join the repo's. This
  * barrel is the module's only public surface: siblings import from
  * `../targets/index.js`, never from a file inside it.
  */
@@ -26,6 +26,8 @@ export {
   takesFiles,
   targetFiles,
 } from './files.js';
+export { includedDir, includedFileProblem, includeListProblem, joinedTargets } from './include.js';
+export type { DeclaringFile } from './include.js';
 export { composedEntry, declaresLocal, heldByLocal, isLocalEntry, localFileOf, localFileProblem, unreadWarnings } from './local.js';
 export { markerAt } from './markers.js';
 export {

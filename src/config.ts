@@ -39,7 +39,7 @@ import { declaresItsChecks, DEFAULT_SUITE } from './suite.js';
 import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.js';
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
-import type { Target, TsTarget } from './targets/index.js';
+import type { DeclaringFile, Target, TsTarget } from './targets/index.js';
 import {
   checkKeys,
   composedEntry,
@@ -48,8 +48,12 @@ import {
   declaresLocal,
   heldByLocal,
   implicitPack,
+  includedDir,
+  includedFileProblem,
+  includeListProblem,
   isAbsoluteForm,
   isLocalEntry,
+  joinedTargets,
   localFileOf,
   localFileProblem,
   localTargetsProblem,
@@ -270,6 +274,15 @@ export type CheckrideConfig = Noted & {
    * them, because only the repo knows its own.
    */
   targets?: Record<string, TargetConfig>;
+  /**
+   * Directories, relative to this file, whose `checkride.config.json` each
+   * declares more targets, with roots relative to itself. An included file
+   * holds `targets`, `include`, `note` and `$schema` alone, and may include
+   * others. Target names are one flat set across every file. Only the repo's
+   * own config includes: a preset, a defaults file and a `--config` file
+   * can't. Folded away by {@link composedConfig}.
+   */
+  include?: string[];
   /** Slot config for every target of a pack, keyed by the pack's name. */
   packs?: Partial<Record<PackName, PackConfig>>;
   /** When true, a tool that resolves from `PATH` with no pin declaring it fails its check. Default false. */
@@ -456,6 +469,7 @@ export const CONFIG_KEYS: ReadonlySet<string> = new Set([
   'unclaimed',
   'schemas',
   'targets',
+  'include',
   'packs',
   'gate',
   'checks',
@@ -848,11 +862,21 @@ function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain
     }
     if (chain.local !== undefined && isFilePath(spec)) baseAbs = containedPreset(baseAbs, spec, chain, chain.local);
     const base = resolveConfigFile(baseAbs, { ...chain, stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs) });
-    const problem = presetProblem(base, spec, label);
+    const problem = presetProblem(base, spec, label) ?? presetIncludeProblem(base, spec, chain);
     if (problem !== null) invalidConfig(problem, undefined, root);
     merged = deepMerge(merged, placedBase(base, chain));
   }
   return merged;
+}
+
+/**
+ * Why preset `base`, which `spec` names, can't set `include`, or `null`: like
+ * `targets`, the files a repo includes are the repo's own to say. A local
+ * target's file is the exception, since its `include` is a list of globs.
+ */
+function presetIncludeProblem(base: Record<string, unknown>, spec: string, chain: Chain): string | null {
+  if (chain.local !== undefined || !('include' in base)) return null;
+  return `extends ${show(spec)} sets include (in ${chain.label}): a preset can't know a repo's files, so only the repo's own config may include them`;
 }
 
 /**
@@ -921,16 +945,17 @@ function rootedChain(chain: Chain, own: Record<string, unknown>): Chain {
  * is held to them composed with their files, named `localFile` at each root,
  * so a broken local file stops the load; the config comes back as written.
  */
-function validated(config: Record<string, unknown>, cwd: string, file: string, local: { file: string; warn?: ConfigWarning }): CheckrideConfig {
+function validated(config: Record<string, unknown>, cwd: string, file: string, local: { file: string; warn?: ConfigWarning; named?: boolean }): CheckrideConfig {
   if (file !== CONFIG_FILE) LABELS.set(config, file);
+  if (local.named === true) NAMED.add(config);
   // Composing holds the composed config to every rule, so only a config with no local target is left to check here.
   if (composed(config, cwd, local.file, local.warn) === config) assertShape(config, cwd, local.file);
   return config;
 }
 
-/** Throw the friendly error for the first rule `config` breaks, read as the repo's own with local files named `localFile`. */
-function assertShape(config: Record<string, unknown>, cwd: string, localFile: string): void {
-  const problem = shapeProblem(config, cwd, 'repo', localFile) ?? schemaClashProblem({ config, defaults: null });
+/** Throw the friendly error for the first rule `config` breaks, read as the repo's own with local files named `localFile`, and `declaredIn` naming the included file each target came from. */
+function assertShape(config: Record<string, unknown>, cwd: string, localFile: string, declaredIn?: ReadonlyMap<string, string>): void {
+  const problem = shapeProblem(config, cwd, 'repo', { localFile, ...(declaredIn === undefined ? {} : { declaredIn }) }) ?? schemaClashProblem({ config, defaults: null });
   if (problem !== null) invalidConfig(problem, undefined, labelOf(config));
 }
 
@@ -940,42 +965,151 @@ function assertShape(config: Record<string, unknown>, cwd: string, localFile: st
  * that module owns them and reads the targets module itself. The one place
  * the two are joined, for the repo's config and a defaults file alike.
  */
-function shapeProblem(config: Record<string, unknown>, cwd: string, layer: 'repo' | 'defaults', localFile: string = CONFIG_FILE): string | null {
-  return configProblem(config, { cwd, layer, schemas: schemaRulesProblem, localFile });
+function shapeProblem(
+  config: Record<string, unknown>,
+  cwd: string,
+  layer: 'repo' | 'defaults',
+  files: { localFile?: string; declaredIn?: ReadonlyMap<string, string> } = {},
+): string | null {
+  return configProblem(config, { cwd, layer, schemas: schemaRulesProblem, ...files });
 }
 
-/** Each config composed with its local targets' files, by the name those files went by. */
+/** Each config composed with the files it includes and its local targets' files, by the name those files went by. */
 const COMPOSED = new WeakMap<object, Map<string, CheckrideConfig>>();
 
+/** The composed configs, each of which composes to itself. */
+const WHOLE = new WeakSet<object>();
+
+/** The configs a path outside the repo's own named (`--config`, `CHECKRIDE_CONFIG`), which can't include: an included file's roots are relative to a file inside the repo. */
+const NAMED = new WeakSet<object>();
+
+/** For each composed config that includes files, the file that declares each of its targets. */
+const DECLARED_IN = new WeakMap<object, ReadonlyMap<string, string>>();
+
 /**
- * `config` with each local target composed with its file: the entry's `root`
- * and `local`, and the `lang`, `checks`, `include`, `exclude` and `timeout`
- * that `<root>/<localFile>` holds, presets folded in. A config with no local
- * target comes back as it is, and so does one already composed. The composed
- * config is held to every rule a config keeps, so a broken local file is the
- * friendly config error, naming that file. Read once per config: a second
- * call returns the first one's answer, and warns about nothing again.
+ * `config` as a run reads it. First the files it includes join it: each
+ * directory `include` lists holds a config file named `fileName`, whose
+ * targets, roots relative to itself, join the config's own as one flat set,
+ * and which may include others. Then each local target is composed with its
+ * file: the entry's `root` and `local`, and the `lang`, `checks`, `include`,
+ * `exclude` and `timeout` that `<root>/<fileName>` holds, presets folded in.
+ *
+ * A config with neither comes back as it is, and so does one already
+ * composed. The composed config is held to every rule a config keeps, so a
+ * broken included or local file is the friendly config error, naming that
+ * file. Read once per config: a second call returns the first one's answer,
+ * and warns about nothing again.
  */
-function composed(config: CheckrideConfig, cwd: string, localFile: string, warn?: ConfigWarning): CheckrideConfig {
-  const targets: unknown = config.targets;
-  if (!declaresLocal(targets)) return config;
-  const known = COMPOSED.get(config)?.get(localFile);
+function composed(config: CheckrideConfig, cwd: string, fileName: string, warn?: ConfigWarning): CheckrideConfig {
+  if (WHOLE.has(config) || (config.include === undefined && !declaresLocal(config.targets))) return config;
+  const known = COMPOSED.get(config)?.get(fileName);
   if (known !== undefined) return known;
   const label = labelOf(config);
-  const problem = localTargetsProblem(targets, cwd, localFile);
-  if (problem !== null) invalidConfig(problem, undefined, label);
-  const contain = repoRoot(cwd);
+  const read: LocalRead = { cwd, contain: repoRoot(cwd), label, ...(warn === undefined ? {} : { warn }) };
+  const joined = withIncluded(config, fileName, read);
+  const whole = withLocalFiles(joined.config, fileName, read, joined.declaredIn);
+  if (label !== CONFIG_FILE) LABELS.set(whole, label);
+  assertShape(whole, cwd, fileName, joined.declaredIn);
+  WHOLE.add(whole);
+  if (joined.declaredIn.size > 0) DECLARED_IN.set(whole, joined.declaredIn);
+  COMPOSED.set(config, new Map([...(COMPOSED.get(config) ?? []), [fileName, whole]]));
+  return whole;
+}
+
+/**
+ * `config`, its included files already joined, with each local target
+ * composed with the file at its root, named `fileName`. The local entries
+ * are held to their own rules first, so no file is read for an entry that
+ * breaks one. A config whose `targets` is no object comes back as it is,
+ * for the config's rules to name.
+ */
+function withLocalFiles(config: Record<string, unknown>, fileName: string, read: LocalRead, declaredIn: ReadonlyMap<string, string>): Record<string, unknown> {
+  const targets = config['targets'];
+  if (!isRecord(targets)) return config;
+  const problem = localTargetsProblem(targets, read.cwd, fileName, declaredIn);
+  if (problem !== null) invalidConfig(problem, undefined, read.label);
   const entries = Object.entries(targets).map(([name, entry]) => {
     if (!isLocalEntry(entry)) return [name, entry];
-    const file = localFileOf(posix.normalize(String(entry['root'])), localFile);
-    return [name, composedEntry(entry, readLocalFile(name, file, { cwd, contain, label, ...(warn === undefined ? {} : { warn }) }))];
+    return [name, composedEntry(entry, readLocalFile(name, localFileOf(String(entry['root']), fileName), read))];
   });
-  const whole: CheckrideConfig = { ...config, targets: Object.fromEntries(entries) };
-  if (label !== CONFIG_FILE) LABELS.set(whole, label);
-  assertShape(whole, cwd, localFile);
-  // The composed config composes to itself, so a caller that composes twice reads nothing twice.
-  for (const key of [config, whole]) COMPOSED.set(key, new Map([...(COMPOSED.get(key) ?? []), [localFile, whole]]));
-  return whole;
+  return { ...config, targets: Object.fromEntries(entries) };
+}
+
+/**
+ * `config` with the targets of every file it includes joined to its own, and
+ * `include` folded away, with the included file that declares each target
+ * one declares. A config that includes nothing comes back as it is.
+ */
+function withIncluded(config: CheckrideConfig, fileName: string, read: LocalRead): { config: Record<string, unknown>; declaredIn: ReadonlyMap<string, string> } {
+  const { include, ...rest } = config;
+  if (include === undefined) return { config, declaredIn: new Map() };
+  if (NAMED.has(config)) {
+    invalidConfig(
+      "a config named by --config or CHECKRIDE_CONFIG can't include: an included file's roots are relative to a file inside the repo, and this one can sit outside it. Declare the targets here, or make them local",
+      undefined,
+      read.label,
+    );
+  }
+  const own: unknown = config.targets;
+  // A `targets` that is no object is the config's own problem to report, before any file is read.
+  if (own !== undefined && !isRecord(own)) assertShape(rest, read.cwd, fileName);
+  const top: DeclaringFile = { file: fileName, dir: '.', targets: isRecord(own) ? own : {} };
+  const files = [top, ...includedFiles(include, top, fileName, read, [fileName])];
+  const joined = joinedTargets(files);
+  if (typeof joined === 'string') invalidConfig(joined, undefined, read.label);
+  if (Object.keys(joined.targets).length === 0) {
+    invalidConfig(`include names ${files.slice(1).map((f) => f.file).join(', ')}, and no file declares a target: declare one, or drop include`, undefined, read.label);
+  }
+  // Only the included files' targets are recorded: a target of the config's own needs no file named.
+  const declaredIn = new Map([...joined.declaredIn].filter(([, file]) => file !== fileName));
+  return { config: { ...rest, targets: joined.targets }, declaredIn };
+}
+
+/**
+ * Every file the `include` list of `from` reaches, depth first in list
+ * order, each read where it really is in the repository. `trail` is the
+ * chain of files that led here, which a file that includes one of them
+ * closes into a cycle. A file reached twice by any other road would declare
+ * its targets twice, and {@link joinedTargets} names it.
+ */
+function includedFiles(include: unknown, from: DeclaringFile, fileName: string, read: LocalRead, trail: readonly string[]): DeclaringFile[] {
+  const problem = includeListProblem(include, from.file);
+  if (problem !== null) invalidConfig(problem, undefined, read.label);
+  const entries: string[] = Array.isArray(include) ? include.filter((entry) => typeof entry === 'string') : [];
+  return entries.flatMap((entry) => {
+    const dir = includedDir(from.dir, entry);
+    const file = localFileOf(dir, fileName);
+    if (trail.includes(file)) invalidConfig(`circular include: ${[...trail, file].join(' -> ')}`, undefined, read.label);
+    const parsed = readIncludedFile(file, from.file, read);
+    const declaring: DeclaringFile = { file, dir, targets: isRecord(parsed['targets']) ? parsed['targets'] : {} };
+    const deeper = parsed['include'] === undefined ? [] : includedFiles(parsed['include'], declaring, fileName, read, [...trail, file]);
+    return [declaring, ...deeper];
+  });
+}
+
+/**
+ * The included file at `file`, relative to the repo root, which `by`
+ * includes: parsed, and held to the keys an included file may hold. Like a
+ * local target's, it's read only where it really is in the repository, and a
+ * missing one is a config error naming its path.
+ */
+function readIncludedFile(file: string, by: string, read: LocalRead): Record<string, unknown> {
+  const where = locatedSync(read.contain, join(read.cwd, file));
+  if (where === 'missing') invalidConfig(`${by} includes ${file}, which is missing`, undefined, read.label);
+  if (where === 'outside') invalidConfig(`${by} includes ${file}, which resolves outside the repository, where checkride reads no config`, undefined, read.label);
+  const parsed = parseConfigJson(where.inside, { stack: [], label: file, root: read.label });
+  const problem = includedFileProblem(parsed, file);
+  if (problem !== null) invalidConfig(problem, undefined, read.label);
+  return parsed;
+}
+
+/**
+ * The file that declares each target of `config`, a composed config, by the
+ * target's name, for the targets an included file declares; `null` for a
+ * config that includes no file, whose targets are all its own.
+ */
+export function declaringFiles(config: CheckrideConfig | null): ReadonlyMap<string, string> | null {
+  return (config === null ? undefined : DECLARED_IN.get(config)) ?? null;
 }
 
 /** What reading a local target's file needs: the repo, as given and as the containment rule reads it, the file every error names, and where warnings go. */
@@ -1029,13 +1163,14 @@ function runnableBy(inherited: Record<string, unknown>, lang: unknown): Record<s
 }
 
 /**
- * `config` as a run reads it: each local target composed with the file at
- * its root, `<root>/checkride.config.json`, or the file name `suite` fixes
- * for a named suite. {@link loadConfig} returns a config as written, and so
+ * `config` as a run reads it: the targets of each file it includes joined to
+ * its own, and each local target composed with the file at its root,
+ * `<root>/checkride.config.json`, or the file name `suite` fixes for a named
+ * suite. {@link loadConfig} returns a config as written, and so
  * does a caller that builds one by hand; this is where the two, and a
  * `--config` file, become the config resolution reads, so all three compose
- * the same way. `null`, and a config with no local target, come back as they
- * are. A broken local file is the friendly config error, and `warn` hears
+ * the same way. `null`, and a config with no included file and no local
+ * target, come back as they are. A broken local file is the friendly config error, and `warn` hears
  * about each key a local file or its preset holds that nothing reads.
  */
 export function composedConfig(config: CheckrideConfig | null, cwd: string, suite: Suite = DEFAULT_SUITE, warn?: ConfigWarning): CheckrideConfig | null {
@@ -1087,7 +1222,7 @@ export function validateConfigObject(raw: Record<string, unknown>, path: string,
  * since a named file that is missing is a usage error, not "no config".
  */
 export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning): CheckrideConfig {
-  return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path, { file: CONFIG_FILE, ...(warn === undefined ? {} : { warn }) });
+  return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path, { file: CONFIG_FILE, named: true, ...(warn === undefined ? {} : { warn }) });
 }
 
 /** The first top-level key a defaults file can't hold, as a problem, or `null`. */

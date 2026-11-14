@@ -49,6 +49,12 @@ type ValidationContext = {
    * at its root.
    */
   localFile?: string;
+  /**
+   * The file that declares each target, by the target's name, when the
+   * config includes files: a problem with a target another file declared
+   * names that file. Omitted, every target is the config's own.
+   */
+  declaredIn?: ReadonlyMap<string, string>;
 };
 
 /** The context with the catalogue read into the sets the rules ask about. */
@@ -57,6 +63,8 @@ type Catalogue = {
   layer: ConfigLayer;
   /** The name a local target's file goes by. */
   localFile: string;
+  /** The file that declares each target another file than the config's own declares. */
+  declaredIn: ReadonlyMap<string, string>;
   /** Every name a target can't take: the catalogue's slots and the reserved two. */
   slotNames: ReadonlySet<string>;
   /** Slots that run once per target. */
@@ -150,6 +158,7 @@ function catalogue(context: ValidationContext): Catalogue {
     cwd: context.cwd,
     layer: context.layer,
     localFile: context.localFile ?? LOCAL_FILE,
+    declaredIn: context.declaredIn ?? new Map(),
     slotNames: new Set(names(() => true)),
     targetSlots: new Set(names((s) => s.scope !== 'repo')),
     repoSlots: new Set(names((s) => s.scope === 'repo')),
@@ -396,8 +405,10 @@ function targetProblem(name: string, raw: unknown, config: Record<string, unknow
   const local = raw['local'];
   if (local !== undefined && typeof local !== 'boolean') return `${where}.local must be true or false (got ${show(local)})`;
   const problem = targetKeysProblem(raw, where, cat);
-  if (problem === null || local !== true || typeof raw['root'] !== 'string') return problem;
-  return `${problem} (in ${localFileOf(normalizeRoot(raw['root']), cat.localFile)})`;
+  if (problem === null) return null;
+  // A local target's keys are its file's; any other target's are the file's that declared it, named when that isn't the config itself.
+  const file = local === true && typeof raw['root'] === 'string' ? localFileOf(normalizeRoot(raw['root']), cat.localFile) : cat.declaredIn.get(name);
+  return file === undefined ? problem : `${problem} (in ${file})`;
 }
 
 /**
@@ -405,29 +416,47 @@ function targetProblem(name: string, raw: unknown, config: Record<string, unknow
  * first one broken or `null`: each entry holds only `root`, `local` and
  * `note`, its root is a directory of the repo other than the one the
  * declaring file sits in, and no two share a root, since a root holds one
- * local file, with one `lang`. `fileName` is the name that file goes by.
+ * local file, with one `lang`. `fileName` is the name that file goes by, and
+ * `declaredIn` the included file that declares each target one declares.
  */
-export function localTargetsProblem(targets: Record<string, unknown>, cwd: string, fileName: string): string | null {
+export function localTargetsProblem(
+  targets: Record<string, unknown>,
+  cwd: string,
+  fileName: string,
+  declaredIn: ReadonlyMap<string, string> = new Map(),
+): string | null {
   const owners = new Map<string, string>();
   for (const [name, raw] of Object.entries(targets)) {
     if (!isLocalEntry(raw)) continue;
-    const where = `targets.${name}`;
-    const rooted = rootProblem(raw['root'], where, cwd);
-    if (rooted !== null) return rooted;
-    const root = normalizeRoot(String(raw['root']));
-    const file = localFileOf(root, fileName);
-    if (root === '.') {
-      return `${where} is local at the root, where its file would be ${file}, the file that declares it: give it a directory of its own, or drop local`;
-    }
-    const problem = localEntryProblem(name, raw, file);
-    if (problem !== null) return problem;
-    const other = owners.get(root);
+    const declaring = declaredIn.get(name);
+    const placed = localRoot(name, raw, { cwd, fileName, declaring: declaring ?? fileName });
+    if ('problem' in placed) return declaring === undefined ? placed.problem : `${placed.problem} (in ${declaring})`;
+    const other = owners.get(placed.root);
     if (other !== undefined) {
-      return `local targets '${other}' and '${name}' share the root '${root}', and a root holds one local file, ${file}, with one lang`;
+      return `local targets '${other}' and '${name}' share the root '${placed.root}', and a root holds one local file, ${localFileOf(placed.root, fileName)}, with one lang`;
     }
-    owners.set(root, name);
+    owners.set(placed.root, name);
   }
   return null;
+}
+
+/**
+ * The root of local target `name`, normalized, once its entry keeps the
+ * rules an entry keeps on its own; or the first one it breaks. `declaring`
+ * is the file that declares it, which its own file can't be.
+ */
+function localRoot(name: string, raw: Record<string, unknown>, at: { cwd: string; fileName: string; declaring: string }): { root: string } | { problem: string } {
+  const where = `targets.${name}`;
+  const rooted = rootProblem(raw['root'], where, at.cwd);
+  if (rooted !== null) return { problem: rooted };
+  const root = normalizeRoot(String(raw['root']));
+  const file = localFileOf(root, at.fileName);
+  if (file === at.declaring) {
+    const dir = root === '.' ? 'the root' : `'${root}'`;
+    return { problem: `${where} is local at ${dir}, where its file would be ${file}, the file that declares it: give it a directory of its own, or drop local` };
+  }
+  const problem = localEntryProblem(name, raw, file);
+  return problem === null ? { root } : { problem };
 }
 
 /** A target's `include` and `exclude`, each when it gave one as globs. */

@@ -179,6 +179,55 @@ The bundled schema `checkride:checkride-local` validates these files with the
 [`examples/local-targets`](../examples/local-targets/) runs a web app and an
 API this way, end to end.
 
+## Included config files
+
+A repo with many targets can keep them in more than one file. The root config
+lists directories, and the config file in each declares targets of its own:
+
+```json
+{
+  "include": ["services"],
+  "targets": {
+    "web": { "root": "web", "local": true }
+  }
+}
+```
+
+```json
+{
+  "targets": {
+    "api": { "lang": "go", "root": "api" },
+    "billing": { "root": "billing", "local": true }
+  }
+}
+```
+
+The second file is `services/checkride.config.json`, and its roots are
+relative to itself: `api` is checked from `services/api`. It's still one run,
+with one summary and one exit code.
+
+- **Names stay flat.** `--only api`, `api:lint` in the summary and
+  `.check/api/` are what they'd be if the root file declared the target. A
+  name two files declare is exit 2, naming both files. The grouping is in
+  where the files sit, and never in the names.
+- **What an included file holds.** `targets`, `include`, `note` and `$schema`.
+  Any other key is exit 2, naming the file: `checks`, `packs`, `schemas` and
+  the rest belong to the repo's own config, which still configures every
+  target through `packs` and its top-level `checks`.
+- **Files include files.** An included file's `include` is relative to that
+  file, and a cycle is exit 2, naming the chain. Each entry is a directory
+  below the file that lists it, never absolute or through `..`, and so is
+  each root.
+- **Where each file is read.** Only inside the repository, links followed,
+  as a local target's file is. A missing file is exit 2.
+- **Who can include.** The repo's own config, and a
+  [named suite's](./suites.md), whose included files are
+  `<dir>/checkride.<suite>.config.json`. A preset, a defaults file and a
+  config named by `--config` can't: an included file's roots are relative to
+  a file inside the repo, and those can sit outside it.
+
+`checkride doctor` lists each target with the file that declares it.
+
 ## Declaring targets
 
 - `checkride target add <name> --lang <pack> --root <dir>` adds one, adopting
