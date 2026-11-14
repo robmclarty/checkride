@@ -8,6 +8,7 @@
  * paths relative to the repo root.
  */
 
+import { realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -16,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
-import { composedConfig, declaringFiles, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
+import { claimingConfig, composedConfig, declaringFiles, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
 import { suiteNamed } from '../suite.js';
 import { chainCanRun } from '../launch/index.js';
 import { checkName, implicitPack } from '../targets/index.js';
@@ -1031,5 +1032,131 @@ describe('a config includes the files that declare more targets (D9)', () => {
         await rm(outside, { recursive: true, force: true });
       }
     });
+  });
+});
+
+describe('the config that claims a directory (D33)', () => {
+  let repo: string;
+  beforeEach(async () => {
+    // Real, as git names a work tree's top level (macOS's /var is /private/var).
+    repo = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-claim-')));
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  /** Write `files` under the repo, each a JSON value, or text as it is, at a path relative to it. */
+  async function lay(files: Record<string, unknown>): Promise<void> {
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(dirname(join(repo, path)), { recursive: true });
+      await writeFile(join(repo, path), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  }
+
+  /** The claim on `dir`, a directory relative to the repo, with the repo as the git top level. */
+  const claim = (dir: string, top = repo): ReturnType<typeof claimingConfig> => claimingConfig(join(repo, dir), top);
+
+  /** A root config with a local target, an included file that declares two more, one of them local, and an ordinary target. */
+  const tree = {
+    'checkride.config.json': { include: ['services'], targets: { web: { root: 'web', local: true }, site: { lang: 'ts', root: 'site' } } },
+    'web/checkride.config.json': { lang: 'ts' },
+    'web/src/deep/.keep': '',
+    'site/src/.keep': '',
+    'services/checkride.config.json': { include: ['billing'], targets: { api: { lang: 'go', root: 'api' } } },
+    'services/api/cmd/.keep': '',
+    'services/billing/checkride.config.json': { targets: { billing: { root: '.', local: false, lang: 'go' }, ledger: { root: 'ledger', local: true } } },
+    'services/billing/ledger/checkride.config.json': { lang: 'ts' },
+    'services/billing/ledger/pkg/.keep': '',
+    'elsewhere/.keep': '',
+  };
+
+  test('a directory inside a local target is claimed by the config that declares it, at any depth', async () => {
+    await lay(tree);
+    const found = { root: repo, file: join(repo, 'checkride.config.json'), targets: ['web'] };
+    expect(claim('web')).toEqual(found);
+    expect(claim('web/src')).toEqual(found);
+    expect(claim('web/src/deep')).toEqual(found);
+    expect(claim('services/billing/ledger/pkg')).toMatchObject({ root: repo, targets: ['ledger'] });
+  });
+
+  test('the directory of an included file covers every target that file and the files it includes declare', async () => {
+    await lay(tree);
+    expect(claim('services')).toEqual({ root: repo, file: join(repo, 'checkride.config.json'), targets: ['api', 'billing', 'ledger'] });
+    expect(claim('services/billing')).toMatchObject({ root: repo, targets: ['billing', 'ledger'] });
+  });
+
+  test('nothing claims the root, a directory outside every local target, or one inside a target declared whole', async () => {
+    await lay(tree);
+    expect(claim('.')).toBeNull();
+    expect(claim('elsewhere')).toBeNull();
+    expect(claim('site/src')).toBeNull();
+    expect(claim('services/api/cmd')).toBeNull();
+  });
+
+  test('a run from a directory covers the targets rooted there or below, not only the local one around it', async () => {
+    await lay({
+      'checkride.config.json': { targets: { web: { root: 'web', local: true }, tools: { lang: 'bash', root: 'web/tools' }, e2e: { root: 'web/e2e', local: true } } },
+      'web/checkride.config.json': { lang: 'ts' },
+      'web/e2e/checkride.config.json': { lang: 'go' },
+      'web/e2e/specs/.keep': '',
+      'web/tools/bin/.keep': '',
+    });
+    expect(claim('web')?.targets).toEqual(['web', 'tools', 'e2e']);
+    // Above no target's root, the innermost local target that holds the directory.
+    expect(claim('web/e2e/specs')?.targets).toEqual(['e2e']);
+    expect(claim('web/tools/bin')?.targets).toEqual(['web']);
+  });
+
+  test('the search stops at the git top level, and the highest config that claims wins', async () => {
+    await lay(tree);
+    // With the top level at `services`, the root config is out of reach: the included file is read as a config of its own.
+    expect(claim('services/billing/ledger', join(repo, 'services'))).toMatchObject({ root: join(repo, 'services'), targets: ['ledger'] });
+    expect(claim('services/billing/ledger', join(repo, 'services', 'billing'))).toMatchObject({ root: join(repo, 'services', 'billing'), targets: ['ledger'] });
+    expect(claim('web/src', join(repo, 'web'))).toBeNull();
+    // A directory that isn't under the top level walks nowhere.
+    expect(claimingConfig(join(repo, 'web'), join(repo, 'services'))).toBeNull();
+  });
+
+  test("it never crosses a config that isn't its own: a standalone config in between keeps the directory", async () => {
+    await lay({ ...tree, 'web/vendor/kit/checkride.config.json': { checks: {} }, 'web/vendor/kit/src/.keep': '' });
+    expect(claim('web/vendor/kit')).toBeNull();
+    expect(claim('web/vendor/kit/src')).toBeNull();
+    expect(claim('web/vendor')).toMatchObject({ targets: ['web'] });
+  });
+
+  test('a repo nested in another is claimed by its own root, not the outer one', async () => {
+    await lay({
+      'checkride.config.json': { checks: {} },
+      'examples/shop/checkride.config.json': { targets: { web: { root: 'web', local: true } } },
+      'examples/shop/web/checkride.config.json': { lang: 'ts' },
+    });
+    expect(claim('examples/shop/web')).toEqual({ root: join(repo, 'examples', 'shop'), file: join(repo, 'examples', 'shop', 'checkride.config.json'), targets: ['web'] });
+    expect(claim('examples/shop')).toBeNull();
+  });
+
+  test('a named suite is found by its own file name', async () => {
+    await lay({
+      'checkride.evals.config.json': { targets: { web: { root: 'web', local: true } } },
+      'web/checkride.evals.config.json': { lang: 'ts' },
+      'web/src/.keep': '',
+    });
+    expect(claimingConfig(join(repo, 'web', 'src'), repo, 'checkride.evals.config.json')).toMatchObject({ file: join(repo, 'checkride.evals.config.json'), targets: ['web'] });
+    expect(claim('web/src')).toBeNull();
+  });
+
+  test('a config above that declares local targets and cannot be read is the error, naming it', async () => {
+    await lay({ 'checkride.config.json': { targets: { web: { root: 'web', local: true } } }, 'web/checkride.config.json': { lang: 'ts', gate: {} } });
+    expect(() => claim('web')).toThrow(`invalid checkride.config.json: web/checkride.config.json sets gate, which belongs to the whole repo`);
+    expect(() => claim('web')).toThrow(`(in ${join(repo, 'checkride.config.json')}, the config above this directory)`);
+  });
+
+  test('a config above that claims nothing and cannot be read is some other project, and is passed over', async () => {
+    await lay({ 'checkride.config.json': { targets: { web: { lang: 'nope', root: 'web' } } }, 'web/src/.keep': '' });
+    expect(claim('web/src')).toBeNull();
+    await lay({ 'checkride.config.json': '{ nope' });
+    expect(claim('web/src')).toBeNull();
+    // A local target's own file, read as the config above its subdirectory, has an include of globs and claims nothing.
+    await lay({ 'checkride.config.json': { checks: {} }, 'web/checkride.config.json': { lang: 'bash', include: ['bin/**'] } });
+    expect(claim('web/src')).toBeNull();
   });
 });

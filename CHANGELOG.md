@@ -60,6 +60,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   preset. `checkride doctor` lists each target with the file that declares
   it. [Targets](docs/targets.md#included-config-files) has the rules.
 
+- **`checkride` works from inside a target.** Typed in `web/`, or anywhere
+  below it, a command finds the config that claims the directory and runs
+  from that config's directory, saying so on stderr. A run is narrowed to
+  the targets the directory holds, exactly as `--only web` from the root, so
+  a frontend developer gets the repo's verdict for their part and no Go tool
+  starts; from `services/`, beside an included file, it covers every target
+  that file declares. `doctor`, `fix`, `baseline`, `baseline diff`, `recover`
+  and `gate` act on the whole repo. The search stops at the git top level,
+  and without a git work tree, or with `--config`, there is none.
+  [Targets](docs/targets.md#running-from-inside-a-target) has the rules.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -88,6 +99,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   their exit 2, the preset warning and the containment rule on the file and
   its preset paths are promised, and locked by `targets.contract.test.ts`.
   A config with no local target reads as before.
+- **A command reads the config above the directory it's typed in.** Inside
+  a local target or beside an included file, a run, `fix`, `doctor`,
+  `baseline`, `baseline diff`, `recover` and `gate` now run from the root of
+  the config that claims the directory, where they used to read the
+  directory as a repo of its own. The claim, where the search stops, what a
+  run there covers and the stderr line are promised. A directory no config
+  claims, and any directory outside a git work tree, reads as before.
 - **`include` joins the config's top-level keys.** The targets of the files
   it names join the config's own under flat names, the refusals above are
   exit 2, and each names the file at fault. `doctor --json`'s `targets`

@@ -18,6 +18,12 @@
  * names, each refusal and the file it names, and the file `doctor` lists
  * beside each target.
  *
+ * A command typed inside a local target, or beside an included file, finds
+ * the config that claims the directory and runs from the repo's root (D33;
+ * docs/contract.md §Running from inside a target). The last suite locks what
+ * a run there covers, that every other command acts on the whole repo, the
+ * stderr line each gives, and that without a git work tree nothing walks up.
+ *
  * The real CLI runs in-process with `spawn` faked, as the invariance golden
  * does, so the real adapter rows resolve and launch while nothing is
  * installed. The fake answers every spawn with `{}` on stdout and a stderr line
@@ -30,6 +36,7 @@
 
 // `execFileSync` and the rest come from the mocked module, which spreads the
 // real one; only `spawn`, which every check goes through, is faked.
+import { execFileSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -595,5 +602,186 @@ describe('included config files', () => {
     await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web' } }, checks: off } });
     const plain = JSON.parse((await cli(['doctor', '--json'])).stdout) as { targets: unknown };
     expect(plain.targets).toEqual([{ name: 'web', pack: 'ts', root: 'web' }]);
+  });
+});
+
+/** A summary's entries for the checks of `target`, without what differs run to run: how long each took. */
+const entriesOf = (summary: Summary | null, target: string): unknown[] =>
+  (summary?.checks ?? []).filter((c) => c.target === target).map((c) => ({ ...c, duration_ms: 0 }));
+
+describe('running from inside a target', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = realpathSync(await mkdtemp(join(tmpdir(), 'checkride-inside-')));
+    vi.stubEnv('CHECKRIDE_OUT', undefined);
+    vi.stubEnv('CHECKRIDE_CONFIG', undefined);
+    vi.stubEnv('CHECKRIDE_SUITE', undefined);
+  });
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  /** Write `files` under the repo, each a JSON value, or text as it is, at a path relative to it. */
+  async function lay(files: Record<string, unknown>): Promise<void> {
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(dirname(join(dir, path)), { recursive: true });
+      await writeFile(join(dir, path), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  }
+
+  /** Run the CLI with `argv` from `from`, a directory relative to the repo: its exit code and both streams. */
+  async function cliFrom(from: string, argv: string[] = []): Promise<{ code: number; stdout: string; stderr: string }> {
+    const out = buffer();
+    const err = buffer();
+    const code = await runCli(argv, { cwd: join(dir, from), stdout: out.out, stderr: err.out, env: {} });
+    return { code, stdout: out.text(), stderr: err.text() };
+  }
+
+  /** The summary in the output directory of `at`, a directory relative to the repo, or `null` when it holds none. */
+  async function summaryAt(at: string): Promise<Summary | null> {
+    const file = join(dir, at, '.check', 'summary.json');
+    return existsSync(file) ? (JSON.parse(await readFile(file, 'utf8')) as Summary) : null;
+  }
+
+  /** The line a command writes when it found the config above `from`, running `how`. */
+  const found = (from: string, how: string): string =>
+    `checkride: found ${join(...from.split('/').map(() => '..'), 'checkride.config.json')}, which claims this directory: ${how}, from ${dir}\n`;
+
+  /** A repo with a local target, an included file that declares two more, and a repo-scope custom check. */
+  const repo = {
+    'checkride.config.json': {
+      include: ['services'],
+      targets: { web: { root: 'web', local: true } },
+      checks: { links: false, unclaimed: false, licenses: say('repo') },
+    },
+    'web/checkride.config.json': { lang: 'ts', checks: { probe: say('web'), unit: say('unit') } },
+    'web/src/.keep': '',
+    'services/checkride.config.json': { targets: { api: { lang: 'go', root: 'api', checks: { probe: say('api') } }, billing: { root: 'billing', local: true } } },
+    'services/api/.keep': '',
+    'services/billing/checkride.config.json': { lang: 'go', checks: { probe: say('billing') } },
+  };
+
+  describe('in a git work tree', () => {
+    beforeEach(async () => {
+      await lay(repo);
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+    });
+
+    test.each(['web', 'web/src'])("a run from %s writes the same web: entries as --only web from the root, into the root's .check/", async (from) => {
+      expect((await cliFrom('.', ['--only', 'web'])).code).toBe(0);
+      const fromRoot = await summaryAt('.');
+      expect(ran(fromRoot)).toEqual(['web:probe', 'web:unit']);
+      await rm(join(dir, '.check'), { recursive: true });
+
+      const inside = await cliFrom(from);
+      expect(inside.code, inside.stderr).toBe(0);
+      expect(inside.stderr).toContain(found(from, 'running as --only web'));
+      const fromInside = await summaryAt('.');
+      expect(entriesOf(fromInside, 'web')).toEqual(entriesOf(fromRoot, 'web'));
+      expect(fromInside?.checks.map((c) => c.name)).toEqual(fromRoot?.checks.map((c) => c.name));
+      expect(ran(fromInside)).toEqual(['web:probe', 'web:unit']);
+      // Nothing is written where the command was typed.
+      expect(await summaryAt(from)).toBeNull();
+      expect(existsSync(join(dir, '.check', 'web', 'probe.stdout.txt'))).toBe(true);
+    });
+
+    test('a run from services/ covers every target its included file declares', async () => {
+      const { code, stderr } = await cliFrom('services');
+      expect(code, stderr).toBe(0);
+      expect(stderr).toContain(found('services', 'running as --only api,billing'));
+      expect(ran(await summaryAt('.'))).toEqual(['api:probe', 'billing:probe']);
+      expect(await summaryAt('services')).toBeNull();
+    });
+
+    test('the run reads its own --only inside the directory, and refuses a token that selects nothing there', async () => {
+      const narrowed = await cliFrom('web', ['--only', 'unit']);
+      expect(narrowed.code, narrowed.stderr).toBe(0);
+      expect(narrowed.stderr).toContain(found('web', 'running as --only web:unit'));
+      expect(ran(await summaryAt('.'))).toEqual(['web:unit']);
+
+      const outside = await cliFrom('web', ['--only', 'api']);
+      expect(outside.code).toBe(2);
+      expect(outside.stderr).toContain(`--only api selects nothing in web, the targets this directory holds: run it from ${dir} for the rest of the repo`);
+      const repoScope = await cliFrom('web', ['--only', 'licenses']);
+      expect(repoScope.code).toBe(2);
+    });
+
+    test('a directory no config claims is read as it always was', async () => {
+      const { code, stderr } = await cliFrom('services/api');
+      expect(code, stderr).toBe(0);
+      expect(stderr).not.toContain('found');
+      expect(await summaryAt('services/api')).not.toBeNull();
+      expect(await summaryAt('.')).toBeNull();
+    });
+
+    test('doctor from web/ reports the whole repo', async () => {
+      const { stdout, stderr } = await cliFrom('web', ['doctor', '--json']);
+      expect(stderr).toContain(found('web', 'running doctor for the whole repo'));
+      expect((JSON.parse(stdout) as { targets: { name: string }[] }).targets.map((t) => t.name)).toEqual(['web', 'api', 'billing']);
+    });
+
+    test("baseline from web/ captures the whole repo into the root's baseline file", async () => {
+      const { code, stderr } = await cliFrom('web', ['baseline']);
+      expect(code, stderr).toBe(0);
+      expect(stderr).toContain(found('web', 'running baseline for the whole repo'));
+      expect(existsSync(join(dir, 'checkride.baseline.json'))).toBe(true);
+      expect(existsSync(join(dir, 'web', 'checkride.baseline.json'))).toBe(false);
+      // The capture covered every target, not web's alone.
+      expect((await summaryAt('.'))?.checks.map((c) => c.name)).toEqual(expect.arrayContaining(['web:probe', 'api:probe', 'billing:probe', 'licenses']));
+    });
+
+    test('fix from web/ runs over the whole repo', async () => {
+      const { code, stderr } = await cliFrom('web/src', ['fix']);
+      expect(code, stderr).toBe(0);
+      expect(stderr).toContain(found('web/src', 'running fix for the whole repo'));
+    });
+
+    test('recover and baseline diff from web/ read the root baseline', async () => {
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '--allow-empty', '-m', 'first'], { cwd: dir });
+      const recover = await cliFrom('web', ['recover', '--dry-run']);
+      expect(recover.stderr).toContain(found('web', 'running recover for the whole repo'));
+      const diff = await cliFrom('web', ['baseline', 'diff', 'HEAD', '--json']);
+      expect(diff.code, diff.stderr).toBe(0);
+      expect(diff.stderr).toContain(found('web', 'running baseline diff for the whole repo'));
+    });
+
+    test("the gate from web/ gates the whole repo, from its root", async () => {
+      await lay({ '.check/.dirty': '' });
+      const { code, stdout, stderr } = await cliFrom('web', ['gate', '--if-dirty']);
+      expect(code, stderr).toBe(0);
+      expect(stderr).toContain(found('web', 'running the gate for the whole repo'));
+      // The marker it read is the root's, the check it spawned ran there, unnarrowed, and its green cleared the marker.
+      expect(stderr).toContain(`${MARKER}${JSON.stringify({ argv: ['checkride', '--strict', '--digest'], cwd: dir })}`);
+      expect(stdout).toContain('checkride green');
+      expect(existsSync(join(dir, '.check', '.dirty'))).toBe(false);
+    });
+
+    test('a named config is read where the command was typed, and nothing walks up', async () => {
+      await lay({ 'web/named.json': { checks: { links: false, here: say('here') } } });
+      const { code, stderr } = await cliFrom('web', ['--config', 'named.json']);
+      expect(code, stderr).toBe(0);
+      expect(stderr).not.toContain('found');
+      expect(ran(await summaryAt('web'))).toEqual(['here']);
+    });
+
+    test('a broken config above is exit 2, naming it, in place of a second verdict from the directory alone', async () => {
+      await lay({ 'web/checkride.config.json': { lang: 'ts', schemas: [] } });
+      const { code, stderr } = await cliFrom('web');
+      expect(code).toBe(2);
+      expect(stderr).toContain('invalid checkride.config.json: web/checkride.config.json sets schemas');
+      expect(stderr).toContain(`(in ${join(dir, 'checkride.config.json')}, the config above this directory)`);
+      expect(await summaryAt('web')).toBeNull();
+    });
+  });
+
+  test('outside any git work tree, a directory is read as it is today', async () => {
+    await lay(repo);
+    const { code, stderr } = await cliFrom('web', ['--only', 'probe']);
+    expect(code, stderr).toBe(0);
+    expect(stderr).not.toContain('found');
+    // web's local file is read as a config of its own: its probe runs bare, and the artifacts land beside it.
+    expect(ran(await summaryAt('web'))).toEqual(['probe']);
+    expect(await summaryAt('.')).toBeNull();
   });
 });

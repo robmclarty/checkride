@@ -228,6 +228,47 @@ with one summary and one exit code.
 
 `checkride doctor` lists each target with the file that declares it.
 
+## Running from inside a target
+
+A developer in `web/` types `checkride` there. The directory holds a config
+file, but it's the web team's local file, and no repo of its own. So
+checkride looks up: it finds the config that claims the directory, runs from
+that config's directory, and says so on stderr.
+
+```text
+$ cd web/src && checkride
+checkride: found ../../checkride.config.json, which claims this directory: running as --only web, from /work/shop
+```
+
+- **What claims a directory.** A config claims every directory inside one of
+  its local targets, and the directory of each file it includes. Nothing
+  claims a directory inside a target the config declares whole, or one
+  outside every target, and a command there reads the directory as it always
+  has.
+- **What a run covers.** The targets rooted at the directory or below it, or
+  the local target the directory sits inside. Beside an included file, it
+  covers every target that file and the files it includes declare. It's the
+  run `--only web` gives from the root: the same checks, the same summary
+  entries and baseline keys, written to the root's `.check/`, and no other
+  target's tool starts. Its own `--only` is read inside those targets, so
+  `--only lint` in `web/` is `web:lint`, and a token that selects nothing
+  there exits 2.
+- **Every other command acts on the whole repo.** `doctor`, `fix`,
+  `baseline`, `baseline diff`, `recover` and `gate` run from the root, over
+  everything, and say which config they found.
+- **Where the search stops.** At the git top level, and with no git work
+  tree there's no search at all. The highest config that claims the
+  directory wins, so a repo nested in another is found by its own root. A
+  config file in between that is neither a local target's nor an included
+  one is a project of its own, and its directories stay its own.
+- **A named config.** `--config` and `CHECKRIDE_CONFIG` name the config, so
+  nothing is searched for. A [named suite](./suites.md) is found by its own
+  file name.
+
+A partial run like this one never ratchets the baseline, and the summary says
+`partial: true`. The full run from the root is still the one whose exit 0
+means done.
+
 ## Declaring targets
 
 - `checkride target add <name> --lang <pack> --root <dir>` adds one, adopting

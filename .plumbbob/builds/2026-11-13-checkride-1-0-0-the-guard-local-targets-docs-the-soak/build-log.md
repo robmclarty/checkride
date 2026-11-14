@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 6 — feat(config): read included config files with flat target names
+**Current step:** 7 — feat(cli): find the repo's config from inside a target
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -29,7 +29,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 21. fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing
 - ☑ 4. feat(config): read a local target's config
 - ☑ 5. feat(examples): add a web and api example with local targets
-- ☐ 6. feat(config): read included config files with flat target names
+- ☑ 6. feat(config): read included config files with flat target names
 - ☐ 7. feat(cli): find the repo's config from inside a target
 - ☐ 8. feat(baseline): map each check to its shard and read them all
 - ☐ 9. feat(baseline): ratchet each shard on its own
@@ -331,3 +331,4 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-11-14 — step 4 checkpointed · f74492d89 — feat(config): read a local target's config (2 red, 1 drift, 44m)
 - 2026-11-14 — step 5 checkpointed · e9bbb82fc — feat(examples): add a web and api example with local targets (1 drift, 8m)
+- 2026-11-14 — step 6 checkpointed · cfc6495a7 — feat(config): read included config files with flat target names (1 drift, 11m)

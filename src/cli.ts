@@ -15,7 +15,7 @@
  */
 
 import { existsSync, realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
@@ -23,13 +23,14 @@ import { HOOK_NAMES, type HookName, type HooksOptions, runHooks } from './agent-
 import { namedOut } from './artifacts/index.js';
 import { runBaseline, runBaselineDiff, runBaselineVersions } from './baseline-command.js';
 import { runtime } from './channel.js';
-import type { CheckrideConfig } from './config.js';
-import { CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile } from './config.js';
+import { ADAPTERS, SLOTS } from './adapters.js';
+import type { CheckrideConfig, Claim } from './config.js';
+import { claimingConfig, CONFIG_ENV, DEFAULTS_ENV, loadConfig, loadConfigFile, loadDefaultsFile, resolveChecks } from './config.js';
 import { runDoctor } from './doctor.js';
 import { HARNESS_NAMES, type HarnessName, runGate } from './gate.js';
 import { PROTECT_HARNESSES, runProtect } from './protect.js';
 import type { NamedBase } from './git.js';
-import { BASE_ENV } from './git.js';
+import { BASE_ENV, realGit, repoTopLevel } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
 import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
 import type { AnnotateFormat, Out, RunFlags, StepSummaryOption } from './orchestrator/index.js';
@@ -39,9 +40,9 @@ import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import { readResource } from './resources.js';
 import type { Suite } from './suite.js';
-import { flagOrVariable, namedSuite, SUITE_ENV } from './suite.js';
+import { DEFAULT_SUITE, flagOrVariable, namedSuite, SUITE_ENV, suiteNamed } from './suite.js';
 import { runTargetAdd } from './target-command.js';
-import { declaredNote, discoverRun } from './targets/index.js';
+import { checkName, declaredNote, discoverRun } from './targets/index.js';
 import { realEnv, renderTriage, suiteRunConflicts, triage } from './triage/index.js';
 
 /**
@@ -776,11 +777,13 @@ function suiteOf(flag: string | undefined, deps: CliDeps, cwd: string = deps.cwd
 /**
  * The defaults layer a run reads (R13.1): `--defaults`, else
  * `CHECKRIDE_DEFAULTS`, read and validated, or `null` when neither names a
- * file. A missing file is a usage error, as it is for `--config`.
+ * file. A missing file is a usage error, as it is for `--config`. The path
+ * is read against the directory the command was typed in, and held to the
+ * rules of `repo`, the repo it runs over.
  */
-function namedDefaults(flag: string | undefined, deps: CliDeps): NamedConfig | null {
+function namedDefaults(flag: string | undefined, deps: CliDeps, repo: string = deps.cwd): NamedConfig | null {
   const path = namedFile('--defaults', flag, DEFAULTS_ENV, deps);
-  return path === null ? null : { path, config: loadDefaultsFile(path, deps.cwd) };
+  return path === null ? null : { path, config: loadDefaultsFile(path, repo) };
 }
 
 /**
@@ -935,14 +938,106 @@ function stepSummaryOption(flag: string | undefined, deps: CliDeps): { stepSumma
   return { stepSummary: { format, file: file === undefined || file === '' ? null : file } };
 }
 
+/**
+ * The name the config a command reads goes by, for the search above the
+ * directory it was typed in: a named suite's, else the default; `null` when
+ * `--config` or `CHECKRIDE_CONFIG` names the config, which no search finds,
+ * or the suite's name is one the command will refuse.
+ */
+function configFileName(flags: { suite?: string | undefined; config?: string | undefined }, env: Readonly<Record<string, string | undefined>>): string | null {
+  if (flagOrVariable('--config', flags.config, CONFIG_ENV, env) !== null) return null;
+  const asked = flagOrVariable('--suite', flags.suite, SUITE_ENV, env);
+  try {
+    return asked === null ? DEFAULT_SUITE.configFile : suiteNamed(asked.value).configFile;
+  } catch {
+    return null;
+  }
+}
+
+/** True when a directory above `cwd` holds a file named `fileName`: without one, nothing above could claim it, and git isn't asked. */
+function configAbove(cwd: string, fileName: string): boolean {
+  let dir = resolve(cwd);
+  for (let parent = dirname(dir); parent !== dir; parent = dirname(dir)) {
+    if (existsSync(join(parent, fileName))) return true;
+    dir = parent;
+  }
+  return false;
+}
+
+/** Where a command runs: `deps` with the repo's root as its `cwd`, and the config that claimed the directory it was typed in, or `null` when it runs there. */
+type Home = { deps: CliDeps; claim: Claim | null };
+
+/**
+ * Where a command typed in `deps.cwd` runs. Inside a local target, or beside
+ * an included file, the directory isn't a repo of its own: the config that
+ * claims it sits above, and the command runs from that config's directory,
+ * so a developer in `web/` gets the repo's verdict and never a second one
+ * keyed from the wrong root. The search stops at the git top level, and
+ * with no git work tree there is none: the command reads the directory it
+ * was typed in, as it always has. `env` is where the suite's variable is
+ * read, which the gate leaves out.
+ */
+async function homeOf(deps: CliDeps, flags: { suite?: string | undefined; config?: string | undefined }, env: Readonly<Record<string, string | undefined>> = deps.env ?? process.env): Promise<Home> {
+  const fileName = configFileName(flags, env);
+  if (fileName === null || !configAbove(deps.cwd, fileName)) return { deps, claim: null };
+  const top = await repoTopLevel(realGit(deps.cwd));
+  const claim = top === null ? null : claimingConfig(deps.cwd, top, fileName);
+  return claim === null ? { deps, claim } : { deps: { ...deps, cwd: claim.root }, claim };
+}
+
+/** Say on stderr which config a command typed in `typedIn` found above it, and `how` it runs because of it. */
+function announceHome(home: Home, typedIn: string, how: string): void {
+  if (home.claim === null) return;
+  home.deps.stderr.write(`checkride: found ${relative(typedIn, home.claim.file)}, which claims this directory: ${how}, from ${home.claim.root}\n`);
+}
+
+/**
+ * Where a command that acts on the whole repo runs, announced: `command`
+ * typed inside a local target or beside an included file runs from the
+ * repo's root, over everything, and says so.
+ */
+async function repoHome(command: string, deps: CliDeps, flags: { suite?: string | undefined; config?: string | undefined }, env?: Readonly<Record<string, string | undefined>>): Promise<Home> {
+  const home = await homeOf(deps, flags, env);
+  announceHome(home, deps.cwd, `running ${command} for the whole repo`);
+  return home;
+}
+
+/**
+ * The `--only` list of a run typed inside `claim`'s directory: the targets
+ * the directory covers, or, when the run names its own, each of its tokens
+ * read inside them. A target of the directory and a `<target>:<check>` of
+ * one stand; a bare slot or custom check becomes that check in each of the
+ * directory's targets that has it, named from `checks`, the repo's resolved
+ * check names; and a token that selects nothing there is a usage error,
+ * since the rest of the repo is run from its root.
+ */
+function narrowedOnly(only: readonly string[] | null | undefined, claim: Claim, checks: () => ReadonlySet<string>): string[] {
+  if (only === null || only === undefined) return [...claim.targets];
+  const inside = (token: string): string[] => {
+    if (claim.targets.includes(token) || claim.targets.some((target) => token.startsWith(`${target}:`))) return [token];
+    const names = checks();
+    return claim.targets.map((target) => `${target}:${token}`).filter((name) => names.has(name));
+  };
+  return only.flatMap((token) => {
+    const kept = inside(token);
+    if (kept.length > 0) return kept;
+    throw new Error(`--only ${token} selects nothing in ${claim.targets.join(', ')}, the targets this directory holds: run it from ${claim.root} for the rest of the repo`);
+  });
+}
+
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
   const { flags, config, base, out, defaults, pins, suite, annotate, summary } = parseCliArgs(argv);
-  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
+  const home = await homeOf(deps, { suite, config });
+  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, home.deps, true);
   const changedBase = namedBase(base, deps);
-  const layer = namedDefaults(defaults, deps);
+  const layer = namedDefaults(defaults, deps, home.deps.cwd);
   const overrides = namedPins(pins, deps);
+  // Inside a target, the run is the repo's own, narrowed to the targets the directory holds.
+  const narrowed = home.claim === null ? {} : { only: narrowedOnly(flags.only, home.claim, () => repoCheckNames(home.deps.cwd, picked, layer)) };
+  if (narrowed.only !== undefined) announceHome(home, deps.cwd, `running as --only ${narrowed.only.join(',')}`);
   const result = await runChecks({
     ...flags,
+    ...narrowed,
     // A suite's name fixes its config, so only a named config carries a path to record.
     ...picked,
     ...(changedBase ? { base: changedBase } : {}),
@@ -951,11 +1046,18 @@ async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
     ...outOption(out, deps),
     ...annotateOption(annotate, deps),
     ...stepSummaryOption(summary, deps),
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
   });
   return result.exitCode;
+}
+
+/** The name of every check the repo at `cwd` resolves, under the config and defaults a run there reads. */
+function repoCheckNames(cwd: string, picked: Picked, layer: NamedConfig | null): ReadonlySet<string> {
+  const config = picked.config ?? loadConfig(cwd, undefined, picked.suite.configFile);
+  const checks = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd, suite: picked.suite, ...(layer ? { defaults: layer.config } : {}) });
+  return new Set(checks.map(checkName));
 }
 
 async function dispatchInit(argv: string[], deps: CliDeps): Promise<number> {
@@ -981,18 +1083,19 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
   const runOnly = runOnlyRefusal('doctor', parsed);
   if (runOnly !== null) throw new Error(runOnly);
   const { flags, config, out, defaults, pins, suite } = parsed;
-  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
-  const layer = namedDefaults(defaults, deps);
+  const home = await repoHome('doctor', deps, { suite, config });
+  const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, home.deps, true);
+  const layer = namedDefaults(defaults, deps, home.deps.cwd);
   const overrides = namedPins(pins, deps);
   const result = await runDoctor({
     json: flags.json ?? false,
     suite: picked.suite,
-    ...(await doctorConfig(flags.discover === true, picked.config, deps)),
+    ...(await doctorConfig(flags.discover === true, picked.config, home.deps)),
     ...(layer ? { defaults: layer.config } : {}),
     ...(overrides ? { pins: overrides } : {}),
     ...(flags.staticOnly === true ? { staticOnly: true } : {}),
     ...outOption(out, deps),
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
   });
@@ -1043,7 +1146,8 @@ async function dispatchFix(argv: string[], deps: CliDeps): Promise<number> {
   const refusal = runOnlyRefusal('fix', parsed) ?? fixRefusal(parsed);
   if (refusal !== null) throw new Error(refusal);
   const { flags } = parsed;
-  const result = await runFix({ ...flags, ...pickConfig(parsed, deps), cwd: deps.cwd, stderr: deps.stderr });
+  const home = await repoHome('fix', deps, parsed);
+  const result = await runFix({ ...flags, ...pickConfig(parsed, home.deps), cwd: home.deps.cwd, stderr: deps.stderr });
   return result.exitCode;
 }
 
@@ -1059,12 +1163,13 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
   const { values } = parseArgs({ args: rest, options: BASELINE_OPTIONS });
   const only = parseList(values.only, 'only');
   const skip = parseList(values.skip, 'skip');
+  const home = await repoHome('baseline', deps, values);
   const options = {
-    ...pickConfig(values, deps),
+    ...pickConfig(values, home.deps),
     ...outOption(values.out, deps),
     ...(only !== null ? { only } : {}),
     ...(skip !== null ? { skip } : {}),
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
   };
@@ -1077,13 +1182,14 @@ async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<numb
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: BASELINE_DIFF_OPTIONS });
   if (positionals.length > 1) throw new Error(`baseline diff takes one ref, got ${positionals.length}: ${positionals.join(' ')}`);
   const [ref] = positionals;
+  const home = await repoHome('baseline diff', deps, values);
   const result = await runBaselineDiff({
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
     json: values.json,
     failOnAdded: values['fail-on-added'],
-    suite: suiteOf(values.suite, deps),
+    suite: suiteOf(values.suite, home.deps),
     ...(ref !== undefined ? { ref } : {}),
   });
   return result.exitCode;
@@ -1099,8 +1205,9 @@ async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
   // No positionals: a stray token throws ERR_PARSE_ARGS_* → exit 2.
   const { values } = parseArgs({ args: rest, options: RECOVER_OPTIONS });
   const depth = parseDepth(values.depth);
+  const home = await repoHome('recover', deps, values);
   const result = await runRecover({
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
     ...(values.pick !== undefined ? { pick: values.pick } : {}),
@@ -1108,7 +1215,7 @@ async function dispatchRecover(argv: string[], deps: CliDeps): Promise<number> {
     ...(values['dry-run'] ? { dryRun: true } : {}),
     ...(depth !== undefined ? { depth } : {}),
     ...(values.json ? { json: true } : {}),
-    suite: suiteOf(values.suite, deps),
+    suite: suiteOf(values.suite, home.deps),
   });
   return result.exitCode;
 }
@@ -1184,8 +1291,10 @@ async function dispatchGate(argv: string[], deps: CliDeps): Promise<number> {
   const { rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: GATE_OPTIONS });
   const harness = asHarness(values.harness);
+  // The suite is the flag's alone here, as it is for the gate's verdict: CHECKRIDE_SUITE doesn't reach it.
+  const home = await repoHome('the gate', deps, values, {});
   const result = await runGate({
-    cwd: deps.cwd,
+    cwd: home.deps.cwd,
     ifDirty: values['if-dirty'],
     stdout: deps.stdout,
     stderr: deps.stderr,

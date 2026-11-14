@@ -23,9 +23,9 @@
  * checks join only where the repo declares none of that name.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { isAbsolute, join, posix, relative, resolve } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
 
 import type { Adapter, AdapterOptions, Order, SchemaRule as SchemaRuleFields, Slot, TableSignal } from './adapters.js';
 import { SCHEMA_SLOT, SLOTS } from './adapters.js';
@@ -986,6 +986,9 @@ const NAMED = new WeakSet<object>();
 /** For each composed config that includes files, the file that declares each of its targets. */
 const DECLARED_IN = new WeakMap<object, ReadonlyMap<string, string>>();
 
+/** For each composed config that includes files, each included file with the file that includes it. */
+const INCLUDED_BY = new WeakMap<object, ReadonlyMap<string, string>>();
+
 /**
  * `config` as a run reads it. First the files it includes join it: each
  * directory `include` lists holds a config file named `fileName`, whose
@@ -1010,10 +1013,16 @@ function composed(config: CheckrideConfig, cwd: string, fileName: string, warn?:
   const whole = withLocalFiles(joined.config, fileName, read, joined.declaredIn);
   if (label !== CONFIG_FILE) LABELS.set(whole, label);
   assertShape(whole, cwd, fileName, joined.declaredIn);
-  WHOLE.add(whole);
-  if (joined.declaredIn.size > 0) DECLARED_IN.set(whole, joined.declaredIn);
+  remember(whole, joined);
   COMPOSED.set(config, new Map([...(COMPOSED.get(config) ?? []), [fileName, whole]]));
   return whole;
+}
+
+/** Record `whole` as composed, with what its included files declare and which file includes each, where it includes any. */
+function remember(whole: object, files: { declaredIn: ReadonlyMap<string, string>; includedBy: ReadonlyMap<string, string> }): void {
+  WHOLE.add(whole);
+  if (files.declaredIn.size > 0) DECLARED_IN.set(whole, files.declaredIn);
+  if (files.includedBy.size > 0) INCLUDED_BY.set(whole, files.includedBy);
 }
 
 /**
@@ -1040,9 +1049,13 @@ function withLocalFiles(config: Record<string, unknown>, fileName: string, read:
  * `include` folded away, with the included file that declares each target
  * one declares. A config that includes nothing comes back as it is.
  */
-function withIncluded(config: CheckrideConfig, fileName: string, read: LocalRead): { config: Record<string, unknown>; declaredIn: ReadonlyMap<string, string> } {
+function withIncluded(
+  config: CheckrideConfig,
+  fileName: string,
+  read: LocalRead,
+): { config: Record<string, unknown>; declaredIn: ReadonlyMap<string, string>; includedBy: ReadonlyMap<string, string> } {
   const { include, ...rest } = config;
-  if (include === undefined) return { config, declaredIn: new Map() };
+  if (include === undefined) return { config, declaredIn: new Map(), includedBy: new Map() };
   if (NAMED.has(config)) {
     invalidConfig(
       "a config named by --config or CHECKRIDE_CONFIG can't include: an included file's roots are relative to a file inside the repo, and this one can sit outside it. Declare the targets here, or make them local",
@@ -1062,7 +1075,8 @@ function withIncluded(config: CheckrideConfig, fileName: string, read: LocalRead
   }
   // Only the included files' targets are recorded: a target of the config's own needs no file named.
   const declaredIn = new Map([...joined.declaredIn].filter(([, file]) => file !== fileName));
-  return { config: { ...rest, targets: joined.targets }, declaredIn };
+  const includedBy = new Map(files.flatMap((f) => (f.by === undefined ? [] : [[f.file, f.by] as const])));
+  return { config: { ...rest, targets: joined.targets }, declaredIn, includedBy };
 }
 
 /**
@@ -1081,7 +1095,7 @@ function includedFiles(include: unknown, from: DeclaringFile, fileName: string, 
     const file = localFileOf(dir, fileName);
     if (trail.includes(file)) invalidConfig(`circular include: ${[...trail, file].join(' -> ')}`, undefined, read.label);
     const parsed = readIncludedFile(file, from.file, read);
-    const declaring: DeclaringFile = { file, dir, targets: isRecord(parsed['targets']) ? parsed['targets'] : {} };
+    const declaring: DeclaringFile = { file, dir, targets: isRecord(parsed['targets']) ? parsed['targets'] : {}, by: from.file };
     const deeper = parsed['include'] === undefined ? [] : includedFiles(parsed['include'], declaring, fileName, read, [...trail, file]);
     return [declaring, ...deeper];
   });
@@ -1160,6 +1174,130 @@ function runnableBy(inherited: Record<string, unknown>, lang: unknown): Record<s
     return owners.length === 0 || owners.includes(lang);
   };
   return { ...inherited, checks: Object.fromEntries(Object.entries(checks).filter(runs)) };
+}
+
+/** The config a directory belongs to: the repo root it sits at, its path, and the targets a run from that directory covers. */
+export type Claim = { root: string; file: string; targets: string[] };
+
+/**
+ * The config that claims `cwd`, a directory inside the git work tree whose
+ * top level is `top`, or `null` when none does and a command reads `cwd` as
+ * it is. A config claims a directory inside one of its local targets, and
+ * the directory of a file it includes. The search runs over the directories
+ * above `cwd`, up to `top` and no further, and the highest config that
+ * claims it wins, since a local or an included file is itself a config
+ * further down. `fileName` is the name the config goes by, a named suite's
+ * for one.
+ *
+ * It never crosses a config that doesn't claim the directory: a config file
+ * between the two that is neither a local target's file nor an included one
+ * is a project of its own, and `cwd` belongs to it.
+ *
+ * `targets` is what a run from `cwd` covers: beside an included file, every
+ * target that file and the files it includes declare; otherwise every target
+ * rooted at `cwd` or below, or the local target `cwd` sits inside.
+ */
+export function claimingConfig(cwd: string, top: string, fileName: string = CONFIG_FILE): Claim | null {
+  const from = realDir(cwd);
+  const above = dirsUpTo(from, realDir(top)).slice(1);
+  for (const root of above.toReversed()) {
+    const whole = existsSync(join(root, fileName)) ? candidateConfig(root, fileName) : null;
+    if (whole === null) continue;
+    const below = relative(root, from).split(sep).join('/');
+    const targets = claimedTargets(whole, below);
+    if (targets !== null && !crossesAnother(whole, root, below, fileName)) return { root, file: join(root, fileName), targets };
+  }
+  return null;
+}
+
+/** `dir` with every symlink above it resolved, as git names a work tree's top level; as given when it can't be. */
+function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return resolve(dir);
+  }
+}
+
+/**
+ * The config at `root`, composed, as a candidate for claiming a directory
+ * below it; `null` for one that can't be read and shows no sign of claiming
+ * anything, which is some other project's to report. A config that declares
+ * a local target or includes a file, and can't be read, is the error: the
+ * directory may be its own, and reading the directory alone would give a
+ * second, wrong verdict.
+ */
+function candidateConfig(root: string, fileName: string): CheckrideConfig | null {
+  try {
+    const config = loadConfig(root, undefined, fileName);
+    return config === null ? null : composed(config, root, fileName);
+  } catch (error) {
+    if (!mayClaim(join(root, fileName))) return null;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`${reason} (in ${join(root, fileName)}, the config above this directory)`, { cause: error });
+  }
+}
+
+/** True when the config file at `path`, read as plain JSON, declares a local target or includes a file: the two ways a config claims a directory below it. */
+function mayClaim(path: string): boolean {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if (!isRecord(raw)) return false;
+    // A local target's own file has an `include` too, a list of globs, beside its `lang`.
+    return declaresLocal(raw['targets']) || (raw['include'] !== undefined && raw['lang'] === undefined);
+  } catch {
+    return false;
+  }
+}
+
+/** True when `path`, relative to the repo root, is `dir` or sits below it. */
+function isAtOrBelow(path: string, dir: string): boolean {
+  return dir === '.' || dir === '' || path === dir || path.startsWith(`${dir}/`);
+}
+
+/**
+ * The targets a run from `below`, a directory relative to the root of the
+ * composed config `whole`, covers, or `null` when `whole` doesn't claim it.
+ */
+function claimedTargets(whole: CheckrideConfig, below: string): string[] | null {
+  const included = includedAt(whole, below);
+  if (included !== null) return included;
+  const targets = Object.entries(whole.targets ?? {}).map(([name, target]) => ({ name, root: posix.normalize(target.root), local: target.local === true }));
+  const around = targets.filter((t) => t.local && isAtOrBelow(below, t.root));
+  if (around.length === 0) return null;
+  const under = targets.filter((t) => isAtOrBelow(t.root, below));
+  if (under.length > 0) return under.map((t) => t.name);
+  // Inside a local target and above no target's root: the innermost one that holds the directory.
+  return around.toSorted((a, b) => b.root.length - a.root.length).slice(0, 1).map((t) => t.name);
+}
+
+/**
+ * The targets the included file in `below` declares, with those of every
+ * file it includes in turn, or `null` when `whole` includes no file there,
+ * or that file's tree declares none.
+ */
+function includedAt(whole: CheckrideConfig, below: string): string[] | null {
+  const includedBy = INCLUDED_BY.get(whole) ?? new Map<string, string>();
+  const file = [...includedBy.keys()].find((included) => posix.dirname(included) === below);
+  if (file === undefined) return null;
+  const reaches = (from: string | undefined): boolean => from !== undefined && (from === file || reaches(includedBy.get(from)));
+  const names = [...(DECLARED_IN.get(whole) ?? [])].filter(([, declaring]) => reaches(declaring)).map(([name]) => name);
+  return names.length > 0 ? names : null;
+}
+
+/**
+ * True when a config file sits between the root of `whole` and `below`,
+ * `below` included, that isn't part of `whole`: neither a local target's
+ * file nor an included one. Such a file is a project of its own.
+ */
+function crossesAnother(whole: CheckrideConfig, root: string, below: string, fileName: string): boolean {
+  const locals = Object.values(whole.targets ?? {}).flatMap((target) => (target.local === true ? [localFileOf(target.root, fileName)] : []));
+  const parts = new Set([...locals, ...(INCLUDED_BY.get(whole) ?? new Map<string, string>()).keys()]);
+  const segments = below.split('/');
+  return segments.some((_, i) => {
+    const file = localFileOf(segments.slice(0, i + 1).join('/'), fileName);
+    return !parts.has(file) && existsSync(join(root, file));
+  });
 }
 
 /**

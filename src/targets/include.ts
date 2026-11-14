@@ -61,8 +61,12 @@ export function includedFileProblem(parsed: Record<string, unknown>, file: strin
   return null;
 }
 
-/** The targets one file declares: the file, relative to the repo root, the directory it sits in, and its `targets` as written. */
-export type DeclaringFile = { file: string; dir: string; targets: Record<string, unknown> };
+/**
+ * The targets one file declares: the file, relative to the repo root, the
+ * directory it sits in, and its `targets` as written. `by` is the file that
+ * includes it, absent on the repo's own config.
+ */
+export type DeclaringFile = { file: string; dir: string; targets: Record<string, unknown>; by?: string };
 
 /** Every file's targets as one flat set, with the file that declared each. */
 export type Joined = { targets: Record<string, unknown>; declaredIn: Map<string, string> };

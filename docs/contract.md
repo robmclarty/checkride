@@ -1847,6 +1847,49 @@ carries `file`, the config file that declares the target, relative to the
 repo root, and the table gains it as a fourth column. A config that includes
 nothing reports its targets as before.
 
+**A command typed inside a target runs from the repo's root.** A run, `fix`,
+`doctor`, `baseline`, `baseline --versions`, `baseline diff`, `recover` and
+`gate` each look above the directory they are typed in for the config that
+claims it: a config claims every directory inside one of its local targets,
+and the directory of each file it includes. The search covers the
+directories above, up to the git top level and no further, and the highest
+config that claims the directory wins. It never crosses a config that isn't
+part of the one it finds: a config file between the two that is neither a
+local target's file nor an included file keeps its directories. With no git
+work tree there is no search, and none when `--config` or `CHECKRIDE_CONFIG`
+names the config; a named suite is searched for by its own file name. A
+directory nothing claims, one inside a target declared whole among them, is
+read as it always was.
+
+The command then runs with the found config's directory as the repo root,
+so its artifacts, its baseline and every path it reports are the root's, and
+writes one line to stderr:
+
+```text
+checkride: found ../checkride.config.json, which claims this directory: running as --only web, from /work/shop
+```
+
+The path is the config's, relative to the directory the command was typed
+in, and the last is the root. A path a flag names, `--out` or `--defaults`,
+is still read against the directory the command was typed in.
+
+- A run is narrowed to the targets the directory holds: every target rooted
+  at the directory or below it, else the local target the directory is
+  inside; beside an included file, every target that file and the files it
+  includes declare. It runs as `--only <those targets>` does from the root,
+  and writes the same entries. A run's own `--only` is read inside them: a
+  target of the directory and a `<target>:<check>` of one stand, a slot or a
+  custom check's name becomes that check in each of the directory's targets
+  that has it, and a token that selects nothing there exits 2. The line
+  reads `running as --only <tokens>`.
+- Every other command acts on the whole repo, and the line reads
+  `running doctor for the whole repo`, with `fix`, `baseline`,
+  `baseline diff`, `recover` or `the gate` in `doctor`'s place.
+- A config above that declares a local target or includes a file, and can't
+  be loaded, exits 2 with its own error, ending
+  `(in <path>, the config above this directory)`. Any other config above
+  that can't be loaded is passed over.
+
 A top-level key the config schema doesn't declare is no error, since nothing
 reads it, but a run, `fix` and `doctor` each print a warning on stderr naming
 the file that holds it, the repo's config, a preset it extends, or a
