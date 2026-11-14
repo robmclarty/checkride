@@ -92,6 +92,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the summary names it, and the red-run hint names the file whose history
   held the findings. A partial run writes none of them, as before.
 
+- **`checkride baseline` writes each target's keys to its own file.** A
+  capture puts every check's entry in the file that owns it and takes it out
+  of any other, so stray keys move both ways at once. `--only` and `--skip`
+  rewrite only the files that own a check the capture recorded, or held a
+  stray entry for one. `baseline --versions` re-records each file's copies
+  in place, and moves no key between files. With more than one baseline
+  file, none of them writes over a file that can't be parsed: the command
+  is exit 2 naming the file, before anything runs.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -127,6 +136,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   finding(s)` now comes once for each file written, and the unparseable
   warning and the red-run hint name a target's file. A repo with one
   baseline file sees the lines it saw before.
+- **`baseline` and `baseline --versions` may write more than one file.**
+  `baseline: wrote <file> — N finding(s) across <checks>` comes once for
+  each file written, naming that file's checks, and `--versions` names each
+  file it wrote. With the baseline spread over more than one file, a file
+  that couldn't be read is a new exit 2 for `baseline`, `baseline --only`,
+  `baseline --skip` and `baseline --versions`. A repo with one baseline file
+  is written, and refused, exactly as before.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

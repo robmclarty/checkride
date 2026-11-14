@@ -41,7 +41,12 @@
   },
   "9": {
     "startedAt": "2026-11-14T04:09:38.334Z",
-    "redChecks": 1
+    "redChecks": 1,
+    "driftWarnings": 1,
+    "landedAt": "2026-11-14T04:29:07.456Z"
+  },
+  "10": {
+    "startedAt": "2026-11-14T04:29:12.436Z"
   },
   "21": {
     "startedAt": "2026-11-14T01:09:15.244Z",

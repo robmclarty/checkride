@@ -6,7 +6,9 @@
  * `checkride.baseline.json` at repo root — beside `checkride.config.json`,
  * committed, NOT under the gitignored `.check/`. The file grandfathers a
  * repo's existing diagnostics so a baseline-aware run can subtract them and
- * fail only on genuinely new findings.
+ * fail only on genuinely new findings. A local target's keys go to the file
+ * of that name at its own root, and every write here goes through the map of
+ * those files (`./baseline/shards.ts`).
  *
  * Only slots whose adapter has a parser participate: a supported-but-clean
  * slot records an empty array (it opted in and had nothing to grandfather),
@@ -37,30 +39,34 @@
 
 import type { Adapter, Slot } from './adapters.js';
 import { isInside } from './artifacts/index.js';
-import type { Baseline, Captured, Observation, RanWith, Recount, Rerecord, Tally } from './baseline/index.js';
+import type { Baseline, Captured, Observation, RanWith, Recount, Rerecord, ShardChange, ShardsRead, Tally } from './baseline/index.js';
 import {
   BASELINE_SCHEMA_VERSION,
-  baselinesEqual,
   capturedRecord,
+  captureShards,
   copyNamed,
   countGrandfathered,
   diffBaselines,
   findingText,
   isFingerprintable,
-  loadBaseline,
   observedTally,
   readBaselineAt,
   readBaselineStatus,
+  readShards,
+  rehomeShards,
   reportVerdict,
   rerecordCopies,
+  rerecordShards,
+  shardMap,
   stoppedShortReason,
-  writeBaseline,
+  unwritableShard,
+  writeShards,
 } from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { CheckRun, CheckRunner, Out, RunnerOutcome, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
-import { narrowedAway, runChecks } from './orchestrator/index.js';
+import { narrowedAway, resolveCommonOptions, runChecks } from './orchestrator/index.js';
 import type { PackageManager } from './launch/index.js';
 import { packToolchain } from './launch/index.js';
 import type { Suite } from './suite.js';
@@ -258,22 +264,55 @@ function narrowingFlags(options: BaselineOptions): string | null {
   return flags.length === 0 ? null : flags.join(' and ');
 }
 
+/** A stream that drops what it's given: for a config read whose warnings the run itself prints. */
+const QUIET: Out = { write: () => true };
+
 /**
- * The committed baseline a narrowed capture merges into, its keys as the file
- * holds them, or `null` when there is none yet. One that can't be parsed
- * stops the capture before anything runs, since the checks the selection
- * leaves out could keep none of their keys, where a capture of every check
- * replaces the file whole.
+ * The committed baseline's files, as the config the command runs with
+ * spreads them: read in the form masking reads, or with each file's keys as
+ * written. The config is composed as the run composes it, quietly, since the
+ * run says what there is to say about it.
  */
-function baselineToNarrow(cwd: string, flags: string, suite: Suite): Baseline | null {
+function committedShards(options: BaselineOptions, cwd: string, suite: Suite, form: 'current' | 'as-written'): ShardsRead {
+  const { config } = resolveCommonOptions({ cwd, suite, stderr: QUIET, ...(options.config !== undefined ? { config: options.config } : {}) });
+  return readShards(cwd, shardMap(suite.baselineFile, config?.targets), form);
+}
+
+/**
+ * Why `command` can't write the baseline `read` is of, or `null`: one of
+ * its files, among several, couldn't be read, and no writer goes over a file
+ * it couldn't read, since the working tree's copy is what `recover` restores
+ * from.
+ */
+function unwritableProblem(command: string, read: ShardsRead, suite: Suite): string | null {
+  const file = unwritableShard(read);
+  if (file === undefined) return null;
+  if (file.state === 'outside') return `${command}: ${file.file} resolves outside the repository, so it can't be read or written; make it a file of the repository's own`;
+  return `${command}: ${file.file} can't be parsed, or comes from a newer checkride, and nothing writes over a baseline file it couldn't read; restore it with \`${suiteCommand('checkride recover', suite)}\`, or remove the file and run this again`;
+}
+
+/** Stop `command` before anything runs when it couldn't write one of the baseline's files ({@link unwritableProblem}). */
+function refuseUnwritable(command: string, read: ShardsRead, suite: Suite): void {
+  const problem = unwritableProblem(command, read, suite);
+  if (problem !== null) throw new Error(problem);
+}
+
+/**
+ * The committed baseline a narrowed capture merges into, each file's keys as
+ * it holds them. A root file that can't be parsed stops the capture before
+ * anything runs, since the checks the selection leaves out could keep none
+ * of their keys, where a capture of every check replaces the file whole.
+ */
+function baselineToNarrow(options: BaselineOptions, cwd: string, flags: string, suite: Suite): ShardsRead {
   const file = suite.baselineFile;
-  const read = readBaselineStatus(cwd, 'as-written', file);
+  const read = committedShards(options, cwd, suite, 'as-written');
+  refuseUnwritable(`baseline ${flags}`, read, suite);
   if (read.state === 'unparseable') {
     throw new Error(
       `baseline ${flags}: ${file} can't be parsed, or comes from a newer checkride, so the checks ${flags} leaves out couldn't keep their keys; restore it with \`${suiteCommand('checkride recover', suite)}\`, or capture every check with \`${suiteCommand('checkride baseline', suite)}\``,
     );
   }
-  return read.baseline;
+  return read;
 }
 
 /**
@@ -296,51 +335,66 @@ function withEntriesOf(base: Baseline | null, from: Baseline, checks: ReadonlySe
   };
 }
 
+/** What a write says of one file it changed: the findings its checks named in `named` grandfather, or that it's gone. */
+function wroteLine({ file, baseline }: ShardChange, named: readonly string[], kept: string): string {
+  if (baseline === null) return `baseline: removed ${file}, whose target is no longer local: the root file holds its keys now`;
+  const here = named.filter((name) => Object.hasOwn(baseline.slots, name));
+  const findings = countGrandfathered(withEntriesOf(null, baseline, new Set(here)));
+  return `baseline: wrote ${file} — ${findings} finding(s) across ${here.length > 0 ? here.join(', ') : '(no fingerprintable slots)'}${kept}`;
+}
+
 /**
  * Write a narrowed capture (`--only`, `--skip`): each check it recorded takes
- * its new entry, and every other check, one the selection left out or one
- * that didn't run to a verdict, keeps the entry `previous`, the file as
- * written, holds for it. It writes nothing when it recorded no check, and
- * says so; stderr has already said why for each check it ran.
+ * its new entry in the file that owns it, and every other check, one the
+ * selection left out or one that didn't run to a verdict, keeps the entry
+ * `previous`, the files as written, hold for it. It writes nothing when it
+ * recorded no check, and says so; stderr has already said why for each check
+ * it ran.
  */
-async function writeNarrowed(at: { cwd: string; file: string }, flags: string, previous: Baseline | null, captured: { captures: Captures; baseline: Baseline }, stderr: Out): Promise<Baseline> {
+async function writeNarrowed(cwd: string, flags: string, previous: ShardsRead, captured: { captures: Captures; baseline: Baseline }, stderr: Out): Promise<Baseline> {
   const recorded = new Set(Object.keys(captured.captures.slots).filter((name) => !captured.captures.kept.has(name)));
   if (recorded.size === 0) {
-    stderr.write(`\nbaseline: ${flags} recorded no check, so ${at.file} is unchanged\n`);
-    return previous ?? EMPTY_BASELINE;
+    stderr.write(`\nbaseline: ${flags} recorded no check, so ${previous.map.root} is unchanged\n`);
+    return previous.baseline ?? EMPTY_BASELINE;
   }
-  const baseline = withEntriesOf(previous, captured.baseline, recorded);
-  await writeBaseline(at.cwd, baseline, at.file);
-  const findings = countGrandfathered(withEntriesOf(null, captured.baseline, recorded));
-  const others = Object.keys(baseline.slots).length - recorded.size;
-  const kept = others > 0 ? `; ${others} other check(s) kept as they were` : '';
-  stderr.write(`\nbaseline: wrote ${at.file} — ${findings} finding(s) across ${[...recorded].join(', ')}${kept}\n`);
+  const changes = rehomeShards(previous, captured.baseline, recorded);
+  await writeShards(cwd, changes);
+  const baseline = withEntriesOf(previous.baseline, captured.baseline, recorded);
+  stderr.write('\n');
+  for (const change of changes) {
+    const others = change.baseline === null ? 0 : Object.keys(change.baseline.slots).filter((name) => !recorded.has(name)).length;
+    stderr.write(`${wroteLine(change, [...recorded], others > 0 ? `; ${others} other check(s) kept as they were` : '')}\n`);
+  }
   return baseline;
 }
 
 /**
  * Run the pipeline and write the per-adapter fingerprint baseline to `cwd`.
- * The repo's explicit write: it writes the file at the root whatever config
- * or output directory the run was given. Under `--only` or `--skip` it
- * rewrites only the checks the capture recorded ({@link writeNarrowed}).
+ * The repo's explicit write: it writes the baseline's files where they sit
+ * in the repo whatever config or output directory the run was given, each
+ * check's keys in the file that owns them, and a key in any other file moves
+ * home at once (`captureShards`). Under `--only` or `--skip` it rewrites
+ * only the checks the capture recorded ({@link writeNarrowed}).
  */
 export async function runBaseline(options: BaselineOptions): Promise<BaselineResult> {
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
   const flags = narrowingFlags(options);
   const suite = options.suite ?? DEFAULT_SUITE;
-  const file = suite.baselineFile;
-  const narrowedFrom = flags === null ? null : baselineToNarrow(cwd, flags, suite);
+  const narrowedFrom = flags === null ? null : baselineToNarrow(options, cwd, flags, suite);
+  const committed = committedShards(options, cwd, suite, 'current');
+  refuseUnwritable('baseline', committed, suite);
   const result = await runChecks(captureRun(options, cwd, stderr));
-  const previous = flags === null ? loadBaseline(cwd, file) : narrowedFrom;
+  const previous = narrowedFrom === null ? committed.baseline : narrowedFrom.baseline;
   const captures = capturedSlots(result.runs, previous, cwd, stderr);
   const baseline = capturedBaseline(captures, capturedWith(captures.slots, captures.kept, result.summary.checks, previous));
-  if (flags !== null) return { ok: true, exitCode: 0, baseline: await writeNarrowed({ cwd, file }, flags, previous, { captures, baseline }, stderr) };
-  await writeBaseline(cwd, baseline, file);
+  if (flags !== null && narrowedFrom !== null) return { ok: true, exitCode: 0, baseline: await writeNarrowed(cwd, flags, narrowedFrom, { captures, baseline }, stderr) };
+  const changes = captureShards(committed, baseline);
+  await writeShards(cwd, changes);
 
   const slotNames = Object.keys(captures.slots);
-  const where = slotNames.length > 0 ? slotNames.join(', ') : '(no fingerprintable slots)';
-  stderr.write(`\nbaseline: wrote ${file} — ${countGrandfathered(baseline)} finding(s) across ${where}\n`);
+  stderr.write('\n');
+  for (const change of changes) stderr.write(`${wroteLine(change, slotNames, '')}\n`);
 
   return { ok: true, exitCode: 0, baseline };
 }
@@ -367,17 +421,20 @@ export type BaselineVersionsResult = BaselineResult & {
  * or the usage error that stops it: a `--config` outside the repo, no file to
  * re-record, or one that can't be parsed.
  */
-function committedForVersions(cwd: string, configPath: string | undefined, suite: Suite): Baseline {
+function committedForVersions(options: BaselineVersionsOptions, cwd: string, suite: Suite): ShardsRead & { baseline: Baseline } {
   const file = suite.baselineFile;
+  const { configPath } = options;
   if (configPath !== undefined && !isInside(cwd, configPath)) {
     throw new Error(
       `baseline --versions: --config names ${configPath}, outside the repo, which can run fewer checks or other arguments than the repo's own config and prune keys its run still reports`,
     );
   }
-  const read = readBaselineStatus(cwd, 'current', file);
+  const read = committedShards(options, cwd, suite, 'current');
+  refuseUnwritable('baseline --versions', read, suite);
+  const { baseline } = read;
+  if (baseline !== null) return { ...read, baseline };
   if (read.state === 'absent') throw new Error(`baseline --versions: there's no ${file} to re-record; capture one with \`${suiteCommand('checkride baseline', suite)}\``);
-  if (read.baseline === null) throw new Error(`baseline --versions: ${file} can't be parsed, or comes from a newer checkride; restore it with \`${suiteCommand('checkride recover', suite)}\``);
-  return read.baseline;
+  throw new Error(`baseline --versions: ${file} can't be parsed, or comes from a newer checkride; restore it with \`${suiteCommand('checkride recover', suite)}\``);
 }
 
 /**
@@ -436,8 +493,9 @@ function rerecordLine(r: Rerecord, names: ToolNames, suite: Suite): string | nul
 }
 
 /** Print a line for each check re-recorded or left, then what was written and the counts. */
-function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolNames, wrote: { written: boolean; suite: Suite }): void {
+function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolNames, wrote: { files: readonly string[]; suite: Suite }): void {
   const file = wrote.suite.baselineFile;
+  const files = wrote.files.join(' ');
   for (const r of results) {
     const line = rerecordLine(r, names, wrote.suite);
     if (line !== null) stderr.write(`baseline --versions: ${line}\n`);
@@ -445,8 +503,8 @@ function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolN
   const count = (outcomes: readonly Rerecord['outcome'][]): number => results.filter((r) => outcomes.includes(r.outcome)).length;
   const tally = `${count(['rerecorded'])} re-recorded, ${count(['not-run', 'no-verdict', 'new-keys', 'unpinned'])} left, ${count(['unchanged'])} unchanged`;
   stderr.write(
-    wrote.written
-      ? `baseline --versions: wrote ${file}: ${tally}; review it with \`git diff ${file}\`\n`
+    wrote.files.length > 0
+      ? `baseline --versions: wrote ${wrote.files.join(', ')}: ${tally}; review ${wrote.files.length === 1 ? 'it' : 'them'} with \`git diff ${files}\`\n`
       : `baseline --versions: ${file} is unchanged: ${tally}\n`,
   );
 }
@@ -454,7 +512,8 @@ function reportRerecords(stderr: Out, results: readonly Rerecord[], names: ToolN
 /**
  * `checkride baseline --versions`: run the pipeline as a capture does, then
  * re-record the copy each check's tool ran as, where that adds no key
- * (`rerecordCopies`), and write the file only when a check was re-recorded.
+ * (`rerecordCopies`), and write a file only when a check it holds was
+ * re-recorded, in place: no key moves between files (`rerecordShards`).
  * Under `--only` or `--skip` only the checks they select run, and the rest
  * keep their entries.
  * The fix for a check a tool upgrade holds back from the ratchet, once the
@@ -467,24 +526,25 @@ export async function runBaselineVersions(options: BaselineVersionsOptions): Pro
   const cwd = options.cwd ?? process.cwd();
   const stderr = options.stderr ?? process.stderr;
   const suite = options.suite ?? DEFAULT_SUITE;
-  const file = suite.baselineFile;
-  const committed = committedForVersions(cwd, options.configPath, suite);
+  const committed = committedForVersions(options, cwd, suite);
   const result = await runChecks(captureRun(options, cwd, stderr));
-  const rerecorded = rerecordCopies(committed, observations(result, cwd));
+  const rerecorded = rerecordCopies(committed.baseline, observations(result, cwd));
   const { results } = rerecorded;
-  // Every check it didn't re-record is written back as the file holds it, an
-  // earlier release's key forms included, byte for byte.
-  const asWritten = readBaselineStatus(cwd, 'as-written', file).baseline ?? committed;
+  // Every check it didn't re-record is written back as its file holds it, an
+  // earlier release's key forms included, byte for byte, and a re-recorded
+  // one stays in the file that holds it.
+  const asWritten = readShards(cwd, committed.map, 'as-written');
   const moved = new Set(results.flatMap((r) => (r.outcome === 'rerecorded' ? [r.check] : [])));
-  const baseline = withEntriesOf(asWritten, rerecorded.baseline, moved);
-  const written = !baselinesEqual(asWritten, baseline);
-  if (written) await writeBaseline(cwd, baseline, file);
+  const changes = rerecordShards(asWritten, committed, rerecorded.baseline, moved);
+  await writeShards(cwd, changes);
+  const baseline = withEntriesOf(asWritten.baseline ?? committed.baseline, rerecorded.baseline, moved);
+  const written = changes.length > 0;
   const names: ToolNames = new Map(result.summary.checks.map((c) => [c.name, { tool: c.adapter ?? c.name, toolchain: packToolchain(c.pack) }]));
   // A check `--only` or `--skip` left out keeps its entry, as one that didn't
   // run does, and goes unnamed, since the selection says why.
   const away = new Set(result.summary.checks.filter(narrowedAway).map((c) => c.name));
   stderr.write('\n');
-  reportRerecords(stderr, results.filter((r) => !away.has(r.check)), names, { written, suite });
+  reportRerecords(stderr, results.filter((r) => !away.has(r.check)), names, { files: changes.map((c) => c.file), suite });
   return { ok: true, exitCode: 0, baseline, results, written };
 }
 

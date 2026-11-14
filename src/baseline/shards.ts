@@ -143,11 +143,11 @@ export type ShardRead = { file: string; baseline: Baseline | null; state: Baseli
 export type ShardsRead = BaselineRead & { map: ShardMap; files: readonly ShardRead[] };
 
 /** The file at a target's root, read where it really is, or not at all when that is outside the repository. */
-function readShard(cwd: string, contain: Root, file: string): ShardRead {
+function readShard(cwd: string, contain: Root, file: string, form: 'current' | 'as-written'): ShardRead {
   const where = locatedSync(contain, join(cwd, file));
   if (where === 'outside') return { file, baseline: null, state: 'outside' };
   if (where === 'missing') return { file, baseline: null, state: 'absent' };
-  return { file, ...readBaselineFile(where.inside) };
+  return { file, ...readBaselineFile(where.inside, form) };
 }
 
 /** `baseline` with only the checks `keep` admits: their keys, their capture records and their counts. */
@@ -187,17 +187,19 @@ function together(map: ShardMap, files: readonly ShardRead[]): Baseline | null {
 }
 
 /**
- * Read every file of `map` from the repo at `cwd`, in the form masking reads.
- * A map of the root file alone reads that one file exactly as
- * `readBaselineStatus` does, and so does a repo with no file at any target's
- * root: either way the root file's baseline comes back untouched.
+ * Read every file of `map` from the repo at `cwd`, in the form masking reads,
+ * or with each file's keys `as-written`, for a writer that leaves an entry it
+ * doesn't touch as the file holds it. A map of the root file alone reads that
+ * one file exactly as `readBaselineStatus` does, and so does a repo with no
+ * file at any target's root: either way the root file's baseline comes back
+ * untouched.
  */
-export function readShards(cwd: string, map: ShardMap): ShardsRead {
-  const root = readBaselineStatus(cwd, 'current', map.root);
+export function readShards(cwd: string, map: ShardMap, form: 'current' | 'as-written' = 'current'): ShardsRead {
+  const root = readBaselineStatus(cwd, form, map.root);
   const rootRead: ShardRead = { file: map.root, ...root };
   if (map.shards.length === 0) return { ...root, map, files: [rootRead] };
   const contain = repoRoot(cwd);
-  const files = [rootRead, ...map.shards.map((shard) => readShard(cwd, contain, shard.file))];
+  const files = [rootRead, ...map.shards.map((shard) => readShard(cwd, contain, shard.file, form))];
   if (files.every((read) => read === rootRead || read.state === 'absent')) return { ...root, map, files };
   return { baseline: together(map, files), state: root.state, map, files };
 }
@@ -217,6 +219,27 @@ export type ShardChange = { file: string; baseline: Baseline | null };
 /** True for a file no writer may touch: one that couldn't be parsed, or that sits outside the repository. */
 function unwritable(read: ShardRead): boolean {
   return read.state === 'unparseable' || read.state === 'outside';
+}
+
+/**
+ * The first file of a baseline spread over more than one that no writer may
+ * touch, or `undefined`: a command that would write stops on it. A baseline
+ * that is the root file alone has none, since a capture there replaces a
+ * mangled file whole, as it always has.
+ */
+export function unwritableShard(read: ShardsRead): ShardRead | undefined {
+  return read.map.shards.length === 0 ? undefined : read.files.find(unwritable);
+}
+
+/** True when the file `file` is read for `check`: the root file for any, a file at a target's root for its targets' alone. */
+function admits(map: ShardMap, file: string, check: string): boolean {
+  const shard = map.shards.find((s) => s.file === file);
+  return shard === undefined || holds(shard, check);
+}
+
+/** True when `baseline` holds a check at all, even one with no key. */
+function holdsAny(baseline: Baseline): boolean {
+  return Object.keys(baseline.slots).length > 0;
 }
 
 /** `parts`, which hold no check in common, as one baseline of schema version `version`. */
@@ -279,4 +302,99 @@ export function ratchetShards(read: ShardsRead, observed: ReadonlyMap<string, Ta
 /** Make `changes` in the repo at `cwd`: each file written canonical and atomically, as `writeBaseline` writes one, or removed. */
 export async function writeShards(cwd: string, changes: readonly ShardChange[]): Promise<void> {
   await Promise.all(changes.map(({ file, baseline }) => (baseline === null ? rm(join(cwd, file), { force: true }) : writeBaseline(cwd, baseline, file))));
+}
+
+/**
+ * The files a capture of every check writes, for `next`, everything it
+ * recorded: each check's entry goes to the file that owns it and leaves
+ * every other, both ways at once, so a local target's keys leave the root
+ * file and a file a target left behind is removed. The root file is always
+ * written, and so is a local target's file that is already there, each
+ * replaced whole but for an entry the read doesn't admit; a local target
+ * with nothing to hold gets no file. A file no writer may touch is left out
+ * ({@link unwritableShard}).
+ */
+export function captureShards(read: ShardsRead, next: Baseline): ShardChange[] {
+  const none = new Set<string>();
+  const skipped = unwritableShard(read) === undefined ? [] : read.files.filter(unwritable);
+  return read.files.flatMap((file) => {
+    if (skipped.includes(file)) return [];
+    const spread = { ...spreadTo(read.map, file, next, none), schema_version: BASELINE_SCHEMA_VERSION };
+    const owner = file.file === read.map.root || (file.baseline !== null && read.map.shards.some((s) => s.file === file.file && s.local.length > 0));
+    return owner ? [{ file: file.file, baseline: spread }] : changeTo(read.map, file, spread);
+  });
+}
+
+/**
+ * The files a narrowed capture writes, for `checks`, the ones it recorded,
+ * with their new entries in `from`: the file that owns a check takes its
+ * entry, every other file that is read for it drops its own, and every
+ * other entry stays as `read` has it, which a caller reads `as-written`. A
+ * file that owns a recorded check is always written, and any other only when
+ * it loses a stray entry.
+ */
+export function rehomeShards(read: ShardsRead, from: Baseline, checks: ReadonlySet<string>): ShardChange[] {
+  return read.files.flatMap((file) => {
+    if (unwritable(file)) return [];
+    const taken = (check: string): boolean => checks.has(check) && admits(read.map, file.file, check);
+    const owned = entriesOf(from, (check) => checks.has(check) && shardOf(read.map, check) === file.file);
+    const rest = file.baseline === null ? [] : [entriesOf(file.baseline, (check) => !taken(check))];
+    const next = joined([owned, ...rest], BASELINE_SCHEMA_VERSION);
+    return holdsAny(owned) ? [{ file: file.file, baseline: next }] : changeTo(read.map, file, next);
+  });
+}
+
+/** A file's counts for one check's `keys`, each lowered to the count `lowered` gives it, a count that falls to one left out. */
+function loweredTo(own: Readonly<Record<string, number>>, lowered: Readonly<Record<string, number>>, keys: readonly string[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const key of keys) {
+    const n = Math.min(own[key] ?? 1, lowered[key] ?? 1);
+    if (n >= 2) counts[key] = n;
+  }
+  return counts;
+}
+
+/**
+ * A file's counts for `check` once it is re-recorded as `next` has it: its
+ * own, lowered to `next`'s, or as they are where `next` doesn't count the
+ * check, and none for an entry that never was counted.
+ */
+function countsHere(held: Baseline, next: Baseline, check: string, keys: readonly string[]): Pick<Baseline, 'counts'> {
+  const own = held.counts?.[check];
+  if (own === undefined) return {};
+  const lowered = next.counts?.[check];
+  return { counts: { [check]: lowered === undefined ? own : loweredTo(own, lowered, keys) } };
+}
+
+/** One check's entry in a file, re-recorded where it is: the keys of it that `next` still holds, each count lowered to `next`'s, and `next`'s capture record. */
+function rerecordedHere(held: Baseline, next: Baseline, check: string): Baseline {
+  const kept = new Set(next.slots[check] ?? []);
+  const keys = (held.slots[check] ?? []).filter((key) => kept.has(key));
+  const record = next.captured_with?.[check];
+  return {
+    schema_version: held.schema_version,
+    slots: { [check]: keys },
+    ...(record === undefined ? {} : { captured_with: { [check]: record } }),
+    ...countsHere(held, next, check, keys),
+  };
+}
+
+/**
+ * The files `baseline --versions` writes: each of `checks`, the ones it
+ * re-recorded, takes `next`'s entry in place, in every file that holds it,
+ * and no key moves between files. `written` is the files with their keys as
+ * written, so every other entry goes back byte for byte, and `current` the
+ * same files as masking reads them, which is the form `next`'s keys are in.
+ * A file is written only when an entry of its own changes.
+ */
+export function rerecordShards(written: ShardsRead, current: ShardsRead, next: Baseline, checks: ReadonlySet<string>): ShardChange[] {
+  return written.files.flatMap((file, at) => {
+    const now = current.files[at]?.baseline ?? null;
+    if (file.baseline === null || now === null) return [];
+    const here = Object.keys(now.slots).filter((check) => checks.has(check) && admits(written.map, file.file, check));
+    if (here.length === 0) return [];
+    const rest = entriesOf(file.baseline, (check) => !here.includes(check));
+    const whole = joined([...here.map((check) => rerecordedHere(now, next, check)), rest], BASELINE_SCHEMA_VERSION);
+    return baselinesEqual(file.baseline, whole) ? [] : [{ file: file.file, baseline: whole }];
+  });
 }

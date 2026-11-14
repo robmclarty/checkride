@@ -14,6 +14,7 @@ import {
   BASELINE_SCHEMA_VERSION,
   baselineDrift,
   baselinesEqual,
+  captureShards,
   copyNamed,
   fingerprint,
   isFingerprintable,
@@ -22,6 +23,8 @@ import {
   ratchet,
   readBaselineStatus,
   readShards,
+  rehomeShards,
+  rerecordShards,
   entryFor,
   renameBaselineSlots,
   rerecordCopies,
@@ -1141,6 +1144,87 @@ describe('baseline shards', () => {
     await mkdir(join(dir, 'web'));
     await symlink(join(dir, 'shared', 'b.json'), join(dir, 'web', FILE));
     expect(readShards(dir, shardMap(FILE, targets)).baseline?.slots).toEqual({ 'web:lint': ['w'] });
+  });
+});
+
+/** Each change to a baseline's files as `file: its checks`, or `file: removed`. */
+const summed = (changes: ReturnType<typeof captureShards>): string[] =>
+  changes.map(({ file, baseline }) => `${file}: ${baseline === null ? 'removed' : Object.keys(baseline.slots).join(' ')}`);
+
+describe('writing baseline shards', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-shard-writes-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const FILE = 'checkride.baseline.json';
+  const WEB = 'web/checkride.baseline.json';
+  const DOCS = 'tools/docs/checkride.baseline.json';
+  const targets = { web: { lang: 'ts', root: 'web', local: true }, docs: { lang: 'ts', root: 'tools/docs' } };
+  const map = shardMap(FILE, targets);
+
+  async function put(file: string, baseline: Baseline): Promise<void> {
+    await mkdir(join(dir, file, '..'), { recursive: true });
+    await writeFile(join(dir, file), JSON.stringify(baseline));
+  }
+
+  test('a capture always writes the root file, makes a local file that has keys to hold, and makes none for one that has none', () => {
+    const none = readShards(dir, map);
+    expect(summed(captureShards(none, { schema_version: 1, slots: { spell: ['s'], 'web:lint': ['w'] } }))).toEqual([`${FILE}: spell`, `${WEB}: web:lint`]);
+    expect(summed(captureShards(none, { schema_version: 1, slots: {} }))).toEqual([`${FILE}: `]);
+  });
+
+  test("a capture leaves a baseline file at a target's root that holds none of its checks, and removes one that did", async () => {
+    await put(DOCS, { schema_version: 1, slots: { lint: ['a nested repo keeps its own baseline here'] } });
+    const next: Baseline = { schema_version: 1, slots: { 'docs:lint': ['d'] } };
+    expect(summed(captureShards(readShards(dir, map), next))).toEqual([`${FILE}: docs:lint`]);
+    await put(DOCS, { schema_version: 1, slots: { 'docs:lint': ['d'] } });
+    expect(summed(captureShards(readShards(dir, map), next))).toEqual([`${FILE}: docs:lint`, `${DOCS}: removed`]);
+  });
+
+  test("a capture keeps an entry in a local file that isn't its target's, and always rewrites the file", async () => {
+    await put(WEB, { schema_version: 1, slots: { 'web:lint': ['w'], 'api:lint': ['not-webs'] } });
+    const [, web] = captureShards(readShards(dir, map), { schema_version: 1, slots: { 'web:lint': ['w'] } });
+    expect(web?.baseline?.slots).toEqual({ 'api:lint': ['not-webs'], 'web:lint': ['w'] });
+  });
+
+  test("a narrowed capture re-homes only the checks it recorded, and leaves every other entry as written", async () => {
+    await put(FILE, { schema_version: 1, slots: { spell: ['s'], 'web:lint': ['stray'], 'web:types': ['stays-put'] } });
+    await put(WEB, { schema_version: 1, slots: { 'web:lint': ['old'], 'api:lint': ['not-webs'] } });
+    const from: Baseline = { schema_version: 1, slots: { 'web:lint': ['new'] }, counts: { 'web:lint': {} } };
+    const changes = rehomeShards(readShards(dir, map, 'as-written'), from, new Set(['web:lint']));
+    expect(changes.map((c) => [c.file, c.baseline?.slots])).toEqual([
+      [FILE, { spell: ['s'], 'web:types': ['stays-put'] }],
+      [WEB, { 'api:lint': ['not-webs'], 'web:lint': ['new'] }],
+    ]);
+    expect(changes[1]?.baseline?.counts).toEqual({ 'web:lint': {} });
+  });
+
+  test('a narrowed capture that recorded none of a file\'s checks leaves it out', async () => {
+    await put(FILE, { schema_version: 1, slots: { spell: ['s'] } });
+    await put(WEB, { schema_version: 1, slots: { 'web:lint': ['w'] } });
+    const from: Baseline = { schema_version: 1, slots: { spell: ['s2'] } };
+    expect(summed(rehomeShards(readShards(dir, map, 'as-written'), from, new Set(['spell'])))).toEqual([`${FILE}: spell`]);
+  });
+
+  test('a re-record lowers each file\'s own counts, never raises one, and leaves an uncounted entry uncounted', async () => {
+    const was = { pin_source: 'mise', tool_version: '1' };
+    const now = { pin_source: 'mise', tool_version: '2' };
+    await put(FILE, { schema_version: 1, slots: { 'web:lint': ['a', 'c'] }, captured_with: { 'web:lint': was } });
+    await put(WEB, { schema_version: 1, slots: { 'web:lint': ['a', 'b', 'gone'] }, captured_with: { 'web:lint': was }, counts: { 'web:lint': { a: 5, b: 2, gone: 3 } } });
+    // What the whole check re-recorded as: `gone` pruned, `a` found three times, `b` once.
+    const next: Baseline = { schema_version: 1, slots: { 'web:lint': ['a', 'b', 'c'] }, captured_with: { 'web:lint': now }, counts: { 'web:lint': { a: 3 } } };
+    const changes = rerecordShards(readShards(dir, map, 'as-written'), readShards(dir, map), next, new Set(['web:lint']));
+    expect(changes.map((c) => [c.file, c.baseline])).toEqual([
+      [FILE, { schema_version: 1, slots: { 'web:lint': ['a', 'c'] }, captured_with: { 'web:lint': now } }],
+      [WEB, { schema_version: 1, slots: { 'web:lint': ['a', 'b'] }, captured_with: { 'web:lint': now }, counts: { 'web:lint': { a: 3 } } }],
+    ]);
+  });
+
+  test('a re-record of a check a file doesn\'t hold, or holds unread, writes nothing there', async () => {
+    await put(FILE, { schema_version: 1, slots: { spell: ['s'] } });
+    await put(WEB, { schema_version: 1, slots: { 'api:lint': ['not-webs'] } });
+    const next: Baseline = { schema_version: 1, slots: { 'api:lint': [], 'web:lint': [] }, captured_with: { 'api:lint': { pin_source: 'mise' } } };
+    expect(rerecordShards(readShards(dir, map, 'as-written'), readShards(dir, map), next, new Set(['api:lint', 'web:lint']))).toEqual([]);
   });
 });
 

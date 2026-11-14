@@ -729,6 +729,31 @@ observed run of the repo's own writes any, and a partial run writes none.
   removed. The red-run hint reads each file's history, and names the file
   when there is more than one.
 
+`checkride baseline` writes through the same map.
+
+- A capture of every check writes each check's entry to the file that owns
+  it, and takes it out of every other file that is read for it, so stray keys
+  move both ways at once: a local target's leave the root file, and a file
+  left by a target that is no longer local is removed. The root file is
+  always written, and so is a local target's file that is already there; a
+  local target with no key to hold gets no file. stderr has a `baseline:
+  wrote <file> — N finding(s) across <checks>` line for each file written.
+- Under `--only` or `--skip` each check the capture recorded takes its new
+  entry in the file that owns it and leaves every other file, and every other
+  entry stays as its file holds it. A file that owns none of the recorded
+  checks, and holds no stray entry for one, is left byte-identical.
+- `baseline --versions` re-records in place. A re-recorded check takes its
+  new capture record in every file that holds it, each file's keys for it are
+  pruned to the ones the check still reports and its counts lowered, and no
+  key moves between files. A file is written only when an entry of its own
+  changes, and stderr names each one.
+- None of the three writes over a file it couldn't read. With the baseline
+  spread over more than one file, a file that can't be parsed, or that
+  resolves outside the repository, is exit 2 naming it, before anything
+  runs. A repo whose baseline is the root file alone is as it was: a capture
+  of every check replaces a mangled file whole, and a narrowed one and
+  `--versions` refuse it.
+
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,

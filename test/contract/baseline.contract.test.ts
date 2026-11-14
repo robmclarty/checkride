@@ -580,10 +580,20 @@ const shardsRed: CheckRunner = (r) => Promise.resolve({
   stderr: '',
 });
 
+/** {@link shardsRed} with each lint resolved through the lockfile at `version`, and web's reporting `web`. */
+const shardsPinned = (version: string, web?: string[]): CheckRunner => async (r, ctx) => ({
+  ...(await shardsRed(r, ctx)),
+  ...(r.slot === 'lint' ? { pin_source: 'js-lockfile' as const, tool_version: version } : { pin_source: 'path' as const }),
+  ...(r.slot === 'lint' && r.target === 'web' && web !== undefined
+    ? { stdout: JSON.stringify({ diagnostics: web.map((filename) => ({ filename, code: 'no-x', message: 'bad', severity: 'error' })) }) }
+    : {}),
+});
+
 /**
  * Contract: a local target keeps its keys in a baseline file at its own root
  * (§`checkride.baseline.json`, A local target's file): its name, the read,
- * and the ratchet, which writes each file on its own.
+ * and the writers, the ratchet, `baseline` and `baseline --versions`, each
+ * of which writes every file on its own.
  */
 describe("a local target's baseline file", () => {
   let dir: string;
@@ -721,6 +731,106 @@ describe("a local target's baseline file", () => {
     await full({ web: true, api: true });
     expect(await text('web/checkride.baseline.json')).toBe('<<<<<<< HEAD\n{\n');
     expect((JSON.parse(await text(BASELINE_FILE)) as Baseline).slots).toEqual({ ...ROOT.slots, ...WEB.slots });
+  });
+
+  const slotsOf = async (file: string): Promise<Record<string, string[]>> => (JSON.parse(await text(file)) as Baseline).slots;
+  const WEB_FILE = 'web/checkride.baseline.json';
+  const API_FILE = 'services/api/checkride.baseline.json';
+  const turnedBack = { ...config, targets: { ...config.targets, api: { lang: 'ts' as const, root: 'services/api', checks: { lint: 'oxlint' } } } };
+
+  test("baseline writes each target's keys to its own file, canonical, and the repo-scope checks' to the root file", async () => {
+    const err = sink();
+    const result = await runBaseline({ cwd: dir, config, runner: shardsRed, stdout: sink().out, stderr: err.out });
+    expect(result.exitCode).toBe(0);
+    expect(await slotsOf(BASELINE_FILE)).toEqual(ROOT.slots);
+    expect(await slotsOf(WEB_FILE)).toEqual(WEB.slots);
+    expect(await slotsOf(API_FILE)).toEqual(API.slots);
+    for (const file of [BASELINE_FILE, WEB_FILE, API_FILE]) {
+      // oxlint-disable-next-line no-await-in-loop -- three small files, read in turn.
+      const raw = await text(file);
+      expect(validateBaseline(JSON.parse(raw)), file).toBe(true);
+      expect(raw, file).toBe(`${JSON.stringify(JSON.parse(raw), null, 2)}\n`);
+    }
+    expect(err.text()).toContain(
+      '\nbaseline: wrote checkride.baseline.json — 1 finding(s) across spell\n' +
+      'baseline: wrote web/checkride.baseline.json — 1 finding(s) across web:lint\n' +
+      'baseline: wrote services/api/checkride.baseline.json — 1 finding(s) across api:lint\n',
+    );
+    // What the capture returns is the whole baseline, and the next run masks with all three files.
+    expect(result.baseline.slots).toEqual({ ...ROOT.slots, ...WEB.slots, ...API.slots });
+    expect(await passed()).toEqual({ 'web:lint': true, 'api:lint': true, spell: true });
+  });
+
+  test('baseline moves stray keys both ways at once', async () => {
+    // web's keys still in the root file, and a file left where api was local.
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, ...WEB.slots } });
+    await put(API_FILE, API);
+    const err = sink();
+    await runBaseline({ cwd: dir, config: turnedBack, runner: shardsRed, stdout: sink().out, stderr: err.out });
+    expect(await slotsOf(BASELINE_FILE)).toEqual({ ...API.slots, ...ROOT.slots });
+    expect(await slotsOf(WEB_FILE)).toEqual(WEB.slots);
+    expect(existsSync(join(dir, API_FILE))).toBe(false);
+    expect(err.text()).toContain('baseline: removed services/api/checkride.baseline.json, whose target is no longer local: the root file holds its keys now\n');
+  });
+
+  test("a narrowed baseline writes the checks it recorded to the file that owns them, and leaves every other file byte-identical", async () => {
+    const [root, web] = await eachItsOwn();
+    await put(API_FILE, { schema_version: 1, slots: { 'api:lint': ['services/api/src/old.ts:no-x:gone'] } });
+    const err = sink();
+    await runBaseline({ cwd: dir, config, runner: shardsRed, only: ['api'], stdout: sink().out, stderr: err.out });
+    expect(await slotsOf(API_FILE)).toEqual(API.slots);
+    expect(await text(BASELINE_FILE)).toBe(root);
+    expect(await text(WEB_FILE)).toBe(web);
+    expect(err.text()).toContain('\nbaseline: wrote services/api/checkride.baseline.json — 1 finding(s) across api:lint\n');
+    expect(err.text()).not.toContain('wrote checkride.baseline.json');
+  });
+
+  test("a narrowed baseline takes a recorded check's stray keys out of the file that doesn't own it", async () => {
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, 'web:lint': ['web/src/old.ts:no-x:gone'] } });
+    await runBaseline({ cwd: dir, config, runner: shardsRed, only: ['web'], stdout: sink().out, stderr: sink().out });
+    expect(await slotsOf(BASELINE_FILE)).toEqual(ROOT.slots);
+    expect(await slotsOf(WEB_FILE)).toEqual(WEB.slots);
+    expect(existsSync(join(dir, API_FILE))).toBe(false);
+  });
+
+  test("baseline --versions re-records each file's copies in place: no key moves, and a file with nothing re-recorded stays byte-identical", async () => {
+    const was = { pin_source: 'js-lockfile', tool_version: '1.87.0' };
+    const now = { pin_source: 'js-lockfile', tool_version: '1.88.0' };
+    // web's check sits in two files: a key still in the root file, and two in its own, one of them fixed since.
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, 'web:lint': ['web/src/b.ts:no-x:bad'] }, captured_with: { 'web:lint': was } });
+    await put(WEB_FILE, { schema_version: 1, slots: { 'web:lint': ['web/src/a.ts:no-x:bad', 'web/src/gone.ts:no-x:bad'] }, captured_with: { 'web:lint': was } });
+    await put(API_FILE, { ...API, captured_with: { 'api:lint': now } });
+    const api = await text(API_FILE);
+    const err = sink();
+    const result = await runBaselineVersions({ cwd: dir, config, runner: shardsPinned('1.88.0', ['src/a.ts', 'src/b.ts']), stdout: sink().out, stderr: err.out });
+    expect(result.written).toBe(true);
+    const root = JSON.parse(await text(BASELINE_FILE)) as Baseline;
+    const web = JSON.parse(await text(WEB_FILE)) as Baseline;
+    expect(root.slots).toEqual({ ...ROOT.slots, 'web:lint': ['web/src/b.ts:no-x:bad'] });
+    expect(root.captured_with).toEqual({ 'web:lint': now });
+    expect(web.slots).toEqual({ 'web:lint': ['web/src/a.ts:no-x:bad'] });
+    expect(web.captured_with).toEqual({ 'web:lint': now });
+    expect(await text(API_FILE)).toBe(api);
+    expect(err.text()).toContain('baseline --versions: wrote checkride.baseline.json, web/checkride.baseline.json: 1 re-recorded, 1 left, 1 unchanged; review them with `git diff checkride.baseline.json web/checkride.baseline.json`\n');
+  });
+
+  test.each<{ label: string; run: (over: object) => Promise<unknown>; says: string }>([
+    { label: 'baseline', run: (over) => runBaseline({ ...over }), says: "baseline: web/checkride.baseline.json can't be parsed, or comes from a newer checkride, and nothing writes over a baseline file it couldn't read; restore it with `checkride recover`, or remove the file and run this again" },
+    { label: 'baseline --only', run: (over) => runBaseline({ ...over, only: ['api'] }), says: "baseline --only: web/checkride.baseline.json can't be parsed" },
+    { label: 'baseline --versions', run: (over) => runBaselineVersions({ ...over }), says: "baseline --versions: web/checkride.baseline.json can't be parsed" },
+  ])("$label stops before anything runs on a target's file it couldn't parse, and writes nothing", async ({ run, says }) => {
+    await put(BASELINE_FILE, ROOT);
+    await put(WEB_FILE, '<<<<<<< HEAD\n{\n');
+    let ran = false;
+    const runner: CheckRunner = (r, ctx) => {
+      ran = true;
+      return shardsRed(r, ctx);
+    };
+    await expect(run({ cwd: dir, config, runner, stdout: sink().out, stderr: sink().out })).rejects.toThrow(says);
+    expect(ran).toBe(false);
+    expect(await text(WEB_FILE)).toBe('<<<<<<< HEAD\n{\n');
+    expect(await text(BASELINE_FILE)).toBe(JSON.stringify(ROOT));
+    expect(existsSync(join(dir, API_FILE))).toBe(false);
   });
 
   test('a repo with no target below its root reads the root file alone', async () => {

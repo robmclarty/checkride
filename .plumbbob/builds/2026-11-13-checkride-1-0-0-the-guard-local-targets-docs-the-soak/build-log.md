@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 9 — feat(baseline): ratchet each shard on its own
+**Current step:** 10 — feat(baseline): capture and re-record every shard
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -32,7 +32,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 6. feat(config): read included config files with flat target names
 - ☑ 7. feat(cli): find the repo's config from inside a target
 - ☑ 8. feat(baseline): map each check to its shard and read them all
-- ☐ 9. feat(baseline): ratchet each shard on its own
+- ☑ 9. feat(baseline): ratchet each shard on its own
 - ☐ 10. feat(baseline): capture and re-record every shard
 - ☐ 11. feat(baseline): walk every shard in baseline diff
 - ☐ 12. feat(recover): rebuild every shard from history
@@ -412,3 +412,4 @@ folder, so it rides the branch into the PR.)*
   My first full `pnpm check` hit the 120-second limit and slipped into a background task. I stopped it at once, before it could finish and notify, and ran every later check in the foreground. To clear its children I ran `pkill -f "dist/cli.js"`, which matches any project's built CLI, volley's among them. I can't tell what it hit, and I didn't touch those processes again. Step 4's checkpoint was then refused twice on 5-second test timeouts, with this machine at a load average of 44 to 55 on 8 cores from other sessions' work. The same tests pass alone in about a second. I waited about nineteen minutes for the load to ease, it didn't, and the third try landed. The two `pnpm test:e2e` runs were started detached to a log and waited on in the foreground, so neither became a background task.
 
 - 2026-11-14 — step 8 checkpointed · 286d7544b — feat(baseline): map each check to its shard and read them all (14m)
+- 2026-11-14 — step 9 checkpointed · f6297db8f — feat(baseline): ratchet each shard on its own (1 red, 1 drift, 19m)
