@@ -13,7 +13,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,11 +23,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import type { Adapter, Slot } from '../../src/adapters.js';
 import type { Baseline } from '../../src/baseline/index.js';
-import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, observedTally, parseBaseline, writeBaseline } from '../../src/baseline/index.js';
+import { BASELINE_FILE, BASELINE_SCHEMA_VERSION, fingerprint, observedTally, parseBaseline, shardMap, shardOf, writeBaseline } from '../../src/baseline/index.js';
 import { runBaseline, runBaselineVersions } from '../../src/baseline-command.js';
 import { runCli } from '../../src/cli.js';
 import type { CheckRunner, Out } from '../../src/orchestrator/index.js';
 import { runChecks } from '../../src/orchestrator/index.js';
+import { suiteNamed } from '../../src/suite.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaDir = join(here, '..', '..', 'schema');
@@ -568,6 +569,100 @@ describe('checkride.baseline.json', () => {
     expect(lint?.ok).toBe(false);
     expect(lint?.baselined).toBeUndefined();
     expect(stderr.text()).toMatch(/unparseable/);
+  });
+});
+
+/** One lint finding in each target, as oxlint prints it from the target's root, and one unknown word in the repo. */
+const shardsRed: CheckRunner = (r) => Promise.resolve({
+  ok: false,
+  exit_code: 1,
+  stdout: r.slot === 'spell' ? CSPELL_REPORT : JSON.stringify({ diagnostics: [{ filename: 'src/a.ts', code: 'no-x', message: 'bad', severity: 'error' }] }),
+  stderr: '',
+});
+
+/**
+ * Contract: a local target keeps its keys in a baseline file at its own root
+ * (§`checkride.baseline.json`, A local target's file). This step locks the
+ * names and the read; the writers follow.
+ */
+describe("a local target's baseline file", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-shard-contract-'));
+    await put('web/checkride.config.json', { lang: 'ts', checks: { lint: 'oxlint' } });
+    await put('services/api/checkride.config.json', { lang: 'ts', checks: { lint: 'oxlint' } });
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** Write `content` as the file `file`, relative to the repo, making its directory. */
+  async function put(file: string, content: object | string): Promise<void> {
+    await mkdir(dirname(join(dir, file)), { recursive: true });
+    await writeFile(join(dir, file), typeof content === 'string' ? content : JSON.stringify(content));
+  }
+
+  const config = {
+    targets: { web: { root: 'web', local: true as const }, api: { root: 'services/api', local: true as const } },
+    checks: { spell: 'cspell' },
+  };
+
+  const WEB = { schema_version: 1, slots: { 'web:lint': ['web/src/a.ts:no-x:bad'] } };
+  const API = { schema_version: 1, slots: { 'api:lint': ['services/api/src/a.ts:no-x:bad'] } };
+  const ROOT = { schema_version: 1, slots: { spell: ['docs/old.md::teh'] } };
+
+  /** A partial run of the three checks, with whether each passed, by name. */
+  async function passed(over: object = {}): Promise<Record<string, boolean>> {
+    const result = await runChecks({ cwd: dir, config, runner: shardsRed, only: ['lint', 'spell'], stdout: sink().out, stderr: sink().out, ...over });
+    return Object.fromEntries(result.summary.checks.filter((c) => c.skipped !== true).map((c) => [c.name, c.ok]));
+  }
+
+  test('the file is <root>/checkride.baseline.json, a named suite\'s <root>/checkride.<suite>.baseline.json, and it owns its target\'s checks alone', () => {
+    const map = shardMap(BASELINE_FILE, config.targets);
+    expect(map.shards.map((s) => s.file)).toEqual(['web/checkride.baseline.json', 'services/api/checkride.baseline.json']);
+    expect(shardOf(map, 'web:lint')).toBe('web/checkride.baseline.json');
+    expect(shardOf(map, 'api:lint')).toBe('services/api/checkride.baseline.json');
+    expect(shardOf(map, 'spell')).toBe(BASELINE_FILE);
+    const evals = suiteNamed('evals');
+    expect(shardMap(evals.baselineFile, config.targets).shards.map((s) => s.file)).toEqual([
+      'web/checkride.evals.baseline.json',
+      'services/api/checkride.evals.baseline.json',
+    ]);
+  });
+
+  test("a run masks each target's findings from its own file and the repo-scope checks from the root file, and each file is schema version 1", async () => {
+    await put(BASELINE_FILE, ROOT);
+    await put('web/checkride.baseline.json', WEB);
+    await put('services/api/checkride.baseline.json', API);
+    for (const file of [ROOT, WEB, API]) expect(validateBaseline(file)).toBe(true);
+    expect(await passed()).toEqual({ 'web:lint': true, 'api:lint': true, spell: true });
+    const summary = JSON.parse(await readFile(join(dir, '.check', 'summary.json'), 'utf8')) as { checks: { name: string; baselined?: number }[] };
+    expect(validateSummary(summary)).toBe(true);
+    expect(summary.checks.filter((c) => c.baselined !== undefined).map((c) => `${c.name} ${c.baselined}`).toSorted()).toEqual(['api:lint 1', 'spell 1', 'web:lint 1']);
+  });
+
+  test("a target's file is read for its own checks and no others", async () => {
+    await put('web/checkride.baseline.json', { schema_version: 1, slots: { ...WEB.slots, ...API.slots, ...ROOT.slots } });
+    expect(await passed()).toEqual({ 'web:lint': true, 'api:lint': false, spell: false });
+  });
+
+  test("a local target's keys still in the root file are read, and so is a file left at the root of a target that is no longer local", async () => {
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, ...WEB.slots } });
+    await put('services/api/checkride.baseline.json', API);
+    const turnedBack = { ...config, targets: { ...config.targets, api: { lang: 'ts' as const, root: 'services/api', checks: { lint: 'oxlint' } } } };
+    expect(await passed({ config: turnedBack })).toEqual({ 'web:lint': true, 'api:lint': true, spell: true });
+  });
+
+  test("a file that can't be parsed turns only its own target's grandfathered findings red", async () => {
+    await put(BASELINE_FILE, ROOT);
+    await put('web/checkride.baseline.json', '<<<<<<< HEAD\n{\n');
+    await put('services/api/checkride.baseline.json', API);
+    expect(await passed()).toEqual({ 'web:lint': false, 'api:lint': true, spell: true });
+  });
+
+  test('a repo with no target below its root reads the root file alone', async () => {
+    await writeBaseline(dir, { schema_version: 1, slots: { spell: ['docs/old.md::teh'] } });
+    await put('web/checkride.baseline.json', { schema_version: 1, slots: { lint: OXLINT_KEYS } });
+    const result = await runChecks({ cwd: dir, slots: SLOTS, adapters: ADAPTERS, config: null, runner: redRunner, only: ['lint', 'spell'], stdout: sink().out, stderr: sink().out });
+    expect(Object.fromEntries(result.summary.checks.filter((c) => c.skipped !== true).map((c) => [c.name, c.ok]))).toEqual({ spell: true, lint: false });
   });
 });
 

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,9 +21,12 @@ import {
   parseBaseline,
   ratchet,
   readBaselineStatus,
+  readShards,
   entryFor,
   renameBaselineSlots,
   rerecordCopies,
+  shardMap,
+  shardOf,
   tally,
   writeBaseline,
 } from '../baseline/index.js';
@@ -962,6 +965,182 @@ describe('readBaselineStatus', () => {
     expect(readBaselineStatus(dir)).toEqual({ baseline: null, state: 'unparseable' });
     await writeBaseline(dir, { schema_version: 1, slots: { lint: ['a'] } });
     expect(readBaselineStatus(dir).state).toBe('ok');
+  });
+});
+
+describe('baseline shards', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-shards-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const FILE = 'checkride.baseline.json';
+
+  /** Two local targets, one that isn't, and one at the repo root, as a composed config declares them. */
+  const targets = {
+    web: { lang: 'ts', root: 'web', local: true },
+    api: { lang: 'go', root: './services/api/', local: true },
+    docs: { lang: 'ts', root: 'tools/docs' },
+    app: { lang: 'ts', root: '.' },
+  };
+
+  /** Write `baseline` as the file `file`, relative to the repo, making its directory. */
+  async function put(file: string, baseline: Baseline | string): Promise<void> {
+    await mkdir(join(dir, file, '..'), { recursive: true });
+    await writeFile(join(dir, file), typeof baseline === 'string' ? baseline : JSON.stringify(baseline));
+  }
+
+  test("the map is the root file and one of its name at each declared target's root below it", () => {
+    expect(shardMap(FILE, targets)).toEqual({
+      root: FILE,
+      shards: [
+        { file: 'web/checkride.baseline.json', targets: ['web'], local: ['web'] },
+        { file: 'services/api/checkride.baseline.json', targets: ['api'], local: ['api'] },
+        { file: 'tools/docs/checkride.baseline.json', targets: ['docs'], local: [] },
+      ],
+    });
+  });
+
+  test("a named suite's shard takes the suite's baseline name (D12)", () => {
+    expect(shardMap('checkride.evals.baseline.json', targets).shards.map((s) => s.file)).toEqual([
+      'web/checkride.evals.baseline.json',
+      'services/api/checkride.evals.baseline.json',
+      'tools/docs/checkride.evals.baseline.json',
+    ]);
+  });
+
+  test('two targets at one root share its file, which owns only the local one', () => {
+    const map = shardMap(FILE, { web: { root: 'web', local: true }, styles: { lang: 'ts', root: 'web/' } });
+    expect(map.shards).toEqual([{ file: 'web/checkride.baseline.json', targets: ['web', 'styles'], local: ['web'] }]);
+    expect(shardOf(map, 'web:lint')).toBe('web/checkride.baseline.json');
+    expect(shardOf(map, 'styles:lint')).toBe(FILE);
+  });
+
+  test.each<{ label: string; targets: unknown }>([
+    { label: 'no targets', targets: undefined },
+    { label: 'a targets block that is no object', targets: ['web'] },
+    { label: 'a target at the repo root', targets: { app: { lang: 'ts', root: '.' } } },
+    { label: 'a root that leaves the repo', targets: { out: { root: '../out', local: true } } },
+    { label: 'a root that is only ..', targets: { out: { root: '..', local: true } } },
+    { label: 'an absolute root', targets: { abs: { root: '/abs', local: true } } },
+    { label: 'an entry with no root', targets: { bare: { local: true }, empty: { root: '' }, word: 'web' } },
+  ])('the root file stands alone with $label', ({ targets: block }) => {
+    expect(shardMap(FILE, block)).toEqual({ root: FILE, shards: [] });
+  });
+
+  test("a local target's check is owned by its file, and every other check by the root file", () => {
+    const map = shardMap(FILE, targets);
+    expect(shardOf(map, 'web:lint')).toBe('web/checkride.baseline.json');
+    expect(shardOf(map, 'api:types')).toBe('services/api/checkride.baseline.json');
+    expect(shardOf(map, 'docs:lint')).toBe(FILE);
+    expect(shardOf(map, 'app:lint')).toBe(FILE);
+    expect(shardOf(map, 'gone:lint')).toBe(FILE);
+    expect(shardOf(map, 'spell')).toBe(FILE);
+  });
+
+  test.each<{ label: string; raw: string | null }>([
+    { label: 'absent', raw: null },
+    { label: 'unparseable', raw: '<<<<<<< HEAD\n{ mangled\n' },
+    { label: 'ok', raw: JSON.stringify({ schema_version: 0, slots: { lint: ['b', 'a', 'a'] }, counts: { lint: {} } }) },
+  ])('a repo with no target below its root reads the one file as readBaselineStatus does: $label', async ({ raw }) => {
+    if (raw !== null) await put(FILE, raw);
+    const got = readShards(dir, shardMap(FILE, undefined));
+    const status = readBaselineStatus(dir);
+    expect(got).toEqual({ ...status, files: [{ file: FILE, ...status }] });
+  });
+
+  test('with no file at any target root, the root file comes back as it parsed, not as a union', async () => {
+    await put(FILE, { schema_version: 0, slots: { 'web:lint': ['b', 'a', 'a'] }, counts: { 'web:lint': {} } });
+    const got = readShards(dir, shardMap(FILE, targets));
+    expect(got.baseline).toEqual(readBaselineStatus(dir).baseline);
+    expect(got.baseline?.slots['web:lint']).toEqual(['b', 'a', 'a']);
+    expect(got.files.map((f) => `${f.file}: ${f.state}`)).toEqual([
+      'checkride.baseline.json: ok',
+      'web/checkride.baseline.json: absent',
+      'services/api/checkride.baseline.json: absent',
+      'tools/docs/checkride.baseline.json: absent',
+    ]);
+  });
+
+  test('each file gives the checks it may hold: the root file any, a target-root file its own targets alone', async () => {
+    await put(FILE, { schema_version: 1, slots: { spell: ['s'], 'web:lint': ['still-in-root'], 'docs:lint': ['d'] } });
+    await put('web/checkride.baseline.json', { schema_version: 1, slots: { 'web:lint': ['w'], 'api:lint': ['not-webs'], spell: ['not-webs-either'] } });
+    await put('tools/docs/checkride.baseline.json', { schema_version: 1, slots: { 'docs:lint': ['left-behind'] } });
+    const got = readShards(dir, shardMap(FILE, targets));
+    expect(got.state).toBe('ok');
+    expect(got.baseline?.slots).toEqual({ 'docs:lint': ['d', 'left-behind'], spell: ['s'], 'web:lint': ['still-in-root', 'w'] });
+  });
+
+  test("the file that owns a check comes first: its record stands, and a stray key never grandfathers more than it allows", async () => {
+    await put(FILE, {
+      schema_version: 1,
+      slots: { 'web:lint': ['a', 'b'] },
+      captured_with: { 'web:lint': { pin_source: 'path' } },
+      counts: { 'web:lint': { a: 5, b: 4 } },
+    });
+    await put('web/checkride.baseline.json', {
+      schema_version: 1,
+      slots: { 'web:lint': ['a'] },
+      captured_with: { 'web:lint': { pin_source: 'mise', tool_version: '1.2.3' } },
+      counts: { 'web:lint': { a: 2 } },
+    });
+    const { baseline } = readShards(dir, shardMap(FILE, targets));
+    expect(baseline).toEqual({
+      schema_version: 1,
+      slots: { 'web:lint': ['a', 'b'] },
+      captured_with: { 'web:lint': { pin_source: 'mise', tool_version: '1.2.3' } },
+      counts: { 'web:lint': { a: 2, b: 4 } },
+    });
+  });
+
+  test('a shard left behind comes after the root file, which owns its check', async () => {
+    await put(FILE, { schema_version: 1, slots: { 'docs:lint': ['a'] }, counts: { 'docs:lint': { a: 2 } } });
+    await put('tools/docs/checkride.baseline.json', { schema_version: 1, slots: { 'docs:lint': ['a', 'b'] }, counts: { 'docs:lint': { a: 9, b: 3 } } });
+    const { baseline } = readShards(dir, shardMap(FILE, targets));
+    expect(baseline?.slots).toEqual({ 'docs:lint': ['a', 'b'] });
+    expect(baseline?.counts).toEqual({ 'docs:lint': { a: 2, b: 3 } });
+  });
+
+  test("a file that can't be parsed drops only its own keys, and each file says how it read (D47)", async () => {
+    await put(FILE, { schema_version: 1, slots: { spell: ['s'] } });
+    await put('web/checkride.baseline.json', '<<<<<<< HEAD\n{ mangled\n');
+    await put('services/api/checkride.baseline.json', { schema_version: 1, slots: { 'api:lint': ['x'] } });
+    const got = readShards(dir, shardMap(FILE, targets));
+    expect(got.baseline?.slots).toEqual({ 'api:lint': ['x'], spell: ['s'] });
+    expect(got.state).toBe('ok');
+    expect(got.files.map((f) => f.state)).toEqual(['ok', 'unparseable', 'ok', 'absent']);
+  });
+
+  test("the state is the root file's, and the shards still mask when it is mangled or missing", async () => {
+    await put('web/checkride.baseline.json', { schema_version: 1, slots: { 'web:lint': ['w'] } });
+    expect(readShards(dir, shardMap(FILE, targets))).toMatchObject({ state: 'absent', baseline: { slots: { 'web:lint': ['w'] } } });
+    await put(FILE, '{ mangled');
+    expect(readShards(dir, shardMap(FILE, targets))).toMatchObject({ state: 'unparseable', baseline: { slots: { 'web:lint': ['w'] } } });
+  });
+
+  test('no file read at all is no baseline', async () => {
+    await put('web/checkride.baseline.json', '{ mangled');
+    expect(readShards(dir, shardMap(FILE, targets))).toMatchObject({ state: 'absent', baseline: null });
+  });
+
+  test('a shard that resolves outside the repository is never opened', async () => {
+    const elsewhere = await mkdtemp(join(tmpdir(), 'checkride-shards-outside-'));
+    try {
+      await writeFile(join(elsewhere, 'b.json'), JSON.stringify({ schema_version: 1, slots: { 'web:lint': ['w'] } }));
+      await mkdir(join(dir, 'web'));
+      await symlink(join(elsewhere, 'b.json'), join(dir, 'web', FILE));
+      const got = readShards(dir, shardMap(FILE, targets));
+      expect(got.baseline).toBeNull();
+      expect(got.files[1]).toEqual({ file: 'web/checkride.baseline.json', baseline: null, state: 'outside' });
+    } finally {
+      await rm(elsewhere, { recursive: true, force: true });
+    }
+  });
+
+  test('a shard reached through a link inside the repository is read', async () => {
+    await put('shared/b.json', { schema_version: 1, slots: { 'web:lint': ['w'] } });
+    await mkdir(join(dir, 'web'));
+    await symlink(join(dir, 'shared', 'b.json'), join(dir, 'web', FILE));
+    expect(readShards(dir, shardMap(FILE, targets)).baseline?.slots).toEqual({ 'web:lint': ['w'] });
   });
 });
 

@@ -5,7 +5,8 @@
  * root (D50), and feeds the ratchet under that name; `fix` runs a target's
  * fixer from its root; and under `--changed` a target nothing changed under
  * sits out (R10.3). A Go module root without targets runs as one go target
- * whose checks keep their bare names (D66).
+ * whose checks keep their bare names (D66). A local target's findings mask
+ * against the baseline file at its own root (D10).
  */
 
 import { execFileSync } from 'node:child_process';
@@ -21,6 +22,7 @@ import type { CheckrideConfig, ResolvedCheck } from '../../config.js';
 import { PACKS } from '../../packs/index.js';
 import type { CheckRunner, Out, RunResult } from '../index.js';
 import { runChecks, runFix } from '../index.js';
+import { suiteNamed } from '../../suite.js';
 import { skipUnchanged } from '../select.js';
 
 function sink(): { out: Out; text: () => string } {
@@ -135,6 +137,110 @@ describe('runChecks with targets', () => {
     await runChecks({ cwd: dir, config, runner: lintRunner({ api: [['src/a.ts', 'no-x', 'bad']] }), baseline: null, stderr: err.out });
     expect(err.text()).toContain('           apps/api/src/a.ts  bad  [no-x]\n           full output: .check/api/lint.json\n');
     expect(err.text()).not.toContain('.check/web/');
+  });
+});
+
+/** The checks a run ran, in summary order. */
+function checksRan(result: RunResult): RunResult['summary']['checks'] {
+  return result.summary.checks.filter((c) => c.skipped !== true);
+}
+
+/** A cspell line for one unknown word, and the key it takes. */
+const CSPELL_LINE = 'docs/old.md:3:7 - teh\n';
+const SPELL_KEY = 'docs/old.md::teh';
+
+/** Every check red: one lint finding in each target, and one unknown word in the repo. */
+const red: CheckRunner = (r) => {
+  if (r.slot === 'spell') return Promise.resolve({ ok: false, exit_code: 1, stdout: CSPELL_LINE, stderr: '' });
+  return Promise.resolve({ ok: false, exit_code: 1, stdout: oxlint([['src/a.ts', 'no-x', 'bad']]), stderr: '' });
+};
+
+/** A baseline file's text holding `entries`. */
+const slots = (entries: Record<string, string[]>): string => JSON.stringify({ schema_version: 1, slots: entries });
+
+describe('runChecks over local targets, each with its own baseline file (D10)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-orch-shards-'));
+    await writeFiles(dir, {
+      'web/checkride.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+      'services/api/checkride.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+    });
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  /** `web` and `api` local, with the repo-scope `spell` beside them. */
+  const local: CheckrideConfig = {
+    targets: { web: { root: 'web', local: true }, api: { root: 'services/api', local: true } },
+    checks: { spell: 'cspell' },
+  };
+
+  const WEB_KEY = 'web/src/a.ts:no-x:bad';
+  const API_KEY = 'services/api/src/a.ts:no-x:bad';
+
+  /** A partial run of the three checks over the files on disk, with each check's verdict by name. */
+  async function verdicts(declared: CheckrideConfig = local): Promise<Record<string, string>> {
+    const result = await runChecks({ cwd: dir, config: declared, runner: red, only: ['lint', 'spell'], stderr: sink().out });
+    return Object.fromEntries(checksRan(result).map((c) => [c.name, c.ok ? `masked ${c.baselined ?? 0}` : 'red']));
+  }
+
+  test("each target's findings mask from the file at its root, and the repo-scope check's from the root file", async () => {
+    await writeFiles(dir, {
+      'checkride.baseline.json': slots({ spell: [SPELL_KEY] }),
+      'web/checkride.baseline.json': slots({ 'web:lint': [WEB_KEY] }),
+      'services/api/checkride.baseline.json': slots({ 'api:lint': [API_KEY] }),
+    });
+    expect(await verdicts()).toEqual({ 'web:lint': 'masked 1', 'api:lint': 'masked 1', spell: 'masked 1' });
+  });
+
+  test("a key in another target's file, or a repo-scope key in a target's, masks nothing", async () => {
+    await writeFiles(dir, {
+      'web/checkride.baseline.json': slots({ 'web:lint': [WEB_KEY], 'api:lint': [API_KEY], spell: [SPELL_KEY] }),
+    });
+    expect(await verdicts()).toEqual({ 'web:lint': 'masked 1', 'api:lint': 'red', spell: 'red' });
+  });
+
+  test("a local target's keys still in the root file mask, so making a target local turns nothing red (D28)", async () => {
+    await writeFiles(dir, { 'checkride.baseline.json': slots({ spell: [SPELL_KEY], 'web:lint': [WEB_KEY], 'api:lint': [API_KEY] }) });
+    expect(await verdicts()).toEqual({ 'web:lint': 'masked 1', 'api:lint': 'masked 1', spell: 'masked 1' });
+  });
+
+  test('a file left at the root of a target that is no longer local is still read (D37)', async () => {
+    await writeFiles(dir, {
+      'web/checkride.baseline.json': slots({ 'web:lint': [WEB_KEY] }),
+      'services/api/checkride.baseline.json': slots({ 'api:lint': [API_KEY] }),
+    });
+    const turnedBack: CheckrideConfig = {
+      targets: { web: { root: 'web', local: true }, api: { lang: 'ts', root: 'services/api', checks: { lint: 'oxlint' } } },
+      checks: { spell: 'cspell' },
+    };
+    expect(await verdicts(turnedBack)).toEqual({ 'web:lint': 'masked 1', 'api:lint': 'masked 1', spell: 'red' });
+  });
+
+  test("a file that can't be parsed turns only its own target's grandfathered findings red (D47)", async () => {
+    await writeFiles(dir, {
+      'checkride.baseline.json': slots({ spell: [SPELL_KEY] }),
+      'web/checkride.baseline.json': '<<<<<<< HEAD\n{ mangled\n',
+      'services/api/checkride.baseline.json': slots({ 'api:lint': [API_KEY] }),
+    });
+    expect(await verdicts()).toEqual({ 'web:lint': 'red', 'api:lint': 'masked 1', spell: 'masked 1' });
+  });
+
+  test("a named suite reads <root>/checkride.<suite>.baseline.json, and never the default suite's file (D12)", async () => {
+    await writeFiles(dir, {
+      'web/checkride.evals.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+      'web/checkride.evals.baseline.json': slots({ 'web:lint': [WEB_KEY] }),
+      'services/api/checkride.evals.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+      'services/api/checkride.baseline.json': slots({ 'api:lint': [API_KEY] }),
+    });
+    const result = await runChecks({ cwd: dir, config: local, suite: suiteNamed('evals'), runner: red, only: ['lint'], stderr: sink().out });
+    expect(Object.fromEntries(checksRan(result).map((c) => [c.name, c.ok]))).toEqual({ 'web:lint': true, 'api:lint': false });
+  });
+
+  test('an injected baseline stands in for every file', async () => {
+    await writeFiles(dir, { 'web/checkride.baseline.json': slots({ 'web:lint': [WEB_KEY] }) });
+    const result = await runChecks({ cwd: dir, config: local, runner: red, baseline: null, only: ['lint'], stderr: sink().out });
+    expect(checksRan(result).map((c) => c.ok)).toEqual([false, false]);
   });
 });
 

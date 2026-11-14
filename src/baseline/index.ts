@@ -1,6 +1,7 @@
 /**
- * Baseline module — per-adapter diagnostic fingerprints and the baseline
- * read/write/ratchet built on top of them. This barrel is
+ * Baseline module — per-adapter diagnostic fingerprints, the baseline
+ * read/write/ratchet built on top of them, and the files a baseline is
+ * spread over once a target is local. This barrel is
  * the module's only public surface: siblings import from `../baseline`,
  * never from `./fingerprint.js` directly.
  */
@@ -19,6 +20,7 @@ export {
   readBaselineAt,
   unionBaselines,
 } from './history.js';
+export { readShards, shardMap, shardOf } from './shards.js';
 export type { Baseline, BaselineEntry, BaselineRead, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,

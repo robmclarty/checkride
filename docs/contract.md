@@ -674,6 +674,38 @@ A [named suite](#cli) keeps its own baseline beside it,
 `checkride.<name>.baseline.json`, of the same shape and under the same rules.
 `protect` denies edits to those files too.
 
+**A local target's file.** A [local target](./targets.md#local-targets) keeps
+its checks' keys in a file of the same name at its own root:
+`web/checkride.baseline.json` for the target at `web`, and
+`web/checkride.<name>.baseline.json` under a named suite. It is a schema
+version 1 file of the same shape, holding only that target's checks, the
+`web:lint` and `web:types` of a target named `web`. The file at the repo root
+holds the repo-scope checks and every target that isn't local. A run reads
+them all as one baseline:
+
+- a target's findings are masked from the file at its root, and a repo-scope
+  check's from the root file;
+- a local target's keys still in the root file are read too, so making a
+  target local turns none of its grandfathered findings red;
+- a file left at the root of a declared target that is no longer local is
+  still read, for that target's checks;
+- a file at a target's root is read for the checks of the targets at that
+  root and no others, so an entry there for another target's check, or for a
+  repo-scope one, masks nothing, and a file at the root of no declared target
+  is never read;
+- where two files hold one check, the file that owns it stands: its
+  `captured_with` record is the check's, each key takes the count it gives,
+  and a key only the other file holds grandfathers what that file records,
+  or one finding where the owner counts the check and the other doesn't;
+- each file has its own state, so one that can't be parsed masks nothing of
+  its own and every other file masks as usual;
+- and a file at a target's root that resolves outside the repository, through
+  a symlink, is never opened.
+
+A repo with no target below its root reads the one file at its root, as it
+always has, and so does one with no file at any target's root. A baseline
+handed to `runChecks` stands in for every file.
+
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,

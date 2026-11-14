@@ -10,7 +10,7 @@ import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import { outLabel } from '../artifacts/index.js';
 import type { Baseline, BaselineRead } from '../baseline/index.js';
-import { readBaselineStatus } from '../baseline/index.js';
+import { readShards, shardMap } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
 import { composedConfig, loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
@@ -121,8 +121,9 @@ export type RunContext = CommonContext & {
   requirePins: boolean;
   baseline: Baseline | null;
   /**
-   * Why `baseline` is null when it is: `absent` is a repo without one,
+   * How reading the root baseline file went: `absent` is a repo without one,
    * `unparseable` is a mangled committed file — the run warns on the latter.
+   * `baseline` is null when no file could be read, a local target's included.
    */
   baselineState: BaselineRead['state'];
   /** Effective wave pool width (see {@link defaultConcurrency}); unused under `bail`. */
@@ -132,15 +133,18 @@ export type RunContext = CommonContext & {
 };
 
 /**
- * The baseline a run masks with: the option override, or the committed file.
- * An injected baseline bypasses the file, so its state carries no file
- * diagnosis — it is classified by presence alone.
+ * The baseline a run masks with: the option override, or the committed one,
+ * which is the root file and, in a repo with targets below its root, the
+ * file at each one's root, read as one (`readShards`). An injected baseline
+ * bypasses every file, so its state carries no file diagnosis — it is
+ * classified by presence alone.
  */
-function resolveBaselineRead(options: RunOptions, { cwd, suite }: CommonContext): BaselineRead {
+function resolveBaselineRead(options: RunOptions, { cwd, suite, config }: CommonContext): BaselineRead {
   if (options.baseline !== undefined) {
     return { baseline: options.baseline, state: options.baseline === null ? 'absent' : 'ok' };
   }
-  return readBaselineStatus(cwd, 'current', suite.baselineFile);
+  const { baseline, state } = readShards(cwd, shardMap(suite.baselineFile, config?.targets));
+  return { baseline, state };
 }
 
 /**

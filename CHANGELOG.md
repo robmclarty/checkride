@@ -71,6 +71,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and without a git work tree, or with `--config`, there is none.
   [Targets](docs/targets.md#running-from-inside-a-target) has the rules.
 
+- **A run reads a local target's own baseline file.** A local target's keys
+  live in `<root>/checkride.baseline.json`, a schema version 1 file holding
+  only that target's checks, and the root file keeps the repo-scope checks
+  and every target that isn't local. A run masks each check from the file
+  that owns it. It also reads a local target's keys still in the root file,
+  and a file left at the root of a target that is no longer local, so
+  turning `local` on or off turns no grandfathered finding red. A file that
+  can't be parsed masks nothing of its own, and the others mask as usual. A
+  named suite's file is `<root>/checkride.<suite>.baseline.json`. The
+  writers follow: until they land, `checkride baseline` and the ratchet
+  still write the root file alone.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -92,6 +104,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+- **The baseline may be more than one file.** A run reads the root file and
+  the file of its name at each declared target's root below it, as one
+  baseline: which checks each file is read for, which file stands where two
+  hold one check, each file's own state, and the containment rule on a
+  target's file are promised, and locked by `baseline.contract.test.ts`. A
+  repo with no file at any target's root reads the one file it always has.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

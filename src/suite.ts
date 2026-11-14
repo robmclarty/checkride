@@ -52,7 +52,10 @@ export type Suite = {
   name?: string;
   /** `checkride.<name>.config.json`, or `checkride.config.json`. */
   configFile: string;
-  /** `checkride.<name>.baseline.json`, or `checkride.baseline.json`. */
+  /**
+   * `checkride.<name>.baseline.json`, or `checkride.baseline.json`: the root
+   * file, and the name a local target's own file goes by at its root.
+   */
   baselineFile: string;
   /** `.check/suites/<name>`, or `.check`: where its runs write unless `--out` names another directory. */
   out: string;

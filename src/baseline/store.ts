@@ -277,7 +277,11 @@ export type BaselineRead = {
  * is given.
  */
 export function readBaselineStatus(cwd: string, form: 'current' | 'as-written' = 'current', file: string = BASELINE_FILE): BaselineRead {
-  const path = join(cwd, file);
+  return readBaselineFile(join(cwd, file), form);
+}
+
+/** {@link readBaselineStatus} for the baseline file at `path`, wherever it sits: a local target's, at its root. */
+export function readBaselineFile(path: string, form: 'current' | 'as-written' = 'current'): BaselineRead {
   if (!existsSync(path)) return { baseline: null, state: 'absent' };
   let raw: string;
   try {
