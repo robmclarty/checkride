@@ -540,8 +540,8 @@ are gone is: a config that points at nothing mustn't stay green.
 
 ### Bundled schemas
 
-Two schemas ship with checkride, each named `checkride:<id>`. Any other id
-stops the config from loading, with the two it could have been.
+Three schemas ship with checkride, each named `checkride:<id>`. Any other id
+stops the config from loading, with the three it could have been.
 
 - **`checkride:agent-skill`** is for an Agent Skill's `SKILL.md`. The
   frontmatter needs a `name` of lowercase letters and digits in
@@ -553,6 +553,9 @@ stops the config from loading, with the two it could have been.
 - **`checkride:checkride-config`** is checkride's own config schema, for a
   repo that keeps more configs than the one it runs: a preset, an example, a
   named suite's.
+- **`checkride:checkride-local`** is the schema of a
+  [local target's](targets.md#local-targets) file, the `checkride.config.json`
+  at its root, which holds less than a repo's own config does.
 
 ### The libraries it needs
 

@@ -357,7 +357,8 @@ as skipped with the reason.
 `schema` is inactive the same way, until the config holds a `schemas` rule.
 Then it validates the files each rule names (JSON, JSONC, YAML, or a Markdown
 file's YAML frontmatter) against a JSON Schema: one the repo keeps, or one of
-the two that ship, `checkride:agent-skill` and `checkride:checkride-config`.
+the three that ship, `checkride:agent-skill`, `checkride:checkride-config`
+and `checkride:checkride-local`.
 A rule that matches no file fails, and so does a file that doesn't parse.
 [Validate data files](#validate-data-files) shows the config.
 

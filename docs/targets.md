@@ -115,6 +115,68 @@ installs tools, above ts targets in their own directories, goes in
 above a target of its own pack, such as a root `go.mod` above a `go.work`
 target, which the message names in place of a target to add.
 
+## Local targets
+
+A target's entry can hand the rest of itself to a file its team owns. The
+entry says `"local": true`, and `<root>/checkride.config.json` holds the
+target's `lang` and its `checks`:
+
+```json
+{
+  "targets": {
+    "web": { "root": "web", "local": true },
+    "api": { "root": "services/api", "local": true }
+  }
+}
+```
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/robmclarty/checkride/main/schema/checkride.local.schema.json",
+  "lang": "ts",
+  "timeout": 120,
+  "checks": {
+    "lint": "oxlint",
+    "e2e": { "command": "pnpm", "args": ["exec", "playwright", "test"] }
+  }
+}
+```
+
+The second file is `web/checkride.config.json`. The run reads `web` exactly
+as it would a target whose entry held those keys: its checks are still
+`web:lint` and `web:e2e`, and the summary's `targets` entry is the same. What
+changes is who edits which file. The repo's config names the roots, and each
+team changes its own checks without touching it.
+
+- **What the file holds.** `lang`, `checks`, `include`, `exclude`, `timeout`
+  and `extends`, with `note` and `$schema`. Its `checks` rank where a
+  target's own do: above `packs.<pack>.checks` and the top-level `checks`.
+  `timeout` is the default for the target's checks, in seconds, over the
+  repo config's `timeout` and under a check's own.
+- **What it can't hold.** Anything that belongs to the whole repo: `targets`,
+  `packs`, `schemas`, `unclaimed`, `gate`, `changedBase` and `requirePins`.
+  Each is exit 2, naming the file.
+- **What the entry holds.** `root`, `local` and `note`. Any other key beside
+  `"local": true` is exit 2, naming the file it belongs in, since a key in
+  two places would have no ranking. A missing file is exit 2 too.
+- **One file per root.** Two local targets can't share a root, and a local
+  target can't sit at `.`, where its file would be the config that declares
+  it. A local target and an ordinary target of another pack can share one.
+- **Presets.** The file's `extends` takes a preset written for a repo's
+  config. It keeps the keys a local file may hold and drops the rest, each
+  with a warning naming the preset, and a `checks` entry for a repo-scope
+  slot with them. A tool pick only another pack can run, `"lint": "oxlint"`
+  under a Go target, is left to the targets of that pack. A preset path that
+  leaves the repository is exit 2: the file, and every preset path it names,
+  is read only where it really is inside the repo, links followed.
+- **Suites and `--config`.** Under a [named suite](./suites.md) the file is
+  `<root>/checkride.<suite>.config.json`, so a suite never reads the default
+  suite's. A config named by `--config` may declare local targets, and their
+  files are read under the repo being checked.
+
+The bundled schema `checkride:checkride-local` validates these files with the
+[`schema` check](./tools.md#bundled-schemas).
+
 ## Declaring targets
 
 - `checkride target add <name> --lang <pack> --root <dir>` adds one, adopting

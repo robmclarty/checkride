@@ -8,15 +8,16 @@
  * paths relative to the repo root.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import type { CheckrideConfig, ResolvedCheck } from '../config.js';
-import { resolveChecks } from '../config.js';
+import { composedConfig, loadConfig, loadConfigFile, resolveChecks } from '../config.js';
+import { suiteNamed } from '../suite.js';
 import { chainCanRun } from '../launch/index.js';
 import { checkName, implicitPack } from '../targets/index.js';
 
@@ -545,5 +546,295 @@ describe('a repo without targets at a Go or Rust root is one target of that pack
     expect(check(checks, 'lint').adapter?.name).toBe('oxlint');
     expect(check(checks, 'build')).toBeDefined();
     for (const c of checks.values()) expect(c, c.slot).not.toHaveProperty('pack');
+  });
+});
+
+/** The config error a broken repo config raises, for `reason`. */
+const invalid = (reason: string): string => `invalid checkride.config.json: ${reason}`;
+
+describe('a local target keeps the rest of itself in the file at its root (D8)', () => {
+  let repo: string;
+  beforeEach(async () => {
+    repo = await mkdtemp(join(tmpdir(), 'checkride-local-'));
+  });
+  afterEach(async () => {
+    await rm(repo, { recursive: true, force: true });
+  });
+
+  /** Write `files` under the repo, each a JSON value at a path relative to it. */
+  async function lay(files: Record<string, unknown>): Promise<void> {
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(dirname(join(repo, path)), { recursive: true });
+      await writeFile(join(repo, path), typeof value === 'string' ? value : JSON.stringify(value));
+    }
+  }
+
+  /** The repo's config, loaded, with every warning the load gave. */
+  function load(): { config: CheckrideConfig | null; warnings: string[] } {
+    const warnings: string[] = [];
+    return { config: loadConfig(repo, (message) => warnings.push(message)), warnings };
+  }
+
+  /** The repo's config resolved, keyed by each check's name. */
+  const resolved = (config: CheckrideConfig | null = loadConfig(repo)): Map<string, ResolvedCheck> =>
+    new Map(resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo }).map((c) => [checkName(c), c]));
+
+  const local = { root: 'web', local: true } as const;
+  const probe = { command: 'node', args: ['-e', ''] };
+
+  test("its file's checks rank where the target's own do: over its pack's block and the top level", async () => {
+    await lay({
+      'checkride.config.json': {
+        targets: { web: local, api: { lang: 'ts', root: 'api' } },
+        packs: { ts: { checks: { lint: 'eslint', test: { use: 'vitest', timeout: 90 }, e2e: probe } } },
+        checks: { lint: { timeout: 30, order: 2 }, types: { timeout: 30 } },
+      },
+      'web/checkride.config.json': { lang: 'ts', checks: { lint: 'oxlint', test: { timeout: 5 }, e2e: { ...probe, args: ['web'] }, probe } },
+      'api/.keep': '',
+    });
+    const checks = resolved();
+    // The local file's pick beats the pack block's, and the top level's tuning still reaches it.
+    expect(check(checks, 'web:lint')).toMatchObject({ target: 'web', root: 'web', pack: 'ts', adapter: { name: 'oxlint', timeout: 30 }, order: 2, origin: 'config' });
+    expect(check(checks, 'api:lint')).toMatchObject({ adapter: { name: 'eslint', timeout: 30 } });
+    // Its tuning beats the pack block's, whose pick it leaves standing.
+    expect(check(checks, 'web:test')).toMatchObject({ adapter: { name: 'vitest', timeout: 5 } });
+    expect(check(checks, 'api:test')).toMatchObject({ adapter: { name: 'vitest', timeout: 90 } });
+    // And its custom checks are the target's own, over the pack block's of the same name.
+    expect(check(checks, 'web:e2e').adapter?.args).toEqual(['web']);
+    expect(check(checks, 'web:probe')).toMatchObject({ target: 'web', origin: 'custom' });
+    expect(checks.has('api:probe')).toBe(false);
+  });
+
+  test('loadConfig returns the config as written, and composedConfig folds the file in, once (D43)', async () => {
+    await lay({ 'checkride.config.json': { targets: { web: local } }, 'web/checkride.config.json': { lang: 'ts', lnag: 'ts', checks: { probe } } });
+    const { config, warnings } = load();
+    expect(config).toEqual({ targets: { web: { root: 'web', local: true } } });
+    expect(warnings).toEqual([`checkride: web/checkride.config.json has a top-level key "lnag", which a local target's file doesn't read (it reads lang, checks, include, exclude, timeout and extends)`]);
+    const again: string[] = [];
+    const whole = composedConfig(config, repo, undefined, (message) => again.push(message));
+    expect(whole).toEqual({ targets: { web: { lang: 'ts', checks: { probe }, root: 'web', local: true } } });
+    // The file was read as the config loaded, so composing reads and warns about nothing again.
+    expect(again).toEqual([]);
+    expect(composedConfig(whole, repo)).toBe(whole);
+    expect(composedConfig(config, repo)).toBe(whole);
+  });
+
+  test('a config with no local target composes to itself, and so does none at all', () => {
+    const config: CheckrideConfig = { targets: { api: { lang: 'ts', root: 'api' } } };
+    expect(composedConfig(config, repo)).toBe(config);
+    expect(composedConfig(null, repo)).toBeNull();
+  });
+
+  test('a config built by hand composes as a loaded one does', async () => {
+    await lay({ 'web/checkride.config.json': { lang: 'ts', checks: { probe } } });
+    expect(check(resolved({ targets: { web: local } }), 'web:probe')).toMatchObject({ target: 'web', pack: 'ts' });
+  });
+
+  test("a --config file's local targets are read under the repo, at <cwd>/<root>/ (D36)", async () => {
+    const outside = await mkdtemp(join(tmpdir(), 'checkride-local-named-'));
+    try {
+      await writeFile(join(outside, 'named.json'), JSON.stringify({ targets: { web: local } }));
+      await lay({ 'web/checkride.config.json': { lang: 'ts', checks: { probe } } });
+      expect(check(resolved(loadConfigFile(join(outside, 'named.json'), repo)), 'web:probe')).toMatchObject({ target: 'web' });
+      // And a problem with the local file names the config that declared the target.
+      await lay({ 'web/checkride.config.json': { lang: 'ts', gate: {} } });
+      expect(() => loadConfigFile(join(outside, 'named.json'), repo)).toThrow(`invalid ${join(outside, 'named.json')}: web/checkride.config.json sets gate`);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("a named suite reads its own local file, <root>/checkride.<suite>.config.json (D29)", async () => {
+    await lay({
+      'checkride.evals.config.json': { targets: { web: local } },
+      'web/checkride.config.json': { lang: 'ts', checks: { nope: probe } },
+      'web/checkride.evals.config.json': { lang: 'ts', checks: { evals: probe } },
+    });
+    const suite = suiteNamed('evals');
+    const config = loadConfig(repo, undefined, suite.configFile);
+    const checks = resolveChecks({ slots: SLOTS, adapters: ADAPTERS, config, cwd: repo, suite }).map(checkName);
+    expect(checks).toEqual(['web:evals']);
+    await rm(join(repo, 'web', 'checkride.evals.config.json'));
+    expect(() => loadConfig(repo, undefined, suite.configFile)).toThrow(
+      'invalid checkride.evals.config.json: targets.web is local, and its file web/checkride.evals.config.json is missing',
+    );
+  });
+
+  test("its timeout is the default of the target's checks, under an entry's own", async () => {
+    await lay({
+      'checkride.config.json': { timeout: 600, targets: { web: local, api: { lang: 'ts', root: 'api' } }, packs: { ts: { checks: { slow: probe } } } },
+      'web/checkride.config.json': { lang: 'ts', timeout: 45, checks: { lint: 'oxlint', test: { use: 'vitest', timeout: 5 } } },
+      'api/.keep': '',
+    });
+    const checks = resolved();
+    expect(check(checks, 'web:lint').adapter?.timeout).toBe(45);
+    expect(check(checks, 'web:slow').adapter?.timeout).toBe(45);
+    expect(check(checks, 'web:test').adapter?.timeout).toBe(5);
+    expect(check(checks, 'api:slow').adapter?.timeout).toBeUndefined();
+  });
+
+  describe('what its entry and its file refuse', () => {
+    test.each(['lang', 'checks', 'include', 'exclude', 'timeout'])('%s in the entry beside local: true names the file that should hold it (D35)', async (key) => {
+      await lay({ 'checkride.config.json': { targets: { web: { ...local, [key]: 'ts' } } }, 'web/checkride.config.json': { lang: 'ts' } });
+      expect(load).toThrow(invalid(`targets.web sets ${key} beside local: true, and a local target's entry holds only root, local, note: move ${key} to web/checkride.config.json`));
+    });
+
+    test.each(['targets', 'schemas', 'unclaimed', 'packs', 'gate', 'changedBase', 'requirePins'])('%s in the local file names the file', async (key) => {
+      await lay({ 'checkride.config.json': { targets: { web: local } }, 'web/checkride.config.json': { lang: 'ts', [key]: {} } });
+      expect(load).toThrow(invalid(`web/checkride.config.json sets ${key}, which belongs to the whole repo`));
+    });
+
+    test('a missing local file names its path', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: local } }, 'web/.keep': '' });
+      expect(load).toThrow(invalid('targets.web is local, and its file web/checkride.config.json is missing: a local target keeps its lang and its checks there'));
+    });
+
+    test('a local file that is not JSON names itself', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: local } }, 'web/checkride.config.json': '{ nope' });
+      expect(load).toThrow(/^invalid checkride\.config\.json: .* \(in web\/checkride\.config\.json\)$/);
+    });
+
+    test('two local targets at one root name each other (D44)', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: local, site: { root: './web/', local: true } } }, 'web/checkride.config.json': { lang: 'ts' } });
+      expect(load).toThrow(invalid("local targets 'web' and 'site' share the root 'web', and a root holds one local file, web/checkride.config.json, with one lang"));
+    });
+
+    test("a local target at the declaring file's own directory names the file (D44)", async () => {
+      await lay({ 'checkride.config.json': { targets: { all: { root: '.', local: true } } } });
+      expect(load).toThrow(invalid('targets.all is local at the root, where its file would be checkride.config.json, the file that declares it'));
+    });
+
+    test('a local target shares a root with a declared one of another pack, and never with one of its own', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: local, scripts: { lang: 'bash', root: 'web' } } }, 'web/checkride.config.json': { lang: 'ts' } });
+      expect(load().config).not.toBeNull();
+      await lay({ 'web/checkride.config.json': { lang: 'bash' } });
+      expect(load).toThrow(invalid("bash targets 'web' and 'scripts' share the root 'web'"));
+    });
+
+    test('local takes true or false, and false leaves the target whole', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web', local: false } } }, 'web/.keep': '' });
+      expect(resolved().has('web:types')).toBe(true);
+      await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web', local: 'yes' } } } });
+      expect(load).toThrow(invalid('targets.web.local must be true or false (got "yes")'));
+    });
+
+    test('timeout is the local file\'s alone', async () => {
+      await lay({ 'checkride.config.json': { targets: { web: { lang: 'ts', root: 'web', timeout: 5 } } }, 'web/.keep': '' });
+      expect(load).toThrow(invalid("targets.web has an unknown key 'timeout'"));
+    });
+
+    test.each([
+      [{}, 'targets.web has no lang: name its pack'],
+      [{ lang: 'nope' }, 'targets.web.lang "nope" isn\'t a pack'],
+      [{ lang: 'ts', timeout: -1 }, 'targets.web.timeout must be a number of seconds, 0 or more (got -1)'],
+      [{ lang: 'ts', include: ['src/**'] }, 'targets.web sets include, but ts checks its root'],
+      [{ lang: 'ts', checks: { lint: 'golangci-lint' } }, "targets.web.checks.lint names 'golangci-lint', which isn't a ts adapter"],
+      [{ lang: 'ts', checks: { spell: false } }, 'targets.web.checks.spell configures spell, a repo-scope slot'],
+    ])('a rule the composed target breaks names the local file: %j', async (file, reason) => {
+      await lay({ 'checkride.config.json': { targets: { web: local } }, 'web/checkride.config.json': file });
+      expect(load).toThrow(`invalid checkride.config.json: ${reason}`);
+      expect(load).toThrow(/ \(in web\/checkride\.config\.json\)$/);
+    });
+
+    test('a hand-built config is held to the same rules as it resolves', async () => {
+      await lay({ 'web/checkride.config.json': { lang: 'ts', schemas: [] } });
+      expect(() => resolved({ targets: { web: local } })).toThrow(invalid('web/checkride.config.json sets schemas'));
+      // A cast, since the type refuses what the rule does.
+      const beside = { targets: { web: { ...local, lang: 'ts' } } } as CheckrideConfig;
+      expect(() => resolved(beside)).toThrow(invalid('targets.web sets lang beside local: true'));
+    });
+  });
+
+  describe('a preset its file extends (D42)', () => {
+    const preset = {
+      requirePins: true,
+      packs: { ts: { checks: { lint: 'eslint' } } },
+      timeout: 60,
+      checks: { lint: 'golangci-lint', test: 'vitest', spell: false, unit: probe },
+    };
+
+    test('hands over what a local file may hold, and each other key is dropped with a warning naming the preset', async () => {
+      await lay({
+        'checkride.config.json': { targets: { web: local } },
+        'presets/team.json': preset,
+        'web/checkride.config.json': { extends: '../presets/team.json', lang: 'ts', checks: { test: { timeout: 5 } } },
+      });
+      const { config, warnings } = load();
+      const base = warnings.map((w) => w.replace(/^checkride: \S+/, 'checkride: <preset>'));
+      expect(base).toEqual([
+        `checkride: <preset> has a top-level key "requirePins", which web/checkride.config.json, a local target's file, doesn't read (it reads lang, checks, include, exclude, timeout and extends)`,
+        `checkride: <preset> has a top-level key "packs", which web/checkride.config.json, a local target's file, doesn't read (it reads lang, checks, include, exclude, timeout and extends)`,
+        `checkride: <preset> configures spell, a repo-scope slot, which web/checkride.config.json, a local target's file, doesn't read (configure it in the repo's top-level checks)`,
+      ]);
+      for (const warning of warnings) expect(warning).toContain('team.json');
+      const whole = composedConfig(config, repo);
+      // The go pick is another pack's, so it's left to the targets that can run it; the ts one merges with the file's own entry.
+      expect(whole?.targets?.['web']).toEqual({ lang: 'ts', timeout: 60, checks: { test: { timeout: 5 }, unit: probe }, root: 'web', local: true });
+      // `"vitest"` under `{ timeout }` replaces, as any preset's string entry does, so the file's tuning stands alone.
+      const checks = resolved(config);
+      expect(check(checks, 'web:unit')).toMatchObject({ origin: 'custom', adapter: { timeout: 60 } });
+      expect(checks.has('spell')).toBe(true);
+      expect(check(checks, 'web:lint').adapter?.name).not.toBe('eslint');
+    });
+
+    test("a preset may name the file's lang, and a preset of a preset is read the same way", async () => {
+      await lay({
+        'checkride.config.json': { targets: { api: { root: 'api', local: true } } },
+        'presets/base.json': { gate: { only: ['lint'] }, checks: { lint: 'golangci-lint' } },
+        'presets/go.json': { extends: './base.json', lang: 'go' },
+        'api/checkride.config.json': { extends: '../presets/go.json' },
+      });
+      const { config, warnings } = load();
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('base.json has a top-level key "gate"');
+      expect(composedConfig(config, repo)?.targets?.['api']).toEqual({ lang: 'go', checks: { lint: 'golangci-lint' }, root: 'api', local: true });
+    });
+
+    test('a preset that declares targets is still refused', async () => {
+      await lay({
+        'checkride.config.json': { targets: { web: local } },
+        'presets/team.json': { targets: { x: { lang: 'ts', root: '.' } } },
+        'web/checkride.config.json': { extends: '../presets/team.json', lang: 'ts' },
+      });
+      expect(load).toThrow('extends "../presets/team.json" declares targets (in web/checkride.config.json)');
+    });
+  });
+
+  describe('the containment rule on the paths it names', () => {
+    let outside: string;
+    beforeEach(async () => {
+      outside = await mkdtemp(join(tmpdir(), 'checkride-local-outside-'));
+      await writeFile(join(outside, 'checkride.config.json'), JSON.stringify({ lang: 'ts', checks: { stolen: probe } }));
+      await lay({ 'checkride.config.json': { targets: { web: local } } });
+    });
+    afterEach(async () => {
+      await rm(outside, { recursive: true, force: true });
+    });
+
+    test('a local file that is a link out of the repo is never read', async () => {
+      await mkdir(join(repo, 'web'));
+      await symlink(join(outside, 'checkride.config.json'), join(repo, 'web', 'checkride.config.json'));
+      expect(load).toThrow('invalid checkride.config.json: targets.web is local, and its file web/checkride.config.json resolves outside the repository, where checkride reads no config');
+    });
+
+    test('nor is one under a root that is a link out of the repo', async () => {
+      await symlink(outside, join(repo, 'web'));
+      expect(load).toThrow('its file web/checkride.config.json resolves outside the repository');
+    });
+
+    test('a link that stays inside the repo is read where it really is', async () => {
+      await lay({ 'shared/web.json': { lang: 'ts', checks: { probe } }, 'web/.keep': '' });
+      await symlink(join(repo, 'shared', 'web.json'), join(repo, 'web', 'checkride.config.json'));
+      expect(check(resolved(), 'web:probe')).toMatchObject({ target: 'web' });
+    });
+
+    test('a preset path that leaves the repo is refused, by the path or by a link', async () => {
+      await writeFile(join(outside, 'preset.json'), JSON.stringify({ checks: { stolen: probe } }));
+      await lay({ 'web/checkride.config.json': { extends: join(outside, 'preset.json'), lang: 'ts' } });
+      expect(load).toThrow(`invalid checkride.config.json: extends "${join(outside, 'preset.json')}" (in web/checkride.config.json) resolves outside the repository, where a local target's file reads nothing`);
+      await symlink(join(outside, 'preset.json'), join(repo, 'web', 'team.json'));
+      await lay({ 'web/checkride.config.json': { extends: './team.json', lang: 'ts' } });
+      expect(load).toThrow('extends "./team.json" (in web/checkride.config.json) resolves outside the repository');
+    });
   });
 });

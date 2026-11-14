@@ -30,6 +30,8 @@ import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 import type { Adapter, AdapterOptions, Order, SchemaRule as SchemaRuleFields, Slot, TableSignal } from './adapters.js';
 import { SCHEMA_SLOT, SLOTS } from './adapters.js';
 import { runtime } from './channel.js';
+import type { Root } from './contain.js';
+import { locatedSync, repoRoot } from './contain.js';
 import { isRecord } from './json.js';
 import { schemaRulesProblem } from './schema/index.js';
 import type { Suite } from './suite.js';
@@ -38,7 +40,25 @@ import { chainCanRun, dirsUpTo, pinChain, pinDeclaration } from './launch/index.
 import type { Pack } from './packs/index.js';
 import { PACKS } from './packs/index.js';
 import type { Target, TsTarget } from './targets/index.js';
-import { checkKeys, configProblem, configuredTargets, implicitPack, isAbsoluteForm, markerAt, presetProblem, show, skipExitCodeProblem } from './targets/index.js';
+import {
+  checkKeys,
+  composedEntry,
+  configProblem,
+  configuredTargets,
+  declaresLocal,
+  heldByLocal,
+  implicitPack,
+  isAbsoluteForm,
+  isLocalEntry,
+  localFileOf,
+  localFileProblem,
+  localTargetsProblem,
+  markerAt,
+  presetProblem,
+  show,
+  skipExitCodeProblem,
+  unreadWarnings,
+} from './targets/index.js';
 
 /**
  * A comment for whoever reads the config next — never rendered, never reported.
@@ -169,7 +189,7 @@ export type SlotConfig = string | false | UseConfig | CustomCheck | SlotTuning;
 type PackName = Exclude<Pack['name'], 'repo'>;
 
 /** A named (pack, root) pair: target-scope slots run once per target, from its root. */
-type TargetConfig = Noted & {
+type DeclaredTarget = Noted & {
   /** The language pack that checks this target. */
   lang: PackName;
   /** The target's directory, relative to the repo root: `.` for the root itself, never absolute or through `..`. */
@@ -180,7 +200,32 @@ type TargetConfig = Noted & {
   exclude?: string[];
   /** This target's own slot config and custom checks, over `packs` and the top-level `checks`. */
   checks?: Record<string, SlotConfig>;
+  /** Absent or `false` on a target the config declares whole. */
+  local?: false;
 };
+
+/**
+ * A local target: `<root>/checkride.config.json` holds the rest of it, its
+ * `lang`, `checks`, `include`, `exclude`, `timeout` and `extends`, ranked
+ * where a target's own `checks` rank. As written the entry holds `root`,
+ * `local` and `note` alone, and a key beside them is a config error. The
+ * other keys here are the file's, present once the two are composed
+ * ({@link composedConfig}), which is how a run reads the target.
+ */
+type LocalTarget = Noted & {
+  /** The target's directory, relative to the repo root, and never the root itself. */
+  root: string;
+  local: true;
+  lang?: PackName;
+  include?: string[];
+  exclude?: string[];
+  checks?: Record<string, SlotConfig>;
+  /** The default timeout of this target's checks, in seconds, over the config's own `timeout`. */
+  timeout?: number;
+};
+
+/** A target as a config declares it: whole, or local, with its file holding the rest. */
+type TargetConfig = DeclaredTarget | LocalTarget;
 
 /** Slot config for every target of one pack. */
 type PackConfig = Noted & { checks?: Record<string, SlotConfig> };
@@ -646,9 +691,18 @@ function applyOptIn(check: ResolvedCheck, entry: SlotConfig | undefined, context
  * root itself or a path relative to the working directory for an inherited
  * base; and `root`, the file the chain started from, which every error's
  * `invalid <file>:` prefix names. `warn`, when given, hears about each
- * top-level key a file in the chain holds that nothing reads.
+ * top-level key a file in the chain holds that nothing reads. `local` marks
+ * the chain of a local target's file, whose presets hand over only what such
+ * a file may hold.
  */
-type Chain = { stack: readonly string[]; label: string; root: string; warn?: ConfigWarning; repo?: RepoShape };
+type Chain = { stack: readonly string[]; label: string; root: string; warn?: ConfigWarning; repo?: RepoShape; local?: LocalChain };
+
+/**
+ * What marks a chain as a local target's: `file`, the local file the chain
+ * started from, as a message names it, and `contain`, the repository every
+ * path the chain names is read inside.
+ */
+type LocalChain = { file: string; contain: Root };
 
 /**
  * The repo a config chain configures, as its presets' tool picks need it
@@ -672,6 +726,9 @@ function rootChain(file: string, warn?: ConfigWarning, cwd?: string): Chain {
 
 /** The target-scope slots, whose tool a check's pack decides. */
 const PACK_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope === 'target').map((s) => s.name));
+
+/** The repo-scope slots, which run once for the whole repo and no target's checks configure. */
+const REPO_SLOTS: ReadonlySet<string> = new Set(SLOTS.filter((s) => s.scope === 'repo').map((s) => s.name));
 
 /** The packs with an adapter named `adapter` for `slot`. Adapter names are unique per slot, so it's at most one. */
 function packsWith(adapter: string, slot: string): string[] {
@@ -789,12 +846,38 @@ function resolveExtends(specs: readonly unknown[], absPath: string, chain: Chain
       const reason = err instanceof Error ? err.message : String(err);
       invalidConfig(`cannot resolve extends "${spec}" (in ${label}): ${reason}`, err, root);
     }
+    if (chain.local !== undefined && isFilePath(spec)) baseAbs = containedPreset(baseAbs, spec, chain, chain.local);
     const base = resolveConfigFile(baseAbs, { ...chain, stack: [...chain.stack, absPath], label: relative(process.cwd(), baseAbs) });
     const problem = presetProblem(base, spec, label);
     if (problem !== null) invalidConfig(problem, undefined, root);
-    merged = deepMerge(merged, chain.repo === undefined ? base : placedPicks(base, chain.repo));
+    merged = deepMerge(merged, placedBase(base, chain));
   }
   return merged;
+}
+
+/**
+ * `base`, a preset, as the file that extends it takes it: a local target's
+ * file takes only what such a file may hold ({@link heldByLocal}), a repo's
+ * config has each tool pick placed where it can run ({@link placedPicks}),
+ * and a defaults file takes it whole.
+ */
+function placedBase(base: Record<string, unknown>, chain: Chain): Record<string, unknown> {
+  if (chain.local !== undefined) return heldByLocal(base, REPO_SLOTS);
+  return chain.repo === undefined ? base : placedPicks(base, chain.repo);
+}
+
+/**
+ * The real path of the preset file at `abs`, which a file in a local
+ * target's chain names as `spec`, or the config error for one that resolves
+ * outside the repository: a local file is read under the containment rule
+ * (`./contain.ts`), and so is every path it names.
+ */
+function containedPreset(abs: string, spec: string, chain: Chain, local: LocalChain): string {
+  const where = locatedSync(local.contain, abs);
+  if (where === 'outside') {
+    invalidConfig(`extends "${spec}" (in ${chain.label}) resolves outside the repository, where a local target's file reads nothing`, undefined, chain.root);
+  }
+  return where === 'missing' ? abs : where.inside;
 }
 
 /**
@@ -808,10 +891,15 @@ function resolveConfigFile(absPath: string, chain: Chain): Record<string, unknow
     invalidConfig(`circular extends: ${[...chain.stack, absPath].map((p) => relative(process.cwd(), p)).join(' -> ')}`, undefined, chain.root);
   }
   const parsed = parseConfigJson(absPath, chain);
-  if (chain.warn !== undefined) for (const warning of unknownKeyWarnings(parsed, chain.label)) chain.warn(warning);
+  if (chain.warn !== undefined) for (const warning of keyWarnings(parsed, chain)) chain.warn(warning);
   const { extends: ext, ...own } = parsed;
   const merged = resolveExtends(normalizeExtends(ext), absPath, rootedChain(chain, own));
   return deepMerge(merged, own);
+}
+
+/** The warnings for what the file `parsed`, which `chain` names, holds that nothing reads: a local chain's by what a local file holds. */
+function keyWarnings(parsed: Record<string, unknown>, chain: Chain): string[] {
+  return chain.local === undefined ? unknownKeyWarnings(parsed, chain.label) : unreadWarnings(parsed, chain.label, chain.local.file, REPO_SLOTS);
 }
 
 /**
@@ -829,13 +917,21 @@ function rootedChain(chain: Chain, own: Record<string, unknown>): Chain {
  * keep (see `configProblem`), with `cwd` as the repo root its target roots
  * must exist under, and throw the friendly error, naming `file`, on the first
  * one it breaks. A config from a file other than the repo's own remembers its
- * name, for the errors resolution finds later.
+ * name, for the errors resolution finds later. A config with local targets
+ * is held to them composed with their files, named `localFile` at each root,
+ * so a broken local file stops the load; the config comes back as written.
  */
-function validated(config: Record<string, unknown>, cwd: string, file: string): CheckrideConfig {
-  const problem = shapeProblem(config, cwd, 'repo') ?? schemaClashProblem({ config, defaults: null });
-  if (problem !== null) invalidConfig(problem, undefined, file);
+function validated(config: Record<string, unknown>, cwd: string, file: string, local: { file: string; warn?: ConfigWarning }): CheckrideConfig {
   if (file !== CONFIG_FILE) LABELS.set(config, file);
+  // Composing holds the composed config to every rule, so only a config with no local target is left to check here.
+  if (composed(config, cwd, local.file, local.warn) === config) assertShape(config, cwd, local.file);
   return config;
+}
+
+/** Throw the friendly error for the first rule `config` breaks, read as the repo's own with local files named `localFile`. */
+function assertShape(config: Record<string, unknown>, cwd: string, localFile: string): void {
+  const problem = shapeProblem(config, cwd, 'repo', localFile) ?? schemaClashProblem({ config, defaults: null });
+  if (problem !== null) invalidConfig(problem, undefined, labelOf(config));
 }
 
 /**
@@ -844,8 +940,106 @@ function validated(config: Record<string, unknown>, cwd: string, file: string): 
  * that module owns them and reads the targets module itself. The one place
  * the two are joined, for the repo's config and a defaults file alike.
  */
-function shapeProblem(config: Record<string, unknown>, cwd: string, layer: 'repo' | 'defaults'): string | null {
-  return configProblem(config, { cwd, layer, schemas: schemaRulesProblem });
+function shapeProblem(config: Record<string, unknown>, cwd: string, layer: 'repo' | 'defaults', localFile: string = CONFIG_FILE): string | null {
+  return configProblem(config, { cwd, layer, schemas: schemaRulesProblem, localFile });
+}
+
+/** Each config composed with its local targets' files, by the name those files went by. */
+const COMPOSED = new WeakMap<object, Map<string, CheckrideConfig>>();
+
+/**
+ * `config` with each local target composed with its file: the entry's `root`
+ * and `local`, and the `lang`, `checks`, `include`, `exclude` and `timeout`
+ * that `<root>/<localFile>` holds, presets folded in. A config with no local
+ * target comes back as it is, and so does one already composed. The composed
+ * config is held to every rule a config keeps, so a broken local file is the
+ * friendly config error, naming that file. Read once per config: a second
+ * call returns the first one's answer, and warns about nothing again.
+ */
+function composed(config: CheckrideConfig, cwd: string, localFile: string, warn?: ConfigWarning): CheckrideConfig {
+  const targets: unknown = config.targets;
+  if (!declaresLocal(targets)) return config;
+  const known = COMPOSED.get(config)?.get(localFile);
+  if (known !== undefined) return known;
+  const label = labelOf(config);
+  const problem = localTargetsProblem(targets, cwd, localFile);
+  if (problem !== null) invalidConfig(problem, undefined, label);
+  const contain = repoRoot(cwd);
+  const entries = Object.entries(targets).map(([name, entry]) => {
+    if (!isLocalEntry(entry)) return [name, entry];
+    const file = localFileOf(posix.normalize(String(entry['root'])), localFile);
+    return [name, composedEntry(entry, readLocalFile(name, file, { cwd, contain, label, ...(warn === undefined ? {} : { warn }) }))];
+  });
+  const whole: CheckrideConfig = { ...config, targets: Object.fromEntries(entries) };
+  if (label !== CONFIG_FILE) LABELS.set(whole, label);
+  assertShape(whole, cwd, localFile);
+  // The composed config composes to itself, so a caller that composes twice reads nothing twice.
+  for (const key of [config, whole]) COMPOSED.set(key, new Map([...(COMPOSED.get(key) ?? []), [localFile, whole]]));
+  return whole;
+}
+
+/** What reading a local target's file needs: the repo, as given and as the containment rule reads it, the file every error names, and where warnings go. */
+type LocalRead = { cwd: string; contain: Root; label: string; warn?: ConfigWarning };
+
+/**
+ * The file of local target `name` at `file`, relative to the repo root, with
+ * its presets folded in. The file is read only where it really is in the
+ * repository, and a missing one is a config error, as is a key it writes
+ * that belongs to the whole repo. A preset it extends is written for a root
+ * config, so the local file takes from it only what a local file may hold,
+ * each other key dropped with a warning naming the preset, and leaves a tool
+ * pick that only another pack can run to the targets that can.
+ */
+function readLocalFile(name: string, file: string, read: LocalRead): Record<string, unknown> {
+  const where = locatedSync(read.contain, join(read.cwd, file));
+  if (where === 'missing') {
+    invalidConfig(`targets.${name} is local, and its file ${file} is missing: a local target keeps its lang and its checks there`, undefined, read.label);
+  }
+  if (where === 'outside') {
+    invalidConfig(`targets.${name} is local, and its file ${file} resolves outside the repository, where checkride reads no config`, undefined, read.label);
+  }
+  const chain: Chain = { stack: [], label: file, root: read.label, local: { file, contain: read.contain }, ...(read.warn === undefined ? {} : { warn: read.warn }) };
+  const parsed = parseConfigJson(where.inside, chain);
+  const problem = localFileProblem(parsed, file, CONFIG_KEYS);
+  if (problem !== null) invalidConfig(problem, undefined, read.label);
+  if (read.warn !== undefined) for (const warning of keyWarnings(parsed, chain)) read.warn(warning);
+  const { extends: ext, ...own } = parsed;
+  const inherited = resolveExtends(normalizeExtends(ext), where.inside, chain);
+  return deepMerge(runnableBy(inherited, own['lang'] ?? inherited['lang']), own);
+}
+
+/**
+ * `inherited`, what a local file's presets hand it, without each tool pick
+ * for a target-scope slot that names another pack's adapter and none of pack
+ * `lang`'s: a root config moves such a pick to the pack that can run it
+ * ({@link placedPicks}), and a local target is one pack's, so the pick is
+ * for some other target. A pick no pack has stays, for the target's rules to
+ * name.
+ */
+function runnableBy(inherited: Record<string, unknown>, lang: unknown): Record<string, unknown> {
+  const checks = inherited['checks'];
+  if (!isRecord(checks) || typeof lang !== 'string') return inherited;
+  const runs = ([slot, entry]: [string, unknown]): boolean => {
+    const adapter = pickedAdapter(entry);
+    if (adapter === null || !PACK_SLOTS.has(slot)) return true;
+    const owners = packsWith(adapter, slot);
+    return owners.length === 0 || owners.includes(lang);
+  };
+  return { ...inherited, checks: Object.fromEntries(Object.entries(checks).filter(runs)) };
+}
+
+/**
+ * `config` as a run reads it: each local target composed with the file at
+ * its root, `<root>/checkride.config.json`, or the file name `suite` fixes
+ * for a named suite. {@link loadConfig} returns a config as written, and so
+ * does a caller that builds one by hand; this is where the two, and a
+ * `--config` file, become the config resolution reads, so all three compose
+ * the same way. `null`, and a config with no local target, come back as they
+ * are. A broken local file is the friendly config error, and `warn` hears
+ * about each key a local file or its preset holds that nothing reads.
+ */
+export function composedConfig(config: CheckrideConfig | null, cwd: string, suite: Suite = DEFAULT_SUITE, warn?: ConfigWarning): CheckrideConfig | null {
+  return config === null ? null : composed(config, cwd, suite.configFile, warn);
 }
 
 /**
@@ -856,11 +1050,16 @@ function shapeProblem(config: Record<string, unknown>, cwd: string, layer: 'repo
  * holds that nothing reads. `file` names another config at the root of `cwd`
  * to read in its place, a named suite's `checkride.<name>.config.json`, and
  * every error then names that file, by its short name.
+ *
+ * The config comes back as the file wrote it: a local target's entry holds
+ * its `root` and `local` alone. Its file, `<root>/<file>`, is read as the
+ * config loads, so a broken one is an error here, and {@link composedConfig}
+ * is what folds it in.
  */
 export function loadConfig(cwd: string, warn?: ConfigWarning, file: string = CONFIG_FILE): CheckrideConfig | null {
   const path = join(cwd, file);
   if (!existsSync(path)) return null;
-  return validated(resolveConfigFile(path, rootChain(file, warn, cwd)), cwd, file);
+  return validated(resolveConfigFile(path, rootChain(file, warn, cwd)), cwd, file, { file, ...(warn === undefined ? {} : { warn }) });
 }
 
 /**
@@ -873,20 +1072,22 @@ export function loadConfig(cwd: string, warn?: ConfigWarning, file: string = CON
 export function validateConfigObject(raw: Record<string, unknown>, path: string, cwd: string): CheckrideConfig {
   const { extends: ext, ...own } = raw;
   const label = relative(cwd, path) === CONFIG_FILE ? CONFIG_FILE : path;
-  return validated(deepMerge(resolveExtends(normalizeExtends(ext), path, rootedChain(rootChain(label, undefined, cwd), own)), own), cwd, label);
+  const merged = deepMerge(resolveExtends(normalizeExtends(ext), path, rootedChain(rootChain(label, undefined, cwd), own)), own);
+  return validated(merged, cwd, label, { file: CONFIG_FILE });
 }
 
 /**
  * Read and resolve the config file at an explicit absolute `path` (`--config`,
  * `CHECKRIDE_CONFIG`) exactly as {@link loadConfig} reads the repo's own: its
  * relative `extends` resolve against that file, while paths inside its values
- * stay relative to the repo being checked, `cwd`. Every error it raises, and
+ * stay relative to the repo being checked, `cwd`, a local target's file at
+ * `<cwd>/<root>/checkride.config.json` among them. Every error it raises, and
  * every one resolving it raises later, names `path`, and so does every
  * warning `warn` hears. The caller has already confirmed the file exists,
  * since a named file that is missing is a usage error, not "no config".
  */
 export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning): CheckrideConfig {
-  return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path);
+  return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path, { file: CONFIG_FILE, ...(warn === undefined ? {} : { warn }) });
 }
 
 /** The first top-level key a defaults file can't hold, as a problem, or `null`. */
@@ -1886,16 +2087,21 @@ type TargetScope = {
   implicit: boolean;
   /** The defaults layer's `packs.<pack>.checks`, which ranks below detection and above the defaults' top level. */
   defaultsPack: Readonly<Record<string, SlotConfig>>;
+  /** A local target's `timeout`: the default of its checks, over the config's own. */
+  timeout?: number;
   detection: Detection;
 };
 
 function targetScope(input: ResolveInput, target: Target, implicit = false): TargetScope {
   const rows = Object.values(PACKS).find((p) => p.name === target.pack);
+  const declared = input.config?.targets?.[target.name];
   return {
     target,
     adapters: rows?.adapters ?? [],
-    own: input.config?.targets?.[target.name]?.checks ?? {},
+    // A local target's are its file's, composed in before resolution reads them.
+    own: declared?.checks ?? {},
     pack: packBlock(input.config, target.pack),
+    ...(declared?.local === true && declared.timeout !== undefined ? { timeout: declared.timeout } : {}),
     implicit,
     defaultsPack: packBlock(input.defaults, target.pack),
     detection: detectionAt(input, target.root, target.pack),
@@ -1953,6 +2159,17 @@ function inTarget(check: ResolvedCheck, target: Target): ResolvedCheck {
 }
 
 /**
+ * Mark a check as the target's of `scope`, with the target's `timeout` where
+ * the check sets none of its own: it ranks where the config's `timeout`
+ * does, under an entry's and an adapter's, and over the config's.
+ */
+function inScope(check: ResolvedCheck, scope: TargetScope): ResolvedCheck {
+  const placed = inTarget(check, scope.target);
+  if (scope.timeout === undefined || placed.adapter === null || placed.adapter.timeout !== undefined) return placed;
+  return { ...placed, adapter: { ...placed.adapter, timeout: scope.timeout } };
+}
+
+/**
  * The target's check for catalogue slot `slot`, or `null` when it has none:
  * its pack fills no such slot, and neither the target nor either pack block
  * configures one. The top-level entry, which V6 holds to `false` or tuning
@@ -1970,7 +2187,7 @@ function targetSlotCheck(slot: Slot, scope: TargetScope, top: Layer, defaultsTop
   const entry = layeredEntry(repo, slot.name);
   const resolved = resolveOne(slot, entry, scope.adapters, scope.detection);
   const fallback = { slot, repo, defaults: [defaultsPack, defaultsTop], adapters: scope.adapters, detection: scope.detection };
-  return inTarget(filledByDefaults(resolved, entry, fallback), scope.target);
+  return inScope(filledByDefaults(resolved, entry, fallback), scope);
 }
 
 /**
@@ -1988,7 +2205,7 @@ function targetCustomChecks(scope: TargetScope, catalogueNames: ReadonlySet<stri
     return check === null ? [] : [check];
   });
   const defaults = foldCustomChecks(scope.defaultsPack, catalogueNames, scope.detection.fileExists, { taken }).map(fromDefaults);
-  return [...repo, ...defaults].map((check) => inTarget(check, scope.target));
+  return [...repo, ...defaults].map((check) => inScope(check, scope));
 }
 
 /**
@@ -2121,6 +2338,9 @@ function declaredChecks(checks: readonly ResolvedCheck[], catalogueNames: Readon
  * is one target of the pack its root marks (R2.1), resolved as 0.13 did when
  * that's ts, with its top-level entries over its pack block.
  *
+ * A local target is read composed with the file at its root
+ * ({@link composedConfig}), whose `checks` are the target's own.
+ *
  * `defaults` ranks below detection (R3): a slot the repo's entries and
  * detection leave empty takes its tool from the defaults' pack block, then
  * their top level, with `origin: 'defaults'`, and the defaults' custom checks
@@ -2133,7 +2353,8 @@ function declaredChecks(checks: readonly ResolvedCheck[], catalogueNames: Readon
  */
 export function resolveChecks(given: ResolveInput): ResolvedCheck[] {
   return relabeled(labelOf(given.config), () => {
-    const input: ResolveInput = { ...given, slots: slotsOf(given) };
+    const config = composedConfig(given.config, given.cwd ?? process.cwd(), given.suite);
+    const input: ResolveInput = { ...given, config, slots: slotsOf({ ...given, config }) };
     const catalogueNames = new Set(input.slots.map((s) => s.name));
     const claimed = (checks: readonly ResolvedCheck[], targets: readonly Target[]): ResolvedCheck[] =>
       sortByGroup((declaredOnlyOf(input) ? declaredChecks(checks, catalogueNames) : checks).map((check) => withSchemas(withClaims(check, targets, input.config), input)));

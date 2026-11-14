@@ -1458,10 +1458,10 @@ describe('published JSON Schema', () => {
     const refs = [
       '../s.json', 'schemas/../../s.json', 'schemas\\..\\s.json', '..',
       '/etc/passwd', 'C:\\s.json', 'C:/s.json', 'c:s.json', '\\\\server\\share\\s.json', '\\s.json',
-      'schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config',
+      'schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config', 'checkride:checkride-local',
     ];
     for (const ref of refs) expect(validate({ schemas: [{ files: ['a.json'], schema: ref }] }), ref).toBe(loads(ref));
-    expect(refs.filter(loads)).toEqual(['schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config']);
+    expect(refs.filter(loads)).toEqual(['schemas/s.json', 'schemas/a..b.json', '.schemas/s.json', 'checkride:agent-skill', 'checkride:checkride-config', 'checkride:checkride-local']);
     expect(validate({ schemas: { files: ['a.json'], schema: 'a.json' } })).toBe(false);
   });
 

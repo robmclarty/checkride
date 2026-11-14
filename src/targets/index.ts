@@ -1,8 +1,9 @@
 /**
  * Targets module — named (pack, root) pairs, the rules a config's `targets`
  * and `packs` blocks keep, the token grammar that selects checks by slot,
- * custom name or target, which targets a `--changed` run leaves out, and the
- * files a file-list target's checks run over. This
+ * custom name or target, which targets a `--changed` run leaves out, the
+ * files a file-list target's checks run over, and the keys a local target
+ * and its file each hold. This
  * barrel is the module's only public surface: siblings import from
  * `../targets/index.js`, never from a file inside it.
  */
@@ -25,6 +26,7 @@ export {
   takesFiles,
   targetFiles,
 } from './files.js';
+export { composedEntry, declaresLocal, heldByLocal, isLocalEntry, localFileOf, localFileProblem, unreadWarnings } from './local.js';
 export { markerAt } from './markers.js';
 export {
   checkKeys,
@@ -33,6 +35,7 @@ export {
   hasParentSegment,
   implicitPack,
   isAbsoluteForm,
+  localTargetsProblem,
   markedPack,
   normalizeRoot,
   presetProblem,

@@ -57,10 +57,15 @@ function unplacedGlob(files: readonly string[], where: string): string | null {
   return `${where}.files has ${show(glob)}, whose extension doesn't say how to read what it matches (${oneOf(SCHEMA_EXTENSIONS)}): set ${where}.format to ${FORMAT_LIST}`;
 }
 
+/** `names` as a sentence lists them: `a, b and c`. */
+function listed(names: readonly string[]): string {
+  return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1) ?? ''}`;
+}
+
 /** Why a rule's `schema` names no schema checkride ships, when it names a bundled one. */
 function bundledProblem(schema: unknown, where: string): string | null {
   if (typeof schema !== 'string' || !namesBundled(schema) || isBundled(schema)) return null;
-  return `${where}.schema ${show(schema)} is no bundled schema: the bundled schemas are ${bundledSchemas().join(' and ')}`;
+  return `${where}.schema ${show(schema)} is no bundled schema: the bundled schemas are ${listed(bundledSchemas())}`;
 }
 
 /** V8 for one rule: a schema is bundled or inside the repo, never fetched and never reached by a path that leaves it. */

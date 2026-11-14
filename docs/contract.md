@@ -1087,11 +1087,12 @@ writes no `node_modules`, so there the reason names no install command:
 The standalone binary bundles all three and reads no copy from the repo, and
 no file the npm package ships imports any of them.
 
-Two schemas ship, `checkride:agent-skill` and `checkride:checkride-config`.
-The first holds a skill's frontmatter to a `name` matching
-`^[a-z0-9]+(-[a-z0-9]+)*$` of at most 64 characters and a `description` of 1
-to 1024, allows any other property, and adds the `directory-name` check. The
-second is the config schema.
+Three schemas ship, `checkride:agent-skill`, `checkride:checkride-config`
+and `checkride:checkride-local`. The first holds a skill's frontmatter to a
+`name` matching `^[a-z0-9]+(-[a-z0-9]+)*$` of at most 64 characters and a
+`description` of 1 to 1024, allows any other property, and adds the
+`directory-name` check. The second is the config schema, and the third the
+schema of a [local target's](./targets.md#local-targets) file.
 
 Without a `schemas` rule, `schema` is **inactive** exactly as `unclaimed` is
 without `targets`: absent from `checks` under every flag, so a repo that
@@ -1760,7 +1761,7 @@ written:
   because a check never fetches, and never an absolute path, in POSIX or
   Windows spelling, or one with a `..` segment, because a schema is read only
   from inside the repository. A bundled id is one of the
-  two that ship. A rule's `files` is an array of globs and its `format`, when
+  three that ship. A rule's `files` is an array of globs and its `format`, when
   set, one of `json`, `jsonc`, `yaml` and `frontmatter`; with none set, each
   glob's extension has to name one (`.json`, `.jsonc`, `.yaml`, `.yml`, `.md`
   or `.mdx`).
@@ -1769,6 +1770,46 @@ written:
 - A defaults file declares no `targets`, and nor does anything it `extends`.
 - `gate` holds only `only` and `skip`, each a list of check names, `changed`,
   a boolean, `preflight`, a path, and `note`.
+
+**A local target keeps the rest of itself in the file at its root.** A target
+entry that says `"local": true` holds `root`, `local` and `note`, and
+`<root>/checkride.config.json` holds the target's `lang`, `checks`, `include`,
+`exclude`, `timeout` and `extends`, with `note` and `$schema`. The run reads
+the two as one target, held to every rule above: its checks are named, placed
+and reported as any target's are, and the file's `checks` rank where a
+target's own do, above `packs.<pack>.checks` and the top level. `timeout` is
+the default for the target's checks, over the config's `timeout` and under a
+check's own. Under a named suite the file is
+`<root>/checkride.<suite>.config.json`. Each of these exits 2 with
+`invalid checkride.config.json: <reason>`, before any check runs:
+
+- A key the entry sets beside `"local": true`, other than `root` and `note`.
+  The reason names the entry and the file the key belongs in:
+  `targets.web sets lang beside local: true, and a local target's entry holds only root, local, note: move lang to web/checkride.config.json`.
+- A local file that sets `targets`, `packs`, `schemas`, `unclaimed`, `gate`,
+  `changedBase` or `requirePins`, which belong to the whole repo. The reason
+  opens with the file: `web/checkride.config.json sets schemas, …`.
+- A local file that is missing, or that isn't a JSON object.
+- Two local targets at one root, naming both, and a local target at `.`, the
+  directory of the file that declares it.
+- A rule above that the composed target breaks, a `lang` that is no pack or
+  an adapter of another pack. The reason ends by naming the file, as
+  `(in web/checkride.config.json)`.
+- A local file, or a preset path its `extends` chain names, that resolves
+  outside the repository, links followed. Neither is read.
+
+A preset the local file extends hands over only the keys a local file may
+hold. Each other top-level key, and each `checks` entry for a repo-scope slot,
+is dropped with a warning on stderr that names the preset and the local file,
+and a tool pick that only another pack's adapter answers is left out without
+one. A preset that declares `targets` is still exit 2. A key of the local
+file's own that nothing reads warns as a config's does.
+
+A config named by `--config` or `CHECKRIDE_CONFIG` may declare local targets,
+read at `<cwd>/<root>/checkride.config.json`, and so may a config handed to
+`runChecks`: all three compose the same way.
+[`targets.contract.test.ts`](../test/contract/targets.contract.test.ts) holds
+each of these.
 
 A top-level key the config schema doesn't declare is no error, since nothing
 reads it, but a run, `fix` and `doctor` each print a warning on stderr naming
@@ -1915,7 +1956,9 @@ anything that imports the package, and `embeddedNode` only in the
 `baselineFile` and `out` a [named suite](#cli)'s name fixes, each path
 relative to the repo root, and with `config` omitted they load the suite's own
 config file, as they load `checkride.config.json` without one. A `config`
-handed in is the file as written, after its `extends`.
+handed in is the file as written, after its `extends`: a
+[local target](#cli)'s entry holds `root` and `local` alone, and the run reads
+the file at its root itself, as it does for a config it loads.
 
 `runChecks` takes `annotate: 'github'` as the CLI takes
 [`--annotate github`](#cli), and writes the same lines to its `stderr`. It

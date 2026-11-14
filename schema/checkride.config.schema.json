@@ -61,7 +61,7 @@
             "type": "string",
             "minLength": 1,
             "pattern": "^(?![hH][tT][tT][pP][sS]?://)(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))",
-            "description": "A bundled schema (checkride:agent-skill or checkride:checkride-config) or a path relative to the repo root, to a draft 2020-12 or draft-07 JSON Schema. Never a URL, because a check never fetches, and never an absolute path or one with a .. segment, because a check reads a schema only from inside the repository."
+            "description": "A bundled schema (checkride:agent-skill, checkride:checkride-config or checkride:checkride-local) or a path relative to the repo root, to a draft 2020-12 or draft-07 JSON Schema. Never a URL, because a check never fetches, and never an absolute path or one with a .. segment, because a check reads a schema only from inside the repository."
           },
           "format": {
             "enum": ["json", "jsonc", "yaml", "frontmatter"],
@@ -153,6 +153,29 @@
       }
     },
     "target": {
+      "description": "A target: declared whole, or local, with the file at its root holding the rest.",
+      "oneOf": [{ "$ref": "#/definitions/declaredTarget" }, { "$ref": "#/definitions/localTarget" }]
+    },
+    "localTarget": {
+      "type": "object",
+      "description": "A local target: <root>/checkride.config.json holds the rest of it, its lang, checks, include, exclude, timeout and extends, ranked where a target's own checks rank, above packs and the top-level checks. Under a named suite the file is <root>/checkride.<suite>.config.json. Any other key here is a config error naming that file, and so is a missing file. Validate the file against checkride.local.schema.json.",
+      "required": ["root", "local"],
+      "additionalProperties": false,
+      "properties": {
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!(.*[/\\\\])?\\.\\.([/\\\\]|$))(?!\\.?/*$)",
+          "description": "The target's directory, relative to the repo root. It must exist, can't be absolute or pass through .., and can't be the root itself, where its file would be the one that declares it. Two local targets can't share a root."
+        },
+        "local": {
+          "const": true,
+          "description": "The file at the target's root holds its lang and its checks."
+        },
+        "note": { "$ref": "#/definitions/note" }
+      }
+    },
+    "declaredTarget": {
       "type": "object",
       "description": "A named (pack, root) pair.",
       "required": ["lang", "root"],
@@ -179,6 +202,10 @@
           "type": "object",
           "description": "This target's own slot config and custom checks, beating packs and the top-level checks. An adapter named here must belong to the target's pack, and repo-scope slots (struct, docs, links, spell, prose) belong in the top-level checks.",
           "additionalProperties": { "$ref": "#/definitions/slotConfig" }
+        },
+        "local": {
+          "const": false,
+          "description": "false, or absent, on a target this entry declares whole; true hands the rest of it to the file at its root."
         },
         "note": { "$ref": "#/definitions/note" }
       }

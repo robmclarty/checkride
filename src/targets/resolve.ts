@@ -20,6 +20,7 @@ import { isRecord } from '../json.js';
 import { PACKS } from '../packs/index.js';
 import { SUITES_DIR } from '../suite.js';
 import { takesFiles } from './files.js';
+import { isLocalEntry, localEntryProblem, localFileOf } from './local.js';
 
 /** Which config a rule reads: the repo's own, presets folded in, or a defaults file (R13.1). */
 type ConfigLayer = 'repo' | 'defaults';
@@ -42,12 +43,20 @@ type ValidationContext = {
    * in, since that module reads this one. Omitted, the key goes unread.
    */
   schemas?: (schemas: unknown) => string | null;
+  /**
+   * The name a local target's file goes by, `checkride.config.json` unless a
+   * named suite fixes another: a problem with a local target names the file
+   * at its root.
+   */
+  localFile?: string;
 };
 
 /** The context with the catalogue read into the sets the rules ask about. */
 type Catalogue = {
   cwd: string;
   layer: ConfigLayer;
+  /** The name a local target's file goes by. */
+  localFile: string;
   /** Every name a target can't take: the catalogue's slots and the reserved two. */
   slotNames: ReadonlySet<string>;
   /** Slots that run once per target. */
@@ -93,7 +102,13 @@ const RESERVED_TARGET_NAMES: Readonly<Record<string, string>> = {
   [SUITES_DIR]: 'named suites write their artifacts',
 };
 
-const TARGET_KEYS: readonly string[] = ['lang', 'root', 'include', 'exclude', 'checks', 'note'];
+const TARGET_KEYS: readonly string[] = ['lang', 'root', 'include', 'exclude', 'checks', 'note', 'local'];
+
+/** A local target's keys, composed with its file's: every key a target holds, and the `timeout` only its file sets. */
+const LOCAL_TARGET_KEYS: readonly string[] = [...TARGET_KEYS, 'timeout'];
+
+/** The name a local target's file goes by in the default suite. */
+const LOCAL_FILE = 'checkride.config.json';
 const PACK_KEYS: readonly string[] = ['checks', 'note'];
 const UNCLAIMED_KEYS: readonly string[] = ['ignore'];
 const FILE_LIST_KEYS: readonly string[] = ['include', 'exclude'];
@@ -134,6 +149,7 @@ function catalogue(context: ValidationContext): Catalogue {
   return {
     cwd: context.cwd,
     layer: context.layer,
+    localFile: context.localFile ?? LOCAL_FILE,
     slotNames: new Set(names(() => true)),
     targetSlots: new Set(names((s) => s.scope !== 'repo')),
     repoSlots: new Set(names((s) => s.scope === 'repo')),
@@ -347,21 +363,71 @@ function langOf(target: Record<string, unknown>, where: string, cat: Catalogue):
   return pack ?? `${where}.lang ${show(lang)} isn't a pack (${packList(cat)})`;
 }
 
-/** Every rule one target keeps on its own. */
+/** A local target's `timeout`, its checks' default in seconds: a number, zero or more. */
+function timeoutProblem(timeout: unknown, where: string): string | null {
+  if (timeout === undefined || (typeof timeout === 'number' && timeout >= 0)) return null;
+  return `${where}.timeout must be a number of seconds, 0 or more (got ${show(timeout)})`;
+}
+
+/** The rules a target's own keys keep, once its name is known to be one. */
+function targetKeysProblem(raw: Record<string, unknown>, where: string, cat: Catalogue): string | null {
+  const local = isLocalEntry(raw);
+  const pack = langOf(raw, where, cat);
+  if (typeof pack === 'string') return pack;
+  return (
+    unknownKeyProblem(raw, where, local ? LOCAL_TARGET_KEYS : TARGET_KEYS) ??
+    noteProblem(raw['note'], where) ??
+    rootProblem(raw['root'], where, cat.cwd) ??
+    fileListProblem(raw, where, pack) ??
+    timeoutProblem(raw['timeout'], where) ??
+    scopedChecksProblem(raw['checks'], `${where}.checks`, pack, cat)
+  );
+}
+
+/**
+ * Every rule one target keeps on its own. A local target is read composed
+ * with its file, so a problem with what the file gave it names that file.
+ */
 function targetProblem(name: string, raw: unknown, config: Record<string, unknown>, cat: Catalogue): string | null {
   const where = `targets.${name}`;
   const named = nameProblem(name, config, cat);
   if (named !== null) return named;
   if (!isRecord(raw)) return `${where} must be an object with lang and root (got ${show(raw)})`;
-  const pack = langOf(raw, where, cat);
-  if (typeof pack === 'string') return pack;
-  return (
-    unknownKeyProblem(raw, where, TARGET_KEYS) ??
-    noteProblem(raw['note'], where) ??
-    rootProblem(raw['root'], where, cat.cwd) ??
-    fileListProblem(raw, where, pack) ??
-    scopedChecksProblem(raw['checks'], `${where}.checks`, pack, cat)
-  );
+  const local = raw['local'];
+  if (local !== undefined && typeof local !== 'boolean') return `${where}.local must be true or false (got ${show(local)})`;
+  const problem = targetKeysProblem(raw, where, cat);
+  if (problem === null || local !== true || typeof raw['root'] !== 'string') return problem;
+  return `${problem} (in ${localFileOf(normalizeRoot(raw['root']), cat.localFile)})`;
+}
+
+/**
+ * The rules a config's local targets keep before their files are read, the
+ * first one broken or `null`: each entry holds only `root`, `local` and
+ * `note`, its root is a directory of the repo other than the one the
+ * declaring file sits in, and no two share a root, since a root holds one
+ * local file, with one `lang`. `fileName` is the name that file goes by.
+ */
+export function localTargetsProblem(targets: Record<string, unknown>, cwd: string, fileName: string): string | null {
+  const owners = new Map<string, string>();
+  for (const [name, raw] of Object.entries(targets)) {
+    if (!isLocalEntry(raw)) continue;
+    const where = `targets.${name}`;
+    const rooted = rootProblem(raw['root'], where, cwd);
+    if (rooted !== null) return rooted;
+    const root = normalizeRoot(String(raw['root']));
+    const file = localFileOf(root, fileName);
+    if (root === '.') {
+      return `${where} is local at the root, where its file would be ${file}, the file that declares it: give it a directory of its own, or drop local`;
+    }
+    const problem = localEntryProblem(name, raw, file);
+    if (problem !== null) return problem;
+    const other = owners.get(root);
+    if (other !== undefined) {
+      return `local targets '${other}' and '${name}' share the root '${root}', and a root holds one local file, ${file}, with one lang`;
+    }
+    owners.set(root, name);
+  }
+  return null;
 }
 
 /** A target's `include` and `exclude`, each when it gave one as globs. */

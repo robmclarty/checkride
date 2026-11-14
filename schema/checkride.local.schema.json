@@ -1,0 +1,477 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/robmclarty/checkride/main/schema/checkride.local.schema.json",
+  "title": "checkride local target configuration",
+  "description": "Schema for the checkride.config.json at the root of a local target: a target whose entry in the repo's config says \"local\": true. The file holds the rest of that target, and nothing that belongs to the whole repo.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this JSON Schema, for editor validation and autocompletion."
+    },
+    "note": {
+      "$ref": "#/definitions/note"
+    },
+    "extends": {
+      "description": "Preset(s) to inherit: a file path inside the repo (./base.json), or a package specifier (@acme/preset), or an array of them. Bases merge left-to-right and this file wins over all; objects deep-merge, arrays and scalars replace. A preset is written for a repo's own config, so this file takes from it only the keys it may hold itself, and each other key, and each checks entry for a repo-scope slot, is dropped with a warning naming the preset. A tool pick only another pack can run is left to the targets of that pack.",
+      "oneOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "lang": {
+      "$ref": "#/definitions/packName"
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Globs, relative to root, for the files a file-list pack (bash) checks: **, *, ? and {a,b}. Omitted, bash checks every .sh and .bash file and each extensionless file with a shell shebang. A pack that checks its root rejects it."
+    },
+    "exclude": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Globs, relative to root, for files a file-list pack (bash) leaves out; a glob that matches a directory leaves out everything under it. A pack that checks its root rejects it."
+    },
+    "timeout": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Default timeout, in seconds, for this target's checks, over the repo config's own timeout and under a check's. 0 disables the cap."
+    },
+    "checks": {
+      "type": "object",
+      "description": "This target's own slot config and custom checks, beating the repo config's packs and top-level checks. An adapter named here must belong to the target's pack, and repo-scope slots (struct, docs, links, spell, prose) belong in the repo config's top-level checks.",
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/slotConfig"
+          },
+          {
+            "$ref": "#/definitions/inheritedOverride"
+          }
+        ]
+      }
+    }
+  },
+  "if": {
+    "not": {
+      "required": [
+        "extends"
+      ]
+    }
+  },
+  "then": {
+    "required": [
+      "lang"
+    ],
+    "properties": {
+      "checks": {
+        "additionalProperties": {
+          "$ref": "#/definitions/slotConfig"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "packName": {
+      "description": "A language pack: ts checks TypeScript code from its root, bash checks a list of shell scripts under its root, go checks a Go module or workspace from its root, rust checks a Cargo package or workspace from its root, python checks a Python project from its root, terraform checks a Terraform or OpenTofu root module from its root, and odin checks one Odin package from its directory.",
+      "enum": [
+        "ts",
+        "bash",
+        "go",
+        "rust",
+        "python",
+        "terraform",
+        "odin"
+      ]
+    },
+    "note": {
+      "type": "string",
+      "description": "Internal documentation for whoever reads this config next. Never rendered in the CLI output or written to .check/summary.json — use description for the user-facing text a run prints beside the check."
+    },
+    "slotConfig": {
+      "description": "How to fill a slot: an adapter name, false to disable it, an adapter with overrides, or a custom check.",
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Adapter name that fills this slot, beating detection."
+        },
+        {
+          "const": false,
+          "description": "Disable this slot (skipped, not failed)."
+        },
+        {
+          "$ref": "#/definitions/useConfig"
+        },
+        {
+          "$ref": "#/definitions/customCheck"
+        },
+        {
+          "$ref": "#/definitions/slotTuning"
+        }
+      ]
+    },
+    "inheritedOverride": {
+      "type": "object",
+      "description": "Part of a check that a preset this file extends already declares, which an entry of the top-level checks, or of a packs block's checks, may be in a file with extends. Objects deep-merge, so the fields set here replace the preset's and the rest are inherited, its use or command among them. A file with no extends has nothing to inherit, so there an entry needs its own use or command, and so does an entry of a target's checks in any file, since a preset declares no targets to merge it with.",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "description"
+          ]
+        },
+        {
+          "required": [
+            "args"
+          ]
+        },
+        {
+          "required": [
+            "changedArgs"
+          ]
+        },
+        {
+          "required": [
+            "fixArgs"
+          ]
+        },
+        {
+          "required": [
+            "outputFile"
+          ]
+        },
+        {
+          "required": [
+            "name"
+          ]
+        },
+        {
+          "required": [
+            "detect"
+          ]
+        },
+        {
+          "required": [
+            "static"
+          ]
+        },
+        {
+          "required": [
+            "skipExitCode"
+          ]
+        },
+        {
+          "required": [
+            "exclude"
+          ]
+        },
+        {
+          "required": [
+            "allowlist"
+          ]
+        },
+        {
+          "required": [
+            "profile"
+          ]
+        },
+        {
+          "required": [
+            "exemplars"
+          ]
+        }
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "changedArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "fixArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "outputFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "detect": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "static": {
+          "type": "boolean"
+        },
+        "skipExitCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "type": "string"
+        },
+        "exemplars": {
+          "type": "string"
+        },
+        "optIn": {
+          "type": "boolean"
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0
+        },
+        "order": {
+          "$ref": "#/definitions/order"
+        },
+        "note": {
+          "$ref": "#/definitions/note"
+        }
+      }
+    },
+    "slotTuning": {
+      "type": "object",
+      "description": "Keep the tool detection picks and tune only how the slot runs. Once targets are declared, this and false are the only forms a top-level entry for a target-scope slot takes; pick its tool under packs or a target's own checks.",
+      "additionalProperties": false,
+      "properties": {
+        "optIn": {
+          "type": "boolean",
+          "description": "Override the slot's opt-in status. true configures the slot without opting it into the default run (reach it with --all/--include); false forces it into the default run."
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0
+        },
+        "order": {
+          "$ref": "#/definitions/order"
+        },
+        "note": {
+          "$ref": "#/definitions/note"
+        }
+      }
+    },
+    "useConfig": {
+      "type": "object",
+      "description": "Pick an adapter by name and override individual fields.",
+      "required": [
+        "use"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "use": {
+          "type": "string",
+          "description": "Adapter name to select from the registry."
+        },
+        "command": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "User-facing text rendered beside this check in the CLI output. For maintainer commentary that should not render, use note."
+        },
+        "note": {
+          "$ref": "#/definitions/note"
+        },
+        "outputFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "changedArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments appended under --changed. {base} in any of them expands to the base ref the run measures changes from (see changedBase)."
+        },
+        "fixArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0
+        },
+        "order": {
+          "$ref": "#/definitions/order"
+        },
+        "optIn": {
+          "type": "boolean",
+          "description": "Override the slot's opt-in status. true configures the slot without opting it into the default run (reach it with --all/--include); false forces it into the default run."
+        },
+        "static": {
+          "type": "boolean",
+          "description": "Defaults file only (--defaults): this check reads the repo as data, so --static-only may keep it. A repo's own config can't set it."
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Links slot only: extra directory names to skip while walking for markdown, on top of the built-in exclude set (e.g. docs, research, .ridgeline)."
+        },
+        "allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Links slot only: regex sources for link targets to treat as always valid (deliberately illustrative links that never resolve on disk)."
+        },
+        "profile": {
+          "type": "string",
+          "description": "attw slot only: append --profile <name> (e.g. esm-only) to the attw invocation — a shortcut for retyping the full args."
+        },
+        "exemplars": {
+          "type": "string",
+          "description": "prose slot only: directory of hand-written voice exemplars, relative to the repo root, never absolute or climbing out of it. The check fails when the directory is missing or empty, or resolves outside the repository, and agent-setup adds an AGENTS.md stanza section telling writing sessions to read and imitate the exemplars (never edit them)."
+        }
+      }
+    },
+    "order": {
+      "description": "Scheduling order. A number places the check on the ascending wave line (equal numbers run together as one wave; decimals sequence steps within a wave); the keywords place it relative to that line — first/last before/after everything, single exclusively on its own, middle/any unordered in the main group.",
+      "oneOf": [
+        {
+          "enum": [
+            "first",
+            "last",
+            "middle",
+            "single",
+            "any"
+          ]
+        },
+        {
+          "type": "number"
+        }
+      ]
+    },
+    "customCheck": {
+      "type": "object",
+      "description": "A bare command that needs no adapter.",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Executable to spawn."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "User-facing text rendered beside this check in the CLI output. For maintainer commentary that should not render, use note."
+        },
+        "note": {
+          "$ref": "#/definitions/note"
+        },
+        "outputFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "changedArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Arguments appended under --changed. {base} in any of them expands to the base ref the run measures changes from (see changedBase)."
+        },
+        "fixArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeout": {
+          "type": "number",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "description": "The adapter name the summary records for this check; custom:<key> when absent. A parsed adapter's name (eslint, biome, oxlint, fallow, ...) has that adapter's parser read the check's output, so the baseline keys its findings: the output must be the format the adapter's own args print."
+        },
+        "detect": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Marker files that gate a non-catalogue custom check: it runs only when at least one listed file exists, and is skipped otherwise. Ignored on an entry that fills a catalogue slot."
+        },
+        "order": {
+          "$ref": "#/definitions/order"
+        },
+        "optIn": {
+          "type": "boolean",
+          "description": "true holds this custom check out of the default run — it runs only under --all/--include <name>. Absent runs it by default."
+        },
+        "static": {
+          "type": "boolean",
+          "description": "Defaults file only (--defaults): this check reads the repo as data, so --static-only may keep it. A repo's own config can't set it."
+        },
+        "skipExitCode": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255,
+          "description": "The exit code that means \"could not run here\". A check that exits with it records as skipped (not failed), with its last stderr line as the reason, and is left out of checks_run; fix reports it as skipped too. Pick a code the check never uses for a real failure; 77 is the usual one."
+        }
+      }
+    }
+  }
+}

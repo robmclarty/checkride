@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 3 — feat(api)!: trim the barrel to the names consumers use
+**Current step:** 4 — feat(config): read a local target's config
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -25,7 +25,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(baseline): fail baseline diff on added keys
 - ☑ 2. feat(cli): add --summary github for the step summary
-- ☐ 3. feat(api)!: trim the barrel to the names consumers use
+- ☑ 3. feat(api)!: trim the barrel to the names consumers use
 - ☑ 21. fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing
 - ☐ 4. feat(config): read a local target's config
 - ☐ 5. feat(examples): add a web and api example with local targets
@@ -52,7 +52,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
 
 - [x] Cursor protect hook never reads stdin when checkride is missing: the payload write races its exit (spawnSync EPIPE in binary.e2e 'no node' test, CI run 43534933010, ubuntu/node 24); drain stdin with a builtin read loop in protectHookCommand's fallback branch
-- [ ] docs/packs.md names the TOOLS table six times in prose; with TOOLS off the barrel, reword it as checkride's tool table (step 14's docs move is the natural home)
+- [x] docs/packs.md names the TOOLS table six times in prose; with TOOLS off the barrel, reword it as checkride's tool table (step 14's docs move is the natural home)
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -72,6 +72,8 @@ Harvest results this boundary:
 
 - 2026-11-14, at range 1 of 7's stop: 1 parked idea, classified.
 - **blocker**: park 1 · Cursor protect hook never reads stdin when checkride is missing: the payload write races its exit (spawnSync EPIPE in binary.e2e 'no node' test, CI run 43534933010, ubuntu/node 24); drain stdin with a builtin read loop in protectHookCommand's fallback branch → main's CI is red on it, and 0.23.0 shouldn't ship over a red main
+- 2026-11-14, at the step 3 boundary: 1 parked idea, classified.
+- **tangent**: park 2 · docs/packs.md names the TOOLS table six times in prose; with TOOLS off the barrel, reword it as checkride's tool table (step 14's docs move is the natural home) → a prose wording fix that blocks nothing, and step 14's docs move is the natural place to make it
 
 ## Log
 
@@ -255,3 +257,74 @@ folder, so it rides the branch into the PR.)*
   **4.** CHANGELOG gains a Fixed section under Unreleased
 
   One entry names the symptom (EPIPE on a `PATH` with no checkride) and the fix. No contract surface moved: the hook's text isn't promised in `docs/contract.md`, so C3 (contract-moves-loudly) has nothing to update.
+
+- 2026-11-14 — step 3 checkpointed · 35f9a3cc8 — feat(api)!: trim the barrel to the names consumers use (1 drift, 15m)
+
+  **Summary**: The package root now exports `runChecks` and `runDoctor` plus five types (`RunOptions`, `RunResult`, `Summary`, `SummaryCheck`, `DoctorCheck`), and drops 12 values and 18 types that no consumer imports and no doc example shows. `checkride/findings` is unchanged. The contract test lists exactly the names that stay, values and types both, and the contract's Programmatic surface section names the same seven.
+
+  1. The survey: who imports what, and what stays
+  2. Two removed names are still used by options a kept type takes
+  3. Four test files outside the seam moved with the trim
+  4. The contract lost its promises about the registries' data
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  bent: C3 (contract-moves-loudly)
+               → four test files outside the seam moved with it (section 3)
+  seam         strayed: 4 paths outside the seam
+               - src/__tests__/adapters.test.ts
+               - test/contract/invariance.contract.test.ts
+               - test/contract/suites.contract.test.ts
+               - test/integration/docs-currency.test.ts
+  diff         +106 -192 across 11 files
+               - CHANGELOG.md +18 -0
+               - README.md +7 -8
+               - docs/contract.md +24 -65
+               - site/api.html +6 -6
+               - src/__tests__/adapters.test.ts +12 -1
+               - src/__tests__/index.test.ts +3 -12
+               - src/index.ts +7 -27
+               - and 4 more
+  spent        15 min · 1 turn · 170s gate · green first run
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Approve the trim as listed: seven names stay, 12 values and 18 types go. These are exactly the names plumbbob imports plus the doc examples' `RunResult`, and nothing a consumer uses breaks. If you'd rather keep `suiteNamed` (and with it `Suite`) for programmatic suite runs, say so before it lands, because whatever stays is bound for 1.x. Once it lands, check the work monorepo's imports, then release 0.23.0 with `/version minor`.
+
+  **1.** The survey: who imports what, and what stays
+
+  Under `~/Projects`, only plumbbob and atis import checkride. volley and runciter run the CLI and import nothing.
+
+  - **plumbbob** (`src/lib/check.ts`, `src/verbs/doctor.ts`, `src/lib/__tests__/check.test.ts`): `runChecks`, `runDoctor`; types `DoctorCheck`, `Summary`, `RunOptions`, `RunResult`, `SummaryCheck`. It derives `GateEnv` from `Parameters<typeof runDoctor>`, which still works.
+  - **atis** (`apps/atis/src/sources/check.ts`): `parseFindings` from `checkride/findings`, which isn't touched. It defines its own `SummaryCheck` type and imports none from the root.
+  - **Doc examples**: the README's snippet uses `runChecks` and `RunResult`. The contract and `docs/consumers.md` snippets use `Summary` and the findings subpath.
+
+  **Stays (7):** `runChecks`, `runDoctor`, `RunOptions`, `RunResult`, `Summary`, `SummaryCheck`, `DoctorCheck`.
+
+  **Removed values (12):** `runFix`, `selectChecks`, `runInit`, `loadConfig`, `resolveChecks`, `suiteNamed`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`, `SCHEMA_VERSION`, `DEFAULT_TIMEOUT_SECONDS`.
+
+  **Removed types (18):** `RunFlags`, `CheckrideConfig`, `CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`, `CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorReport`, `DoctorResult`, `InitOptions`, `InitResult`, `ProbeFailure`, `Shape`, `Suite`.
+
+  The work monorepo's imports weren't surveyed, since it isn't under `~/Projects`. The plan's survey says the consumers import the root alone, but not which names. Check before 0.23.0 ships.
+
+  **2.** Two removed names are still used by options a kept type takes
+
+  `RunOptions.suite` takes a `Suite` and `RunOptions.config` takes a `CheckrideConfig`. Both names are gone, but the shapes can still be reached as `RunOptions['suite']` and `RunOptions['config']`. With `suiteNamed` gone, a programmatic suite run spells out its four fields. The contract now lists them (`name`, `configFile`, `baselineFile`, `out`), and following D43 (composed-or-as-written) it says a `config` handed in is the file as written after its `extends`. Keeping `suiteNamed` and `CheckrideConfig` would be the only reason to go beyond the D5 rule. Nothing outside checkride asks for them today.
+
+  **3.** Four test files outside the seam moved with the trim
+
+  - `test/contract/suites.contract.test.ts`: the contract test "suiteNamed is exported from the package root" now hands `runChecks` the suite's fields as a literal and checks they equal what `suiteNamed` builds internally. The CHANGELOG's Contract and Removed entries record it.
+  - `test/contract/invariance.contract.test.ts`: imports `ADAPTERS` from `src/adapters.js` instead of the barrel.
+  - `test/integration/docs-currency.test.ts`: dropped its check on the contract's "`PACKS` maps each pack's name" sentence, since that sentence went with the registry promises.
+  - `src/__tests__/adapters.test.ts`: took over the plain-data round trip and the "PACKS keys each pack by its own name" checks from the exports contract, as internal invariants.
+
+  The exports contract still locks the 600-second default timeout and `SCHEMA_VERSION` 1, importing them from internal modules, because the Timeouts section and the summary schema still promise both values.
+
+  **4.** The contract lost its promises about the registries' data
+
+  The paragraphs on the four registries, the optional fields of an adapter row and of a `TOOLS` row, and `suiteNamed` left the contract, because what they described is no longer public. The Timeouts section now says "the built-in default of 600 seconds", and the pin-source paragraph no longer names `TOOLS`. `docs/packs.md` still names `TOOLS` six times in prose, which is parked for the docs range.

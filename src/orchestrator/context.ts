@@ -12,7 +12,7 @@ import { outLabel } from '../artifacts/index.js';
 import type { Baseline, BaselineRead } from '../baseline/index.js';
 import { readBaselineStatus } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
-import { loadConfig } from '../config.js';
+import { composedConfig, loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
 import type { PackageManager } from '../launch/index.js';
 import { detectPackageManager, nearestPackageManager } from '../launch/index.js';
@@ -61,8 +61,9 @@ export function resolveCommonOptions(options: CommonOptions): CommonContext {
     cwd,
     slots: options.slots ?? SLOTS,
     adapters: options.adapters ?? ADAPTERS,
-    // A key the config holds that nothing reads warns on stderr as it loads.
-    config: options.config !== undefined ? options.config : loadConfig(cwd, warn, suite.configFile),
+    // A key the config holds that nothing reads warns on stderr as it loads. A
+    // local target's file is composed in here, for an injected config as for a loaded one.
+    config: composedConfig(options.config !== undefined ? options.config : loadConfig(cwd, warn, suite.configFile), cwd, suite, warn),
     suite,
     stdout: options.stdout ?? process.stdout,
     stderr,

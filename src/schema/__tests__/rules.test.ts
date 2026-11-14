@@ -10,8 +10,8 @@ import { ruleFormats, schemaRulesProblem } from '../rules.js';
 import { neededLibraries } from '../run.js';
 
 describe('the bundled schemas', () => {
-  test('are checkride:agent-skill and checkride:checkride-config', () => {
-    expect(bundledSchemas()).toEqual(['checkride:agent-skill', 'checkride:checkride-config']);
+  test('are checkride:agent-skill, checkride:checkride-config and checkride:checkride-local', () => {
+    expect(bundledSchemas()).toEqual(['checkride:agent-skill', 'checkride:checkride-config', 'checkride:checkride-local']);
     expect(bundledSchemas().every(isBundled)).toBe(true);
     expect(isBundled('checkride:nope')).toBe(false);
     expect(isBundled('schemas/agent-skill.json')).toBe(false);
@@ -25,6 +25,14 @@ describe('the bundled schemas', () => {
     expect(config?.extra).toBeUndefined();
     expect(JSON.parse(config?.text ?? '')).toHaveProperty('properties.schemas');
     expect(bundledSchema('checkride:nope')).toBeNull();
+  });
+
+  test("checkride-local is a local target's file: its lang, and nothing of the whole repo's", () => {
+    const local = bundledSchema('checkride:checkride-local');
+    if (local === null) throw new Error('checkride:checkride-local is not bundled');
+    expect(local.extra).toBeUndefined();
+    expect(JSON.parse(local.text)).toHaveProperty('properties.lang');
+    expect(JSON.parse(local.text)).not.toHaveProperty('properties.schemas');
   });
 
   test('agent-skill holds the limits, and says where they come from', () => {
@@ -54,7 +62,7 @@ describe('what a rule must hold', () => {
 
   test('an unknown bundled id is an error listing the ones there are', () => {
     expect(problem({ files: ['a.json'], schema: 'checkride:agent-skil' })).toBe(
-      'schemas[1].schema "checkride:agent-skil" is no bundled schema: the bundled schemas are checkride:agent-skill and checkride:checkride-config',
+      'schemas[1].schema "checkride:agent-skil" is no bundled schema: the bundled schemas are checkride:agent-skill, checkride:checkride-config and checkride:checkride-local',
     );
   });
 
@@ -129,7 +137,7 @@ describe('at config load', () => {
 
   test('an unknown bundled id stops the load, naming the config file', async () => {
     await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ schemas: [{ files: ['a.json'], schema: 'checkride:nope' }] }));
-    expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json: schemas[0].schema "checkride:nope" is no bundled schema: the bundled schemas are checkride:agent-skill and checkride:checkride-config');
+    expect(() => loadConfig(dir)).toThrow('invalid checkride.config.json: schemas[0].schema "checkride:nope" is no bundled schema: the bundled schemas are checkride:agent-skill, checkride:checkride-config and checkride:checkride-local');
   });
 
   test("so does an extension it can't place, in a named suite's config and in a defaults file", async () => {

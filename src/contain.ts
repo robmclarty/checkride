@@ -1,14 +1,17 @@
 /**
  * The one containment rule for a file a config names: checkride reads it only
  * when its real path is inside the repository. The `schema` slot keeps it for
- * its schemas, their references and the data files, and the `prose` slot for
- * its `exemplars`.
+ * its schemas, their references and the data files, the `prose` slot for
+ * its `exemplars`, and a config load for a local target's file and each
+ * preset path that file's `extends` chain names.
  *
  * A config is not trusted. `--static-only` exists to check a repo whose
  * author is a stranger, and there a rule's `schema`, a `$ref` in a schema, an
  * `exemplars` path, or a symlink among the files any of them match could each
  * name a file anywhere on the machine, whose contents or whose presence would
- * then surface in a report. So every such path is resolved first, symlinks
+ * then surface in a report, and a local target's file, or a preset it names,
+ * could pull a stranger's checks from outside the tree being checked. So
+ * every such path is resolved first, symlinks
  * followed, and tested against the repository's own real path. What resolves
  * outside is never opened: a schema, a reference or an exemplar there refuses
  * the check, and a data file there is a finding on that file.

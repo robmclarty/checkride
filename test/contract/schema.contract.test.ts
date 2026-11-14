@@ -107,7 +107,7 @@ describe('the schema slot', () => {
     await config({ schemas: [{ files: ['labels/*.json'], schema: 'checkride:nope' }] });
     const unknown = await run();
     expect(unknown.code).toBe(2);
-    expect(unknown.stderr).toContain('the bundled schemas are checkride:agent-skill and checkride:checkride-config');
+    expect(unknown.stderr).toContain('the bundled schemas are checkride:agent-skill, checkride:checkride-config and checkride:checkride-local');
     await config({ schemas: [{ files: ['labels/*.toml'], schema: 'label.schema.json' }] });
     const unplaced = await run();
     expect(unplaced.code).toBe(2);

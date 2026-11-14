@@ -33,6 +33,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GITHUB_STEP_SUMMARY` warns and writes nothing; neither changes the exit
   code. `docs/ci.md` shows the recipe, and this repo's CI sets it in one job.
 
+- **A target can keep its config beside its code.** A target entry that says
+  `"local": true` holds only `root`, `local` and `note`, and
+  `<root>/checkride.config.json` holds the rest: its `lang`, `checks`,
+  `include`, `exclude`, `timeout` and `extends`. The file's `checks` rank
+  where a target's own do, above `packs.<pack>.checks` and the top level,
+  and `timeout`, new at target level, is the default for that target's
+  checks. A key in the wrong place is exit 2 naming the file it belongs in,
+  and so are a missing local file, two local targets at one root, and a
+  local file or a preset path that resolves outside the repository. A preset
+  the file extends hands over only what a local file may hold, and each
+  other key is dropped with a warning. A named suite reads
+  `<root>/checkride.<suite>.config.json`. The file has a schema of its own,
+  `schema/checkride.local.schema.json`, bundled as
+  `checkride:checkride-local`. [Targets](docs/targets.md#local-targets) has
+  the rules.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -54,6 +70,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+- **`targets.<name>` gains `local`, and a local target's file is read.** An
+  entry with `"local": true` and its `<root>/checkride.config.json` compose
+  into one target, for the repo's config, a `--config` file and a config
+  handed to `runChecks` alike. The keys each may hold, the six refusals and
+  their exit 2, the preset warning and the containment rule on the file and
+  its preset paths are promised, and locked by `targets.contract.test.ts`.
+  A config with no local target reads as before.
+- **A third bundled schema, `checkride:checkride-local`.** The error for an
+  unknown bundled id now lists three, as `a, b and c`.
 - **The programmatic surface shrinks to two functions and five types.** The
   package root exports `runChecks` and `runDoctor`, and the types
   `RunOptions`, `RunResult`, `Summary`, `SummaryCheck` and `DoctorCheck`;

@@ -4,6 +4,8 @@
  * - `checkride:agent-skill`: a skill's `SKILL.md` frontmatter, with one check
  *   JSON Schema can't express, that `name` equals the parent directory's name.
  * - `checkride:checkride-config`: checkride's own config schema.
+ * - `checkride:checkride-local`: the schema of a local target's file, the
+ *   `checkride.config.json` at its root.
  *
  * Each is read through `../resources.ts`, so the standalone binary serves it
  * from its embedded assets.
@@ -39,6 +41,7 @@ const nameMatchesDirectory: ExtraCheck = (path, value) => {
 const BUNDLED: Readonly<Record<string, { resource: string; extra?: ExtraCheck }>> = {
   'agent-skill': { resource: 'schema/agent-skill.schema.json', extra: nameMatchesDirectory },
   'checkride-config': { resource: 'schema/checkride.config.schema.json' },
+  'checkride-local': { resource: 'schema/checkride.local.schema.json' },
 };
 
 /** Every bundled schema, as a rule names it. */
