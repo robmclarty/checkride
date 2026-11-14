@@ -53,7 +53,7 @@ import { PINS_ENV } from './launch/index.js';
 import type { NodeAlignment, PinEnv } from './node-pin.js';
 import { alignNode, NODE_BIN_VAR, realPinEnv, withNodeBin } from './node-pin.js';
 import type { Out, SummaryCheck } from './orchestrator/index.js';
-import { ANNOTATE_ENV } from './orchestrator/index.js';
+import { ANNOTATE_ENV, SUMMARY_ENV } from './orchestrator/index.js';
 import {
   detectPackageManager,
   type EntryCommand,
@@ -800,8 +800,10 @@ function announceAlignment(
  * holds, and `gate --suite` passes the suite on as a flag ({@link gateArgv}).
  * `CHECKRIDE_ANNOTATE` is stripped too: the gate hands a red run's output back
  * to an agent, where a block of `::error` lines made for a CI log is noise.
+ * `CHECKRIDE_SUMMARY` is stripped for the same reason: a gate's run in a CI
+ * job would append a stray table to the job's step summary.
  */
-const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV, SUITE_ENV, ANNOTATE_ENV]);
+const CONSUMER_VARS: ReadonlySet<string> = new Set([CONFIG_ENV, BASE_ENV, OUT_ENV, DEFAULTS_ENV, PINS_ENV, SUITE_ENV, ANNOTATE_ENV, SUMMARY_ENV]);
 
 /** `env` without {@link CONSUMER_VARS}: the environment the gate's check run inherits. */
 function withoutConsumerVars(env: Record<string, string | undefined>): Record<string, string | undefined> {

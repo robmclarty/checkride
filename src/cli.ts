@@ -32,9 +32,9 @@ import type { NamedBase } from './git.js';
 import { BASE_ENV } from './git.js';
 import type { AgentSetupOptions, InitOptions, Lang, Shape } from './init.js';
 import { LANG_SHAPES, runAgentSetup, runInit } from './init.js';
-import type { AnnotateFormat, Out, RunFlags } from './orchestrator/index.js';
+import type { AnnotateFormat, Out, RunFlags, StepSummaryOption } from './orchestrator/index.js';
 import { loadPinsFile, PINS_ENV } from './launch/index.js';
-import { ANNOTATE_ENV, annotateFormat, killLiveChecks, runChecks, runFix } from './orchestrator/index.js';
+import { ANNOTATE_ENV, annotateFormat, killLiveChecks, runChecks, runFix, STEP_SUMMARY_FILE_ENV, stepSummaryFormat, SUMMARY_ENV } from './orchestrator/index.js';
 import { qaExtract, renderQa } from './qa/index.js';
 import { runRecover } from './recover.js';
 import { readResource } from './resources.js';
@@ -71,6 +71,7 @@ const RUN_OPTIONS = {
   pins: { type: 'string' },
   suite: { type: 'string' },
   annotate: { type: 'string' },
+  summary: { type: 'string' },
 } as const;
 
 /** `baseline` takes only `--versions`, `--only`, `--skip`, `--config`, `--out` and `--suite`; anything else is a usage error. */
@@ -226,6 +227,13 @@ Run options:
                    counting the rest (or set CHECKRIDE_ANNOTATE). Never on by
                    itself in CI; github is the only value, and any other is
                    exit 2. Run only.
+  --summary github  Append the run's verdict as a Markdown table to the file
+                   GITHUB_STEP_SUMMARY names, for the run's page: each check,
+                   its status and time, its new findings, and the baseline
+                   keys added and removed against the --changed base (or set
+                   CHECKRIDE_SUMMARY). GITHUB_STEP_SUMMARY unset warns and
+                   writes nothing; neither changes the exit code. github is
+                   the only value, and any other is exit 2. Run only.
   --config <path>  Read this config file instead of ./checkride.config.json
                    (also on doctor, fix and baseline; or set CHECKRIDE_CONFIG).
                    A file outside the repo never ratchets the baseline.
@@ -343,6 +351,8 @@ Environment:
                        suite, and only --suite names another.
   CHECKRIDE_ANNOTATE   Ignored the same way: annotations are for a CI log, and
                        would be noise in what a hook hands back to an agent.
+  CHECKRIDE_SUMMARY    Ignored the same way: a step summary is for a CI run's
+                       page, and a gate's run would append a stray table to it.
 
 Three verdicts: green, red, and "could not run" — the last for a package manager
 that refused to start the check script (an engines.node pin the hook's Node does
@@ -639,12 +649,23 @@ function detectCommand(argv: string[]): { command: string; rest: string[] } {
 
 /**
  * Parse argv into a command name, the run flags, and the raw `--config`,
- * `--base`, `--out`, `--defaults`, `--pins`, `--suite` and `--annotate` values (each absent when not
+ * `--base`, `--out`, `--defaults`, `--pins`, `--suite`, `--annotate` and `--summary` values (each absent when not
  * passed; {@link namedConfig}, {@link namedBase}, `namedOut`,
  * {@link namedDefaults} and {@link namedPins} resolve them against their
  * variables).
  */
-export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags; config?: string; base?: string; out?: string; defaults?: string; pins?: string; suite?: string; annotate?: string } {
+export function parseCliArgs(argv: string[]): {
+  command: string;
+  flags: RunFlags;
+  config?: string;
+  base?: string;
+  out?: string;
+  defaults?: string;
+  pins?: string;
+  suite?: string;
+  annotate?: string;
+  summary?: string;
+} {
   const { command, rest } = detectCommand(argv);
   const { values } = parseArgs({ args: rest, allowPositionals: true, options: RUN_OPTIONS });
   const concurrency = parseConcurrency(values.concurrency);
@@ -674,6 +695,7 @@ export function parseCliArgs(argv: string[]): { command: string; flags: RunFlags
     ...(values.pins !== undefined ? { pins: values.pins } : {}),
     ...(values.suite !== undefined ? { suite: values.suite } : {}),
     ...(values.annotate !== undefined ? { annotate: values.annotate } : {}),
+    ...(values.summary !== undefined ? { summary: values.summary } : {}),
   };
 }
 
@@ -899,8 +921,22 @@ function annotateOption(flag: string | undefined, deps: CliDeps): { annotate?: A
   return annotate === null ? {} : { annotate };
 }
 
+/**
+ * The step summary a run appends, as the option it takes: `--summary`, else
+ * `CHECKRIDE_SUMMARY` (an empty variable counts as unset), with the file
+ * `GITHUB_STEP_SUMMARY` names, or nothing when neither asks. A value it
+ * doesn't accept is a usage error; an unset file is the run's to warn about.
+ */
+function stepSummaryOption(flag: string | undefined, deps: CliDeps): { stepSummary?: StepSummaryOption } {
+  const env = deps.env ?? process.env;
+  const format = stepSummaryFormat(flagOrVariable('--summary', flag, SUMMARY_ENV, env));
+  if (format === null) return {};
+  const file = env[STEP_SUMMARY_FILE_ENV];
+  return { stepSummary: { format, file: file === undefined || file === '' ? null : file } };
+}
+
 async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
-  const { flags, config, base, out, defaults, pins, suite, annotate } = parseCliArgs(argv);
+  const { flags, config, base, out, defaults, pins, suite, annotate, summary } = parseCliArgs(argv);
   const picked = pickConfig({ suite, config, defaults, discover: flags.discover === true }, deps, true);
   const changedBase = namedBase(base, deps);
   const layer = namedDefaults(defaults, deps);
@@ -914,6 +950,7 @@ async function dispatchRun(argv: string[], deps: CliDeps): Promise<number> {
     ...(overrides ? { pins: overrides } : {}),
     ...outOption(out, deps),
     ...annotateOption(annotate, deps),
+    ...stepSummaryOption(summary, deps),
     cwd: deps.cwd,
     stdout: deps.stdout,
     stderr: deps.stderr,
@@ -965,12 +1002,13 @@ async function dispatchDoctor(argv: string[], deps: CliDeps): Promise<number> {
 /**
  * The flags only a run takes, though `fix` and `doctor` parse a run's flags:
  * each with the value it parsed to and why no other command takes it. The
- * variable behind one (`CHECKRIDE_ANNOTATE`) is the run's alone too: no other
+ * variable behind each (`CHECKRIDE_ANNOTATE`, `CHECKRIDE_SUMMARY`) is the run's alone too: no other
  * command reads it, so one a CI job sets for every step is ignored there
  * without a word.
  */
 const RUN_ONLY: readonly (readonly [flag: string, given: (parsed: ReturnType<typeof parseCliArgs>) => boolean, why: string])[] = [
   ['--annotate', (parsed) => parsed.annotate !== undefined, 'only a run has findings to annotate'],
+  ['--summary', (parsed) => parsed.summary !== undefined, 'only a run has a verdict to summarize'],
 ];
 
 /** Why `command` refuses the run-only flag `parsed` carries, or `null` when it carries none. */
@@ -985,7 +1023,7 @@ function runOnlyRefusal(command: string, parsed: ReturnType<typeof parseCliArgs>
  * which tool, and a fixer writes into the repo, so each is a usage error
  * rather than a flag `fix` takes and ignores, as it does the run flags 0.14
  * accepted. The variables behind them (`CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`,
- * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`, `CHECKRIDE_ANNOTATE`) aren't read here at all.
+ * `CHECKRIDE_OUT`, `CHECKRIDE_BASE`, `CHECKRIDE_ANNOTATE`, `CHECKRIDE_SUMMARY`) aren't read here at all.
  */
 function fixRefusal(parsed: ReturnType<typeof parseCliArgs>): string | null {
   const given: readonly (readonly [boolean, string, string])[] = [

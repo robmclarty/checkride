@@ -210,7 +210,7 @@ one run · one summary · one exit code · target names one flat set
 
 ### 0.23.0: the guard and the surface
 
-1. [ ] feat(baseline): fail baseline diff on added keys, **done when:** a contract test shows `baseline diff --fail-on-added` exits 1 on an added key and on a grown count, exit 0 on removals alone, exit 0 without the flag, exit 1 on any key when `<ref>` holds no baseline file, and `docs/ci.md`'s recipe runs it as its own job against the merge base
+1. [x] feat(baseline): fail baseline diff on added keys, **done when:** a contract test shows `baseline diff --fail-on-added` exits 1 on an added key and on a grown count, exit 0 on removals alone, exit 0 without the flag, exit 1 on any key when `<ref>` holds no baseline file, and `docs/ci.md`'s recipe runs it as its own job against the merge base
    - seam: `src/baseline-command.ts`, `src/cli.ts`, `src/__tests__/baseline.test.ts`, `src/__tests__/cli.test.ts`, `test/contract/baseline.contract.test.ts`, `docs/contract.md`, `docs/ci.md`, `docs/cheatsheet.md`, `docs/consumers.md`, `README.md`, `site/api.html`, `CHANGELOG.md`
    - model: opus (the count rule: `recounted` holds decreases too, and a `from` of null means any number)
 2. [ ] feat(cli): add --summary github for the step summary, **done when:** a contract test pins the table's columns, the flag's refusals, `CHECKRIDE_SUMMARY` and that a second run appends, the gate strips the variable, and `ci.yml` sets it in one job, with `CHECKRIDE_BASE` set and a checkout deep enough to reach it

@@ -21,8 +21,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   old code or a tool upgrade grows the baseline honestly and the flag has no
   override.
 
+- **`--summary github` puts the verdict on the run's page.** A run appends a
+  Markdown table to the file `GITHUB_STEP_SUMMARY` names: each check that
+  ran, its status and time, how many new findings it failed on, and the
+  baseline keys it added and removed against the base `--changed` reads
+  (`CHECKRIDE_BASE`, then `changedBase`, then `origin/main`), with the checks
+  that sat out named beneath. `CHECKRIDE_SUMMARY=github` asks the way the
+  flag does, for a job that runs a package script. A second run in the step
+  appends its own table under a heading naming its suite. A base that can't
+  be read drops the two key columns and says why, and an unset
+  `GITHUB_STEP_SUMMARY` warns and writes nothing; neither changes the exit
+  code. `docs/ci.md` shows the recipe, and this repo's CI sets it in one job.
+
 ### Contract
 
+- **A run gains `--summary github` and `CHECKRIDE_SUMMARY`.** The flag joins
+  the promised run flags; `fix` and `doctor` refuse it with exit 2, and
+  `gate` strips the variable from the check it spawns, as it does
+  `CHECKRIDE_ANNOTATE`. The table's heading, verdict line, base line and six
+  columns are promised, and so is the append. `runChecks` takes
+  `stepSummary: { format, file }`.
 - **`baseline diff` gains `--fail-on-added`, and exit 1.** Without the flag
   the command exits 0 whenever it ran, as before. With it, a key added or a
   count grown since `<ref>` is exit 1, never 2, and the `--json` object keeps

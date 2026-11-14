@@ -163,6 +163,38 @@ need that history to exist in the clone — `actions/checkout` defaults to
 `fetch-depth: 1`, which sees only the merged state — so run the recovery
 locally (where full history lives), or give the checkout more depth.
 
+## The verdict on the run's page
+
+`--summary github` (or `CHECKRIDE_SUMMARY=github`; the flag wins) appends the
+run's verdict as a table to the job's step summary, which GitHub shows on the
+run's page: each check, its status and time, its new findings, and the
+baseline keys it added and removed against the base.
+
+```yaml
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the base needs main's history
+
+      - run: pnpm check
+        env:
+          CHECKRIDE_SUMMARY: github
+          CHECKRIDE_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+```
+
+- **The base** is the one `--changed` reads: `--base` or `CHECKRIDE_BASE`,
+  then the config's `changedBase`, then `origin/main`. On a push to `main`,
+  `origin/main` is the commit being checked, so the counts would always be
+  zero; name the pull request's base, or the commit before the push, as
+  above. A base the checkout can't reach drops the two key columns, and the
+  table says why.
+- **In a matrix, set it on one job**, or the run's page carries one table
+  per job.
+- **It appends.** A second run in the same step, a named suite's, lands its
+  table beneath the first, under a heading that names its suite.
+- **Nothing else changes.** Outside Actions, with `GITHUB_STEP_SUMMARY`
+  unset, it warns on stderr and writes nothing, and the exit code is the
+  run's either way.
+
 ## Guard the baseline
 
 A pull request that adds keys to `checkride.baseline.json`, or raises a key's

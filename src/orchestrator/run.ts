@@ -18,7 +18,7 @@ import type { ResolvedCheck } from '../config.js';
 import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
 import { digestOf, writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
-import { changedPaths, GIT_STATE_TIMEOUT_MS, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
+import { changedPaths, DEFAULT_BASE, GIT_STATE_TIMEOUT_MS, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
 import type { Suite } from '../suite.js';
 import { suiteCommand } from '../suite.js';
 import type { Target } from '../targets/index.js';
@@ -28,6 +28,7 @@ import { annotateScope, annotationLines } from './annotate.js';
 import type { RunContext } from './context.js';
 import { resolveRunContext } from './context.js';
 import { executeChecks } from './execute.js';
+import { writeStepSummary } from './step-summary.js';
 import type { BlankAwareOut } from './report.js';
 import { blankAware, buildSummary, computeExitCode, nameWidth, narrowedEntries, reportSummary, writeLine } from './report.js';
 import { selectChecks, skipUnchanged, validateSelection, withFileLists, withFingerprintableOnly, withGoPackages, withOdinPackage, withStaticOnly } from './select.js';
@@ -279,6 +280,24 @@ async function changedBaseFor(options: RunOptions, ctx: RunContext): Promise<Cha
 }
 
 /**
+ * The ref a step summary counts baseline keys against: the base a
+ * `--changed` run resolved, else the one `--changed` would, `--base` or
+ * `CHECKRIDE_BASE`, then the config's `changedBase`, then `origin/main`.
+ * Unlike `--changed`'s, it never falls back to `HEAD`, which would count
+ * nothing, and never throws: a base that can't be read is the summary's to say.
+ */
+function summaryBase(options: RunOptions, ctx: RunContext): string {
+  return ctx.changedBase?.ref ?? options.base?.ref ?? configChangedBase(ctx.config) ?? DEFAULT_BASE;
+}
+
+/** Append the run's step summary when the run was asked for one (`--summary`, `CHECKRIDE_SUMMARY`). */
+async function maybeStepSummary(options: RunOptions, ctx: RunContext, summary: Summary): Promise<void> {
+  if (options.stepSummary === undefined) return;
+  const scope = { cwd: ctx.cwd, baselineFile: ctx.suite.baselineFile, baseRef: summaryBase(options, ctx), git: realGit(ctx.cwd), stderr: ctx.stderr };
+  await writeStepSummary(options.stepSummary, summary, scope);
+}
+
+/**
  * The paths a `--changed` run skips targets by, or `null` when it skips none:
  * off `--changed`, in implicit mode, which narrows through the base alone, and
  * when git can't list them, which says so on stderr (R10.2).
@@ -396,6 +415,7 @@ export async function runChecks(options: RunOptions): Promise<RunResult> {
   // On green there's none, and a stale digest is cleared with it.
   if (options.digest ?? false) await writeDigest(ctx.out, digest);
 
+  await maybeStepSummary(options, ctx, summary);
   const annotations = await annotationsOf(ctx, reds);
   if (ctx.json) {
     reportMachine(ctx, summary, annotations);

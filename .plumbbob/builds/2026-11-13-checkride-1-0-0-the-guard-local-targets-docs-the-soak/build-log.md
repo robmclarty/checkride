@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 1 — feat(baseline): fail baseline diff on added keys
+**Current step:** 2 — feat(cli): add --summary github for the step summary
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -23,7 +23,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 line above. Only ONE step is in flight; a step is done only after a checkpoint:
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
-- ☐ 1. feat(baseline): fail baseline diff on added keys
+- ☑ 1. feat(baseline): fail baseline diff on added keys
 - ☐ 2. feat(cli): add --summary github for the step summary
 - ☐ 3. feat(api)!: trim the barrel to the names consumers use
 - ☐ 4. feat(config): read a local target's config
@@ -77,3 +77,61 @@ end, and an older step's detail is a scroll away. Add your own decision/event li
 you point at to say "I did that: the LLM helped, but those were my calls."
 `/plumbbob:finish` reads this for the report; `plumbbob finish` commits it with the build
 folder, so it rides the branch into the PR.)*
+
+- 2026-11-14 — step 1 checkpointed · 76c63b8ef — feat(baseline): fail baseline diff on added keys (1 drift, 6m)
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  seam         strayed: 1 path outside the seam
+               → docs/spec-v1.md
+  diff         +598 -14 across 12 files
+               - CHANGELOG.md +24 -0
+               - README.md +5 -1
+               - docs/cheatsheet.md +1 -0
+               - docs/ci.md +37 -0
+               - docs/consumers.md +3 -0
+               - docs/contract.md +13 -1
+               - docs/spec-v1.md +336 -0
+               - and 5 more
+  spent        6 min · 73s gate · green first run
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Approve it. The read checked every seam against HEAD, each done-when against a test or check that can measure it, and each range's stop against the brief's list of calls; the five holes it found in the spec's done-when lines are settled as D25 to D29. The first two findings sit in range 3 and later, so `/plumbbob:refine` can write them up before step 4 builds, and the third is one commit to make before range 1:
+
+  ```sh
+  git add docs/spec-v1.md
+  git commit -m "docs: add the 1.0.0 spec"
+  ```
+
+  **1.** `extends` in a local file can carry repo-wide keys past the refusal in D8 (step 4)
+
+  D8 lets a local file hold `extends` and refuses `targets`, `schemas`, `unclaimed` and anything
+  else that belongs to the whole repo. It doesn't say whether the refusal applies to what a
+  preset brings in. Today `resolveExtends` deep-merges a preset, `placedPicks` moves its tool
+  picks into `packs.<pack>`, and `presetProblem` stops a preset from declaring targets. A preset
+  written for a root config will often carry `gate`, `changedBase` or `schemas`. A builder has to
+  guess between refusing the preset (exit 2 naming the key and both files) and dropping the keys
+  quietly. Closing it takes one line on step 4: the refused keys are refused after `extends`
+  resolves, with the preset named in the error.
+
+  **2.** No decision says what `target add` does once targets are local or included (steps 6 and 10)
+
+  `src/target-command.ts` and `src/target-files.ts` write the root config and rename slots in the
+  root baseline. With an `include` in play, the target a team adds may belong in
+  `services/checkride.config.json`, and with shards its renamed keys may belong in a shard. Step
+  10's seam names `src/target-files.ts`, but no done-when covers it. The cheapest answer is that
+  `target add` keeps writing the root config and root baseline, never writes `local` or an
+  included file, and `docs/targets.md` says so; a contract test in step 10 pins it.
+
+  **3.** `docs/spec-v1.md` is untracked, and the session's baseline was recorded over a dirty tree
+
+  The intent links to the spec as the design record, but the plan commit takes only the build
+  folder, so the link points at a file no commit holds. Step 14's seam doesn't name it either,
+  and `/pb-finish` sweeps stray untracked files into its commit. The spec passes `docs`, `spell`,
+  `prose` and `links` as it stands (run 2026-11-13), so it won't turn step 1's gate red. Closing
+  it is a commit of the spec before range 1 runs, which is Rob's to make. The build is also on
+  `main`, as the last several were.

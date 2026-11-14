@@ -50,6 +50,10 @@ describe('CLI run flags', () => {
     }
   });
 
+  test('--annotate and --summary each parse to their raw value', () => {
+    expect(parseCliArgs(['--annotate', 'github', '--summary', 'github'])).toMatchObject({ annotate: 'github', summary: 'github' });
+  });
+
   test('--concurrency <n> parses to a positive integer', () => {
     expect(parseCliArgs(['--concurrency', '3']).flags.concurrency).toBe(3);
     // Absent → left undefined so the orchestrator applies its auto default.

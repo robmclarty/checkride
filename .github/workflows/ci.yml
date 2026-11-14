@@ -29,8 +29,15 @@ jobs:
         # and the two newest majors. Windows waits for a consumer who needs it.
         os: [ubuntu-latest, macos-latest]
         node: ['22.18.0', '24', '26']
+    # One job of the six writes the step summary, or the run's page would carry
+    # six tables (docs/ci.md, "The verdict on the run's page"). It needs the
+    # history back to the base it counts baseline keys against.
+    env:
+      SUMMARY_JOB: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '24' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: ${{ env.SUMMARY_JOB == 'true' && '0' || '1' }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -58,10 +65,18 @@ jobs:
       #
       # CHECKRIDE_ANNOTATE: each finding of a red check also lands on the pull
       # request's diff and in the job's annotation list (docs/ci.md).
+      #
+      # CHECKRIDE_SUMMARY, in the one summary job: the verdict as a table on
+      # the run's page, its baseline keys counted against CHECKRIDE_BASE, the
+      # pull request's base or, on a push, the commit before it (on a push
+      # origin/main is the commit being checked, so it would count nothing).
+      # An empty CHECKRIDE_SUMMARY counts as unset in the other five.
       - name: pnpm check
         run: pnpm check
         env:
           CHECKRIDE_ANNOTATE: github
+          CHECKRIDE_SUMMARY: ${{ env.SUMMARY_JOB == 'true' && 'github' || '' }}
+          CHECKRIDE_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 
       # A failing slot prints a bounded excerpt beneath its status line: five
       # findings, or its last eight lines. That names what broke, but a test

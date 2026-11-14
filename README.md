@@ -220,6 +220,7 @@ checkride              Run the default checks. Exit 0 pass / 1 fail / 2 error.
   --base <ref>  --concurrency <n>  --config <path>  --out <dir>
   --suite <name> (a named suite: its own config, baseline and .check/suites/<name>/)
   --annotate github (each finding as a GitHub Actions annotation, on stderr)
+  --summary github (the verdict as a table on the GitHub Actions run's page)
   --defaults <path>  --discover  --pins <mise.toml>  --static-only (consumer runs)
 checkride init         Set up a project (new or existing — auto-detected).
   --lang ts|go|rust  --shape flat|monorepo|hybrid (ts), module|workspace (go),

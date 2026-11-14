@@ -13,6 +13,7 @@ import type { CheckOutcome } from '../links.js';
 import type { PinSourceName } from '../packs/index.js';
 import type { Suite } from '../suite.js';
 import type { AnnotateFormat } from './annotate.js';
+import type { StepSummaryOption } from './step-summary.js';
 
 /** Minimal writable sink (satisfied by `process.stdout`/`process.stderr`). */
 export type Out = { write(text: string): unknown };
@@ -389,6 +390,16 @@ export type RunOptions = RunFlags & {
    * writes none. Omitted, a run writes none.
    */
   annotate?: AnnotateFormat;
+  /**
+   * Append the run's verdict as a step summary (`--summary`,
+   * `CHECKRIDE_SUMMARY`): `github` writes a Markdown table to `file`, the
+   * path `GITHUB_STEP_SUMMARY` names, once the summary is written: each
+   * check, its status and time, its new findings, and the baseline keys
+   * added and removed against the base `--changed` resolves (see
+   * `./step-summary.ts`). A `file` of `null` warns on stderr and writes
+   * nothing. It never changes the exit code. Omitted, a run writes none.
+   */
+  stepSummary?: StepSummaryOption;
   stdout?: Out;
   stderr?: Out;
   runner?: CheckRunner;

@@ -684,7 +684,7 @@ The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,
 --only <a,b>  --skip <a,b>  --include <a,b>  --all  --changed  --base <ref>
 --bail  --json  --digest  --strict  --concurrency <n>  --config <path>
 --out <dir>  --defaults <path>  --discover  --pins <mise.toml>  --static-only
---suite <name>  --annotate github
+--suite <name>  --annotate github  --summary github
 ```
 
 are promised. New commands and flags are additive; removing or repurposing one
@@ -712,12 +712,12 @@ of for itself.
 `--suite` as a run does, and `CHECKRIDE_CONFIG` and `CHECKRIDE_SUITE` too. It refuses, with exit 2 before
 anything runs, the flags that would change which files its fixers rewrite
 or with which tool: `--static-only`, `--discover`, `--base`, `--out`,
-`--defaults`, `--pins` and `--annotate`, each named with why, as in `fix doesn't take
+`--defaults`, `--pins`, `--annotate` and `--summary`, each named with why, as in `fix doesn't take
 --static-only: fixers rewrite files and can load the repo's code`. It
 accepts the other run flags 0.14 accepted, `--changed`, `--bail`, `--json`,
 `--digest` and `--strict`, without acting on any of them, and it never reads
 `CHECKRIDE_PINS`, `CHECKRIDE_DEFAULTS`, `CHECKRIDE_OUT`,
-`CHECKRIDE_BASE` or `CHECKRIDE_ANNOTATE`. Each fixer is the copy of its tool the repo pins, over the
+`CHECKRIDE_BASE`, `CHECKRIDE_ANNOTATE` or `CHECKRIDE_SUMMARY`. Each fixer is the copy of its tool the repo pins, over the
 targets its config declares.
 
 **`--config <path>` and `CHECKRIDE_CONFIG` name the config file.** Run,
@@ -1284,7 +1284,47 @@ None of them reads the variable: one set for a whole CI job is ignored there
 without a word, whatever it holds. `gate` strips `CHECKRIDE_ANNOTATE` from
 the check it spawns, as it does the consumer variables.
 
-A run asked for them writes these lines to stderr, below the `report:` and
+**`--summary github` and `CHECKRIDE_SUMMARY` append a run's verdict to the
+GitHub step summary.** The flag, else the variable, as `--annotate` takes
+them: an empty variable counts as unset, the flag wins, `github` is the only
+value and any other is exit 2 (`invalid --summary 'markdown' (expected
+github)`), `fix` and `doctor` refuse the flag with exit 2 (`fix doesn't take
+--summary: only a run has a verdict to summarize`), no other command reads
+the variable, and `gate` strips `CHECKRIDE_SUMMARY` from the check it spawns.
+A run asked for it appends to the file `GITHUB_STEP_SUMMARY` names, once the
+summary is written, so a second run in the same step lands its table beneath
+the first:
+
+```markdown
+### checkride: default suite
+
+**✘ failed**: 1 of 18 check(s) failed in 70.4s
+
+Baseline against `origin/main` (4f2c1e0): 1 key(s) added, 0 removed.
+
+| Check | Status | Time | New findings | Keys added | Keys removed |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `lint` | ✘ fail | 1.4s | 1 | 1 | 0 |
+| `types` | ✔ pass | 0.5s | 0 | 0 | 0 |
+
+Skipped: `security`.
+```
+
+The heading names the suite (`suite evals` for a named one), and the verdict
+line says `a partial run` for a narrowed one. Each check that ran is one row,
+in the summary's order, named as the summary's `name` names it; the checks
+that sat out are named on one line beneath. `New findings` is the check's
+`new_count`, `0` for a check that passed, and `-` for a red check no baseline
+masked. `Keys added` and `Keys removed` count the check's baseline keys
+against the base `--changed` resolves: `--base` or `CHECKRIDE_BASE`, then the
+config's `changedBase`, then `origin/main`, and never `HEAD`. A base that
+can't be read, because it names no commit, git can't be asked, or either copy
+of the baseline can't be parsed, drops those two columns, and the base line
+says why in their place. With `GITHUB_STEP_SUMMARY` unset, or a file that
+can't be appended to, the run warns on stderr and writes nothing. Neither
+changes the exit code, the report or `summary.json`.
+
+A run asked for annotations writes these lines to stderr, below the `report:` and
 `digest:` lines and every notice beneath them, and above the digest a red
 `--digest` run prints, which stays last. Under `--json` they are all of
 stderr and stdout is the summary alone. A run with no red check writes none.
@@ -1877,7 +1917,10 @@ without one.
 
 `runChecks` takes `annotate: 'github'` as the CLI takes
 [`--annotate github`](#cli), and writes the same lines to its `stderr`. It
-reads no variable: `CHECKRIDE_ANNOTATE` is the CLI's.
+reads no variable: `CHECKRIDE_ANNOTATE` is the CLI's. It takes
+`stepSummary: { format: 'github', file }` as the CLI takes `--summary
+github`, `file` the path to append to or `null`, and reads neither
+`CHECKRIDE_SUMMARY` nor `GITHUB_STEP_SUMMARY` itself.
 
 The four registry exports are plain data, and each survives a JSON round trip
 unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,

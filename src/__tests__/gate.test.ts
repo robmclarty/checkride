@@ -1292,6 +1292,16 @@ describe('runGate — named suites', () => {
     expect(`${stdout.text()}${stderr.text()}`).not.toContain('::error');
   });
 
+  test('the gate strips CHECKRIDE_SUMMARY, so the check it spawns appends no table to a CI job’s step summary', async () => {
+    const seen: Seen[] = [];
+    await runGate({
+      cwd: dir, pm: 'pnpm', spawn: redInto('.check', seen), stdout: capture(), stderr: capture(),
+      env: { PATH: '/usr/bin', CHECKRIDE_SUMMARY: 'github', GITHUB_STEP_SUMMARY: '/tmp/summary.md' }, pinEnv: pinEnv(),
+    });
+    // The variable is gone and no --summary flag stands in for it; the file it would name passes through untouched.
+    expect(seen).toEqual([{ args: ['run', 'check', '--strict', '--digest'], env: { PATH: '/usr/bin', GITHUB_STEP_SUMMARY: '/tmp/summary.md' } }]);
+  });
+
   test('gate --suite passes the suite as a flag, still strips the variable, and reads the suite’s directory', async () => {
     const seen: Seen[] = [];
     const stdout = capture();
