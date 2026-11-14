@@ -9,7 +9,7 @@ import type { Adapter, Order } from '../adapters.js';
 import { reportVerdict } from '../baseline/index.js';
 import type { Out } from '../orchestrator/index.js';
 import { runChecks } from '../orchestrator/index.js';
-import { PACKS } from '../packs/index.js';
+import { PACKS, TOOLS } from '../packs/index.js';
 
 /** Discards output — the run's own stdout/stderr aren't under test here. */
 const sink = (): Out => ({ write: () => true });
@@ -28,6 +28,17 @@ const adapterNames = (slot: string): string[] => ADAPTERS.filter((a) => a.slot =
 const orderOf = (name: string): Order | undefined => SLOTS.find((s) => s.name === name)?.order;
 
 describe('registry invariants', () => {
+  test('the registries are plain data: each survives a JSON round trip unchanged', () => {
+    for (const value of [SLOTS, ADAPTERS, PACKS, TOOLS]) {
+      expect(JSON.parse(JSON.stringify(value))).toStrictEqual(value);
+    }
+  });
+
+  test('PACKS keys each pack by its own name', () => {
+    expect(Object.keys(PACKS).length).toBeGreaterThan(0);
+    for (const [key, pack] of Object.entries(PACKS)) expect(pack.name).toBe(key);
+  });
+
   test('schema version is 1', () => {
     expect(SCHEMA_VERSION).toBe(1);
   });

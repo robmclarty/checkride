@@ -33,6 +33,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GITHUB_STEP_SUMMARY` warns and writes nothing; neither changes the exit
   code. `docs/ci.md` shows the recipe, and this repo's CI sets it in one job.
 
+### Removed
+
+- **The package root exports only what its consumers import.** It keeps
+  `runChecks` and `runDoctor`, with the types `RunOptions`, `RunResult`,
+  `Summary`, `SummaryCheck` and `DoctorCheck`, and drops `runFix`,
+  `selectChecks`, `runInit`, `loadConfig`, `resolveChecks`, `suiteNamed`,
+  `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`, `SCHEMA_VERSION`,
+  `DEFAULT_TIMEOUT_SECONDS` and eighteen types. No surveyed consumer imported
+  any of them, and no doc's example shows one. Run `init`, `fix` and the rest
+  through the CLI. `checkride/findings` is unchanged.
+
 ### Fixed
 
 - **Cursor's protect hook reads its payload before it answers without
@@ -43,6 +54,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Contract
 
+- **The programmatic surface shrinks to two functions and five types.** The
+  package root exports `runChecks` and `runDoctor`, and the types
+  `RunOptions`, `RunResult`, `Summary`, `SummaryCheck` and `DoctorCheck`;
+  every other name it exported is gone, and the promises about the
+  registries' data go with them. Each name that stays is bound for the
+  whole of 1.x. The 600-second default timeout and the summary's
+  `schema_version` of 1 are unchanged, though neither is exported now.
 - **A run gains `--summary github` and `CHECKRIDE_SUMMARY`.** The flag joins
   the promised run flags; `fix` and `doctor` refuse it with exit 2, and
   `gate` strips the variable from the check it spawns, as it does

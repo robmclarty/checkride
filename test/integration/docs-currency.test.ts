@@ -55,7 +55,6 @@ const DEEP_MODULES = read('docs', 'deep-modules.md');
 const GETTING_STARTED = read('docs', 'getting-started.md');
 const PACKS_MD = read('docs', 'packs.md');
 const TARGETS_MD = read('docs', 'targets.md');
-const CONTRACT = read('docs', 'contract.md');
 
 const packs = Object.values(PACKS);
 const scopeOf = (slot: string): string | undefined => SLOTS.find((s) => s.name === slot)?.scope;
@@ -262,9 +261,5 @@ describe('the scope and pack enumerations match the registry', () => {
   test("README's slot table gives each slot its scope", () => {
     const rows = tableRows(README, 'Slot', 'Scope').map(([slot = '', scope = '']) => [backticked(slot)[0], scope]);
     expect(rows).toEqual(SLOTS.map((s) => [s.name, s.scope]));
-  });
-
-  test("docs/contract.md's PACKS sentence names every pack", () => {
-    expect(backtickedAfter(CONTRACT, "`PACKS` maps each pack's name")).toEqual(Object.keys(PACKS));
   });
 });

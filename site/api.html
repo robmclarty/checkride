@@ -352,7 +352,7 @@
         <div>
           <div style="font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:3px; color:#1E7A4A; margin-bottom:14px;">PROGRAMMATIC · REFERENCE</div>
           <h1 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:60px; line-height:1; margin:0 0 20px;">Programmatic API</h1>
-          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The CLI is the primary interface, but every command is also a function. Everything exported from the package root is public and semver-bound; everything else is internal by definition, even if technically importable.</p>
+          <p style="font-size:18px; line-height:1.6; color:#2A3A31; max-width:660px;">The CLI is the primary interface, but the run and the doctor are also functions. Everything exported from the package root is public and semver-bound; everything else is internal by definition, even if technically importable.</p>
 
           <div style="margin-top:32px; border:3px solid #14231B; box-shadow:1px 1px 0 #14231B, 2px 2px 0 #14231B, 3px 3px 0 #14231B, 4px 4px 0 #14231B, 5px 5px 0 #14231B;">
             <div style="display:flex; align-items:center; justify-content:space-between; padding:11px 16px; background:#1A2B22; border-bottom:1px solid #3A4C41;"><span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:#7E9187;">run-checks.ts</span><button onClick="{{ copy }}" data-orig="COPY" data-copy="import { runChecks, type RunResult } from 'checkride';
@@ -365,15 +365,15 @@ process.exitCode = result.exitCode;" style="background:transparent; color:#7E918
 
           <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:48px 0 16px;">Functions &amp; values</h2>
           <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
-            <sc-for list="{{ fnExports }}" as="x" hint-placeholder-count="13">
+            <sc-for list="{{ fnExports }}" as="x" hint-placeholder-count="2">
               <div style="padding:7px 12px; border:2px solid #14231B; background:#DBE6DD; color:#14231B;">{{ x.name }}</div>
             </sc-for>
           </div>
 
           <h2 style="font-family:'DM Serif Display',serif; font-weight:400; font-size:32px; margin:44px 0 16px;">Exported types</h2>
-          <p style="font-size:15px; line-height:1.6; color:#48594F; margin:-4px 0 16px;"><span style="font-family:'JetBrains Mono',monospace; font-size:13px;">PACKS</span> maps each pack to its adapter rows, root markers, pin sources and environment; <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">TOOLS</span> has a row per external tool, naming the npm package that provides it or the <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">mise.toml</span> keys that pin it. Both, like <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">ADAPTERS</span> and <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">SLOTS</span>, are plain data that survive a JSON round trip.</p>
+          <p style="font-size:15px; line-height:1.6; color:#48594F; margin:-4px 0 16px;">The root carries the names its consumers import and nothing else. The registries, config loading, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">init</span>, <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">fix</span> and check selection are the CLI's: run them through <span style="font-family:'JetBrains Mono',monospace; font-size:13px;">checkride</span> itself.</p>
           <div style="display:flex; flex-wrap:wrap; gap:8px; font-family:'JetBrains Mono',monospace; font-size:13px;">
-            <sc-for list="{{ typeExports }}" as="x" hint-placeholder-count="21">
+            <sc-for list="{{ typeExports }}" as="x" hint-placeholder-count="5">
               <div style="padding:7px 12px; border:2px solid #2456A6; background:#E9F0EA; color:#2456A6;">{{ x.name }}</div>
             </sc-for>
           </div>
@@ -585,8 +585,8 @@ class Component extends DCLogic {
     ].map(([slot, scope, role, tool, alts, optIn], i) => ({ slot, scope, role, tool, alts, def: typeof optIn === 'string' ? 'with ' + optIn : optIn ? '○' : '✅', accent: accents[i % 4], bg: i % 2 ? '#DBE6DD' : '#E9F0EA' }));
 
     // ---- programmatic exports ----
-    const fnExports = ['runChecks', 'runFix', 'selectChecks', 'runDoctor', 'runInit', 'loadConfig', 'resolveChecks', 'ADAPTERS', 'SLOTS', 'PACKS', 'TOOLS', 'SCHEMA_VERSION', 'DEFAULT_TIMEOUT_SECONDS'].map(name => ({ name }));
-    const typeExports = ['Summary', 'SummaryCheck', 'RunFlags', 'RunOptions', 'RunResult', 'CheckrideConfig', 'CustomCheck', 'SlotConfig', 'UseConfig', 'ResolvedCheck', 'Adapter', 'CodeKey', 'Slot', 'Pack', 'Tool', 'DoctorCheck', 'DoctorReport', 'DoctorResult', 'InitOptions', 'InitResult', 'Shape'].map(name => ({ name }));
+    const fnExports = ['runChecks', 'runDoctor'].map(name => ({ name }));
+    const typeExports = ['Summary', 'SummaryCheck', 'RunOptions', 'RunResult', 'DoctorCheck'].map(name => ({ name }));
 
     // ---- top-level config keys ----
     const configKeys = [

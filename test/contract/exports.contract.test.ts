@@ -3,10 +3,11 @@
  *
  * Everything exported from the package root, and from the `checkride/findings`
  * subpath, is public and semver-bound; everything else is internal by
- * definition. This test locks each export list exactly: removing or renaming
- * one is a breaking change (major-version decision + a "Contract" CHANGELOG
- * entry), and adding one means adding it here and to the contract doc in the
- * same commit.
+ * definition. The root carries only the names a surveyed consumer imports or
+ * a doc's example shows. This test locks each export list exactly: removing or
+ * renaming one is a breaking change (major-version decision + a "Contract"
+ * CHANGELOG entry), and adding one means adding it here and to the contract
+ * doc in the same commit.
  */
 
 import { readFileSync } from 'node:fs';
@@ -16,76 +17,34 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { SCHEMA_VERSION } from '../../src/adapters.js';
 import * as findings from '../../src/findings/api.js';
 import * as api from '../../src/index.js';
+import { DEFAULT_TIMEOUT_SECONDS } from '../../src/orchestrator/index.js';
 
-/** The frozen value-export list (types are checked by the compiler, not here). */
-const PUBLIC_EXPORTS = [
-  'ADAPTERS',
-  'DEFAULT_TIMEOUT_SECONDS',
-  'PACKS',
-  'SCHEMA_VERSION',
-  'SLOTS',
-  'TOOLS',
-  'loadConfig',
-  'resolveChecks',
-  'runChecks',
-  'runDoctor',
-  'runFix',
-  'runInit',
-  'selectChecks',
-  'suiteNamed',
-];
+/** The frozen value-export list: the names a surveyed consumer imports, or a doc's example shows. */
+const PUBLIC_EXPORTS = ['runChecks', 'runDoctor'];
 
-/** The catalogue position of the slot an adapter fills. */
-const slotIndex = (a: api.Adapter): number => api.SLOTS.findIndex((s) => s.name === a.slot);
+/** The frozen type-export list, read from the barrel's `export type` lines, since types leave no runtime trace. */
+const PUBLIC_TYPES = ['DoctorCheck', 'RunOptions', 'RunResult', 'Summary', 'SummaryCheck'];
+
+/** Every name the barrel's `export type { ... }` statements re-export. */
+const typeExports = (source: string): string[] =>
+  [...source.matchAll(/export\s+type\s*\{([^}]*)\}/g)].flatMap((m) => (m[1] ?? '').split(',').map((n) => n.trim()).filter((n) => n !== ''));
 
 describe('programmatic surface', () => {
   test('the package root exports exactly the promised names', () => {
     expect(Object.keys(api).toSorted()).toEqual(PUBLIC_EXPORTS);
   });
 
-  test('contract constants hold their promised values', () => {
-    expect(api.SCHEMA_VERSION).toBe(1);
-    expect(api.DEFAULT_TIMEOUT_SECONDS).toBe(600);
-  });
-});
-
-describe('the registry exports', () => {
-  test('are plain data: each survives a JSON round trip unchanged', () => {
-    for (const value of [api.SLOTS, api.ADAPTERS, api.PACKS, api.TOOLS]) {
-      expect(JSON.parse(JSON.stringify(value))).toStrictEqual(value);
-    }
+  test('the package root exports exactly the promised types', () => {
+    const barrel = readFileSync(new URL('../../src/index.ts', import.meta.url), 'utf8');
+    expect(typeExports(barrel).toSorted()).toEqual(PUBLIC_TYPES);
   });
 
-  test('PACKS keys each pack by its own name', () => {
-    expect(Object.keys(api.PACKS).length).toBeGreaterThan(0);
-    for (const [key, pack] of Object.entries(api.PACKS)) {
-      expect(pack.name).toBe(key);
-    }
-  });
-
-  test('ADAPTERS is the ts and repo packs\' rows, grouped by slot in SLOTS order', () => {
-    const rows = [...api.PACKS.ts.adapters, ...api.PACKS.repo.adapters];
-    // Every row exactly once, and nothing else.
-    expect(api.ADAPTERS).toHaveLength(rows.length);
-    for (const row of rows) {
-      expect(api.ADAPTERS.filter((a) => a === row)).toHaveLength(1);
-    }
-    // Slot by slot in catalogue order, each slot's rows in their pack's order.
-    for (const slot of api.SLOTS) {
-      const inRegistry = api.ADAPTERS.filter((a) => a.slot === slot.name);
-      expect(inRegistry).toEqual(rows.filter((a) => a.slot === slot.name));
-    }
-    const positions = api.ADAPTERS.map(slotIndex);
-    expect(positions).toEqual(positions.toSorted((a, b) => a - b));
-  });
-
-  test('every slot declares its scope, and the repo pack fills exactly the repo-scope slots', () => {
-    const repoSlots = new Set(api.PACKS.repo.adapters.map((a) => a.slot));
-    for (const slot of api.SLOTS) {
-      expect(slot.scope, `${slot.name} declares no scope`).toBe(repoSlots.has(slot.name) ? 'repo' : 'target');
-    }
+  test('the promised constants hold their values, though neither is exported', () => {
+    expect(SCHEMA_VERSION).toBe(1);
+    expect(DEFAULT_TIMEOUT_SECONDS).toBe(600);
   });
 });
 
@@ -162,7 +121,7 @@ describe('the checkride/findings subpath', () => {
   });
 
   test("findingsFor reads each summary entry's own artifact out of the run's output directory", async () => {
-    const config: api.CheckrideConfig = { checks: { lint: 'oxlint', spell: 'cspell' } };
+    const config: api.RunOptions['config'] = { checks: { lint: 'oxlint', spell: 'cspell' } };
     const run = await api.runChecks({ cwd: dir, config, runner: replay, baseline: null, only: ['lint', 'spell'], stderr: { write: () => true } });
     const read = (name: string): findings.Finding[] | null => {
       const check = run.summary.checks.find((c) => c.name === name);
@@ -176,7 +135,7 @@ describe('the checkride/findings subpath', () => {
   });
 
   test("a target's findings name files from the repo root", async () => {
-    const config: api.CheckrideConfig = { targets: { web: { lang: 'ts', root: 'apps/web', checks: { lint: 'oxlint' } } } };
+    const config: api.RunOptions['config'] = { targets: { web: { lang: 'ts', root: 'apps/web', checks: { lint: 'oxlint' } } } };
     const run = await api.runChecks({ cwd: dir, config, runner: replay, baseline: null, only: ['lint'], stderr: { write: () => true } });
     const check = run.summary.checks.find((c) => c.name === 'web:lint');
     expect(check && findings.findingsFor(check, join(dir, '.check'), { repoRoot: dir })?.map((f) => [f.slot, f.file, f.line])).toEqual([

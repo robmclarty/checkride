@@ -9,8 +9,12 @@
     "redChecks": 1,
     "landedAt": "2026-11-14T00:32:04.964Z"
   },
+  "3": {
+    "startedAt": "2026-11-14T02:09:55.964Z"
+  },
   "21": {
     "startedAt": "2026-11-14T01:09:15.244Z",
-    "redChecks": 1
+    "redChecks": 1,
+    "landedAt": "2026-11-14T02:07:18.047Z"
   }
 }

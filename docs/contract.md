@@ -229,7 +229,7 @@ an unknown one as a source it doesn't know yet. `tool_version` adds the
 version when a file read finds it, or when the pin source itself resolved
 it, never by running the tool: for `js-lockfile`, the `version` in
 `node_modules/<package>/package.json` nearest the check's directory, for a tool
-whose package `TOOLS` names, for `go-mod-tool`, the version `go.mod` requires
+whose npm package checkride knows, for `go-mod-tool`, the version `go.mod` requires
 for the module that provides the tool, for `rust-toolchain`, the file's
 channel when it names an exact release, for `uv-lock`, the version the
 lock pins the tool's package at, for `tf-version`, the file's release when it
@@ -1894,26 +1894,28 @@ changes nothing.
 ## Programmatic surface
 
 Everything exported from the package root (`import ... from 'checkride'`) is
-public and semver-bound:
+public and semver-bound: `runChecks` and `runDoctor`, and the types
+`RunOptions`, `RunResult`, `Summary`, `SummaryCheck` and `DoctorCheck`. The
+root carries the names its consumers import and the docs' examples show, and
+nothing else; each is bound for the whole major.
+[`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) locks
+both lists exactly. The registries, config loading, `init`, `fix`, check
+selection and the suite helper are the CLI's, not the package's: run them
+through `checkride` itself.
 
-`runChecks`, `runFix`, `selectChecks`, `runDoctor`, `runInit`, `loadConfig`,
-`resolveChecks`, `suiteNamed`, `ADAPTERS`, `SLOTS`, `PACKS`, `TOOLS`,
-`SCHEMA_VERSION`, `DEFAULT_TIMEOUT_SECONDS` — plus the exported types (`Summary`,
-`SummaryCheck`, `RunFlags`, `RunOptions`, `RunResult`, `CheckrideConfig`,
-`CustomCheck`, `SlotConfig`, `UseConfig`, `ResolvedCheck`, `Adapter`,
-`CodeKey`, `Slot`, `Pack`, `Tool`, `DoctorCheck`, `DoctorReport`, `DoctorResult`, `InitOptions`,
-`InitResult`, `ProbeFailure`, `Shape`, `Suite`).
+`runChecks(options)` resolves to a `RunResult`: `ok`, `exitCode`, the exit
+code the CLI would return, `summary`, the same `Summary` written to
+`.check/summary.json`, and `runs`. `runDoctor(options)` resolves to `ok`,
+`exitCode` and `report`, the report `checkride doctor --json` prints, its
+`checks` each a `DoctorCheck`. The report carries `channel`, `'npm'` for
+anything that imports the package, and `embeddedNode` only in the
+[standalone binary](#cli), which exports nothing to import.
 
-`DoctorReport` carries `channel`, `'npm'` for anything that imports the
-package, and `embeddedNode` only in the [standalone binary](#cli), which
-exports nothing to import.
-
-`suiteNamed(name)` returns the `Suite` a [named suite](#cli)'s name fixes,
-its `name`, `configFile`, `baselineFile` and `out`, each path relative to the
-repo root, and throws for a name outside the grammar. `runChecks`, `runFix`
-and `runDoctor` take it as their `suite` option, and with `config` omitted
-they load the suite's own config file, as they load `checkride.config.json`
-without one.
+`runChecks` and `runDoctor` take a `suite` option, the `name`, `configFile`,
+`baselineFile` and `out` a [named suite](#cli)'s name fixes, each path
+relative to the repo root, and with `config` omitted they load the suite's own
+config file, as they load `checkride.config.json` without one. A `config`
+handed in is the file as written, after its `extends`.
 
 `runChecks` takes `annotate: 'github'` as the CLI takes
 [`--annotate github`](#cli), and writes the same lines to its `stderr`. It
@@ -1921,49 +1923,6 @@ reads no variable: `CHECKRIDE_ANNOTATE` is the CLI's. It takes
 `stepSummary: { format: 'github', file }` as the CLI takes `--summary
 github`, `file` the path to append to or `null`, and reads neither
 `CHECKRIDE_SUMMARY` nor `GITHUB_STEP_SUMMARY` itself.
-
-The four registry exports are plain data, and each survives a JSON round trip
-unchanged. `PACKS` maps each pack's name (`ts`, `repo`, `bash`, `go`, `rust`,
-`python`, `terraform`, `odin`) to its adapter rows, root markers, pin sources and
-environment, and the go pack's to the toolchain its checks run on, `go`, as
-`toolchain`. `ADAPTERS` is the `ts` and
-`repo` packs' rows, grouped by slot in `SLOTS` order. `TOOLS` has one row for
-each external tool the packs run as a tool, with the npm package that
-provides it or the `mise.toml` keys that pin it. The executables a toolchain
-ships, which an adapter runs directly, such as `go`, `gofmt`, `cargo`,
-`terraform` and `tofu`, have no row there: each resolves through its
-toolchain's own pin. Each
-`SLOTS` entry carries a `scope`: `repo` for the slots the repo pack fills,
-which check the repo as a whole, and `target` for the rest, which a language
-pack fills. The last, `unclaimed`, also carries `activeWith: 'targets'`, the
-config key it needs before it runs.
-[`exports.contract.test.ts`](../test/contract/exports.contract.test.ts) holds
-each of these promises.
-
-An adapter row's optional fields say how its pack runs it, and a row sets only
-the ones it needs:
-
-- `detectPin` and `detectTable` detect a tool by a pin that declares it, or by
-  a TOML table that configures it, such as `[tool.ruff]` in `pyproject.toml`.
-- `onlyWith` names a file the adapter applies only beside, and the reason its
-  slot stands down without it; `setup` names a directory a setup step writes,
-  so the check fails naming that step where it's missing.
-- `failOnOutput` fails a check whose tool exits 0 having printed to stdout,
-  `narrowsUnderChanged` lets `--changed` narrow a Go check's packages,
-  `network` runs it without the variables that block downloads, and `lock`
-  keeps two checks with the same key from running at once.
-- `static`, `nonStaticArgs`, `codeArgs`, `codeConfigs`, `codeKeys` (each a
-  `CodeKey`) and `configSearchesUp` are what `--static-only` reads, and a
-  resolved adapter's `staticDrop` says what a config entry did to take the
-  `static` mark. A `CodeKey`'s `under` names the JSON property its config
-  sits in, as `package.json`'s `prettier`, and `shared` marks a file that
-  may hold a shared config's module name instead.
-
-A `TOOLS` row's optional fields say where a tool comes from: `npm`, `goTool`
-and `pypi` name the npm package, the Go package a `go.mod` `tool` directive
-names, and the PyPI package; `mise` the `[tools]` keys that pin it; `run` the
-argv it runs as when it isn't its own executable, such as `cargo clippy`; and
-`component` the rustup component that provides it.
 
 **`checkride/findings` reads a run's findings without reimplementing its
 parsers.** The subpath is public and semver-bound as well, and exports
@@ -2045,7 +2004,7 @@ technically importable.
 ## Timeouts and interrupts
 
 - Every check runs under a timeout by **default**: the check's own `timeout`,
-  else the config-level `timeout`, else `DEFAULT_TIMEOUT_SECONDS` (600). `0`
+  else the config-level `timeout`, else the built-in default of 600 seconds. `0`
   at any level disables the cap. A definition-of-done gate must not be able
   to hang forever. One catalogue slot exercises the check-level clause:
   `mutation`, whose stryker and cargo-mutants adapters ship `timeout: 0`, so

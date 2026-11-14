@@ -213,9 +213,11 @@ describe('named suites', () => {
     expect(stderr.text()).toContain('checkride: invalid checkride.evals.config.json: checks.lint names no tool');
   });
 
-  test('suiteNamed is exported from the package root, and a programmatic run of a suite loads its config', async () => {
+  test("a programmatic run of a suite, handed the name, config, baseline and output its name fixes, loads its config", async () => {
     const api = await import('../../src/index.js');
-    const suite: import('../../src/index.js').Suite = api.suiteNamed('evals');
+    const suite: import('../../src/index.js').RunOptions['suite'] = {
+      name: 'evals', configFile: 'checkride.evals.config.json', baselineFile: 'checkride.evals.baseline.json', out: '.check/suites/evals',
+    };
     expect(suite).toEqual(suiteNamed('evals'));
     const result = await api.runChecks({ cwd: dir, suite, json: true, stdout: capture(), stderr: capture() });
     expect(result.summary.suite).toBe('evals');

@@ -970,8 +970,8 @@ See [AGENTS.md](./AGENTS.md) for the contract agents follow,
 
 ## Programmatic API
 
-The CLI is the primary interface, but the run, `init`, `doctor` and `fix` are
-also functions. Import from the package root to run the pipeline inside your
+The CLI is the primary interface, but the run and `doctor` are also
+functions. Import from the package root to run the pipeline inside your
 own tooling; the result carries the same summary written to
 `.check/summary.json`, plus the exit code the CLI would return:
 
@@ -983,12 +983,11 @@ const result: RunResult = await runChecks({ cwd: process.cwd(), strict: true });
 process.exitCode = result.exitCode;
 ```
 
-`runChecks` sits alongside `runInit`, `runDoctor`, `runFix`, `selectChecks`
-and the `loadConfig`/`resolveChecks` pair; the adapter registry (`SLOTS`,
-`ADAPTERS`), the language packs and the tools they run (`PACKS`, `TOOLS`),
-`SCHEMA_VERSION`, `DEFAULT_TIMEOUT_SECONDS` and every public type are
-re-exported too. A second entry point, `checkride/findings`, parses a run's
-raw artifacts into findings, with `parseFindings`, `findingsFor` and
+`runChecks` sits beside `runDoctor`, with the types `RunOptions`,
+`RunResult`, `Summary`, `SummaryCheck` and `DoctorCheck`; the rest, `init`,
+`fix`, config loading and the registries among it, is the CLI's. A second
+entry point, `checkride/findings`, parses a run's raw artifacts into
+findings, with `parseFindings`, `findingsFor` and
 `isParseable`. The full surface is the package's `exports`, and it is part of
 the [contract](./docs/contract.md).
 

@@ -221,7 +221,7 @@ one run · one summary · one exit code · target names one flat set
    - seam: `src/index.ts`, `src/__tests__/index.test.ts`, `test/contract/exports.contract.test.ts`, `docs/contract.md`, `docs/consumers.md`, `README.md`, `site/api.html`, `CHANGELOG.md`
    - model: opus (the survey reads atis, volley, plumbbob and runciter under `~/Projects`; the pause shows every name with who uses it and whether it stays)
 
-21. [ ] fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing, **done when:** the command-form hook reads stdin to the end before it answers on a `PATH` with no checkride, a unit test pins the read in the command, and `test/e2e/binary.e2e.test.ts`'s no-node Cursor case passes under `pnpm test:e2e`
+21. [x] fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing, **done when:** the command-form hook reads stdin to the end before it answers on a `PATH` with no checkride, a unit test pins the read in the command, and `test/e2e/binary.e2e.test.ts`'s no-node Cursor case passes under `pnpm test:e2e`
    - seam: `src/agent-setup/scripts.ts`, `src/agent-setup/__tests__/hooks.test.ts`, `test/e2e/binary.e2e.test.ts`, `CHANGELOG.md`
    - model: sonnet (one shell line; [D48 (hook-drains-stdin)](#d48))
 

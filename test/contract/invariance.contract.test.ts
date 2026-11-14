@@ -45,7 +45,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest';
 
 import type { CliDeps } from '../../src/cli.js';
 import { runCli } from '../../src/cli.js';
-import { ADAPTERS } from '../../src/index.js';
+import { ADAPTERS } from '../../src/adapters.js';
 
 /** Prefix of the stderr line the fake spawner writes; nothing a real tool prints starts with it. */
 const { MARKER } = vi.hoisted(() => ({ MARKER: 'invariance-spawn: ' }));
