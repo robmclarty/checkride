@@ -1045,7 +1045,7 @@ describe('baseline shards', () => {
     if (raw !== null) await put(FILE, raw);
     const got = readShards(dir, shardMap(FILE, undefined));
     const status = readBaselineStatus(dir);
-    expect(got).toEqual({ ...status, files: [{ file: FILE, ...status }] });
+    expect(got).toEqual({ ...status, map: { root: FILE, shards: [] }, files: [{ file: FILE, ...status }] });
   });
 
   test('with no file at any target root, the root file comes back as it parsed, not as a union', async () => {

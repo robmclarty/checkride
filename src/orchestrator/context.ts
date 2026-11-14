@@ -9,8 +9,8 @@ import { resolve } from 'node:path';
 import type { Adapter, Slot } from '../adapters.js';
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import { outLabel } from '../artifacts/index.js';
-import type { Baseline, BaselineRead } from '../baseline/index.js';
-import { readShards, shardMap } from '../baseline/index.js';
+import type { Baseline, ShardsRead } from '../baseline/index.js';
+import { readShards, shardMap, shardsOfOne } from '../baseline/index.js';
 import type { CheckrideConfig } from '../config.js';
 import { composedConfig, loadConfig } from '../config.js';
 import type { ChangedBase } from '../git.js';
@@ -121,11 +121,11 @@ export type RunContext = CommonContext & {
   requirePins: boolean;
   baseline: Baseline | null;
   /**
-   * How reading the root baseline file went: `absent` is a repo without one,
-   * `unparseable` is a mangled committed file — the run warns on the latter.
-   * `baseline` is null when no file could be read, a local target's included.
+   * Every file `baseline` was read from, each with how it read: what the
+   * ratchet writes back to, and what the run's warning names when one is
+   * mangled. `baseline` is null when no file could be read.
    */
-  baselineState: BaselineRead['state'];
+  shards: ShardsRead;
   /** Effective wave pool width (see {@link defaultConcurrency}); unused under `bail`. */
   concurrency: number;
   /** Slot-name column width for this run's status lines (see `nameWidth` in `report.ts`). */
@@ -137,14 +137,11 @@ export type RunContext = CommonContext & {
  * which is the root file and, in a repo with targets below its root, the
  * file at each one's root, read as one (`readShards`). An injected baseline
  * bypasses every file, so its state carries no file diagnosis — it is
- * classified by presence alone.
+ * classified by presence alone, and a writer treats it as the root file.
  */
-function resolveBaselineRead(options: RunOptions, { cwd, suite, config }: CommonContext): BaselineRead {
-  if (options.baseline !== undefined) {
-    return { baseline: options.baseline, state: options.baseline === null ? 'absent' : 'ok' };
-  }
-  const { baseline, state } = readShards(cwd, shardMap(suite.baselineFile, config?.targets));
-  return { baseline, state };
+function resolveBaselineRead(options: RunOptions, { cwd, suite, config }: CommonContext): ShardsRead {
+  if (options.baseline !== undefined) return shardsOfOne(suite.baselineFile, options.baseline);
+  return readShards(cwd, shardMap(suite.baselineFile, config?.targets));
 }
 
 /**
@@ -224,6 +221,6 @@ export function resolveRunContext(options: RunOptions): RunContext {
     pm: options.pm ?? detectPackageManager({ cwd: common.cwd }),
     pmAt: packageManagerAt(options.pm, common.cwd),
     baseline: read.baseline,
-    baselineState: read.state,
+    shards: read,
   };
 }

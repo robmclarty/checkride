@@ -38,5 +38,12 @@ A local file holds its target's `lang`, `checks`, `include`, `exclude`,
 `requirePins` or `schemas`, is exit 2 naming the file, and so is a key in the
 root entry beside `"local": true`.
 
+A baseline follows the same split. Each team's grandfathered findings sit in
+`web/checkride.baseline.json` and `services/api/checkride.baseline.json`, and
+the root `checkride.baseline.json` holds the keys of the repo-scope checks. A
+full run prunes each file on its own, so a finding fixed in `web/` changes
+`web/`'s file and no other. This example is clean, so it has none of the
+three.
+
 The root `package.json` installs tsc and links checkride from this repo, so
 `unclaimed.ignore` lists it.

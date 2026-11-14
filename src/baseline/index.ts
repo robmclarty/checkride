@@ -20,7 +20,8 @@ export {
   readBaselineAt,
   unionBaselines,
 } from './history.js';
-export { readShards, shardMap, shardOf } from './shards.js';
+export type { ShardChange, ShardsRead } from './shards.js';
+export { ratchetShards, readShards, shardMap, shardOf, shardsOfOne, writeShards } from './shards.js';
 export type { Baseline, BaselineEntry, BaselineRead, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,

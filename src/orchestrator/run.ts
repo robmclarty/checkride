@@ -12,8 +12,8 @@ import { performance } from 'node:perf_hooks';
 
 import { isInside, pruneDroppedTargets, SUMMARY_FILE } from '../artifacts/index.js';
 import { writeFileAtomic } from '../atomic.js';
-import type { Tally } from '../baseline/index.js';
-import { baselinesEqual, copyNamed, countGrandfathered, historicalHint, ratchet, writeBaseline } from '../baseline/index.js';
+import type { ShardChange, Tally } from '../baseline/index.js';
+import { copyNamed, countGrandfathered, historicalHint, ratchet, ratchetShards, shardsOfOne, writeShards } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
 import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
 import { digestOf, writeDigest } from '../digest/index.js';
@@ -181,8 +181,12 @@ function driftChurn(d: Drift, ratchets: boolean): string | null {
 
 /**
  * On a fully observed run, prune grandfathered diagnostics now fixed
- * (shrink-only, atomic). A consumer run prunes nothing and says once why not,
- * and only when there was something to prune.
+ * (shrink-only, atomic), in each baseline file on its own: a file is written
+ * only when what it holds changes, so a key fixed in one local target leaves
+ * every other file as it was. A key in a file that doesn't own its check
+ * moves to the one that does on the way (`ratchetShards`). A consumer run
+ * prunes nothing and says once why not, and only when there was something to
+ * prune.
  */
 async function maybeRatchet(
   ctx: RunContext,
@@ -190,18 +194,21 @@ async function maybeRatchet(
   restricted: boolean,
   consumer: string | null,
 ): Promise<void> {
-  const { baseline } = ctx;
-  if (!baseline || restricted) return;
-  const pruned = ratchet(baseline, observed);
-  if (baselinesEqual(baseline, pruned)) return;
+  if (restricted) return;
+  const changes = ratchetShards(ctx.shards, observed);
+  if (changes.length === 0) return;
   if (consumer !== null) {
-    if (!ctx.json) writeLine(ctx.stderr, `\nbaseline: not ratcheted, because a run with ${consumer} never writes ${ctx.suite.baselineFile}`);
+    if (!ctx.json) writeLine(ctx.stderr, `\nbaseline: not ratcheted, because a run with ${consumer} never writes ${changes.map((c) => c.file).join(', ')}`);
     return;
   }
-  await writeBaseline(ctx.cwd, pruned, ctx.suite.baselineFile);
-  if (!ctx.json) {
-    writeLine(ctx.stderr, `\nbaseline: ratcheted ${ctx.suite.baselineFile} to ${countGrandfathered(pruned)} grandfathered finding(s)`);
-  }
+  await writeShards(ctx.cwd, changes);
+  if (!ctx.json) writeLine(ctx.stderr, `\n${changes.map(ratchetedLine).join('\n')}`);
+}
+
+/** What the ratchet says of one file it changed: how many findings it grandfathers now, or that it's gone. */
+function ratchetedLine({ file, baseline }: ShardChange): string {
+  if (baseline === null) return `baseline: removed ${file}, whose target is no longer local: the root file holds its keys now`;
+  return `baseline: ratcheted ${file} to ${countGrandfathered(baseline)} grandfathered finding(s)`;
 }
 
 /**
@@ -255,12 +262,33 @@ function suiteWords(ctx: RunContext): string {
  */
 async function maybeRecoverHint(ctx: RunContext, ok: boolean, newKeys: readonly string[]): Promise<void> {
   if (ok || newKeys.length === 0) return;
-  const hint = await historicalHint(ctx.cwd, newKeys, { file: ctx.suite.baselineFile });
-  if (hint === null) return;
-  writeLine(
-    ctx.stderr,
-    `hint: ${hint.matched} of ${hint.total} new finding(s) were grandfathered until ${hint.shortSha} — a merge may have dropped baseline entries; see \`${suiteCommand('checkride recover', ctx.suite)}\`\n`,
-  );
+  const files = ctx.shards.files.map((read) => read.file);
+  const hints = await Promise.all(files.map((file) => historicalHint(ctx.cwd, newKeys, { file })));
+  hints.forEach((hint, at) => {
+    if (hint === null) return;
+    // One baseline file needs no naming; among several, the hint says whose history it read.
+    const where = files.length === 1 ? '' : ` in ${files[at]}`;
+    writeLine(
+      ctx.stderr,
+      `hint: ${hint.matched} of ${hint.total} new finding(s) were grandfathered${where} until ${hint.shortSha} — a merge may have dropped baseline entries; see \`${suiteCommand('checkride recover', ctx.suite)}\`\n`,
+    );
+  });
+}
+
+/**
+ * A line for each baseline file that masked nothing because it couldn't be
+ * read: a mangled one (a botched merge, usually), and a target's file that
+ * resolves outside the repository. Every finding it grandfathered reported
+ * red above, so the line names the file and what went red with it.
+ */
+function unreadBaselineLines(ctx: RunContext): string[] {
+  const recover = `See \`${suiteCommand('checkride recover', ctx.suite)}\`.`;
+  return ctx.shards.files.flatMap(({ file, state }) => {
+    const whose = file === ctx.shards.map.root ? 'grandfathered findings' : "its target's grandfathered findings";
+    if (state === 'unparseable') return [`baseline: ${file} is present but unparseable — possibly a botched merge; ${whose} report red. ${recover}\n`];
+    if (state === 'outside') return [`baseline: ${file} resolves outside the repository, so it wasn't read; ${whose} report red.\n`];
+    return [];
+  });
 }
 
 /**
@@ -325,7 +353,8 @@ async function withDiscovery(ctx: RunContext, options: RunOptions): Promise<RunC
     writeLine(ctx.stderr, `--discover: dropped checks.${slot}, since no discovered target sits at the repo root to take it`);
   }
   if (found.targets.length === 0) return ctx;
-  return { ...ctx, config: found.config, targets: found.targets, discovered: true, baseline: found.baseline };
+  // The entries took the root target's name, so the read the ratchet weighs is the renamed baseline, as one file.
+  return { ...ctx, config: found.config, targets: found.targets, discovered: true, baseline: found.baseline, shards: shardsOfOne(ctx.suite.baselineFile, found.baseline) };
 }
 
 /**
@@ -474,9 +503,7 @@ async function reportHuman(ctx: RunContext & { stderr: BlankAwareOut }, run: Fin
   // A mangled committed baseline (a botched merge, usually) masks nothing, so
   // every grandfathered finding above reported red — say so where the person
   // reading the wall of red will actually look, right under the summary.
-  if (ctx.baselineState === 'unparseable') {
-    writeLine(ctx.stderr, `baseline: ${ctx.suite.baselineFile} is present but unparseable — possibly a botched merge; grandfathered findings report red. See \`${suiteCommand('checkride recover', ctx.suite)}\`.\n`);
-  }
+  for (const line of unreadBaselineLines(ctx)) writeLine(ctx.stderr, line);
   reportDrift(ctx.stderr, run.drifts, run.run, ctx.suite);
   await reportUnreached(ctx, run.selected);
   await maybeRecoverHint(ctx, run.summary.ok, run.newKeys);

@@ -12,7 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -582,8 +582,8 @@ const shardsRed: CheckRunner = (r) => Promise.resolve({
 
 /**
  * Contract: a local target keeps its keys in a baseline file at its own root
- * (§`checkride.baseline.json`, A local target's file). This step locks the
- * names and the read; the writers follow.
+ * (§`checkride.baseline.json`, A local target's file): its name, the read,
+ * and the ratchet, which writes each file on its own.
  */
 describe("a local target's baseline file", () => {
   let dir: string;
@@ -656,6 +656,71 @@ describe("a local target's baseline file", () => {
     await put('web/checkride.baseline.json', '<<<<<<< HEAD\n{\n');
     await put('services/api/checkride.baseline.json', API);
     expect(await passed()).toEqual({ 'web:lint': false, 'api:lint': true, spell: true });
+  });
+
+  /** A full run: each target's lint finds what `web` and `api` say, `spell` its word, and every other check passes. */
+  const full = (found: { web: boolean; api: boolean }, over: object = {}): ReturnType<typeof runChecks> =>
+    runChecks({
+      cwd: dir,
+      config,
+      runner: (r, ctx) => {
+        const quiet = r.slot !== 'spell' && r.slot !== 'lint';
+        const fixed = r.slot === 'lint' && !(r.target === 'web' ? found.web : found.api);
+        return quiet || fixed ? Promise.resolve({ ok: true, exit_code: 0, stdout: r.slot === 'lint' ? '{"diagnostics":[]}' : '', stderr: '' }) : shardsRed(r, ctx);
+      },
+      stdout: sink().out,
+      stderr: sink().out,
+      ...over,
+    });
+
+  const text = (file: string): Promise<string> => readFile(join(dir, file), 'utf8');
+
+  /** The three files as written by hand, compact, so a rewrite shows in the bytes. */
+  async function eachItsOwn(): Promise<string[]> {
+    await put(BASELINE_FILE, ROOT);
+    await put('web/checkride.baseline.json', WEB);
+    await put('services/api/checkride.baseline.json', API);
+    return [JSON.stringify(ROOT), JSON.stringify(WEB), JSON.stringify(API)];
+  }
+
+  test("a full run that prunes a key in web rewrites web's file, canonical, and leaves api's and the root file byte-identical", async () => {
+    const [root, , api] = await eachItsOwn();
+    const result = await full({ web: false, api: true });
+    expect(result.ok).toBe(true);
+    const web = await text('web/checkride.baseline.json');
+    expect(web).toBe(`${JSON.stringify({ schema_version: 1, slots: { 'web:lint': [] } }, null, 2)}\n`);
+    expect(validateBaseline(JSON.parse(web))).toBe(true);
+    expect(await text('services/api/checkride.baseline.json')).toBe(api);
+    expect(await text(BASELINE_FILE)).toBe(root);
+  });
+
+  test('a full run moves a stray key to the file that owns it, and removes a file its target no longer owns', async () => {
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, ...WEB.slots } });
+    await put('services/api/checkride.baseline.json', API);
+    const turnedBack = { ...config, targets: { ...config.targets, api: { lang: 'ts' as const, root: 'services/api', checks: { lint: 'oxlint' } } } };
+    const result = await full({ web: true, api: true }, { config: turnedBack });
+    expect(result.ok).toBe(true);
+    expect((JSON.parse(await text(BASELINE_FILE)) as Baseline).slots).toEqual({ ...API.slots, ...ROOT.slots });
+    expect((JSON.parse(await text('web/checkride.baseline.json')) as Baseline).slots).toEqual(WEB.slots);
+    expect(existsSync(join(dir, 'services/api/checkride.baseline.json'))).toBe(false);
+  });
+
+  test('a partial run writes none of them', async () => {
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, ...WEB.slots } });
+    await put('services/api/checkride.baseline.json', API);
+    const before = [await text(BASELINE_FILE), await text('services/api/checkride.baseline.json')];
+    await full({ web: false, api: false }, { only: ['lint', 'spell'] });
+    await full({ web: false, api: false }, { skip: ['links'] });
+    expect([await text(BASELINE_FILE), await text('services/api/checkride.baseline.json')]).toEqual(before);
+    expect(existsSync(join(dir, 'web/checkride.baseline.json'))).toBe(false);
+  });
+
+  test("a file that can't be parsed is never written", async () => {
+    await put(BASELINE_FILE, { schema_version: 1, slots: { ...ROOT.slots, ...WEB.slots } });
+    await put('web/checkride.baseline.json', '<<<<<<< HEAD\n{\n');
+    await full({ web: true, api: true });
+    expect(await text('web/checkride.baseline.json')).toBe('<<<<<<< HEAD\n{\n');
+    expect((JSON.parse(await text(BASELINE_FILE)) as Baseline).slots).toEqual({ ...ROOT.slots, ...WEB.slots });
   });
 
   test('a repo with no target below its root reads the root file alone', async () => {

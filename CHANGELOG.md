@@ -79,9 +79,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and a file left at the root of a target that is no longer local, so
   turning `local` on or off turns no grandfathered finding red. A file that
   can't be parsed masks nothing of its own, and the others mask as usual. A
-  named suite's file is `<root>/checkride.<suite>.baseline.json`. The
-  writers follow: until they land, `checkride baseline` and the ratchet
-  still write the root file alone.
+  named suite's file is `<root>/checkride.<suite>.baseline.json`.
+
+- **The ratchet prunes each baseline file on its own.** A full run writes a
+  file only when what it holds changes, so a key fixed in `web` rewrites
+  `web/checkride.baseline.json` and leaves the root file and every other
+  target's byte-identical: two changes in two targets edit two files. On
+  the way, a key in a file that doesn't own its check moves home. A local
+  target's keys still in the root file move to its own, and a file left by
+  a target that is no longer local gives its keys to the root file and is
+  removed. A file that can't be parsed is never written, the warning under
+  the summary names it, and the red-run hint names the file whose history
+  held the findings. A partial run writes none of them, as before.
 
 ### Removed
 
@@ -110,6 +119,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hold one check, each file's own state, and the containment rule on a
   target's file are promised, and locked by `baseline.contract.test.ts`. A
   repo with no file at any target's root reads the one file it always has.
+- **The ratchet may write more than one file, and remove one.** Each file is
+  written only when what it holds changes, a stray key moves to the file
+  that owns its check, a file its target left behind is removed once its
+  keys are in the root file, and a file that couldn't be read is never
+  written. stderr's `baseline: ratcheted <file> to N grandfathered
+  finding(s)` now comes once for each file written, and the unparseable
+  warning and the red-run hint name a target's file. A repo with one
+  baseline file sees the lines it saw before.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

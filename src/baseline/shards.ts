@@ -21,6 +21,11 @@
  * Each file has its own state. One that can't be parsed masks nothing of its
  * own, and every other file masks as usual.
  *
+ * A writer goes through the same map ({@link ratchetShards}): each check's
+ * keys land in the file that owns them and leave every other file, so a stray
+ * key moves home, and a file is written only when what it holds changes. No
+ * writer touches a file it couldn't read.
+ *
  * A target's root comes from a config, which isn't trusted, so a file at one
  * is read under the containment rule (`../contain.ts`): a link that leads
  * outside the repository is never opened. The root file is read as it always
@@ -28,14 +33,16 @@
  * the map takes a config's `targets` block as it is composed.
  */
 
+import { rm } from 'node:fs/promises';
 import { join, posix } from 'node:path';
 
 import type { Root } from '../contain.js';
 import { locatedSync, repoRoot } from '../contain.js';
 import { isRecord } from '../json.js';
+import type { Tally } from './fingerprint.js';
 import { unionBaselines } from './history.js';
 import type { Baseline, BaselineRead } from './store.js';
-import { readBaselineFile, readBaselineStatus } from './store.js';
+import { BASELINE_SCHEMA_VERSION, baselinesEqual, ratchet, readBaselineFile, readBaselineStatus, writeBaseline } from './store.js';
 
 /** A baseline file at a target's root. */
 export type Shard = {
@@ -130,9 +137,10 @@ export type ShardRead = { file: string; baseline: Baseline | null; state: Baseli
 /**
  * Every file of a baseline as a run reads it: `baseline`, what the files
  * grandfather together, or `null` when none of them could be read; `state`,
- * the root file's; and `files`, each file's own read, the root file first.
+ * the root file's; `files`, each file's own read, the root file first; and
+ * `map`, the map they were read by.
  */
-export type ShardsRead = BaselineRead & { files: readonly ShardRead[] };
+export type ShardsRead = BaselineRead & { map: ShardMap; files: readonly ShardRead[] };
 
 /** The file at a target's root, read where it really is, or not at all when that is outside the repository. */
 function readShard(cwd: string, contain: Root, file: string): ShardRead {
@@ -187,9 +195,88 @@ function together(map: ShardMap, files: readonly ShardRead[]): Baseline | null {
 export function readShards(cwd: string, map: ShardMap): ShardsRead {
   const root = readBaselineStatus(cwd, 'current', map.root);
   const rootRead: ShardRead = { file: map.root, ...root };
-  if (map.shards.length === 0) return { ...root, files: [rootRead] };
+  if (map.shards.length === 0) return { ...root, map, files: [rootRead] };
   const contain = repoRoot(cwd);
   const files = [rootRead, ...map.shards.map((shard) => readShard(cwd, contain, shard.file))];
-  if (files.every((read) => read === rootRead || read.state === 'absent')) return { ...root, files };
-  return { baseline: together(map, files), state: root.state, files };
+  if (files.every((read) => read === rootRead || read.state === 'absent')) return { ...root, map, files };
+  return { baseline: together(map, files), state: root.state, map, files };
+}
+
+/**
+ * A baseline handed to a run in place of the files, as a read of the root
+ * file alone: what a writer then treats as the one file there is.
+ */
+export function shardsOfOne(file: string, baseline: Baseline | null): ShardsRead {
+  const state = baseline === null ? 'absent' : 'ok';
+  return { baseline, state, map: { root: file, shards: [] }, files: [{ file, baseline, state }] };
+}
+
+/** One file a writer changes: what it holds from now on, or `null` for a file to remove. */
+export type ShardChange = { file: string; baseline: Baseline | null };
+
+/** True for a file no writer may touch: one that couldn't be parsed, or that sits outside the repository. */
+function unwritable(read: ShardRead): boolean {
+  return read.state === 'unparseable' || read.state === 'outside';
+}
+
+/** `parts`, which hold no check in common, as one baseline of schema version `version`. */
+function joined(parts: readonly Baseline[], version: number): Baseline {
+  const held = parts.filter((part) => Object.keys(part.slots).length > 0);
+  const [only] = held;
+  const whole = held.length === 1 && only !== undefined ? only : unionBaselines(held);
+  return { ...whole, schema_version: version };
+}
+
+/**
+ * What one file holds once `next` is spread over the files: the checks it
+ * owns, as `next` has them, with what it already held that isn't a writer's
+ * to move, which is every entry the read doesn't admit and each stray one
+ * whose owner is a file in `frozen`.
+ */
+function spreadTo(map: ShardMap, read: ShardRead, next: Baseline, frozen: ReadonlySet<string>): Baseline {
+  const shard = map.shards.find((s) => s.file === read.file);
+  const stays = (check: string): boolean => (shard !== undefined && !holds(shard, check)) || frozen.has(shardOf(map, check));
+  const owned = entriesOf(next, (check) => shardOf(map, check) === read.file);
+  const kept = read.baseline === null ? [] : [entriesOf(read.baseline, stays)];
+  return joined([owned, ...kept], read.baseline?.schema_version ?? BASELINE_SCHEMA_VERSION);
+}
+
+/** The change `spread` makes to the file `read` is of, or none: a file left out when it would hold nothing, and removed when a target left it behind and its keys have gone home. */
+function changeTo(map: ShardMap, read: ShardRead, spread: Baseline): ShardChange[] {
+  const empty = Object.keys(spread.slots).length === 0;
+  if (read.baseline === null) return empty ? [] : [{ file: read.file, baseline: spread }];
+  if (baselinesEqual(read.baseline, spread)) return [];
+  const leftBehind = map.shards.some((s) => s.file === read.file && s.local.length === 0);
+  return [{ file: read.file, baseline: leftBehind && empty ? null : spread }];
+}
+
+/**
+ * The files to change so that each check of `next`, the whole baseline as it
+ * should now read, sits in the file that owns it and in no other. A file
+ * that already says so is left out, so it stays byte-identical. A file that
+ * couldn't be read is never written, and neither is any other file's entry
+ * for a check it owns, which stays where it is until the file is repaired.
+ * An entry the read doesn't admit is nobody's to move, and stays too.
+ */
+function spreadOver(read: ShardsRead, next: Baseline): ShardChange[] {
+  const frozen = new Set(read.files.filter(unwritable).map((file) => file.file));
+  return read.files.flatMap((file) => (frozen.has(file.file) ? [] : changeTo(read.map, file, spreadTo(read.map, file, next, frozen))));
+}
+
+/**
+ * The ratchet over every file: the files a fully observed run changes, each
+ * with what it holds from then on. Each check's keys are pruned to what the
+ * run found (`ratchet`) and land in the file that owns them, so a key fixed
+ * in `web` rewrites `web`'s file alone, a local target's keys still in the
+ * root file move to its own, and a file a target left behind gives its keys
+ * to the root file and is removed. Nothing here grows what the files
+ * grandfather together.
+ */
+export function ratchetShards(read: ShardsRead, observed: ReadonlyMap<string, Tally>): ShardChange[] {
+  return read.baseline === null ? [] : spreadOver(read, ratchet(read.baseline, observed));
+}
+
+/** Make `changes` in the repo at `cwd`: each file written canonical and atomically, as `writeBaseline` writes one, or removed. */
+export async function writeShards(cwd: string, changes: readonly ShardChange[]): Promise<void> {
+  await Promise.all(changes.map(({ file, baseline }) => (baseline === null ? rm(join(cwd, file), { force: true }) : writeBaseline(cwd, baseline, file))));
 }

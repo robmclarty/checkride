@@ -706,6 +706,29 @@ A repo with no target below its root reads the one file at its root, as it
 always has, and so does one with no file at any target's root. A baseline
 handed to `runChecks` stands in for every file.
 
+The ratchet writes each file on its own, under the rule above: only a fully
+observed run of the repo's own writes any, and a partial run writes none.
+
+- A file is written only when what it holds changes, so a key fixed in `web`
+  rewrites `web/checkride.baseline.json` and leaves every other file
+  byte-identical.
+- Each check's keys land in the file that owns them and leave every other
+  file. A local target's keys still in the root file move to its own, which
+  the run creates when it isn't there, and a file left by a target that is
+  no longer local gives its keys to the root file and is removed. A baseline
+  file at a target's root that holds none of that target's checks, a nested
+  repo's own, say, was never its shard, and is left alone.
+- A file that couldn't be parsed, or that resolves outside the repository,
+  is never written, and an entry another file holds for one of its checks
+  stays where it is, unpruned, until the file is repaired. The warning under
+  the summary names the file, and `recover` restores it.
+- An entry in a target's file for a check that isn't its target's is never
+  read, and no writer moves or drops it.
+- stderr names each file written, `baseline: ratcheted
+  web/checkride.baseline.json to 3 grandfathered finding(s)`, and each one
+  removed. The red-run hint reads each file's history, and names the file
+  when there is more than one.
+
 ## CLI
 
 The command set — `checkride` (run), `init`, `doctor`, `fix`, `baseline`,

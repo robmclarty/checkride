@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -244,6 +245,151 @@ describe('runChecks over local targets, each with its own baseline file (D10)', 
   });
 });
 
+/** A runner where each target's lint reports `found[<target>]`, `spell` its one unknown word when `found.spell` is set, and every other check passes. */
+function shardRunner(found: { web?: [string, string, string][]; api?: [string, string, string][]; spell?: boolean }): CheckRunner {
+  return (r) => {
+    if (r.slot === 'spell') return Promise.resolve({ ok: found.spell !== true, exit_code: found.spell === true ? 1 : 0, stdout: found.spell === true ? CSPELL_LINE : '', stderr: '' });
+    if (r.slot !== 'lint') return Promise.resolve({ ok: true, exit_code: 0, stdout: '', stderr: '' });
+    const findings = (r.target === 'web' ? found.web : found.api) ?? [];
+    return Promise.resolve({ ok: findings.length === 0, exit_code: findings.length === 0 ? 0 : 1, stdout: oxlint(findings), stderr: '' });
+  };
+}
+
+describe('the ratchet over local targets, each file on its own (D10)', () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-orch-shard-ratchet-'));
+    await writeFiles(dir, {
+      'web/checkride.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+      'services/api/checkride.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+    });
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const local: CheckrideConfig = {
+    targets: { web: { root: 'web', local: true }, api: { root: 'services/api', local: true } },
+    checks: { spell: 'cspell' },
+  };
+
+  const ROOT = 'checkride.baseline.json';
+  const WEB = 'web/checkride.baseline.json';
+  const API = 'services/api/checkride.baseline.json';
+  const WEB_A = 'web/src/a.ts:no-x:bad';
+  const WEB_B = 'web/src/b.ts:no-y:worse';
+  const API_A = 'services/api/src/a.ts:no-x:bad';
+
+  const text = (file: string): Promise<string> => readFile(join(dir, file), 'utf8');
+  const held = async (file: string): Promise<Record<string, string[]>> => (JSON.parse(await text(file)) as Baseline).slots;
+
+  /** Everything the three files grandfather still found: nothing to prune. */
+  const allFound = { web: [['src/a.ts', 'no-x', 'bad'], ['src/b.ts', 'no-y', 'worse']], api: [['src/a.ts', 'no-x', 'bad']], spell: true } satisfies Parameters<typeof shardRunner>[0];
+
+  /** The three files, each holding its own checks, written compact so a rewrite shows in the bytes. */
+  async function eachItsOwn(): Promise<void> {
+    await writeFiles(dir, {
+      [ROOT]: slots({ spell: [SPELL_KEY] }),
+      [WEB]: slots({ 'web:lint': [WEB_A, WEB_B] }),
+      [API]: slots({ 'api:lint': [API_A] }),
+    });
+  }
+
+  test("a key fixed in web rewrites web's file, and leaves api's and the root file byte-identical", async () => {
+    await eachItsOwn();
+    const err = sink();
+    const result = await runChecks({ cwd: dir, config: local, runner: shardRunner({ ...allFound, web: [['src/a.ts', 'no-x', 'bad']] }), stderr: err.out });
+    expect(result.exitCode).toBe(0);
+    expect(await text(WEB)).toBe(`${JSON.stringify({ schema_version: 1, slots: { 'web:lint': [WEB_A] } }, null, 2)}\n`);
+    expect(await text(API)).toBe(slots({ 'api:lint': [API_A] }));
+    expect(await text(ROOT)).toBe(slots({ spell: [SPELL_KEY] }));
+    expect(err.text()).toContain('\nbaseline: ratcheted web/checkride.baseline.json to 1 grandfathered finding(s)\n');
+    expect(err.text()).not.toContain(`ratcheted ${ROOT}`);
+  });
+
+  test('a full run with nothing fixed and every key at home writes no file', async () => {
+    await eachItsOwn();
+    const err = sink();
+    await runChecks({ cwd: dir, config: local, runner: shardRunner(allFound), stderr: err.out });
+    expect([await text(ROOT), await text(WEB), await text(API)]).toEqual([slots({ spell: [SPELL_KEY] }), slots({ 'web:lint': [WEB_A, WEB_B] }), slots({ 'api:lint': [API_A] })]);
+    expect(err.text()).not.toContain('ratcheted');
+  });
+
+  test("a local target's keys still in the root file move to its own, which the run makes (D28)", async () => {
+    await writeFiles(dir, { [ROOT]: slots({ spell: [SPELL_KEY], 'web:lint': [WEB_A, WEB_B], 'api:lint': [API_A] }), [API]: slots({ 'api:lint': [] }) });
+    const err = sink();
+    const result = await runChecks({ cwd: dir, config: local, runner: shardRunner(allFound), stderr: err.out });
+    expect(result.exitCode).toBe(0);
+    expect(await held(ROOT)).toEqual({ spell: [SPELL_KEY] });
+    expect(await held(WEB)).toEqual({ 'web:lint': [WEB_A, WEB_B] });
+    expect(await held(API)).toEqual({ 'api:lint': [API_A] });
+    expect(err.text()).toContain(
+      '\nbaseline: ratcheted checkride.baseline.json to 1 grandfathered finding(s)\n' +
+      'baseline: ratcheted web/checkride.baseline.json to 2 grandfathered finding(s)\n' +
+      'baseline: ratcheted services/api/checkride.baseline.json to 1 grandfathered finding(s)\n',
+    );
+  });
+
+  test('a file left by a target that is no longer local gives its keys to the root file and is removed (D37)', async () => {
+    await writeFiles(dir, { [ROOT]: slots({ spell: [SPELL_KEY] }), [WEB]: slots({ 'web:lint': [WEB_A, WEB_B] }), [API]: slots({ 'api:lint': [API_A] }) });
+    const turnedBack: CheckrideConfig = {
+      targets: { web: { root: 'web', local: true }, api: { lang: 'ts', root: 'services/api', checks: { lint: 'oxlint' } } },
+      checks: { spell: 'cspell' },
+    };
+    const err = sink();
+    const result = await runChecks({ cwd: dir, config: turnedBack, runner: shardRunner(allFound), stderr: err.out });
+    expect(result.exitCode).toBe(0);
+    expect(await held(ROOT)).toEqual({ 'api:lint': [API_A], spell: [SPELL_KEY] });
+    expect(existsSync(join(dir, API))).toBe(false);
+    expect(await text(WEB)).toBe(slots({ 'web:lint': [WEB_A, WEB_B] }));
+    expect(err.text()).toContain('baseline: removed services/api/checkride.baseline.json, whose target is no longer local: the root file holds its keys now\n');
+  });
+
+  test("a baseline file at a target's root that holds none of its checks is nobody's shard, and is left alone", async () => {
+    const nested = slots({ lint: ['src/a.ts:no-x:bad'] });
+    await writeFiles(dir, { [ROOT]: slots({ spell: [SPELL_KEY, 'docs/gone.md::fixd'] }), [API]: nested });
+    const plain: CheckrideConfig = { targets: { api: { lang: 'ts', root: 'services/api', checks: { lint: 'oxlint' } } }, checks: { spell: 'cspell' } };
+    await runChecks({ cwd: dir, config: plain, runner: shardRunner({ spell: true }), stderr: sink().out });
+    expect(await held(ROOT)).toEqual({ spell: [SPELL_KEY] });
+    expect(await text(API)).toBe(nested);
+  });
+
+  test('a partial run writes none of them', async () => {
+    await writeFiles(dir, { [ROOT]: slots({ spell: [SPELL_KEY], 'web:lint': [WEB_A] }), [WEB]: slots({ 'web:lint': [WEB_B] }), [API]: slots({ 'api:lint': [API_A] }) });
+    const before = [await text(ROOT), await text(WEB), await text(API)];
+    await runChecks({ cwd: dir, config: local, runner: shardRunner({}), only: ['lint', 'spell'], stderr: sink().out });
+    await runChecks({ cwd: dir, config: local, runner: shardRunner({}), skip: ['links'], stderr: sink().out });
+    expect([await text(ROOT), await text(WEB), await text(API)]).toEqual(before);
+  });
+
+  test("a file that can't be parsed is never written, and its target's keys in the root file stay where they are (D47)", async () => {
+    const mangled = '<<<<<<< HEAD\n{ mangled\n';
+    await writeFiles(dir, { [ROOT]: slots({ spell: [SPELL_KEY], 'web:lint': [WEB_A, WEB_B], 'api:lint': [API_A] }), [WEB]: mangled });
+    const err = sink();
+    await runChecks({ cwd: dir, config: local, runner: shardRunner({ api: [['src/a.ts', 'no-x', 'bad']] }), stderr: err.out });
+    expect(await text(WEB)).toBe(mangled);
+    // spell's key is pruned and api's moves home, while web's two stay, unpruned, until its file is repaired.
+    expect(await held(ROOT)).toEqual({ spell: [], 'web:lint': [WEB_A, WEB_B] });
+    expect(await held(API)).toEqual({ 'api:lint': [API_A] });
+    expect(err.text()).toContain("baseline: web/checkride.baseline.json is present but unparseable — possibly a botched merge; its target's grandfathered findings report red. See `checkride recover`.\n");
+    expect(err.text()).not.toContain('baseline: checkride.baseline.json is present');
+  });
+
+  test("an entry in a target's file that isn't its target's is nobody's to move, and stays through a rewrite", async () => {
+    await writeFiles(dir, { [WEB]: slots({ 'web:lint': [WEB_A, WEB_B], 'api:lint': ['not-webs'], spell: ['nor-this'] }) });
+    await runChecks({ cwd: dir, config: local, runner: shardRunner({ web: [['src/a.ts', 'no-x', 'bad']] }), stderr: sink().out });
+    expect(await held(WEB)).toEqual({ 'api:lint': ['not-webs'], spell: ['nor-this'], 'web:lint': [WEB_A] });
+    expect(existsSync(join(dir, ROOT))).toBe(false);
+  });
+
+  test('a consumer run writes none of them, and names the files it would have', async () => {
+    await eachItsOwn();
+    await writeFile(join(dir, 'defaults.json'), '{}');
+    const err = sink();
+    await runChecks({ cwd: dir, config: local, runner: shardRunner({}), defaults: { path: 'defaults.json', config: {} }, stderr: err.out });
+    expect([await text(ROOT), await text(WEB), await text(API)]).toEqual([slots({ spell: [SPELL_KEY] }), slots({ 'web:lint': [WEB_A, WEB_B] }), slots({ 'api:lint': [API_A] })]);
+    expect(err.text()).toContain('baseline: not ratcheted, because a run with --defaults never writes checkride.baseline.json, web/checkride.baseline.json, services/api/checkride.baseline.json\n');
+  });
+});
+
 describe('runFix with targets', () => {
   test("a target's fixer runs under the package manager declared nearest its root", async () => {
     const dir = await mkdtemp(join(tmpdir(), 'checkride-fix-targets-'));
@@ -418,6 +564,32 @@ describe.skipIf(!gitAvailable)('runChecks --changed with targets (S10)', () => {
       'web:lint: no changes under frontend',
       'api:lint: no changes under api',
     ]);
+  });
+});
+
+describe.skipIf(!gitAvailable)('the red-run hint over local targets', () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-shard-hint-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  test("names the target's file whose history grandfathered the new findings", async () => {
+    gitIn(dir, 'init', '-q', '-b', 'main');
+    await writeFiles(dir, {
+      '.gitignore': '.check/\n',
+      'checkride.baseline.json': slots({ spell: [SPELL_KEY] }),
+      'web/checkride.config.json': JSON.stringify({ lang: 'ts', checks: { lint: 'oxlint' } }),
+      'web/checkride.baseline.json': slots({ 'web:lint': ['web/src/a.ts:no-x:bad'] }),
+    });
+    gitIn(dir, 'add', '.');
+    gitIn(dir, 'commit', '-q', '-m', 'baseline');
+    // A merge that dropped web's entry: the finding it grandfathered reads as new.
+    await writeFile(join(dir, 'web/checkride.baseline.json'), slots({ 'web:lint': [] }));
+    const err = sink();
+    const webLocal: CheckrideConfig = { targets: { web: { root: 'web', local: true } }, checks: { spell: 'cspell' } };
+    const result = await runChecks({ cwd: dir, config: webLocal, runner: shardRunner({ web: [['src/a.ts', 'no-x', 'bad']], spell: true }), only: ['lint', 'spell'], stderr: err.out });
+    expect(result.exitCode).toBe(1);
+    expect(err.text()).toMatch(/hint: 1 of 1 new finding\(s\) were grandfathered in web\/checkride\.baseline\.json until [0-9a-f]{7,} — a merge may have dropped baseline entries; see `checkride recover`\n/);
+    expect(err.text()).not.toContain('grandfathered in checkride.baseline.json');
   });
 });
 
