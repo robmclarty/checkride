@@ -33,6 +33,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `GITHUB_STEP_SUMMARY` warns and writes nothing; neither changes the exit
   code. `docs/ci.md` shows the recipe, and this repo's CI sets it in one job.
 
+### Fixed
+
+- **Cursor's protect hook reads its payload before it answers without
+  checkride.** On a `PATH` with no checkride, the command-form hook used to
+  exit before Cursor had finished writing the payload, which broke the pipe
+  under the writer (EPIPE) and failed a CI run. It now reads stdin to the end
+  with a shell builtin first, so it needs no `cat` either.
+
 ### Contract
 
 - **A run gains `--summary github` and `CHECKRIDE_SUMMARY`.** The flag joins

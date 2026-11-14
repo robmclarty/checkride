@@ -232,6 +232,13 @@ function guardFailed(entry: EntryCommand, args: readonly string[]): string {
 }
 
 /**
+ * Read stdin to the end and drop it, with nothing but shell builtins: the
+ * `PATH` this runs on may hold no `cat`. A last line with no newline still
+ * ends the loop, since `read` consumes it before it reports end of input.
+ */
+const DRAIN_STDIN = 'while IFS= read -r line; do :; done';
+
+/**
  * The command form of Cursor's `protect` hook, for a repo whose entry command
  * is mise's checkride or the one on `PATH`: `checkride protect`, behind the
  * guard the gate script has for a checkride that isn't there.
@@ -251,12 +258,19 @@ function guardFailed(entry: EntryCommand, args: readonly string[]): string {
  *
  * The messages keep to the rule above: no double quote and no backslash,
  * since `printf` builds the JSON body around them.
+ *
+ * Before it answers on that path, the hook reads its payload to the end
+ * (`DRAIN_STDIN`). A checkride that isn't there never reads it, and a hook that
+ * exits before the harness has finished writing breaks the pipe under it: the
+ * writer sees EPIPE, which failed CI run 43534933010, and Cursor writes the
+ * same payload.
  */
 export function protectHookCommand(entryLike: EntryLike, harness: HarnessName): string {
   const entry = asEntry(entryLike);
   const args = ['protect', '--harness', harness];
   return [
     `out=$(${entryCheckride(entry, args)}) && { printf %s "$out"; exit 0; }`,
+    DRAIN_STDIN,
     `if ${installedTest(entry)}; then m=${shellWord(guardFailed(entry, args))}; else m=${shellWord(guardMissing(entry))}; fi`,
     String.raw`printf '%s\n' "$m" >&2`,
     String.raw`printf '{"permission":"allow","user_message":"%s","agent_message":"%s"}\n' "$m" "$m"`,

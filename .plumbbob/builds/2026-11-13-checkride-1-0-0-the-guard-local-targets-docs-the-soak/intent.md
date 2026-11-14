@@ -191,6 +191,7 @@ one run · one summary · one exit code · target names one flat set
 - <a id="d44"></a>**D44 (one-root-one-local)**: two local targets at one root are exit 2 naming both, and a local target at the declaring file's own directory is exit 2 naming the file, *because* a root holds one local file, with one `lang` and one shard ([Q24 (one-root-one-local)](#q24)).
 - <a id="d45"></a>**D45 (walk-up-without-git)**: with no git work tree there is no walk-up, and a command reads the directory it is run in, as today, *because* [D33 (walk-up-everywhere)](#d33) stops at the git top level, and a walk to the filesystem root could find a stray config ([Q25 (walk-up-without-git)](#q25)).
 - <a id="d46"></a>**D46 (summary-variable)**: `CHECKRIDE_SUMMARY` names the summary format when `--summary` doesn't, the gate strips it as it strips `CHECKRIDE_ANNOTATE`, and the table is appended to the file under a heading that names the suite, *because* `ci.yml` runs `pnpm check` in six jobs and one of them sets it, and a second run in a step must not erase the first table ([Q26 (summary-variable)](#q26)).
+- <a id="d48"></a>**D48 (hook-drains-stdin)**: Cursor's command-form protect hook reads its payload to the end with a shell-builtin `read` loop on every path that doesn't run `checkride protect`, so a missing checkride never exits before the payload is written, and no `cat` is needed on an empty `PATH`, *because* CI run 43534933010 failed on the EPIPE that race produces, and Cursor writes the same payload (harvested at range 1's stop, 2026-11-13).
 - <a id="d47"></a>**D47 (mangled-shard)**: a baseline's state is per file. A shard that can't be parsed turns its own target's grandfathered findings red, the warning and the recover hint name it, and every other file masks as usual. No ratchet, move or `checkride baseline` writes over a file it couldn't parse, *because* a bad merge mangles one file, and the working tree's copy is what `recover` unions with ([Q27 (mangled-shard)](#q27)).
 
 ## Constraints
@@ -213,12 +214,16 @@ one run · one summary · one exit code · target names one flat set
 1. [x] feat(baseline): fail baseline diff on added keys, **done when:** a contract test shows `baseline diff --fail-on-added` exits 1 on an added key and on a grown count, exit 0 on removals alone, exit 0 without the flag, exit 1 on any key when `<ref>` holds no baseline file, and `docs/ci.md`'s recipe runs it as its own job against the merge base
    - seam: `src/baseline-command.ts`, `src/cli.ts`, `src/__tests__/baseline.test.ts`, `src/__tests__/cli.test.ts`, `test/contract/baseline.contract.test.ts`, `docs/contract.md`, `docs/ci.md`, `docs/cheatsheet.md`, `docs/consumers.md`, `README.md`, `site/api.html`, `CHANGELOG.md`
    - model: opus (the count rule: `recounted` holds decreases too, and a `from` of null means any number)
-2. [ ] feat(cli): add --summary github for the step summary, **done when:** a contract test pins the table's columns, the flag's refusals, `CHECKRIDE_SUMMARY` and that a second run appends, the gate strips the variable, and `ci.yml` sets it in one job, with `CHECKRIDE_BASE` set and a checkout deep enough to reach it
+2. [x] feat(cli): add --summary github for the step summary, **done when:** a contract test pins the table's columns, the flag's refusals, `CHECKRIDE_SUMMARY` and that a second run appends, the gate strips the variable, and `ci.yml` sets it in one job, with `CHECKRIDE_BASE` set and a checkout deep enough to reach it
    - seam: `src/orchestrator/step-summary.ts` (new), `src/orchestrator/index.ts`, `src/orchestrator/run.ts`, `src/orchestrator/context.ts`, `src/orchestrator/types.ts`, `src/cli.ts`, `src/gate.ts`, `src/__tests__/gate.test.ts`, `src/orchestrator/__tests__/step-summary.test.ts` (new), `test/contract/step-summary.contract.test.ts` (new), `test/contract/flags.contract.test.ts`, `.github/workflows/ci.yml`, `docs/contract.md`, `docs/ci.md`, `docs/cheatsheet.md`, `README.md`, `site/api.html`, `CHANGELOG.md`
    - model: opus (modelled on `--annotate github`; the base is [D25 (summary-base)](#d25), the variable and the append [D46 (summary-variable)](#d46))
 3. [ ] feat(api)!: trim the barrel to the names consumers use, **done when:** `test/contract/exports.contract.test.ts` lists exactly the names that stay, and the contract's Programmatic surface section matches it
    - seam: `src/index.ts`, `src/__tests__/index.test.ts`, `test/contract/exports.contract.test.ts`, `docs/contract.md`, `docs/consumers.md`, `README.md`, `site/api.html`, `CHANGELOG.md`
    - model: opus (the survey reads atis, volley, plumbbob and runciter under `~/Projects`; the pause shows every name with who uses it and whether it stays)
+
+21. [ ] fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing, **done when:** the command-form hook reads stdin to the end before it answers on a `PATH` with no checkride, a unit test pins the read in the command, and `test/e2e/binary.e2e.test.ts`'s no-node Cursor case passes under `pnpm test:e2e`
+   - seam: `src/agent-setup/scripts.ts`, `src/agent-setup/__tests__/hooks.test.ts`, `test/e2e/binary.e2e.test.ts`, `CHANGELOG.md`
+   - model: sonnet (one shell line; [D48 (hook-drains-stdin)](#d48))
 
 ### 0.24.0: config that lives with the code
 
@@ -282,6 +287,8 @@ one run · one summary · one exit code · target names one flat set
 
 ## Build order
 
+21, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20
+
 ## Build ranges
 
 Drive the build with `/plumbbob:run`, one range at a time. Each release of the brief ends at a
@@ -291,6 +298,9 @@ stop, and 0.23.0 and 0.24.0 each hold one more call before their last range
 1. `/plumbbob:build 1-2`, **stop:** push, and confirm this repo's CI run shows the step summary table on the run's page
    - model: opus
    - note: 0.23.0, first half. Step 2's done-when in the spec ends on "this repo's own CI run shows it", which only a push can show.
+7. `/plumbbob:build 21`, **stop:** push, and confirm this repo's CI run is green on every job
+   - model: sonnet
+   - note: P1 from range 1's stop. Run `pnpm test:e2e` in the foreground before its checkpoint ([C6 (foreground-only)](#c6)).
 2. `/plumbbob:build 3`, **stop:** at step 3's pause, review the list of names the barrel trim removes before it is committed; once it lands, release 0.23.0 with `/version minor`
    - model: opus
    - note: the survey can't read the work monorepo or the private review agent; Rob answers for those two at the pause.

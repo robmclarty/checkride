@@ -842,9 +842,9 @@ function formless(config: ReturnType<typeof applyCursorHooks>): unknown {
   return { ...config, hooks: { ...config.hooks, preToolUse: marked(config.hooks?.preToolUse), beforeShellExecution: marked(config.hooks?.beforeShellExecution) } };
 }
 
-/** The command form's first step, which every spelling of it for an entry command opens with. */
-const PATH_FORM = 'out=$(checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; if command -v checkride >/dev/null 2>&1; then ';
-const MISE_FORM = 'out=$(mise exec -- checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; if mise which checkride >/dev/null 2>&1; then ';
+/** The command form's first steps, which every spelling of it for an entry command opens with. */
+const PATH_FORM = 'out=$(checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; while IFS= read -r line; do :; done; if command -v checkride >/dev/null 2>&1; then ';
+const MISE_FORM = 'out=$(mise exec -- checkride protect --harness cursor) && { printf %s "$out"; exit 0; }; while IFS= read -r line; do :; done; if mise which checkride >/dev/null 2>&1; then ';
 
 describe('cursor merge: the two forms of protect', () => {
 
@@ -865,6 +865,30 @@ describe('cursor merge: the two forms of protect', () => {
     expect(pre).toBe(protectHookCommand({ kind: 'mise' }, 'cursor'));
     expect(pre?.startsWith(MISE_FORM)).toBe(true);
     expect(shell).toBe(pre);
+  });
+
+  /**
+   * A checkride that is not there never reads the payload, and a hook that
+   * exits before the harness has written it breaks the pipe under the writer
+   * (EPIPE). So the path that answers without checkride reads stdin to the
+   * end first, with a builtin, since that `PATH` may hold no `cat`.
+   */
+  test('the guard reads the payload to the end before it answers, with no command a bare PATH lacks', () => {
+    for (const entry of [{ kind: 'path' }, { kind: 'mise' }] as const) {
+      const steps = protectHookCommand(entry, 'cursor').split('; ');
+      const drain = steps.indexOf('while IFS= read -r line');
+      expect(drain).toBeGreaterThan(-1);
+      expect(steps[drain + 1]).toBe('do :');
+      expect(steps[drain + 2]).toBe('done');
+      // After checkride's own answer, before the guard's.
+      expect(steps.findIndex((s) => s.startsWith('out=$('))).toBeLessThan(drain);
+      expect(steps.findIndex((s) => s.startsWith('printf '))).toBeGreaterThan(drain);
+    }
+    const payload = JSON.stringify({ hook_event_name: 'preToolUse', tool_input: { file_path: 'x'.repeat(256 * 1024) } });
+    const done = spawnSync('/bin/sh', ['-c', protectHookCommand({ kind: 'path' }, 'cursor')], { env: { PATH: '/nonexistent' }, input: payload, encoding: 'utf8' });
+    expect(done.error).toBeUndefined();
+    expect(done.status).toBe(0);
+    expect(JSON.parse(done.stdout)).toMatchObject({ permission: 'allow' });
   });
 
   test('the guard’s messages hold no double quote and no backslash, which would break the JSON body printf builds', () => {

@@ -369,6 +369,11 @@ describe('the standalone binary', () => {
     expect(unguarded.stdout).toContain('mise use github:robmclarty/checkride@<version>');
     expect(unguarded.stderr).toContain('the edit guard could not run');
 
+    // A payload past the pipe's buffer: the hook reads it all before it answers, so the writer never meets a closed pipe (EPIPE).
+    const large = hook(JSON.stringify({ hook_event_name: 'beforeShellExecution', command: `echo ${'x'.repeat(256 * 1024)}`, cwd: dir }), EMPTY_PATH);
+    expect(large.code).toBe(0);
+    expect(JSON.parse(large.stdout)).toMatchObject({ permission: 'allow' });
+
     const refused = binary(['protect', '--harness', 'claude'], dir);
     expect(refused.code).toBe(2);
     expect(refused.stderr).toContain("invalid --harness 'claude' (protect answers cursor)");

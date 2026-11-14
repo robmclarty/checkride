@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 2 — feat(cli): add --summary github for the step summary
+**Current step:** 21 — fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -24,8 +24,9 @@ line above. Only ONE step is in flight; a step is done only after a checkpoint:
 check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 
 - ☑ 1. feat(baseline): fail baseline diff on added keys
-- ☐ 2. feat(cli): add --summary github for the step summary
+- ☑ 2. feat(cli): add --summary github for the step summary
 - ☐ 3. feat(api)!: trim the barrel to the names consumers use
+- ☐ 21. fix(agent-setup): drain the payload in Cursor's protect hook when checkride is missing
 - ☐ 4. feat(config): read a local target's config
 - ☐ 5. feat(examples): add a web and api example with local targets
 - ☐ 6. feat(config): read included config files with flat target names
@@ -50,6 +51,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 > go straight back to the step. Acting the instant an idea arrives is the disease.
 > Capture is one line (`/plumbbob:park` composes it). Harvest happens only at the boundary.
 
+- [x] Cursor protect hook never reads stdin when checkride is missing: the payload write races its exit (spawnSync EPIPE in binary.e2e 'no node' test, CI run 43534933010, ubuntu/node 24); drain stdin with a builtin read loop in protectHookCommand's fallback branch
+
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
 Classify each parked item as exactly ONE. Naming it before acting is what keeps you
@@ -66,7 +69,8 @@ from sprawling across branches.
 
 Harvest results this boundary:
 
-- (none yet)
+- 2026-11-14, at range 1 of 7's stop: 1 parked idea, classified.
+- **blocker**: park 1 · Cursor protect hook never reads stdin when checkride is missing: the payload write races its exit (spawnSync EPIPE in binary.e2e 'no node' test, CI run 43534933010, ubuntu/node 24); drain stdin with a builtin read loop in protectHookCommand's fallback branch → main's CI is red on it, and 0.23.0 shouldn't ship over a red main
 
 ## Log
 
@@ -135,3 +139,68 @@ folder, so it rides the branch into the PR.)*
   `prose` and `links` as it stands (run 2026-11-13), so it won't turn step 1's gate red. Closing
   it is a commit of the spec before range 1 runs, which is Rob's to make. The build is also on
   `main`, as the last several were.
+
+- 2026-11-14 — step 2 checkpointed · 8bfec69f3 — feat(cli): add --summary github for the step summary (1 red, 14m)
+- 2026-11-14 — range 1 of 7's stop recorded — push, and confirm this repo's CI run shows the step summary table on the run's page
+
+  **Summary**: The first half of 0.23.0 is in: `checkride baseline diff <ref> --fail-on-added` exits 1 when a change adds a baseline key or grows a count, and `docs/ci.md` runs it as its own job against the merge base. `--summary github` appends a verdict table to the GitHub step summary, and this repo's `ci.yml` turns it on in one job. Neither change is on a remote yet, so the stop's proof, the table on the run's page, comes only after a push.
+
+  1. Both landings were a hair off, and neither is a defect
+  2. The step summary gives a row only to checks that ran
+  3. The summary's base never falls back to HEAD
+  4. The guard reads growth as D2 and the count rule define it
+
+  **Readout**:
+
+  ```text
+  steps        2 of 2 landed
+               - 1 76c63b8 · 2 8bfec69
+  check        green: 1 of 1 checks, 2 landings
+  done-when    met
+  decisions    3 of 3 honored
+               - D31 (guard-stays-strict), D39 (summary-in-ci), D40 (guard-base)
+               - D46 (summary-variable)
+  constraints  10 of 10 honored
+  seam         strayed: 1 path outside step 1's seam
+               → docs/spec-v1.md
+  diff         +1287 -31 across 22 files
+               - .github/workflows/ci.yml +15 -0
+               - CHANGELOG.md +42 -0
+               - README.md +6 -1
+               - docs/cheatsheet.md +2 -0
+               - docs/ci.md +69 -0
+               - docs/consumers.md +3 -0
+               - docs/contract.md +61 -6
+               - and 15 more
+  spent        20 min · 1 red run · 1 drift warning
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Harvested**: **1** of 1 parked idea open
+
+  | Park | Why it matters | Lean |
+  | --- | --- | --- |
+  | **P1**: [Cursor hook stdin race](#park-list) | with no checkride on PATH the hook exits unread, so the payload write can EPIPE | blocker: main's CI is red on it, and 0.23.0 shouldn't ship over a red main |
+
+  **Recommendation**: Confirm the table on run 43534933010's page, then take P1 as a blocker: a one-step bare range ahead of step 3 that drains stdin in the hook's fallback branch, so main goes green before the barrel trim. The pushed run's `pnpm check` passed in the summary job with `CHECKRIDE_BASE` at the commit before the push and no summary warning, so only the e2e race is red, and it predates this range:
+
+  ```sh
+  gh run view 43534933010 --web
+  ```
+
+  **1.** Both landings were a hair off, and neither is a defect
+
+  Step 1's checkpoint committed the untracked `docs/spec-v1.md` with it, which is outside the seam. It's the spec this plan absorbed and links to, so it belongs in the repo, and it rode along with the first commit. Step 2's first checkpoint was refused because three tests timed out at 5s, while the machine's load average sat near 50 (Proton Drive and other sessions). Those tests passed alone and on the retry, and none of them touches the step-summary code.
+
+  **2.** The step summary gives a row only to checks that ran
+
+  D18 asks for "each check". Here, a check that ran gets a row and every skipped check is named on one `Skipped:` line beneath the table. In a consumer repo most catalogue slots sit out, and a row each would bury the few that ran. The contract doc and the contract test both pin this shape, so changing it later would need a Contract entry.
+
+  **3.** The summary's base never falls back to HEAD
+
+  `--changed` falls back to `HEAD` with a warning when `origin/main` doesn't resolve. Counting against `HEAD` would always show zero keys, so the summary uses D25's order and stops at `origin/main`. When that base can't be read, the two key columns drop out and a line says why. `ci.yml` passes the pull request's base sha, or `github.event.before` on a push, and fetches full history only in the ubuntu/Node 24 job that writes the table.
+
+  **4.** The guard reads growth as D2 and the count rule define it
+
+  A count grows when it rises or turns from a number into `null` ("any number"). It never grows from `null`, and a drop is never growth. The `--json` object keeps its eight fields, and stderr carries the one line saying why it failed.
