@@ -21,7 +21,7 @@ export {
   unionBaselines,
 } from './history.js';
 export type { DeclaredAt, ShardChange, ShardMap, ShardsRead } from './shards.js';
-export { captureShards, ratchetShards, readShards, readShardsAt, recoverShards, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, unwritableShard, writeShards } from './shards.js';
+export { captureShards, ratchetShards, readShards, readShardsAt, recoverShards, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, strayKeyCount, unownedShards, unwritableShard, writeShards } from './shards.js';
 export type { Baseline, BaselineEntry, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,

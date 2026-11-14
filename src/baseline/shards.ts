@@ -468,3 +468,29 @@ export async function readShardsAt(tree: TreeAtRef, ref: string, working: ShardM
   const alone = files.slice(1).every((file) => file.baseline === null);
   return { sha: tree.sha, baseline: alone ? root : together(map, files), unread };
 }
+
+/**
+ * The baseline files among `paths`, a repo's files, that nothing reads: one
+ * named as the baseline is, below the repo root and at the root of no
+ * declared target. `doctor` names them, since a target that was removed or
+ * moved leaves its file behind, and its findings go red with no word why.
+ */
+export function unownedShards(map: ShardMap, paths: readonly string[]): string[] {
+  const read = new Set([map.root, ...map.shards.map((shard) => shard.file)]);
+  return paths.filter((path) => posix.basename(path) === map.root && !read.has(path)).toSorted();
+}
+
+/**
+ * How many keys `files` hold in a file that doesn't own their check, which
+ * a run still reads: a local target's in the root file, and those in a file
+ * a target left behind. The next full run's ratchet moves them home.
+ */
+export function strayKeyCount(map: ShardMap, files: readonly Pick<ShardRead, 'file' | 'baseline'>[]): number {
+  let strays = 0;
+  for (const { file, baseline } of files) {
+    for (const [check, keys] of Object.entries(baseline?.slots ?? {})) {
+      if (admits(map, file, check) && shardOf(map, check) !== file) strays += keys.length;
+    }
+  }
+  return strays;
+}

@@ -38,7 +38,8 @@ import { promisify } from 'node:util';
 import type { Adapter, Slot } from './adapters.js';
 import { SCHEMA_SLOT } from './adapters.js';
 import { outLabel } from './artifacts/index.js';
-import { countGrandfathered, parseBaseline } from './baseline/index.js';
+import type { Baseline } from './baseline/index.js';
+import { countGrandfathered, parseBaseline, shardMap, strayKeyCount, unownedShards } from './baseline/index.js';
 import type { Channel } from './channel.js';
 import { runtime } from './channel.js';
 import { AGENTS_IMPORT, CLAUDE_FILES, hasStanza, loadsStanza } from './claude-md.js';
@@ -48,6 +49,7 @@ import type { LibrarySource } from './schema/index.js';
 import { probeSchemaLibraries, schemaLibrarySource } from './schema/index.js';
 import type { Suite } from './suite.js';
 import { listSuites, suiteCommand } from './suite.js';
+import { realGit } from './git.js';
 import { isRecord } from './json.js';
 import type { Launch, LaunchContext, MiseAnswer, OverrideCause, PackageManager, Spawn } from './launch/index.js';
 import {
@@ -77,7 +79,7 @@ import { enableCandidates, enableEntry, installHint, installSkip, provenanceTag,
 import type { PinSourceName } from './packs/index.js';
 import { PACKS, TOOLCHAINS, TOOLS } from './packs/index.js';
 import type { Unclaimed } from './targets/index.js';
-import { checkKeys, checkName, configuredTargets, findUnclaimed, findUnreached, implicitPack, markerAt, unreachedLine } from './targets/index.js';
+import { checkKeys, checkName, configuredTargets, findUnclaimed, findUnreached, implicitPack, listFiles, markerAt, unreachedLine } from './targets/index.js';
 
 export type DoctorStatus = 'ok' | 'outdated' | 'missing' | 'unknown' | 'n/a';
 
@@ -1214,30 +1216,97 @@ function unpinnedRow(base: { name: string; category: 'env'; required: false }, e
   };
 }
 
+/** One baseline file `doctor` found on disk: its path from the repo root, and its content, `null` when it can't be parsed. */
+type BaselineFile = { file: string; baseline: Baseline | null };
+
 /**
- * The committed baseline's health. No row when the repo has none — an absent
- * optional file is not a finding. Never required: a broken baseline degrades a
- * run (grandfathered findings report red), it does not break checkride. The
- * unparseable state is worth a row because the run-time warning only prints
- * during a run — doctor is where someone checks the environment *between* runs.
+ * The baseline's files that are on disk: the root file, and the file at each
+ * declared target's root below it, each parsed. A local target keeps its
+ * keys in its own, so the row counts them all.
  */
-function checkBaseline(cwd: string, env: DoctorEnv, suite: Suite): DoctorCheck | null {
-  const file = suite.baselineFile;
-  const path = join(cwd, file);
-  if (!env.exists(path)) return null;
-  const raw = env.readText(path);
-  const baseline = raw === null ? null : parseBaseline(raw);
+function baselineFiles(cwd: string, env: DoctorEnv, suite: Suite, config: CheckrideConfig | null): { files: BaselineFile[]; strays: number } {
+  const map = shardMap(suite.baselineFile, config?.targets);
+  const files = [map.root, ...map.shards.map((shard) => shard.file)]
+    .filter((file) => env.exists(join(cwd, file)))
+    .map((file) => {
+      const raw = env.readText(join(cwd, file));
+      return { file, baseline: raw === null ? null : parseBaseline(raw) };
+    });
+  return { files, strays: strayKeyCount(map, files) };
+}
+
+/**
+ * True when the baseline file at `path` is a repo's own, one nested in this
+ * one: a config sits beside it that isn't a local target's file, which
+ * alone sets a top-level `lang`. An example or a fixture repo keeps its own
+ * baseline that way, and it is no target's file left behind.
+ */
+function nestedRepoBaseline(cwd: string, env: DoctorEnv, suite: Suite, path: string): boolean {
+  const raw = env.readText(join(cwd, posix.dirname(path), suite.configFile));
+  if (raw === null) return false;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isRecord(parsed) && parsed['lang'] === undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The baseline files no declared target owns, in a repo that declares
+ * targets: one below the repo root, at no target's root, that isn't a nested
+ * repo's own. Nothing reads such a file. None when the repo's files can't be
+ * listed, since a row must never fail on that.
+ */
+async function unownedBaselines(cwd: string, env: DoctorEnv, suite: Suite, config: CheckrideConfig | null): Promise<string[]> {
+  if (configuredTargets(config) === null) return [];
+  const paths = await listFiles(cwd, '.', realGit(cwd), 'the repo').catch(() => []);
+  return unownedShards(shardMap(suite.baselineFile, config?.targets), paths).filter((path) => !nestedRepoBaseline(cwd, env, suite, path));
+}
+
+/** What the baseline row says it found in files that all parse: the findings they grandfather, over how many files when more than one, and the keys waiting to move home. */
+function baselineFound(files: readonly BaselineFile[], strays: number): string {
+  const total = files.reduce((n, { baseline }) => n + (baseline === null ? 0 : countGrandfathered(baseline)), 0);
+  const across = files.length > 1 ? ` across ${files.length} files` : '';
+  const waiting = strays > 0 ? `, ${strays} key(s) not yet in the file that owns their check` : '';
+  return `${total} grandfathered finding(s)${across}${waiting}`;
+}
+
+/**
+ * The committed baseline's health, every file of it: the root file, and a
+ * local target's own. No row when the repo has none — an absent optional
+ * file is not a finding. Never required: a broken baseline degrades a run
+ * (grandfathered findings report red), it does not break checkride. The
+ * unparseable state is worth a row because the run-time warning only prints
+ * during a run — doctor is where someone checks the environment *between*
+ * runs. So is a file no declared target owns, `unowned`, which nothing reads.
+ */
+function checkBaseline(cwd: string, env: DoctorEnv, suite: Suite, config: CheckrideConfig | null, unowned: readonly string[]): DoctorCheck | null {
+  const { files, strays } = baselineFiles(cwd, env, suite, config);
+  if (files.length === 0 && unowned.length === 0) return null;
   const base = { name: 'baseline', category: 'workspace' as const, required: false };
-  if (baseline === null) {
+  const mangled = files.filter(({ baseline }) => baseline === null).map(({ file }) => file);
+  if (mangled.length > 0) {
     return {
       ...base,
       status: 'outdated',
-      found: `${file} present but unparseable`,
+      found: `${mangled.join(', ')} present but unparseable`,
       expected: 'valid baseline JSON',
       hint: `A merge likely mangled it; grandfathered findings report red until it is restored. Run \`${suiteCommand('checkride recover', suite)}\` to rebuild it from git history.`,
     };
   }
-  return { ...base, status: 'ok', found: `${countGrandfathered(baseline)} grandfathered finding(s)`, expected: null, hint: null };
+  const found = baselineFound(files, strays);
+  if (unowned.length > 0) {
+    return {
+      ...base,
+      status: 'outdated',
+      found: `${found}; ${unowned.join(', ')} at no declared target's root`,
+      expected: "every baseline file at the repo root or a declared target's root",
+      hint: `Nothing reads ${unowned.join(' or ')}: a baseline file is read at the repo root and at the root of a declared target. Declare its target again, or delete the file.`,
+    };
+  }
+  const hint = strays > 0 ? `The next full run moves each of those keys to the file that owns its check, and \`${suiteCommand('checkride baseline', suite)}\` moves them at once.` : null;
+  return { ...base, status: 'ok', found, expected: null, hint };
 }
 
 /**
@@ -1288,9 +1357,10 @@ async function workspaceRows(
   markers: DoctorCheck | null,
 ): Promise<DoctorCheck[]> {
   const { cwd, config, suite } = common;
-  if (suite.name !== undefined) return applicable(checkBaseline(cwd, env, suite));
+  const baseline = checkBaseline(cwd, env, suite, config, await unownedBaselines(cwd, env, suite, config));
+  if (suite.name !== undefined) return applicable(baseline);
   const unreached = await checkUnreached(cwd, config, common);
-  return applicable(checkBaseline(cwd, env, suite), checkAgentInstructions(cwd, env), markers, unreached, checkSuites(cwd));
+  return applicable(baseline, checkAgentInstructions(cwd, env), markers, unreached, checkSuites(cwd));
 }
 
 /** The rows that apply, in order: an optional row is `null` when it has nothing to say. */

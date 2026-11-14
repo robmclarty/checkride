@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 12 — feat(recover): rebuild every shard from history
+**Current step:** 13 — feat(protect): guard every shard from edits
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -35,7 +35,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 9. feat(baseline): ratchet each shard on its own
 - ☑ 10. feat(baseline): capture and re-record every shard
 - ☑ 11. feat(baseline): walk every shard in baseline diff
-- ☐ 12. feat(recover): rebuild every shard from history
+- ☑ 12. feat(recover): rebuild every shard from history
 - ☐ 13. feat(protect): guard every shard from edits
 - ☐ 14. docs: move the README's reference sections out
 - ☐ 15. docs(readme): rewrite the README to the happy path
@@ -417,3 +417,4 @@ folder, so it rides the branch into the PR.)*
 - 2026-11-14 — step 9 checkpointed · f6297db8f — feat(baseline): ratchet each shard on its own (1 red, 1 drift, 19m)
 - 2026-11-14 — step 10 checkpointed · a658f1681 — feat(baseline): capture and re-record every shard (1 drift, 12m)
 - 2026-11-14 — step 11 checkpointed · 61cdbd2da — feat(baseline): walk every shard in baseline diff (1 drift, 13m)
+- 2026-11-14 — step 12 checkpointed · 0bcb35c0d — feat(recover): rebuild every shard from history (1 drift, 9m)

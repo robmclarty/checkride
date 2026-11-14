@@ -179,6 +179,42 @@ The bundled schema `checkride:checkride-local` validates these files with the
 [`examples/local-targets`](../examples/local-targets/) runs a web app and an
 API this way, end to end.
 
+### A local target's baseline
+
+A local target keeps its baseline beside its config too. The keys of
+`web:lint` and `web:types` live in `web/checkride.baseline.json`, a file of
+the same shape as the root one, and the root `checkride.baseline.json` holds
+the repo-scope checks and every target that isn't local. Two changes in two
+targets then edit two files, and a `CODEOWNERS` line can name an owner for
+each.
+
+- **A run reads them as one.** Each check is masked from the file that owns
+  it. A file that can't be parsed turns only its own target's grandfathered
+  findings red, and the warning names it.
+- **Each file is pruned on its own.** A full run rewrites a file only when
+  what it holds changes, so a finding fixed in `web/` changes `web/`'s file
+  and no other.
+- **Turning `local` on or off turns nothing red.** A run still reads a local
+  target's keys in the root file, and a file left at the root of a target
+  that is no longer local. The next full run moves the keys to the file that
+  owns them, and removes the file left behind; `checkride baseline` does it
+  at once.
+- **Every command covers them.** `checkride baseline` writes each target's
+  keys to its own file, `baseline --versions` re-records each file in place,
+  `baseline diff` compares them all, so `--fail-on-added` catches a key
+  added to any, and `recover` rebuilds a clobbered one from git history and
+  leaves the rest alone.
+- **An agent can't edit one.** The `protect` hook denies a write to a file
+  named `checkride.baseline.json`, or a suite's
+  `checkride.<suite>.baseline.json`, anywhere in the repo.
+- **`doctor` counts them.** Its `baseline` row says how many findings the
+  files grandfather between them, and names a file at no declared target's
+  root, which a removed target leaves behind and nothing reads.
+
+Under a [named suite](./suites.md) the file is
+`<root>/checkride.<suite>.baseline.json`.
+[The contract](./contract.md#checkridebaselinejson) has every rule.
+
 ## Included config files
 
 A repo with many targets can keep them in more than one file. The root config

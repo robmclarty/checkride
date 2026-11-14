@@ -158,7 +158,9 @@ const EDIT_TOOLS = 'Write|Delete';
  * on a wrong parse is worse than a known hole. Filtering first turns the blast
  * radius from "every command the agent runs" into "commands that already mention
  * `checkride.baseline.json`, a named suite's `checkride.<name>.baseline.json`,
- * or `.check`" — and inside that set the script still
+ * or `.check`" — the name wherever it sits in the command, so a local
+ * target's `web/checkride.baseline.json` is selected as the repo root's
+ * file is — and inside that set the script still
  * denies only on demonstrated write intent. Reads land here too and are allowed;
  * they have to be, because triage reads these files.
  */

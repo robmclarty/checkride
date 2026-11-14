@@ -7,8 +7,9 @@
  * `./agent-setup/scripts.ts`). A repo that runs the standalone binary may
  * have no Node, so there the hook calls this command, which reads the same
  * payload on stdin and answers the same way: a `permission: 'deny'` body for
- * a write to the baseline, a named suite's baseline or `.check/`, nothing at
- * all for anything else, and exit 0 either way.
+ * a write to a baseline file, the default suite's or a named one's, at the
+ * repo root or at a local target's, or to `.check/`, nothing at all for
+ * anything else, and exit 0 either way.
  *
  * **The decision has two implementations, and a table binds them.** The
  * script is self-contained text that has to run on a bare `node`; this is
@@ -40,8 +41,15 @@ import { SUITE_NAME_SOURCE } from './suite.js';
 /** The harnesses whose edit guard is a hook and not configuration: Claude Code's is `permissions.deny`. */
 export const PROTECT_HARNESSES: readonly HarnessName[] = ['cursor'];
 
-/** A named suite's baseline, at the repo root: `checkride.<name>.baseline.json`. */
-const SUITE_BASELINE = new RegExp(`^checkride\\.${SUITE_NAME_SOURCE}\\.baseline\\.json$`);
+/**
+ * A baseline file's name: the default suite's `checkride.baseline.json`, or
+ * a named suite's `checkride.<name>.baseline.json`. The file sits at the repo
+ * root, and at the root of each local target, which only the config says.
+ * The guard reads no config, so it goes by the name alone, at any depth
+ * inside the project, as the deny rule Claude Code is given does, which
+ * matches the name under any directory.
+ */
+const BASELINE_NAME = new RegExp(`^checkride\\.(?:${SUITE_NAME_SOURCE}\\.)?baseline\\.json$`);
 
 /** A leading `VAR=value`, which a shell reads as an assignment and not as the verb. */
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -182,7 +190,8 @@ function commandTargets(command: string): string[] {
 function accounting(target: string, root: string, base: string): string | undefined {
   const absolute = canon(isAbsolute(target) ? target : resolve(base, target));
   const below = relative(root, absolute).split(sep).join('/');
-  if (below === 'checkride.baseline.json' || SUITE_BASELINE.test(below)) return below;
+  if (below === '..' || below.startsWith('../')) return undefined;
+  if (BASELINE_NAME.test(below.split('/').pop() ?? '')) return below;
   if (below === '.check' || below.startsWith('.check/')) return below;
   return undefined;
 }

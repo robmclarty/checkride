@@ -118,6 +118,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   be parsed. It takes `--config` and `CHECKRIDE_CONFIG`, and a config that
   can't be read is a warning: the root file is recovered alone.
 
+- **The edit guard covers a local target's baseline, and `doctor` counts
+  it.** `checkride protect` and Cursor's generated hook script deny a write
+  to a file named `checkride.baseline.json`, or a suite's
+  `checkride.<name>.baseline.json`, at any depth inside the project, as
+  Claude Code's deny rules already did. `doctor`'s `baseline` row counts
+  every file, says how many keys are waiting to move to the file that owns
+  them, and names a file at no declared target's root, which nothing reads.
+  [Targets](docs/targets.md#a-local-targets-baseline) has the whole of it.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -172,6 +181,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   writes, and the warning for a config that can't be read are promised. The
   `--json` listing and apply result gain `files` when the baseline is more
   than one file. A repo with one baseline file recovers exactly as before.
+- **Under Cursor, `protect` denies a baseline file by its name at any
+  depth.** A write to `fixtures/checkride.baseline.json`, which the command
+  and the generated script used to allow, is now denied, as it always was
+  under Claude Code. The same name outside the project is still allowed.
+  Run `checkride agent-setup` to refresh a generated script.
+- **`doctor`'s `baseline` row may say more.** With more than one baseline
+  file its `found` reads `N grandfathered finding(s) across K files`, and it
+  is `outdated` for a file at no declared target's root. A repo with one
+  baseline file gets the row it got before.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

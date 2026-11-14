@@ -669,6 +669,8 @@ the repo's pins chose, its toolchain included. A release before
 0.16.0 rewrites the file without it.
 `recover`'s own promises are in [CLI](#cli). The generated `protect` hook denies
 an agent's edits to the file, so a change to it arrives as a reviewed diff.
+It denies them to a file of that name anywhere in the repo, which covers a
+[local target's](#checkridebaselinejson) own, under every harness.
 
 A [named suite](#cli) keeps its own baseline beside it,
 `checkride.<name>.baseline.json`, of the same shape and under the same rules.
@@ -747,6 +749,13 @@ observed run of the repo's own writes any, and a partial run writes none.
   pruned to the ones the check still reports and its counts lowered, and no
   key moves between files. A file is written only when an entry of its own
   changes, and stderr names each one.
+- `doctor`'s `baseline` row counts every file on disk, `4 grandfathered
+  finding(s) across 3 files`, and says how many keys sit in a file that
+  doesn't own their check, which the next full run moves. A file that can't
+  be parsed is named, and so is a file of the baseline's name at no declared
+  target's root, which nothing reads; a baseline beside a config of its own,
+  an example's or a fixture's, is a nested repo's and is left out. The row is
+  never required.
 - None of the three writes over a file it couldn't read. With the baseline
   spread over more than one file, a file that can't be parsed, or that
   resolves outside the repository, is exit 2 naming it, before anything
@@ -1633,7 +1642,11 @@ would be the silent un-gating this tool exists to prevent. Both are idempotent.
 **`protect` answers a harness's edit-guard hook, and never fails one.**
 `checkride protect --harness cursor` reads a hook payload as JSON on stdin and
 decides whether the call writes to `checkride.baseline.json`, a named suite's
-`checkride.<name>.baseline.json`, or `.check/` and anything under it. A write
+`checkride.<name>.baseline.json`, or `.check/` and anything under it. A
+baseline file is guarded by its name at any depth inside the project, since
+a [local target](#checkridebaselinejson) keeps its own at its root,
+`web/checkride.baseline.json`, and the guard reads no config to learn which
+directories those are. The same name outside the project is not guarded. A write
 there is denied in Cursor's protocol: one JSON object on stdout,
 `{"permission":"deny","user_message":"…","agent_message":"…"}`, and exit 0,
 since Cursor reads a non-zero hook as a broken one. Anything else is allowed:

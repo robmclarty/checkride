@@ -211,6 +211,13 @@ a default run never clear each other's.
 The `protect` hook denies an agent's edits to any
 `checkride.<name>.baseline.json`, as it does to `checkride.baseline.json`.
 
+A suite whose config declares a [local target](./targets.md#local-targets)
+spreads its baseline the way the default suite does: the target's keys live
+in `<root>/checkride.<name>.baseline.json`, `web/checkride.evals.baseline.json`
+for the suite `evals`, and the suite's file at the repo root holds the rest.
+Each command above covers those files, and the `protect` hook denies edits to
+them too.
+
 A baseline holds findings a parser can key. A custom `command` check has none,
 so its failures aren't grandfathered. Suites that name adapters, such as
 `"docs": "markdownlint-cli2"`, get the baseline in full.

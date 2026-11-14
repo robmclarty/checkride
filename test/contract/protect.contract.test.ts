@@ -6,8 +6,9 @@
  * outside the 0/1/2 split because it answers a harness's hook protocol. What
  * this file locks is what a hook runner sees:
  *
- *   denied    — a write to the baseline, a named suite's baseline, or `.check/`:
- *               one `{"permission":"deny",…}` object on stdout, exit 0.
+ *   denied    — a write to the baseline, a named suite's baseline, either one
+ *               at a local target's root, or `.check/`: one
+ *               `{"permission":"deny",…}` object on stdout, exit 0.
  *   allowed   — anything else, a payload it can't read included: no output,
  *               exit 0. Reads are never denied.
  *   fault     — the guard itself failed, and checked nothing: one line on
@@ -26,7 +27,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -182,4 +183,96 @@ describe('checkride protect', () => {
       expect(existsSync(join(dir, SCRIPT))).toBe(false);
     });
   });
+});
+
+/**
+ * Contract: a local target keeps its baseline at its own root, and every
+ * guard covers it there, by the file's name at any depth inside the project
+ * (docs/contract.md §CLI, `protect`). `doctor`'s baseline row counts every
+ * file, and names one no declared target owns.
+ */
+describe("a local target's baseline file is guarded, and doctor counts it", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-protect-shards-contract-')); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  const WEB = 'web/checkride.baseline.json';
+  const SUITE_WEB = 'web/checkride.evals.baseline.json';
+  const shell = (command: string): string => JSON.stringify({ hook_event_name: 'beforeShellExecution', command, cwd: dir });
+
+  /** Write `content` as the file `file`, relative to the repo, making its directory. */
+  async function put(file: string, content: object): Promise<void> {
+    await mkdir(join(dir, file, '..'), { recursive: true });
+    await writeFile(join(dir, file), JSON.stringify(content));
+  }
+
+  /** The write, by a file tool and by the shell, to each of the two files. */
+  const WRITES: readonly (readonly [string, string, string])[] = [
+    ["a file tool's write to a local target's baseline", write(WEB), WEB],
+    ["a file tool's write to a local target's baseline for a suite", write(SUITE_WEB), SUITE_WEB],
+    ["a shell redirect onto a local target's baseline", shell(`echo "{}" > ${WEB}`), WEB],
+    ["a shell rm of a local target's baseline for a suite", shell(`rm ${SUITE_WEB}`), SUITE_WEB],
+  ];
+
+  test.each(WRITES)('checkride protect refuses %s', async (_name, payload, rel) => {
+    const stdout = capture();
+    const code = await runCli(['protect', '--harness', 'cursor'], { cwd: dir, stdout, stderr: capture(), env: { CURSOR_PROJECT_DIR: dir }, stdin: () => Promise.resolve(payload) });
+    expect(code).toBe(0);
+    const body = JSON.parse(stdout.text()) as Record<string, string>;
+    expect(body['permission']).toBe('deny');
+    expect(body['agent_message']).toContain(`checkride: ${rel} is checkride-owned accounting.`);
+  });
+
+  test.each(WRITES)('the generated hook script refuses %s', async (_name, payload, rel) => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract', scripts: { check: 'checkride' } }));
+    await add(dir);
+    const done = spawnSync(process.execPath, [join(dir, SCRIPT)], { cwd: dir, input: payload, encoding: 'utf8', env: { PATH: process.env['PATH'], CURSOR_PROJECT_DIR: dir } });
+    expect(done.status).toBe(0);
+    const body = JSON.parse(done.stdout) as Record<string, string>;
+    expect(body['permission']).toBe('deny');
+    expect(body['agent_message']).toContain(`checkride: ${rel} is checkride-owned accounting.`);
+  });
+
+  test("a read of either file, a write to a local target's config, and the same name outside the project are allowed by both", async () => {
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ name: 'contract', scripts: { check: 'checkride' } }));
+    await add(dir);
+    for (const payload of [shell(`cat ${WEB}`), write('web/checkride.config.json'), write(join(dir, '..', 'checkride.baseline.json'))]) {
+      const stdout = capture();
+      // oxlint-disable-next-line no-await-in-loop -- three payloads, each to both forms in turn.
+      await runCli(['protect'], { cwd: dir, stdout, stderr: capture(), env: { CURSOR_PROJECT_DIR: dir }, stdin: () => Promise.resolve(payload) });
+      expect(stdout.text()).toBe('');
+      expect(spawnSync(process.execPath, [join(dir, SCRIPT)], { cwd: dir, input: payload, encoding: 'utf8', env: { PATH: process.env['PATH'], CURSOR_PROJECT_DIR: dir } }).stdout).toBe('');
+    }
+  });
+
+  test("Cursor's shell matcher selects a command that names either file, so the guard is asked", async () => {
+    await add(dir);
+    const config = JSON.parse(await readFile(join(dir, CURSOR_HOOKS_FILE), 'utf8')) as { hooks: Record<string, { matcher?: string }[]> };
+    const matcher = new RegExp(config.hooks['beforeShellExecution']?.[0]?.matcher ?? '$^');
+    expect(matcher.test(`echo "{}" > ${WEB}`)).toBe(true);
+    expect(matcher.test(`rm ${SUITE_WEB}`)).toBe(true);
+    expect(matcher.test('echo x > web/checkride.config.json')).toBe(false);
+  });
+
+  test("doctor's baseline row counts every file, and names one no declared target owns", async () => {
+    await put('checkride.config.json', { targets: { web: { root: 'web', local: true }, api: { root: 'services/api', local: true } }, checks: { links: false } });
+    await put('web/checkride.config.json', { lang: 'ts' });
+    await put('services/api/checkride.config.json', { lang: 'ts' });
+    await put('checkride.baseline.json', { schema_version: 1, slots: { spell: ['s1'] } });
+    await put(WEB, { schema_version: 1, slots: { 'web:lint': ['w1', 'w2'] } });
+    await put('services/api/checkride.baseline.json', { schema_version: 1, slots: { 'api:lint': ['a1'] } });
+    type Row = { name: string; status: string; found: string | null; required: boolean; hint: string | null };
+    const baselineRow = async (): Promise<Row | undefined> => {
+      const stdout = capture();
+      await runCli(['doctor', '--json'], { cwd: dir, stdout, stderr: capture(), env: { PATH: process.env['PATH'] } });
+      return (JSON.parse(stdout.text()) as { checks: Row[] }).checks.find((c) => c.name === 'baseline');
+    };
+    expect(await baselineRow()).toMatchObject({ status: 'ok', required: false, found: '4 grandfathered finding(s) across 3 files' });
+    // A target that was removed leaves its file behind, and nothing reads it.
+    await put('old/checkride.baseline.json', { schema_version: 1, slots: { 'old:lint': ['o1'] } });
+    const named = await baselineRow();
+    expect(named).toMatchObject({ status: 'outdated', required: false, found: "4 grandfathered finding(s) across 3 files; old/checkride.baseline.json at no declared target's root" });
+    expect(named?.hint).toContain('Nothing reads old/checkride.baseline.json');
+    // Three `doctor` runs, each probing every tool: seconds under a loaded full run.
+  }, 60_000);
 });

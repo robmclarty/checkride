@@ -742,6 +742,15 @@ describe('cursor merge (applyCursorHooks)', () => {
     expect(re.test('echo x > checkride.evals.config.json')).toBe(false);
   });
 
+  test("protect’s shell matcher selects a local target's baseline, the default suite's and a named one's, and not its config", () => {
+    const matcher = applyCursorHooks({}, ['protect']).hooks?.beforeShellExecution?.[0]?.matcher;
+    const re = new RegExp(String(matcher));
+    expect(re.test('echo x > web/checkride.baseline.json')).toBe(true);
+    expect(re.test('rm services/api/checkride.evals.baseline.json')).toBe(true);
+    expect(re.test('cd web && rm checkride.baseline.json')).toBe(true);
+    expect(re.test('echo x > web/checkride.config.json')).toBe(false);
+  });
+
   /**
    * `dirty`'s matcher decides entirely on its own whether a turn is dirty, so
    * the `2>&1` trailing half the agent's commands is the case that matters: a
@@ -1542,10 +1551,17 @@ describe('protect script behavior (live)', () => {
         // A relative path is resolved against the project root, not the cwd.
         call({ file_path: '.check/digest.md' }),
         call({ file_path: join(dir, 'src', 'index.ts') }),
-        // A file merely *named* like the baseline elsewhere is allowed.
-        call({ file_path: join(dir, 'fixtures', 'checkride.baseline.json') }),
+        // A local target keeps its baseline at its own root, which only the config
+        // names, so the file is guarded by its name at any depth in the project.
+        call({ file_path: join(dir, 'web', 'checkride.baseline.json') }),
+        call({ file_path: 'services/api/checkride.baseline.json' }),
+        shellCall('echo "{}" > web/checkride.baseline.json', dir),
+        shellCall('rm checkride.baseline.json', join(dir, 'web')),
+        shellCall('cat web/checkride.baseline.json', dir),
+        // The same name outside the project is not this repo's.
+        call({ file_path: join(dir, '..', 'checkride.baseline.json') }),
       ]),
-    ).toEqual([true, true, true, false, false]);
+    ).toEqual([true, true, true, false, true, true, true, true, false, false]);
   }, 30000);
 
   test('denies a named suite’s baseline and its output, and allows its config', async () => {
@@ -1561,11 +1577,14 @@ describe('protect script behavior (live)', () => {
         // Not a suite's name, so not a baseline checkride reads.
         call({ file_path: join(dir, 'checkride.Evals.baseline.json') }),
         call({ file_path: join(dir, 'checkride.a.b.baseline.json') }),
-        // Named like one, elsewhere in the tree.
-        call({ file_path: join(dir, 'fixtures', 'checkride.evals.baseline.json') }),
         shellCall('cat checkride.evals.baseline.json', dir),
+        // A local target's file for the suite, at its own root.
+        call({ file_path: join(dir, 'web', 'checkride.evals.baseline.json') }),
+        shellCall('rm web/checkride.evals.baseline.json', dir),
+        // A suite's config at a target's root is that team's to edit.
+        call({ file_path: join(dir, 'web', 'checkride.evals.config.json') }),
       ]),
-    ).toEqual([true, true, true, true, true, false, false, false, false, false]);
+    ).toEqual([true, true, true, true, true, false, false, false, false, true, true, false]);
   }, 30000);
 
   test('fails open on input it cannot read', async () => {

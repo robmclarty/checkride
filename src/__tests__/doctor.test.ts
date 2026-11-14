@@ -670,6 +670,103 @@ describe('baseline workspace row', () => {
   });
 });
 
+/** A baseline file's text holding `entries`. */
+const slotsOf = (entries: Record<string, string[]>): string => JSON.stringify({ schema_version: 1, slots: entries });
+
+/** An env whose disk holds `files`, each by its path from `/repo`, and nothing else that is a baseline. */
+const holding = (files: Record<string, string>): DoctorEnv => fakeEnv({
+  exists: (p: string) => !p.endsWith('.baseline.json') || p.slice('/repo/'.length) in files,
+  readText: (p: string) => files[p.slice('/repo/'.length)] ?? '{}',
+});
+
+describe('baseline workspace row over a target\'s own file', () => {
+  const targets = { web: { lang: 'ts' as const, root: 'web' }, api: { lang: 'ts' as const, root: 'services/api' } };
+  const opts = { cwd: '/repo', slots: oneSlot, adapters: oneAdapter, config: { targets }, json: true };
+  const rowOf = async (files: Record<string, string>): Promise<unknown> =>
+    baselineRow((await runDoctor({ ...opts, env: holding(files), stdout: sink() })).report.checks);
+
+  test('counts every file on disk, and says over how many', async () => {
+    expect(await rowOf({
+      'checkride.baseline.json': slotsOf({ spell: ['s'], 'web:lint': ['w1'] }),
+      'services/api/checkride.baseline.json': slotsOf({ lint: ['its own, never read'] }),
+    })).toMatchObject({ status: 'ok', found: '3 grandfathered finding(s) across 2 files', hint: null });
+  });
+
+  test("a target's file alone is a row, with no root file", async () => {
+    expect(await rowOf({ 'web/checkride.baseline.json': slotsOf({ lint: ['x'] }) })).toMatchObject({ status: 'ok', found: '1 grandfathered finding(s)' });
+  });
+
+  test('says how many keys sit in a file that does not own their check, and what moves them', async () => {
+    const row = await rowOf({
+      'checkride.baseline.json': slotsOf({ spell: ['s'] }),
+      'web/checkride.baseline.json': slotsOf({ 'web:lint': ['w1', 'w2'], 'api:lint': ['never read'] }),
+    });
+    expect(row).toMatchObject({ status: 'ok', found: '4 grandfathered finding(s) across 2 files, 2 key(s) not yet in the file that owns their check' });
+    expect((row as { hint: string }).hint).toContain('`checkride baseline` moves them at once');
+  });
+
+  test("names each file that can't be parsed", async () => {
+    const row = await rowOf({ 'checkride.baseline.json': slotsOf({}), 'web/checkride.baseline.json': '<<<<<<< HEAD', 'services/api/checkride.baseline.json': '{ mangled' });
+    expect(row).toMatchObject({ status: 'outdated', found: 'web/checkride.baseline.json, services/api/checkride.baseline.json present but unparseable', expected: 'valid baseline JSON' });
+    expect((row as { hint: string }).hint).toContain('checkride recover');
+  });
+
+  describe('a file no declared target owns', () => {
+    let dir: string;
+    beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), 'checkride-doctor-unowned-')); });
+    afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+    /** Write `files` under the repo, and report on it with an env that reads that disk. */
+    async function rowIn(files: Record<string, string>, config: object | null = { targets }): Promise<unknown> {
+      for (const [file, text] of Object.entries(files)) {
+        // oxlint-disable-next-line no-await-in-loop -- a handful of fixture files, each after its directory.
+        await mkdir(join(dir, file, '..'), { recursive: true });
+        // oxlint-disable-next-line no-await-in-loop -- as above.
+        await writeFile(join(dir, file), text);
+      }
+      const env = fakeEnv({ exists: existsSync, readText: (p: string) => (existsSync(p) ? readFileSync(p, 'utf8') : null) });
+      return baselineRow((await runDoctor({ ...opts, cwd: dir, config, env, stdout: sink() })).report.checks);
+    }
+
+    const DIRS = { 'web/.keep': '', 'services/api/.keep': '' };
+
+    test('is named, with a config beside it that is a local target\'s or none at all', async () => {
+      const row = await rowIn({
+        ...DIRS,
+        'checkride.baseline.json': slotsOf({ spell: ['s'] }),
+        'old/checkride.baseline.json': slotsOf({ 'old:lint': ['o'] }),
+        'gone/checkride.baseline.json': slotsOf({ 'gone:lint': ['g'] }),
+        'gone/checkride.config.json': JSON.stringify({ lang: 'ts' }),
+      });
+      expect(row).toMatchObject({
+        status: 'outdated',
+        required: false,
+        found: "1 grandfathered finding(s); gone/checkride.baseline.json, old/checkride.baseline.json at no declared target's root",
+        expected: "every baseline file at the repo root or a declared target's root",
+      });
+      expect((row as { hint: string }).hint).toContain('Nothing reads gone/checkride.baseline.json or old/checkride.baseline.json');
+    });
+
+    test('is a row even with no file that is read', async () => {
+      expect(await rowIn({ ...DIRS, 'old/checkride.baseline.json': slotsOf({}) })).toMatchObject({ status: 'outdated', found: "0 grandfathered finding(s); old/checkride.baseline.json at no declared target's root" });
+    });
+
+    test("a nested repo's own baseline, beside its own config, is not one, and neither is another suite's file", async () => {
+      expect(await rowIn({
+        ...DIRS,
+        'checkride.baseline.json': slotsOf({ spell: ['s'] }),
+        'examples/app/checkride.baseline.json': slotsOf({ lint: ['x'] }),
+        'examples/app/checkride.config.json': JSON.stringify({ checks: {} }),
+        'old/checkride.evals.baseline.json': slotsOf({}),
+      })).toMatchObject({ status: 'ok', found: '1 grandfathered finding(s)' });
+    });
+
+    test('a repo that declares no target is never searched', async () => {
+      expect(await rowIn({ 'checkride.baseline.json': slotsOf({ lint: ['x'] }), 'old/checkride.baseline.json': slotsOf({}) }, null)).toMatchObject({ status: 'ok', found: '1 grandfathered finding(s)' });
+    });
+  });
+});
+
 /** An env whose repo at `/repo` holds exactly `files`, by path from the root. */
 function repoWith(files: Record<string, string>): DoctorEnv {
   const at = (p: string): string | undefined => files[p.replace(/^\/repo\//, '')];
