@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 10 — feat(baseline): capture and re-record every shard
+**Current step:** 11 — feat(baseline): walk every shard in baseline diff
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -33,7 +33,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 7. feat(cli): find the repo's config from inside a target
 - ☑ 8. feat(baseline): map each check to its shard and read them all
 - ☑ 9. feat(baseline): ratchet each shard on its own
-- ☐ 10. feat(baseline): capture and re-record every shard
+- ☑ 10. feat(baseline): capture and re-record every shard
 - ☐ 11. feat(baseline): walk every shard in baseline diff
 - ☐ 12. feat(recover): rebuild every shard from history
 - ☐ 13. feat(protect): guard every shard from edits
@@ -55,6 +55,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/packs.md names the TOOLS table six times in prose; with TOOLS off the barrel, reword it as checkride's tool table (step 14's docs move is the natural home)
 - [x] target add, init, hooks, protect, triage and qa do not look above the directory they are typed in (step 7 covered the run, fix, doctor, baseline, recover and gate, as its done-when lists): target add typed in web/ writes targets into the local file, which the next run refuses with exit 2 naming it; D33 says every command that reads the config
 - [x] docs/cheatsheet.md, README.md and site/ say nothing yet of local targets, include, or running from inside a target; docs/targets.md and docs/contract.md hold all three (the docs range, steps 14 to 17, is the natural home)
+- [ ] two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -413,3 +414,4 @@ folder, so it rides the branch into the PR.)*
 
 - 2026-11-14 — step 8 checkpointed · 286d7544b — feat(baseline): map each check to its shard and read them all (14m)
 - 2026-11-14 — step 9 checkpointed · f6297db8f — feat(baseline): ratchet each shard on its own (1 red, 1 drift, 19m)
+- 2026-11-14 — step 10 checkpointed · a658f1681 — feat(baseline): capture and re-record every shard (1 drift, 12m)

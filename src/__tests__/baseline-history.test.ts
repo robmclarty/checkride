@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 
 import type { Baseline } from '../baseline/index.js';
-import { collectCandidates, diffBaselines, historicalHint, unionBaselines } from '../baseline/index.js';
+import { collectCandidates, diffBaselines, historicalHint, readShardsAt, shardMap, treeAt, unionBaselines } from '../baseline/index.js';
+import { targetsDeclaredAt } from '../config.js';
 import type { GitResult, GitRunner } from '../git.js';
 
 const base = (slots: Record<string, string[]>): Baseline => ({ schema_version: 1, slots });
@@ -263,5 +264,135 @@ describe('historicalHint', () => {
     await historicalHint('/repo', [K1], { git: git });
     expect(git.calls.find((c) => c[0] === 'log')?.slice(1, 3)).toEqual(['-n', '5']);
     expect(git.calls.filter((c) => c[0] === 'show')).toHaveLength(3);
+  });
+});
+
+/** A committed tree as a map from each file to its text. */
+const treeOf = (files: Record<string, string>): { sha: string; read: (file: string) => Promise<string | null> } => ({
+  sha: 'c'.repeat(40),
+  read: (file) => Promise.resolve(files[file] ?? null),
+});
+
+describe('targetsDeclaredAt', () => {
+  const FILE = 'checkride.config.json';
+  const declared = (files: Record<string, unknown>): Promise<Record<string, unknown>> =>
+    targetsDeclaredAt(treeOf(Object.fromEntries(Object.entries(files).map(([file, content]) => [file, typeof content === 'string' ? content : JSON.stringify(content)]))).read, FILE);
+
+  test('a tree with no config declares nothing, and neither does a config with no targets', async () => {
+    expect(await declared({})).toEqual({});
+    expect(await declared({ [FILE]: { checks: {} } })).toEqual({});
+  });
+
+  test("the config's own targets come back as written, and an included file's with each root relative to the repo", async () => {
+    expect(await declared({
+      [FILE]: { targets: { web: { root: 'web', local: true } }, include: ['services', 'tools/'] },
+      'services/checkride.config.json': { targets: { api: { root: 'api', local: true }, queue: { lang: 'go', root: './queue/' } }, include: ['deep'] },
+      'services/deep/checkride.config.json': { targets: { deepest: { root: '.' } } },
+      'tools/checkride.config.json': { targets: { odd: 'not an entry' } },
+    })).toEqual({
+      web: { root: 'web', local: true },
+      api: { root: 'services/api', local: true },
+      queue: { lang: 'go', root: 'services/queue' },
+      deepest: { root: 'services/deep' },
+      odd: 'not an entry',
+    });
+  });
+
+  test('a cycle of includes stops at the file it comes back to', async () => {
+    expect(await declared({
+      [FILE]: { targets: { web: { root: 'web' } }, include: ['a'] },
+      'a/checkride.config.json': { targets: { b: { root: 'b' } }, include: ['.', '..'] },
+    })).toEqual({ web: { root: 'web' }, b: { root: 'a/b' } });
+  });
+
+  test.each<{ label: string; files: Record<string, unknown>; message: RegExp }>([
+    { label: 'a config that is not JSON', files: { [FILE]: '{ "targets": ' }, message: /JSON/ },
+    { label: 'a config that is no object', files: { [FILE]: '[]' }, message: /checkride\.config\.json is not a JSON object/ },
+    { label: 'an included file that is missing', files: { [FILE]: { include: ['services'] } }, message: /services\/checkride\.config\.json is missing/ },
+  ])('$label throws', async ({ files, message }) => {
+    await expect(declared(files)).rejects.toThrow(message);
+  });
+
+  test("a named suite's config goes by the suite's file name, in every directory", async () => {
+    const read = treeOf({
+      'checkride.evals.config.json': JSON.stringify({ include: ['services'] }),
+      'services/checkride.evals.config.json': JSON.stringify({ targets: { api: { root: 'api', local: true } } }),
+      'services/checkride.config.json': JSON.stringify({ targets: { other: { root: 'other' } } }),
+    }).read;
+    expect(await targetsDeclaredAt(read, 'checkride.evals.config.json')).toEqual({ api: { root: 'services/api', local: true } });
+  });
+});
+
+describe('readShardsAt', () => {
+  const FILE = 'checkride.baseline.json';
+  const working = shardMap(FILE, { web: { root: 'web', local: true } });
+
+  test('a commit with the root file alone gives its baseline as parsed, and one with none gives null', async () => {
+    expect(await readShardsAt(treeOf({ [FILE]: blob({ lint: ['b', 'a'] }) }), 'HEAD', working, null)).toEqual({ sha: 'c'.repeat(40), baseline: base({ lint: ['b', 'a'] }), unread: null });
+    expect((await readShardsAt(treeOf({}), 'HEAD', working, null)).baseline).toBeNull();
+  });
+
+  test("the files the working tree's map names are read as one baseline, each for the checks it may hold", async () => {
+    const tree = treeOf({ [FILE]: blob({ spell: ['s'], 'web:lint': ['stray'] }), 'web/checkride.baseline.json': blob({ 'web:lint': ['w'], spell: ['not-webs'] }) });
+    expect((await readShardsAt(tree, 'HEAD', working, null)).baseline?.slots).toEqual({ spell: ['s'], 'web:lint': ['stray', 'w'] });
+  });
+
+  test("a file only the ref's own config declares is read, and the working tree's files still are", async () => {
+    const tree = treeOf({
+      'web/checkride.baseline.json': blob({ 'web:lint': ['w'] }),
+      'api/checkride.baseline.json': blob({ 'api:lint': ['a'] }),
+    });
+    const at = await readShardsAt(tree, 'HEAD', working, () => Promise.resolve({ api: { root: 'api', local: true } }));
+    expect(at.baseline?.slots).toEqual({ 'api:lint': ['a'], 'web:lint': ['w'] });
+    expect(at.unread).toBeNull();
+    // Without the ref's config, the file it alone declares is not read.
+    expect((await readShardsAt(tree, 'HEAD', working, null)).baseline?.slots).toEqual({ 'web:lint': ['w'] });
+  });
+
+  test("a ref's config that can't be read declares nothing, and says why on its first line", async () => {
+    const tree = treeOf({ 'web/checkride.baseline.json': blob({ 'web:lint': ['w'] }) });
+    const at = await readShardsAt(tree, 'HEAD', working, () => Promise.reject(new Error('services/checkride.config.json is missing\nand more')));
+    expect(at.unread).toBe('services/checkride.config.json is missing');
+    expect(at.baseline?.slots).toEqual({ 'web:lint': ['w'] });
+  });
+
+  test("a file that can't be parsed is an error naming it and the ref", async () => {
+    await expect(readShardsAt(treeOf({ [FILE]: '{ mangled' }), 'main', working, null)).rejects.toThrow("baseline diff: checkride.baseline.json at main can't be parsed, or comes from a newer checkride");
+    await expect(readShardsAt(treeOf({ 'web/checkride.baseline.json': '{ mangled' }), 'main', working, null)).rejects.toThrow("baseline diff: web/checkride.baseline.json at main can't be parsed");
+  });
+});
+
+/** The path a `git ls-tree` or `git show` asks after, from the git root. */
+function askedPath(args: readonly string[]): string {
+  return args[0] === 'ls-tree' ? (args[5] ?? '') : ((args[1] ?? '').split(':')[1] ?? '');
+}
+
+/** What a git whose one commit, `HEAD`, holds `files` answers to a `rev-parse`. */
+function revParsed(args: readonly string[], prefix: string): GitResult {
+  if (args[1] === '--show-toplevel') return { ok: true, stdout: `/repo\n${prefix}\nfalse\n` };
+  return args.at(-1) === 'HEAD^{commit}' ? { ok: true, stdout: `${'d'.repeat(40)}\n` } : { ok: false, error: 'failed', detail: '' };
+}
+
+/** A git whose one commit holds `files`, each path given from the git root. */
+function gitOf(files: Record<string, string>, prefix = ''): GitRunner {
+  return (args) => {
+    if (args[0] === 'rev-parse') return Promise.resolve(revParsed(args, prefix));
+    const text = files[askedPath(args)];
+    if (args[0] === 'ls-tree') return Promise.resolve({ ok: true, stdout: text === undefined ? '' : `${askedPath(args)}\n` });
+    return Promise.resolve(text === undefined ? { ok: false, error: 'failed', detail: 'no such path' } : { ok: true, stdout: text });
+  };
+}
+
+describe('treeAt', () => {
+  test("reads a file by its path from the checkride root, under the git root's prefix, and a file the commit lacks as null", async () => {
+    const tree = await treeAt(gitOf({ 'pkg/web/checkride.baseline.json': 'text' }, 'pkg/'), 'HEAD');
+    expect(tree.sha).toBe('d'.repeat(40));
+    expect(await tree.read('web/checkride.baseline.json')).toBe('text');
+    expect(await tree.read('checkride.baseline.json')).toBeNull();
+  });
+
+  test('a ref that names no commit, or reads as an option, is an error', async () => {
+    await expect(treeAt(gitOf({}), 'nope')).rejects.toThrow("baseline diff: 'nope' does not name a commit");
+    await expect(treeAt(gitOf({}), '--upload-pack=x')).rejects.toThrow("baseline diff: '--upload-pack=x' is not a ref");
   });
 });

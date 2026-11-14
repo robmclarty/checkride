@@ -12,7 +12,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -99,6 +99,22 @@ describe('step summary (--summary github / CHECKRIDE_SUMMARY)', () => {
     const text = await table();
     expect(text.split('### checkride: default suite')).toHaveLength(3);
     expect(text).toContain('a partial run');
+  });
+
+  test("the key columns count a local target's own baseline file against the base's copy of it", async () => {
+    const web = { lang: 'ts', checks: { greet: { command: process.execPath, args: ['-e', 'process.exit(0)'] } } };
+    await mkdir(join(dir, 'web'));
+    await writeFile(join(dir, 'web', 'checkride.config.json'), JSON.stringify(web));
+    await writeFile(join(dir, 'checkride.config.json'), JSON.stringify({ ...CONFIG, targets: { web: { root: 'web', local: true } } }));
+    await writeFile(join(dir, 'web', 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { 'web:greet': ['w:rule:kept', 'w:rule:fixed'] } }));
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'web goes local');
+    await writeFile(join(dir, 'web', 'checkride.baseline.json'), JSON.stringify({ schema_version: 1, slots: { 'web:greet': ['w:rule:kept', 'w:rule:new', 'w:rule:newer'] } }));
+    await cli(['--summary', 'github']);
+    const text = await table();
+    expect(text).toMatch(/Baseline against `HEAD` \([0-9a-f]{7}\): 2 key\(s\) added, 1 removed\./);
+    expect(text).toMatch(/\| `web:greet` \| ✔ pass \| \S+ \| 0 \| 2 \| 1 \|/);
+    expect(text).toMatch(/\| `probe` \| ✔ pass \| \S+ \| 0 \| 0 \| 0 \|/);
   });
 
   test('a base that can’t be read drops the two key columns and says why in their place', async () => {

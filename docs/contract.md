@@ -1525,9 +1525,36 @@ guard. The flag has no override. It prints the same report or `--json` object, a
 says on stderr why it failed. A grown baseline is sometimes honest (adopting
 checkride, a new target over old code, a tool that reports more), so the
 recipe in [`ci.md`](./ci.md#guard-the-baseline) runs it as its own job outside
-the required set, where a code owner of the baseline file can merge over it. `--config` belongs to the
-capture: `baseline diff` rejects it, and `baseline` rejects a stray argument,
-so a misplaced `diff` never rewrites the file.
+the required set, where a code owner of the baseline file can merge over it.
+`baseline` rejects a stray argument, so a misplaced `diff` never rewrites the
+file.
+
+`baseline diff` walks every file the baseline is spread over, and the object
+it prints keeps its eight fields.
+
+- It loads the config as a run does: the config above the directory it's
+  typed in, a suite's with `--suite`, and the file `--config` or
+  `CHECKRIDE_CONFIG` names, which it takes as a run does. A named file that
+  is missing is exit 2, and so is one beside `--suite`.
+- The working tree is read as a run reads it: the root file and each
+  [local target's](#checkridebaselinejson), as one baseline.
+- `<ref>` is read for the root file and for the file at each target's root
+  that the config `<ref>` committed declares, or that the working tree's
+  config does, read as one baseline the same way. So a file only `<ref>`'s
+  config declares is read, and its keys read as removed. A config that
+  `--config` or `CHECKRIDE_CONFIG` names stands for both sides.
+- Keys are compared by check and key across the files, so a key that moved
+  from one file to another is no change, and `--fail-on-added` exits 1 on a
+  key added to any of them.
+- A config that can't be read is no error. When it is the working tree's,
+  stderr says `baseline diff: can't read the config (<why>), so it compares
+  checkride.baseline.json alone`, and both sides are read for the root file
+  alone. When it is `<ref>`'s, stderr says so and `<ref>` is read for the
+  files the working tree's config declares.
+- A file on either side that can't be parsed is exit 2 naming it, as the
+  root file is.
+
+The step summary's two key columns count the same files against its base.
 
 **`baseline --versions` records the copy each check ran, and adds no key.**
 A tool upgrade holds a check back from the ratchet when it ran another copy

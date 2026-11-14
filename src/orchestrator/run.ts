@@ -15,7 +15,7 @@ import { writeFileAtomic } from '../atomic.js';
 import type { ShardChange, Tally } from '../baseline/index.js';
 import { copyNamed, countGrandfathered, historicalHint, ratchet, ratchetShards, shardsOfOne, writeShards } from '../baseline/index.js';
 import type { ResolvedCheck } from '../config.js';
-import { configChangedBase, resolveChecks, tsTargets } from '../config.js';
+import { configChangedBase, resolveChecks, targetsDeclaredAt, tsTargets } from '../config.js';
 import { digestOf, writeDigest } from '../digest/index.js';
 import type { ChangedBase, GitState } from '../git.js';
 import { changedPaths, DEFAULT_BASE, GIT_STATE_TIMEOUT_MS, readGitState, realGit, repoTopLevel, resolveChangedBase } from '../git.js';
@@ -321,7 +321,10 @@ function summaryBase(options: RunOptions, ctx: RunContext): string {
 /** Append the run's step summary when the run was asked for one (`--summary`, `CHECKRIDE_SUMMARY`). */
 async function maybeStepSummary(options: RunOptions, ctx: RunContext, summary: Summary): Promise<void> {
   if (options.stepSummary === undefined) return;
-  const scope = { cwd: ctx.cwd, baselineFile: ctx.suite.baselineFile, baseRef: summaryBase(options, ctx), git: realGit(ctx.cwd), stderr: ctx.stderr };
+  // A config handed to the run or named for it stands for the base too; the repo's own is read as the base committed it.
+  const oneConfig = options.config !== undefined || options.configPath !== undefined;
+  const files = { map: ctx.shards.map, declared: oneConfig ? null : (read: (file: string) => Promise<string | null>) => targetsDeclaredAt(read, ctx.suite.configFile) };
+  const scope = { cwd: ctx.cwd, baselineFile: ctx.suite.baselineFile, baseRef: summaryBase(options, ctx), git: realGit(ctx.cwd), stderr: ctx.stderr, files };
   await writeStepSummary(options.stepSummary, summary, scope);
 }
 

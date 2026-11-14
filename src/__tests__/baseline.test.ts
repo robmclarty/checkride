@@ -1527,7 +1527,9 @@ describe.skipIf(!gitAvailable)('checkride baseline diff (CLI, real git)', () => 
   test.each<{ label: string; argv: string[]; message: RegExp }>([
     { label: 'a ref that does not resolve', argv: ['baseline', 'diff', 'no-such-ref'], message: /'no-such-ref' does not name a commit/ },
     { label: 'two refs', argv: ['baseline', 'diff', 'HEAD', 'before'], message: /takes one ref, got 2/ },
-    { label: 'a flag only the capture takes', argv: ['baseline', 'diff', '--config', 'x.json'], message: /Unknown option '--config'/ },
+    { label: 'a flag only the capture takes', argv: ['baseline', 'diff', '--out', 'x'], message: /Unknown option '--out'/ },
+    { label: 'a --config that names no file', argv: ['baseline', 'diff', '--config', 'x.json'], message: /--config names a missing file/ },
+    { label: 'a suite beside --config', argv: ['baseline', 'diff', '--suite', 'evals', '--config', 'x.json'], message: /--suite can't be combined with --config/ },
   ])('$label exits 2', async ({ argv, message }) => {
     const out = capture();
     const err = capture();

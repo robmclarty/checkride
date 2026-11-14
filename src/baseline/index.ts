@@ -17,11 +17,11 @@ export {
   DEFAULT_DEPTH,
   diffBaselines,
   historicalHint,
-  readBaselineAt,
+  treeAt,
   unionBaselines,
 } from './history.js';
-export type { ShardChange, ShardsRead } from './shards.js';
-export { captureShards, ratchetShards, readShards, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, unwritableShard, writeShards } from './shards.js';
+export type { DeclaredAt, ShardChange, ShardMap, ShardsRead } from './shards.js';
+export { captureShards, ratchetShards, readShards, readShardsAt, rehomeShards, rerecordShards, shardMap, shardOf, shardsOfOne, unwritableShard, writeShards } from './shards.js';
 export type { Baseline, BaselineEntry, BaselineRead, Captured, Excess, Observation, RanWith, Rerecord } from './store.js';
 export {
   applyBaseline,

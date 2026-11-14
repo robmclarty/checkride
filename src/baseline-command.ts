@@ -50,19 +50,20 @@ import {
   findingText,
   isFingerprintable,
   observedTally,
-  readBaselineAt,
-  readBaselineStatus,
   readShards,
+  readShardsAt,
   rehomeShards,
   reportVerdict,
   rerecordCopies,
   rerecordShards,
   shardMap,
   stoppedShortReason,
+  treeAt,
   unwritableShard,
   writeShards,
 } from './baseline/index.js';
 import type { CheckrideConfig } from './config.js';
+import { targetsDeclaredAt, targetsForBaseline } from './config.js';
 import type { GitRunner } from './git.js';
 import { realGit } from './git.js';
 import type { CheckRun, CheckRunner, Out, RunnerOutcome, RunOptions, RunResult, SummaryCheck } from './orchestrator/index.js';
@@ -564,6 +565,14 @@ export type BaselineDiffOptions = {
   stderr?: Out;
   /** The named suite whose baseline is diffed; the default suite's when omitted. */
   suite?: Suite;
+  /**
+   * The config whose targets say which files the baseline is spread over,
+   * already loaded, or `configPath`, the file `--config` or
+   * `CHECKRIDE_CONFIG` named. Either stands for both sides of the diff. With
+   * neither, the repo's own config is read, and the one `ref` committed.
+   */
+  config?: CheckrideConfig | null;
+  configPath?: string;
   /** Injectable for tests. */
   git?: GitRunner;
 };
@@ -593,25 +602,59 @@ export type BaselineDiffResult = { ok: boolean; exitCode: number; diff: Baseline
 const EMPTY_BASELINE: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots: {} };
 
 /**
- * Diff the working-tree baseline against the copy committed at `ref`. A file
+ * The working tree's baseline for a diff, every file of it, with whether
+ * one config stands for both sides: a config handed in or named, and no
+ * config at all once the repo's own can't be read, which stderr says, since
+ * the diff then compares the root file alone. A file that can't be read is
+ * an error, as the root file's always was.
+ */
+function workingForDiff(options: BaselineDiffOptions, cwd: string, suite: Suite): { read: ShardsRead; oneConfig: boolean } {
+  const file = suite.baselineFile;
+  const declared = targetsForBaseline({
+    cwd,
+    suite,
+    ...(options.config !== undefined ? { config: options.config } : {}),
+    ...(options.configPath !== undefined ? { configPath: options.configPath } : {}),
+  });
+  const unread = 'problem' in declared;
+  if (unread) (options.stderr ?? process.stderr).write(`baseline diff: can't read the config (${declared.problem}), so it compares ${file} alone\n`);
+  const read = readShards(cwd, shardMap(file, unread ? undefined : declared.targets));
+  for (const f of read.files) refuseUnread(f);
+  return { read, oneConfig: unread || options.config !== undefined || options.configPath !== undefined };
+}
+
+/** Stop a diff on a working-tree file it can't read: one that can't be parsed, or that sits outside the repository. */
+function refuseUnread({ file, state }: ShardsRead['files'][number]): void {
+  if (state === 'unparseable') throw new Error(`baseline diff: ${file} in the working tree can't be parsed, or comes from a newer checkride`);
+  if (state === 'outside') throw new Error(`baseline diff: ${file} in the working tree resolves outside the repository, so it can't be read`);
+}
+
+/**
+ * Diff the working-tree baseline against the copy committed at `ref`, every
+ * file of each: the working tree's as a run reads them, and `ref`'s for the
+ * files its own config or the working tree's declares, so a key that moved
+ * between files compares as the same key. A file
  * missing on either side reads as empty, so a ref from before the baseline
  * existed reports every current key as added. Without `failOnAdded` it exits
  * 0 whenever it ran, keys added or not: the diff is evidence for a reviewer.
  * With it, a key added or a count grown is exit 1, a verification failure,
  * and removals alone stay 0. A ref that names no commit, a missing git, or a
  * file that can't be parsed on either side throws, which `runCli` renders as
- * exit 2.
+ * exit 2. A config that can't be read is no error: stderr says so, and the
+ * diff compares what it can.
  */
 export async function runBaselineDiff(options: BaselineDiffOptions): Promise<BaselineDiffResult> {
   const cwd = options.cwd ?? process.cwd();
   const stdout = options.stdout ?? process.stdout;
+  const stderr = options.stderr ?? process.stderr;
   const ref = options.ref ?? 'HEAD';
-  const file = (options.suite ?? DEFAULT_SUITE).baselineFile;
-  const current = readBaselineStatus(cwd, 'current', file);
-  if (current.state === 'unparseable') {
-    throw new Error(`baseline diff: ${file} in the working tree can't be parsed, or comes from a newer checkride`);
+  const suite = options.suite ?? DEFAULT_SUITE;
+  const { read: current, oneConfig } = workingForDiff(options, cwd, suite);
+  const tree = await treeAt(options.git ?? realGit(cwd), ref);
+  const committed = await readShardsAt(tree, ref, current.map, oneConfig ? null : (read) => targetsDeclaredAt(read, suite.configFile));
+  if (committed.unread !== null) {
+    stderr.write(`baseline diff: can't read the config at ${ref} (${committed.unread}), so ${ref} is read for the files the working tree's config declares\n`);
   }
-  const committed = await readBaselineAt(options.git ?? realGit(cwd), ref, file);
   const delta = diffBaselines(committed.baseline, current.baseline ?? EMPTY_BASELINE);
   const diff: BaselineDiff = {
     ref,
@@ -627,7 +670,7 @@ export async function runBaselineDiff(options: BaselineDiffOptions): Promise<Bas
   if (options.failOnAdded !== true) return { ok: true, exitCode: 0, diff };
   const grown = grownCount(diff.recounted);
   if (diff.added_count === 0 && grown === 0) return { ok: true, exitCode: 0, diff };
-  (options.stderr ?? process.stderr).write(
+  stderr.write(
     `baseline diff --fail-on-added: the working tree grandfathers more than ${ref}: ${diff.added_count} key(s) added, ${grown} counted more often\n`,
   );
   return { ok: false, exitCode: 1, diff };

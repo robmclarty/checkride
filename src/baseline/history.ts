@@ -6,7 +6,7 @@
  * shared runner in `../git.ts` — recovery writes the file through
  * `writeBaseline`, never `git checkout`, so a restore lands as an ordinary
  * reviewable working-tree edit. `baseline diff` reads one committed state
- * through the same plumbing ({@link readBaselineAt}).
+ * through the same plumbing ({@link treeAt}).
  *
  * `git log --follow` is deliberately not used: the baseline's name and location
  * are fixed ({@link BASELINE_FILE}, or a named suite's file), so history beyond a rename boundary
@@ -80,35 +80,44 @@ export async function baselineDirty(git: GitRunner, file: string = BASELINE_FILE
   return result.stdout.trim().length > 0;
 }
 
-/** The baseline as committed at a ref: the commit it named, and the file (`null` when that commit has none). */
-export type BaselineAtRef = { sha: string; baseline: Baseline | null };
-
 const DIFF_COMMAND = 'baseline diff';
 
+/** The tree committed at a ref: the commit it named, and `read`, the text of a file in it, relative to the checkride root, or `null` when the commit has none. */
+export type TreeAtRef = { sha: string; read: (file: string) => Promise<string | null> };
+
 /**
- * Read the baseline as committed at `ref`, for `baseline diff`. A ref that
- * names no commit is an error, while a commit without the file is not (it
- * reads as `null`, which the diff counts as empty), so the two are told apart
- * by listing the tree rather than by matching `git show`'s wording. A blob that
- * doesn't parse is an error too: diffing against it as empty would report
- * every current key as added and pass a mangled file off as a clean history.
+ * The tree committed at `ref`, for `baseline diff`. A ref that names no
+ * commit is an error, while a commit without a file is not (it reads as
+ * `null`), so the two are told apart by listing the tree rather than by
+ * matching `git show`'s wording.
  */
-export async function readBaselineAt(git: GitRunner, ref: string, file: string = BASELINE_FILE): Promise<BaselineAtRef> {
+export async function treeAt(git: GitRunner, ref: string): Promise<TreeAtRef> {
   // A leading dash would reach git as an option, never as a ref.
   if (ref.startsWith('-')) throw new Error(`${DIFF_COMMAND}: '${ref}' is not a ref`);
-  const located = await locate(git, file, DIFF_COMMAND);
+  const located = await locate(git, '', DIFF_COMMAND);
   const resolved = await git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
   if (!resolved.ok && resolved.error !== 'failed') throw gitFailureError(resolved, DIFF_COMMAND);
   if (!resolved.ok) throw new Error(`${DIFF_COMMAND}: '${ref}' does not name a commit`);
   const sha = resolved.stdout.trim();
-  const listed = await git(['ls-tree', '--full-tree', '--name-only', sha, '--', located.path]);
-  if (!listed.ok) throw gitFailureError(listed, DIFF_COMMAND);
-  if (listed.stdout.trim().length === 0) return { sha, baseline: null };
-  const show = await git(['show', `${sha}:${located.path}`]);
-  if (!show.ok) throw gitFailureError(show, DIFF_COMMAND);
-  const baseline = parseBaseline(show.stdout);
+  const read = async (file: string): Promise<string | null> => {
+    const path = `${located.path}${file}`;
+    const listed = await git(['ls-tree', '--full-tree', '--name-only', sha, '--', path]);
+    if (!listed.ok) throw gitFailureError(listed, DIFF_COMMAND);
+    if (listed.stdout.trim().length === 0) return null;
+    const show = await git(['show', `${sha}:${path}`]);
+    if (!show.ok) throw gitFailureError(show, DIFF_COMMAND);
+    return show.stdout;
+  };
+  return { sha, read };
+}
+
+/** `text`, a baseline file as `ref` committed it, parsed: `null` for a commit without it, and an error for one that can't be parsed. */
+export function parsedAt(text: string | null, file: string, ref: string): Baseline | null {
+  if (text === null) return null;
+  const baseline = parseBaseline(text);
+  // Diffing against it as empty would report every current key as added and pass a mangled file off as a clean history.
   if (baseline === null) throw new Error(`${DIFF_COMMAND}: ${file} at ${ref} can't be parsed, or comes from a newer checkride`);
-  return { sha, baseline };
+  return baseline;
 }
 
 /**

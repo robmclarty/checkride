@@ -1363,6 +1363,76 @@ export function loadConfigFile(path: string, cwd: string, warn?: ConfigWarning):
   return validated(resolveConfigFile(path, rootChain(path, warn, cwd)), cwd, path, { file: CONFIG_FILE, named: true, ...(warn === undefined ? {} : { warn }) });
 }
 
+/**
+ * The `targets` a command that reads only the baseline's files needs: the
+ * ones the config it was pointed at declares, composed as a run composes
+ * them, or `problem`, why that config can't be read. `baseline diff` and
+ * `recover` map the baseline's files from these, and fall back to the root
+ * file alone on a config they can't read, since `recover` has to work after
+ * the merge that mangled it. `config` is one already loaded, and
+ * `configPath` a file `--config` or `CHECKRIDE_CONFIG` named; with neither,
+ * the repo's own is read, a named suite's for one.
+ */
+export function targetsForBaseline(at: { cwd: string; suite: Suite; config?: CheckrideConfig | null; configPath?: string }): { targets: unknown } | { problem: string } {
+  try {
+    const loaded = at.config !== undefined ? at.config : at.configPath !== undefined ? loadConfigFile(at.configPath, at.cwd) : loadConfig(at.cwd, undefined, at.suite.configFile);
+    return { targets: composedConfig(loaded, at.cwd, at.suite)?.targets };
+  } catch (error) {
+    return { problem: (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '' };
+  }
+}
+
+/** One config file as some other state of the tree holds it, parsed, or `null` when that state has none. */
+async function parsedFrom(read: (file: string) => Promise<string | null>, file: string): Promise<Record<string, unknown> | null> {
+  const text = await read(file);
+  if (text === null) return null;
+  const parsed: unknown = JSON.parse(text);
+  if (!isRecord(parsed)) throw new Error(`${file} is not a JSON object`);
+  return parsed;
+}
+
+/** The targets the config file in `dir` declares, as `parsed` holds them, each root made relative to the repo root. */
+function targetsUnder(parsed: Record<string, unknown>, dir: string): [string, unknown][] {
+  const targets = parsed['targets'];
+  if (!isRecord(targets)) return [];
+  return Object.entries(targets).map(([name, entry]) => [name, isRecord(entry) && typeof entry['root'] === 'string' ? { ...entry, root: includedDir(dir, entry['root']) } : entry]);
+}
+
+/** The directories the config file in `dir` includes, as `parsed` lists them, each relative to the repo root. */
+function includedUnder(parsed: Record<string, unknown>, dir: string): string[] {
+  const include = parsed['include'];
+  if (!Array.isArray(include)) return [];
+  return include.filter((entry): entry is string => typeof entry === 'string').map((entry) => includedDir(dir, entry));
+}
+
+/**
+ * The targets a config declared in another state of the tree, a commit's,
+ * say, as one flat set with each root relative to the repo root: the
+ * config's own, and those of every file it includes, read through `read`,
+ * which gives a file's text or `null`. Presets aren't followed, since a
+ * preset can't declare a target. This reads what a baseline's files are
+ * mapped from and holds the config to no rule: a file that isn't JSON, or an
+ * included file that is missing, throws, and a cycle of includes stops at
+ * the file it comes back to.
+ */
+export async function targetsDeclaredAt(read: (file: string) => Promise<string | null>, fileName: string): Promise<Record<string, unknown>> {
+  const targets: Record<string, unknown> = {};
+  const seen = new Set<string>();
+  const visit = async (dir: string): Promise<void> => {
+    const file = posix.join(dir, fileName);
+    if (seen.has(file)) return;
+    seen.add(file);
+    const parsed = await parsedFrom(read, file);
+    if (parsed === null && dir !== '.') throw new Error(`${file} is missing`);
+    if (parsed === null) return;
+    for (const [name, entry] of targetsUnder(parsed, dir)) targets[name] = entry;
+    // oxlint-disable-next-line no-await-in-loop -- a handful of files, read in the order the config lists them.
+    for (const included of includedUnder(parsed, dir)) await visit(included);
+  };
+  await visit('.');
+  return targets;
+}
+
 /** The first top-level key a defaults file can't hold, as a problem, or `null`. */
 function defaultsKeyProblem(config: Record<string, unknown>): string | null {
   const key = Object.keys(config).find((k) => !DEFAULTS_KEYS.has(k));

@@ -91,11 +91,12 @@ const READER_OPTIONS = {
   suite: { type: 'string' },
 } as const;
 
-/** `baseline diff` takes an optional ref, `--json`, `--fail-on-added` and `--suite`; anything else is a usage error. */
+/** `baseline diff` takes an optional ref, `--json`, `--fail-on-added`, `--suite` and `--config`; anything else is a usage error. */
 const BASELINE_DIFF_OPTIONS = {
   json: { type: 'boolean', default: false },
   'fail-on-added': { type: 'boolean', default: false },
   suite: { type: 'string' },
+  config: { type: 'string' },
 } as const;
 
 const INIT_OPTIONS = {
@@ -434,7 +435,7 @@ const BASELINE_HELP_TEXT = `checkride baseline — grandfather today's findings,
 Usage: checkride baseline [--versions] [--only <a,b>] [--skip <a,b>]
                           [--config <path>] [--out <dir>] [--suite <name>]
        checkride baseline diff [<ref>] [--json] [--fail-on-added]
-                               [--suite <name>]
+                               [--suite <name>] [--config <path>]
 
 \`baseline\` runs the checks and writes their current findings, per check, to
 checkride.baseline.json at the repo root. Commit the file: a later run fails
@@ -460,7 +461,10 @@ With --fail-on-added it exits 1 when the working tree grandfathers more than
 <ref>: a key <ref>'s copy lacks, or a key counted more often. In CI, diff
 against the merge base, so a key main pruned since the branch left it doesn't
 read as added: \`checkride baseline diff "$(git merge-base origin/main HEAD)"
---fail-on-added\`.
+--fail-on-added\`. Where a local target keeps its keys in a file at its own
+root, every such file is read on both sides, so a key that moved between
+files is no change. A config that can't be read is a warning, and the root
+file is compared alone.
 
 Options:
   --versions       Re-record the copy of each check's tool, adding no key
@@ -469,8 +473,9 @@ Options:
                    exit 2 (baseline only; with --versions, re-record only them)
   --skip <a,b>     Capture every check but these, named the same way
   --config <path>  Read this config file instead of ./checkride.config.json
-                   (baseline only; or set CHECKRIDE_CONFIG). With --versions
-                   it must sit inside the repo.
+                   (or set CHECKRIDE_CONFIG). With --versions it must sit
+                   inside the repo. For baseline diff it says which files
+                   the baseline is spread over, on both sides.
   --out <dir>      Write the capture run's artifacts to <dir> instead of
                    ./.check (baseline only; or set CHECKRIDE_OUT). The baseline
                    itself is still written at the repo root.
@@ -1177,6 +1182,20 @@ async function dispatchBaseline(argv: string[], deps: CliDeps): Promise<number> 
   return result.exitCode;
 }
 
+/**
+ * What says which files a baseline is spread over, for a command that reads
+ * no check: its suite, and the config file `--config` or `CHECKRIDE_CONFIG`
+ * named, by its path. The file is left unread here, since the command falls
+ * back to the root baseline file on a config it can't read, where a named
+ * file that is missing is still a usage error, and so is one beside a suite.
+ */
+function baselineFilesOf(flags: { suite?: string | undefined; config?: string | undefined }, deps: CliDeps): { suite: Suite; configPath?: string } {
+  const named = flagOrVariable('--config', flags.config, CONFIG_ENV, deps.env ?? process.env);
+  const suite = suiteOf(flags.suite, deps, deps.cwd, named === null ? [] : [named.from]);
+  const path = namedFile('--config', flags.config, CONFIG_ENV, deps);
+  return path === null ? { suite } : { suite, configPath: path };
+}
+
 /** `baseline diff [<ref>] [--json] [--fail-on-added]`: at most one positional, the ref. */
 async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<number> {
   const { values, positionals } = parseArgs({ args, allowPositionals: true, options: BASELINE_DIFF_OPTIONS });
@@ -1189,7 +1208,7 @@ async function dispatchBaselineDiff(args: string[], deps: CliDeps): Promise<numb
     stderr: deps.stderr,
     json: values.json,
     failOnAdded: values['fail-on-added'],
-    suite: suiteOf(values.suite, home.deps),
+    ...baselineFilesOf(values, home.deps),
     ...(ref !== undefined ? { ref } : {}),
   });
   return result.exitCode;

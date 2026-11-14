@@ -143,6 +143,12 @@ checkride baseline diff "$BASE_SHA" --json
 Add `--fail-on-added` to turn the diff into a verdict: exit 1 when a key was
 added or a count grew, with the same JSON on stdout.
 
+In a repo with [local targets](./targets.md#local-targets) the baseline is
+more than one file, `web/checkride.baseline.json` beside the root one. The
+command reads them all on both sides, so the object is the same shape, a key
+added to any file is listed under its check, and a key that only moved from
+one file to another isn't listed at all.
+
 ## Reading the findings
 
 `summary.json` says which checks failed. `checkride/findings` turns each

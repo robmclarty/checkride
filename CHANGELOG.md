@@ -101,6 +101,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   file, none of them writes over a file that can't be parsed: the command
   is exit 2 naming the file, before anything runs.
 
+- **`baseline diff` walks every baseline file.** It reads the working tree
+  as a run does, and `<ref>` for the files its own config or the working
+  tree's declares, so `--fail-on-added` exits 1 on a key added to any
+  target's file, and a key that only moved between files is no change. The
+  `--json` object keeps its eight fields. It takes `--config` and
+  `CHECKRIDE_CONFIG` now, and a config that can't be read is a warning: the
+  root file is compared alone. `--summary github` counts the same files.
+
 ### Removed
 
 - **The package root exports only what its consumers import.** It keeps
@@ -143,6 +151,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   that couldn't be read is a new exit 2 for `baseline`, `baseline --only`,
   `baseline --skip` and `baseline --versions`. A repo with one baseline file
   is written, and refused, exactly as before.
+- **`baseline diff` reads a config, and takes `--config`.** It used to read
+  none and reject the flag. It now loads the config as a run does, reads
+  `CHECKRIDE_CONFIG`, and refuses a named file that is missing, or one
+  beside `--suite`, with exit 2. Which files each side is read for, the
+  comparison across them, and the two warnings for a config that can't be
+  read are promised. A repo with one baseline file gets the diff it got
+  before.
 - **`targets.<name>` gains `local`, and a local target's file is read.** An
   entry with `"local": true` and its `<root>/checkride.config.json` compose
   into one target, for the repo's config, a `--config` file and a config

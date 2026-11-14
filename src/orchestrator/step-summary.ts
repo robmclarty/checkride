@@ -16,7 +16,8 @@
 import { appendFile } from 'node:fs/promises';
 
 import type { Baseline } from '../baseline/index.js';
-import { BASELINE_SCHEMA_VERSION, diffBaselines, readBaselineAt, readBaselineStatus } from '../baseline/index.js';
+import type { DeclaredAt, ShardMap } from '../baseline/index.js';
+import { BASELINE_SCHEMA_VERSION, diffBaselines, readShards, readShardsAt, treeAt } from '../baseline/index.js';
 import type { GitRunner } from '../git.js';
 import type { Named } from '../suite.js';
 import type { Out, Summary, SummaryCheck } from './types.js';
@@ -64,15 +65,24 @@ export type BaseKeys =
 const EMPTY: Baseline = { schema_version: BASELINE_SCHEMA_VERSION, slots: {} };
 
 /**
- * The keys `file` in `cwd` added and removed since `ref`, read as
- * `baseline diff <ref>` reads them, a file missing on either side as empty.
- * Every failure becomes the reason the counts are left out; nothing throws.
+ * The files a run's baseline is spread over, and how the base's own config
+ * is read, or `null` when one config stands for both sides: what
+ * {@link baseKeysOf} needs to count a local target's keys.
  */
-export async function baseKeysOf(git: GitRunner, cwd: string, ref: string, file: string): Promise<BaseKeys> {
-  const current = readBaselineStatus(cwd, 'current', file);
-  if (current.state === 'unparseable') return { ok: false, ref, why: `${file} in the working tree can't be parsed` };
+export type BaselineFiles = { map: ShardMap; declared: DeclaredAt | null };
+
+/**
+ * The keys `file` in `cwd` added and removed since `ref`, read as
+ * `baseline diff <ref>` reads them, a file missing on either side as empty,
+ * over every file `files` names, or the root file alone without it. Every
+ * failure becomes the reason the counts are left out; nothing throws.
+ */
+export async function baseKeysOf(git: GitRunner, cwd: string, ref: string, file: string, files?: BaselineFiles): Promise<BaseKeys> {
+  const current = readShards(cwd, files?.map ?? { root: file, shards: [] });
+  const unread = current.files.find((f) => f.state === 'unparseable' || f.state === 'outside');
+  if (unread !== undefined) return { ok: false, ref, why: `${unread.file} in the working tree can't be ${unread.state === 'outside' ? 'read' : 'parsed'}` };
   try {
-    const committed = await readBaselineAt(git, ref, file);
+    const committed = await readShardsAt(await treeAt(git, ref), ref, current.map, files?.declared ?? null);
     const delta = diffBaselines(committed.baseline, current.baseline ?? EMPTY);
     return { ok: true, ref, sha: committed.sha, added: delta.restored, removed: delta.absent };
   } catch (err) {
@@ -164,7 +174,7 @@ export function stepSummaryText(summary: Summary, keys: BaseKeys): string {
 }
 
 /** What {@link writeStepSummary} reads: where the run is, its baseline file, the base to count against, and git. */
-export type StepSummaryScope = { cwd: string; baselineFile: string; baseRef: string; git: GitRunner; stderr: Out };
+export type StepSummaryScope = { cwd: string; baselineFile: string; baseRef: string; git: GitRunner; stderr: Out; files?: BaselineFiles };
 
 /**
  * Append the run's step summary to `option.file`. No file named, or one that
@@ -176,7 +186,7 @@ export async function writeStepSummary(option: StepSummaryOption, summary: Summa
     scope.stderr.write(`--summary ${option.format}: ${STEP_SUMMARY_FILE_ENV} is not set, so no step summary is written\n`);
     return;
   }
-  const keys = await baseKeysOf(scope.git, scope.cwd, scope.baseRef, scope.baselineFile);
+  const keys = await baseKeysOf(scope.git, scope.cwd, scope.baseRef, scope.baselineFile, scope.files);
   try {
     await appendFile(option.file, stepSummaryText(summary, keys));
   } catch (err) {

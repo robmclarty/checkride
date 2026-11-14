@@ -21,6 +21,10 @@
  * Each file has its own state. One that can't be parsed masks nothing of its
  * own, and every other file masks as usual.
  *
+ * `baseline diff` reads the files a ref committed the same way
+ * ({@link readShardsAt}), so a key that moved between files since is no
+ * change.
+ *
  * A writer goes through the same map ({@link ratchetShards}): each check's
  * keys land in the file that owns them and leave every other file, so a stray
  * key moves home, and a file is written only when what it holds changes. No
@@ -40,7 +44,8 @@ import type { Root } from '../contain.js';
 import { locatedSync, repoRoot } from '../contain.js';
 import { isRecord } from '../json.js';
 import type { Tally } from './fingerprint.js';
-import { unionBaselines } from './history.js';
+import type { TreeAtRef } from './history.js';
+import { parsedAt, unionBaselines } from './history.js';
 import type { Baseline, BaselineRead } from './store.js';
 import { BASELINE_SCHEMA_VERSION, baselinesEqual, ratchet, readBaselineFile, readBaselineStatus, writeBaseline } from './store.js';
 
@@ -397,4 +402,57 @@ export function rerecordShards(written: ShardsRead, current: ShardsRead, next: B
     const whole = joined([...here.map((check) => rerecordedHere(now, next, check)), rest], BASELINE_SCHEMA_VERSION);
     return baselinesEqual(file.baseline, whole) ? [] : [{ file: file.file, baseline: whole }];
   });
+}
+
+/** `first` with each file of `second` it lacks: the files either map names, each read by the map that names it first. */
+function eitherMap(first: ShardMap, second: ShardMap): ShardMap {
+  const named = new Set(first.shards.map((shard) => shard.file));
+  return { root: first.root, shards: [...first.shards, ...second.shards.filter((shard) => !named.has(shard.file))] };
+}
+
+/**
+ * How the caller reads the `targets` a ref's own config declared, given the
+ * ref's tree. This module can't read a config itself, so the caller hands
+ * the reader in.
+ */
+export type DeclaredAt = (read: TreeAtRef['read']) => Promise<unknown>;
+
+/** The baseline a ref committed, every file of it as one, with `unread`, why its own config couldn't be read, or `null`. */
+export type ShardsAtRef = { sha: string; baseline: Baseline | null; unread: string | null };
+
+/** The first line of what was thrown, as a reason a message can hold. */
+function reasonOf(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).split('\n')[0] ?? '';
+}
+
+/**
+ * The baseline as `tree`, the commit `ref` names, holds it: the root file,
+ * and the file at each target's root that either the working tree's map,
+ * `working`, or the config the ref itself committed declares, read as one
+ * baseline, the way a run reads the working tree's. So a file only the ref's
+ * config declares is read, and a key that has moved between files since
+ * compares as the same key. `declared` reads the ref's own targets, and is
+ * `null` when one config stands for both sides. A ref's config that can't
+ * be read declares nothing, and `unread` says why. A file the commit lacks
+ * reads as empty, and one that can't be parsed is an error, as the root
+ * file's always was.
+ */
+export async function readShardsAt(tree: TreeAtRef, ref: string, working: ShardMap, declared: DeclaredAt | null): Promise<ShardsAtRef> {
+  const root = parsedAt(await tree.read(working.root), working.root, ref);
+  let map = working;
+  let unread: string | null = null;
+  if (declared !== null) {
+    try {
+      map = eitherMap(shardMap(working.root, await declared(tree.read)), working);
+    } catch (error) {
+      unread = reasonOf(error);
+    }
+  }
+  const texts = await Promise.all(map.shards.map((shard) => tree.read(shard.file)));
+  const files: ShardRead[] = [working.root, ...map.shards.map((shard) => shard.file)].map((file, at) => {
+    const baseline = at === 0 ? root : parsedAt(texts[at - 1] ?? null, file, ref);
+    return { file, baseline, state: baseline === null ? 'absent' : 'ok' };
+  });
+  const alone = files.slice(1).every((file) => file.baseline === null);
+  return { sha: tree.sha, baseline: alone ? root : together(map, files), unread };
 }

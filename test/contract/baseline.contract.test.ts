@@ -961,3 +961,134 @@ describe('checkride baseline diff --json', () => {
     expect(out.text()).toBe('');
   });
 });
+
+/** A baseline holding `entries`. */
+const slots = (entries: Record<string, string[]>): Baseline => ({ schema_version: 1, slots: entries });
+
+/**
+ * Contract: `baseline diff` walks every file a baseline is spread over
+ * (§CLI, `baseline diff`): the working tree's as a run reads them, and the
+ * ref's for the files its own config or the working tree's declares.
+ */
+describe("checkride baseline diff over a local target's files", () => {
+  let dir: string;
+
+  /** Write `content` as the file `file`, relative to the repo, making its directory. */
+  async function put(file: string, content: object | string): Promise<void> {
+    await mkdir(dirname(join(dir, file)), { recursive: true });
+    await writeFile(join(dir, file), typeof content === 'string' ? content : `${JSON.stringify(content, null, 2)}\n`);
+  }
+
+  const CONFIG = { targets: { web: { root: 'web', local: true }, api: { root: 'services/api', local: true } } };
+  const WEB_FILE = 'web/checkride.baseline.json';
+  const API_FILE = 'services/api/checkride.baseline.json';
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'checkride-shard-diff-contract-'));
+    git(dir, 'init', '-q');
+    await put('checkride.config.json', CONFIG);
+    await put('web/checkride.config.json', { lang: 'ts' });
+    await put('services/api/checkride.config.json', { lang: 'ts' });
+    await put(BASELINE_FILE, slots({ spell: ['s1'] }));
+    await put(WEB_FILE, slots({ 'web:lint': ['w1'] }));
+    await put(API_FILE, slots({ 'api:lint': ['a1'] }));
+    git(dir, 'add', '.');
+    git(dir, 'commit', '-q', '-m', 'adopt a baseline, a file to each target');
+  });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  async function diff(argv: string[] = []): Promise<{ code: number; json: Record<string, unknown>; err: string }> {
+    const out = sink();
+    const err = sink();
+    const code = await runCli(['baseline', 'diff', ...argv, '--json'], { cwd: dir, stdout: out.out, stderr: err.out, env: {} });
+    return { code, json: out.text() === '' ? {} : (JSON.parse(out.text()) as Record<string, unknown>), err: err.text() };
+  }
+
+  test.each<{ file: string; entries: Record<string, string[]>; added: Record<string, string[]> }>([
+    { file: WEB_FILE, entries: { 'web:lint': ['w1', 'w2'] }, added: { 'web:lint': ['w2'] } },
+    { file: API_FILE, entries: { 'api:lint': ['a1', 'a2'] }, added: { 'api:lint': ['a2'] } },
+  ])('a key added in $file is reported under the same eight fields, and --fail-on-added exits 1 on it', async ({ file, entries, added }) => {
+    await put(file, slots(entries));
+    const plain = await diff();
+    expect(plain.code).toBe(0);
+    expect(Object.keys(plain.json)).toEqual(['ref', 'sha', 'added', 'removed', 'added_count', 'removed_count', 'recounted', 'recounted_count']);
+    expect(plain.json).toMatchObject({ ref: 'HEAD', added, removed: {}, added_count: 1, removed_count: 0, recounted: {}, recounted_count: 0 });
+    const guarded = await diff(['--fail-on-added']);
+    expect(guarded.code).toBe(1);
+    expect(guarded.json).toEqual(plain.json);
+    expect(guarded.err).toContain('baseline diff --fail-on-added: the working tree grandfathers more than HEAD: 1 key(s) added, 0 counted more often\n');
+  });
+
+  test('nothing changed is exit 0 with empty sides, and a key that moved between files is no change', async () => {
+    expect((await diff(['--fail-on-added'])).json).toMatchObject({ added_count: 0, removed_count: 0 });
+    // web's key back in the root file, and its own file gone: the same key, held elsewhere.
+    await put(BASELINE_FILE, slots({ spell: ['s1'], 'web:lint': ['w1'] }));
+    await rm(join(dir, WEB_FILE));
+    const moved = await diff(['--fail-on-added']);
+    expect(moved.code).toBe(0);
+    expect(moved.json).toMatchObject({ added: {}, removed: {}, added_count: 0, removed_count: 0 });
+  });
+
+  test('a file only the config at the ref declares is read there, so its keys read as removed', async () => {
+    await put('checkride.config.json', { targets: { web: CONFIG.targets.web } });
+    const now = await diff(['--fail-on-added']);
+    expect(now.code).toBe(0);
+    expect(now.json).toMatchObject({ added: {}, removed: { 'api:lint': ['a1'] }, removed_count: 1 });
+  });
+
+  test('a file only the working tree\'s config declares is read at the ref too', async () => {
+    // The ref's config declares no target, with web's keys already in a file at its root.
+    await put('checkride.config.json', {});
+    git(dir, 'commit', '-q', '-am', 'drop the targets');
+    await put('checkride.config.json', CONFIG);
+    expect((await diff(['--fail-on-added'])).json).toMatchObject({ added: {}, removed: {}, added_count: 0, removed_count: 0 });
+  });
+
+  test("a config that can't be read falls back to the root file alone, with a warning", async () => {
+    await put('checkride.config.json', '{ "targets": ');
+    await put(BASELINE_FILE, slots({ spell: ['s1', 's2'] }));
+    await put(WEB_FILE, slots({ 'web:lint': ['w1', 'w2'] }));
+    const fell = await diff(['--fail-on-added']);
+    expect(fell.err).toMatch(/^baseline diff: can't read the config \(.+\), so it compares checkride\.baseline\.json alone\n/);
+    expect(fell.json).toMatchObject({ added: { spell: ['s2'] }, removed: {}, added_count: 1 });
+    expect(fell.code).toBe(1);
+  });
+
+  test("a config the ref can't give still reads the ref for the files the working tree's config declares, with a warning", async () => {
+    await put('checkride.config.json', '{ "targets": ');
+    git(dir, 'commit', '-q', '-am', 'a bad merge of the config');
+    await put('checkride.config.json', CONFIG);
+    await put(WEB_FILE, slots({ 'web:lint': ['w1', 'w2'] }));
+    const read = await diff();
+    expect(read.err).toMatch(/^baseline diff: can't read the config at HEAD \(.+\), so HEAD is read for the files the working tree's config declares\n$/);
+    expect(read.json).toMatchObject({ added: { 'web:lint': ['w2'] }, removed: {}, added_count: 1 });
+  });
+
+  test('--config names the config that stands for both sides', async () => {
+    await put('only-web.json', { targets: { web: CONFIG.targets.web } });
+    await put(WEB_FILE, slots({ 'web:lint': ['w1', 'w2'] }));
+    await put(API_FILE, slots({ 'api:lint': ['a1', 'a2'] }));
+    expect((await diff(['--config', 'only-web.json'])).json).toMatchObject({ added: { 'web:lint': ['w2'] }, removed: {}, added_count: 1 });
+    const env = await runCli(['baseline', 'diff', '--json'], { cwd: dir, stdout: sink().out, stderr: sink().out, env: { CHECKRIDE_CONFIG: 'only-web.json' } });
+    expect(env).toBe(0);
+  });
+
+  test.each<{ label: string; mangle: () => Promise<void>; says: string }>([
+    { label: 'in the working tree', mangle: () => put(WEB_FILE, '<<<<<<< HEAD\n{\n'), says: "web/checkride.baseline.json in the working tree can't be parsed, or comes from a newer checkride" },
+    {
+      label: 'at the ref',
+      mangle: async () => {
+        await put(WEB_FILE, '<<<<<<< HEAD\n{\n');
+        git(dir, 'commit', '-q', '-am', 'a bad merge');
+        await put(WEB_FILE, slots({ 'web:lint': ['w1'] }));
+      },
+      says: "web/checkride.baseline.json at HEAD can't be parsed, or comes from a newer checkride",
+    },
+  ])("a target's file that can't be parsed $label is exit 2 naming it, with nothing on stdout", async ({ mangle, says }) => {
+    await mangle();
+    const out = sink();
+    const err = sink();
+    expect(await runCli(['baseline', 'diff', '--json'], { cwd: dir, stdout: out.out, stderr: err.out, env: {} })).toBe(2);
+    expect(out.text()).toBe('');
+    expect(err.text()).toContain(says);
+  });
+});
