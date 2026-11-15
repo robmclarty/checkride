@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.23.0] - 2026-11-15
 
 ### Added
 
@@ -228,6 +228,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the command exits 0 whenever it ran, as before. With it, a key added or a
   count grown since `<ref>` is exit 1, never 2, and the `--json` object keeps
   its eight fields.
+
+### Internal
+
+- **`examples/local-targets` shows a web and an api target with local
+  configs.** The examples e2e suite runs it against its `expected.json`.
 
 ## [0.22.0] - 2026-11-11
 
@@ -5126,6 +5131,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.23.0]: https://www.npmjs.com/package/checkride/v/0.23.0
 [0.22.0]: https://www.npmjs.com/package/checkride/v/0.22.0
 [0.21.0]: https://www.npmjs.com/package/checkride/v/0.21.0
 [0.20.0]: https://www.npmjs.com/package/checkride/v/0.20.0
