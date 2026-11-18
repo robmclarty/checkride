@@ -341,3 +341,31 @@ describe("the CLI help's doc links name a page the repo has", () => {
     expect(paths.filter((path) => !existsSync(join(ROOT, path)))).toEqual([]);
   });
 });
+
+/**
+ * The README is the happy path: the pitch, one install, a real run and links.
+ * Reference moved to `docs/`, and these hold it from growing back.
+ */
+describe('the README is the happy path', () => {
+  const PITCH =
+    "checkride runs every check your repo has as one command. Exit 0 means the work is done. An agent keeps going until it's green, and a reviewer starts from green.";
+  const title = '\n# checkride\n';
+  const start = README.indexOf(title);
+  /** The prose between the title and the first code block, unwrapped. */
+  const lead = README.slice(start + title.length, README.indexOf('\n```', start)).replace(/\s+/g, ' ').trim();
+
+  test('it is under 200 lines', () => {
+    expect(README.trimEnd().split('\n').length).toBeLessThan(200);
+  });
+
+  test('it opens with the pitch', () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(lead.startsWith(PITCH)).toBe(true);
+  });
+
+  test('its first code block is the install, two commands', () => {
+    const fence = /\n```(\w*)\n([\s\S]*?)\n```/.exec(README);
+    expect(fence?.[1]).toBe('bash');
+    expect(fence?.[2]?.split('\n')).toEqual(['pnpm add -D -E checkride', 'pnpm exec checkride init']);
+  });
+});

@@ -66,6 +66,16 @@ pnpm add -D -E checkride
 pnpm exec checkride init
 ```
 
+The same two steps under another package manager. `init` detects it and
+spells the alias and stanza (and the stop gate, if you opt in) for it (see
+[Package managers](./tools.md#package-managers)):
+
+```bash
+npm install -D -E checkride && npx checkride init
+yarn add -D -E checkride && yarn checkride init
+bun add -d -E checkride && bunx checkride init
+```
+
 `init` is additive here. It inventories the tools you already have, writes only
 what is missing (a `checkride.config.json`, a `check` script alias, an AGENTS.md
 stanza), and never overwrites an existing tool config. Any adopted check that
@@ -196,6 +206,14 @@ pnpm check
 - **hybrid** — a root app in `src/` plus internal `packages/*`.
 
 Preview without writing anything using `--dry-run`.
+
+The generated project is a pnpm project: its `engines` field and
+`pnpm-workspace.yaml` assume it, and the monorepo and hybrid shapes are pnpm
+workspaces. To start under npm, yarn, or bun, create the `package.json` first
+(`npm init -y`, or your manager's equivalent), then take the
+[existing-repository path](#an-existing-repository) above. `init --add <slots>`
+scaffolds the tool configs a bare repository lacks (`init --add struct,dead`,
+for example).
 
 Every shape writes its code in one layout, the one
 [deep modules](./deep-modules.md) describes. The flat `my-app` above starts as:

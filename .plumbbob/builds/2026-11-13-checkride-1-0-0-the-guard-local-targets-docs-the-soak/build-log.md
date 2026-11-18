@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 14 — docs: move the README's reference sections out
+**Current step:** 15 — docs(readme): rewrite the README to the happy path
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -37,7 +37,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 11. feat(baseline): walk every shard in baseline diff
 - ☑ 12. feat(recover): rebuild every shard from history
 - ☑ 13. feat(protect): guard every shard from edits
-- ☐ 14. docs: move the README's reference sections out
+- ☑ 14. docs: move the README's reference sections out
 - ☐ 15. docs(readme): rewrite the README to the happy path
 - ☐ 16. docs(team): write the page for a team merging agent-written code
 - ☐ 17. docs: list the docs by job and shrink getting-started
@@ -517,3 +517,58 @@ folder, so it rides the branch into the PR.)*
   **5.** The version the release will cut is 0.23.0
 
   Range 2's stop was to release 0.23.0, and it never ran: the last tag is `v0.22.0`, `package.json` says 0.22.0, and `[Unreleased]` in `CHANGELOG.md` holds the guard, `--summary github`, the barrel trim and the Cursor hook fix beside everything from steps 4 to 13. `/version minor` will bump to 0.23.0 and file all of it there. The plan's later numbers (0.25.0 for the docs, the soak on "the last release before step 19") then each read one lower, and D32 (soak-clock) names no number, so nothing in the plan breaks.
+
+- 2026-11-18 — step 14 checkpointed · 66bfc581d — docs: move the README's reference sections out (2 red, 655m)
+
+  **Summary**: The README's reference now lives under `docs/`: commands on the cheat sheet, slots, adapters and packs in the tools guide, `.check/` in the contract, and two new pages, `docs/configuration.md` and `docs/baseline.md`. Every link to a moved heading is repointed, and a test proves none is left dangling. `plumbbob check` was green (90s), but both checkpoint runs then went red on a different 5-second test timeout each time. The machine's load average was 42, with Proton Drive's file provider using over 200% CPU, so the step hasn't landed.
+
+  1. The checkpoint's gate went red on timeouts the diff doesn't touch
+  2. Each section went to the page D15 names
+  3. The two new pages keep the README's text and add headings
+  4. The anchor proof follows GitHub URLs too
+  5. What the README still holds for step 15
+
+  **Readout**:
+
+  ```text
+  check        green: 1 of 1 checks
+  done-when    met
+  decisions    2 of 2 honored
+  constraints  bent: C1 (one-green-commit)
+               → the gate's test slot timed out twice under load; see 1
+  seam         held: 14 of 15 declared, no strays
+  diff         +768 -682 across 17 files
+               - README.md +26 -644
+               - docs/README.md +13 -6
+               - docs/baseline.md +165 -0
+               - docs/cheatsheet.md +29 -0
+               - docs/ci.md +3 -3
+               - docs/configuration.md +184 -0
+               - docs/contract.md +118 -1
+               - and 10 more
+  spent        10h 55m · 1 turn · 50s gate · 2 red runs
+  ```
+
+  **Verdict**: ○ Out of plumb (constraints bent)
+
+  **Recommendation**: Let the load settle (pause Proton Drive's sync if you can), then say `looks good` and I'll run the checkpoint again with no change to the diff. The first full check passed, both failures were 5-second timeouts in files this step doesn't touch, and the machine was running at about four times its core count.
+
+  **1.** The checkpoint's gate went red on timeouts the diff doesn't touch
+
+  The first `plumbbob check` passed every slot, with the test slot at 75s. The two checkpoint runs after it took 115s and 121s for tests and failed in `src/orchestrator/__tests__/static-only.test.ts`, then in `test/contract/flags.contract.test.ts`, each with `Test timed out in 5000ms`. Neither file is in the seam, and neither reads the docs. `uptime` showed load averages of 42, 48 and 41, and `ps` put `ProtonDriveFileProviderMac` at 214% CPU. Once the load drops, a retry should land the step unchanged.
+
+  **2.** Each section went to the page D15 names
+
+  The cheat sheet gained sections for `agent-setup`, `baseline` (its flags and `diff --fail-on-added`), and `gate`, `protect`, `triage` and `qa`. That fills the gaps between its command list and the README's full block. `docs/tools.md` opens with "Slots and adapters": the slot table with scope, the opt-in sentence, `unclaimed` and `schema`, and the language packs table. Its "Package managers" section took the README's paragraph about the spelled-for-the-manager commands and the manager-specific slots. The README's `optIn` and publish-bundle paragraphs were already covered further down the page, so they became links. `docs/contract.md` gained "The `.check/` directory" ahead of the summary's field-by-field section, including the red-run excerpt rules. A line there says those lines are the human report, and a parser reads the summary instead, so the section promises nothing new. The README's duplicate of the vacuous-green paragraph became a link to the contract's own section.
+
+  **3.** The two new pages keep the README's text and add headings
+
+  `docs/configuration.md` is the Configuration section whole, with its subsections promoted to `##`. Its intro now points at targets, suites and the baseline, and a new paragraph points at local targets and included files in `docs/targets.md`. `docs/baseline.md` is the Baseline section split under six headings: the file, every run, version moves, re-baselining and `diff`, merges and `recover`, which checks it keys, and adopting. It gained one paragraph linking the shard rules in `docs/targets.md` and a link to `examples/existing-repo-baseline`.
+
+  **4.** The anchor proof follows GitHub URLs too
+
+  The examples link the README by its `github.com/.../blob/main/README.md#…` URL, not a relative path. So the new test in `test/integration/docs-currency.test.ts` matches both forms. It reads `docs/`, `examples/` (skipping `node_modules`) and `test/fixtures/`, builds the README's anchors the way GitHub does (skipping fenced blocks and numbering repeated headings), and fails naming each dead link. A test I broke on purpose (`#the-gone-one` in `docs/why.md`) failed as it should. The sweep also turned up `docs/ci.md`'s `#agent-integration` link, which was already dead before this step. It now points at the cheat sheet's `gate` section. A second new test checks that every `blob/main/` URL in the CLI help names a file that exists, since the `baseline` and `recover` help now link `docs/baseline.md`.
+
+  **5.** What the README still holds for step 15
+
+  The README is down from 997 lines to 379. The thesis, Install, the agent hooks, the Docs list, the plugin, Project shapes, Conventions, Tested envelope and the programmatic API are still there, for step 15's rewrite. Three example READMEs and a fixture still link `#conventions`, and `docs/why.md` links `#the-thesis`. When step 15 removes either heading, the new test will name those links.
