@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 18 — docs: add SECURITY.md
+**Current step:** 19 — feat(init): write a caret pin from 1.0.0 on
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -41,7 +41,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 15. docs(readme): rewrite the README to the happy path
 - ☑ 16. docs(team): write the page for a team merging agent-written code
 - ☑ 17. docs: list the docs by job and shrink getting-started
-- ☐ 18. docs: add SECURITY.md
+- ☑ 18. docs: add SECURITY.md
 - ☐ 19. feat(init): write a caret pin from 1.0.0 on
 - ☐ 20. docs(contract): rewrite the pin policy and promise what a minor may do
 
@@ -620,3 +620,74 @@ folder, so it rides the branch into the PR.)*
   **3.** The index test checks every page, the design records included
 
   `docs-currency.test.ts` walks `docs/` recursively for markdown and requires each page to be linked from one of the four job sections. It also checks that the sections are exactly those four, in order, and that every page they link exists. The five `spec-*.md` design records go under Reference, in a short "Design records" list, because the done-when says every page under `docs/`.
+
+- 2026-11-18 — step 18 checkpointed · c42a111b3 — docs: add SECURITY.md (1 drift, 3m)
+- 2026-11-18 — range 5 of 7's stop recorded — review the docs and release 0.25.0 with `/version minor`; then move the five consumers to it, the work monorepo by Rob, and wait out the fourteen-day soak
+
+  **Summary**: The docs are reshaped for 1.0: the README is the happy path in 167 lines, its reference sections live in the pages that own them, `docs/team.md` walks a team merging agent-written code, `docs/README.md` lists every page by job, and `SECURITY.md` says how to report a problem and that the latest release gets fixes. One thing to do before releasing: `SECURITY.md` sends reporters to GitHub's "Report a vulnerability" form, and private vulnerability reporting is off on the repo today, so the form's link fails until it's switched on in Settings, under Security.
+
+  1. `SECURITY.md` names a reporting form the repo hasn't switched on yet.
+  2. Step 18 touched `checkride.config.json`, outside its seam.
+  3. The contract links `SECURITY.md` and promises nothing new.
+  4. Step 17 moved the agents half of getting-started to a new page, approved at its pause.
+  5. `docs-currency.test.ts` now holds the docs' shape.
+
+  **Readout**:
+
+  ```text
+  steps        5 of 5 landed
+               - 14 66bfc58 · 15 cc96b35 · 16 5a1ab30 · 17 614392b · 18 c42a111
+  check        green: 1 of 1 checks, 5 landings
+  proof        met
+  decisions    honored:
+               - D13 (readme-is-the-happy-path), D14 (the-pitch)
+               - D15 (reference-moves-out), D16 (team-page)
+               - D17 (docs-by-job), D19 (support-policy)
+               - D26 (anchor-proof), D27 (workflow-cover)
+               - D31 (guard-stays-strict), D38 (security-before-one)
+               - D40 (guard-base)
+  constraints  10 of 10 honored
+  seam         strayed: 3 paths outside 2 steps' seams
+               - step 17: docs/agents.md, docs/cursor.md
+               - step 18: checkride.config.json
+  diff         +2136 -1878 across 26 files
+               - README.md +157 -987
+               - SECURITY.md +34 -0
+               - checkride.config.json +1 -1
+               - docs/README.md +89 -94
+               - docs/agents.md +426 -0
+               - docs/baseline.md +165 -0
+               - docs/cheatsheet.md +29 -0
+               - and 19 more
+  spent        11h 29m · 2 red runs · 2 drift warnings
+  ```
+
+  **Verdict**: ◐ A hair off (seam strayed)
+
+  **Recommendation**: Read the README, `docs/team.md`, `docs/README.md` and `SECURITY.md`, switch on private vulnerability reporting, then release with `/version minor`. The full check is green on c42a111, and this range ran the end-to-end suite only for the local-targets example in step 16, so run the whole suite in the foreground before the release:
+
+  ```sh
+  mise exec -- pnpm test:e2e
+  ```
+
+  The consumers and the fourteen-day soak follow the release, and range 6 waits until both are clear.
+
+  **1.** `SECURITY.md` names a reporting form the repo hasn't switched on yet.
+
+  Step 18 had to choose where a report goes, since D19 (support-policy) says only that the file says how. It names GitHub's private "Report a vulnerability" form at `https://github.com/robmclarty/checkride/security/advisories/new`, which keeps a report private and publishes no email address. `gh api repos/robmclarty/checkride/private-vulnerability-reporting` answers `{"enabled":false}`, so the link doesn't work until the setting is on. Switching it on is a repo setting and was left to Rob. If an email address is the better channel, that is a one-line change to `SECURITY.md`, and step 20 already has the file in its seam.
+
+  **2.** Step 18 touched `checkride.config.json`, outside its seam.
+
+  `test/integration/dogfood-config.test.ts` fails on a tracked `.md` that vale's path list can't reach, so `SECURITY.md` joined the `prose` check's paths beside `CONTRIBUTING.md`. The other choice was to add it to the test's excluded set, which would have left the file unlinted. The checkpoint's verdict reads "a hair off (seam strayed)" for this one path.
+
+  **3.** The contract links `SECURITY.md` and promises nothing new.
+
+  The line under "Versioning and pin policy" says where to find how to report a problem and which versions get fixes. The promise itself lives in `SECURITY.md`, so no contract test or `### Contract` changelog entry moved, in keeping with C3 (contract-moves-loudly). `package.json`'s `files` ships `SECURITY.md` so the README's link to it resolves inside the tarball. It says "the latest release" as D38 (security-before-one) decided, and step 20 changes it to the latest 1.x.
+
+  **4.** Step 17 moved the agents half of getting-started to a new page, approved at its pause.
+
+  `docs/getting-started.md` shrank from 865 lines to 182. The agents-and-gate half moved whole into a new `docs/agents.md` with its anchors kept, and `docs/cursor.md`'s link followed it; both were outside the step's seam and were approved as seam drift at the pause. New-project setup and uninstalling moved to `docs/distribution.md`, and the config `init` writes moved to `docs/configuration.md`.
+
+  **5.** `docs-currency.test.ts` now holds the docs' shape.
+
+  It pins the README's line count, pitch and two-command install block (step 15), proves every README fragment linked from `docs/`, `examples/` and the fixtures names a heading the README has (step 14), holds the team page's yaml block byte for byte to `examples/local-targets/.github/workflows/check.yaml` and parses it (step 16), and fails on any page under `docs/` that isn't linked beneath a job in `docs/README.md` (step 17).

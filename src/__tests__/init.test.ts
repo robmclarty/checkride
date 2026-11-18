@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { ADAPTERS, SLOTS } from '../adapters.js';
 import { CLAUDE_SETTINGS_FILE, GATE_SCRIPT_FILE, runHooks } from '../agent-setup/index.js';
@@ -18,6 +18,20 @@ import type { CheckRunner } from '../orchestrator/index.js';
 import { selectChecks } from '../orchestrator/index.js';
 import { configProblem } from '../targets/index.js';
 import { RELEASED_STANZAS } from './fixtures/released-stanzas.js';
+
+/** The product version `init` reads in place of this package's own, or null for the real one. */
+const product = vi.hoisted((): { version: string | null } => ({ version: null }));
+
+vi.mock('../resources.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../resources.js')>();
+  return {
+    ...real,
+    readResource: (relPath: string): string =>
+      relPath === 'package.json' && product.version !== null ? JSON.stringify({ version: product.version }) : real.readResource(relPath),
+  };
+});
+
+afterEach(() => { product.version = null; });
 
 /** A capturing stdout for the few tests that read init's summary lines. */
 function sink(): { write: (text: string) => boolean; text: () => string } {
@@ -473,13 +487,31 @@ describe('new-project generation (flat)', () => {
     expect(setup.skipped).toContain('AGENTS.md (stanza unchanged)');
   });
 
-  test('default checkride spec pins the exact product version (no caret)', async () => {
+  /** The spec the scaffold's package.json gives checkride when the product is at `version`. */
+  async function packagePin(version: string): Promise<string | undefined> {
+    product.version = version;
     await runInit({ cwd: dir, shape: 'flat', name: 'demo' });
-    const pkg: { devDependencies: Record<string, string> } =
-      JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
-    const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-    const own: { version: string } = JSON.parse(await readFile(join(repoRoot, 'package.json'), 'utf8'));
-    expect(pkg.devDependencies['checkride']).toBe(own.version);
+    const pkg: { devDependencies: Record<string, string> } = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
+    return pkg.devDependencies['checkride'];
+  }
+
+  test.each(['0.1.0', '0.25.0', '0.99.12'])('below 1.0.0, at %s, package.json pins the exact product version, since a 0.x minor may break (Q1)', async (version) => {
+    expect(await packagePin(version)).toBe(version);
+  });
+
+  test.each(['1.0.0', '1.4.2', '2.0.0', '10.0.1'])('from 1.0.0 on, at %s, package.json pins a caret on the product version (Q1)', async (version) => {
+    expect(await packagePin(version)).toBe(`^${version}`);
+  });
+
+  test('a version with no major to read pins exactly', async () => {
+    expect(await packagePin('next')).toBe('next');
+  });
+
+  test('a checkride spec the caller gives is written as given, at any product version', async () => {
+    product.version = '1.0.0';
+    await runInit({ cwd: dir, shape: 'flat', name: 'demo', checkrideSpec: 'link:../..' });
+    const pkg: { devDependencies: Record<string, string> } = JSON.parse(await readFile(join(dir, 'package.json'), 'utf8'));
+    expect(pkg.devDependencies['checkride']).toBe('link:../..');
   });
 
   test('--dry-run writes nothing', async () => {
@@ -1691,6 +1723,16 @@ describe('new-project generation for another language (--lang)', () => {
     expect(out.text()).toContain(
       `  no standalone binary ships for ${named}, so mise.toml pins checkride from npm, with node beside it.\n  next, with the network:\n    mise trust\n    mise install\n    go get -tool`,
     );
+  });
+
+  test.each(['0.25.0', '1.0.0', '1.4.2'])('mise.toml pins the exact product version at %s, on either side of 1.0.0, since it has no lockfile (Q1)', async (pinned) => {
+    product.version = pinned;
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', host: GLIBC_LINUX });
+    expect((await readFile(join(dir, 'mise.toml'), 'utf8')).split('\n')[1]).toBe(`"github:robmclarty/checkride" = "${pinned}"`);
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir);
+    await runInit({ cwd: dir, lang: 'go', name: 'demo', host: NO_BINARY[0][0] });
+    expect((await readFile(join(dir, 'mise.toml'), 'utf8')).split('\n')[2]).toBe(`"npm:checkride" = { version = "${pinned}", allow_low_downloads = true }`);
   });
 
   test('without a host given, the scaffold is for this machine', async () => {

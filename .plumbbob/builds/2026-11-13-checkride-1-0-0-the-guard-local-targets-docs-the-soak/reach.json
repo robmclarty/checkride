@@ -28,6 +28,45 @@
         "import: atis reads no imports from .md files, so 2 named files have no import reach",
         "import: the go producer left its files unread: go list in templates/go/module exited 1: go: errors parsing go.mod:"
       ]
+    },
+    "19": {
+      "schema_version": 1,
+      "kind": "atis.reach",
+      "head": "c42a111b35b58134171cc5e86dee14de4a025fa4",
+      "paths": [
+        "src/init.ts",
+        "src/__tests__/init.test.ts",
+        "test/e2e/pins.e2e.test.ts"
+      ],
+      "new": [],
+      "reach": [
+        {
+          "path": "CHANGELOG.md",
+          "by": "cochange",
+          "rate": 0.67,
+          "support": 40,
+          "with": "src/__tests__/init.test.ts"
+        },
+        {
+          "path": "src/cli.ts",
+          "by": "import",
+          "hops": 1,
+          "via": [
+            "src/init.ts"
+          ]
+        },
+        {
+          "path": "src/target-command.ts",
+          "by": "import",
+          "hops": 1,
+          "via": [
+            "src/init.ts"
+          ]
+        }
+      ],
+      "muted": [
+        "import: the go producer left its files unread: go list in templates/go/module exited 1: go: errors parsing go.mod:"
+      ]
     }
   }
 }

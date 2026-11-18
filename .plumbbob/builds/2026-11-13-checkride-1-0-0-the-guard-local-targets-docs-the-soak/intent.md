@@ -272,7 +272,7 @@ one run · one summary · one exit code · target names one flat set
 17. [x] docs: list the docs by job and shrink getting-started, **done when:** `docs/README.md` lists every page under `docs/` beneath one of four jobs, a test proves each page is reachable from it, and `getting-started.md` holds only the ten minutes after the README
    - seam: `docs/README.md`, `docs/getting-started.md`, `docs/configuration.md`, `docs/baseline.md`, `docs/distribution.md`, `docs/targets.md`, `docs/ci.md`, `test/integration/docs-currency.test.ts`, `site/docs.html`
    - model: opus
-18. [ ] docs: add SECURITY.md, **done when:** `SECURITY.md` says how to report a problem and that the latest release gets fixes, and it's linked from the README and the contract
+18. [x] docs: add SECURITY.md, **done when:** `SECURITY.md` says how to report a problem and that the latest release gets fixes, and it's linked from the README and the contract
    - seam: `SECURITY.md` (new), `README.md`, `docs/contract.md`, `package.json`
    - model: sonnet (short and fully specified by [D19 (support-policy)](#d19))
 

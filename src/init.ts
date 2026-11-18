@@ -579,6 +579,17 @@ function productVersion(): string {
   }
 }
 
+/**
+ * How a TypeScript scaffold's `package.json` pins checkride at `version`
+ * (Q1). From 1.0.0 it is a caret: a minor never turns a green repo red
+ * (docs/contract.md), and the lockfile holds the exact copy. Below 1.0.0 it
+ * is the exact version, since a 0.x minor may break. A `mise.toml` has no
+ * lockfile, so `checkridePin` writes the exact version at every major.
+ */
+function packageSpec(version: string): string {
+  return Number.parseInt(version, 10) >= 1 ? `^${version}` : version;
+}
+
 /** The version-pinned `$schema` URL a generated `checkride.config.json` names. */
 export function generatedSchemaUrl(): string {
   return configSchemaUrl(productVersion());
@@ -994,8 +1005,7 @@ function resolveNewScaffold(options: InitOptions, cwd: string): NewScaffold {
     fullName,
     adapters: options.adapters ?? ADAPTERS,
     slots: options.slots ?? SLOTS,
-    // Exact pin, no caret: pre-1.0 minors are breaking (docs/contract.md pin policy).
-    checkrideSpec: options.checkrideSpec ?? productVersion(),
+    checkrideSpec: options.checkrideSpec ?? packageSpec(productVersion()),
   };
 }
 
