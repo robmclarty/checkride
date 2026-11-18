@@ -15,6 +15,8 @@ the lockfile takes the release. In a `mise.toml`, change the version on the
 `mise install`. A repo on an older 0.x release reads the entries between its
 version and this one first, since a 0.x minor could break.
 
+## [0.24.1] - 2026-11-18
+
 ### Added
 
 - **A red `security` slot lists the advisories that failed it.** Each prints
@@ -50,6 +52,13 @@ version and this one first, since a 0.x minor could break.
   `no findings checkride can read in the JSON report`, and a baseline could
   not grandfather it. It now prints as the binary's name at the first place
   that runs it, under the key `dead-code:unlisted_binaries:<binary>`.
+
+### Internal
+
+- This repo's own dependency audit is clean at `--audit-level=high`: both
+  installed copies of picomatch carry a patch for GHSA-fc5q-39xc-vjpf, which
+  no release fixes, and vite, zod, markdown-it, fast-uri and qs moved to
+  fixed releases. None of them ships: the package has no runtime dependencies.
 
 ## [0.24.0] - 2026-11-18
 
@@ -5230,6 +5239,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.24.1]: https://www.npmjs.com/package/checkride/v/0.24.1
 [0.24.0]: https://www.npmjs.com/package/checkride/v/0.24.0
 [0.23.0]: https://www.npmjs.com/package/checkride/v/0.23.0
 [0.22.0]: https://www.npmjs.com/package/checkride/v/0.22.0
