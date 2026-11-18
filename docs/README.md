@@ -1,100 +1,88 @@
 # checkride docs
 
-Onboarding and reference material for people running checkride day to day —
-whether this is your first time or you just need a refresher.
+Every page here, listed by the job you came to do. The [README](../README.md)
+is the two-minute version: the pitch, the install, and what a run prints.
 
-Start here:
+## Start
 
-- **[Why checkride](./why.md)** — the case for adopting it: what it's selling,
-  the ROI versus ad-hoc scripts or a task runner, and straight answers to the
-  common objections. Read this if you're deciding, or persuading.
-- **[Getting started](./getting-started.md)** — prerequisites, adding checkride
-  to a project (new or existing), your first run, and the daily loop. Read this
-  if you are new or coming back after a break.
-- **[Installing checkride](./distribution.md)** — the channels, npm, the mise
-  route and the standalone binary, and how a repo without Node pins checkride
-  in `mise.toml`.
-  Read this before adding checkride to a Go, Rust or other repo with no
-  `package.json`.
-- **[Cheat sheet](./cheatsheet.md)** — one-screen reference for commands, flags,
-  npm-script aliases, and the `.check/` output files.
-- **[Configuration](./configuration.md)** — every key `checkride.config.json`
-  takes: a tool pick per slot, targets and per-pack config, data-file schemas,
-  custom checks and `detect`, presets through `extends`, and timeouts.
-- **[The baseline](./baseline.md)** — grandfathering a repo's findings so day
-  one is green: the file and its keys, the ratchet, a tool whose version
-  moved, reviewing what a change adds with `baseline diff`, and recovering
-  after a bad merge. Read this before adopting checkride on a repo with debt.
-- **[Tools and installation](./tools.md)** — the slots, their adapters and the
-  language packs; what each slot of the ts and repo packs runs, and how to install a missing tool (fallow, ast-grep, oxlint, …)
-  when `doctor` reports one as not installed. The other packs' tools are in
-  Packs and pins below.
-- **[Targets](./targets.md)** — checking a repo with more than one language,
-  or one language in more than one place: declaring targets, what each runs,
-  the bash pack's file lists, and `unclaimed`.
-- **[Suites](./suites.md)** — keeping a second suite of checks beside the
-  code gate, such as checks over saved eval records: `--suite <name>`, the
-  three files a name fixes, what a suite runs, and why the stop gate stays on
-  the default suite.
-- **[Packs and pins](./packs.md)** — each pack's slots and tools, and how a
-  check's tool resolves to the copy that runs: each pack's pin chain, its pin
-  sources (`override`, `js-lockfile`, `go-mod-tool`, `rust-toolchain`,
-  `uv-lock`, `tf-version`, `mise`, `nix` and `path`), `requirePins`, and the spawn environment
-  that keeps a check from downloading anything. Read this to know which copy
-  of a tool produced a finding.
-- **[A polyglot repo, end to end](./polyglot.md)** — a worked example: a
-  TypeScript app, a Go API, OpenTofu and shell scripts in one repo, taken from
-  install through `init`'s proposal, the targets it keeps, pins, the daily
-  loop, existing debt and CI, with the real output at each step. Read this
-  before adopting checkride in a repo with more than one language.
-- **[Running checkride from outside a repo](./consumers.md)** — for a
-  reviewer, CI job or agent checking a checkout it didn't write: the
-  `--defaults`, `--pins`, `--discover`, `--static-only`, `--out` and
-  `--config` flags, the pre-sandbox and sandbox passes, and reading findings
-  through `checkride/findings`. None of it is a sandbox.
-- **[Deep modules](./deep-modules.md)** — the module-boundary convention the
-  `struct` slot enforces: the Ousterhout idea behind it, how it's held in place,
-  and how to swap it for a different convention or language. Read this to
-  understand the "structured boundaries" half of checkride's thesis.
-- **[Running in CI](./ci.md)** — a copy-paste GitHub Actions recipe (with
-  npm/yarn/bun variants, and a mise one for a repo without Node), why gates
-  should pass `--strict`, writing artifacts elsewhere with `--out`, and the
-  baseline note for legacy repos.
-- **[Running a fleet with shared presets](./presets.md)** — operating checkride
-  across many repos: one versioned preset package, rolling a rule out as a
-  release instead of a wave of pull requests, and keeping the shared config safe
-  where tools differ. Read this if you own code quality for an org, not one repo.
-- **[Ordering waves in practice](./ordering-in-practice.md)** — a worked
-  before/after on a real repo showing what the `order` surface buys: a legible
-  schedule, an uncontended heavy check, and a method for tiering your own gate.
-- **[The contract](./contract.md)** — what `.check/` holds and how to read a
-  red run, then the surfaces consumers may rely on: the exit-code taxonomy, the `summary.json` schema discipline, the baseline file
-  format, the CLI flag set, the programmatic exports, and the pin policy.
-- **[The Claude Code plugin](./plugin.md)** — the two skills bundled in the
-  package, `/checkride:check` and `/checkride:qa`: how to install them, what
-  each one reads and what it deliberately does not do. Read this if a coding
-  agent works in your repo and you want it to triage the gate properly.
-- **[Cursor](./cursor.md)** — what `agent-setup` writes for Cursor and where
-  Cursor differs from Claude Code: a stop hook that replies instead of blocking,
-  three defaults checkride overrides, the setting that makes Cursor run your
-  Claude Code hooks too, and the assumptions still unverified against a live
-  Cursor. Read this before trusting the gate in Cursor.
-- **[Reliability](./reliability.md)** — why checkride is safe to build a gate
-  on: the frozen contract, the vacuous-green signal, the failure modes it
-  closes by default, and the tested envelope. The reasoning behind the
-  contract above.
+- **[Getting started](./getting-started.md)**: the ten minutes after the
+  README. Install, what `init` wrote, the first run, reading a red one, and
+  the daily loop.
+- **[Installing checkride](./distribution.md)**: the channels, npm, the mise
+  route and the standalone binary; a new project from an empty directory; and
+  uninstalling.
+- **[Working with agents](./agents.md)**: the AGENTS.md stanza, the three
+  hooks, the opt-in stop gate, what it costs and how to narrow it.
+- **[Why checkride](./why.md)**: the case for adopting it, the return against
+  ad-hoc scripts or a task runner, and answers to the common objections.
+- **[A polyglot repo, end to end](./polyglot.md)**: a TypeScript app, a Go
+  API, OpenTofu and shell scripts in one repo, from install to CI, with the
+  real output at each step.
+- **[Deep modules](./deep-modules.md)**: the module-boundary convention `init`
+  scaffolds, the rules that hold it, and how to swap it.
 
-Deeper background lives in the repository root:
+## Adopt on a team
 
-- **[README](../README.md)** — the thesis, installing, and a pointer to the
-  page for each part of the reference.
-- **[AGENTS.md](../AGENTS.md)** — the contract coding agents follow in a
-  checkride repository.
-- **[CHANGELOG](../CHANGELOG.md)** — release notes.
+- **[checkride on a team](./team.md)**: a repo several teams merge
+  agent-written code into. One required check, the baseline guard, code owners
+  for the record, and what a green gate leaves a reviewer.
+- **[The baseline](./baseline.md)**: grandfathering a repo's findings so day
+  one is green, the ratchet that shrinks them, reviewing what a change adds,
+  and recovering after a bad merge.
+- **[Targets](./targets.md)**: more than one language, or one language in more
+  than one place, as named targets, and local targets whose config and
+  baseline sit with their team's code.
+- **[Running a fleet with shared presets](./presets.md)**: one versioned
+  preset across many repos, rolling a rule out as a release.
+- **[The Claude Code plugin](./plugin.md)**: the `/checkride:check` and
+  `/checkride:qa` skills, what each reads and what it leaves alone.
+- **[Cursor](./cursor.md)**: what `agent-setup` writes for Cursor, and where
+  Cursor's hooks differ from Claude Code's.
+
+## Run in CI
+
+- **[Running in CI](./ci.md)**: a GitHub Actions recipe for each package
+  manager and for a repo without Node, `--strict`, annotations, the step
+  summary, and the baseline guard.
+- **[Running checkride from outside a repo](./consumers.md)**: for a reviewer,
+  CI job or agent checking a checkout it didn't write: `--defaults`, `--pins`,
+  `--discover`, `--static-only` and `--out`.
+- **[Ordering waves in practice](./ordering-in-practice.md)**: what the
+  `order` surface buys on a real repo, and a method for tiering your own gate.
+
+## Reference
+
+- **[Cheat sheet](./cheatsheet.md)**: every command, flag and npm-script alias,
+  and the `.check/` output files.
+- **[Configuration](./configuration.md)**: every key `checkride.config.json`
+  takes, from a tool pick per slot to custom checks, presets and timeouts.
+- **[Tools and installation](./tools.md)**: the slots and their adapters, what
+  the ts and repo packs run, and installing a tool `doctor` reports missing.
+- **[Packs and pins](./packs.md)**: each language pack's slots and tools, the
+  pin chain that picks the copy that runs, and the spawn environment.
+- **[Suites](./suites.md)**: a second suite of checks beside the code gate,
+  with its own config, baseline and output directory.
+- **[The contract](./contract.md)**: the surfaces consumers may rely on: exit
+  codes, `.check/` and `summary.json`, the baseline format, flags, the
+  programmatic exports, and the pin policy.
+- **[Reliability](./reliability.md)**: why checkride is safe to build a gate
+  on, the failure modes it closes by default, and the tested envelope.
+
+Design records, kept for the reasoning behind what shipped:
+
+- [The v1 spec](./spec-v1.md): the guard, local targets, the docs and the
+  soak toward 1.0.
+- [The polyglot spec](./spec-polyglot.md): targets and language packs.
+- [Agent-setup upgrade](./spec-agent-setup-upgrade.md): the 0.9.0 fixes a
+  consumer's adoption turned up, the CI concurrency default among them.
+- [Slot provenance](./spec-slot-provenance.md): the tag that says why each
+  check ran.
+- [Test layout](./spec-test-layout.md): the test layout `init` scaffolds, and
+  the rules that hold it.
 
 ## The one rule
 
 `pnpm check` (or `mise exec -- checkride`, in a repo without Node) is the
 single source of truth for "done". Exit `0` means the work is complete; any
-other exit code means it is not. Everything else in these docs is detail
+other exit code means it isn't. Everything else in these docs is detail
 around that one rule.

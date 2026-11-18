@@ -61,7 +61,7 @@ const TOOLS = read('docs', 'tools.md');
 const CHEATSHEET = read('docs', 'cheatsheet.md');
 const SCHEMA = read('schema', 'checkride.config.schema.json');
 const DEEP_MODULES = read('docs', 'deep-modules.md');
-const GETTING_STARTED = read('docs', 'getting-started.md');
+const DISTRIBUTION = read('docs', 'distribution.md');
 const PACKS_MD = read('docs', 'packs.md');
 const TARGETS_MD = read('docs', 'targets.md');
 
@@ -195,7 +195,7 @@ describe('the scaffold docs match the templates', () => {
 
   test.each([
     ['docs/deep-modules.md', DEEP_MODULES],
-    ['docs/getting-started.md', GETTING_STARTED],
+    ['docs/distribution.md', DISTRIBUTION],
   ])('%s draws the test/ folders test-dir-layout.yml allows', (_label, md) => {
     expect(testDirs).toHaveLength(5);
     expect(testTree(md).toSorted()).toEqual(testDirs.toSorted());
@@ -421,3 +421,33 @@ function stepRuns(workflow: string, job: string): string[] {
   const jobs = (parse(workflow) as { jobs: Record<string, { steps: { run?: string }[] }> }).jobs;
   return (jobs[job]?.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run]));
 }
+
+/**
+ * `docs/README.md` lists the pages by the job a reader came to do (D17). A
+ * page it doesn't link is one no reader finds from the index, so every
+ * markdown page under `docs/` must sit beneath one of the four jobs.
+ */
+describe('docs/README.md lists every page by job', () => {
+  const JOBS = ['Start', 'Adopt on a team', 'Run in CI', 'Reference'];
+  const INDEX = read('docs', 'README.md');
+  const pages = readdirSync(join(ROOT, 'docs'), { recursive: true, encoding: 'utf8' })
+    .filter((path) => path.endsWith('.md') && path !== 'README.md')
+    .map((path) => path.replaceAll('\\', '/'));
+  /** The `./page.md` targets one job's section links, fragments dropped. */
+  const linked = (job: string): string[] =>
+    [...section(INDEX, job).matchAll(/\]\(\.\/([^)#]+\.md)(?:#[^)]*)?\)/g)].map((m) => m[1] ?? '');
+
+  test('its sections are the four jobs, in order', () => {
+    expect([...INDEX.matchAll(/^## (.+)$/gm)].map((m) => m[1]).filter((h) => h !== 'The one rule')).toEqual(JOBS);
+  });
+
+  test('every page under docs/ is linked beneath a job', () => {
+    const listed = new Set(JOBS.flatMap(linked));
+    expect(pages.length).toBeGreaterThan(20);
+    expect(pages.filter((page) => !listed.has(page))).toEqual([]);
+  });
+
+  test('every page it links is there', () => {
+    expect(JOBS.flatMap(linked).filter((page) => !existsSync(join(ROOT, 'docs', page)))).toEqual([]);
+  });
+});

@@ -358,7 +358,7 @@ restrictions in `allowed-tools` do not apply under Cursor.
 
 ## See also
 
-- [Make it a hard gate](./getting-started.md#make-it-a-hard-gate) — the hooks in
+- [Make it a hard gate](./agents.md#make-it-a-hard-gate) — the hooks in
   full, for both harnesses.
 - [The plugin](./plugin.md#cursor) — why the skills are copied into the repo
   rather than installed.

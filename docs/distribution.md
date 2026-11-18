@@ -16,6 +16,9 @@ checkride ships through two channels, and a repo runs it one of three ways:
 `checkride doctor` names the channel a copy came through, `channel: npm` or
 `channel: binary`.
 
+[Starting a new project](#starting-a-new-project) scaffolds a repo from
+nothing, and [Uninstalling](#uninstalling) lists every file checkride writes.
+
 ## npm
 
 ```bash
@@ -58,6 +61,17 @@ mise install                 # every pin, checkride among them
 mise exec -- checkride init  # once: adopt the repo's tools, write the stanza and hooks
 mise exec -- checkride       # the gate
 ```
+
+`init` adopts the repo through the pack its root marks. It names the checks
+the tools it finds fill, `types` and `test` for a `go.mod`, say, plus `lint`
+where a `.golangci.yml` sits, writes the AGENTS.md stanza spelled
+`mise exec -- checkride`, and writes no `check` script, since there's no
+`package.json` to hold one. Pin the pack's own tools in the same `mise.toml`
+(`mise use golangci-lint@<version>`, for one), and run the setup step a check
+won't, such as `go mod download` or `uv sync`, before the first run. A repo
+whose languages all live in subdirectories, with nothing at the root but the
+`mise.toml`, is adopted the same way: `init` declares a target for each
+project below the root, as [the polyglot walkthrough](./polyglot.md) shows.
 
 No `mise trust` comes first. mise asks for one only where a `mise.toml` sets
 a tool option or an env var, and this entry sets neither, so a fresh clone
@@ -327,6 +341,137 @@ hint names.
 `pnpm build:sea` in a clone builds the binary for the machine it runs on and
 prints its path. [CONTRIBUTING.md](../CONTRIBUTING.md#the-standalone-binary)
 has the details.
+
+## Starting a new project
+
+`init` in an empty directory scaffolds a project that's green out of the box,
+and an end-to-end test holds each shape.
+
+### A TypeScript project
+
+```bash
+pnpm dlx checkride init --shape flat --name my-app
+pnpm install
+pnpm check
+```
+
+Pick a shape:
+
+- **flat** — a single package using the deep-modules layout under `src/`.
+- **monorepo** — a pnpm workspace of `apps/*` and `libs/*`.
+- **hybrid** — a root app in `src/` plus internal `packages/*`.
+
+Preview without writing anything using `--dry-run`.
+
+The generated project is a pnpm project: its `engines` field and
+`pnpm-workspace.yaml` assume it, and the monorepo and hybrid shapes are pnpm
+workspaces. To start under npm, yarn, or bun, create the `package.json` first
+(`npm init -y`, or your manager's equivalent), then take the
+[existing-repository path](./getting-started.md#install-it). `init --add <slots>`
+scaffolds the tool configs a bare repository lacks (`init --add struct,dead`,
+for example).
+
+Every shape writes its code in one layout, the one
+[deep modules](./deep-modules.md) describes. The flat `my-app` above starts as:
+
+```text
+my-app/
+├── src/
+│   ├── index.ts             ← the barrel: re-exports, no logic
+│   ├── my-app.ts            ← the starter module
+│   └── __tests__/
+│       └── my-app.test.ts   ← unit tests sit beside the code they cover
+└── rules/                   ← the ten ast-grep rules that hold the layout
+```
+
+Tests that span modules go under `test/`, which `init` leaves for you to create
+when you need it. It holds five folders and nothing else:
+
+```text
+test/
+├── integration/   ← tests that span modules
+├── e2e/           ← end-to-end tests
+├── contract/      ← tests that hold a published surface in place
+├── helpers/       ← shared test code
+└── fixtures/      ← test data
+```
+
+In the monorepo and hybrid shapes, each package under `apps/`, `libs/` or
+`packages/` has its own `src/` and `test/`, laid out the same way. The `struct`
+check holds the layout, so a test in the wrong place fails the run. Every tool
+`init` configures skips `test/fixtures/`, so a fixture that is broken on purpose
+can't fail it.
+
+`init` also writes a `checkride.config.json` naming each check it set up and
+the tool that runs it; [Configuration](./configuration.md#the-config-init-writes)
+shows the file and why it, not detection, picks each tool.
+
+### A Go or Rust project
+
+`--lang go` or `--lang rust` scaffolds a project with no `package.json`, which
+mise runs:
+
+```bash
+mkdir my-api && cd my-api
+pnpm dlx checkride init --lang go --shape module --module github.com/acme/my-api
+mise install
+go get -tool golang.org/x/tools/cmd/deadcode@v0.52.0
+mise exec -- checkride
+```
+
+`init` prints the steps that need the network, since a check never fetches
+anything. On a machine with no Node, mise runs the same `init` from the
+binary: `mise exec github:robmclarty/checkride@<version> -- checkride init`
+with the same flags. Pick a shape:
+
+- **go module** — `go.mod`, `cmd/<name>/main.go` and `internal/greet/` with a
+  test. Go's `internal/` is the deep-module boundary, and the compiler holds
+  it. `--module` names the module, `example.com/<name>` by default.
+- **go workspace** — `go.work` over a `core` and a `cli` module.
+- **rust crate** — `Cargo.toml` (edition 2024, `unsafe_code` forbidden and
+  `unwrap_used` denied), `src/lib.rs` with a doctest and a test, and
+  `src/main.rs`.
+- **rust workspace** — a virtual manifest over `crates/core` and `crates/cli`.
+
+Each writes a `mise.toml` that pins checkride (as
+`github:robmclarty/checkride`, the release's standalone binary) and every
+binary tool its checks run, at the versions they were tested with, and a `checkride.config.json` with one target, `app`, at the
+root, naming every slot, with `requirePins: true`. The `struct` check runs the
+pack's dialect rules from `rules/go/` or `rules/rust/`: no dot imports, no
+import aliases and no `init` outside `package main` in Go, and no glob
+imports or re-exports in Rust. A Rust project's `rust-toolchain.toml` pins the
+toolchain, with rustfmt and clippy, and its config names `snippets`, so its
+doctests run. Every shape is green once its setup has run.
+
+Nothing in that `mise.toml` installs through Node or runs on it, so the
+project needs none, and no entry sets a tool option, so `mise install` works
+without a `mise trust` before it. If mise reports the file as untrusted all
+the same (an older or stricter mise, or once the file gains `[env]`, tasks or
+a template), run `mise trust`. On a machine no release has a binary for, such
+as Alpine or Windows, `init` pins `npm:checkride` with a `node` beside it
+instead, says so, and prints `mise trust` first, which that pin needs. mise finds the binary through GitHub's API,
+which rate-limits anonymous requests: in CI, give the install a token, as
+[GitHub's rate limit](#githubs-rate-limit) shows, and
+[the mise route](#the-mise-route) has the pin for a repo you already have.
+
+## Uninstalling
+
+No lock-in needs undoing. checkride's whole footprint is: the `checkride`
+devDependency (or its pin in `mise.toml`, `github:robmclarty/checkride` or
+`npm:checkride`),
+`checkride.config.json`, `checkride.baseline.json` (if you
+baselined), the `check` script alias, the AGENTS.md stanza between the
+`checkride:begin`/`checkride:end` markers (plus the `@AGENTS.md` import in
+CLAUDE.md, or the whole CLAUDE.md if `init` created it), checkride's deny
+rules in `.claude/settings.json` and its entries in `.cursor/hooks.json` with
+their `checkride-*` scripts (plus the stop gate's entries and scripts, if you
+opted in), the
+`.cursor/skills/checkride-*` directories, and the gitignored `.check/` output
+directory, and the config and baseline files at a local target's root. Remove
+those and checkride is gone. The
+tools keep working untouched — they are ordinary `devDependencies` with their
+own config files, so `pnpm exec oxlint`, `pnpm exec vitest run`, and the rest
+run exactly as before; you have merely dropped the orchestrator.
 
 ## Not yet
 
