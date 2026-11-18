@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 20 — docs(contract): rewrite the pin policy and promise what a minor may do
+**Current step:** none (at the boundary)
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -43,7 +43,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 17. docs: list the docs by job and shrink getting-started
 - ☑ 18. docs: add SECURITY.md
 - ☑ 19. feat(init): write a caret pin from 1.0.0 on
-- ☐ 20. docs(contract): rewrite the pin policy and promise what a minor may do
+- ☑ 20. docs(contract): rewrite the pin policy and promise what a minor may do
 
 ## Park list
 
@@ -57,8 +57,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/cheatsheet.md, README.md and site/ say nothing yet of local targets, include, or running from inside a target; docs/targets.md and docs/contract.md hold all three (the docs range, steps 14 to 17, is the natural home)
 - [x] two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100
 - [x] src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147)
-- [ ] docs/polyglot.md:38 and examples/existing-repo-baseline/README.md:130 still install with -E, and docs/why.md:204 still says a consumer sits on an exact version; all three are outside step 20's seam, so they don't yet match the caret policy
-- [ ] the full mutation run step 20's done-when names was stopped after nine hours on Rob's word (2026-11-18): a stale incremental report reused 244 of 30,738 results; run it on a quiet machine before tagging 1.0.0
+- [x] docs/polyglot.md:38 and examples/existing-repo-baseline/README.md:130 still install with -E, and docs/why.md:204 still says a consumer sits on an exact version; all three are outside step 20's seam, so they don't yet match the caret policy
+- [x] the full mutation run step 20's done-when names was stopped after nine hours on Rob's word (2026-11-18): a stale incremental report reused 244 of 30,738 results; run it on a quiet machine before tagging 1.0.0
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -86,6 +86,9 @@ Harvest results this boundary:
 - 2026-11-17, at range 4 of 7's stop: 2 parked ideas, classified.
 - **tangent**: park 5 · two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100 → a test-only flake that needs a loaded machine to show, and no shipped behaviour is wrong
 - **tangent**: park 6 · src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147) → the 750ms budget is the product's on purpose, and only the test's real git misses it under load
+- 2026-11-18, at range 6 of 7's stop: 2 parked ideas, classified.
+- **tangent**: park 7 · docs/polyglot.md:38 and examples/existing-repo-baseline/README.md:130 still install with -E, and docs/why.md:204 still says a consumer sits on an exact version; all three are outside step 20's seam, so they don't yet match the caret policy → three lines of wording outside the seam, and an exact pin is still a valid pin
+- **tangent**: park 8 · the full mutation run step 20's done-when names was stopped after nine hours on Rob's word (2026-11-18): a stale incremental report reused 244 of 30,738 results; run it on a quiet machine before tagging 1.0.0 → it gates the tag, which is outside this build, and no range is left to hold it
 
 ## Log
 
@@ -695,3 +698,67 @@ folder, so it rides the branch into the PR.)*
   It pins the README's line count, pitch and two-command install block (step 15), proves every README fragment linked from `docs/`, `examples/` and the fixtures names a heading the README has (step 14), holds the team page's yaml block byte for byte to `examples/local-targets/.github/workflows/check.yaml` and parses it (step 16), and fails on any page under `docs/` that isn't linked beneath a job in `docs/README.md` (step 17).
 
 - 2026-11-18 — step 19 checkpointed · ebce3460d — feat(init): write a caret pin from 1.0.0 on (4m)
+- 2026-11-18 — step 20 checkpointed · ec4d7277f — docs(contract): rewrite the pin policy and promise what a minor may do (1 drift, 580m)
+- 2026-11-18 — range 6 of 7's stop recorded — review the pin policy and the minor-version promise as landed; the build ends here, untagged, and 1.0.0 waits for Rob's own call after it
+
+  **Summary**: The pin policy for 1.0 is in place and inert until the tag: `init` writes `^<version>` in a `package.json` once the product version reaches 1.0.0 and an exact version in a `mise.toml`, and the contract, `docs/reliability.md`, the install commands and `SECURITY.md` say the same, with a new "What a minor may do" section in the contract and an `[Unreleased]` changelog section that opens with the upgrade note. Three things to know before 1.0.0. The full mutation run step 20's done-when names did not finish: it was stopped after nine hours on your word, and a focused run over the new pin code killed 6 of 6 mutants. The soak has not happened: the last tag is `v0.23.0`, so the docs range, the consumers' move and the fourteen days are all still ahead, and a `/version minor` cut from here would file the 1.0.0 upgrade note under a 0.x release. And `pnpm check` and the full `pnpm test:e2e` (253 tests) are green on `ec4d727`.
+
+  1. The full mutation run was stopped, and a focused run stands in for it.
+  2. Step 20 fixed a link in the local-targets example, outside its seam.
+  3. The install commands dropped `-E`.
+  4. The pin rule is one function keyed on the major.
+  5. The minor-version promise is written as D19 and Q3 decided it.
+
+  **Readout**:
+
+  ```text
+  steps        2 of 2 landed
+               - 19 ebce346 · 20 ec4d727
+  check        green: 1 of 1 checks, 2 landings
+  proof        not met: step 20's full mutation run was stopped on Rob's word
+  decisions    4 of 4 honored
+  constraints  10 of 10 honored
+  seam         strayed: 1 path outside step 20's seam
+               → examples/local-targets/README.md
+  diff         +205 -38 across 11 files
+               - CHANGELOG.md +36 -0
+               - README.md +1 -1
+               - SECURITY.md +4 -4
+               - docs/contract.md +31 -8
+               - docs/distribution.md +6 -4
+               - docs/getting-started.md +4 -4
+               - docs/reliability.md +13 -6
+               - and 4 more
+  spent        9h 44m · green first run at every landing · 1 drift warning
+  ```
+
+  **Verdict**: ○ Out of plumb (proof not met)
+
+  **Harvested**: **2** of 8 parked ideas open
+
+  | Park | Why it matters | Lean |
+  | --- | --- | --- |
+  | **P7**: [Old pin wording remains](#park-list) | `docs/polyglot.md`, an example README and `docs/why.md` don't yet match the caret policy | tangent: three lines of wording outside the seam, and an exact pin is still a valid pin |
+  | **P8**: [Full mutation run owed](#park-list) | the done-when's run was stopped at nine hours, so the tagged commit hasn't had one | tangent: it gates the tag, which is outside this build, and no range is left to hold it |
+
+  **Recommendation**: Read "Versioning and pin policy" and "What a minor may do" in `docs/contract.md`, then confirm both parks as tangents. The policy is written as Q1, D19 and Q3 decided it and is inert until the version reaches 1.0.0, so nothing here changes what a 0.x release does. Before tagging, release the docs range as a 0.x minor, run the soak, and run the full mutation suite on a quiet machine; if that minor is cut from this commit, move the upgrade note out of its `[Unreleased]` entry first.
+
+  **1.** The full mutation run was stopped, and a focused run stands in for it.
+
+  Step 20's done-when asks for a full mutation run green on the commit. The run started with a stale `stryker.incremental.json`: 111 source files and 125 test files had changed since it was written, so 244 of 30,738 mutant results were reused and the rest ran fresh, on a machine at a load average of 15 to 25. After nine hours with no progress figure, Rob chose to stop it. A focused run over `packageSpec` and its call site in `src/init.ts`, against `src/__tests__/init.test.ts`, killed 6 of 6 mutants. Step 20 itself changed docs and one test file, so a full run says little about it; it remains a gate on the commit that gets tagged, as D30 (major-after-the-build) has those gates re-run there. It is parked as P8.
+
+  **2.** Step 20 fixed a link in the local-targets example, outside its seam.
+
+  The first full e2e run failed one case: `examples/local-targets/README.md` linked `../../docs/team.md`, added in step 16, and the links check went red when the suite copied the example out of the repo. The link now uses the repo URL, which is how the other examples link to `docs/`. The checkpoint flagged the path as outside the seam and its reach.
+
+  **3.** The install commands dropped `-E`.
+
+  The README, `docs/getting-started.md` and `docs/distribution.md` install with `pnpm add -D checkride`, which writes the caret the policy asks for from 1.0.0. `docs/distribution.md` says to add `-E` for a 0.x release. On a 0.x version a caret spans patches only, so the plain command is safe there too. `docs-currency.test.ts` holds the README's install block and the rest of the policy's wording. Three places outside the seam still carry the old wording, parked as P7.
+
+  **4.** The pin rule is one function keyed on the major.
+
+  `packageSpec` in `src/init.ts` returns `^<version>` when the version's major is 1 or more and the version itself below that; `checkridePin` for `mise.toml` is unchanged. The unit tests read `init` on both sides of 1.0.0 by standing in for the `package.json` that `resources.ts` serves. The old test that compared the pin with this package's own version was replaced, since it would have failed at the tag. `test/e2e/pins.e2e.test.ts` was in step 19's seam and needed no change.
+
+  **5.** The minor-version promise is written as D19 and Q3 decided it.
+
+  A 1.x minor adds a field, a flag, an adapter or a pack, and never turns a green repo red with the same tools and config. Raising the Node floor is a minor change, announced one minor ahead, never past a Node line that still gets security fixes, and only the npm channel is affected. The changelog carries it under a Contract heading, as C3 (contract-moves-loudly) asks, and no contract test moved, since no surface a consumer reads changed.
