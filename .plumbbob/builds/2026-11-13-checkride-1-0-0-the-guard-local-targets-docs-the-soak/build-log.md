@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 15 — docs(readme): rewrite the README to the happy path
+**Current step:** 16 — docs(team): write the page for a team merging agent-written code
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -38,7 +38,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 12. feat(recover): rebuild every shard from history
 - ☑ 13. feat(protect): guard every shard from edits
 - ☑ 14. docs: move the README's reference sections out
-- ☐ 15. docs(readme): rewrite the README to the happy path
+- ☑ 15. docs(readme): rewrite the README to the happy path
 - ☐ 16. docs(team): write the page for a team merging agent-written code
 - ☐ 17. docs: list the docs by job and shrink getting-started
 - ☐ 18. docs: add SECURITY.md
@@ -572,3 +572,5 @@ folder, so it rides the branch into the PR.)*
   **5.** What the README still holds for step 15
 
   The README is down from 997 lines to 379. The thesis, Install, the agent hooks, the Docs list, the plugin, Project shapes, Conventions, Tested envelope and the programmatic API are still there, for step 15's rewrite. Three example READMEs and a fixture still link `#conventions`, and `docs/why.md` links `#the-thesis`. When step 15 removes either heading, the new test will name those links.
+
+- 2026-11-18 — step 15 checkpointed · cc96b35e3 — docs(readme): rewrite the README to the happy path (7m)

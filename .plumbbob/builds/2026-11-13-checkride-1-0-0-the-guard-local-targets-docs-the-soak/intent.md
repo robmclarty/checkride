@@ -263,7 +263,7 @@ one run · one summary · one exit code · target names one flat set
 14. [x] docs: move the README's reference sections out, **done when:** `docs/configuration.md` and `docs/baseline.md` exist, no doc links to a README anchor that's gone, and the `links` check is green
    - seam: `README.md`, `docs/configuration.md` (new), `docs/baseline.md` (new), `docs/cheatsheet.md`, `docs/tools.md`, `docs/contract.md`, `docs/presets.md`, `docs/why.md`, `docs/ci.md`, `docs/getting-started.md`, `docs/README.md`, `examples/`, `test/fixtures/invariance/examples/polyglot/README.md`, `test/integration/docs-currency.test.ts`, `src/cli.ts`
    - model: opus (the slot table and opt-in sentence `docs-currency.test.ts` pins move with their test; the anchor proof is [D26 (anchor-proof)](#d26))
-15. [ ] docs(readme): rewrite the README to the happy path, **done when:** the README is under 200 lines, opens with the pitch of D14, and its install block is two commands
+15. [x] docs(readme): rewrite the README to the happy path, **done when:** the README is under 200 lines, opens with the pitch of D14, and its install block is two commands
    - seam: `README.md`, `test/integration/docs-currency.test.ts`, `docs/getting-started.md`, `docs/distribution.md`
    - model: opus (the output block is a real run's, and the line count is pinned by a test)
 16. [ ] docs(team): write the page for a team merging agent-written code, **done when:** `docs/team.md` walks the web-and-API repo, its workflow runs the baseline guard as its own job outside the required set, and the file is one a check covers

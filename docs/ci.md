@@ -232,6 +232,9 @@ old code, or a tool upgrade that reports more. The flag has no override, so a
 code owner of the baseline file reads the red job's report and merges over it
 on purpose. A `CODEOWNERS` line for `checkride*.json` names who that is.
 
+[checkride on a team](./team.md) puts this job beside the required check in
+one workflow, with `--changed` on each push and a full run in the merge queue.
+
 ## Other package managers
 
 Replace the pnpm steps; the checkride invocation is identical.

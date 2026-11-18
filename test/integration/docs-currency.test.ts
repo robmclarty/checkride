@@ -47,6 +47,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
+import { parse } from 'yaml';
 
 import { SLOTS } from '../../src/adapters.js';
 import { runCli } from '../../src/cli.js';
@@ -369,3 +370,54 @@ describe('the README is the happy path', () => {
     expect(fence?.[2]?.split('\n')).toEqual(['pnpm add -D -E checkride', 'pnpm exec checkride init']);
   });
 });
+
+/**
+ * The team page's workflow is a real file in the local-targets example, and
+ * no check reads a YAML fence, so this holds the two together (D27): the
+ * page's block is the file byte for byte, and the file is the workflow the
+ * page describes.
+ */
+describe("docs/team.md's workflow is the example's file", () => {
+  const WORKFLOW = 'examples/local-targets/.github/workflows/check.yaml';
+  const file = read(WORKFLOW);
+  const page = read('docs', 'team.md');
+  const yamlFences = [...page.matchAll(/\n```yaml\n([\s\S]*?)```\n/g)].map((m) => m[1] ?? '');
+
+  test("the page's one yaml block is the file, byte for byte", () => {
+    expect(page).toContain(WORKFLOW);
+    expect(yamlFences).toEqual([file]);
+  });
+
+  test('it runs on pull requests, the merge queue and main', () => {
+    const on = (parse(file) as { on: Record<string, unknown> }).on;
+    expect(Object.keys(on).toSorted()).toEqual(['merge_group', 'pull_request', 'push']);
+  });
+
+  test('the required check runs strict, changed on a pull request and whole otherwise', () => {
+    const runs = stepRuns(file, 'check');
+    expect(runs.every((run) => !run.includes('checkride ') || run.includes('--strict'))).toBe(true);
+    const checkride = runs.filter((run) => run.startsWith('pnpm exec checkride '));
+    expect(checkride).toHaveLength(2);
+    expect(checkride.filter((run) => run.includes('--changed'))).toHaveLength(1);
+    for (const run of checkride) {
+      expect(run).toContain('--annotate github');
+      expect(run).toContain('--summary github');
+    }
+  });
+
+  test('the baseline guard is a job of its own, against the merge base, that nothing needs', () => {
+    const jobs = (parse(file) as { jobs: Record<string, { needs?: unknown }> }).jobs;
+    expect(Object.keys(jobs)).toEqual(['check', 'baseline-guard']);
+    expect(Object.values(jobs).map((job) => job.needs)).toEqual([undefined, undefined]);
+    expect(stepRuns(file, 'baseline-guard')).toContain(
+      'pnpm exec checkride baseline diff "$(git merge-base origin/main HEAD)" --fail-on-added',
+    );
+    expect(stepRuns(file, 'check').some((run) => run.includes('baseline diff'))).toBe(false);
+  });
+});
+
+/** The `run` lines of one job's steps in a workflow file. */
+function stepRuns(workflow: string, job: string): string[] {
+  const jobs = (parse(workflow) as { jobs: Record<string, { steps: { run?: string }[] }> }).jobs;
+  return (jobs[job]?.steps ?? []).flatMap((step) => (step.run === undefined ? [] : [step.run]));
+}
