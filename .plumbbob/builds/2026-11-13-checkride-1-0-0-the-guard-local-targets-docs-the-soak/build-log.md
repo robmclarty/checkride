@@ -13,7 +13,7 @@ step boundaries. The antidote to "my plan got lost in the noise."
 
 # Build log: checkride 1.0.0: the guard, local targets, docs, the soak
 
-**Current step:** 19 — feat(init): write a caret pin from 1.0.0 on
+**Current step:** 20 — docs(contract): rewrite the pin policy and promise what a minor may do
 **Heavy check:** checkride (set a "check" key in .plumbbob/settings.json to override)
 
 ## Steps
@@ -42,7 +42,7 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - ☑ 16. docs(team): write the page for a team merging agent-written code
 - ☑ 17. docs: list the docs by job and shrink getting-started
 - ☑ 18. docs: add SECURITY.md
-- ☐ 19. feat(init): write a caret pin from 1.0.0 on
+- ☑ 19. feat(init): write a caret pin from 1.0.0 on
 - ☐ 20. docs(contract): rewrite the pin policy and promise what a minor may do
 
 ## Park list
@@ -57,6 +57,8 @@ check green + checkpoint taken, via `/plumbbob:verify` or `/plumbbob:build`.)*
 - [x] docs/cheatsheet.md, README.md and site/ say nothing yet of local targets, include, or running from inside a target; docs/targets.md and docs/contract.md hold all three (the docs range, steps 14 to 17, is the natural home)
 - [x] two tests compare a run's stderr with durations replaced by <ms> but keep the column padding, so they fail when a duration crosses a digit boundary under load: test/integration/prose-exemplars.test.ts ('a link out to a directory that exists') and src/orchestrator/__tests__/annotations.test.ts ('nothing else about the run changes'); both flaked once each during range 4 with the machine's load average over 100
 - [x] src/orchestrator/__tests__/orchestrator.test.ts 'a red run whose new findings history grandfathered prints the hint' fails when the machine is loaded: the hint's 750ms budget expires before real git answers (seen once in range 4 at load average 147)
+- [ ] docs/polyglot.md:38 and examples/existing-repo-baseline/README.md:130 still install with -E, and docs/why.md:204 still says a consumer sits on an exact version; all three are outside step 20's seam, so they don't yet match the caret policy
+- [ ] the full mutation run step 20's done-when names was stopped after nine hours on Rob's word (2026-11-18): a stale incremental report reused 244 of 30,738 results; run it on a quiet machine before tagging 1.0.0
 
 ## Harvest  *(run `/plumbbob:harvest` at each step boundary, after green)*
 
@@ -691,3 +693,5 @@ folder, so it rides the branch into the PR.)*
   **5.** `docs-currency.test.ts` now holds the docs' shape.
 
   It pins the README's line count, pitch and two-command install block (step 15), proves every README fragment linked from `docs/`, `examples/` and the fixtures names a heading the README has (step 14), holds the team page's yaml block byte for byte to `examples/local-targets/.github/workflows/check.yaml` and parses it (step 16), and fails on any page under `docs/` that isn't linked beneath a job in `docs/README.md` (step 17).
+
+- 2026-11-18 — step 19 checkpointed · ebce3460d — feat(init): write a caret pin from 1.0.0 on (4m)

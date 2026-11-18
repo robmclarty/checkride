@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Upgrading from 0.x: change the pin.** Nothing else moves. Every surface in
+`docs/contract.md` is as the last 0.x release left it, so a repo that is green
+there is green on 1.0.0 with the same config and baseline. In a `package.json`, replace
+the exact version with a caret range, `"checkride": "^1.0.0"`, and install, so
+the lockfile takes the release. In a `mise.toml`, change the version on the
+`github:robmclarty/checkride` or `npm:checkride` entry to `"1.0.0"` and run
+`mise install`. A repo on an older 0.x release reads the entries between its
+version and this one first, since a 0.x minor could break.
+
+### Changed
+
+- **`init` writes a caret pin from 1.0.0 on.** A new TypeScript project's
+  `package.json` pins `"checkride": "^<version>"`, where the lockfile holds
+  the exact copy, and a `init --lang go|rust` scaffold's `mise.toml` keeps the
+  exact version, since no lockfile sits beside it. An `init` from a 0.x
+  release writes the exact version in both, as before.
+- **The install commands drop `-E`.** The README, `docs/getting-started.md`
+  and `docs/distribution.md` install with `pnpm add -D checkride`, which
+  writes the caret. `docs/distribution.md` says to add `-E` for a 0.x release.
+- **`SECURITY.md` names the latest 1.x release** as the one that gets fixes.
+
+### Contract
+
+- **The pin policy is a caret from 1.0.0 on.** In a `package.json`, pin a
+  caret range; in a `mise.toml`, an exact version; below 1.0.0, exactly in
+  both. The policy said to pin exactly and named the caret as what would
+  follow 1.0.
+- **A minor's limits are promised.** A 1.x minor adds a field, a flag, an
+  adapter or a pack, and never turns a green repo red with the same tools and
+  config. Raising the Node floor is a minor change, announced one minor
+  ahead, and the floor never passes a Node line that still gets security
+  fixes; only the npm channel is affected. No surface a consumer reads
+  changed.
+
 ## [0.23.0] - 2026-11-15
 
 ### Added

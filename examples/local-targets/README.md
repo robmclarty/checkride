@@ -51,5 +51,5 @@ The root `package.json` installs tsc and links checkride from this repo, so
 [`.github/workflows/check.yaml`](./.github/workflows/check.yaml) is the
 workflow a team would run over this repo: one required check, `--changed` on
 each push and the full run in the merge queue, and the baseline guard as a job
-of its own. [checkride on a team](../../docs/team.md) walks it. GitHub reads
+of its own. [checkride on a team](https://github.com/robmclarty/checkride/blob/main/docs/team.md) walks it. GitHub reads
 workflows from a repo's root only, so here it's an example and never runs.

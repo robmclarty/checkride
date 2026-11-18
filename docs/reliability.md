@@ -59,12 +59,19 @@ declaring what already held.
 
 ### Pinning
 
-Because pre-1.0 minor versions may break by the semver rule, consumers should
-pin checkride **exactly** (`"checkride": "0.15.0"`, no caret, or the same exact
-version on a `mise.toml`'s checkride entry, `github:robmclarty/checkride` or
-`npm:checkride`, in a repo without Node) and
-upgrade deliberately. A caret range is the intended usage only after 1.0. A consumer
-sitting on an exact old pin isn't behind — it's following policy correctly.
+From 1.0.0 on, a repo with a `package.json` pins checkride with a caret range
+(`"checkride": "^1.0.0"`). The lockfile holds the exact copy that runs, so
+nothing changes until the repo updates it, and a 1.x minor adds without
+turning a green repo red, as [the contract](./contract.md#what-a-minor-may-do)
+promises. A repo without Node pins an **exact** version on its `mise.toml`'s
+checkride entry, `github:robmclarty/checkride` or `npm:checkride`, since no
+lockfile sits beside that file, and upgrades by editing it. `init` writes
+each of these.
+
+Below 1.0.0 a minor could break by the semver rule, so a repo on a 0.x
+release pins exactly in both files (`"checkride": "0.23.0"`, no caret) and
+upgrades deliberately. Either way, a consumer sitting on an old version isn't
+behind. It's following the policy.
 
 ## The vacuous-green problem
 

@@ -67,6 +67,70 @@
       "muted": [
         "import: the go producer left its files unread: go list in templates/go/module exited 1: go: errors parsing go.mod:"
       ]
+    },
+    "20": {
+      "schema_version": 1,
+      "kind": "atis.reach",
+      "head": "ebce3460d1d8dd5c9bc08ba45e475e0a08ee054b",
+      "paths": [
+        "docs/contract.md",
+        "docs/reliability.md",
+        "docs/distribution.md",
+        "docs/getting-started.md",
+        "README.md",
+        "SECURITY.md",
+        "CHANGELOG.md",
+        "test/integration/docs-currency.test.ts"
+      ],
+      "new": [],
+      "reach": [
+        {
+          "path": ".plumbbob/builds/2026-11-13-checkride-1-0-0-the-guard-local-targets-docs-the-soak/build-log.md",
+          "by": "cochange",
+          "rate": 0.56,
+          "support": 5,
+          "with": "test/integration/docs-currency.test.ts"
+        },
+        {
+          "path": ".plumbbob/builds/2026-11-13-checkride-1-0-0-the-guard-local-targets-docs-the-soak/checkpoints",
+          "by": "cochange",
+          "rate": 0.56,
+          "support": 5,
+          "with": "test/integration/docs-currency.test.ts"
+        },
+        {
+          "path": ".plumbbob/builds/2026-11-13-checkride-1-0-0-the-guard-local-targets-docs-the-soak/intent.md",
+          "by": "cochange",
+          "rate": 0.56,
+          "support": 5,
+          "with": "test/integration/docs-currency.test.ts"
+        },
+        {
+          "path": ".plumbbob/builds/2026-11-13-checkride-1-0-0-the-guard-local-targets-docs-the-soak/stats.json",
+          "by": "cochange",
+          "rate": 0.56,
+          "support": 5,
+          "with": "test/integration/docs-currency.test.ts"
+        },
+        {
+          "path": "docs/packs.md",
+          "by": "cochange",
+          "rate": 0.5,
+          "support": 5,
+          "with": "docs/distribution.md"
+        },
+        {
+          "path": "src/agent-setup/scripts.ts",
+          "by": "cochange",
+          "rate": 0.5,
+          "support": 5,
+          "with": "docs/distribution.md"
+        }
+      ],
+      "muted": [
+        "import: atis reads no imports from .md files, so 7 named files have no import reach",
+        "import: the go producer left its files unread: go list in templates/go/module exited 1: go: errors parsing go.mod:"
+      ]
     }
   }
 }

@@ -28,7 +28,7 @@ the repo, and checkride runs the copy the repo has.
 In a repo with a `package.json`:
 
 ```bash
-pnpm add -D -E checkride
+pnpm add -D checkride
 pnpm exec checkride init
 ```
 
@@ -37,9 +37,9 @@ spells the alias and stanza (and the stop gate, if you opt in) for it (see
 [Package managers](./tools.md#package-managers)):
 
 ```bash
-npm install -D -E checkride && npx checkride init
-yarn add -D -E checkride && yarn checkride init
-bun add -d -E checkride && bunx checkride init
+npm install -D checkride && npx checkride init
+yarn add -D checkride && yarn checkride init
+bun add -d checkride && bunx checkride init
 ```
 
 The rest of this page uses pnpm's forms. In a repo with no `package.json`,

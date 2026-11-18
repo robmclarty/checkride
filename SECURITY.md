@@ -21,10 +21,10 @@ unless you'd rather it didn't.
 
 ## Which versions get fixes
 
-The latest release gets fixes. A fix ships as a new release, and an older
-release isn't patched, so the way to take a fix is to upgrade.
-[The contract](./docs/contract.md#versioning-and-pin-policy) says how to pin
-and what an upgrade may change.
+The latest 1.x release gets fixes. A fix ships as a new release, and an older
+release isn't patched, a 0.x one included, so the way to take a fix is to
+upgrade. [The contract](./docs/contract.md#versioning-and-pin-policy) says
+how to pin and what an upgrade may change.
 
 ## What belongs somewhere else
 

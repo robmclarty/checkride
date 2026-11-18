@@ -367,7 +367,54 @@ describe('the README is the happy path', () => {
   test('its first code block is the install, two commands', () => {
     const fence = /\n```(\w*)\n([\s\S]*?)\n```/.exec(README);
     expect(fence?.[1]).toBe('bash');
-    expect(fence?.[2]?.split('\n')).toEqual(['pnpm add -D -E checkride', 'pnpm exec checkride init']);
+    expect(fence?.[2]?.split('\n')).toEqual(['pnpm add -D checkride', 'pnpm exec checkride init']);
+  });
+});
+
+/** A passage with every run of whitespace as one space, so a phrase matches across a wrap. */
+const flat = (text: string): string => text.replace(/\s+/g, ' ');
+
+/**
+ * The pin policy is written in three places, and `init` writes it into a
+ * scaffold (Q1): a caret in `package.json` from 1.0.0 on, an exact version in
+ * `mise.toml`, and exact in both below 1.0.0. The contract's minor-version
+ * promise is what makes the caret safe (D19), with the Node floor's rule
+ * beside it (Q3), and `SECURITY.md` names the releases that get fixes.
+ */
+describe('the pin policy reads the same wherever it is written', () => {
+  const CONTRACT = read('docs', 'contract.md');
+  const policy = CONTRACT.slice(CONTRACT.indexOf('\n## Versioning and pin policy\n'));
+  const pinning = flat(read('docs', 'reliability.md').split('\n### Pinning\n')[1]?.split('\n## ')[0] ?? '');
+
+  test.each([
+    ['docs/contract.md', flat(policy)],
+    ['docs/reliability.md', pinning],
+  ])('%s pins a caret in package.json from 1.0.0, exactly in mise.toml, and exactly below 1.0.0', (_page, text) => {
+    expect(text).toContain('`"checkride": "^1.0.0"`');
+    expect(text).toMatch(/exact\W* version/);
+    expect(text).toContain('`mise.toml`');
+    expect(text).toContain('`"checkride": "0.23.0"`, no caret');
+    expect(text).not.toMatch(/pre-1\.0|post-1\.0|only after 1\.0/i);
+  });
+
+  test('the contract says what a minor may do, and how the Node floor moves', () => {
+    const minor = flat(policy.split('\n### What a minor may do\n')[1]?.split('\n[SECURITY.md]')[0] ?? '');
+    expect(minor).toContain('A 1.x minor adds: a field, a flag, an adapter or a pack.');
+    expect(minor).toContain('It never turns a green repo red with the same tools and config');
+    expect(minor).toContain('`engines.node`');
+    expect(minor).toContain('one minor ahead');
+    expect(minor).toContain('never passes a Node line that still gets security fixes');
+    expect(minor).toContain('Only the npm channel is affected');
+  });
+
+  test('every install command in the pages a newcomer reads writes the caret, and distribution.md says when to add -E', () => {
+    for (const page of [README, read('docs', 'getting-started.md')]) expect(page).not.toMatch(/ -E /);
+    expect(DISTRIBUTION).toContain('pnpm add -D checkride ');
+    expect(flat(DISTRIBUTION)).toContain('To install a 0.x release, where a minor could break, add `-E`');
+  });
+
+  test('SECURITY.md names the latest 1.x as the release that gets fixes', () => {
+    expect(read('SECURITY.md')).toContain('The latest 1.x release gets fixes.');
   });
 });
 

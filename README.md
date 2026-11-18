@@ -9,7 +9,7 @@ green.
 In a repo that has a `package.json`:
 
 ```bash
-pnpm add -D -E checkride
+pnpm add -D checkride
 pnpm exec checkride init
 ```
 

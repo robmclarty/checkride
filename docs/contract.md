@@ -2416,14 +2416,37 @@ change, never a quiet test edit.
 
 ## Versioning and pin policy
 
-checkride follows semver. Pre-1.0, minor versions may break (the semver 0.x
-rule) — **consumers should pin exactly** (`"checkride": "0.15.0"`, no caret,
-or the same exact version on a `mise.toml`'s checkride entry) and upgrade
-deliberately. That entry is `github:robmclarty/checkride`, the release's
-standalone binary, or `npm:checkride`, the npm package. `init --lang go|rust`
-writes the first, at the exact version that ran it, on a platform a release
-carries a binary for (macOS and glibc Linux, on arm64 and x64), and the
-second, with a `node` beside it, anywhere else. Post-1.0, a caret range is the intended usage.
+checkride follows semver, and where a repo pins it decides how.
+
+- **In a `package.json`, pin a caret range from 1.0.0 on**
+  (`"checkride": "^1.0.0"`). The lockfile holds the exact copy that runs, so
+  nothing moves until the repo updates it, and a minor it moves to keeps the
+  promise below. It's what a plain `pnpm add -D checkride` writes, and what
+  `init` writes in a new TypeScript project.
+- **In a `mise.toml`, pin an exact version** (`"1.0.0"`). mise keeps no
+  lockfile beside it by default, so the version in the file is the copy that
+  runs, and upgrading is editing it. The entry is
+  `github:robmclarty/checkride`, the release's standalone binary, or
+  `npm:checkride`, the npm package. `init --lang go|rust` writes the first,
+  at the exact version that ran it, on a platform a release carries a binary
+  for (macOS and glibc Linux, on arm64 and x64), and the second, with a
+  `node` beside it, anywhere else.
+- **Below 1.0.0, pin exactly in both** (`"checkride": "0.23.0"`, no caret). A
+  0.x minor could break, by the semver 0.x rule, so a repo still on one
+  upgrades deliberately, and an `init` from a 0.x release writes the exact
+  version in both files.
+
+### What a minor may do
+
+A 1.x minor adds: a field, a flag, an adapter or a pack. It never turns a
+green repo red with the same tools and config, which is what makes the caret
+range safe to hold. A change that could, or one that removes or renames
+anything this document promises, waits for a major.
+
+Raising the Node floor, `engines.node`, is a minor change too, on two
+conditions: a minor announces it one minor ahead, in its changelog, and the
+floor never passes a Node line that still gets security fixes. Only the npm
+channel is affected, since the standalone binary carries its own Node.
 
 [SECURITY.md](../SECURITY.md) says how to report a security problem and which
 versions get fixes.

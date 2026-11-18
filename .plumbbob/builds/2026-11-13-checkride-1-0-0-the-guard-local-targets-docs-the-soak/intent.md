@@ -278,7 +278,7 @@ one run · one summary · one exit code · target names one flat set
 
 ### The soak, then ready for 1.0.0
 
-19. [ ] feat(init): write a caret pin from 1.0.0 on, **done when:** a unit test shows `init` writes `^<version>` in `package.json` and an exact version in `mise.toml` when the product version is 1.0.0 or later, and the exact pin in both below it
+19. [x] feat(init): write a caret pin from 1.0.0 on, **done when:** a unit test shows `init` writes `^<version>` in `package.json` and an exact version in `mise.toml` when the product version is 1.0.0 or later, and the exact pin in both below it
    - seam: `src/init.ts`, `src/__tests__/init.test.ts`, `test/e2e/pins.e2e.test.ts`
    - model: sonnet (keyed on the product's major, so it is inert until the tag)
 20. [ ] docs(contract): rewrite the pin policy and promise what a minor may do, **done when:** `docs/contract.md`, `docs/reliability.md` and what `init` writes agree on the answer to Q1, the contract's minor-version paragraph carries D19 and Q3, the changelog's unreleased entry opens with the upgrade note of D20, `SECURITY.md` names the latest 1.x, and `pnpm check`, `pnpm test:e2e` and a full mutation run are green on the commit
