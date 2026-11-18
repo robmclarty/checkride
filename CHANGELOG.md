@@ -4,7 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.24.0] - 2026-11-18
+
+### Added
+
+- **`SECURITY.md` says how to report a security problem** and which versions
+  get fixes. It ships in the package, and `docs/contract.md` points to it.
+- **`docs/team.md` walks a team merging agent-written code** through the
+  gate, the baseline guard and local targets, and `examples/local-targets`
+  gains the CI workflow the page describes.
+- **`docs/agents.md`, `docs/baseline.md`, `docs/configuration.md` and
+  `docs/distribution.md` hold the reference** the README and
+  `docs/getting-started.md` used to carry.
 
 ### Changed
 
@@ -17,6 +28,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `docs/distribution.md` install with `pnpm add -D checkride`, which
   writes the caret. `docs/distribution.md` says to add `-E` for a 0.x release.
 - **`SECURITY.md` names the latest 1.x release** as the one that gets fixes.
+- **The README is the happy path.** It holds the pitch, one install and a
+  real run in under 200 lines, and its reference sections moved to the pages
+  under `docs/` that own them. `docs/README.md` lists those pages by the job
+  a reader has, and `docs/getting-started.md` shrank to the first run.
+- **`checkride baseline --help` and `checkride recover --help` link to
+  `docs/baseline.md`** in place of the README.
 
 ### Contract
 
@@ -30,6 +47,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ahead, and the floor never passes a Node line that still gets security
   fixes; only the npm channel is affected. No surface a consumer reads
   changed.
+- **`docs/contract.md` gains the `.check/` directory and "Reading a red run"
+  sections** the README held. The surfaces they describe did not change.
+
+### Internal
+
+- **`test/integration/docs-currency.test.ts` proves the moved docs.** Every
+  link to a README heading from `docs/`, `examples/` and the fixtures names a
+  heading the README has, and the pin wording agrees across the pages.
 
 ## [0.23.0] - 2026-11-15
 
@@ -5158,6 +5183,7 @@ The first real release. (`0.0.0` was a name-claim placeholder.)
 - Flags: `--only`, `--skip`, `--bail`, `--json`, `--changed`, `--all`,
   `--include`.
 
+[0.24.0]: https://www.npmjs.com/package/checkride/v/0.24.0
 [0.23.0]: https://www.npmjs.com/package/checkride/v/0.23.0
 [0.22.0]: https://www.npmjs.com/package/checkride/v/0.22.0
 [0.21.0]: https://www.npmjs.com/package/checkride/v/0.21.0
